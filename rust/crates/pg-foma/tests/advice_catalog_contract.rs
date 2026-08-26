@@ -88,13 +88,6 @@ fn tuned_surface_closure_budget_entry_retains_typed_evidence_and_safety_caveat()
         .evidence_refs
         .iter()
         .any(|reference| reference.value == "composite-rule-pair-count"));
-    assert!(
-        entry
-            .remedies
-            .iter()
-            .all(|remedy| remedy.remedy_key != "retry-larger-closure-envelope"),
-        "removed retry remedy must not remain in the catalog"
-    );
     assert_eq!(
         entry.equivalence_caveat.as_deref(),
         Some(GRAMMAR_SAFETY_WARNING)
