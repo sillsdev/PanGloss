@@ -403,6 +403,9 @@ Committed_AS:   2048 kB
         $oldSccache = $env:SCCACHE_DIR
         $oldTargetRoot = $env:PANGLOSS_TARGET_ROOT
         $oldCacheRoot = $env:PANGLOSS_CARGO_CACHE_ROOT
+        $oldSsdRoot = $env:PANGLOSS_SSD_CACHE_ROOT
+        $oldWrapper = $env:RUSTC_WRAPPER
+        $oldCacheSize = $env:SCCACHE_CACHE_SIZE
         try {
             $env:CARGO_TARGET_DIR = $linuxTarget
             $resolved = Resolve-TargetDir -RustRoot '/srv/pangloss/rust'
@@ -412,24 +415,44 @@ Committed_AS:   2048 kB
             $space = Get-FreeSpaceGB -Path '/var/tmp'
             Assert-True ($null -eq $space -or $space -is [double] -or $space -is [decimal] -or $space -is [int]) 'Linux free-space seam must return a number or unavailable result'
             $env:RUSTC_WRAPPER = ''
-            [void](Use-Sccache)
+            [void](Use-Sccache -CommandResolver { 'fake-sccache' } -DirectoryCreator { param([string]$Path) })
             Assert-False ($env:SCCACHE_DIR -match '^[A-Za-z]:[\\/]') 'Linux cache root must not default to a Windows drive literal'
             $env:CARGO_TARGET_DIR = $null
             $env:PANGLOSS_TARGET_ROOT = $null
+            $env:PANGLOSS_SSD_CACHE_ROOT = $null
             $env:PANGLOSS_CARGO_CACHE_ROOT = $null
             $env:SCCACHE_DIR = $null
             $defaultTarget = Resolve-TargetDir -RustRoot '/srv/pangloss/rust'
             Assert-True ($null -eq $defaultTarget -or ($defaultTarget.StartsWith('/') -and $defaultTarget -notmatch '^[A-Za-z]:[\\/]')) 'Linux default target must be null or a canonical non-Windows absolute path'
             $useParams = (Get-Command Use-Sccache -CommandType Function).Parameters
             Assert-True ($useParams.ContainsKey('CommandResolver') -and $useParams.ContainsKey('DirectoryCreator')) 'Use-Sccache must expose injected command and directory seams for pure tests'
+            $resolveParams = (Get-Command Resolve-TargetDir -CommandType Function).Parameters
+            Assert-True $resolveParams.ContainsKey('DirectoryCreator') 'Resolve-TargetDir must expose an injected directory seam for pure tests'
             $created = [System.Collections.Generic.List[string]]::new()
-            [void](Use-Sccache -CommandResolver { $null } -DirectoryCreator { param([string]$Path) [void]$created.Add($Path) })
+            $env:PANGLOSS_CARGO_CACHE_ROOT = '/var/tmp/pangloss-explicit-cache'
+            $env:SCCACHE_DIR = $null
+            $targetCreated = [System.Collections.Generic.List[string]]::new()
+            $fallback = Resolve-TargetDir -RustRoot '/srv/pangloss/rust' -DirectoryCreator { param([string]$Path) [void]$targetCreated.Add($Path) }
+            Assert-True ($fallback.StartsWith('/var/tmp/pangloss-explicit-cache/') -and $fallback -notmatch '^[A-Za-z]:[\\/]') 'explicit Linux cargo cache root must provide a non-Windows target fallback'
+            Assert-Equal 1 $targetCreated.Count 'target fallback must use the injected creator exactly once'
+            [void](Use-Sccache -CommandResolver { 'fake-sccache' } -DirectoryCreator { param([string]$Path) [void]$created.Add($Path) })
+            Assert-True ($created.Count -eq 1 -and $created[0].StartsWith('/') -and $created[0] -notmatch '^[A-Za-z]:[\\/]') 'explicit Linux cache root must produce a non-Windows sccache directory'
             Assert-True ($created.Count -eq 0 -or ($created[0].StartsWith('/') -and $created[0] -notmatch '^[A-Za-z]:[\\/]')) 'Linux default sccache root must not be a Windows drive path'
+            $env:RUSTC_WRAPPER = 'fixture-wrapper'
+            $env:SCCACHE_DIR = '/var/tmp/original-sccache'
+            $env:SCCACHE_CACHE_SIZE = '17G'
+            Assert-Throws { Use-Sccache -CommandResolver { 'fake-sccache' } -DirectoryCreator { throw 'creator fixture failure' } } 'sccache directory creation failure must fail closed'
+            Assert-Equal 'fixture-wrapper' $env:RUSTC_WRAPPER 'failed sccache setup must restore RUSTC_WRAPPER'
+            Assert-Equal '/var/tmp/original-sccache' $env:SCCACHE_DIR 'failed sccache setup must restore SCCACHE_DIR'
+            Assert-Equal '17G' $env:SCCACHE_CACHE_SIZE 'failed sccache setup must restore SCCACHE_CACHE_SIZE'
         } finally {
             $env:CARGO_TARGET_DIR = $oldTarget
             $env:SCCACHE_DIR = $oldSccache
             $env:PANGLOSS_TARGET_ROOT = $oldTargetRoot
             $env:PANGLOSS_CARGO_CACHE_ROOT = $oldCacheRoot
+            $env:PANGLOSS_SSD_CACHE_ROOT = $oldSsdRoot
+            $env:RUSTC_WRAPPER = $oldWrapper
+            $env:SCCACHE_CACHE_SIZE = $oldCacheSize
         }
     }
 
@@ -439,11 +462,13 @@ Committed_AS:   2048 kB
         $base = [PSCustomObject]@{ Checked = $true; Ok = $true; Detail = 'fixture'; Expected = ''; Actual = '' }
         $sccache = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
         $disk = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
+        Assert-Contains -Haystack @($linuxAdapterImportResult.Overrides) -Needle 'Get-BuildSlotHolders' 'Linux importer must override build-holder census without Windows CIM'
         function global:Get-BuildSlotHolders { @() }
+        $memory = [PSCustomObject]@{ Ok = $true; Detail = 'fixture memory' }
         $repoForReport = Split-Path (Split-Path $toolRoot -Parent) -Parent
-        $text = (Write-Preflight -Mode build -Profile debug -RepoRoot $repoForReport -TargetDir '/var/tmp/target' -BaseCheck $base -SccacheHealth $sccache -FreeGB 1 -DiskCheck $disk -MaxConcurrent 2 -Priority BelowNormal -HostCgroupProof $proof *>&1 | Out-String)
+        $text = (Write-Preflight -Mode build -Profile debug -RepoRoot $repoForReport -TargetDir '/var/tmp/target' -BaseCheck $base -SccacheHealth $sccache -FreeGB 1 -DiskCheck $disk -MemoryCheck $memory -MaxConcurrent 2 -Priority BelowNormal -HostCgroupProof $proof *>&1 | Out-String)
         Assert-True ($text -match 'host-service-owned|unapplied') 'Linux host proof report must say scheduling priority is host-service-owned/unapplied'
-        Assert-False ($text -match 'procgov|event-2004|rustc\.exe.*priority|priority.*rustc\.exe') 'Linux host proof report must not claim Windows priority enforcement'
+        Assert-False ($text -match 'procgov|event-2004') 'Linux host proof report must not claim Windows procgov/event-2004 enforcement anywhere'
     }
 
     Test-Case 'Unsupported platforms and Linux gc refuse before platform-specific work' {
@@ -452,12 +477,16 @@ Committed_AS:   2048 kB
         $unsupportedAt = $pg.IndexOf('if (-not $IsWindows -and -not $IsLinux)', [StringComparison]::Ordinal)
         $repoAt = $pg.IndexOf('$repoRoot = Get-RepoRoot', [StringComparison]::Ordinal)
         Assert-True ($unsupportedAt -ge 0 -and $unsupportedAt -lt $repoAt) 'unsupported platforms must refuse before repository/path work'
+        $resolveAt = $pg.IndexOf('Resolve-TargetDir', [StringComparison]::Ordinal)
+        $preflightAt = $pg.IndexOf('Write-Preflight', [StringComparison]::Ordinal)
+        Assert-True ($unsupportedAt -lt $resolveAt -and $unsupportedAt -lt $preflightAt) 'unsupported refusal must precede target resolution and preflight'
         Assert-True ($pg.IndexOf('ExitCodeUnsupportedPlatform', $unsupportedAt, [StringComparison]::Ordinal) -ge 0) 'unsupported platforms need a distinct refusal exit code'
         Assert-True ($pg.IndexOf('unsupported platform', $unsupportedAt, [StringComparison]::Ordinal) -ge 0) 'unsupported platform refusal must provide an actionable message'
         $gcGuardAt = $pg.LastIndexOf('if ($IsLinux -and $Mode -eq ''gc'')', [StringComparison]::Ordinal)
         $gcAt = $pg.LastIndexOf('if ($Mode -eq ''gc'')', [StringComparison]::Ordinal)
         $linuxProofAt = $pg.LastIndexOf('if ($IsLinux -and $Mode -notin @(''gc'', ''new-worktree'', ''remove-worktree''))', [StringComparison]::Ordinal)
         Assert-True ($gcGuardAt -ge 0 -and $gcGuardAt -lt $gcAt) 'Linux gc must have an early refusal guard before the Windows process-snapshot branch'
+        Assert-True ($gcGuardAt -lt $repoAt -and $gcGuardAt -lt $resolveAt -and $gcGuardAt -lt $preflightAt) 'Linux gc refusal must precede repo, target, and preflight work'
         Assert-True ($pg.IndexOf('ExitCodeLinuxGcUnsupported', $gcGuardAt, [StringComparison]::Ordinal) -ge 0) 'Linux gc needs a distinct refusal exit code'
         Assert-True ($pg.IndexOf('Linux gc', $gcGuardAt, [StringComparison]::Ordinal) -ge 0) 'Linux gc refusal must provide an actionable message'
         Assert-True ($gcAt -ge 0 -and $linuxProofAt -ge 0 -and $gcAt -gt $linuxProofAt) 'Linux gc must be ordered after its explicit preflight exclusion'
