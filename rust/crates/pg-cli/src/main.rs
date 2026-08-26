@@ -131,12 +131,6 @@ const BATCH_DEVELOPER_HELP: &str =
 const BATCH_DEVELOPER_HELP: &str = "";
 
 #[cfg(feature = "developer-tools")]
-const PACK_DEVELOPER_HELP: &str =
-    " [--allow-unproven]";
-#[cfg(not(feature = "developer-tools"))]
-const PACK_DEVELOPER_HELP: &str = "";
-
-#[cfg(feature = "developer-tools")]
 const REPORT_DEVELOPER_HELP: &str =
     " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
@@ -238,13 +232,6 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Some("pack") => match pack::run_pack(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss pack: {e}");
-                ExitCode::FAILURE
-            }
-        },
         Some("fst-health") => match fst_health::run_fst_health(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -294,7 +281,6 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        // Hidden compile-worker child entry point, spawned only by `pangloss pack --watchdog` re-execing this same binary — deliberately absent from the usage banner below.
         Some("__compile-worker-child") => {
             let stdin = std::io::stdin();
             let stdout = std::io::stdout();
@@ -318,7 +304,6 @@ fn run() -> ExitCode {
                  usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
                  usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
                  usage: pangloss investigate <report.json> --case <caseId> [--grammar <path>] [--report <path>]\n\
-                 usage: pangloss pack <grammar> <out.pgpack>{} [--authorized-by=<name>] [--reason=<text>] [--watchdog]\n\
                  usage: pangloss fst-health <grammar> [<words.txt>] [<out.json>]\n\
                  usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
                  usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
@@ -332,10 +317,7 @@ fn run() -> ExitCode {
                  \n\
                  Capability gate (ADR 0001/0005): --engine=foma is DEFAULT-ENFORCING -- a Refuse\n\
                  verdict fails hard under the production policy. --engine=default (the\n\
-                 HC-oracle path) is never enforced, regardless of any flag. `pack`'s own\n\
-                 pack is always capability-checked, and its trust record is PERSISTENT, written\n\
-                 into the .pgpack manifest itself -- not a session-only analysis marker (see\n\
-                 `pack.rs`'s module doc).\n\
+                 HC-oracle path) is never enforced, regardless of any flag.\n\
                  \n\
                  {}--guess (`batch`/`parse`, --engine=default only; HC-rust port gap G3,\n\
                  docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
@@ -347,7 +329,6 @@ fn run() -> ExitCode {
                 env!("CARGO_PKG_VERSION"),
                 BATCH_DEVELOPER_HELP,
                 PARSE_DEVELOPER_HELP,
-                PACK_DEVELOPER_HELP,
                 REPORT_DEVELOPER_HELP,
                 DEVELOPER_HELP
             );

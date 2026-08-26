@@ -989,36 +989,6 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                     read.manifest.backend_assessments.clone(),
                 )
             }
-            None => {
-                let built = crate::pack::build_pack(
-                    grammar_path,
-                    &grammar,
-                    &semantics,
-                    allow_unproven,
-                    authorized_by.as_deref(),
-                    reason.as_deref(),
-                    false,
-                )?;
-                let pin = format!(
-                    "built in-process for this report, not persisted to disk (sha256=`{}`, \
-                         package_fingerprint=`{}`)",
-                    sha256_hex(&built.bytes),
-                    built.manifest.package_fingerprint
-                );
-                if matches!(
-                    &built.manifest.capability_trust,
-                    pg_pack::CapabilityTrust::Proven
-                ) {
-                    crate::pack::validate_health_readiness(&built.manifest.fst_health, false)?;
-                }
-                (
-                    built.manifest.capability_trust,
-                    built.bytes.len() as u64,
-                    pin,
-                    built.manifest.fst_health.clone(),
-                    built.manifest.backend_assessments.clone(),
-                )
-            }
         };
         trust = map_trust(&trust_src);
         pack_pin = pack_pin_line;
