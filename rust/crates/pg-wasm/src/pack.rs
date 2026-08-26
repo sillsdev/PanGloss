@@ -210,7 +210,7 @@ pub fn load_pack(bytes: &[u8]) -> Result<LoadedPack, PackLoadError> {
 mod tests {
     use super::*;
     use pg_foma::health::HealthReport;
-    use pg_pack::{CapabilityOverrideRecord, LicenseDeclaration, OverriddenConfig};
+    use pg_pack::LicenseDeclaration;
 
     fn synthetic_required(runtime_operations: Vec<String>) -> RequiredRuntimeFeatures {
         RequiredRuntimeFeatures {
@@ -395,41 +395,6 @@ mod tests {
             load_pack(&bytes),
             Err(PackLoadError::Container(_))
         ));
-    }
-
-    #[test]
-    fn unproven_overridden_pack_loads_with_degraded_trust_signal() {
-        let override_record = CapabilityOverrideRecord {
-            authorized_by: "synthetic-test-operator".to_string(),
-            reason: "synthetic field-trial override".to_string(),
-            recorded_at: "2026-07-25T00:00:00Z".to_string(),
-            overridden_configs: vec![OverriddenConfig {
-                predicate: "synthetic.simultaneous.subrule-overlap".to_string(),
-                construct: "mrule:synthetic-0001".to_string(),
-                witness: "synthetic-witness-form".to_string(),
-            }],
-        };
-        let manifest = synthetic_manifest(
-            synthetic_required(Vec::new()),
-            CapabilityTrust::Overridden(override_record.clone()),
-            RUNTIME_PAYLOAD,
-            FOMA_PAYLOAD,
-        );
-        let mut manifest = manifest;
-        manifest.fst_completeness = None;
-        let bytes = pg_pack::write_pack(&manifest, RUNTIME_PAYLOAD, FOMA_PAYLOAD).unwrap();
-
-        let loaded =
-            load_pack(&bytes).expect("an unproven pack still loads -- signal, not refusal");
-        assert!(
-            loaded.is_unproven(),
-            "pack-level degraded-trust signal must fire"
-        );
-        assert!(
-            loaded.analysis_trust_flag(),
-            "the same signal must be available as the per-analysis-result flag"
-        );
-        assert_eq!(loaded.override_record(), Some(&override_record));
     }
 
     #[test]

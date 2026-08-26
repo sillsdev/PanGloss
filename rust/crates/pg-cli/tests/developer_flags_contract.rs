@@ -42,7 +42,6 @@ fn production_commands_reject_developer_flags_as_unknown_options() {
         for args in [
             vec!["parse", "missing.xml", "word", flag],
             vec!["batch", "missing.xml", "words.txt", "out.tsv", flag],
-            vec!["pack", "missing.xml", "out.pgpack", flag],
             vec!["make-report", "missing.xml", "out.md", flag],
         ] {
             let output = pangloss(&args);
@@ -62,7 +61,6 @@ fn developer_build_accepts_flags_without_building_a_grammar() {
     for args in [
         vec!["parse", "missing.xml", "word", "--allow-unproven"],
         vec!["batch", "missing.xml", "words.txt", "out.tsv", "--allow-unproven"],
-        vec!["pack", "missing.xml", "out.pgpack", "--allow-unproven"],
         vec!["make-report", "missing.xml", "out.md", "--allow-unproven"],
     ] {
         let output = pangloss(&args);

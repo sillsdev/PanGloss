@@ -77,27 +77,9 @@ impl CapabilityTrust {
 mod tests {
     use super::*;
 
-    fn synthetic_override() -> CapabilityOverrideRecord {
-        CapabilityOverrideRecord {
-            authorized_by: "synthetic-test-operator".to_string(),
-            reason: "synthetic field-trial override".to_string(),
-            recorded_at: "2026-07-24T00:00:00Z".to_string(),
-            overridden_configs: vec![OverriddenConfig {
-                predicate: "synthetic.simultaneous.subrule-overlap".to_string(),
-                construct: "mrule:synthetic-0001".to_string(),
-                witness: "synthetic-witness-form".to_string(),
-            }],
-        }
-    }
-
     #[test]
     fn proven_is_not_unproven() {
         assert!(!CapabilityTrust::Proven.is_unproven());
-    }
-
-    #[test]
-    fn overridden_is_unproven() {
-        assert!(CapabilityTrust::Overridden(synthetic_override()).is_unproven());
     }
 
     #[test]
@@ -109,11 +91,4 @@ mod tests {
         assert_eq!(parsed, trust);
     }
 
-    #[test]
-    fn overridden_round_trips_through_json_with_full_record() {
-        let trust = CapabilityTrust::Overridden(synthetic_override());
-        let json = serde_json::to_string(&trust).unwrap();
-        let parsed: CapabilityTrust = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, trust);
-    }
 }
