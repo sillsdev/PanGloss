@@ -171,7 +171,7 @@ landed work.
 | A5 | `realize_accuracy_proposer` — same presence-based rejection, second site | `backend_runtime.rs` | **DONE**; dead helper `tuned_surface_resource_refusal` deleted |
 | A6 | Marker-bearing candidates banked `Unsupported` with zero work measured | `backend_runtime.rs` | **DONE** — was a revert of `76cf8416`, reinstated by `87320bff` |
 | A7 | `--watchdog` structurally could never produce an artifact | `pack.rs` + `worker.rs` | **DONE** |
-| A8 | 16 MiB wire frame capped artifact size below the 100 MB label threshold | `worker_contract.rs` | **DONE** — payload moved out of band to a file |
+| A8 | 16 MiB wire frame capped artifact size below the 100 MB label threshold | `worker_contract.rs` | **AUTHORIZED** — use a separately bounded raw stdout frame; delete the rejected filesystem transport |
 | A9 | `finished_net_digests` — same marker pre-refusal, third site | `backend_runtime.rs` ~1750 | **OPEN** — diagnostic-only, but same false premise |
 | A10 | Internal construction caps in `compose_budget.rs` can still stop a representable build | 1,334-line file, 165 refs / 27 files | **AUTHORIZED** — retain useful measurements; delete internal representability/size refusals. The supervised worker's three configured execution limits are the only resource stops |
 
