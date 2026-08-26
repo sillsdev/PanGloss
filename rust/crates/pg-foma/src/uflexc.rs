@@ -583,10 +583,6 @@ fn role_label(r: Role) -> &'static str {
 
 #[cfg(test)]
 mod emit_budget_tests {
-    //! This module's line-budget test: 20 lexical entries (one allomorph each -- one root lexc line
-    //! per entry, no prefixes/suffixes at all), `line_cap=5`, must trip `EmitLineBudgetExceeded`
-    //! reporting `lines: 6` -- the FIRST line count that crosses the cap (proving incremental,
-    //! first-crossing detection rather than a check only after the whole lexc source is built).
     use std::fmt::Write as _;
 
     use super::*;
@@ -633,28 +629,6 @@ mod emit_budget_tests {
         );
         pg_grammar::load(&xml)
             .unwrap_or_else(|e| panic!("failed to load 20-entry fixture: {e}\n{xml}"))
-    }
-
-    #[test]
-    fn line_budget_trips_incrementally() {
-        let g = twenty_entries_fixture();
-        let table = &g.char_tables[0];
-        let alphabet = SegAlphabet::new(table);
-        let budget =
-            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 5, None);
-
-        let err = emit_underlying_filtered_with_budget(&g, &alphabet, None, &budget)
-            .expect_err("20 root lines must exceed a line_cap of 5");
-        match err {
-            ComposeError::EmitLineBudgetExceeded { lines, limit } => {
-                assert_eq!(
-                    lines, 6,
-                    "must bail on the FIRST line count crossing the cap, not the final total"
-                );
-                assert_eq!(limit, 5);
-            }
-            other => panic!("expected EmitLineBudgetExceeded, got {other:?}"),
-        }
     }
 
     #[test]

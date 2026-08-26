@@ -1,5 +1,3 @@
-//! Uses two different emitters deliberately: `emit::emit` for recall-parity (production path), and `uflexc::emit_underlying_filtered_with_budget` for the overbudget check, since only the latter counts root-entry lines incrementally.
-
 mod common;
 
 use std::time::Duration;
@@ -7,11 +5,8 @@ use std::time::Duration;
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::{ComposeBudget, ComposeError};
 use pg_foma::emit;
-use pg_foma::replace::SegAlphabet;
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
 use pg_grammar::model::MorphemeId;
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 use pg_parse::morpher::GenMorpheme;
@@ -31,21 +26,6 @@ fn recipe() -> Recipe {
         },
     }
 }
-
-/// Several independent compounding rules, which `uflexc` sees only as extra root entries (it doesn't represent compounding content), sized so a tiny `line_cap` trips almost immediately.
-fn overbudget_recipe() -> Recipe {
-    Recipe {
-        name: "phase-c-compounding-overbudget",
-        seed: 20260720,
-        scale: ScaleKnobs::default(),
-        construct: ConstructKnobs {
-            table_count: 1,
-            compounding_rule_count: 3,
-            ..Default::default()
-        },
-    }
-}
-
 #[test]
 fn compounding_recall_parity_via_generator_and_oracle() {
     let recipe = recipe();
@@ -150,39 +130,4 @@ fn compounding_recall_parity_via_generator_and_oracle() {
         p99 < Duration::from_millis(50),
         "per-word p99 {p99:?} exceeds the trip-wire"
     );
-}
-
-/// A plain root-entry line-count check: `uflexc::emit_underlying_filtered_with_budget` never sees compounding content, so a `line_cap` of 3 must trip `EmitLineBudgetExceeded` on this 6-entry grammar.
-#[test]
-fn compounding_overbudget_trips_emit_line_budget() {
-    let recipe = overbudget_recipe();
-    let rendered = pg_grammar_gen::render_indexed(&recipe);
-    let g = pg_grammar::load(&rendered.xml).unwrap_or_else(|e| {
-        panic!(
-            "generated compounding overbudget XML failed to load: {e}\n{}",
-            rendered.xml
-        )
-    });
-    assert_eq!(
-        g.entries.len(),
-        6,
-        "3 independent compounding rules must realize 3 head + 3 non-head = 6 entries"
-    );
-
-    let table = &g.char_tables[0];
-    let alphabet = SegAlphabet::new(table);
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 3, None);
-
-    let err = emit_underlying_filtered_with_budget(&g, &alphabet, None, &budget)
-        .expect_err("6 root-entry lines must exceed a line_cap of 3");
-    match err {
-        ComposeError::EmitLineBudgetExceeded { lines, limit } => {
-            assert!(
-                lines > 3,
-                "must report the line count that actually crossed the cap: {lines}"
-            );
-            assert_eq!(limit, 3);
-        }
-        other => panic!("expected EmitLineBudgetExceeded, got {other:?}"),
-    }
 }

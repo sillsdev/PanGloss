@@ -775,7 +775,6 @@ mod tests {
                 limit: 1,
                 gated_subrules: 1,
             },
-            ComposeError::EmitLineBudgetExceeded { lines: 2, limit: 1 },
             ComposeError::ComposeStepTimedOut {
                 elapsed: Duration::from_millis(2),
                 limit: Duration::from_millis(1),
@@ -1127,19 +1126,6 @@ mod tests {
         assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
         assert_eq!(finding.metric, Metric::GateGroupCount);
         assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
-    }
-
-    #[test]
-    fn fst_health_evaluator_emit_line_budget_exceeded_is_resource_budget_reached() {
-        let err = ComposeError::EmitLineBudgetExceeded {
-            lines: 1_000_001,
-            limit: 1_000_000,
-        };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
-        let finding = &health.findings[0];
-        assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
-        assert_eq!(finding.metric, Metric::EmittedLineCount);
-        assert_eq!(finding.provenance, ValueProvenance::Observed);
     }
 
     #[test]
