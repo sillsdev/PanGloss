@@ -137,20 +137,20 @@ Files:
       machinery remain private to the helper crate.
 - [ ] Prove success, descendant memory kill, timeout with inherited pipes, fork-race cleanup, and
       required-capability CI behavior on Linux.
-- [ ] Add a Linux execution path to `rust/tools/pg.ps1`; it must prove the wrapper already runs under
-      a finite host-managed cgroup cap before Cargo starts. The current managed-build implementation
-      is Windows-specific, and repository Rust policy may not be bypassed with bare Cargo in CI or
-      weakened by a fallback.
+- [x] Add the source-level Linux execution path to `rust/tools/pg.ps1`; it proves a finite effective
+      host-managed ancestral cgroup cap before Cargo starts and has no bare-Cargo fallback. Committed
+      as `694de90f` after the separate Linux contract commits. This check means source-complete only:
+      host-service interruption cleanup and real Linux execution remain unproved.
 - [ ] Commit and run the Linux containment target on a deliberately delegated Linux runner with
       `PANGLOSS_CGROUP_TEST_REQUIRED=1`. Generic `ubuntu-latest` workspace tests do not establish
       delegated cgroup authority. External dependency: a runner launched in a writable delegated
       cgroup with the memory controller enabled, `cgroup.kill`, and permitted `clone3`.
 - [ ] Do not claim the Linux runtime gate from Windows or from a capability-skipped Linux run.
 
-Source status at `00d0eccb`: the checked items above are implemented, compile-checked for the Linux
-target from Windows, and accepted by two exact-tip structural reviews. They are not a Linux runtime
-claim. The unchecked wrapper, CI, and required-capability items remain the gate before supervisor
-integration or deletion of the old spawn/kill loop.
+Source status at `694de90f`: the native containment adapter is compile-checked for the Linux target
+from Windows, and the managed wrapper has a reviewed 25-case cross-platform contract. Neither is a
+Linux runtime claim. Required-capability CI, a real delegated-host run, and host-service interruption
+proof remain the gate before supervisor integration or deletion of the old spawn/kill loop.
 
 ## Task 5: Supervisor integration and deletion audit
 

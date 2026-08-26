@@ -219,10 +219,11 @@ the existing `pg-worker-containment` safe API, and `rust/tools/pg.ps1` as the so
    formatting, but must not execute Windows P/Invoke declarations.
 
 3. Parse `/proc/self/cgroup`, `/proc/self/mountinfo`, and ancestor `memory.max` files to prove the
-   wrapper itself is already hierarchically bounded. Accept only a numeric finite effective cap;
-   `max`, missing data, ambiguity, or parse failure stops before Cargo. Report the effective host cap
-   in the preflight summary. This is the repository operational build cap, not the worker attempt's
-   configurable 10 GiB limit.
+   wrapper itself is already hierarchically bounded. Accept only a numeric finite **effective** cap.
+   A `max` leaf is valid only when another visible ancestor supplies that finite effective cap; an
+   all-`max` visible chain, missing data, ambiguity, or parse failure stops before Cargo. Report the
+   effective host cap in the preflight summary. This is the repository operational build cap, not
+   the worker attempt's configurable 10 GiB limit.
 
 4. Use an exclusive `FileStream` lock in a deterministic machine-wide path for `Enter-BuildSlot` on
    Linux. Store the owned stream in the returned token and dispose it in `Exit-BuildSlot`. Do not
@@ -242,6 +243,17 @@ the existing `pg-worker-containment` safe API, and `rust/tools/pg.ps1` as the so
    ```
 
    Then run the Linux narrow gate through the new wrapper inside the configured host service.
+
+**Source checkpoint (`694de90f`, incomplete by design):** the test-first contract commits
+`b6894312`, `442e5a0d`, `fc2d036a`, `2ef5e935`, `0cfa7045`, and `9249b4ee` precede the production
+wrapper commit. The cross-platform fixture suite executes 25 Linux-contract cases successfully on
+Windows, and the full tool suite passes 14 of 15 files; `block-root-find.tests.ps1` remains the
+unchanged environmental failure because this host has `py.exe` but no `python` command. The source
+implements checked `/proc` parsing, most-specific cgroup-v2 mapping, finite effective ancestral-cap
+proof, cross-process file locks, Linux-safe cache/target handling, and direct descendant launch.
+It does **not** prove host-service interruption cleanup or a real Linux run. Therefore Task 4 is not
+complete, Task 5 CI remains next, and this checkpoint does not authorize routing or deleting the old
+worker supervisor loop.
 
 ## Task 5: Install the required-capability CI gate
 

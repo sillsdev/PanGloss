@@ -320,9 +320,11 @@ permission.
    route; adapter proof alone verifies only the artifact-worker sub-slice and does not unlock Stage 4.
    Committed checkpoints: replacement descendant-failure tests (`40897d45`), typed containment
    outcomes plus the required health/pack v5 break (`b330892f`), and the safe helper API with its
-   verified Windows adapter (`9c7330c2`). Still pending, in order: Linux adapter/CI proof,
-   production routing, then deletion of the shared direct-`Command` supervisor loop and its
-   source-shape test. The Windows checkpoint does not authorize that deletion by itself.
+   verified Windows adapter (`9c7330c2`), test-first Linux wrapper contract (`b6894312` through
+   `9249b4ee`), and the fail-closed Linux wrapper source checkpoint (`694de90f`). Still pending, in
+   order: required-capability CI plus a real delegated-host/service-lifecycle run, production
+   routing, then deletion of the shared direct-`Command` supervisor loop and its source-shape test.
+   Cross-platform fixture success is not Linux runtime proof and does not authorize that deletion.
 3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
    top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
    `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
@@ -478,9 +480,10 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed branch range `ff6fe2e2..00d0eccb`: **4,312 deletions / 8,909 additions, net +4,597 lines**
-across 74 files. Production Rust accounts for 1,966 deletions and Rust integration tests for 879
-deletions. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..HEAD` (through this ledger update): **4,339 deletions /
+10,107 additions, net +5,768 lines** across 78 files. Production Rust accounts for 1,966 deletions
+and Rust integration tests for 879 deletions. This is a branch-wide mechanical line tally, not a
+claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
@@ -489,10 +492,10 @@ schema checkpoint added 339 and removed 54 lines; count it as replacement scaffo
 removal win. The Windows containment checkpoint added 1,739 and removed 128 lines, primarily its
 native adapter and adversarial process-tree test harness. It is prerequisite containment, not a
 removal win; the authorized shared-loop and routing deletions remain downstream. The committed
-Linux acceptance contract and its cross-platform API corrections added 883 lines without deleting
-production code; it is deliberately red/unrunnable until the Linux adapter exists and is not a
-Linux runtime pass. Uncommitted work is never counted until its exact staged snapshot is inspected
-and committed. Remaining deletion
+Linux wrapper contract and source checkpoint added 1,172 lines and removed 27 across four tool
+files. Its 623-line test contract came first; its 549-addition/27-deletion production commit is
+prerequisite infrastructure, not a removal win or a Linux runtime pass. Uncommitted work is never
+counted until its exact staged snapshot is inspected and committed. Remaining deletion
 opportunity is tracked by the stages above; estimates below are directional only:
 
 | Section | Est. lines |
