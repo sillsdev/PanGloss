@@ -8,6 +8,9 @@ description = "Owned process-tree containment for PanGloss compile workers"
 
 [dependencies]
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 # Target-scoped so non-Windows builds do not acquire Windows APIs.
 windows-sys = { version = "0.61.2", features = [

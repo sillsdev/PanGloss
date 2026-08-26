@@ -80,6 +80,7 @@ ed25519-dalek = "2"
 # Native process-memory observation used by backend runtime diagnostics and the CLI recipe
 # optimizer. Compile-worker execution limits are enforced independently of this dependency.
 sysinfo = "0.32"
+libc = "0.2"
 
 # `pg-stats`' per-project statistics cache. `bundled` compiles SQLite from vendored C source so
 # there is no system libsqlite3 to install or version-match across machines and worktrees.

@@ -1,5 +1,5 @@
 use crate::{
-    compare_environment_keys, ContainedStdio, ContainmentError, DirectChildExit, ExecutionLimits,
+    compare_environment_keys, ChildTermination, ContainedStdio, ContainmentError, DirectChildExit, ExecutionLimits,
     FinalEvidence, LaunchOptions, MemoryLimitEvidence,
 };
 use std::ffi::{c_void, OsStr, OsString};
@@ -239,7 +239,7 @@ impl ContainedWorkerProcess {
         }
         let exit = DirectChildExit {
             process_id: self.process_id,
-            exit_code,
+            termination: ChildTermination::Exited(exit_code),
         };
         self.direct_exit = Some(exit);
         Ok(Some(exit))

@@ -9,7 +9,10 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 mod windows;
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod linux;
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 mod unsupported;
 
 /// Finite limits for one worker attempt. The serialized-payload limit is carried here so the
@@ -111,10 +114,17 @@ pub enum MemoryLimitEvidence {
         peak_job_memory_used_bytes: u64,
     },
     LinuxCgroupV2MemoryLimitViolation {
+        effective_memory_max_bytes: u64,
         memory_peak_bytes: u64,
         oom_kill_count_delta: std::num::NonZeroU64,
         max_event_count_delta: std::num::NonZeroU64,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildTermination {
+    Exited(u32),
+    Signaled(i32),
 }
 
 impl MemoryLimitEvidence {
@@ -223,7 +233,14 @@ fn compare_environment_keys(left: &std::ffi::OsStr, right: &std::ffi::OsStr) -> 
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn compare_environment_keys(left: &std::ffi::OsStr, right: &std::ffi::OsStr) -> Ordering {
+    use std::os::unix::ffi::OsStrExt;
+
+    left.as_bytes().cmp(right.as_bytes())
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 fn compare_environment_keys(left: &std::ffi::OsStr, right: &std::ffi::OsStr) -> Ordering {
     left.to_string_lossy()
         .to_ascii_uppercase()
@@ -248,12 +265,12 @@ impl std::fmt::Debug for ContainedStdio {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DirectChildExit {
     pub process_id: u32,
-    pub exit_code: u32,
+    pub termination: ChildTermination,
 }
 
 impl DirectChildExit {
     pub const fn success(self) -> bool {
-        self.exit_code == 0
+        matches!(self.termination, ChildTermination::Exited(0))
     }
 }
 
@@ -285,11 +302,15 @@ pub type SpawnError = ContainmentError;
 pub struct ContainedWorkerProcess {
     #[cfg(windows)]
     inner: windows::ContainedWorkerProcess,
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    inner: linux::ContainedWorkerProcess,
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     inner: unsupported::ContainedWorkerProcess,
 }
 
 impl ContainedWorkerProcess {
+    /// Launches exactly the executable at `executable`; this API intentionally performs no
+    /// `PATH` search.
     pub fn spawn(
         executable: &Path,
         args: &[OsString],
@@ -343,7 +364,17 @@ fn platform_spawn(
     windows::ContainedWorkerProcess::spawn(executable, args, options, limits)
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn platform_spawn(
+    executable: &Path,
+    args: &[OsString],
+    options: &LaunchOptions,
+    limits: ExecutionLimits,
+) -> Result<linux::ContainedWorkerProcess, SpawnError> {
+    linux::ContainedWorkerProcess::spawn(executable, args, options, limits)
+}
+
+#[cfg(all(not(windows), not(target_os = "linux")))]
 fn platform_spawn(
     executable: &Path,
     args: &[OsString],
