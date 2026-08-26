@@ -1,18 +1,18 @@
-//! Test-support-only executable for `tests/worker_execution_limits_contract.rs`: a minimal process wrapper around `run_worker_child` so tests can exercise supervisor timeout, crash, and malformed selected-payload behavior with a real child process. Never part of any shipped product surface. The env vars below are read only by this binary's `main` (never by production code).
+//! Real process-tree fixture for `worker_execution_limits_contract`; never shipped.
 
-// Cargo auto-discovers this bin target for every check target including wasm32, so give wasm32 a trivial no-op main rather than pulling the non-wasm-only pg_foma::worker dependency into that build.
+// Keep the wasm32 auto-discovered target from pulling in the native-only worker dependency.
 #[cfg(target_arch = "wasm32")]
 fn main() {}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
-    if std::env::var("PANGLOSS_WORKER_TEST_CRASH").as_deref() == Ok("1") {
-        std::process::exit(97);
-    }
-    if let Ok(ms) = std::env::var("PANGLOSS_WORKER_TEST_SLEEP_MS") {
-        if let Ok(ms) = ms.parse::<u64>() {
-            std::thread::sleep(std::time::Duration::from_millis(ms));
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args.first().map(String::as_str) == Some("--fixture") {
+        if let Err(error) = run_fixture(&args[1..]) {
+            eprintln!("worker_test_child: fixture error: {error}");
+            std::process::exit(2);
         }
+        return;
     }
 
     if let Ok(mode) = std::env::var("PANGLOSS_WORKER_TEST_OUTPUT_MODE") {
@@ -29,6 +29,133 @@ fn main() {
         eprintln!("worker_test_child: I/O error: {e}");
         std::process::exit(2);
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn run_fixture(args: &[String]) -> std::io::Result<()> {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mode = args.first().map(String::as_str).unwrap_or("");
+    match mode {
+        "descendant-pipe-holder" => {
+            let sentinel = required_arg(args, 1, "sentinel path")?;
+            let ready = required_arg(args, 2, "ready path")?;
+            let mut descendant = Command::new(std::env::current_exe()?)
+                .args([
+                    "--fixture",
+                    "pipe-holder-then-sentinel",
+                    sentinel,
+                    "3000",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .spawn()?;
+            std::fs::write(ready, b"ready")?;
+            std::thread::sleep(Duration::from_secs(5));
+            let _ = descendant.wait();
+        }
+        "pipe-holder-then-sentinel" => {
+            let sentinel = required_arg(args, 1, "sentinel path")?;
+            let delay_ms = parse_arg::<u64>(args, 2, "delay milliseconds")?;
+            std::thread::sleep(Duration::from_millis(delay_ms));
+            std::fs::write(sentinel, b"escaped")?;
+        }
+        "crash-with-descendant" => {
+            let sentinel = required_arg(args, 1, "sentinel path")?;
+            let ready = required_arg(args, 2, "ready path")?;
+            Command::new(std::env::current_exe()?)
+                .args(["--fixture", "delayed-sentinel", sentinel, "750"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .spawn()?;
+            std::fs::write(ready, b"ready")?;
+            std::process::exit(97);
+        }
+        "delayed-sentinel" => {
+            let sentinel = required_arg(args, 1, "sentinel path")?;
+            let delay_ms = parse_arg::<u64>(args, 2, "delay milliseconds")?;
+            std::thread::sleep(Duration::from_millis(delay_ms));
+            std::fs::write(sentinel, b"escaped")?;
+        }
+        "aggregate-descendant-memory" => {
+            let bytes = required_arg(args, 1, "allocation bytes")?;
+            let sentinel = required_arg(args, 2, "sentinel path")?;
+            let mut first_allocator = Command::new(std::env::current_exe()?)
+                .args(["--fixture", "allocate-and-hold", bytes, "2000"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            let mut second_allocator = Command::new(std::env::current_exe()?)
+                .args(["--fixture", "allocate-and-hold", bytes, "2000"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            let mut sentinel_sibling = Command::new(std::env::current_exe()?)
+                .args(["--fixture", "delayed-sentinel", sentinel, "1500"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
+            let _ = first_allocator.wait();
+            let _ = second_allocator.wait();
+            let _ = sentinel_sibling.wait();
+        }
+        "allocate-and-hold" => {
+            let bytes = parse_arg::<usize>(args, 1, "allocation bytes")?;
+            let hold_ms = parse_arg::<u64>(args, 2, "hold milliseconds")?;
+            allocate_touch_and_hold(bytes, hold_ms);
+        }
+        other => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("unknown fixture mode {other:?}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn required_arg<'a>(args: &'a [String], index: usize, label: &str) -> std::io::Result<&'a str> {
+    args.get(index).map(String::as_str).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("missing fixture {label}"),
+        )
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn parse_arg<T>(args: &[String], index: usize, label: &str) -> std::io::Result<T>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    required_arg(args, index, label)?.parse::<T>().map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid fixture {label}: {error}"),
+        )
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn allocate_touch_and_hold(bytes: usize, hold_ms: u64) {
+    let mut allocation = vec![0_u8; bytes];
+    for offset in (0..bytes).step_by(4096) {
+        allocation[offset] = (offset / 4096) as u8;
+    }
+    if let Some(last) = allocation.last_mut() {
+        *last = 0xa5;
+    }
+    std::hint::black_box(&allocation);
+    std::thread::sleep(std::time::Duration::from_millis(hold_ms));
+    std::hint::black_box(allocation);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

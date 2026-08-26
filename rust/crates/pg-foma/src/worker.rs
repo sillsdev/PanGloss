@@ -2059,7 +2059,7 @@ mod tests {
         assert_eq!(outcome.health_report(), real_health);
     }
 
-    /// An external-monitor abort answers "was the attempt contained", never a grammar question.
+    // Proven containment is not a grammar verdict.
     #[test]
     fn host_containment_is_not_a_grammar_verdict() {
         assert_eq!(
@@ -2075,9 +2075,6 @@ mod tests {
             WorkerOutcome::StderrOutputLimitExceeded {
                 limit_bytes: 1024,
             },
-            WorkerOutcome::ChildCrashed {
-                detail: "synthetic crash".to_string(),
-            },
         ];
         for outcome in outcomes {
             let health = outcome.health_report();
@@ -2090,6 +2087,24 @@ mod tests {
                 "{outcome:?} must carry only HostContainmentFired: {health:?}"
             );
         }
+    }
+
+    /// An abnormal exit without OS containment evidence is a process fault, not a host-limit fact.
+    #[test]
+    fn child_crash_without_os_evidence_is_a_process_fault() {
+        let outcome = WorkerOutcome::ChildCrashed {
+            detail: "synthetic crash".to_string(),
+        };
+
+        let health = outcome.health_report();
+        assert_eq!(health.findings.len(), 1);
+        assert_eq!(health.findings[0].code, FindingCode::BuildProcessFailed);
+        assert_ne!(
+            health.findings[0].code,
+            FindingCode::HostContainmentFired,
+            "a bare crash must not be promoted to host containment: {health:?}"
+        );
+        assert_eq!(health.admission(), Severity::NotProductionReady);
     }
 
     /// Neither ever ran a child to contain, so both are process faults rather than host limits.

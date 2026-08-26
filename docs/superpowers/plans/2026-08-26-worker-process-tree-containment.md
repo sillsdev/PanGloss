@@ -13,13 +13,14 @@ Files:
 
 - [ ] Add descendant modes: idle holders for both stdout and stderr, delayed sentinel writer, and
       a bounded allocator that touches and retains every page.
-- [ ] Add tests for containment unavailable, descendant timeout cleanup, descendant memory kill,
-      successful selected payload, and no artifact on every failure.
+- [ ] Add executable red tests for descendant timeout cleanup, direct-child crash cleanup,
+      successful selected payload, and no artifact on every observable failure.
 - [ ] Rewrite `ChildCrashed` docs/unit expectations so a crash is not classified as
       `HostContainmentFired` without OS evidence; audit the backend-selection contract for the same
       assumption.
-- [ ] Add red proofs for a late event after clean direct-child exit, a descendant surviving its
-      direct parent's crash, and cleanup-deadline failure before production changes.
+- [ ] Add red proof for a descendant surviving its direct parent's crash. Stage the deterministic
+      containment-unavailable, cleanup-deadline, and late-event proofs first in Task 2 beside the
+      private seam they script; do not fake them with timing or nonexistent public variants here.
 - [ ] Replace the source-shape-only execution-control test with behavioral containment assertions.
 - [ ] Tighten malformed/truncated/trailing selected-output cases to `ProtocolViolation`; they may
       not fall through to `ChildCrashed` or a containment classification.
@@ -50,6 +51,9 @@ Files:
 - `rust/crates/pg-foma/src/worker.rs`
 - new `rust/crates/pg-foma/src/worker_containment.rs` and platform submodules as needed
 
+- [ ] First add deterministic seam tests with a scripted fake for setup failure before child start,
+      cleanup-deadline failure, and a containment event arriving after clean direct-child exit and
+      parsed payload. Record executable red failures before implementing the seam behavior.
 - [ ] Add `ContainedWorkerProcess` with spawn, poll, terminate-tree, wait-empty, and peak-memory
       operations; keep platform types private.
 - [ ] Add `MemoryLimitKilled`, `ContainmentUnavailable`, and `ContainmentFailed` outcomes and health

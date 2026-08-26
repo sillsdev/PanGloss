@@ -11,6 +11,34 @@ use pg_foma::worker::{
 const GIB: u64 = 1024 * 1024 * 1024;
 static CHILD_ENV_LOCK: Mutex<()> = Mutex::new(());
 
+fn sentinel_path(label: &str) -> std::path::PathBuf {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock must follow Unix epoch")
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "pangloss-worker-{label}-{}-{unique}.sentinel",
+        std::process::id()
+    ))
+}
+
+fn run_fixture(
+    args: &[&str],
+    request: &CompileWorkerRequest,
+    limits: &ExecutionLimits,
+) -> WorkerOutcome {
+    let args = args
+        .iter()
+        .map(|arg| (*arg).to_string())
+        .collect::<Vec<_>>();
+    run_compile_worker(
+        Path::new(env!("CARGO_BIN_EXE_worker_test_child")),
+        &args,
+        request,
+        limits,
+    )
+}
+
 fn selected_request(payload_limit: u64) -> CompileWorkerRequest {
     let request = CompileWorkerRequest::new("unused.xml", GrammarFormat::Xml);
     let mut json = serde_json::to_value(request).expect("serialize selected request fixture");
@@ -137,23 +165,34 @@ fn oversized_request_is_rejected_by_the_wire_frame_limit_before_spawning() {
 }
 
 #[test]
-fn wall_limit_kills_a_slow_worker_process() {
-    let _guard = CHILD_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
-    std::env::set_var("PANGLOSS_WORKER_TEST_SLEEP_MS", "5000");
+fn wall_limit_kills_the_descendant_tree_and_closes_inherited_pipes() {
+    let sentinel = sentinel_path("timeout");
+    let ready = sentinel_path("timeout-ready");
+    let _ = std::fs::remove_file(&sentinel);
+    let _ = std::fs::remove_file(&ready);
     let request = CompileWorkerRequest::new("unused.xml", GrammarFormat::Xml);
     let limits = ExecutionLimits::try_new(GIB, 10 * GIB, Duration::from_millis(200))
         .expect("positive test limits must be valid");
 
     let started = Instant::now();
-    let outcome = run_compile_worker(
-        Path::new(env!("CARGO_BIN_EXE_worker_test_child")),
-        &[],
+    let outcome = run_fixture(
+        &[
+            "--fixture",
+            "descendant-pipe-holder",
+            sentinel.to_str().expect("sentinel path must be Unicode"),
+            ready.to_str().expect("ready path must be Unicode"),
+        ],
         &request,
         &limits,
     );
     let elapsed = started.elapsed();
-    std::env::remove_var("PANGLOSS_WORKER_TEST_SLEEP_MS");
 
+    let sentinel_observation_time = Duration::from_millis(3200);
+    std::thread::sleep(sentinel_observation_time.saturating_sub(started.elapsed()));
+    let descendant_escaped = sentinel.exists();
+    let descendant_started = ready.exists();
+    let _ = std::fs::remove_file(&sentinel);
+    let _ = std::fs::remove_file(&ready);
     match outcome {
         WorkerOutcome::WallTimeoutKilled { limit, .. } => {
             assert_eq!(limit, limits.max_wall_time());
@@ -161,8 +200,56 @@ fn wall_limit_kills_a_slow_worker_process() {
         other => panic!("expected the execution wall limit to kill the child, got {other:?}"),
     }
     assert!(
-        elapsed < Duration::from_secs(4),
-        "the supervisor must return before the child's five-second sleep; took {elapsed:?}"
+        elapsed < Duration::from_secs(2),
+        "tree termination must close descendant-held stdout/stderr without waiting for its sentinel delay; took {elapsed:?}"
+    );
+    assert!(
+        descendant_started,
+        "the fixture must prove its descendant started before this test can prove tree cleanup"
+    );
+    assert!(
+        !descendant_escaped,
+        "a descendant escaped the timed-out worker tree and wrote {sentinel:?}"
+    );
+}
+
+#[test]
+fn direct_child_crash_cleans_up_its_living_descendant() {
+    let sentinel = sentinel_path("crash");
+    let ready = sentinel_path("crash-ready");
+    let _ = std::fs::remove_file(&sentinel);
+    let _ = std::fs::remove_file(&ready);
+    let request = CompileWorkerRequest::new("unused.xml", GrammarFormat::Xml);
+    let limits = ExecutionLimits::try_new(GIB, 10 * GIB, Duration::from_secs(2))
+        .expect("positive test limits must be valid");
+
+    let outcome = run_fixture(
+        &[
+            "--fixture",
+            "crash-with-descendant",
+            sentinel.to_str().expect("sentinel path must be Unicode"),
+            ready.to_str().expect("ready path must be Unicode"),
+        ],
+        &request,
+        &limits,
+    );
+
+    std::thread::sleep(Duration::from_millis(850));
+    let descendant_escaped = sentinel.exists();
+    let descendant_started = ready.exists();
+    let _ = std::fs::remove_file(&sentinel);
+    let _ = std::fs::remove_file(&ready);
+    assert!(
+        matches!(outcome, WorkerOutcome::ChildCrashed { .. }),
+        "a bare direct-child crash remains a process fault: {outcome:?}"
+    );
+    assert!(
+        descendant_started,
+        "the fixture must prove its descendant started before this test can prove tree cleanup"
+    );
+    assert!(
+        !descendant_escaped,
+        "the crashed direct child left a live descendant that wrote {sentinel:?}"
     );
 }
 
@@ -196,11 +283,8 @@ fn malformed_selected_payload_processes_never_complete() {
     for mode in ["selected-missing", "selected-truncated", "selected-trailing"] {
         let outcome = run_selected_output_mode(mode, Duration::from_secs(2));
         assert!(
-            matches!(
-                &outcome,
-                WorkerOutcome::ProtocolViolation { .. } | WorkerOutcome::ChildCrashed { .. }
-            ),
-            "synthetic mode {mode:?} must not complete a selected payload: {outcome:?}"
+            matches!(&outcome, WorkerOutcome::ProtocolViolation { .. }),
+            "synthetic mode {mode:?} must be classified as a protocol failure: {outcome:?}"
         );
         assert!(
             !matches!(&outcome, WorkerOutcome::SelectedCompleted { .. }),
