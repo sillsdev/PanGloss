@@ -1315,7 +1315,7 @@ pub fn run_selected_compile_worker(
         WorkerOutcome::SelectedCompleted { build, payload } => {
             let build = crate::completed_build::CompletedBackendBuild::from_wire(build, payload)?;
             select_completed_build(
-                selection,
+                preferred,
                 [build],
                 request,
                 &crate::backend_runtime::grammar_identity(grammar),

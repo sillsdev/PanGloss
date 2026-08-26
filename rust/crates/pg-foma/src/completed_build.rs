@@ -15,7 +15,6 @@ use sha2::{Digest, Sha256};
 
 use crate::analyzer::{prepare_network_for_apply, read_foma_binary_payload, FomaProposer};
 use crate::backend_runtime::{finished_net_digest, grammar_identity};
-use crate::backend_selection::BackendSelection;
 use crate::characterization::ClosureTerminal;
 use crate::composite::FomaAnalyzer;
 use crate::emit::{EmitReport, FomaTier};
@@ -405,7 +404,7 @@ pub enum CompletedBuildError {
         requested: EmissionStrategy,
         realized: EmissionStrategy,
     },
-    PreferredBuildMissing(EmissionStrategy),
+    RequestedRouteMissing(EmissionStrategy),
     NoMatchingCompletedBuild,
 }
 
@@ -458,10 +457,10 @@ impl fmt::Display for CompletedBuildError {
                 f,
                 "backend strategy mismatch: requested {requested:?}, realized {realized:?}"
             ),
-            Self::PreferredBuildMissing(strategy) => {
+            Self::RequestedRouteMissing(strategy) => {
                 write!(
                     f,
-                    "preferred completed backend build is missing for {strategy:?}"
+                    "requested route completed backend build is missing for {strategy:?}"
                 )
             }
             Self::NoMatchingCompletedBuild => f.write_str("no matching completed backend build"),
@@ -546,10 +545,9 @@ pub fn compile_completed_backend(
     }
 }
 
-/// Select the highest-preference report that has a matching, fully trusted completed build.
-/// Caller-provided preferred/selected values are intentionally not accepted.
+/// Select the explicitly requested route's matching, fully trusted completed build.
 pub fn select_completed_build<I>(
-    selection: &BackendSelection,
+    requested_strategy: EmissionStrategy,
     completed_builds: I,
     request: &CompileAttempt,
     expected_grammar_identity: &str,
@@ -558,13 +556,10 @@ where
     I: IntoIterator<Item = CompletedBackendBuild>,
 {
     let builds: Vec<_> = completed_builds.into_iter().collect();
-    let Some(preferred) = selection.preferred() else {
-        return Err(CompletedBuildError::NoMatchingCompletedBuild);
-    };
     let build = builds
         .iter()
-        .find(|build| build.evidence.realized_strategy == preferred)
-        .ok_or(CompletedBuildError::PreferredBuildMissing(preferred))?;
+        .find(|build| build.evidence.realized_strategy == requested_strategy)
+        .ok_or(CompletedBuildError::RequestedRouteMissing(requested_strategy))?;
     validate_selected_build(build, request, expected_grammar_identity)?;
     Ok(SelectedBackendBuild {
         build: build.clone(),
