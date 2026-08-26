@@ -4,7 +4,7 @@ use pg_worker_containment::{
     ChildTermination, ContainedWorkerProcess, ContainmentError, ExecutionLimits, LaunchOptions,
     MemoryLimitEvidence,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -358,8 +358,8 @@ fn direct_child_process_snapshot() -> std::io::Result<BTreeSet<u32>> {
     Ok(children)
 }
 
-fn supervisor_fd_snapshot() -> std::io::Result<BTreeSet<OsString>> {
-    let mut targets = BTreeSet::new();
+fn supervisor_fd_snapshot() -> std::io::Result<BTreeMap<OsString, usize>> {
+    let mut targets = BTreeMap::new();
     for entry in fs::read_dir("/proc/self/fd")? {
         let entry = entry?;
         let target = match fs::read_link(entry.path()) {
@@ -370,9 +370,16 @@ fn supervisor_fd_snapshot() -> std::io::Result<BTreeSet<OsString>> {
         if target.starts_with("/proc/") && target.file_name() == Some(OsStr::new("fd")) {
             continue;
         }
-        targets.insert(target.into_os_string());
+        *targets.entry(target.into_os_string()).or_default() += 1;
     }
     Ok(targets)
+}
+
+fn count_complete_race_records(output: &[u8]) -> usize {
+    output
+        .split_inclusive(|byte| *byte == b'\n')
+        .filter(|record| record.starts_with(b"race-") && record.ends_with(b"\n"))
+        .count()
 }
 
 fn configured_worker_root_snapshot() -> Option<(PathBuf, BTreeSet<OsString>)> {
@@ -983,18 +990,12 @@ fn concurrent_fork_fanout_during_termination_leaves_no_surviving_descendants() {
     let stdout = finish_reader(stdout_handle, stdout_receiver);
     let stderr = finish_reader(stderr_handle, stderr_receiver);
     assert!(
-        stdout
-            .lines()
-            .filter(|line| line.starts_with("race-"))
-            .count()
-            >= 4
+        count_complete_race_records(&stdout) >= 4,
+        "stdout did not contain four complete race records: {stdout:?}"
     );
     assert!(
-        stderr
-            .lines()
-            .filter(|line| line.starts_with("race-"))
-            .count()
-            >= 4
+        count_complete_race_records(&stderr) >= 4,
+        "stderr did not contain four complete race records: {stderr:?}"
     );
     std::thread::sleep(Duration::from_millis(2300));
     let survivors = fs::read_dir(&survivors)
