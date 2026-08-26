@@ -214,9 +214,7 @@ pub struct CompileProfile {
     /// counts"). Empty for a template-less grammar (no `<AffixTemplate>` at all).
     pub group_lines: Vec<GroupLineCount>,
     /// The grammar's own total emitted lexc line count (`crate::emit::EmitCounts::lexc_lines`'s
-    /// final value — the SAME number `crate::health_evaluator`'s `ComposeError::
-    /// EmitLineBudgetExceeded` mapping already reports for the EXPERIMENTAL `emit_underlying_templated`
-    /// path, here surfaced for the PRODUCTION path for the first time). `None` iff the production
+    /// final value). `None` iff the production
     /// path bailed out before reaching `crate::emit::emit_with_budget_profiled`'s own final
     /// `EmitResult` (an early `Unsupported` verdict) — never a fabricated `0`.
     pub total_lexc_lines: Option<u64>,

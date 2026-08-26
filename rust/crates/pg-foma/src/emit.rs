@@ -4846,33 +4846,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     }
 }
 
-/// Breach constructor for `emit_underlying_templated`, builds the same empty-lexc `Unsupported` `EmitResult` shape every other breach in this module uses.
-fn emit_line_budget_breach(
-    uncovered: Vec<UncoveredItem>,
-    counts: EmitCounts,
-    lines: usize,
-    limit: usize,
-) -> EmitResult {
-    let reason = format!(
-        "templated lexc emission exceeds this path's line budget: {lines} lexc lines written (limit \
-         {limit}). This grammar's templated morphotactics produce more literal lexc material than \
-         `emit_underlying_templated`'s line budget allows; raise HC_COMPOSE_LINE_BUDGET only if you \
-         understand why this grammar's templated emission is this large, or fall back to another \
-         engine for this grammar."
-    );
-    EmitResult {
-        lexc_source: String::new(),
-        report: EmitReport {
-            uncovered,
-            counts,
-            tier: FomaTier::Unsupported { reason },
-            enum_budget_exceeded: None,
-            closure_refusal: None,
-            closure_evidence: None,
-        },
-    }
-}
-
 /// Post-emission check for a tag that was classified, declared, and had entries written, yet is absent from the compiled net's own sigma, narrowed against a known foma-rs tokenizer false positive.
 /// See docs/research/foma-rs-zero-digit-multichar-symbol-bug.md.
 fn verify_tags_reachable(
@@ -4986,9 +4959,6 @@ pub fn emit_underlying_templated(
     allowed_entries: Option<&HashSet<LexEntryId>>,
 ) -> EmitResult {
     let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-    // Reuses EmitCounts::lexc_lines rather than a second counter, checked at a handful of checkpoints between major emission blocks rather than after every line, since build_deriv_chain/build_slot_chain are shared with the SurfaceProbed path and must stay byte-identical for it.
-    let compose_budget = ComposeBudget::from_env();
-    let line_cap = compose_budget.line_cap();
     let width = tags::tag_width(g.morphemes.len());
     let table = alphabet.table();
 
@@ -5245,15 +5215,6 @@ pub fn emit_underlying_templated(
     if has_templates {
         write_bare(&mut out, "OuterPfx0", &mut counts);
     }
-    if counts.lexc_lines > line_cap {
-        return emit_line_budget_breach(
-            uncovered.clone(),
-            counts.clone(),
-            counts.lexc_lines,
-            line_cap,
-        );
-    }
-
     if has_templates {
         build_deriv_chain(
             &mut out,
@@ -5306,15 +5267,6 @@ pub fn emit_underlying_templated(
             mode,
         );
     }
-    if counts.lexc_lines > line_cap {
-        return emit_line_budget_breach(
-            uncovered.clone(),
-            counts.clone(),
-            counts.lexc_lines,
-            line_cap,
-        );
-    }
-
     // ---- Template-less derivation section ----
     if has_template_less_section {
         build_deriv_chain(
@@ -5413,15 +5365,6 @@ pub fn emit_underlying_templated(
             mode,
         );
     }
-    if counts.lexc_lines > line_cap {
-        return emit_line_budget_breach(
-            uncovered.clone(),
-            counts.clone(),
-            counts.lexc_lines,
-            line_cap,
-        );
-    }
-
     // ---- Per-group root sections + per-template slot chains ----
     for (gi, &key) in group_keys.iter().enumerate() {
         let mut join_lines: BTreeSet<String> = BTreeSet::new();
@@ -5764,15 +5707,6 @@ pub fn emit_underlying_templated(
             }
         }
 
-        // Checked at the end of each group's own emission, so a pathological grammar bails during the group that crossed the cap, not several groups later.
-        if counts.lexc_lines > line_cap {
-            return emit_line_budget_breach(
-                uncovered.clone(),
-                counts.clone(),
-                counts.lexc_lines,
-                line_cap,
-            );
-        }
     }
 
     // Run before the final dedup/tier computation, so any new findings fold in like every other uncovered source.

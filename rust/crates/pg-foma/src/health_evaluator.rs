@@ -28,9 +28,7 @@
 //! existing calibrated size dimension; see `profile_findings`'s own doc for why the production
 //! path has no earlier "intermediate" composition product to measure instead) and
 //! `crate::health::FindingCode::CompileWorkBudget` (total emitted lexc lines approaching, but not
-//! tripping, `crate::compose_budget::DEFAULT_LINE_BUDGET` — a dimension the production path does
-//! not even check today, unlike the experimental `emit_underlying_templated`/`crate::uflexc`
-//! paths' own incremental `line_cap` check).
+//! tripping, `crate::compose_budget::DEFAULT_LINE_BUDGET`).
 //!
 //! Not populated here (observed audit fields populate only as their owning profile/budget
 //! instrumentation exists, and are never independently remeasured):
@@ -62,9 +60,9 @@
 //!    operation they would gate even starts (`compose_budget.rs`'s own doc, verbatim, for all
 //!    three: "checked BEFORE..."), on an exact, already-known count — a proven work bound — so
 //!    they map to `FindingCode::ProvenBoundExceedsBudget` with
-//!    `ValueProvenance::ProvenBound`. `EmitLineBudgetExceeded`/`ComposeStepTimedOut`/`ChainDepthExceeded`
-//!    are only detected AFTER the checked operation (an actual emission run, an actual wall-clock
-//!    wait, an actual recursion) already executed and produced/consumed a measured value, so they map to
+//!    `ValueProvenance::ProvenBound`. `ComposeStepTimedOut`/`ChainDepthExceeded` are only detected
+//!    AFTER the checked operation (an actual wall-clock wait, an actual recursion) already executed
+//!    and produced/consumed a measured value, so they map to
 //!    `FindingCode::ResourceBudgetReached` with `ValueProvenance::Observed`.
 //! 2. **`crate::health::Metric::OrderingRuleCount` is a new variant this change appends** to
 //!    `crate::health`'s `Metric` enum (see that enum's own doc on the variant) — the only schema
@@ -484,20 +482,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                 "Partitioning {gated_subrules} gated subrule(s) produced {groups} distinct gating \
                  groups (limit {limit}), an exact count proven to exceed the remaining budget \
                  before any per-group compile work began."
-            ),
-        },
-        ComposeError::EmitLineBudgetExceeded { lines, limit } => HealthFinding {
-            code: FindingCode::ResourceBudgetReached,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Compile,
-            affected: Vec::new(),
-            metric: Metric::EmittedLineCount,
-            value: MetricValue::Count(*lines as u64),
-            provenance: ValueProvenance::Observed,
-            threshold: Some(MetricValue::Count(*limit as u64)),
-            explanation: format!(
-                "Templated/underlying-form lexc emission wrote {lines} lines (limit {limit}) \
-                 before this compilation stopped."
             ),
         },
         ComposeError::ComposeStepTimedOut {

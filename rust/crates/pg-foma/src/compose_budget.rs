@@ -71,16 +71,6 @@ pub(crate) const DEFAULT_TUPLE_BUDGET: usize = 5_000;
 /// a partial group set.
 pub(crate) const DEFAULT_GROUP_BUDGET: usize = 64;
 
-/// `HC_COMPOSE_LINE_BUDGET`: ceiling on lexc lines written by `crate::emit::emit_underlying_templated`
-/// (checked incrementally, per-group, so a pathological templated
-/// grammar bails during the FIRST group's emission rather than after building a multi-GB string) and
-/// by `crate::uflexc::emit_underlying_filtered` (the same check, Indonesian-scoped emitter,
-/// checked incrementally at its own root/prefix/suffix line-push sites). Calibration basis: Aweti's
-/// real templated lexc emission is 37,510 lines (measured via
-/// `examples/p6_aweti_replace_prototype.rs`'s own `counts.lexc_lines`, `TextMode::UnderlyingTokens`
-/// path). This default sits ~26x above that measured ceiling -- generous headroom while
-/// staying far below a multi-GB `.lexc` file (`EnumerationBudget`'s own doc cites a 691MB/9.7M-line
-/// lexc as the eager-enumeration path's disaster case for this same grammar).
 pub(crate) const DEFAULT_LINE_BUDGET: usize = 1_000_000;
 
 pub(crate) fn state_budget_from_env() -> usize {
@@ -332,8 +322,6 @@ pub enum ComposeError {
         limit: usize,
         gated_subrules: usize,
     },
-    /// A templated/underlying-form lexc emitter wrote more lines than `line_cap`, checked incrementally per group.
-    EmitLineBudgetExceeded { lines: usize, limit: usize },
     /// `call_with_deadline` timed out; the worker thread is abandoned, not killed. Always terminal for this grammar; never retry.
     ComposeStepTimedOut {
         elapsed: Duration,
@@ -378,13 +366,6 @@ impl fmt::Display for ComposeError {
                  over- or under-fire a gated rule), so this is always a fall-back-engine signal, \
                  never a partial result; raise HC_COMPOSE_GROUP_BUDGET only if you understand why \
                  this grammar realizes this many distinct gating vectors."
-            ),
-            ComposeError::EmitLineBudgetExceeded { lines, limit } => write!(
-                f,
-                "lexc emission line budget exceeded: {lines} lines written (limit {limit}). This \
-                 grammar's templated/underlying-form lexc emission produces more literal lexc \
-                 material than this path's line budget allows; raise HC_COMPOSE_LINE_BUDGET only if \
-                 you understand why this grammar's emission is this large."
             ),
             ComposeError::ComposeStepTimedOut {
                 elapsed,

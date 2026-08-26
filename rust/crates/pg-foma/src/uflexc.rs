@@ -249,10 +249,6 @@ pub fn emit_underlying_filtered(
 /// than read from env -- what `crate::gate::compile_gated_grammar_with_budget` and tests call
 /// directly, so a whole gated-grammar compile shares ONE budget across every group's emission.
 ///
-/// V4 (design doc §4 + §8 item 1): `budget.line_cap` is checked INCREMENTALLY, at each of the three
-/// line-push sites below (root/prefix/suffix), so a pathological grammar bails during the very
-/// first line that crosses the cap rather than after building a possibly-multi-GB `lexc_source`
-/// string in full.
 pub fn emit_underlying_filtered_with_budget(
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -272,17 +268,6 @@ pub fn emit_underlying_filtered_with_budget(
     let mut root_lines: Vec<RootLine> = Vec::new();
     let mut prefix_lines: Vec<TokenEntry> = Vec::new();
     let mut suffix_lines: Vec<TokenEntry> = Vec::new();
-    let line_cap = budget.line_cap();
-    let check_line_budget = |lines: usize| -> Result<(), ComposeError> {
-        if lines > line_cap {
-            return Err(ComposeError::EmitLineBudgetExceeded {
-                lines,
-                limit: line_cap,
-            });
-        }
-        Ok(())
-    };
-
     // Grammar-wide (module doc): computed from `g` alone, never from `allowed_entries`; `None` for the common case of no `CompoundingRuleDef`, in which case everything below is a pure no-op.
     let license = compound_license(g);
 
@@ -315,7 +300,6 @@ pub fn emit_underlying_filtered_with_budget(
                 },
                 head_eligible,
             ));
-            check_line_budget(root_lines.len() + prefix_lines.len() + suffix_lines.len())?;
         }
     }
 
@@ -386,7 +370,6 @@ pub fn emit_underlying_filtered_with_budget(
                         tag: tag.clone(),
                         underlying,
                     });
-                    check_line_budget(root_lines.len() + prefix_lines.len() + suffix_lines.len())?;
                 }
                 Role::Suffix => {
                     let Some(shape) = affix_insert_shape(&allo.rhs, false) else {
@@ -403,7 +386,6 @@ pub fn emit_underlying_filtered_with_budget(
                         tag: tag.clone(),
                         underlying,
                     });
-                    check_line_budget(root_lines.len() + prefix_lines.len() + suffix_lines.len())?;
                 }
                 other => {
                     skipped.push(format!(
@@ -554,9 +536,6 @@ pub fn emit_underlying_filtered_with_budget(
     for l in &suffix_lines {
         l.write(&mut out, "SuffixOrEnd", &mut counts);
     }
-    // The compound levels are the one block not pushed line-by-line, so the incremental `check_line_budget` calls above cannot see them; check the cap here against `EmitCounts::lexc_lines`, which `build_compound_chain` itself increments.
-    check_line_budget(counts.lexc_lines)?;
-
     Ok(UEmitReport {
         lexc_source: out,
         root_entries: root_lines.len(),
