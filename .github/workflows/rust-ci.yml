@@ -105,6 +105,22 @@ jobs:
       # else in the workspace.
       - run: cargo test --workspace --release -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm_and_memo_effect
 
+  linux-containment:
+    name: Linux containment (required)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      PANGLOSS_CGROUP_TEST_REQUIRED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prove delegated cgroup containment
+        run: bash tools/linux-containment-ci.sh
+
   coverage:
     name: coverage (codecov)
     runs-on: ubuntu-latest
