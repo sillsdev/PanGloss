@@ -1204,15 +1204,14 @@ fn parse_cgroup_event_value(text: &str, wanted: &str) -> Result<u64, &'static st
         if fields.next().is_some() {
             return Err("contains an extra field");
         }
+        let numeric = raw_value
+            .parse()
+            .map_err(|_| "record value is not numeric")?;
         if name == wanted {
             if value.is_some() {
                 return Err("contains a duplicate requested record");
             }
-            value = Some(
-                raw_value
-                    .parse()
-                    .map_err(|_| "requested record is not numeric")?,
-            );
+            value = Some(numeric);
         }
     }
     value.ok_or("has no requested record")
@@ -1280,7 +1279,7 @@ fn reap_process(process_id: libc::pid_t, deadline: Instant) -> Result<c_int, Con
         if result == 0 {
             if Instant::now() >= deadline {
                 return Err(ContainmentError::DeadlineExceeded {
-                    operation: "reaping failed worker launch",
+                    operation: "reaping worker child",
                 });
             }
             std::thread::sleep(Duration::from_millis(2));
@@ -1290,12 +1289,12 @@ fn reap_process(process_id: libc::pid_t, deadline: Instant) -> Result<c_int, Con
         if error.raw_os_error() == Some(libc::EINTR) {
             if Instant::now() >= deadline {
                 return Err(ContainmentError::DeadlineExceeded {
-                    operation: "reaping failed worker launch",
+                    operation: "reaping worker child",
                 });
             }
             continue;
         }
-        return Err(failed(format!("reaping failed worker launch: {error}")));
+        return Err(failed(format!("reaping worker child: {error}")));
     }
 }
 
@@ -1344,6 +1343,7 @@ mod tests {
         assert!(parse_cgroup_event_value("populated\n", "populated").is_err());
         assert!(parse_cgroup_event_value("populated 0 extra\n", "populated").is_err());
         assert!(parse_cgroup_event_value("populated nope\n", "populated").is_err());
+        assert!(parse_cgroup_event_value("populated 0\nfrozen nope\n", "populated").is_err());
     }
 
     #[test]
