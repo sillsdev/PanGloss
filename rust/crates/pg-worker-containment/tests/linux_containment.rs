@@ -959,14 +959,16 @@ fn direct_child_crash_cleans_up_its_living_descendant_without_memory_evidence() 
 }
 
 #[test]
-fn concurrent_fork_fanout_during_termination_leaves_no_surviving_descendants() {
+fn active_fanout_during_termination_leaves_no_surviving_descendants() {
     let directory = temporary_directory("fanout-race");
     let survivors = directory.join("survivors");
     let ready = directory.join("ready");
+    let continued = directory.join("continued");
     let args = [
         OsString::from("spawn-race"),
         survivors.as_os_str().to_os_string(),
         ready.as_os_str().to_os_string(),
+        continued.as_os_str().to_os_string(),
         OsString::from("24"),
         OsString::from("10"),
     ];
@@ -978,6 +980,7 @@ fn concurrent_fork_fanout_during_termination_leaves_no_surviving_descendants() {
     let (stdout_handle, stdout_receiver) = spawn_reader(stdio.stdout);
     let (stderr_handle, stderr_receiver) = spawn_reader(stdio.stderr);
     wait_for_file(&ready, Instant::now() + Duration::from_secs(5));
+    wait_for_file(&continued, Instant::now() + Duration::from_secs(5));
     let deadline = Instant::now() + Duration::from_secs(5);
     process.terminate_tree(deadline).expect("kill fanout");
     process
@@ -987,12 +990,12 @@ fn concurrent_fork_fanout_during_termination_leaves_no_surviving_descendants() {
     let stdout = finish_reader(stdout_handle, stdout_receiver);
     let stderr = finish_reader(stderr_handle, stderr_receiver);
     assert!(
-        count_complete_race_records(&stdout) >= 4,
-        "stdout did not contain four complete race records: {stdout:?}"
+        count_complete_race_records(&stdout) >= 5,
+        "stdout did not contain five complete race records: {stdout:?}"
     );
     assert!(
-        count_complete_race_records(&stderr) >= 4,
-        "stderr did not contain four complete race records: {stderr:?}"
+        count_complete_race_records(&stderr) >= 5,
+        "stderr did not contain five complete race records: {stderr:?}"
     );
     std::thread::sleep(Duration::from_millis(2300));
     let survivors = fs::read_dir(&survivors)

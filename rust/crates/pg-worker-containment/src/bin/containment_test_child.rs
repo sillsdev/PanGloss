@@ -365,6 +365,9 @@ mod unix_child {
         let ready = args
             .next()
             .ok_or_else(|| "missing ready path".to_string())?;
+        let continued = args
+            .next()
+            .ok_or_else(|| "missing continued path".to_string())?;
         let count = args
             .next()
             .ok_or_else(|| "missing race count".to_string())?
@@ -396,6 +399,9 @@ mod unix_child {
             io::stderr().flush().map_err(io_error)?;
             if index == 3 {
                 fs::write(Path::new(&ready), b"ready").map_err(io_error)?;
+            }
+            if index == 4 {
+                fs::write(Path::new(&continued), b"continued").map_err(io_error)?;
             }
             std::thread::sleep(Duration::from_millis(cadence_ms));
         }

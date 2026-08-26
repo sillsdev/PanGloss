@@ -854,6 +854,32 @@ fn most_specific_covering_mount(path: &Path) -> Result<CgroupMount, ContainmentE
     Ok(selected.into_iter().next().expect("one selected mount"))
 }
 
+#[cfg(test)]
+fn select_cgroup2_mount(text: &str, path: &Path) -> Result<CgroupMount, ContainmentError> {
+    let matches = text
+        .lines()
+        .filter_map(parse_cgroup2_mount)
+        .filter(|mount| hierarchy_is_under(path, Path::new(&mount.root)))
+        .collect::<Vec<_>>();
+    let Some(longest) = matches
+        .iter()
+        .map(|mount| component_count(Path::new(&mount.root)))
+        .max()
+    else {
+        return Err(unavailable(
+            "no visible cgroup-v2 mount covers the delegated root",
+        ));
+    };
+    let selected = matches
+        .into_iter()
+        .filter(|mount| component_count(Path::new(&mount.root)) == longest)
+        .collect::<Vec<_>>();
+    if selected.len() != 1 {
+        return Err(unavailable("cgroup-v2 mount mapping is ambiguous"));
+    }
+    Ok(selected.into_iter().next().expect("one selected mount"))
+}
+
 fn hierarchy_is_under(path: &Path, root: &Path) -> bool {
     if root == Path::new("/") {
         return path.is_absolute();
@@ -1446,7 +1472,10 @@ fn failed(detail: impl Into<String>) -> ContainmentError {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_wait_status, parse_cgroup_event_value, parse_memory_events};
+    use super::{
+        decode_wait_status, parse_cgroup_event_value, parse_memory_events, select_cgroup2_mount,
+    };
+    use std::path::Path;
 
     #[test]
     fn cgroup_event_parser_accepts_numeric_populated_zero() {
@@ -1516,5 +1545,38 @@ mod tests {
         for text in ["max 1\n", "oom_kill 1\n", "unknown 1\n"] {
             assert!(parse_memory_events(text).is_err(), "accepted: {text:?}");
         }
+    }
+
+    #[test]
+    fn cgroup_mount_selection_prefers_the_most_specific_covering_root() {
+        let text = concat!(
+            "36 25 0:32 / /sys/fs/cgroup rw - cgroup2 cgroup rw,memory\n",
+            "37 25 0:32 /tenant /sys/fs/cgroup/tenant rw - cgroup2 cgroup rw,memory\n",
+        );
+        let selected =
+            select_cgroup2_mount(text, Path::new("/tenant/build")).expect("specific cgroup mount");
+        assert_eq!(selected.root, "/tenant");
+        assert_eq!(selected.mountpoint, Path::new("/sys/fs/cgroup/tenant"));
+    }
+
+    #[test]
+    fn cgroup_mount_selection_rejects_a_tied_most_specific_root() {
+        let text = concat!(
+            "36 25 0:32 /tenant /sys/fs/cgroup/a rw - cgroup2 cgroup rw,memory\n",
+            "37 25 0:33 /tenant /sys/fs/cgroup/b rw - cgroup2 cgroup rw,memory\n",
+        );
+        let error = select_cgroup2_mount(text, Path::new("/tenant/build"))
+            .expect_err("tied cgroup mounts must be unavailable");
+        assert!(error.to_string().contains("ambiguous"));
+    }
+
+    #[test]
+    fn cgroup_mount_selection_decodes_mountinfo_root_and_mountpoint() {
+        let text =
+            "36 25 0:32 /tenant\\040space /sys/fs/cgroup\\040v2 rw - cgroup2 cgroup rw,memory\n";
+        let selected = select_cgroup2_mount(text, Path::new("/tenant space/build"))
+            .expect("decoded cgroup mount");
+        assert_eq!(selected.root, "/tenant space");
+        assert_eq!(selected.mountpoint, Path::new("/sys/fs/cgroup v2"));
     }
 }
