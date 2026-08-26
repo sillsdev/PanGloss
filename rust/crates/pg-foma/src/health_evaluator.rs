@@ -62,10 +62,9 @@
 //!    operation they would gate even starts (`compose_budget.rs`'s own doc, verbatim, for all
 //!    three: "checked BEFORE..."), on an exact, already-known count — a proven work bound — so
 //!    they map to `FindingCode::ProvenBoundExceedsBudget` with
-//!    `ValueProvenance::ProvenBound`. `NetSizeExceeded`/`EmitLineBudgetExceeded`/
-//!    `ComposeStepTimedOut`/`ChainDepthExceeded` are only detected AFTER the checked operation (an
-//!    actual compose/union/minimize call, an actual emission run, an actual wall-clock wait, an
-//!    actual recursion) already executed and produced/consumed a measured value, so they map to
+//!    `ValueProvenance::ProvenBound`. `EmitLineBudgetExceeded`/`ComposeStepTimedOut`/`ChainDepthExceeded`
+//!    are only detected AFTER the checked operation (an actual emission run, an actual wall-clock
+//!    wait, an actual recursion) already executed and produced/consumed a measured value, so they map to
 //!    `FindingCode::ResourceBudgetReached` with `ValueProvenance::Observed`.
 //! 2. **`crate::health::Metric::OrderingRuleCount` is a new variant this change appends** to
 //!    `crate::health`'s `Metric` enum (see that enum's own doc on the variant) — the only schema
@@ -127,8 +126,7 @@
 
 use crate::analyzer::FomaError;
 use crate::compose_budget::{
-    ApplyDimension, ComposeError, NetSizeMeasure, DEFAULT_ARC_BUDGET, DEFAULT_LINE_BUDGET,
-    DEFAULT_STATE_BUDGET,
+    ApplyDimension, ComposeError, DEFAULT_ARC_BUDGET, DEFAULT_LINE_BUDGET, DEFAULT_STATE_BUDGET,
 };
 use crate::emit::{ClosureRefusalCode, EmitReport, EnumBudgetExceeded, FomaTier};
 use crate::health::{
@@ -450,29 +448,6 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
 /// Every `crate::compose_budget::ComposeError` variant, exhaustively.
 fn compose_error_finding(err: &ComposeError) -> HealthFinding {
     match err {
-        ComposeError::NetSizeExceeded {
-            measure,
-            value,
-            limit,
-            site,
-        } => HealthFinding {
-            code: FindingCode::ResourceBudgetReached,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Compile,
-            affected: vec![(*site).to_string()],
-            metric: match measure {
-                NetSizeMeasure::States => Metric::IntermediateStateCount,
-                NetSizeMeasure::Arcs => Metric::IntermediateArcCount,
-            },
-            value: MetricValue::Count((*value).max(0) as u64),
-            provenance: ValueProvenance::Observed,
-            threshold: Some(MetricValue::Count(*limit as u64)),
-            explanation: format!(
-                "Composition at {site:?} produced a network of {value} {measure} (limit {limit}); \
-                 this compilation stopped rather than continue.",
-                measure = measure.label(),
-            ),
-        },
         ComposeError::AlphaTupleBudgetExceeded {
             surviving,
             limit,

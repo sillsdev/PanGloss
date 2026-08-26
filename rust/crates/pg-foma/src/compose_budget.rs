@@ -10,28 +10,13 @@
 //! composite builders run their per-root work across a rayon pool. The composition cascade
 //! (`crate::replace`'s per-alpha-tuple/per-rule fold, `crate::gate`'s per-group loop) is strictly
 //! sequential -- no rayon anywhere in this path -- so a plain `&ComposeBudget` with no atomics and
-//! no interior mutability is sufficient; every checked wrapper below just reads `self`'s cap fields
-//! and compares them against the `Fsm` the vendored `foma` crate handed back. Revisit this if the
+//! no interior mutability is sufficient. Revisit this if the
 //! per-group loop (`crate::gate::compile_gated_grammar`) is ever parallelized.
 //!
 //! ## Vendored-crate findings this module's shape depends on (verified by reading
 //! `foma = "=0.4.0"`'s own source, not inferred)
-//! - `Fsm` exposes `pub statecount: i32` / `pub arccount: i32` (`types.rs`) -- size checks are free
-//!   after every call.
-//! - **No mid-operation hook exists anywhere**: `fsm_compose`, `fsm_union`, `fsm_minimize` are
-//!   synchronous tight loops with no callback/cancellation point. A between-step size check
-//!   therefore cannot catch a blow-up INSIDE one call -- see the module-level limitations note
-//!   below.
-//! - `fsm_compose` **internally minimizes both operands** before composing (`products.rs`) -- every
-//!   compose step already pays a determinize (worst-case exponential), so the real risk hides
-//!   inside every ordinary compose call, not just at an explicit final minimize.
-//! - `fsm_union` does **not** minimize (cheap per step) -- `crate::gate`'s per-group union fold
-//!   accumulates a non-minimal net whose eventual minimize is the true worst-case moment.
 //!
 //! ## Limitations (the honest part, not hidden)
-//! - A between-step size check cannot catch a blow-up INSIDE one call: if a single compose/minimize
-//!   call OOMs or spins, the check that would run after it never runs. There is nothing in the
-//!   vendored crate to checkpoint mid-call; the size caps only bound cost accumulating ACROSS calls.
 //! - `call_with_deadline`'s wall-clock wrapper *detects*, it does not *stop*: the worker thread is
 //!   abandoned (never joined) and keeps running/allocating until it finishes naturally. Treat
 //!   `ComposeError::ComposeStepTimedOut` as TERMINAL for that grammar (fall back to another
@@ -60,22 +45,8 @@ const _: fn() = || {
 
 // Defaults / env overrides: `HC_*`-prefixed, parsed as the field's own type, falling back to the documented default when unset/unparsable.
 
-/// `HC_COMPOSE_STATE_BUDGET`: ceiling on `Fsm::statecount` after any checked compose/union/minimize
-/// call. Calibration basis (measured on the
-/// `emit_underlying_templated` + `crate::replace`/`crate::gate` path against the real Aweti grammar
-/// -- 855 entries, 135 mrules, 18 prules, 14 templates -- the largest real grammar this path has
-/// been run against as of this writing): Aweti's templated lexc alone compiles to 23,661 states;
-/// the FULL `lexc .o. rules .o. boundary-cleanup` composition, minimized, is 35,846 states. This
-/// default sits ~56x above that measured ceiling -- generous headroom for a larger real grammar,
-/// while staying far below the eager-enumeration path's own disaster case (`EnumerationBudget`'s
-/// own doc: Aweti's *enumeration* path produces an ~8.8GB `apply_up` allocation). Refine with more
-/// real-grammar measurements as larger grammars are onboarded.
 pub(crate) const DEFAULT_STATE_BUDGET: usize = 2_000_000;
 
-/// `HC_COMPOSE_ARC_BUDGET`: ceiling on `Fsm::arccount`, same call sites as
-/// `DEFAULT_STATE_BUDGET`. Calibration basis (same Aweti run): the
-/// templated lexc alone is 346,727 arcs; the full composed+minimized network is 800,354 arcs. This
-/// default sits ~25x above that measured ceiling.
 pub(crate) const DEFAULT_ARC_BUDGET: usize = 20_000_000;
 
 /// `HC_COMPOSE_TUPLE_BUDGET`: ceiling on the number of alpha-tuple assignments
@@ -148,11 +119,10 @@ pub(crate) fn line_budget_from_env() -> usize {
 }
 
 /// `HC_COMPOSE_STEP_TIMEOUT_MS`: wall-clock deadline for every checked
-/// compose/union/minimize call, via `call_with_deadline`. **Default OFF** (`None`) -- unlike the
-/// four size caps above (default ON, mirroring `EnumerationBudget`'s own always-live convention),
+/// compose/union/minimize call, via `call_with_deadline`. **Default OFF** (`None`) --
 /// this mirrors `pg-rules/src/stratum.rs`'s `StepBudget`'s own opt-in convention: a wall-clock
 /// abandon-on-timeout mechanism is a much bigger hammer (it detects, but does not stop, a runaway
-/// call) than a size check, so it stays opt-in until a caller has a concrete reason to want it.
+/// call), so it stays opt-in until a caller has a concrete reason to want it.
 pub(crate) fn step_timeout_from_env() -> Option<Duration> {
     std::env::var("HC_COMPOSE_STEP_TIMEOUT_MS")
         .ok()
@@ -183,7 +153,7 @@ pub(crate) const CHAIN_DEPTH_ABSOLUTE_CEILING: usize = 1_000_000;
 
 /// `HC_COMPOSE_CHAIN_DEPTH_BUDGET`: per-word derivation/unapplication chain-depth cap.
 /// **Default `None` (unbounded/off)** -- see this section's module doc for why this dimension
-/// mirrors `step_timeout_from_env`'s opt-in shape rather than the four size caps' default-ON
+/// mirrors `step_timeout_from_env`'s opt-in shape rather than the default-ON
 /// shape. When set, parses as `usize` and is clamped to `CHAIN_DEPTH_ABSOLUTE_CEILING`
 /// (unparsable or unset falls back to `None`, exactly like every other `_from_env` function in
 /// this module falls back to its own default on a parse failure).
@@ -254,9 +224,7 @@ pub const DEFAULT_EVALUATION_APPLY_PATH_BUDGET: usize = 1_000_000;
 /// can move one without the other.
 pub const DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET: usize = 1_000_000;
 
-/// Which magnitude `ApplyOutcome::Incomplete` reports tripped. Mirrors `NetSizeMeasure`'s own
-/// `label()` shape (a stable, short string for a caller-facing message/report field) one level up
-/// from the compile-time size dimensions.
+/// Which magnitude `ApplyOutcome::Incomplete` reports tripped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApplyDimension {
     /// `ApplyBudget::path_cap`: raw `apply_up` result count.
@@ -349,34 +317,9 @@ impl ApplyBudget {
     }
 }
 
-/// Which size measure `ComposeError::NetSizeExceeded` reports.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NetSizeMeasure {
-    States,
-    Arcs,
-}
-
-impl NetSizeMeasure {
-    pub(crate) fn label(self) -> &'static str {
-        match self {
-            NetSizeMeasure::States => "states",
-            NetSizeMeasure::Arcs => "arcs",
-        }
-    }
-}
-
-/// Every way a `ComposeBudget`-checked call can fail. Each variant carries enough
-/// to build a specific, honest message -- never a generic "something blew up" string -- and names
-/// the dimension it guards against in its own doc line.
+/// Every way a `ComposeBudget`-checked call can fail.
 #[derive(Debug, Clone)]
 pub enum ComposeError {
-    /// A checked compose/union/minimize call returned a network exceeding `state_cap`/`arc_cap`; `site` names the call site.
-    NetSizeExceeded {
-        measure: NetSizeMeasure,
-        value: i32,
-        limit: usize,
-        site: &'static str,
-    },
     /// `resolve_alpha_tuples` produced more surviving assignments than `tuple_cap`, checked before the per-tuple compile loop runs.
     AlphaTupleBudgetExceeded {
         surviving: usize,
@@ -414,21 +357,6 @@ pub enum ComposeError {
 impl fmt::Display for ComposeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ComposeError::NetSizeExceeded {
-                measure,
-                value,
-                limit,
-                site,
-            } => write!(
-                f,
-                "composition budget exceeded at {site:?}: {value} {measure} (limit {limit}). This \
-                 grammar's phonological-rule/gated-lexicon composition produces a network larger \
-                 than this path's size budget allows -- use the default (full) morphological-parser \
-                 engine for this grammar instead of the P6 composition path, or -- only if you \
-                 understand why this grammar's composed network is this large -- raise the budget \
-                 via HC_COMPOSE_STATE_BUDGET/HC_COMPOSE_ARC_BUDGET and re-run.",
-                measure = measure.label()
-            ),
             ComposeError::AlphaTupleBudgetExceeded {
                 surviving,
                 limit,
@@ -498,10 +426,6 @@ impl fmt::Display for ComposeError {
 
 impl std::error::Error for ComposeError {}
 
-/// Default-on composition-path budget (design doc §2): four size/count caps checked eagerly (state,
-/// arc, alpha-tuple, gating-group), plus an opt-in wall-clock deadline. Unlike
-/// `crate::morphotactics::EnumerationBudget`, this holds no atomics/interior mutability at all --
-/// module doc explains why a plain value is sufficient for this strictly-sequential path.
 #[derive(Debug, Clone, Copy)]
 pub struct ComposeBudget {
     pub(crate) state_cap: usize,
@@ -529,7 +453,7 @@ pub struct ComposeBudget {
     /// loose-rule count; `None` means unbounded/off. Unlike `Self::chain_depth_cap` (default
     /// `None`, uncalibrated), `Self::from_env` defaults this to
     /// `Some(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)` -- a real, if conservative, calibrated default
-    /// ships with THIS change (mirroring the four size caps' own default-ON convention), since
+    /// ships with THIS change (mirroring the default-ON convention), since
     /// promoting `unordered-application.chain-depth-bounded` off `Refuse` needs a concrete
     /// bound to promote AGAINST, not an uncalibrated placeholder. `Self::with_caps`/
     /// `Self::unbounded` leave it `None` (mirrors `Self::chain_depth_cap`'s own "tests opt in
@@ -727,27 +651,6 @@ impl ComposeBudget {
     }
 }
 
-/// Checks `net`'s `statecount`/`arccount` against `budget`'s caps; shared by every checked wrapper below.
-fn check_size(net: &Fsm, budget: &ComposeBudget, site: &'static str) -> Result<(), ComposeError> {
-    if net.statecount < 0 || net.statecount as usize > budget.state_cap {
-        return Err(ComposeError::NetSizeExceeded {
-            measure: NetSizeMeasure::States,
-            value: net.statecount,
-            limit: budget.state_cap,
-            site,
-        });
-    }
-    if net.arccount < 0 || net.arccount as usize > budget.arc_cap {
-        return Err(ComposeError::NetSizeExceeded {
-            measure: NetSizeMeasure::Arcs,
-            value: net.arccount,
-            limit: budget.arc_cap,
-            site,
-        });
-    }
-    Ok(())
-}
-
 /// Wall-clock wrapper (design doc §5): runs `f` on a dedicated 256MB-stack worker thread (the same
 /// large-stack convention this crate's own P6 example drivers already use around this exact call
 /// shape, e.g. `examples/p6_replace_prototype.rs`'s `STACK_BYTES`) and waits up to `timeout` via an
@@ -777,9 +680,9 @@ where
 }
 
 /// Checked `fsm_compose` (V1/V2, design doc §4): optionally runs under `call_with_deadline`
-/// (only when `budget.step_timeout` is `Some` -- default OFF, module doc), then checks the result's
-/// size against `budget`. `site` is a short, stable label identifying the call site (design doc
-/// §4's own per-site names) for `ComposeError`'s message.
+/// (only when `budget.step_timeout` is `Some` -- default OFF, module doc). `site` is a short,
+/// stable label identifying the call site (design doc §4's own per-site names) for `ComposeError`'s
+/// message.
 pub(crate) fn compose_checked(
     opts: &FomaOptions,
     a: Fsm,
@@ -800,14 +703,11 @@ pub(crate) fn compose_checked(
             })?
         }
     };
-    check_size(&net, budget, site)?;
     Ok(net)
 }
 
 /// Checked `fsm_union` -- see `compose_checked`'s doc (identical shape, `fsm_union` in place of
-/// `fsm_compose`). Recall `fsm_union` does NOT minimize internally (module doc): the size check
-/// here can catch a union whose accumulated non-minimal state count is already large, even before
-/// any eventual minimize.
+/// `fsm_compose`). Recall `fsm_union` does NOT minimize internally (module doc).
 pub(crate) fn union_checked(
     opts: &FomaOptions,
     a: Fsm,
@@ -828,7 +728,6 @@ pub(crate) fn union_checked(
             })?
         }
     };
-    check_size(&net, budget, site)?;
     Ok(net)
 }
 
@@ -852,7 +751,6 @@ pub(crate) fn minimize_checked(
             })?
         }
     };
-    check_size(&net, budget, site)?;
     Ok(net)
 }
 

@@ -30,7 +30,7 @@
 //! `std::time::Instant` deltas around code that runs unconditionally anyway, [`EmitCounts::
 //! lexc_lines`] snapshots (a plain integer field already incremented by `write_tag_entry`/
 //! `write_bare`), and the compiled `foma::types::Fsm`'s own `statecount`/`arccount` fields (public,
-//! free reads — `crate::compose_budget`'s own doc: "size checks are free after every call").
+//! free reads).
 //! Nothing here calls `fsm_compose`/`fsm_union`/`fsm_minimize`/`fsm_lexc_parse_string` an extra
 //! time, clones an `Fsm`, or otherwise performs automaton work solely to produce a metric.
 //!

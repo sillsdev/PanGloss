@@ -237,13 +237,7 @@
 //! own compile path, `crate::lower::lower_span`, `crate::capability`'s structural probes — calls it
 //! with only a `&Grammar`/`&CharDefTable`), and widening that signature crate-wide for one
 //! dimension's sake was judged a larger, separate follow-on rather than something this single-owner
-//! slice should take on. **Residual, pre-existing, NOT introduced here**: the FIRST branch net of a
-//! `compile_rewrite_rule_subset` fold (`net = None => branch_net` — no `compose_checked`/
-//! `union_checked` call at all for that one net) already escapes every `ComposeBudget` size check
-//! before the SECOND subrule's fold runs one — true for every existing construct this file compiles
-//! (alpha tuples, RTL, Simultaneous), not a new gap a large quantifier bound opens; flagged here
-//! because a large `max` is the most likely way any one branch net alone gets big, not because this
-//! change caused it.
+//! slice should take on.
 //!
 //! **Confirm-engine finding (recall RTL's own "recall this can have gaps" note): a Quantifier whose
 //! own occurrence count can make it match a PHYSICAL WIDTH other than exactly 1 segment, used as (or
@@ -1688,7 +1682,6 @@ mod compose_budget_tests {
     //! EXACTLY 6 by construction (a single occurrence trivially agrees with itself, module doc on
     //! `AlphaAssignment`), which every test below relies on.
     use super::*;
-    use crate::compose_budget::NetSizeMeasure;
 
     /// 6 segments, all matching the sole natural class `ncBig` (an "Any" class); each carries a nonzero `featA` bit so alpha self-agreement passes.
     const SYNTH_ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
