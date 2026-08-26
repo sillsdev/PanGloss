@@ -18,8 +18,7 @@ use pg_foma::plan_diagram::{
 use pg_foma::readiness_policy::{policy_v1, ThresholdPolicy};
 use pg_foma::readiness_verdict::{
     certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
-    CoverageAssessment, LatencyMeasurement, Measurements, OverriddenConfig as RvOverriddenConfig,
-    OverrideRecord as RvOverrideRecord, ReadinessReport, Tier, TrustStatus,
+    CoverageAssessment, LatencyMeasurement, Measurements, ReadinessReport, Tier, TrustStatus,
 };
 use pg_grammar::model::Grammar;
 use sha2::{Digest, Sha256};
@@ -38,7 +37,7 @@ const REFUSED_PACK_REMEDIATION: &str =
 const REFUSED_PACK_REMEDIATION: &str =
     "the grammar is outside the production capability policy, so no pack was built; consult the saved capability/readiness report or use a developer-tools build for an explicitly authorized override workflow";
 
-// Small, self-contained helpers: hashing, git introspection, trust projection, timing.
+// Small, self-contained helpers: hashing, git introspection, timing.
 
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
@@ -88,27 +87,6 @@ fn submodule_revision(rel_path: &str) -> String {
             }
         }
         _ => format!("unknown ({rel_path}: no such submodule at the repo toplevel {top})"),
-    }
-}
-
-/// A plain, non-lossy field-for-field projection of `pg_pack::CapabilityTrust` into `TrustStatus`; a shared type would cycle, since `pg-pack` already depends on `pg-foma`.
-fn map_trust(t: &pg_pack::CapabilityTrust) -> TrustStatus {
-    match t {
-        pg_pack::CapabilityTrust::Proven => TrustStatus::Proven,
-        pg_pack::CapabilityTrust::Overridden(record) => TrustStatus::Overridden(RvOverrideRecord {
-            authorized_by: record.authorized_by.clone(),
-            reason: record.reason.clone(),
-            recorded_at: record.recorded_at.clone(),
-            overridden_configs: record
-                .overridden_configs
-                .iter()
-                .map(|c| RvOverriddenConfig {
-                    predicate: c.predicate.clone(),
-                    construct: c.construct.clone(),
-                    witness: c.witness.clone(),
-                })
-                .collect(),
-        }),
     }
 }
 
@@ -942,9 +920,8 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
              whether --corpus was supplied)."
                 .to_string();
     } else {
-        // ---- trust + artifact size: from a REAL artifact, never a caller-supplied parameter ----
-        let (trust_src, artifact_size, pack_pin_line, health, assessments): (
-            pg_pack::CapabilityTrust,
+        // ---- artifact size and health: from a REAL artifact, never caller-supplied parameters ----
+        let (artifact_size, pack_pin_line, health, assessments): (
             u64,
             String,
             HealthReport,
@@ -953,21 +930,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             Some(p) => {
                 let bytes = fs::read(p).map_err(|e| format!("read --pack {p}: {e}"))?;
                 let read = pg_pack::read_pack(&bytes).map_err(|e| format!("read_pack {p}: {e}"))?;
-                if matches!(
-                    &read.manifest.capability_trust,
-                    pg_pack::CapabilityTrust::Overridden(_)
-                ) && !allow_unproven
-                {
-                    return Err(format!(
-                        "supplied --pack {p} is stamped capability_trust=Overridden/unproven; pass --allow-unproven for an explicitly authorized developer-only evidence report"
-                    ));
-                }
-                if matches!(
-                    &read.manifest.capability_trust,
-                    pg_pack::CapabilityTrust::Proven
-                ) {
-                    crate::pack::validate_health_readiness(&read.manifest.fst_health, false)?;
-                }
+                crate::pack::validate_health_readiness(&read.manifest.fst_health, false)?;
                 if read.manifest.grammar_id != grammar_id {
                     eprintln!(
                         "warning: --pack {p}'s manifest grammar_id ({:?}) does not match this \
@@ -982,7 +945,6 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                     read.manifest.package_fingerprint
                 );
                 (
-                    read.manifest.capability_trust,
                     bytes.len() as u64,
                     pin,
                     read.manifest.fst_health.clone(),
@@ -990,7 +952,6 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 )
             }
         };
-        trust = map_trust(&trust_src);
         pack_pin = pack_pin_line;
         fst_health = Some(health);
         backend_assessments = Some(assessments);
