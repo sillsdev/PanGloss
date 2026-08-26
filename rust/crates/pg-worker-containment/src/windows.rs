@@ -52,6 +52,7 @@ pub(crate) struct ContainedWorkerProcess {
     direct_exit: Option<DirectChildExit>,
     memory_evidence: Option<MemoryLimitEvidence>,
     peak_memory_charge_bytes: u64,
+    cleanup_claimed: bool,
 }
 
 impl ContainedWorkerProcess {
@@ -209,6 +210,7 @@ impl ContainedWorkerProcess {
             direct_exit: None,
             memory_evidence: None,
             peak_memory_charge_bytes: 0,
+            cleanup_claimed: false,
         })
     }
 
@@ -374,6 +376,7 @@ impl ContainedWorkerProcess {
             Err(error) => failures.push(error.to_string()),
         }
         if failures.is_empty() {
+            self.cleanup_claimed = true;
             Ok(FinalEvidence {
                 memory_limit: self.memory_evidence,
                 peak_memory_charge_bytes: self.peak_memory_charge_bytes,
@@ -386,6 +389,10 @@ impl ContainedWorkerProcess {
     }
 
     fn cleanup(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
+        if self.cleanup_claimed {
+            return Ok(());
+        }
+        self.cleanup_claimed = true;
         let mut failures = Vec::new();
         if let Err(error) = self.terminate_job_raw() {
             failures.push(error.to_string());
@@ -532,6 +539,14 @@ impl ContainedWorkerProcess {
             }
         }
         Ok(info)
+    }
+}
+
+impl Drop for ContainedWorkerProcess {
+    fn drop(&mut self) {
+        if !self.cleanup_claimed {
+            let _ = self.cleanup(Instant::now() + Duration::from_secs(5));
+        }
     }
 }
 

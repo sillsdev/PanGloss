@@ -61,6 +61,7 @@ struct DelegatedRoot {
     directory: OwnedFd,
 }
 
+#[derive(Clone)]
 struct CgroupMount {
     root: String,
     mountpoint: PathBuf,
@@ -823,42 +824,25 @@ fn require_strict_descendant(current: &Path, root: &Path) -> Result<(), Containm
 }
 
 fn most_specific_covering_mount(path: &Path) -> Result<CgroupMount, ContainmentError> {
-    let mut matches = Vec::new();
-    for line in fs::read_to_string("/proc/self/mountinfo")
-        .map_err(|error| unavailable(format!("reading /proc/self/mountinfo: {error}")))?
-        .lines()
-    {
-        let Some(mount) = parse_cgroup2_mount(line) else {
-            continue;
-        };
-        if hierarchy_is_under(path, Path::new(&mount.root)) {
-            matches.push(mount);
-        }
-    }
-    let Some(longest) = matches
-        .iter()
-        .map(|mount| component_count(Path::new(&mount.root)))
-        .max()
-    else {
-        return Err(unavailable(
-            "no visible cgroup-v2 mount covers the delegated root",
-        ));
-    };
-    let selected = matches
-        .into_iter()
-        .filter(|mount| component_count(Path::new(&mount.root)) == longest)
-        .collect::<Vec<_>>();
-    if selected.len() != 1 {
-        return Err(unavailable("cgroup-v2 mount mapping is ambiguous"));
-    }
-    Ok(selected.into_iter().next().expect("one selected mount"))
+    let text = fs::read_to_string("/proc/self/mountinfo")
+        .map_err(|error| unavailable(format!("reading /proc/self/mountinfo: {error}")))?;
+    select_cgroup2_mount(&text, path)
 }
 
-#[cfg(test)]
 fn select_cgroup2_mount(text: &str, path: &Path) -> Result<CgroupMount, ContainmentError> {
-    let matches = text
+    let mounts = text
         .lines()
         .filter_map(parse_cgroup2_mount)
+        .collect::<Vec<_>>();
+    Ok(select_most_specific_covering_mount(&mounts, path)?.clone())
+}
+
+fn select_most_specific_covering_mount<'a>(
+    mounts: &'a [CgroupMount],
+    path: &Path,
+) -> Result<&'a CgroupMount, ContainmentError> {
+    let matches = mounts
+        .iter()
         .filter(|mount| hierarchy_is_under(path, Path::new(&mount.root)))
         .collect::<Vec<_>>();
     let Some(longest) = matches
@@ -870,14 +854,16 @@ fn select_cgroup2_mount(text: &str, path: &Path) -> Result<CgroupMount, Containm
             "no visible cgroup-v2 mount covers the delegated root",
         ));
     };
-    let selected = matches
+    let mut selected = matches
         .into_iter()
-        .filter(|mount| component_count(Path::new(&mount.root)) == longest)
-        .collect::<Vec<_>>();
-    if selected.len() != 1 {
+        .filter(|mount| component_count(Path::new(&mount.root)) == longest);
+    let Some(first) = selected.next() else {
+        return Err(unavailable("cgroup-v2 mount mapping is ambiguous"));
+    };
+    if selected.next().is_some() {
         return Err(unavailable("cgroup-v2 mount mapping is ambiguous"));
     }
-    Ok(selected.into_iter().next().expect("one selected mount"))
+    Ok(first)
 }
 
 fn hierarchy_is_under(path: &Path, root: &Path) -> bool {
@@ -894,23 +880,7 @@ fn component_count(path: &Path) -> usize {
 }
 
 fn open_mapped_root(mount: &CgroupMount, hierarchy: &Path) -> Result<OwnedFd, ContainmentError> {
-    let mountpoint = cstring_os(mount.mountpoint.as_os_str())?;
-    // SAFETY: mountpoint is a live NUL-terminated path and the returned directory fd is newly owned.
-    let mount_fd = unsafe {
-        libc::open(
-            mountpoint.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | O_NOFOLLOW | libc::O_CLOEXEC,
-        )
-    };
-    if mount_fd < 0 {
-        return Err(unavailable(format!(
-            "opening cgroup-v2 mount: {}",
-            std::io::Error::last_os_error()
-        )));
-    }
-    // SAFETY: mount returned a fresh directory descriptor with no Rust owner; this transfer
-    // gives exactly one OwnedFd ownership of it.
-    let mut current = unsafe { OwnedFd::from_raw_fd(mount_fd) };
+    let mut current = open_absolute_directory(&mount.mountpoint)?;
     let root = Path::new(&mount.root);
     let suffix = if root == Path::new("/") {
         hierarchy.strip_prefix("/").unwrap_or(hierarchy)
@@ -935,6 +905,58 @@ fn open_mapped_root(mount: &CgroupMount, hierarchy: &Path) -> Result<OwnedFd, Co
         if fd < 0 {
             return Err(unavailable(format!(
                 "opening mapped delegated root: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        // SAFETY: openat returned a fresh descriptor and current is replaced only after ownership transfer.
+        current = unsafe { OwnedFd::from_raw_fd(fd) };
+    }
+    Ok(current)
+}
+
+fn open_absolute_directory(path: &Path) -> Result<OwnedFd, ContainmentError> {
+    if !path.is_absolute() {
+        return Err(unavailable("cgroup-v2 mountpoint is not absolute"));
+    }
+    let root = cstring("/")?;
+    // SAFETY: root is live NUL-terminated storage; the returned descriptor is newly owned.
+    let root_fd = unsafe {
+        libc::open(
+            root.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if root_fd < 0 {
+        return Err(unavailable(format!(
+            "opening root for cgroup-v2 mount: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    // SAFETY: open returned a fresh descriptor with no Rust owner; this transfer gives it one
+    // OwnedFd owner.
+    let mut current = unsafe { OwnedFd::from_raw_fd(root_fd) };
+    for component in path.components() {
+        let component = match component {
+            std::path::Component::RootDir => continue,
+            std::path::Component::Normal(component) => component,
+            _ => {
+                return Err(unavailable(
+                    "cgroup-v2 mountpoint contains unsupported traversal",
+                ));
+            }
+        };
+        let name = cstring_os(component)?;
+        // SAFETY: current is an owned directory fd and name remains live for this openat call.
+        let fd = unsafe {
+            libc::openat(
+                current.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if fd < 0 {
+            return Err(unavailable(format!(
+                "opening cgroup-v2 mount component: {}",
                 std::io::Error::last_os_error()
             )));
         }
