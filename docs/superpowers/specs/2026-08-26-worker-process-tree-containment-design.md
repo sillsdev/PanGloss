@@ -115,13 +115,24 @@ from `/proc/self/cgroup`. Create a generated per-attempt child beneath an explic
 writable parent; its generated name is an implementation detail, not caller identity or an
 execution envelope. Require `memory` in the parent's `cgroup.subtree_control` and writable
 `memory.max`, `memory.oom.group`, `cgroup.procs`, `cgroup.events`, and `cgroup.kill` surfaces.
+For this checkpoint, the supervisor's current unified cgroup is the delegated parent: never walk
+upward looking for writable authority and never enable a missing controller. The service/container
+manager must launch the supervisor inside a cgroup it has delegated; otherwise containment is
+unavailable. This is host infrastructure, not a caller-selected build envelope.
 
 Set `memory.max`, `memory.oom.group=1`, and `memory.swap.max=0` where available. Place the child in
-the cgroup before it can execute compile work. Prefer `clone3(CLONE_INTO_CGROUP)`; a gated pre-exec
-handshake may be used only if the child blocks before `exec` until the parent has written its PID to
-`cgroup.procs`. The pre-exec side performs no allocation, fork, or compile setup, and parent death
-cannot release the worker unmanaged. Ordinary spawn-then-move is forbidden. If neither race-free
-placement route is available, fail closed.
+the cgroup before it can execute compile work. This checkpoint uses
+`clone3(CLONE_INTO_CGROUP | CLONE_PIDFD)` as its sole launch route and fails closed when the kernel,
+architecture, seccomp policy, or delegation does not support it. Do not add a spawn-then-move
+fallback. A future gated pre-exec fallback requires a separate design and parent-death proof before
+it can be admitted. Prebuild argv, environment, paths, and file descriptors before `clone3`; the
+child performs only raw no-allocation setup, `execve`, or `_exit`.
+
+Read back `memory.max` after configuration. It may be page-rounded, so require the effective value
+to be no greater than the requested cap and record it in Linux native evidence. Baseline and final
+reads use hierarchical `memory.events`, not `memory.events.local`; construct memory-limit evidence
+only when both `max` and `oom_kill` increased. `memory.peak` alone and an abnormal child exit are not
+proof. An ancestor-cgroup kill without local evidence remains a process failure.
 
 On failure, write `1` to `cgroup.kill`, wait for `cgroup.events` to report `populated 0`, reap the
 direct child, capture `memory.peak` and `memory.events`, then remove the cgroup within the bounded
@@ -131,6 +142,9 @@ equivalent. Missing delegation, controller support, `cgroup.kill`, permission, o
 placement yields `ContainmentUnavailable`. Process groups, RSS polling, `RLIMIT_AS`, and
 `RLIMIT_RSS` may aid cleanup but do not satisfy aggregate memory containment and cannot permit
 publication.
+
+Direct-child status is platform-neutral: clean numeric exits and signal termination are distinct.
+Only exit code zero is success; SIGKILL/SIGSEGV may never be converted into a fabricated exit code.
 
 ## Stage boundary
 

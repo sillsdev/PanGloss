@@ -109,16 +109,21 @@ Files:
 - safe `pg-foma` containment integration
 - Linux fixture/integration tests
 
-- [ ] Discover cgroup2 mount/current membership and validate an explicitly delegated parent.
+- [ ] Discover cgroup2 mount/current membership and validate the supervisor's current unified cgroup
+      as the explicitly delegated parent. Never walk upward or enable controllers on the host's behalf.
 - [ ] Require `memory` in `cgroup.subtree_control`; create a generated per-attempt child cgroup and
       configure memory, OOM-group, and swap boundaries.
-- [ ] Implement race-free placement with `clone3(CLONE_INTO_CGROUP)` or a blocked pre-exec
-      handshake whose child side performs no allocation/fork/setup and cannot escape on parent
-      death; forbid ordinary spawn-then-move.
+- [ ] Implement race-free placement with `clone3(CLONE_INTO_CGROUP | CLONE_PIDFD)` as the only
+      admitted route in this checkpoint. Prebuild all child inputs; the child may perform only raw
+      no-allocation setup, `execve`, or `_exit`. Fail closed when unavailable; forbid ordinary
+      spawn-then-move. Any pre-exec-handshake fallback is a separately reviewed future change.
 - [ ] Implement orderly error/unwind cleanup, `cgroup.kill`, bounded populated-zero wait, memory
       event/peak capture, and bounded directory cleanup; do not promise abrupt-supervisor-death
       cleanup on Linux without a separate external lifecycle mechanism and proof.
 - [ ] Fail closed when delegation/controller/placement is unavailable.
+- [ ] Make direct-child termination signal-aware; only a real numeric exit code zero is success.
+- [ ] Read back page-rounded `memory.max`, require it not exceed the requested cap, and require
+      hierarchical `memory.events` `max` plus `oom_kill` deltas before emitting native memory evidence.
 - [ ] Expose only safe owned containment operations to `pg-foma`; native handles and unsafe launch
       machinery remain private to the helper crate.
 - [ ] Prove success, descendant memory kill, timeout with inherited pipes, fork-race cleanup, and
