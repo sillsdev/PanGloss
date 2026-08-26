@@ -74,9 +74,7 @@
 //! `crate::emit`'s two emitters use, and the chain itself is
 //! `crate::emit::build_compound_chain` — the one shared unroller, now with three callers rather
 //! than a third hand-rolled copy (that function's own doc explains the generic seams that made the
-//! reuse possible). Head/non-head eligibility is `crate::emit::compound_license`, and the
-//! head x non-head cross product is checked against `HC_COMPOUND_PAIR_BUDGET` before any of the
-//! chain's lexc text is written.
+//! reuse possible). Head/non-head eligibility is `crate::emit::compound_license`.
 //!
 //! ### The non-head root set is GRAMMAR-WIDE, the bare-root lexicon stays partitioned
 //! This module is called ONCE PER GATE-PARTITION GROUP (`crate::gate`'s static-partition design;
@@ -128,7 +126,7 @@ use std::collections::HashSet;
 
 use pg_grammar::model::{Grammar, LexEntryId, MorphRuleDef, OutputAction, SegmentedText};
 
-use crate::compose_budget::{compound_pair_budget_from_env, ComposeBudget, ComposeError};
+use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::emit::{
     build_compound_chain, classify_affix, compound_extra_levels_checked, compound_license,
     write_bare, write_lexicon_header, EmitCounts, Role,
@@ -443,22 +441,6 @@ pub fn emit_underlying_filtered_with_budget(
     }
     let mut compound_extra_levels = 0usize;
     if emit_compound {
-        // The pessimistic head-side operand is the grammar-wide root-allomorph count, not this group's own `root_lines.len()`, since the per-group networks are unioned and the budget must bound the whole partition.
-        let heads = g
-            .entries
-            .iter()
-            .map(|e| e.allomorphs.iter().filter(|a| !a.is_pattern).count())
-            .sum::<usize>();
-        let pairs = heads.saturating_mul(non_head_roots.len());
-        let limit = compound_pair_budget_from_env();
-        if pairs > limit {
-            return Err(ComposeError::CompoundPairBudgetExceeded {
-                heads,
-                non_heads: non_head_roots.len(),
-                pairs,
-                limit,
-            });
-        }
         compound_extra_levels = compound_extra_levels_checked(g)?;
     }
 

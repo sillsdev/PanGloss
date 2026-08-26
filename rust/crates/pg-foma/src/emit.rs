@@ -4024,7 +4024,7 @@ enum SurfaceRootScopePolicy {
 ///
 /// Every stage boundary below is a plain `Instant::now()`/`.elapsed()` pair around already-existing
 /// sequential code, never a closure: several stages sit across this function's own early `return`s
-/// (the enum-budget trip, the empty-roots bail-out, the compound-pair-budget breach), and a closure
+/// (the enum-budget trip and the empty-roots bail-out), and a closure
 /// cannot early-return its OUTER function, so timing via closures would not fit every stage
 /// `CompileStage` names (`crate::profile`'s own doc, `CompileProfileBuilder::push_stage`).
 pub(crate) fn emit_with_budget_profiled(
@@ -4585,52 +4585,12 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     // Overwritten below when has_compounding_rules; stays 1 for every no-compounding grammar.
     let mut compound_extra_levels: usize = 1;
 
-    // Computed once, before any lexc text is written, to fail fast; None (a pure no-op) for the common no-compounding-rule case.
     let compound_license = if has_compounding_rules {
         compound_license(g)
     } else {
         None
     };
     if let Some(license) = &compound_license {
-        // Uses all_roots.len(), not the smaller head_eligible count, so this never under-counts the real cost: over-proposing on the head side is sound, narrowing it risks regressing plain recall.
-        let non_head_count =
-            filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
-        let cross = all_roots.len().saturating_mul(non_head_count);
-        let limit = closure_trace.map_or_else(
-            crate::compose_budget::compound_pair_budget_from_env,
-            crate::characterization::ClosureTrace::compound_pair_cap,
-        );
-        if cross > limit {
-            if let Some(trace) = closure_trace {
-                trace.stop(crate::characterization::ClosureStopReason::ResourceBudgetReached);
-            }
-            let reason = format!(
-                "compound head x non-head root-pair cross product ({cross} = {} heads x {non_head_count} \
-                 licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit {limit}). This grammar's \
-                 compounding rule(s) license too large a cross product to safely emit -- raise the \
-                 budget only if you understand why this grammar's compounding is this large, or fall \
-                 back to another engine for this grammar. Never silently truncated: an honest refusal, \
-                 not a partial/unsound network.",
-                all_roots.len()
-            );
-            return EmitResult {
-                lexc_source: String::new(),
-                report: EmitReport {
-                    uncovered,
-                    counts,
-                    tier: FomaTier::Unsupported { reason },
-                    enum_budget_exceeded: Some(EnumBudgetExceeded {
-                        measure: "compound head x non-head root pairs",
-                        value: cross,
-                        limit,
-                    }),
-                    closure_refusal: None,
-                    closure_evidence: closure_trace.map(|trace| trace.result()),
-                },
-            };
-        }
-
-        // Shared with emit_underlying_templated via compound_chain_depth_and_budget_check.
         compound_extra_levels = match compound_chain_depth_and_budget_check(
             g,
             &uncovered,
@@ -5446,43 +5406,11 @@ pub fn emit_underlying_templated(
     };
     let all_roots: Vec<&RootRec> = roots.iter().collect();
 
-    // The same license-gated head/non-head subsets + compound-pair budget check emit_with_budget computes; None for the common no-compounding-rule grammar.
     let compound_license = if has_compounding_rules {
         compound_license(g)
     } else {
         None
     };
-    if let Some(license) = &compound_license {
-        let non_head_count =
-            filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
-        let cross = all_roots.len().saturating_mul(non_head_count);
-        let limit = crate::compose_budget::compound_pair_budget_from_env();
-        if cross > limit {
-            let reason = format!(
-                "compound head x non-head root-pair cross product ({cross} = {} heads x \
-                 {non_head_count} licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit \
-                 {limit}). Never silently truncated: an honest refusal, not a partial/unsound \
-                 network.",
-                all_roots.len()
-            );
-            return EmitResult {
-                lexc_source: String::new(),
-                report: EmitReport {
-                    uncovered,
-                    counts,
-                    tier: FomaTier::Unsupported { reason },
-                    enum_budget_exceeded: Some(EnumBudgetExceeded {
-                        measure: "compound head x non-head root pairs",
-                        value: cross,
-                        limit,
-                    }),
-                    closure_refusal: None,
-                    closure_evidence: None,
-                },
-            };
-        }
-    }
-
     // Overwritten below when has_compounding_rules; stays 1 for every no-compounding grammar, mirroring emit_with_budget_profiled's default.
     let mut compound_extra_levels: usize = 1;
     if compound_license.is_some() {

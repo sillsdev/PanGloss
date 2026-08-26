@@ -186,7 +186,6 @@ struct TraceState {
 /// Mutable evidence sink shared by the production emitter and characterization APIs.
 pub(crate) struct ClosureTrace {
     limits: ClosureTestLimits,
-    compound_pair_cap: usize,
     compound_chain_depth_cap: usize,
     state: Mutex<TraceState>,
 }
@@ -195,7 +194,6 @@ impl ClosureTrace {
     pub(crate) fn new(limits: ClosureTestLimits) -> Self {
         Self {
             limits,
-            compound_pair_cap: crate::compose_budget::DEFAULT_COMPOUND_PAIR_BUDGET,
             compound_chain_depth_cap: DEFAULT_TUNED_COMPOUND_CHAIN_DEPTH_LIMIT,
             state: Mutex::new(TraceState {
                 rule_pairs_visited: 0,
@@ -212,10 +210,6 @@ impl ClosureTrace {
 
     pub(crate) fn depth_cap(&self) -> usize {
         self.limits.depth_cap
-    }
-
-    pub(crate) fn compound_pair_cap(&self) -> usize {
-        self.compound_pair_cap
     }
 
     pub(crate) fn compound_chain_depth_cap(&self) -> usize {

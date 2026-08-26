@@ -2598,8 +2598,7 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 /// `max_depth` is always finite but never guaranteed SMALL: `CompoundingRuleDef::max_apps` is a bare
 /// `u16` with no clamp enforced anywhere in this crate's own loader, so a grammar author could set
 /// `multipleApplication` far beyond the DTD's practical ceiling (9). `crate::emit`'s own
-/// `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` (mirroring the pre-existing `HC_COMPOUND_PAIR_BUDGET`
-/// cross-product check the SAME construction already paid) refuses an individual PATHOLOGICALLY
+/// `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` refuses an individual PATHOLOGICALLY
 /// deep grammar at COMPILE TIME with a typed, honest `FomaTier::Unsupported` outcome — this is a
 /// COST/resource-ceiling refusal, not a capability-layer one, exactly mirroring how
 /// `unordered-application.chain-depth-bounded` stays `ConfirmOnly` (this file's own

@@ -579,27 +579,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  ordering-multiplicity budget allows before any combinatorial walk began."
             ),
         },
-        ComposeError::CompoundPairBudgetExceeded {
-            heads,
-            non_heads,
-            pairs,
-            limit,
-        } => HealthFinding {
-            code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Compile,
-            affected: Vec::new(),
-            metric: Metric::CompoundRootPairCount,
-            value: MetricValue::Count(*pairs as u64),
-            provenance: ValueProvenance::ProvenBound,
-            threshold: Some(MetricValue::Count(*limit as u64)),
-            explanation: format!(
-                "This grammar's compounding rule(s) license {pairs} head x non-head root-allomorph \
-                 pairs ({heads} heads x {non_heads} licensed non-heads, limit {limit}) -- an exact \
-                 count proven to exceed the compound-pair budget before any compound lexc text was \
-                 written."
-            ),
-        },
     }
 }
 
@@ -842,12 +821,6 @@ mod tests {
                 rule_count: 2,
                 limit: 1,
                 site: "ordering",
-            },
-            ComposeError::CompoundPairBudgetExceeded {
-                heads: 1,
-                non_heads: 2,
-                pairs: 2,
-                limit: 1,
             },
         ];
         for error in compose_errors {

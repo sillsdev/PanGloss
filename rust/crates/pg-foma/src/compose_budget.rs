@@ -147,30 +147,6 @@ pub(crate) fn line_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_LINE_BUDGET)
 }
 
-/// `HC_COMPOUND_PAIR_BUDGET`: ceiling on the compound HEAD x NON-HEAD root-pair cross product
-/// `crate::emit`'s license-gated
-/// "bounded compound loop" is about to emit, checked BEFORE any of that lexc text is written (the
-/// same "check the search result before the expensive part" discipline every other budget in this
-/// module uses). Unlike ordinary affix concatenation (one lexicon-scale operand times one small,
-/// fixed affix-inventory operand), a `CompoundingRuleDef`'s cross product is lexicon-scale on BOTH
-/// sides, with no resource threshold otherwise derived — this is the threshold that
-/// closes it. A separate constant/env var from `DEFAULT_TUPLE_BUDGET`/`HC_COMPOSE_TUPLE_BUDGET`
-/// on purpose: that budget bounds `crate::replace::resolve_alpha_tuples`'s alpha-variable-assignment
-/// count, a semantically unrelated quantity that happens to share a "count candidates before the
-/// expensive step" shape — conflating the two would make either one's calibration silently affect
-/// the other. Default 4,000,000: generous relative to every synthetic fixture exercised so far
-/// (a handful of roots per side) while still catching a pathological 50k-entry-scale grammar
-/// before `write_root_entries` emits millions of lexc lines for it.
-/// Revisit with real large-grammar measurements once one exercises compounding at that scale.
-pub(crate) const DEFAULT_COMPOUND_PAIR_BUDGET: usize = 4_000_000;
-
-pub(crate) fn compound_pair_budget_from_env() -> usize {
-    std::env::var("HC_COMPOUND_PAIR_BUDGET")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_COMPOUND_PAIR_BUDGET)
-}
-
 /// `HC_COMPOSE_STEP_TIMEOUT_MS`: wall-clock deadline for every checked
 /// compose/union/minimize call, via `call_with_deadline`. **Default OFF** (`None`) -- unlike the
 /// four size caps above (default ON, mirroring `EnumerationBudget`'s own always-live convention),
@@ -433,13 +409,6 @@ pub enum ComposeError {
         limit: usize,
         site: &'static str,
     },
-    /// `DEFAULT_COMPOUND_PAIR_BUDGET`'s dimension as a typed error, returned by `crate::uflexc`'s bounded compound loop.
-    CompoundPairBudgetExceeded {
-        heads: usize,
-        non_heads: usize,
-        pairs: usize,
-        limit: usize,
-    },
 }
 
 impl fmt::Display for ComposeError {
@@ -522,20 +491,6 @@ impl fmt::Display for ComposeError {
                  unbounded configuration is honestly unsupported, never silently truncated; raise \
                  HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET only if you understand why this stratum's \
                  rule count is this large."
-            ),
-            ComposeError::CompoundPairBudgetExceeded {
-                heads,
-                non_heads,
-                pairs,
-                limit,
-            } => write!(
-                f,
-                "compound head x non-head root-pair cross product ({pairs} = {heads} heads x \
-                 {non_heads} licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit {limit}). \
-                 This grammar's compounding rule(s) license too large a cross product to safely \
-                 emit -- raise the budget only if you understand why this grammar's compounding is \
-                 this large, or fall back to another engine for this grammar. Never silently \
-                 truncated: an honest refusal, not a partial/unsound network."
             ),
         }
     }
