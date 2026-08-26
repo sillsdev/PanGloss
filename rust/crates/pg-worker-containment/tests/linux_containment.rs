@@ -216,7 +216,9 @@ fn launch_options_preserve_clear_override_remove_and_environment() {
         ]
     );
 
-    let options = LaunchOptions::new().env(&upper, "upper override ✓").env_remove(&lower);
+    let options = LaunchOptions::new()
+        .env(&upper, "upper override ✓")
+        .env_remove(&lower);
     let args = [
         OsString::from("environment"),
         OsString::from(&upper),
@@ -469,7 +471,9 @@ fn concurrent_fork_fanout_during_termination_leaves_no_surviving_descendants() {
     wait_for_file(&ready, Instant::now() + Duration::from_secs(5));
     let deadline = Instant::now() + Duration::from_secs(5);
     process.terminate_tree(deadline).expect("kill fanout");
-    process.reap_direct_child(deadline).expect("reap race parent");
+    process
+        .reap_direct_child(deadline)
+        .expect("reap race parent");
     process.wait_tree_empty(deadline).expect("tree empty");
     let stdout = finish_reader(stdout_handle, stdout_receiver);
     let stderr = finish_reader(stderr_handle, stderr_receiver);
