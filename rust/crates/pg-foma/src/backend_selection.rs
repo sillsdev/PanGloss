@@ -1078,34 +1078,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn selected_candidates_can_be_limited_to_two_without_admitting_bad_reports() {
-        let reports = BACKEND_PREFERENCE
-            .iter()
-            .enumerate()
-            .map(|(index, &strategy)| {
-                BackendReport::accepted(
-                    strategy,
-                    CompileDecision::Admit,
-                    if index == 0 {
-                        vec![finding(
-                            crate::health::Severity::Elevated,
-                            crate::health::FindingCode::PayloadSizeBand,
-                        )]
-                    } else {
-                        vec![]
-                    },
-                )
-                .unwrap()
-            })
-            .collect();
-        let selection = BackendSelection::from_reports(reports);
-
-        assert_eq!(selection.select_up_to(2).len(), 2);
-        assert_eq!(
-            selection.select_up_to(2)[0],
-            EmissionStrategy::TemplatedUnderlyingTokens
-        );
-        assert_eq!(selection.select_up_to(2)[1], EmissionStrategy::PlanComposed);
-    }
 }

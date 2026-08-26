@@ -160,32 +160,13 @@ fn readiness_labels_stay_selectable_while_containment_and_representability_do_no
 }
 
 #[test]
-fn selected_candidates_can_be_limited_to_two() {
-    let selection = BackendSelection::from_reports(
-        BACKEND_PREFERENCE
-            .iter()
-            .enumerate()
-            .map(|(index, &strategy)| {
-                BackendReport::accepted(
-                    strategy,
-                    CompileDecision::Admit,
-                    if index == 0 {
-                        vec![finding(Severity::Elevated, FindingCode::PayloadSizeBand)]
-                    } else {
-                        vec![]
-                    },
-                )
-                .unwrap()
-            })
-            .collect(),
-    );
+fn analysis_reports_facts_and_does_not_choose_top_n_builds() {
+    let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/src/backend_selection.rs"));
 
-    assert_eq!(selection.select_up_to(2).len(), 2);
-    assert_eq!(
-        selection.select_up_to(2)[0],
-        EmissionStrategy::TemplatedUnderlyingTokens
+    assert!(
+        !source.contains("pub fn select_up_to("),
+        "analysis reports facts and must not choose top-N builds"
     );
-    assert_eq!(selection.select_up_to(2)[1], EmissionStrategy::PlanComposed);
 }
 
 #[test]
