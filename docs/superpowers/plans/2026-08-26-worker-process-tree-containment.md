@@ -128,7 +128,13 @@ Files:
       machinery remain private to the helper crate.
 - [ ] Prove success, descendant memory kill, timeout with inherited pipes, fork-race cleanup, and
       required-capability CI behavior on Linux.
-- [ ] Commit and run the Linux containment target in Linux CI; do not claim this gate from Windows.
+- [ ] Add a Linux execution path to `rust/tools/pg.ps1`; the current managed-build implementation is
+      Windows-specific, and repository Rust policy may not be bypassed with bare Cargo in CI.
+- [ ] Commit and run the Linux containment target on a deliberately delegated Linux runner with
+      `PANGLOSS_CGROUP_TEST_REQUIRED=1`. Generic `ubuntu-latest` workspace tests do not establish
+      delegated cgroup authority. External dependency: a runner launched in a writable delegated
+      cgroup with the memory controller enabled, `cgroup.kill`, and permitted `clone3`.
+- [ ] Do not claim the Linux runtime gate from Windows or from a capability-skipped Linux run.
 
 ## Task 5: Supervisor integration and deletion audit
 
