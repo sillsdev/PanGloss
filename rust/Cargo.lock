@@ -771,6 +771,7 @@ dependencies = [
  "pg-rules",
  "pg-shape",
  "pg-snapshot",
+ "pg-worker-containment",
  "rayon",
  "rustc-hash",
  "serde",
@@ -954,6 +955,13 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
  "web-time",
+]
+
+[[package]]
+name = "pg-worker-containment"
+version = "0.1.0"
+dependencies = [
+ "windows-sys",
 ]
 
 [[package]]

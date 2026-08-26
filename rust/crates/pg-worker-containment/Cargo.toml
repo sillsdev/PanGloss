@@ -1,0 +1,24 @@
+[package]
+name = "pg-worker-containment"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Owned process-tree containment for PanGloss compile workers"
+
+[dependencies]
+
+[target.'cfg(windows)'.dependencies]
+# Target-scoped so non-Windows builds do not acquire Windows APIs.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Security",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

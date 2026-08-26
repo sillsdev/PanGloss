@@ -87,7 +87,6 @@
 //! here rather than hidden.
 
 use std::io::{self, Read, Write};
-use std::num::NonZeroU64;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -117,95 +116,9 @@ use pg_grammar::model::Grammar;
 /// wire-incompatible change to either type.
 pub const WORKER_PROTOCOL_VERSION: u32 = crate::worker_contract::PROTOCOL_VERSION;
 
-/// Finite, caller-configurable execution limits for one supervised worker attempt.
-///
-/// These values describe external containment policy. They are configuration only in this
-/// contract slice; enforcement and provenance wiring remain separate work.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExecutionLimits {
-    max_serialized_fst_bytes: u64,
-    max_committed_memory_bytes: u64,
-    max_wall_time: Duration,
-}
-
-/// The reason an execution limit configuration was rejected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionLimitError {
-    ZeroSerializedFstBytes,
-    ZeroCommittedMemoryBytes,
-    ZeroWallTime,
-}
-
-impl std::fmt::Display for ExecutionLimitError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let field = match self {
-            Self::ZeroSerializedFstBytes => "max_serialized_fst_bytes",
-            Self::ZeroCommittedMemoryBytes => "max_committed_memory_bytes",
-            Self::ZeroWallTime => "max_wall_time",
-        };
-        write!(f, "{field} must be positive")
-    }
-}
-
-impl std::error::Error for ExecutionLimitError {}
-
-/// Ratified finite defaults: 1 GiB serialized payload, 10 GiB committed memory, and 10 minutes.
-pub const DEFAULT_EXECUTION_LIMITS: ExecutionLimits = ExecutionLimits {
-    max_serialized_fst_bytes: 1024 * 1024 * 1024,
-    max_committed_memory_bytes: 10 * 1024 * 1024 * 1024,
-    max_wall_time: Duration::from_secs(10 * 60),
+pub use pg_worker_containment::{
+    ExecutionLimitError, ExecutionLimits, DEFAULT_EXECUTION_LIMITS,
 };
-
-impl ExecutionLimits {
-    /// Creates an execution-limit configuration; every dimension must be positive.
-    pub fn try_new(
-        max_serialized_fst_bytes: u64,
-        max_committed_memory_bytes: u64,
-        max_wall_time: Duration,
-    ) -> Result<Self, ExecutionLimitError> {
-        if max_serialized_fst_bytes == 0 {
-            return Err(ExecutionLimitError::ZeroSerializedFstBytes);
-        }
-        if max_committed_memory_bytes == 0 {
-            return Err(ExecutionLimitError::ZeroCommittedMemoryBytes);
-        }
-        if max_wall_time == Duration::ZERO {
-            return Err(ExecutionLimitError::ZeroWallTime);
-        }
-        Ok(Self {
-            max_serialized_fst_bytes,
-            max_committed_memory_bytes,
-            max_wall_time,
-        })
-    }
-
-    pub const fn max_serialized_fst_bytes(self) -> u64 {
-        self.max_serialized_fst_bytes
-    }
-
-    pub const fn max_committed_memory_bytes(self) -> u64 {
-        self.max_committed_memory_bytes
-    }
-
-    pub const fn max_wall_time(self) -> Duration {
-        self.max_wall_time
-    }
-
-    /// Constructs the child-side serialized-FST limit.
-    fn for_selected_payload(max_serialized_fst_bytes: u64) -> Result<Self, ExecutionLimitError> {
-        Self::try_new(
-            max_serialized_fst_bytes,
-            DEFAULT_EXECUTION_LIMITS.max_committed_memory_bytes,
-            DEFAULT_EXECUTION_LIMITS.max_wall_time,
-        )
-    }
-}
-
-impl Default for ExecutionLimits {
-    fn default() -> Self {
-        DEFAULT_EXECUTION_LIMITS
-    }
-}
 
 /// Versioned, hard-coded ceilings for this protocol (design discipline shared with
 /// `pg_pack::format::VersionLimits`). These bound the WIRE MESSAGES themselves (request/result JSON
@@ -862,35 +775,9 @@ fn write_child_output<W: Write>(
 
 // Supervisor (parent side).
 
-/// Intrinsic OS evidence that a worker-tree memory boundary fired.
-///
-/// One enum prevents impossible platform/provenance pairings. The native counters intentionally
-/// remain on `WorkerOutcome`; the shared health schema has no platform-provenance field and must
-/// not pretend these two kernels count memory byte-for-byte identically.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryLimitEvidence {
-    WindowsObservedJobMemoryLimitViolation {
-        peak_job_memory_used_bytes: u64,
-    },
-    LinuxCgroupV2MemoryLimitViolation {
-        memory_peak_bytes: u64,
-        oom_kill_count_delta: NonZeroU64,
-        max_event_count_delta: NonZeroU64,
-    },
-}
-
-impl MemoryLimitEvidence {
-    fn peak_memory_charge_bytes(&self) -> u64 {
-        match self {
-            Self::WindowsObservedJobMemoryLimitViolation {
-                peak_job_memory_used_bytes,
-            } => *peak_job_memory_used_bytes,
-            Self::LinuxCgroupV2MemoryLimitViolation {
-                memory_peak_bytes, ..
-            } => *memory_peak_bytes,
-        }
-    }
-}
+/// Canonical native evidence shared by the worker outcome and the containment adapter. The
+/// adapter owns its construction; this crate remains responsible only for outcome mapping.
+pub use pg_worker_containment::MemoryLimitEvidence;
 
 /// Every terminal outcome the SUPERVISOR (parent) itself observes -- as opposed to
 /// `CompileWorkerOutcome`, which the child observes and reports about itself. A
@@ -1452,6 +1339,7 @@ pub fn run_selected_compile_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU64;
 
     fn selected_build(payload_fingerprint: String) -> CompletedBackendBuildWire {
         CompletedBackendBuildWire {
@@ -2172,6 +2060,7 @@ mod tests {
         let outcome = WorkerOutcome::MemoryLimitKilled {
             limit_bytes: 1_000_000,
             evidence: MemoryLimitEvidence::WindowsObservedJobMemoryLimitViolation {
+                notification_limit_bytes: 900_000,
                 peak_job_memory_used_bytes: 1_048_576,
             },
         };
@@ -2181,7 +2070,8 @@ mod tests {
             WorkerOutcome::MemoryLimitKilled {
                 evidence:
                     MemoryLimitEvidence::WindowsObservedJobMemoryLimitViolation {
-                        peak_job_memory_used_bytes: 1_048_576
+                        notification_limit_bytes: 900_000,
+                        peak_job_memory_used_bytes: 1_048_576,
                     },
                 ..
             }

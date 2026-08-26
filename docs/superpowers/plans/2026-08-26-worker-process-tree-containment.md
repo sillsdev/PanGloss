@@ -80,21 +80,22 @@ Files:
 - safe `pg-foma` containment integration
 - Windows fixture/integration tests
 
-- [ ] Add a target-scoped Windows API dependency to `pg-worker-containment` with only Foundation,
-      Security, JobObjects, and Threading features; keep unsafe calls private and narrowly audited.
-- [ ] Set `deny(unsafe_op_in_unsafe_fn)` in the helper crate, confine unsafe blocks to target-specific
+- [x] Add a target-scoped Windows API dependency to `pg-worker-containment` with only the Win32
+      Foundation, Globalization, Security, IO, JobObjects, Pipes, and Threading families.
+- [x] Set `deny(unsafe_op_in_unsafe_fn)` in the helper crate, confine unsafe blocks to target-specific
       modules, and require a `SAFETY:` justification at every block.
-- [ ] Define the concrete safe owned process API here: contained launch with owned stdio, direct
+- [x] Define the concrete safe owned process API here: contained launch with owned stdio, direct
       child status with exit diagnostics, native memory-event evidence, bounded terminate/drain/
       child-reap operations, final evidence capture, and peak-memory query. Do not add another
       worker outcome or parse/stage protocol payloads in this crate.
-- [ ] Create/configure an unnamed job before launch.
-- [ ] Launch through `CreateProcessW` + `STARTUPINFOEXW` with atomic job-list assignment and an
+- [x] Create/configure an unnamed job before launch, with an exact hard cap and a separately recorded
+      guaranteed-notification threshold below it.
+- [x] Launch through `CreateProcessW` + `STARTUPINFOEXW` with atomic job-list assignment and an
       explicit inherited-handle list.
-- [ ] Preserve Windows quoting, Unicode/space-containing paths, environment overrides, current
+- [x] Preserve Windows quoting, Unicode/space-containing paths, environment overrides, current
       directory, pipe behavior, and cleanup of attribute lists and temporary handles.
-- [ ] Enforce job memory and kill-on-close; implement terminate/wait/peak diagnostics.
-- [ ] Prove success, descendant timeout cleanup, memory kill, pipe closure, and managed-wrapper
+- [x] Enforce job memory and kill-on-close; implement terminate/wait/peak diagnostics.
+- [x] Prove success, descendant termination, aggregate memory kill, bounded pipe EOF, and managed-wrapper
       nested-job behavior.
 - [ ] Commit and run only the Windows containment target through `rust/tools/pg.ps1`.
 

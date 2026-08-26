@@ -86,6 +86,14 @@ Support Windows 10 or newer. Create an unnamed Job Object and configure it befor
 - `JOB_OBJECT_LIMIT_JOB_MEMORY`;
 - `JobMemoryLimit = ExecutionLimits.max_committed_memory_bytes()`.
 
+The configured value is the exact hard ceiling. Also configure
+`JobObjectNotificationLimitInformation2` below that ceiling with headroom equal to the smaller of
+64 MiB or half the configured cap, consume
+`JOB_OBJECT_MSG_NOTIFICATION_LIMIT`, and query `JobObjectLimitViolationInformation2` before
+constructing memory-limit evidence. Record both the notification threshold and observed job-memory
+peak. Ordinary job-limit completion messages are not guaranteed and therefore never prove a clean
+final poll by their absence; see [Microsoft's completion-port contract](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_associate_completion_port).
+
 Launch with `CreateProcessW` and `STARTUPINFOEXW`, using `PROC_THREAD_ATTRIBUTE_JOB_LIST` so the
 worker belongs to the job before its first instruction. Use
 `PROC_THREAD_ATTRIBUTE_HANDLE_LIST` to inherit only the child stdin/stdout/stderr handles. Do not

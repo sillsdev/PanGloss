@@ -21,6 +21,7 @@ members = [
     "crates/pg-conformance-fixtures",
     "crates/pg-grammar-gen",
     "crates/pg-pack",
+    "crates/pg-worker-containment",
     "crates/pg-assess",
     "crates/pg-stats",
 ]
@@ -104,6 +105,9 @@ pg-grammar-gen = { path = "crates/pg-grammar-gen" }
 # containment + ADR 0005 capability-trust stamp, consumed by `pg-wasm`'s load path (see that
 # crate's `src/pack.rs`).
 pg-pack = { path = "crates/pg-pack" }
+# Windows Job Object process-tree containment. The dependency is target-scoped in the crate so
+# analysis-only and Linux builds do not acquire Windows APIs.
+pg-worker-containment = { path = "crates/pg-worker-containment" }
 # dev
 criterion = "0.5"
 proptest = "1"

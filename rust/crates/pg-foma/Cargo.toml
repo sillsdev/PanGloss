@@ -72,6 +72,7 @@ sysinfo.workspace = true
 # from dev-only (below) to a real, non-wasm dependency by this change.
 pg-snapshot.workspace = true
 pg-fwdata.workspace = true
+pg-worker-containment.workspace = true
 
 [dev-dependencies]
 # Enables this crate's own `test-support` feature for its test targets without offering it to any
