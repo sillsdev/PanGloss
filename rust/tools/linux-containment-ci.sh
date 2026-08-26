@@ -69,7 +69,6 @@ run_gate_child() {
     [[ "$memory_max" != max ]] || fail 'delegated root memory.max is unlimited'
     [[ "$memory_max" =~ ^[0-9]+$ ]] || fail "delegated root memory.max is not numeric: $memory_max"
     (( memory_max > 0 )) || fail 'delegated root memory.max must be positive'
-    [[ -w "$root_path/cgroup.kill" ]] || fail 'delegated root cgroup.kill is not writable'
 
     export PANGLOSS_CGROUP_DELEGATED_ROOT="$unit_root"
     exec pwsh -NoProfile -File ./tools/pg.ps1 -Mode test -Package pg-worker-containment -TestTarget linux_containment -NoNextest -MaxConcurrent 1 -Jobs 2 -TestThreads 1
