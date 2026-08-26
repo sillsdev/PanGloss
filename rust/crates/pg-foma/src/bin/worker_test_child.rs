@@ -74,6 +74,9 @@ fn write_synthetic_selected_output(mode: &str) -> std::io::Result<()> {
     write_frame(&mut stdout, &result_json)?;
 
     match mode {
+        "selected-valid" => {
+            write_frame(&mut stdout, payload)?;
+        }
         "selected-missing" => {}
         "selected-truncated" => {
             stdout.write_all(&(payload.len() as u64).to_le_bytes())?;

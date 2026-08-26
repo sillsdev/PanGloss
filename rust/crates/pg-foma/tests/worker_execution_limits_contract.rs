@@ -167,6 +167,31 @@ fn wall_limit_kills_a_slow_worker_process() {
 }
 
 #[test]
+fn selected_request_limit_must_match_supervisor_limit_before_spawning() {
+    let request = selected_request(1024);
+    let limits = ExecutionLimits::try_new(2048, 10 * GIB, Duration::from_secs(60))
+        .expect("positive test limits must be valid");
+
+    let outcome = run_compile_worker(
+        Path::new("worker-child-must-not-start"),
+        &[],
+        &request,
+        &limits,
+    );
+
+    match outcome {
+        WorkerOutcome::ProtocolViolation { detail } => {
+            assert!(detail.contains("selected"), "detail: {detail}");
+            assert!(detail.contains("1024"), "detail: {detail}");
+            assert!(detail.contains("2048"), "detail: {detail}");
+        }
+        other => panic!(
+            "divergent selected limit must be rejected before spawn, got {other:?}"
+        ),
+    }
+}
+
+#[test]
 fn malformed_selected_payload_processes_never_complete() {
     for mode in ["selected-missing", "selected-truncated", "selected-trailing"] {
         let outcome = run_selected_output_mode(mode, Duration::from_secs(2));
@@ -181,6 +206,18 @@ fn malformed_selected_payload_processes_never_complete() {
             !matches!(&outcome, WorkerOutcome::SelectedCompleted { .. }),
             "synthetic mode {mode:?} unexpectedly completed: {outcome:?}"
         );
+    }
+}
+
+#[test]
+fn selected_valid_child_produces_exact_payload() {
+    let outcome = run_selected_output_mode("selected-valid", Duration::from_secs(2));
+
+    match outcome {
+        WorkerOutcome::SelectedCompleted { payload, .. } => {
+            assert_eq!(payload, b"fst!");
+        }
+        other => panic!("valid selected child must complete with its exact payload: {other:?}"),
     }
 }
 

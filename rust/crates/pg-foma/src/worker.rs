@@ -455,8 +455,8 @@ impl CompileWorkerRequest {
 
 // Result / typed outcomes the CHILD reports.
 
-/// One versioned compile-worker result (the child's one write, per the platform-parity contract /
-/// `run_worker_child`'s doc).
+/// One versioned compile-worker result (the metadata frame in the child's write sequence, per the
+/// platform-parity contract / `run_worker_child`'s doc).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileWorkerResult {
     pub protocol_version: u32,
@@ -731,7 +731,8 @@ fn compile_selected_from_request(
 }
 
 /// The worker CHILD's entry point: reads exactly one `CompileWorkerRequest` frame from `input`, compiles it,
-/// and writes exactly one `CompileWorkerResult` frame to `output`. Never panics on malformed
+/// and writes one `CompileWorkerResult` frame to `output` (plus one raw payload frame for selected
+/// success). Never panics on malformed
 /// input -- an oversized/malformed request frame is reported as
 /// `CompileWorkerOutcome::ProtocolViolation`, not a crash, so a hostile/buggy parent still gets a
 /// clean typed response instead of an opaque non-zero exit.
@@ -818,8 +819,25 @@ pub fn run_worker_child<R: Read, W: Write>(mut input: R, mut output: W) -> io::R
     write_child_output(&mut output, child_output)
 }
 
-fn write_result<W: Write>(output: &mut W, result: &CompileWorkerResult) -> io::Result<()> {
+fn bounded_result_json(result: &CompileWorkerResult) -> (Vec<u8>, bool) {
     let json = serde_json::to_vec(result).expect("CompileWorkerResult always serializes");
+    if json.len() as u64 <= WORKER_PROTOCOL_LIMITS.max_result_bytes {
+        return (json, false);
+    }
+
+    let fallback = CompileWorkerResult {
+        protocol_version: WORKER_PROTOCOL_VERSION,
+        outcome: CompileWorkerOutcome::ProtocolViolation {
+            detail: "worker result metadata exceeds the protocol limit".to_string(),
+        },
+    };
+    let fallback_json = serde_json::to_vec(&fallback).expect("protocol violation serializes");
+    debug_assert!(fallback_json.len() as u64 <= WORKER_PROTOCOL_LIMITS.max_result_bytes);
+    (fallback_json, true)
+}
+
+fn write_result<W: Write>(output: &mut W, result: &CompileWorkerResult) -> io::Result<()> {
+    let (json, _) = bounded_result_json(result);
     write_frame(output, &json)
 }
 
@@ -831,31 +849,12 @@ fn write_child_output<W: Write>(
         protocol_version: WORKER_PROTOCOL_VERSION,
         outcome: child_output.outcome.clone(),
     };
-    let json = serde_json::to_vec(&result).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("could not serialize compile-worker result: {error}"),
-        )
-    })?;
-    if json.len() as u64 > WORKER_PROTOCOL_LIMITS.max_result_bytes {
-        return write_result(
-            output,
-            &CompileWorkerResult {
-                protocol_version: WORKER_PROTOCOL_VERSION,
-                outcome: CompileWorkerOutcome::SelectedCompileFailed {
-                    detail: format!(
-                        "selected build result is {} byte(s), exceeding the {}-byte protocol limit",
-                        json.len(),
-                        WORKER_PROTOCOL_LIMITS.max_result_bytes
-                    ),
-                },
-            },
-        );
-    }
-
+    let (json, metadata_overflowed) = bounded_result_json(&result);
     write_frame(output, &json)?;
-    if let Some(payload) = child_output.selected_payload {
-        write_frame(output, &payload)?;
+    if !metadata_overflowed {
+        if let Some(payload) = child_output.selected_payload {
+            write_frame(output, &payload)?;
+        }
     }
     Ok(())
 }
@@ -1178,6 +1177,17 @@ pub fn run_compile_worker(
             ),
         };
     }
+    if let Some(selected) = request.selected.as_ref() {
+        if selected.max_serialized_fst_bytes != limits.max_serialized_fst_bytes() {
+            return WorkerOutcome::ProtocolViolation {
+                detail: format!(
+                    "selected request serialized-FST limit {} disagrees with supervisor ExecutionLimits {}",
+                    selected.max_serialized_fst_bytes,
+                    limits.max_serialized_fst_bytes()
+                ),
+            };
+        }
+    }
 
     let mut child = match Command::new(child_exe)
         .args(child_args)
@@ -1209,7 +1219,7 @@ pub fn run_compile_worker(
         request
             .selected
             .as_ref()
-            .map(|selected| selected.max_serialized_fst_bytes),
+            .map(|_| limits.max_serialized_fst_bytes()),
         stdout_sender,
     );
 
@@ -1454,6 +1464,53 @@ mod tests {
         assert!(matches!(
             parsed,
             ParsedWorkerOutput::SelectedCompleted { payload: actual, .. } if actual == payload
+        ));
+    }
+
+    #[test]
+    fn protocol_eight_result_frame_is_rejected_by_worker_output_reader() {
+        let result = CompileWorkerResult {
+            protocol_version: 8,
+            outcome: CompileWorkerOutcome::ProtocolViolation {
+                detail: "stale result".to_string(),
+            },
+        };
+
+        let error = read_worker_output(
+            std::io::Cursor::new(framed_result(&result, None)),
+            None,
+        )
+        .expect_err("protocol-v8 result must be rejected");
+
+        assert!(error.contains("unsupported result protocol version"), "{error}");
+        assert!(error.contains("8"), "{error}");
+    }
+
+    #[test]
+    fn oversized_result_metadata_becomes_generic_protocol_violation() {
+        let payload = b"fst!".to_vec();
+        let mut build = selected_build(sha256_hex(&payload));
+        build.grammar_identity = "x".repeat(WORKER_PROTOCOL_LIMITS.max_result_bytes as usize);
+        let child_output = WorkerChildOutput {
+            outcome: CompileWorkerOutcome::SelectedSuccess {
+                build,
+                payload_byte_len: payload.len() as u64,
+                payload_sha256: sha256_hex(&payload),
+            },
+            selected_payload: Some(payload),
+        };
+
+        let mut bytes = Vec::new();
+        write_child_output(&mut bytes, child_output).expect("oversized result is reportable");
+        let parsed = read_worker_output(
+            std::io::Cursor::new(bytes),
+            Some(4),
+        )
+        .expect("bounded protocol violation result must parse");
+
+        assert!(matches!(
+            parsed,
+            ParsedWorkerOutput::Completed(CompileWorkerOutcome::ProtocolViolation { .. })
         ));
     }
 
