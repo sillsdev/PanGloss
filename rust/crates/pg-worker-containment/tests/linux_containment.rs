@@ -139,8 +139,7 @@ fn run_clean_child(
 
 #[test]
 fn missing_executable_returns_typed_spawn_failure_without_fallback() {
-    // The process/fd before-after comparison assumes the designated Linux gate uses one test
-    // thread; unrelated concurrent fixtures would legitimately change these snapshots.
+    // These process/fd snapshots require the designated gate's single test thread.
     let directory = temporary_directory("missing");
     let missing = directory.join("does-not-exist");
     let snapshot = configured_worker_root_snapshot();
@@ -788,9 +787,7 @@ fn contained_stdio_works_when_supervisor_stdin_is_closed() {
 
 #[test]
 fn child_reports_membership_in_direct_delegated_root_sibling() {
-    // This behavioral check proves the reported final topology. Atomic first-instruction
-    // placement is a structural property of the Linux adapter: clone3 must remain its sole
-    // launch route with CLONE_INTO_CGROUP and no spawn-then-move fallback.
+    // This checks final topology; the clone3-only source path establishes atomic placement.
     let Some(root) = configured_delegated_root() else {
         if required_capability() {
             panic!("PANGLOSS_CGROUP_DELEGATED_ROOT is required for Linux containment tests");
