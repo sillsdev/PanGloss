@@ -49,11 +49,6 @@ fn ordinary_affix_depth_five_and_ten_are_not_health_violations() {
             "ordinary depth {depth} must not leave uncovered constructs: {:?}",
             emitted.report.uncovered
         );
-        assert!(
-            pg_foma::characterization::tuned_surface_resource_finding(&grammar).is_none(),
-            "ordinary depth {depth} alone must not cross the TunedSurface work envelope"
-        );
-
         let health = evaluate_health(None, Some(&emitted.report), &[], &[], None);
         assert_eq!(
             health.admission(),

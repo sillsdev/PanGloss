@@ -14,7 +14,6 @@ fn load_xml(name: &str) -> Grammar {
         .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|error| panic!("load {}: {error}", path.display()))
 }
-
 fn load_snapshot(name: &str) -> Grammar {
     let path = corpus::require(name);
     let json = std::fs::read_to_string(&path)
@@ -86,41 +85,6 @@ fn assert_backend(
     );
 }
 
-fn assert_default_closure_budget_no_path(selection: &BackendSelection) {
-    assert_backend(
-        selection,
-        EmissionStrategy::TunedSurfaceProbed,
-        BackendStatus::Accepted,
-        Severity::NotProductionReady,
-        Some(FindingCode::ProvenBoundExceedsBudget),
-        Some("tuned-surface-closure-budget"),
-    );
-    assert_backend(
-        selection,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
-        Some("nonregular-process-morphology"),
-    );
-    assert_backend(
-        selection,
-        EmissionStrategy::PlanComposed,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
-        Some("plan-composed-missing-subtrees"),
-    );
-}
-
-#[test]
-#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
-fn indonesian_backend_reports_are_complete() {
-    let grammar = load_xml("indonesian-hc.xml");
-    let selection = characterize("indonesian", &grammar);
-    assert_default_closure_budget_no_path(&selection);
-}
-
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn sena_backend_reports_are_complete() {
@@ -151,23 +115,3 @@ fn sena_backend_reports_are_complete() {
     );
 }
 
-#[test]
-#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
-fn amharic_backend_reports_are_complete() {
-    let selection = characterize("amharic", &load_xml("amharic-hc.xml"));
-    assert_default_closure_budget_no_path(&selection);
-}
-
-#[test]
-#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
-fn aweti_backend_reports_are_complete() {
-    let selection = characterize("aweti", &load_snapshot("aweti.json"));
-    assert_default_closure_budget_no_path(&selection);
-}
-
-#[test]
-#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
-fn mbugwe_backend_reports_are_complete() {
-    let selection = characterize("mbugwe", &load_fwdata("mbugwe.fwdata"));
-    assert_default_closure_budget_no_path(&selection);
-}

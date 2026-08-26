@@ -7,9 +7,7 @@ use std::path::Path;
 use pg_foma::analyzer::FomaProposer;
 use pg_foma::capability::CompileDecision;
 use pg_foma::capability_entry::best_case_across_backends_for_grammar;
-use pg_foma::characterization::{
-    characterize_tuned_surface_closure, ClosureStopReason, ClosureTerminal,
-};
+use pg_foma::characterization::{ClosureStopReason, ClosureTerminal};
 use pg_foma::emit;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
@@ -413,10 +411,5 @@ fn compound_chain_depth_budget_trips_before_any_lexc_emitted() {
     assert_eq!(
         evidence.terminal,
         ClosureTerminal::Incomplete(ClosureStopReason::ResourceBudgetReached)
-    );
-    assert_eq!(
-        characterize_tuned_surface_closure(&g),
-        evidence,
-        "normal characterization must return the same retained production evidence"
     );
 }

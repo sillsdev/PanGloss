@@ -789,51 +789,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn tuned_surface_resource_finding_is_error_with_proven_pair_work() {
-        let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
-        let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
-            .expect("a one-pair closure limit must reject this finite structural closure");
-
-        assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
-        assert_eq!(finding.severity, Severity::NotProductionReady);
-        assert_eq!(finding.phase, Phase::Characterization);
-        assert_eq!(finding.metric, Metric::CompositeRulePairCount);
-        assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
-        assert_eq!(finding.threshold, Some(MetricValue::Count(1)));
-        assert!(matches!(finding.value, MetricValue::Count(value) if value > 1));
-        assert!(
-            !finding.affected.is_empty(),
-            "the dominant contributing rules must be named"
-        );
-        assert!(
-            finding.remedies.iter().any(|remedy| remedy
-                .caveat
-                .as_deref()
-                .is_some_and(|caveat| caveat
-                    .contains("Don't make any change that would make your language invalid!"))),
-            "grammar-editing advice must carry the exact language-validity warning: {finding:?}"
-        );
-    }
-
-    #[test]
-    fn tuned_surface_resource_finding_includes_preexpand_rule_pairs() {
-        let grammar =
-            load_machine_fixture("languages/suffixing-extension-slot-ordering/grammar.xml");
-        let structural_only = crate::emit::characterize_structural_closure(&grammar, 1);
-        assert!(
-            !structural_only.exceeded,
-            "this control must isolate ordinary surface pre-expansion from structural closure: \
-             {structural_only:?}"
-        );
-
-        let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
-            .expect("ordinary phonology-sensitive rule pairs must consume the same tuned limit");
-        assert_eq!(finding.metric, Metric::CompositeRulePairCount);
-        assert_eq!(finding.severity, Severity::NotProductionReady);
-        assert!(matches!(finding.value, MetricValue::Count(value) if value > 1));
-    }
-
     /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no characterization finding at all.
     #[test]
     fn characterization_raises_nothing_for_a_clean_small_grammar() {

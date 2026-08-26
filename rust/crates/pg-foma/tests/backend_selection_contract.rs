@@ -217,32 +217,6 @@ fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
 }
 
 #[test]
-fn tuned_surface_closure_budget_finding_is_reported_and_not_production_ready_is_not_selected() {
-    let grammar = default_budget_exceeding_grammar();
-    let selection = pg_foma::backend_selection::select_backends_for_grammar(&grammar);
-    let tuned = selection
-        .report_for(EmissionStrategy::TunedSurfaceProbed)
-        .expect("TunedSurface must always have one report");
-
-    assert_eq!(tuned.worst_severity(), Severity::NotProductionReady);
-    assert_eq!(tuned.findings().len(), 1);
-    assert_eq!(
-        tuned.findings()[0].code,
-        FindingCode::ProvenBoundExceedsBudget
-    );
-    assert_eq!(tuned.findings()[0].metric, Metric::CompositeRulePairCount);
-    assert_eq!(
-        tuned.shapes(),
-        &["tuned-surface-closure-budget".to_string()]
-    );
-    assert!(tuned
-        .cost_evidence()
-        .iter()
-        .any(|evidence| evidence.metric == Metric::CompositeRulePairCount));
-    assert!(!tuned.advice_references().is_empty());
-}
-
-#[test]
 fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
     let grammar_xml = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),

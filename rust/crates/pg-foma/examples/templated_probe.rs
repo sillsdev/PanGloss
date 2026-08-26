@@ -562,13 +562,6 @@ fn main() {
     } else if struct_flat_total > 1_000_000 {
         step("  >>> probe_would_refuse=false (no widening triggered), but the structural FLAT total above is still large -- a real secondary cost floor, even without widening.");
     }
-    let structural_started = Instant::now();
-    let structural = pg_foma::emit::characterize_structural_closure(g, 3_000_000);
-    step(&format!(
-        "structural proven-work floor ({:.1}ms): {structural:?}",
-        structural_started.elapsed().as_secs_f64() * 1000.0
-    ));
-
     step(&format!(
         "TOTAL: {:.1}ms",
         t0.elapsed().as_secs_f64() * 1000.0
