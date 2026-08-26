@@ -112,6 +112,11 @@ Test-Case 'service script proves the delegated root is empty, memory-enabled, an
         'the script must validate that the finite memory cap is numeric'
 }
 
+Test-Case 'service script does not require delegated root cgroup.kill writability' {
+    Assert-DoesNotMatch $serviceScriptText '(?m)^\s*\[\[\s+-w\s+"\$root_path/cgroup\.kill"\s+\]\]' `
+        'the delegated service root must not require cgroup.kill writability; worker-created child cgroups are the kill surface'
+}
+
 Test-Case 'service script invokes exactly the managed Linux containment target' {
     $normalized = (($serviceScriptText -replace '\\\s+', ' ') -replace '\s+', ' ').Trim()
     $expected = './tools/pg.ps1 -Mode test -Package pg-worker-containment -TestTarget linux_containment -NoNextest -MaxConcurrent 1 -Jobs 2 -TestThreads 1'
