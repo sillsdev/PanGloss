@@ -28,8 +28,7 @@ use crate::advice_catalog::{
     PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY,
 };
 use crate::capability::{
-    compose_envelope_across_strategies, default_registry, meet, CapabilityDiagnostic,
-    CompileDecision, StrategyEnvelope,
+    compose_envelope_across_strategies, default_registry, CapabilityDiagnostic, CompileDecision,
 };
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
@@ -476,58 +475,6 @@ pub struct BackendSelection {
 }
 
 impl BackendSelection {
-    /// Normalizes a caller-supplied set into one report for every committed backend. Missing
-    /// entries become explicit `Missing` reports rather than disappearing from the explanation.
-    pub fn from_reports(reports: Vec<BackendReport>) -> Self {
-        let mut reports = reports;
-        let normalized = BACKEND_PREFERENCE
-            .iter()
-            .map(|&strategy| {
-                reports
-                    .iter()
-                    .position(|report| report.strategy == strategy)
-                    .map(|index| reports.remove(index))
-                    .unwrap_or_else(|| {
-                        BackendReport::missing(strategy, "backend was not available")
-                    })
-            })
-            .collect();
-        Self {
-            reports: normalized,
-        }
-    }
-
-    fn from_envelope_with_backend_findings(
-        envelope: &StrategyEnvelope,
-        plan_composed_markers: &[FragmentSpec],
-    ) -> Self {
-        let reports = BACKEND_PREFERENCE
-            .iter()
-            .filter_map(|&strategy| {
-                envelope.decision_for(strategy).map(|decision| {
-                    let decision = if strategy == EmissionStrategy::PlanComposed
-                        && !plan_composed_markers.is_empty()
-                    {
-                        meet(
-                            decision.clone(),
-                            plan_composed_marker_refusal(plan_composed_markers),
-                        )
-                    } else {
-                        decision.clone()
-                    };
-                    let mut report = if matches!(decision, CompileDecision::Refuse(_)) {
-                        BackendReport::refused(strategy, decision)
-                    } else {
-                        BackendReport::accepted(strategy, decision, Vec::new())
-                            .expect("non-refusing decision must be accepted")
-                    };
-                    report
-                })
-            })
-            .collect();
-        Self::from_reports(reports)
-    }
-
     pub fn reports(&self) -> &[BackendReport] {
         &self.reports
     }
@@ -585,30 +532,6 @@ mod tests {
         }
     }
 
-    /// An oversized payload is a label on something that got built, so it stays selectable.
-    #[test]
-    fn an_oversized_payload_labels_a_backend_without_excluding_it() {
-        let reports = vec![BackendReport::accepted(
-            EmissionStrategy::TunedSurfaceProbed,
-            CompileDecision::Admit,
-            vec![finding(
-                crate::health::Severity::NotProductionReady,
-                crate::health::FindingCode::PayloadSizeBand,
-            )],
-        )
-        .unwrap()];
-        let selection = BackendSelection::from_reports(reports);
-
-        assert_eq!(
-            selection
-                .report_for(EmissionStrategy::TunedSurfaceProbed)
-                .expect("the report is retained")
-                .worst_severity(),
-            crate::health::Severity::NotProductionReady,
-            "and the label itself must survive selection"
-        );
-    }
-
     /// The predicate must exclude on `Process` even where `status == Accepted` would already do so.
     #[test]
     fn a_process_finding_excludes_even_if_status_were_accepted() {
@@ -623,40 +546,6 @@ mod tests {
         .unwrap();
 
         assert!(!report.is_normal_candidate());
-    }
-
-    /// Nothing was built in either case, so neither can be selected.
-    #[test]
-    fn containment_and_representability_findings_exclude_a_backend() {
-        let reports = vec![
-            BackendReport::accepted(
-                EmissionStrategy::TunedSurfaceProbed,
-                CompileDecision::Admit,
-                vec![finding(
-                    crate::health::Severity::MachineLimit,
-                    crate::health::FindingCode::HostContainmentFired,
-                )],
-            )
-            .unwrap(),
-            BackendReport::accepted(
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                CompileDecision::Admit,
-                vec![finding(
-                    crate::health::Severity::CannotRepresent,
-                    crate::health::FindingCode::BackendCoverageIncomplete,
-                )],
-            )
-            .unwrap(),
-        ];
-        let selection = BackendSelection::from_reports(reports);
-
-        assert_eq!(
-            selection
-                .report_for(EmissionStrategy::PlanComposed)
-                .expect("missing backend remains retained")
-                .status(),
-            BackendStatus::Missing
-        );
     }
 
 }

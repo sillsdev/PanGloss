@@ -1,6 +1,6 @@
 use pg_foma::advice_catalog::RemedyEffort;
 use pg_foma::backend_selection::{
-    sort_blocking_remedy_sets, AdviceReference, BackendReport, BackendSelection, BackendStatus,
+    sort_blocking_remedy_sets, AdviceReference, BackendReport, BackendStatus,
 };
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::enumerate::EmissionStrategy;
@@ -36,67 +36,6 @@ fn refused(strategy: EmissionStrategy) -> BackendReport {
 
 fn advice(shape: &str, remedy: &str, effort: RemedyEffort) -> AdviceReference {
     AdviceReference::new(shape, remedy, effort)
-}
-
-fn default_budget_exceeding_grammar() -> pg_grammar::model::Grammar {
-    let base = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
-    ));
-    let mut entries = String::new();
-    for index in 0..1_100 {
-        entries.push_str(&format!(
-            r#"          <LexicalEntry id="syntheticRoot{index}" partOfSpeech="posV">
-            <Allomorphs>
-              <Allomorph id="syntheticRoot{index}_1">
-                <PhoneticShape>sag</PhoneticShape>
-              </Allomorph>
-            </Allomorphs>
-            <Gloss>synthetic-{index}</Gloss>
-          </LexicalEntry>
-"#
-        ));
-    }
-    let marker = "        </LexicalEntries>";
-    let expanded = base.replacen(marker, &format!("{entries}{marker}"), 1);
-    pg_grammar::load(&expanded).expect("default-budget fixture must load")
-}
-
-/// An oversized payload labels an artifact that exists; only an absent artifact excludes.
-#[test]
-fn readiness_labels_stay_selectable_while_containment_and_representability_do_not() {
-    let selection = BackendSelection::from_reports(vec![
-        BackendReport::accepted(
-            EmissionStrategy::TunedSurfaceProbed,
-            CompileDecision::Admit,
-            vec![finding(Severity::NotProductionReady, FindingCode::PayloadSizeBand)],
-        )
-        .unwrap(),
-        BackendReport::accepted(
-            EmissionStrategy::TemplatedUnderlyingTokens,
-            CompileDecision::Admit,
-            vec![finding(
-                Severity::MachineLimit,
-                FindingCode::HostContainmentFired,
-            )],
-        )
-        .unwrap(),
-    ]);
-
-    assert_eq!(
-        selection
-            .report_for(EmissionStrategy::TunedSurfaceProbed)
-            .unwrap()
-            .worst_severity(),
-        Severity::NotProductionReady
-    );
-    assert_eq!(
-        selection
-            .report_for(EmissionStrategy::PlanComposed)
-            .unwrap()
-            .status(),
-        BackendStatus::Missing
-    );
 }
 
 #[test]
