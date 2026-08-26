@@ -247,11 +247,15 @@ pub const fn limits_for_version(version: u32) -> Option<WorkerProtocolLimits> {
 #[derive(Debug)]
 pub enum FrameError {
     Io(io::Error),
+    /// A selected payload frame declared no payload bytes.
+    ZeroLength,
     /// The declared frame length exceeds this protocol version's limit, returned before any buffer of that size is allocated.
     LengthExceedsLimit {
         declared: u64,
         limit: u64,
     },
+    /// The selected payload frame disagrees with the preceding result metadata.
+    LengthMismatch { declared: u64, expected: u64 },
     /// The declared frame length cannot be represented by this process's `usize`.
     LengthNotAddressable { declared: u64 },
     /// The process could not reserve the declared frame body without panicking.
@@ -264,10 +268,15 @@ impl std::fmt::Display for FrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FrameError::Io(e) => write!(f, "I/O error reading frame: {e}"),
+            FrameError::ZeroLength => write!(f, "declared frame length must not be zero"),
             FrameError::LengthExceedsLimit { declared, limit } => write!(
                 f,
                 "declared frame length {declared} exceeds this protocol version's limit of {limit} \
                  byte(s)"
+            ),
+            FrameError::LengthMismatch { declared, expected } => write!(
+                f,
+                "declared frame length mismatch: result declares {expected} byte(s), frame declares {declared}"
             ),
             FrameError::LengthNotAddressable { declared } => write!(
                 f,
@@ -293,26 +302,58 @@ fn write_frame<W: Write>(w: &mut W, bytes: &[u8]) -> io::Result<()> {
 
 /// Reads one length-prefixed frame from `r`, rejecting a declared length above `max_len` before allocating a buffer of that size.
 fn read_frame<R: Read>(r: &mut R, max_len: u64) -> Result<Vec<u8>, FrameError> {
+    let len = read_frame_length(r)?;
+    let len_usize = validate_frame_length(len, max_len)?;
+    read_frame_body(r, len, len_usize)
+}
+
+fn read_selected_payload_frame<R: Read>(
+    r: &mut R,
+    expected_len: u64,
+    max_len: u64,
+) -> Result<Vec<u8>, FrameError> {
+    let len = read_frame_length(r)?;
+    if len == 0 {
+        return Err(FrameError::ZeroLength);
+    }
+    let len_usize = validate_frame_length(len, max_len)?;
+    if len != expected_len {
+        return Err(FrameError::LengthMismatch {
+            declared: len,
+            expected: expected_len,
+        });
+    }
+    read_frame_body(r, len, len_usize)
+}
+
+fn read_frame_length<R: Read>(r: &mut R) -> Result<u64, FrameError> {
     let mut len_buf = [0u8; 8];
     r.read_exact(&mut len_buf).map_err(FrameError::Io)?;
-    let len = u64::from_le_bytes(len_buf);
+    Ok(u64::from_le_bytes(len_buf))
+}
+
+fn validate_frame_length(len: u64, max_len: u64) -> Result<usize, FrameError> {
     if len > max_len {
         return Err(FrameError::LengthExceedsLimit {
             declared: len,
             limit: max_len,
         });
     }
-    // Convert and reserve only after the protocol ceiling check. The fallible reserve keeps a
-    // hostile but in-range declaration from turning into an allocator panic.
-    let len_usize = usize::try_from(len)
-        .map_err(|_| FrameError::LengthNotAddressable { declared: len })?;
+    usize::try_from(len).map_err(|_| FrameError::LengthNotAddressable { declared: len })
+}
+
+fn read_frame_body<R: Read>(
+    r: &mut R,
+    declared_len: u64,
+    len: usize,
+) -> Result<Vec<u8>, FrameError> {
     let mut buf = Vec::new();
-    buf.try_reserve_exact(len_usize)
+    buf.try_reserve_exact(len)
         .map_err(|error| FrameError::AllocationFailed {
-            declared: len,
+            declared: declared_len,
             detail: error.to_string(),
         })?;
-    buf.resize(len_usize, 0);
+    buf.resize(len, 0);
     r.read_exact(&mut buf).map_err(FrameError::Io)?;
     Ok(buf)
 }
@@ -589,8 +630,7 @@ fn strategy_from_worker_route(route: &str) -> Result<EmissionStrategy, String> {
     }
 }
 
-/// The child keeps a selected payload in memory until it has written the result header. The
-/// parent owns acceptance; this carrier only controls whether a second raw frame is emitted.
+/// Carries a selected payload until the result header and optional raw frame are written.
 #[derive(Debug)]
 struct WorkerChildOutput {
     outcome: CompileWorkerOutcome,
@@ -1005,8 +1045,7 @@ fn build_process_failure_health(detail: String) -> HealthReport {
     }])
 }
 
-/// Reads a non-protocol stream to EOF on a dedicated thread, retaining at most `cap` bytes and
-/// continuing to drain after overflow so a flooding child cannot deadlock on a full pipe.
+/// Drains a non-protocol stream to EOF while retaining at most `cap` bytes.
 fn spawn_capped_reader<R: Read + Send + 'static>(
     mut reader: R,
     cap: u64,
@@ -1049,8 +1088,7 @@ enum ParsedWorkerOutput {
     },
 }
 
-/// Reads and validates the versioned result stream without aggregating stdout. Selected payload
-/// bytes are allocated only after their independent configured limit has been checked.
+/// Reads the result stream with independent metadata and selected-payload limits.
 fn read_worker_output<R: Read>(
     mut reader: R,
     selected_payload_limit: Option<u64>,
@@ -1075,17 +1113,8 @@ fn read_worker_output<R: Read>(
             let limit = selected_payload_limit.ok_or_else(|| {
                 "selected success received for a non-selected request".to_string()
             })?;
-            let payload = read_frame(&mut reader, limit)
+            let payload = read_selected_payload_frame(&mut reader, payload_byte_len, limit)
                 .map_err(|error| format!("invalid selected payload frame: {error}"))?;
-            if payload.is_empty() {
-                return Err("selected payload frame must not be zero-length".to_string());
-            }
-            let actual_len = payload.len() as u64;
-            if actual_len != payload_byte_len {
-                return Err(format!(
-                    "selected payload length mismatch: result declares {payload_byte_len} byte(s), frame contains {actual_len}"
-                ));
-            }
             let actual_digest = sha256_hex(&payload);
             if payload_sha256 != actual_digest {
                 return Err(format!(
@@ -1127,8 +1156,7 @@ fn spawn_worker_output_reader<R: Read + Send + 'static>(
     })
 }
 
-/// Test-only compatibility helper for the legacy single-frame unit checks. Production supervision
-/// uses `read_worker_output` directly and never aggregates stdout.
+/// Parses one generic result frame for focused protocol tests.
 #[cfg(test)]
 fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
     if buf.len() < 8 {
@@ -1553,6 +1581,19 @@ mod tests {
         let error = parse_selected(framed_result(&result, Some(payload)), 5)
             .expect_err("length mismatch must fail");
         assert!(error.contains("length"), "{error}");
+    }
+
+    #[test]
+    fn selected_length_mismatch_is_rejected_before_reading_the_body() {
+        let payload = b"fst!";
+        let result = selected_success_with(5, sha256_hex(payload), sha256_hex(payload));
+        let mut bytes = framed_result(&result, None);
+        bytes.extend_from_slice(&4u64.to_le_bytes());
+
+        let error = parse_selected(bytes, 5).expect_err("prefix mismatch must fail immediately");
+
+        assert!(error.contains("length mismatch"), "{error}");
+        assert!(!error.contains("I/O"), "{error}");
     }
 
     #[test]
