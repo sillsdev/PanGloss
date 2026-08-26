@@ -373,6 +373,109 @@ Committed_AS:   2048 kB
         Exit-BuildSlot -Semaphore $slot
     }
 
+    Test-Case 'Linux build slots refuse a relative state or lock root' {
+        Assert-LinuxAdapterReady
+        $oldStateRoot = $env:PANGLOSS_STATE_ROOT
+        $oldLocation = Get-Location
+        $slot = $null
+        try {
+            Set-Location -LiteralPath $fixtureRoot
+            $env:PANGLOSS_STATE_ROOT = 'relative-state-root'
+            Assert-Throws { $slot = Enter-BuildSlot -MaxConcurrent 1 -TimeoutSeconds 1 -LockRoot 'relative-lock-root' } 'a relative LockRoot must fail closed rather than create a separate pool'
+            Assert-False (Test-Path -LiteralPath (Join-Path $fixtureRoot 'relative-lock-root')) 'relative LockRoot refusal must not create a pool under the current directory'
+            Assert-Throws { $slot = Enter-BuildSlot -MaxConcurrent 1 -TimeoutSeconds 1 } 'a relative PANGLOSS_STATE_ROOT must fail closed when LockRoot is omitted'
+            Assert-False (Test-Path -LiteralPath (Join-Path $fixtureRoot 'relative-state-root')) 'relative PANGLOSS_STATE_ROOT refusal must not create a pool under the current directory'
+        } finally {
+            Exit-BuildSlot -Semaphore $slot
+            Set-Location -LiteralPath $oldLocation
+            $env:PANGLOSS_STATE_ROOT = $oldStateRoot
+        }
+    }
+
+    Test-Case 'Linux adapter provides safe path and cache seams without Windows drive defaults' {
+        Assert-LinuxAdapterReady
+        foreach ($name in @('Get-FreeSpaceGB', 'Resolve-TargetDir', 'Use-Sccache')) {
+            Assert-True ($null -ne (Get-Command $name -CommandType Function -ErrorAction SilentlyContinue)) "Linux adapter must expose $name"
+            Assert-Contains -Haystack @($linuxAdapterImportResult.Overrides) -Needle $name "Linux importer must register the $name override before it is exercised"
+        }
+        $linuxTarget = '/var/tmp/pangloss-fixture-target'
+        $oldTarget = $env:CARGO_TARGET_DIR
+        $oldSccache = $env:SCCACHE_DIR
+        $oldTargetRoot = $env:PANGLOSS_TARGET_ROOT
+        $oldCacheRoot = $env:PANGLOSS_CARGO_CACHE_ROOT
+        try {
+            $env:CARGO_TARGET_DIR = $linuxTarget
+            $resolved = Resolve-TargetDir -RustRoot '/srv/pangloss/rust'
+            Assert-Equal $linuxTarget $resolved 'explicit Linux target root must be preserved'
+            Assert-False ($resolved -match '^[A-Za-z]:[\\/]') 'Linux target must not acquire a Windows drive literal'
+            $env:SCCACHE_DIR = '/var/tmp/pangloss-fixture-cache'
+            $space = Get-FreeSpaceGB -Path '/var/tmp'
+            Assert-True ($null -eq $space -or $space -is [double] -or $space -is [decimal] -or $space -is [int]) 'Linux free-space seam must return a number or unavailable result'
+            $env:RUSTC_WRAPPER = ''
+            [void](Use-Sccache)
+            Assert-False ($env:SCCACHE_DIR -match '^[A-Za-z]:[\\/]') 'Linux cache root must not default to a Windows drive literal'
+            $env:CARGO_TARGET_DIR = $null
+            $env:PANGLOSS_TARGET_ROOT = $null
+            $env:PANGLOSS_CARGO_CACHE_ROOT = $null
+            $env:SCCACHE_DIR = $null
+            $defaultTarget = Resolve-TargetDir -RustRoot '/srv/pangloss/rust'
+            Assert-True ($null -eq $defaultTarget -or ($defaultTarget.StartsWith('/') -and $defaultTarget -notmatch '^[A-Za-z]:[\\/]')) 'Linux default target must be null or a canonical non-Windows absolute path'
+            $useParams = (Get-Command Use-Sccache -CommandType Function).Parameters
+            Assert-True ($useParams.ContainsKey('CommandResolver') -and $useParams.ContainsKey('DirectoryCreator')) 'Use-Sccache must expose injected command and directory seams for pure tests'
+            $created = [System.Collections.Generic.List[string]]::new()
+            [void](Use-Sccache -CommandResolver { $null } -DirectoryCreator { param([string]$Path) [void]$created.Add($Path) })
+            Assert-True ($created.Count -eq 0 -or ($created[0].StartsWith('/') -and $created[0] -notmatch '^[A-Za-z]:[\\/]')) 'Linux default sccache root must not be a Windows drive path'
+        } finally {
+            $env:CARGO_TARGET_DIR = $oldTarget
+            $env:SCCACHE_DIR = $oldSccache
+            $env:PANGLOSS_TARGET_ROOT = $oldTargetRoot
+            $env:PANGLOSS_CARGO_CACHE_ROOT = $oldCacheRoot
+        }
+    }
+
+    Test-Case 'Host cgroup proof report names host-owned scheduling without Windows priority claims' {
+        Assert-LinuxAdapterReady
+        $proof = [PSCustomObject]@{ Ok = $true; EffectiveMemoryCapBytes = 4194304; Detail = 'fixture host cgroup' }
+        $base = [PSCustomObject]@{ Checked = $true; Ok = $true; Detail = 'fixture'; Expected = ''; Actual = '' }
+        $sccache = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
+        $disk = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
+        function global:Get-BuildSlotHolders { @() }
+        $repoForReport = Split-Path (Split-Path $toolRoot -Parent) -Parent
+        $text = (Write-Preflight -Mode build -Profile debug -RepoRoot $repoForReport -TargetDir '/var/tmp/target' -BaseCheck $base -SccacheHealth $sccache -FreeGB 1 -DiskCheck $disk -MaxConcurrent 2 -Priority BelowNormal -HostCgroupProof $proof *>&1 | Out-String)
+        Assert-True ($text -match 'host-service-owned|unapplied') 'Linux host proof report must say scheduling priority is host-service-owned/unapplied'
+        Assert-False ($text -match 'procgov|event-2004|rustc\.exe.*priority|priority.*rustc\.exe') 'Linux host proof report must not claim Windows priority enforcement'
+    }
+
+    Test-Case 'Unsupported platforms and Linux gc refuse before platform-specific work' {
+        $common = Get-Content (Join-Path $toolRoot '_common.ps1') -Raw
+        $pg = Get-Content (Join-Path $toolRoot 'pg.ps1') -Raw
+        $unsupportedAt = $pg.IndexOf('if (-not $IsWindows -and -not $IsLinux)', [StringComparison]::Ordinal)
+        $repoAt = $pg.IndexOf('$repoRoot = Get-RepoRoot', [StringComparison]::Ordinal)
+        Assert-True ($unsupportedAt -ge 0 -and $unsupportedAt -lt $repoAt) 'unsupported platforms must refuse before repository/path work'
+        Assert-True ($pg.IndexOf('ExitCodeUnsupportedPlatform', $unsupportedAt, [StringComparison]::Ordinal) -ge 0) 'unsupported platforms need a distinct refusal exit code'
+        Assert-True ($pg.IndexOf('unsupported platform', $unsupportedAt, [StringComparison]::Ordinal) -ge 0) 'unsupported platform refusal must provide an actionable message'
+        $gcGuardAt = $pg.LastIndexOf('if ($IsLinux -and $Mode -eq ''gc'')', [StringComparison]::Ordinal)
+        $gcAt = $pg.LastIndexOf('if ($Mode -eq ''gc'')', [StringComparison]::Ordinal)
+        $linuxProofAt = $pg.LastIndexOf('if ($IsLinux -and $Mode -notin @(''gc'', ''new-worktree'', ''remove-worktree''))', [StringComparison]::Ordinal)
+        Assert-True ($gcGuardAt -ge 0 -and $gcGuardAt -lt $gcAt) 'Linux gc must have an early refusal guard before the Windows process-snapshot branch'
+        Assert-True ($pg.IndexOf('ExitCodeLinuxGcUnsupported', $gcGuardAt, [StringComparison]::Ordinal) -ge 0) 'Linux gc needs a distinct refusal exit code'
+        Assert-True ($pg.IndexOf('Linux gc', $gcGuardAt, [StringComparison]::Ordinal) -ge 0) 'Linux gc refusal must provide an actionable message'
+        Assert-True ($gcAt -ge 0 -and $linuxProofAt -ge 0 -and $gcAt -gt $linuxProofAt) 'Linux gc must be ordered after its explicit preflight exclusion'
+        Assert-True ($gcAt -lt $pg.IndexOf('Get-ProcessSnapshot', [StringComparison]::Ordinal)) 'Linux gc must enter its early branch before process-specific work'
+    }
+
+    Test-Case 'Linux direct process branch captures child cwd stdout and exit code' {
+        Assert-LinuxAdapterReady
+        $workingDirectory = Join-Path $fixtureRoot 'direct-process'
+        $capture = Join-Path $fixtureRoot 'direct-process.out'
+        New-Item -ItemType Directory -Force -Path $workingDirectory | Out-Null
+        $code = Invoke-ProcessInJobObject -Exe 'pwsh' -CmdArgs @('-NoProfile', '-Command', "Write-Output (Get-Location).Path; Write-Output 'linux-fixture'; exit 23") -WorkingDirectory $workingDirectory -CaptureStdoutPath $capture -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo -ReadFile (New-Reader -Files $validCgroupFiles)
+        Assert-Equal 23 $code 'direct Linux process must preserve child exit code'
+        $output = Get-Content -LiteralPath $capture -Raw
+        Assert-True ($output -match [regex]::Escape($workingDirectory)) 'direct process must run in the requested cwd'
+        Assert-True ($output -match 'linux-fixture') 'direct process stdout must be captured'
+    }
+
     Test-Case 'Linux build-slot exclusion is shared with an independent pwsh process' {
         Assert-LinuxAdapterReady
         $lockRoot = Join-Path $fixtureRoot 'build-slots-cross-process'
@@ -419,7 +522,7 @@ exit 1
             Assert-Equal 'DENIED' (Get-Content -LiteralPath $probeOut -Raw).Trim()
         } finally {
             if ($holder -and -not $holder.HasExited) { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
-            if ($holder) { $holder.WaitForExit(10000) }
+            if ($holder) { $holder.WaitForExit(10000) | Out-Null }
         }
 
         $probe = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $probeOut `
