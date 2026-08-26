@@ -316,7 +316,7 @@ git add -- rust/crates/pg-foma/src/bin/worker_test_child.rs rust/crates/pg-foma/
 git commit -m "test(worker): reject incomplete payload streams"
 ```
 
-- [ ] **Step 5: Run the protocol integration target**
+- [x] **Step 5: Run the protocol integration target**
 
 ```powershell
 & .\rust\tools\pg.ps1 -Mode test -Package pg-foma -TestTarget worker_execution_limits_contract
