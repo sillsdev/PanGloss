@@ -1149,8 +1149,8 @@ fn spawn_worker_output_reader<R: Read + Send + 'static>(
 /// until the child exits or `limits.max_wall_time()` is breached -- whichever comes first -- returning exactly one
 /// typed `WorkerOutcome`.
 ///
-/// `std::process::Command`/`Child::try_wait`/`Child::kill` plus two capped reader threads are the
-/// worker mechanism; any broader host process-tree policy belongs to the caller.
+/// `std::process::Command`/`Child::try_wait`/`Child::kill`, a protocol-aware stdout reader, and a
+/// capped stderr drain are the worker mechanism; broader process-tree policy belongs to the caller.
 /// Windows-compatible: every API used here is cross-platform in the standard library, with no
 /// Unix-only assumption (no signals, no `/proc` path assumed directly).
 pub fn run_compile_worker(

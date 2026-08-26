@@ -173,7 +173,7 @@ of the completion gate, not evidence for restoring a rejected contract.
 | A5 | `realize_accuracy_proposer` / `tuned_surface_resource_refusal` repeats the pre-refusal | `backend_runtime.rs:1428-1458,2082-2113` | **AUTHORIZED** — helper and callers remain |
 | A6 | Marker-bearing candidates banked `Unsupported` with zero work measured | `backend_runtime.rs` | **LANDED UNVERIFIED** — re-audit after A4/A5 deletion |
 | A7 | `--watchdog` structurally cannot produce a real artifact | `pack.rs:267-325,479-489,562-565,624-642` | **AUTHORIZED** — live watchdog/placeholder production path remains |
-| A8 | 16 MiB result metadata frame must not cap the selected payload | `worker_contract.rs`, `worker.rs` | **LANDED UNVERIFIED** — protocol v9 raw frame committed; prefix-before-allocation fixed; subprocess failure coverage and final grep remain |
+| A8 | 16 MiB result metadata frame must not cap the selected payload | `worker_contract.rs`, `worker.rs` | **VERIFIED** — protocol v9 uses an independently bounded raw frame; filesystem transport and legacy parser/capture residue are deleted; prefix-before-allocation, clean exit, malformed streams, and supervisor-limit authority are proven |
 | A9 | `finished_net_digests` — same marker pre-refusal, third site | `backend_runtime.rs` ~1750 | **OPEN** — diagnostic-only, but same false premise |
 | A10 | Internal construction caps in `compose_budget.rs` can still stop a representable build | 1,334-line file, 165 refs / 27 files | **AUTHORIZED** — retain useful measurements; delete internal representability/size refusals. The supervised worker's three configured execution limits are the only resource stops |
 
@@ -310,7 +310,7 @@ permission.
    aggregate-result parser tests/helper, and stdout-only overflow residue. Add subprocess proof for
    missing, truncated, trailing, malformed, and stalled payloads. Gate: protocol 8 rejection; exact
    length/SHA/fingerprint/EOF; no selected-artifact paths, files, hard links, cleanup, or ownership
-   code. Status: **IN PROGRESS**.
+   code. Status: **VERIFIED**.
 2. **Install real external containment (C1).** Enforce the configurable 1 GB final payload, 10 GB
    committed process-tree RAM, and 10-minute wall limit on Windows and Linux. Every production build
    must use it. Gate: descendants die with the worker; memory/time/crash/partial output produce no
@@ -404,13 +404,14 @@ permission.
 
 ## Tally
 
-Committed branch range `ff6fe2e2..26e4c995`: **4,015 deletions / 2,127 additions, net −1,888
+Committed branch range `ff6fe2e2..635aa44e`: **4,127 deletions / 2,462 additions, net −1,665
 lines** across 60 files. This is a branch-wide mechanical line tally, not a claim that every commit
 is cleanup: it includes the ratified charter, raw-transport design/plan, and replacement tests. The
-raw transport production commit itself removed 366 and added 337 lines (net −29); its reviewed
-prefix-validation follow-up added 67 and removed 26. Uncommitted work is never counted until its
-exact staged snapshot is inspected and committed. Remaining deletion opportunity is tracked by the
-stages above; estimates below are directional only:
+completed raw-transport range removed 432 and added 426 lines in `worker.rs` plus
+`worker_contract.rs` (net −6 production lines), while deliberately adding 186 lines of subprocess
+fixture/integration proof. Uncommitted work is never counted until its exact staged snapshot is
+inspected and committed. Remaining deletion opportunity is tracked by the stages above; estimates
+below are directional only:
 
 | Section | Est. lines |
 |---|---|

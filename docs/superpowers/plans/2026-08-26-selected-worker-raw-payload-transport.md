@@ -329,7 +329,7 @@ Expected: every test in the target passes, including v8 rejection, timeout, trun
 **Files:**
 - Modify: `docs/simplification-rip-list.md`
 
-- [ ] **Step 1: Prove filesystem transport is absent**
+- [x] **Step 1: Prove filesystem transport is absent**
 
 Run:
 
@@ -339,15 +339,15 @@ rg -n "SelectedArtifactDescriptor|selected_artifact|artifact_directory|hard_link
 
 Expected: no production matches. Test fixtures may mention rejected v8 fields only when decoding stale data; remove source-string absence tests.
 
-- [ ] **Step 2: Record A8 as done**
+- [x] **Step 2: Record A8 as verified**
 
 Change A8 to:
 
 ```markdown
-**DONE** — selected payload uses a separately bounded raw stdout frame; filesystem transport deleted
+**VERIFIED** — selected payload uses a separately bounded raw stdout frame; filesystem transport deleted
 ```
 
-- [ ] **Step 3: Run hygiene and diff checks**
+- [x] **Step 3: Run hygiene and diff checks**
 
 ```powershell
 & .\rust\tools\comment-hygiene.ps1 -List
@@ -355,20 +355,21 @@ git diff --check
 git diff --stat 1ab11ef9..HEAD
 ```
 
-Expected: comment hygiene clean, no whitespace errors, and the replacement slice is net-negative.
+Expected: comment hygiene clean and no whitespace errors. Report production deletion separately
+from the replacement tests and subprocess fixture.
 
-- [ ] **Step 4: Commit the charter status**
+- [x] **Step 4: Commit the charter status**
 
 ```powershell
 git add -- docs/simplification-rip-list.md
 git commit -m "docs(cleanup): finish raw payload transport"
 ```
 
-- [ ] **Step 5: Obtain independent Luna review**
+- [x] **Step 5: Obtain independent Luna review**
 
 Give a fresh read-only Luna reviewer the exact implementation range and the approved design. Require prioritized findings and GO/NO-GO. The primary must inspect every finding and every changed line; a green test run is not sufficient to override a correctness finding.
 
-- [ ] **Step 6: Run authoritative merged-tip gates**
+- [x] **Step 6: Run authoritative merged-tip gates**
 
 Measure physical memory, commit headroom, CPU load, and active Cargo/procgov trees. With safe headroom and only one managed build active, run:
 
