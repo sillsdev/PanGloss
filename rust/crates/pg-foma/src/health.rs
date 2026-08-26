@@ -98,8 +98,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
 ///
-/// Bumped to 4 when the obsolete sampled compile-worker RSS metric was removed.
-pub const HEALTH_SCHEMA_VERSION: u32 = 4;
+/// Bumped to 5 when the truthful OS-contained worker-tree peak-memory-charge metric was added.
+pub const HEALTH_SCHEMA_VERSION: u32 = 5;
 
 // Severity + payload-size threshold
 
@@ -250,6 +250,10 @@ pub enum Metric {
     CompositeRulePairCount,
     /// Required grammar constructs or plan subtrees the named backend cannot represent completely.
     BackendCoverageGapCount,
+    /// Peak aggregate OS-accounted memory charge for the contained worker process tree, in bytes.
+    /// Platform-native evidence remains on the typed worker outcome because Windows Job Object
+    /// and Linux cgroup-v2 accounting are not byte-for-byte identical.
+    WorkerTreePeakMemoryChargeBytes,
 }
 
 /// Whether a `HealthFinding`'s `MetricValue` is a heuristic estimate, a trustworthy proof, or
@@ -322,8 +326,8 @@ pub enum FindingCode {
     BuildProcessFailed,
     /// A backend is known to omit or reject one or more required grammar constructs.
     BackendCoverageIncomplete,
-    /// An external monitoring process (wall-clock kill, output-pipe cap, or an unparseable child
-    /// crash) aborted this attempt to protect the host machine. Never a
+    /// An external host-containment mechanism (wall-clock kill, output-pipe cap, or OS-proven
+    /// memory enforcement) aborted this attempt to protect the host machine. Never a
     /// verdict about the grammar -- see [`Severity::MachineLimit`]'s own doc.
     HostContainmentFired,
     /// An exact, already-computed morphological x phonological rule-count product is large.
@@ -447,9 +451,9 @@ impl FindingCode {
                  cannot produce a complete artifact."
             }
             FindingCode::HostContainmentFired => {
-                "An external monitoring process aborted this attempt to protect the host machine \
-                 (wall-clock kill, output-pipe cap, or an unparseable child \
-                 crash); never a verdict about the grammar."
+                "An external host-containment mechanism aborted this attempt to protect the host \
+                 machine (wall-clock kill, output-pipe cap, or OS-proven memory enforcement); \
+                 never a verdict about the grammar."
             }
             FindingCode::RuleInteractionProduct => {
                 "An exact morphological x phonological rule-count product is large; this cost is \
@@ -672,7 +676,22 @@ impl HealthReport {
 
     /// Parses a report from its canonical JSON form.
     pub fn from_json(json: &str) -> serde_json::Result<Self> {
-        serde_json::from_str(json)
+        let value: serde_json::Value = serde_json::from_str(json)?;
+        let schema_version = value
+            .get("schema_version")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                <serde_json::Error as serde::de::Error>::custom(
+                    "health report is missing an unsigned schema_version",
+                )
+            })?;
+        if schema_version != u64::from(HEALTH_SCHEMA_VERSION) {
+            return Err(<serde_json::Error as serde::de::Error>::custom(format!(
+                "unsupported health schema version {}; expected {}",
+                schema_version, HEALTH_SCHEMA_VERSION
+            )));
+        }
+        serde_json::from_value(value)
     }
 }
 
@@ -832,8 +851,16 @@ mod tests {
     }
 
     #[test]
-    fn removed_worker_rss_metric_bumps_health_schema_version() {
-        assert_eq!(HEALTH_SCHEMA_VERSION, 4);
+    fn worker_tree_peak_memory_metric_bumps_health_schema_version() {
+        assert_eq!(HEALTH_SCHEMA_VERSION, 5);
+    }
+
+    #[test]
+    fn worker_tree_peak_memory_metric_has_stable_wire_spelling() {
+        assert_eq!(
+            serde_json::to_string(&Metric::WorkerTreePeakMemoryChargeBytes).unwrap(),
+            "\"worker_tree_peak_memory_charge_bytes\""
+        );
     }
 
     /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
@@ -908,7 +935,7 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 4,
+  "schema_version": 5,
   "findings": [
     {
       "code": "PGF0002",
@@ -987,6 +1014,14 @@ mod tests {
             "round trip through canonical JSON must be lossless"
         );
         assert_eq!(parsed.admission(), Severity::NotProductionReady);
+    }
+
+    #[test]
+    fn fst_health_schema_rejects_stale_v4_reports() {
+        let stale = GOLDEN_JSON.replacen("\"schema_version\": 5", "\"schema_version\": 4", 1);
+        let error = HealthReport::from_json(&stale).expect_err("schema v4 must be rejected");
+        assert!(error.to_string().contains("schema version 4"));
+        assert!(error.to_string().contains("expected 5"));
     }
 
     // fst_health_finding_class: FindingCode -> FindingClass, the four-question vocabulary.

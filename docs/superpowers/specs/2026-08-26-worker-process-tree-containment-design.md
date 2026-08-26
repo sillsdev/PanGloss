@@ -22,10 +22,15 @@ portably as the aggregate OS-enforced memory charge for the worker containment t
 - Linux: cgroup-v2 hierarchical memory charge with `memory.max`; set `memory.swap.max=0` when the
   delegated controller exposes it, so the configured boundary cannot be escaped through swap.
 
-The outcome records `memory_charge_bytes`, the configured limit, platform, and platform-native
-provenance. The two kernels need not count the same categories byte-for-byte; both enforce one
-finite aggregate boundary over the complete worker tree. Existing internal compile caps remain
-until Stage 4; this stage does not legitimize them or remove them early.
+The worker outcome records the configured limit plus intrinsic platform-native trigger evidence and
+peak memory charge. Its evidence type makes Windows/Linux mismatches unconstructible. The two
+kernels need not count the same categories byte-for-byte; both enforce one finite aggregate
+boundary over the complete worker tree. Health serialization gains one truthful versioned
+worker-tree peak-memory metric now because no existing metric can carry the observation without
+lying; native trigger evidence remains on the typed worker outcome. This narrowly advances the
+required health/pack version bump from Stage 8, not the broader compatibility sweep. Existing
+internal compile caps remain until Stage 4; this stage does not legitimize them or remove them
+early.
 
 The internal seam owns:
 
@@ -39,6 +44,12 @@ ContainedWorkerProcess
   peak_memory_charge_bytes()
 ```
 
+`pg-foma` keeps its crate-wide `forbid(unsafe_code)`. The lifecycle state machine and artifact
+acceptance barrier stay safe and private there. A small workspace crate, `pg-worker-containment`,
+owns only the narrowly audited native Windows/Linux launch and containment operations and exposes a
+safe contained-process API. Do not weaken `pg-foma`'s unsafe-code policy or leak Job/cgroup handles
+through its public API.
+
 Containment is established before worker code can run. There is no successful unmanaged fallback.
 The supervisor accepts a selected artifact only after the direct child exits successfully, stdout
 parsing reaches exact EOF, the containment tree is empty, and a final containment poll reports no
@@ -48,7 +59,8 @@ memory-limit or containment error. A late event after direct-child exit discards
 
 Add distinct outcomes for:
 
-- `MemoryLimitKilled { peak_bytes, limit_bytes }`;
+- `MemoryLimitKilled { limit_bytes, evidence }`, where intrinsic evidence records the native
+  limit-trigger proof and peak memory charge;
 - `ContainmentUnavailable { detail }`;
 - `ContainmentFailed { detail }`.
 

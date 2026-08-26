@@ -344,7 +344,9 @@ permission.
    strictly validate the current version, delete aliases/defaults/shims/old fixtures, and update or
    supersede docs/OpenSpec that promise envelopes, retries, preference, build-time corpus work, or
    publication overrides. Historical documents receive a superseded marker rather than fabricated
-   retroactive history.
+   retroactive history. Dependency exception already advanced into Stage 2: the truthful
+   worker-tree peak-memory metric bumps health and pack manifests to v5 and adds stale standalone/
+   embedded-health rejection; the remaining schema sweep stays here.
 9. **Verify emitter consolidation separately (D1/G1).** Fix tag-reachability correctness first, then
    require byte/semantic parity over representative grammars before deleting either emitter path.
    No selection, containment, or tuning policy changes belong in this slice.

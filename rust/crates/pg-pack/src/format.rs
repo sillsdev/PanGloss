@@ -114,6 +114,8 @@ pub enum PgPackError {
     UnsupportedVersion { found: u32 },
     #[error("unsupported pack manifest schema version {found}")]
     UnsupportedManifestSchema { found: u32 },
+    #[error("unsupported embedded FST-health schema version {found}")]
+    UnsupportedHealthSchema { found: u32 },
     #[error("declared {what} length {declared} exceeds this container version's limit of {limit} byte(s)")]
     LengthExceedsLimit {
         what: &'static str,
@@ -151,6 +153,15 @@ fn validate_manifest_schema(manifest: &PackManifest) -> Result<(), PgPackError> 
     if manifest.manifest_schema_version != crate::manifest::MANIFEST_SCHEMA_VERSION {
         return Err(PgPackError::UnsupportedManifestSchema {
             found: manifest.manifest_schema_version,
+        });
+    }
+    Ok(())
+}
+
+fn validate_health_schema(manifest: &PackManifest) -> Result<(), PgPackError> {
+    if manifest.fst_health.schema_version != pg_foma::health::HEALTH_SCHEMA_VERSION {
+        return Err(PgPackError::UnsupportedHealthSchema {
+            found: manifest.fst_health.schema_version,
         });
     }
     Ok(())
@@ -204,6 +215,7 @@ pub fn write_pack(
         .expect("CONTAINER_VERSION must always have limits registered for itself");
 
     validate_manifest_schema(manifest)?;
+    validate_health_schema(manifest)?;
     let expected_fingerprint = fingerprint_hex(runtime_payload, foma_payload);
     if manifest.package_fingerprint != expected_fingerprint {
         return Err(PgPackError::FingerprintMismatch);
@@ -377,6 +389,7 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
     let manifest = PackManifest::from_json(manifest_str)
         .map_err(|e| PgPackError::ManifestJson(e.to_string()))?;
     validate_manifest_schema(&manifest)?;
+    validate_health_schema(&manifest)?;
     validate_trust_completeness(&manifest)?;
 
     let runtime_payload = runtime_bytes.to_vec();
@@ -472,11 +485,11 @@ mod tests {
     fn write_pack_rejects_stale_manifest_schema() {
         let mut manifest =
             synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        manifest.manifest_schema_version = 3;
+        manifest.manifest_schema_version = 4;
 
         let error = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD)
             .expect_err("stale manifest schema must not be written");
-        assert_eq!(error, PgPackError::UnsupportedManifestSchema { found: 3 });
+        assert_eq!(error, PgPackError::UnsupportedManifestSchema { found: 4 });
     }
 
     #[test]
@@ -487,14 +500,14 @@ mod tests {
 
         let mut stale_value: serde_json::Value =
             serde_json::from_str(&manifest.to_canonical_json()).expect("valid manifest JSON");
-        stale_value["manifest_schema_version"] = serde_json::json!(3);
+        stale_value["manifest_schema_version"] = serde_json::json!(4);
         let stale_json = serde_json::to_string_pretty(&stale_value)
             .expect("stale manifest JSON serialization must succeed");
         let current_json_len = manifest.to_canonical_json().len();
         assert_eq!(
             stale_json.len(),
             current_json_len,
-            "schema v3 and v4 fixtures must retain the same framed manifest length"
+            "schema v4 and v5 fixtures must retain the same framed manifest length"
         );
 
         bytes[HEADER_LEN..HEADER_LEN + stale_json.len()].copy_from_slice(stale_json.as_bytes());
@@ -503,7 +516,46 @@ mod tests {
         bytes[digest_offset..].copy_from_slice(&digest);
 
         let error = read_pack(&bytes).expect_err("stale manifest schema must not be read");
-        assert_eq!(error, PgPackError::UnsupportedManifestSchema { found: 3 });
+        assert_eq!(error, PgPackError::UnsupportedManifestSchema { found: 4 });
+    }
+
+    #[test]
+    fn write_pack_rejects_stale_embedded_health_schema() {
+        let mut manifest =
+            synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        manifest.fst_health.schema_version = 4;
+
+        let error = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD)
+            .expect_err("manifest v5 with stale embedded health schema must not be written");
+        assert_eq!(error, PgPackError::UnsupportedHealthSchema { found: 4 });
+    }
+
+    #[test]
+    fn read_pack_rejects_manifest_v5_with_stale_embedded_health_schema_v4() {
+        let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
+        let mut bytes =
+            write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
+
+        let mut stale_value: serde_json::Value =
+            serde_json::from_str(&manifest.to_canonical_json()).expect("valid manifest JSON");
+        stale_value["fst_health"]["schema_version"] = serde_json::json!(4);
+        let stale_json = serde_json::to_string_pretty(&stale_value)
+            .expect("stale health JSON serialization must succeed");
+        let current_json_len = manifest.to_canonical_json().len();
+        assert_eq!(
+            stale_json.len(),
+            current_json_len,
+            "health schema v4 and v5 fixtures must retain the same framed manifest length"
+        );
+
+        bytes[HEADER_LEN..HEADER_LEN + stale_json.len()].copy_from_slice(stale_json.as_bytes());
+        let digest_offset = bytes.len() - DIGEST_LEN;
+        let digest = Sha256::digest(&bytes[..digest_offset]);
+        bytes[digest_offset..].copy_from_slice(&digest);
+
+        let error = read_pack(&bytes)
+            .expect_err("manifest v5 with stale embedded health schema must not be read");
+        assert_eq!(error, PgPackError::UnsupportedHealthSchema { found: 4 });
     }
 
     // --- Real foma binary-memory bytes (not just the plain-ASCII synthetic fixtures above) ---

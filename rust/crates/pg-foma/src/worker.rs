@@ -64,10 +64,10 @@
 //! (what the PARENT reports for outcomes the child never got to write -- a wall-timeout kill, a
 //! flooded pipe, a crash, a malformed protocol message) maps each into the SAME
 //! `crate::health::HealthReport`/`crate::health::HealthFinding` vocabulary via
-//! `WorkerOutcome::health_report`. A genuine external-monitor abort (wall-timeout, output
-//! cap, child crash) uses `crate::health::FindingCode::HostContainmentFired`; a spawn/protocol
-//! fault where no child ever ran to be contained (`SpawnFailed`, `ProtocolViolation`) is instead a
-//! build-process fault and uses `crate::health::FindingCode::BuildProcessFailed` (see
+//! `WorkerOutcome::health_report`. A proven external-monitor abort (wall-timeout, output cap, or
+//! OS-reported memory limit) uses `crate::health::FindingCode::HostContainmentFired`; an
+//! unproven child crash and spawn/protocol faults are instead build-process faults and use
+//! `crate::health::FindingCode::BuildProcessFailed` (see
 //! `WorkerOutcome::health_report`'s own doc for the reasoning). The health vocabulary remains
 //! shared with the rest of the crate; this module does not add a parallel report shape.
 //!
@@ -87,6 +87,7 @@
 //! here rather than hidden.
 
 use std::io::{self, Read, Write};
+use std::num::NonZeroU64;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -861,6 +862,36 @@ fn write_child_output<W: Write>(
 
 // Supervisor (parent side).
 
+/// Intrinsic OS evidence that a worker-tree memory boundary fired.
+///
+/// One enum prevents impossible platform/provenance pairings. The native counters intentionally
+/// remain on `WorkerOutcome`; the shared health schema has no platform-provenance field and must
+/// not pretend these two kernels count memory byte-for-byte identically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryLimitEvidence {
+    WindowsObservedJobMemoryLimitViolation {
+        peak_job_memory_used_bytes: u64,
+    },
+    LinuxCgroupV2MemoryLimitViolation {
+        memory_peak_bytes: u64,
+        oom_kill_count_delta: NonZeroU64,
+        max_event_count_delta: NonZeroU64,
+    },
+}
+
+impl MemoryLimitEvidence {
+    fn peak_memory_charge_bytes(&self) -> u64 {
+        match self {
+            Self::WindowsObservedJobMemoryLimitViolation {
+                peak_job_memory_used_bytes,
+            } => *peak_job_memory_used_bytes,
+            Self::LinuxCgroupV2MemoryLimitViolation {
+                memory_peak_bytes, ..
+            } => *memory_peak_bytes,
+        }
+    }
+}
+
 /// Every terminal outcome the SUPERVISOR (parent) itself observes -- as opposed to
 /// `CompileWorkerOutcome`, which the child observes and reports about itself. A
 /// `WorkerOutcome::Completed` wraps a real `CompileWorkerOutcome`; every other variant is an
@@ -879,6 +910,19 @@ pub enum WorkerOutcome {
     WallTimeoutKilled { elapsed: Duration, limit: Duration },
     /// Captured stderr reached its byte cap and the child was killed.
     StderrOutputLimitExceeded { limit_bytes: u64 },
+    /// The OS containment boundary reported that the aggregate worker-tree memory charge reached
+    /// its configured limit. This outcome requires platform evidence; an abnormal exit alone is
+    /// only `ChildCrashed`.
+    MemoryLimitKilled {
+        limit_bytes: u64,
+        evidence: MemoryLimitEvidence,
+    },
+    /// Required process-tree containment is not available on this host, so no unmanaged worker
+    /// may be started.
+    ContainmentUnavailable { detail: String },
+    /// An established containment mechanism failed while supervising or cleaning up the worker
+    /// tree. Any parsed payload is unusable.
+    ContainmentFailed { detail: String },
     /// The child exited abnormally (panic-as-abort, stack overflow, allocator OOM, or an external
     /// kill) without producing a valid result frame; `detail` names the observed status and why
     /// parsing failed.
@@ -897,16 +941,11 @@ impl WorkerOutcome {
     /// the child's own real report unchanged; every other variant builds ONE synthetic finding
     /// describing the parent-observed supervisor event.
     ///
-    /// **Two different facts, two different codes.** `WallTimeoutKilled`/
-    /// `StderrOutputLimitExceeded`/`ChildCrashed` are all genuine external-monitor aborts -- the
-    /// supervisor protecting the host from a runaway child -- so they use
-    /// `FindingCode::HostContainmentFired` at `Severity::MachineLimit`. `ChildCrashed` is kept
-    /// here too even though its own doc admits the cause is ambiguous (panic-as-abort, stack
-    /// overflow, allocator OOM, or an external kill): every one of those is still the supervisor
-    /// observing an abnormal exit it did not itself schedule, not a normal build-tooling fault.
-    /// `SpawnFailed`/`ProtocolViolation` are different in kind: no child process was ever running
-    /// to be contained (the executable does not exist, or the request could not even be framed),
-    /// so nothing here is host protection at all -- these use `FindingCode::BuildProcessFailed`
+    /// **Proven containment events stay distinct from process faults.** `WallTimeoutKilled`,
+    /// `StderrOutputLimitExceeded` and `MemoryLimitKilled` use `FindingCode::HostContainmentFired`
+    /// at `Severity::MachineLimit`. A bare `ChildCrashed` does not prove which OS boundary fired,
+    /// so it remains a process fault. `ContainmentUnavailable`, `ContainmentFailed`, `SpawnFailed`,
+    /// and `ProtocolViolation` also use `FindingCode::BuildProcessFailed`
     /// (`FindingClass::Process`) at `Severity::NotProductionReady`, matching
     /// `crate::backend_selection`'s own use of the same code for an operational build fault rather
     /// than `Severity::MachineLimit`, which would misname a tooling fault as host containment.
@@ -981,23 +1020,44 @@ impl WorkerOutcome {
                 ),
                 remedies: Vec::new(),
             }]),
-            // Cause is ambiguous (own doc: panic/stack-overflow/OOM/external kill); kept as containment, not a tooling fault.
-            WorkerOutcome::ChildCrashed { detail } => HealthReport::new(vec![HealthFinding {
+            WorkerOutcome::MemoryLimitKilled {
+                limit_bytes,
+                evidence,
+            } => HealthReport::new(vec![HealthFinding {
                 code: FindingCode::HostContainmentFired,
                 severity: Severity::MachineLimit,
                 phase: Phase::Compile,
                 affected: Vec::new(),
-                metric: Metric::UnknownUnboundedWork,
-                value: MetricValue::Unbounded,
+                metric: Metric::WorkerTreePeakMemoryChargeBytes,
+                value: MetricValue::Bytes(evidence.peak_memory_charge_bytes()),
                 provenance: ValueProvenance::Observed,
-                threshold: None,
+                threshold: Some(MetricValue::Bytes(*limit_bytes)),
                 explanation: format!(
-                    "The compile worker process terminated abnormally without producing a valid \
-                     result frame: {detail}"
+                    "The OS-enforced worker-tree memory boundary fired after a peak aggregate \
+                     memory charge of {} byte(s), against the configured {}-byte limit. Exact \
+                     platform-native limit-event evidence remains on the typed WorkerOutcome. \
+                     This is not a grammar-capability verdict.",
+                    evidence.peak_memory_charge_bytes(),
+                    limit_bytes
                 ),
                 remedies: Vec::new(),
             }]),
-            // No child process ever ran to be contained, so this is a process fault, not host containment.
+            WorkerOutcome::ContainmentFailed { detail } => {
+                build_process_failure_health(format!(
+                    "Worker process-tree containment failed while supervising or cleaning up the \
+                     build: {detail}"
+                ))
+            }
+            WorkerOutcome::ChildCrashed { detail } => build_process_failure_health(format!(
+                "The compile worker process terminated abnormally without OS containment \
+                 evidence and without producing a valid result frame: {detail}"
+            )),
+            WorkerOutcome::ContainmentUnavailable { detail } => {
+                build_process_failure_health(format!(
+                    "Required worker process-tree containment is unavailable; no unmanaged build \
+                     was started: {detail}"
+                ))
+            }
             WorkerOutcome::SpawnFailed { detail } | WorkerOutcome::ProtocolViolation { detail } => {
                 HealthReport::new(vec![HealthFinding {
                     code: FindingCode::BuildProcessFailed,
@@ -2105,6 +2165,115 @@ mod tests {
             "a bare crash must not be promoted to host containment: {health:?}"
         );
         assert_eq!(health.admission(), Severity::NotProductionReady);
+    }
+
+    #[test]
+    fn windows_memory_limit_retains_intrinsic_native_evidence() {
+        let outcome = WorkerOutcome::MemoryLimitKilled {
+            limit_bytes: 1_000_000,
+            evidence: MemoryLimitEvidence::WindowsObservedJobMemoryLimitViolation {
+                peak_job_memory_used_bytes: 1_048_576,
+            },
+        };
+
+        assert!(matches!(
+            &outcome,
+            WorkerOutcome::MemoryLimitKilled {
+                evidence:
+                    MemoryLimitEvidence::WindowsObservedJobMemoryLimitViolation {
+                        peak_job_memory_used_bytes: 1_048_576
+                    },
+                ..
+            }
+        ));
+        let health = outcome.health_report();
+        assert_eq!(health.findings.len(), 1);
+        assert_eq!(health.findings[0].code, FindingCode::HostContainmentFired);
+        assert_eq!(
+            health.findings[0].metric,
+            Metric::WorkerTreePeakMemoryChargeBytes
+        );
+        assert_eq!(health.findings[0].value, MetricValue::Bytes(1_048_576));
+        assert_eq!(
+            health.findings[0].threshold,
+            Some(MetricValue::Bytes(1_000_000))
+        );
+        assert_eq!(health.findings[0].provenance, ValueProvenance::Observed);
+        assert_eq!(health.admission(), Severity::MachineLimit);
+    }
+
+    #[test]
+    fn linux_memory_limit_requires_nonzero_native_limit_event_evidence() {
+        let evidence = MemoryLimitEvidence::LinuxCgroupV2MemoryLimitViolation {
+            memory_peak_bytes: 1_048_576,
+            oom_kill_count_delta: NonZeroU64::new(1).unwrap(),
+            max_event_count_delta: NonZeroU64::new(2).unwrap(),
+        };
+        let outcome = WorkerOutcome::MemoryLimitKilled {
+            limit_bytes: 1_000_000,
+            evidence,
+        };
+
+        assert!(matches!(
+            &outcome,
+            WorkerOutcome::MemoryLimitKilled {
+                evidence:
+                    MemoryLimitEvidence::LinuxCgroupV2MemoryLimitViolation {
+                        memory_peak_bytes: 1_048_576,
+                        oom_kill_count_delta,
+                        max_event_count_delta,
+                    },
+                ..
+            } if oom_kill_count_delta.get() == 1 && max_event_count_delta.get() == 2
+        ));
+        let health = outcome.health_report();
+        assert_eq!(health.admission(), Severity::MachineLimit);
+        assert_eq!(health.findings.len(), 1);
+        assert_eq!(health.findings[0].code, FindingCode::HostContainmentFired);
+        assert_eq!(
+            health.findings[0].metric,
+            Metric::WorkerTreePeakMemoryChargeBytes
+        );
+        assert_eq!(health.findings[0].value, MetricValue::Bytes(1_048_576));
+        assert_eq!(
+            health.findings[0].threshold,
+            Some(MetricValue::Bytes(1_000_000))
+        );
+        assert_eq!(health.findings[0].provenance, ValueProvenance::Observed);
+    }
+
+    #[test]
+    fn unavailable_containment_is_a_process_readiness_failure() {
+        let outcome = WorkerOutcome::ContainmentUnavailable {
+            detail: "cgroup v2 delegation is unavailable".to_string(),
+        };
+
+        let health = outcome.health_report();
+        assert_eq!(health.findings.len(), 1);
+        assert_eq!(health.findings[0].code, FindingCode::BuildProcessFailed);
+        assert_eq!(
+            health.findings[0].code.class(),
+            crate::health::FindingClass::Process
+        );
+        assert_eq!(health.admission(), Severity::NotProductionReady);
+        assert!(health.findings[0].explanation.contains("unavailable"));
+    }
+
+    #[test]
+    fn failed_live_containment_is_a_process_readiness_failure() {
+        let outcome = WorkerOutcome::ContainmentFailed {
+            detail: "job accounting query failed".to_string(),
+        };
+
+        let health = outcome.health_report();
+        assert_eq!(health.findings.len(), 1);
+        assert_eq!(health.findings[0].code, FindingCode::BuildProcessFailed);
+        assert_eq!(
+            health.findings[0].code.class(),
+            crate::health::FindingClass::Process
+        );
+        assert_eq!(health.admission(), Severity::NotProductionReady);
+        assert!(health.findings[0].explanation.contains("failed"));
     }
 
     /// Neither ever ran a child to contain, so both are process faults rather than host limits.

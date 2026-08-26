@@ -49,6 +49,10 @@ it protects an axis distinction rather than the old spawn seam.
 Files:
 
 - `rust/crates/pg-foma/src/worker.rs`
+- `rust/crates/pg-foma/src/health.rs`
+- `rust/crates/pg-foma/src/health_evaluator.rs`
+- `rust/crates/pg-pack/src/manifest.rs`
+- `rust/crates/pg-pack/src/format.rs`
 - new `rust/crates/pg-foma/src/worker_containment.rs` and platform submodules as needed
 
 - [ ] First add deterministic seam tests with a scripted fake for setup failure before child start,
@@ -56,26 +60,33 @@ Files:
       parsed payload. Record executable red failures before implementing the seam behavior.
 - [ ] Add `ContainedWorkerProcess` with spawn, poll, terminate-tree, wait-empty, and peak-memory
       operations; keep platform types private.
-- [ ] Add `MemoryLimitKilled`, `ContainmentUnavailable`, and `ContainmentFailed` outcomes and health
-      mappings with configured limit, observed peak, and provenance.
+- [ ] Add `MemoryLimitKilled`, `ContainmentUnavailable`, and `ContainmentFailed`; retain configured
+      limit, observed peak, and native trigger evidence on the worker outcome. Add the truthful
+      worker-tree peak-memory health metric and advance only the affected health/pack schemas to v5;
+      reject stale standalone and embedded health versions.
 - [ ] Make every non-success discard parsed selected payload.
 - [ ] Bound termination, tree drain, child reap, and reader joins; close parent pipe endpoints before
       joining readers after failed termination.
 - [ ] Encode deterministic failure precedence and keep `ChildCrashed` distinct absent an OS-proven
       containment event.
 - [ ] Do not change backend selection, compile refusal caps, apply budgets, or transport framing.
+- [ ] Preserve `pg-foma`'s `forbid(unsafe_code)`; keep its state machine safe and place no native
+      FFI in this crate.
 - [ ] Commit before platform implementation.
 
 ## Task 3: Windows Job Object adapter
 
 Files:
 
-- workspace and `pg-foma` Cargo manifests/lockfile
-- Windows containment module
+- workspace manifests/lockfile and new narrowly scoped `pg-worker-containment` crate
+- Windows native adapter in `pg-worker-containment`
+- safe `pg-foma` containment integration
 - Windows fixture/integration tests
 
-- [ ] Add a direct, target-scoped Windows API dependency with only Foundation, Security,
-      JobObjects, and Threading features.
+- [ ] Add a target-scoped Windows API dependency to `pg-worker-containment` with only Foundation,
+      Security, JobObjects, and Threading features; keep unsafe calls private and narrowly audited.
+- [ ] Set `deny(unsafe_op_in_unsafe_fn)` in the helper crate, confine unsafe blocks to target-specific
+      modules, and require a `SAFETY:` justification at every block.
 - [ ] Create/configure an unnamed job before launch.
 - [ ] Launch through `CreateProcessW` + `STARTUPINFOEXW` with atomic job-list assignment and an
       explicit inherited-handle list.
@@ -90,8 +101,9 @@ Files:
 
 Files:
 
-- target-scoped Linux dependencies
-- Linux containment module
+- target-scoped Linux dependencies in `pg-worker-containment`
+- Linux native adapter in `pg-worker-containment`
+- safe `pg-foma` containment integration
 - Linux fixture/integration tests
 
 - [ ] Discover cgroup2 mount/current membership and validate an explicitly delegated parent.
@@ -104,6 +116,8 @@ Files:
       event/peak capture, and bounded directory cleanup; do not promise abrupt-supervisor-death
       cleanup on Linux without a separate external lifecycle mechanism and proof.
 - [ ] Fail closed when delegation/controller/placement is unavailable.
+- [ ] Expose only safe owned containment operations to `pg-foma`; native handles and unsafe launch
+      machinery remain private to the helper crate.
 - [ ] Prove success, descendant memory kill, timeout with inherited pipes, fork-race cleanup, and
       required-capability CI behavior on Linux.
 - [ ] Commit and run the Linux containment target in Linux CI; do not claim this gate from Windows.
