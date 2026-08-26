@@ -325,10 +325,12 @@ permission.
    order: required-capability CI plus a real delegated-host/service-lifecycle run, production
    routing, then deletion of the shared direct-`Command` supervisor loop and its source-shape test.
    Cross-platform fixture success is not Linux runtime proof and does not authorize that deletion.
-   The final-tip Windows Cargo run reported 5 unit and 11 Windows containment tests passing, but the
-   managed command required interruption after procgov failed to exit; wrapper teardown therefore
-   remains open. The Linux CI dependency has no matching provisioned runner in repository evidence,
-   so workflow-only wiring is deliberately not counted as progress.
+   A fresh final-tip Windows rerun reported 5 unit and 11 Windows containment tests passing and the
+   managed command exited cleanly. The earlier procgov teardown hang did not reproduce with an
+   immediate-exit child or the exact cached Cargo target, so no speculative watchdog code was added.
+   The Linux CI dependency remains the sole platform gate: repository evidence contains no matching
+   provisioned runner, and this host has no WSL, Docker, or Podman Linux environment. Workflow-only
+   wiring is deliberately not counted as progress.
 3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
    top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
    `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production

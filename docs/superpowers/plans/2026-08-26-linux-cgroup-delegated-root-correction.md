@@ -255,13 +255,15 @@ It does **not** prove host-service interruption cleanup or a real Linux run. The
 complete, Task 5 CI remains next, and this checkpoint does not authorize routing or deleting the old
 worker supervisor loop.
 
-**Local gate evidence after the checkpoint:** the managed Windows command compiled the final tip and
-reported 5 unit tests plus 11 Windows containment tests passing; the Linux target compiled and ran
-zero tests as intended on Windows. The command is not recorded as a clean wrapper pass because
-procgov remained alive after Cargo completed and required interruption. No Cargo, rustc, or procgov
-descendants remained afterward. Task 5 workflow wiring is also blocked on external infrastructure:
-the repository contains no provisioned `[self-hosted, linux, x64, cgroup-v2-delegated]` runner or
-service contract, so YAML alone would remain queued and would not constitute Linux proof.
+**Local gate evidence after the checkpoint:** a fresh exact managed Windows rerun compiled the final
+tip, reported 5 unit tests plus 11 Windows containment tests passing, and exited cleanly; the Linux
+target compiled and ran zero tests as intended on Windows. An earlier procgov teardown hang did not
+reproduce with either an immediate-exit child or the cached Cargo rerun, and no Cargo, rustc, or
+procgov descendants remained, so no unproven watchdog was added. Task 5 workflow wiring remains
+blocked on external infrastructure: the repository contains no provisioned
+`[self-hosted, linux, x64, cgroup-v2-delegated]` runner or service contract, and this host has no WSL,
+Docker, or Podman Linux environment. YAML alone would remain queued and would not constitute Linux
+proof.
 
 ## Task 5: Install the required-capability CI gate
 
