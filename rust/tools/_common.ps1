@@ -66,6 +66,39 @@ $script:HddCacheRoot = if ($env:PANGLOSS_CARGO_CACHE_ROOT) { $env:PANGLOSS_CARGO
 $script:MinFreeGBOnSsd = if ($env:PANGLOSS_MIN_FREE_SSD_GB) { [double]$env:PANGLOSS_MIN_FREE_SSD_GB } else { 50 }
 $script:BuildSemaphoreName = 'Global\PanGlossCargoBuild'
 
+function Import-PanGlossPlatformAdapter {
+    <#
+      Install the platform-native implementation into the current PowerShell session.  The Linux
+      adapter declares its seam functions in global scope because this importer is a function and a
+      normal dot-source would otherwise leave those definitions in the importer's temporary scope.
+      An explicit -Platform is useful for fixture tests; load-time dispatch below only selects Linux
+      on an actual Linux host, so Windows keeps its existing implementation byte-for-byte.
+    #>
+    param(
+        [ValidateSet('Windows', 'Linux')][string]$Platform = $(if ($IsLinux) { 'Linux' } else { 'Windows' }),
+        [string]$ToolRoot = $PSScriptRoot
+    )
+    if ($Platform -eq 'Windows') {
+        $global:PanGlossPlatformAdapter = [PSCustomObject]@{ Platform = 'Windows'; Overrides = @() }
+        return $global:PanGlossPlatformAdapter
+    }
+    $adapterPath = Join-Path $ToolRoot '_platform_linux.ps1'
+    if (-not (Test-Path -LiteralPath $adapterPath -PathType Leaf)) {
+        throw "Linux platform adapter not found: $adapterPath"
+    }
+    . $adapterPath
+    $global:PanGlossPlatformAdapter = [PSCustomObject]@{
+        Platform  = 'Linux'
+        Overrides = @(
+            'Get-AvailableMemoryGB', 'Get-TotalMemoryGB', 'Get-CommitChargeGB',
+            'Get-FreeSpaceGB', 'Resolve-TargetDir', 'Use-Sccache', 'Set-SccacheServerPriority',
+            'Get-BuildSlotHolders',
+            'Enter-BuildSlot', 'Exit-BuildSlot', 'Invoke-CargoWithReaper', 'Invoke-ProcessInJobObject'
+        )
+    }
+    return $global:PanGlossPlatformAdapter
+}
+
 # Logical processors left unclaimed by compiler work, machine-wide, so latency-sensitive daemons (sshd,
 # Chrome Remote Desktop) keep headroom. docs/research/build-resource-governance.md
 $script:InteractiveReserveThreads = if ($env:PANGLOSS_INTERACTIVE_RESERVE) { [int]$env:PANGLOSS_INTERACTIVE_RESERVE } else { 6 }
@@ -684,6 +717,7 @@ function Get-WorktreeSlug {
 
 function Get-FreeSpaceGB {
     param([string]$Path)
+    if ($global:PanGlossPlatformAdapter.Platform -eq 'Linux') { return Get-LinuxFreeSpaceGB -Path $Path }
     $driveRoot = [System.IO.Path]::GetPathRoot($Path)
     if (-not $driveRoot) { return $null }
     $driveLetter = $driveRoot.TrimEnd('\').TrimEnd(':')
@@ -693,7 +727,12 @@ function Get-FreeSpaceGB {
 }
 
 function Resolve-TargetDir {
-    param([string]$RustRoot)
+    param([string]$RustRoot, [scriptblock]$DirectoryCreator)
+    if ($global:PanGlossPlatformAdapter.Platform -eq 'Linux') {
+        $args = @{ RustRoot = $RustRoot }
+        if ($PSBoundParameters.ContainsKey('DirectoryCreator')) { $args.DirectoryCreator = $DirectoryCreator }
+        return Resolve-LinuxTargetDir @args
+    }
     # Never fight a choice already made on purpose: an explicit CARGO_TARGET_DIR or worktree-local config wins outright.
     if ($env:CARGO_TARGET_DIR) { return $env:CARGO_TARGET_DIR }
     $cfg = Join-Path $RustRoot '.cargo\config.toml'
@@ -727,6 +766,13 @@ function Resolve-TargetDir {
 }
 
 function Use-Sccache {
+    param([scriptblock]$CommandResolver, [scriptblock]$DirectoryCreator)
+    if ($global:PanGlossPlatformAdapter.Platform -eq 'Linux') {
+        $args = @{}
+        if ($PSBoundParameters.ContainsKey('CommandResolver')) { $args.CommandResolver = $CommandResolver }
+        if ($PSBoundParameters.ContainsKey('DirectoryCreator')) { $args.DirectoryCreator = $DirectoryCreator }
+        return Use-LinuxSccache @args
+    }
     if (-not (Get-Command sccache -ErrorAction SilentlyContinue)) { return $false }
     $env:RUSTC_WRAPPER = 'sccache'
     # Deliberately on the HDD root: a cache hit is one blob read, so capacity matters more than seek time here.
@@ -1243,6 +1289,12 @@ $script:ExitCodeConformanceSubmoduleMissing = 18
 $script:ExitCodeWorktreeMismatch = 19
 # conformance-test invoked without -Scope; recovery is a caller decision, not an environment repair.
 $script:ExitCodeConformanceScopeUnclaimed = 20
+# Linux managed spawning requires proof that this wrapper is already under a finite host cgroup cap.
+$script:ExitCodeLinuxHostContainment = 21
+# An explicit per-run memory override cannot be honored on Linux; the service cgroup owns the cap.
+$script:ExitCodeLinuxRunMemoryOverride = 22
+$script:ExitCodeUnsupportedPlatform = 23
+$script:ExitCodeLinuxGcUnsupported = 24
 
 function Get-FilterZeroMatchHint {
     <#
@@ -1997,7 +2049,8 @@ function Write-Preflight {
         [double]$PerJobMemoryGB = 0,
         [int]$TestThreads = 0,
         $TestThreadsBudget = $null,
-        [string]$Priority = ''
+        [string]$Priority = '',
+        $HostCgroupProof = $null
     )
     $slug = Get-WorktreeSlug -RustRoot (Join-Path $RepoRoot 'rust')
     $head = git -C $RepoRoot rev-parse HEAD 2>$null
@@ -2017,14 +2070,26 @@ function Write-Preflight {
         Write-Host "free space: $($DiskCheck.Detail)" -ForegroundColor $(if ($DiskCheck.Ok) { 'Gray' } else { 'Red' })
     }
     if ($MemoryCheck) {
-        $total = Get-TotalMemoryGB
+        $total = if ($HostCgroupProof) { $null } else { Get-TotalMemoryGB }
         $ofTotal = if ($null -ne $total) { " of ${total}GB total" } else { '' }
         Write-Host "free memory: $($MemoryCheck.Detail)$ofTotal" -ForegroundColor $(if ($MemoryCheck.Ok) { 'Gray' } else { 'Red' })
         # Commit charge alongside it, never instead of it -- see Get-CommitChargeGB for why the two diverge.
-        $commit = Get-CommitChargeGB
+        $commit = if ($HostCgroupProof) { $null } else { Get-CommitChargeGB }
         if ($commit) {
             $commitColor = if ($commit.PercentUsed -ge 90) { 'Red' } elseif ($commit.PercentUsed -ge 75) { 'Yellow' } else { 'Gray' }
-            Write-Host "commit charge: $($commit.CommittedGB)GB of $($commit.LimitGB)GB limit ($($commit.PercentUsed)% used, $($commit.FreeGB)GB uncommitted) -- procgov's --maxjobmem and event-2004 both measure THIS, not available physical" -ForegroundColor $commitColor
+            $commitDetail = if ($HostCgroupProof) {
+                'host service owns the cgroup cap; pg does not apply per-process enforcement'
+            } else {
+                "procgov's --maxjobmem and event-2004 both measure THIS, not available physical"
+            }
+            Write-Host "commit charge: $($commit.CommittedGB)GB of $($commit.LimitGB)GB limit ($($commit.PercentUsed)% used, $($commit.FreeGB)GB uncommitted) -- $commitDetail" -ForegroundColor $commitColor
+        }
+    }
+    if ($HostCgroupProof) {
+        if ($HostCgroupProof.Ok) {
+            Write-Host "host cgroup: bounded ($($HostCgroupProof.EffectiveMemoryCapBytes) bytes effective cap) -- $($HostCgroupProof.Detail)" -ForegroundColor Gray
+        } else {
+            Write-Host "host cgroup: UNAVAILABLE -- $($HostCgroupProof.Detail)" -ForegroundColor Red
         }
     }
     # Diagnostic only (the mutexes are the real exclusion); printed because an anonymous wait looks like a deadlock.
@@ -2080,7 +2145,11 @@ function Write-Preflight {
         Write-Host "test threads: $TestThreads concurrent test processes (default would be $([Environment]::ProcessorCount))$testWhy"
     }
     if ($Priority) {
-        Write-Host "build priority: $Priority (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)"
+        if ($HostCgroupProof) {
+            Write-Host "build priority: $Priority (host-service-owned; unapplied by pg)"
+        } else {
+            Write-Host "build priority: $Priority (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)"
+        }
     }
     Write-Host '-------------------------' -ForegroundColor Cyan
 }
@@ -2200,4 +2269,15 @@ function Invoke-TargetGc {
         $result.Deleted += $d.Path
     }
     return [PSCustomObject]$result
+}
+
+# Load the native implementation only on the host that will execute it.  In particular, Windows
+# must never load the Linux adapter implicitly, while Linux must use this same importer as fixture
+# callers do so the production seam and contract seam cannot drift apart.
+if ($IsLinux) {
+    $script:PanGlossPlatformAdapter = Import-PanGlossPlatformAdapter -Platform Linux -ToolRoot $PSScriptRoot
+} elseif ($IsWindows) {
+    $script:PanGlossPlatformAdapter = Import-PanGlossPlatformAdapter -Platform Windows -ToolRoot $PSScriptRoot
+} else {
+    $script:PanGlossPlatformAdapter = [PSCustomObject]@{ Platform = 'Unknown'; Overrides = @() }
 }

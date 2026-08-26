@@ -70,10 +70,10 @@
                     -Exe <path>       runs an already-built executable directly, no cargo involved.
                   Args after a literal `--` are passed through to the binary. `-Package` selects
                   which workspace crate's example/bin to build when the name is ambiguous; it is
-                  ignored with -Exe. `-RunMemoryGB` overrides the job's committed-memory ceiling
-                  for one run (0 = derive the same machine-proportional cap a build gets); this is
-                  the mechanism for a deliberate large-memory experiment (e.g. 40GB) without
-                  changing the default for ordinary builds. `run` DOES take a build slot
+                   ignored with -Exe. On Windows, `-RunMemoryGB` overrides the job's committed-memory
+                   ceiling for one run (0 = derive the same machine-proportional cap a build gets).
+                   On Linux, an explicit value is refused because the host cgroup owns the cap;
+                   configure the finite host service cgroup instead. `run` DOES take a build slot
                   (Enter-BuildSlot) -- see the `run` mode block below in this file for why that is
                   the deliberate choice, not an oversight.
 
@@ -89,7 +89,7 @@
     rust\tools\pg.ps1 -Mode run -Example predict_census -- --grammar foo.xml
     rust\tools\pg.ps1 -Mode run -Bin pangloss -- batch --threads 1 --word-timeout-ms 5000
     rust\tools\pg.ps1 -Mode run -Exe C:\path\to\already-built.exe -- --some-flag
-    rust\tools\pg.ps1 -Mode run -Exe .\predict_census.exe -RunMemoryGB 40   # deliberate large-mem experiment
+    rust\tools\pg.ps1 -Mode run -Exe .\predict_census.exe -RunMemoryGB 40   # Windows-only deliberate large-mem experiment
 
   -Filter vs -TestTarget (documented here because getting this backwards cost seven wrong invocations
   in one session): -Filter narrows EXECUTION ONLY -- appended as a bare positional to the test runner,
@@ -106,10 +106,10 @@
   one run, e.g. at the console with no remote session to protect. They are separate knobs because they
   bound different phases: -Jobs caps compilation, -TestThreads caps how many test processes execute.
 
-  -RunMemoryGB (run mode only): overrides the job object's committed-memory ceiling for one run; 0
-  derives the same machine-proportional cap an ordinary build gets. This is the mechanism for a
-  deliberate large-memory experiment (e.g. 40GB) without touching PANGLOSS_JOB_MEM_GB, which would
-  also change every ordinary build's cap for as long as the env var stayed set.
+  -RunMemoryGB (run mode only): on Windows, overrides the job object's committed-memory ceiling for
+  one run; 0 derives the same machine-proportional cap an ordinary build gets. On Linux, an explicit
+  value is refused because the host cgroup owns the cap; configure the finite host service cgroup
+  instead.
 
   -BuildSlotTimeoutSeconds (default 1800 = 30 minutes): long enough that a normal queued build never
   trips it, short enough that a genuinely wedged holder (crashed mid-build without releasing) is
@@ -168,6 +168,15 @@ param(
 
 . "$PSScriptRoot\_common.ps1"
 
+if (-not $IsWindows -and -not $IsLinux) {
+    Write-Host '[pg] unsupported platform: this tool supports Windows and Linux only.' -ForegroundColor Red
+    exit $script:ExitCodeUnsupportedPlatform
+}
+if ($IsLinux -and $Mode -eq 'gc') {
+    Write-Host '[pg] Linux gc is unsupported: a safe native process census/reaper is not implemented.' -ForegroundColor Red
+    exit $script:ExitCodeLinuxGcUnsupported
+}
+
 # FIRST thing after loading the library: every mode below resolves paths from the CWD-derived repo root.
 Assert-ScriptAndCwdAgreeOnWorktree -ScriptRoot $PSScriptRoot
 
@@ -196,6 +205,24 @@ $script:TestOptProfile = 'pg-test-opt'
 
 $repoRoot = Get-RepoRoot
 $rustRoot = Get-RustRoot
+
+# Linux has no Windows job-object/procgov equivalent in this wrapper.  Establish the host's finite
+# cgroup bound before any formatting or Cargo path can run, then pass the proof through to the actual
+# process seam so the launch does not rediscover a mutable host state.
+$linuxHostProof = $null
+if ($IsLinux -and $Mode -notin @('gc', 'new-worktree', 'remove-worktree')) {
+    $linuxHostProof = Get-LinuxHostCgroupPreflight
+    if (-not $linuxHostProof.Ok -and $Mode -ne 'doctor') {
+        Write-Host "[pg] Linux host containment preflight failed BEFORE Cargo: $($linuxHostProof.Detail)" -ForegroundColor Red
+        Write-Host '[pg] recovery: run inside the configured finite cgroup-v2 service hierarchy.' -ForegroundColor Yellow
+        exit $script:ExitCodeLinuxHostContainment
+    }
+}
+
+if ($IsLinux -and $Mode -eq 'run' -and $RunMemoryGB -gt 0) {
+    Write-Host '[pg] Linux -RunMemoryGB is not supported: the host cgroup owns the cap. Configure the finite host service cgroup instead.' -ForegroundColor Red
+    exit $script:ExitCodeLinuxRunMemoryOverride
+}
 
 if ($Mode -eq 'new-worktree') {
     # The bootstrap half of the exact-base contract: without it, no worktree has metadata and Test-WorktreeBase can only report "unverified".
@@ -332,13 +359,18 @@ function Invoke-BackendCardRegeneration {
         [string]$RustRoot,
         [bool]$ReleaseBuild,
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$BuildPriority,
-        [int]$BuildMaxConcurrent
+        [int]$BuildMaxConcurrent,
+        $HostCgroupProof = $null
     )
     $generatorArgs = @('run', '-p', 'pg-foma', '--example', 'regenerate_backend_cards')
     if ($ReleaseBuild) { $generatorArgs += '--release' }
     Write-Host "[pg] regenerating backend capability cards ($($generatorArgs -join ' '))" -ForegroundColor Cyan
-    $generatorCode = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $generatorArgs `
-        -WorkingDirectory $RustRoot -Priority $BuildPriority -JobMaxConcurrent $BuildMaxConcurrent
+    $invokeArgs = @{
+        Exe = 'cargo'; CmdArgs = $generatorArgs; WorkingDirectory = $RustRoot
+        Priority = $BuildPriority; JobMaxConcurrent = $BuildMaxConcurrent
+    }
+    if ($null -ne $HostCgroupProof) { $invokeArgs['HostCgroupProof'] = $HostCgroupProof }
+    $generatorCode = Invoke-CargoWithReaper @invokeArgs
     if ($generatorCode -ne 0) {
         Write-Host "[pg] backend capability card regeneration failed with exit code $generatorCode" -ForegroundColor Red
         return $generatorCode
@@ -476,7 +508,7 @@ Write-Preflight -Mode $Mode -Profile $profileLabel -RepoRoot $repoRoot -TargetDi
     -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit `
     -JobsBudget $jobsBudget -PerJobMemoryGB $perJobMemGB `
     -TestThreads $(if ($Mode -in @('test', 'corpus-test', 'conformance-test')) { $TestThreads } else { 0 }) `
-    -TestThreadsBudget $testThreadsBudget -Priority $Priority
+    -TestThreadsBudget $testThreadsBudget -Priority $Priority -HostCgroupProof $linuxHostProof
 
 if ($BaseMode -ne 'off' -and $baseCheck.Checked -and -not $baseCheck.Ok) {
     Write-Host "[pg] worktree base check FAILED ($BaseMode mode): $($baseCheck.Detail)" -ForegroundColor Red
@@ -541,7 +573,8 @@ if (($Mode -in @('test', 'corpus-test', 'conformance-test')) -and $conformanceCh
 if ($Mode -eq 'doctor') {
     # Conformance IS folded into $unsafe: it describes the environment RIGHT NOW, same as disk/memory/base/sccache.
     # docs/research/build-resource-governance.md
-    $unsafe = ($baseCheck.Checked -and -not $baseCheck.Ok) -or (-not $diskCheck.Ok) -or (-not $memCheck.Ok) -or ($usedSccache -and -not $sccacheHealth.Ok) -or ($conformanceCheck -and -not $conformanceCheck.Ok)
+    $linuxContainmentUnsafe = $IsLinux -and ($null -eq $linuxHostProof -or -not $linuxHostProof.Ok)
+    $unsafe = ($baseCheck.Checked -and -not $baseCheck.Ok) -or (-not $diskCheck.Ok) -or (-not $memCheck.Ok) -or ($usedSccache -and -not $sccacheHealth.Ok) -or ($conformanceCheck -and -not $conformanceCheck.Ok) -or $linuxContainmentUnsafe
 
     # Exhaustion HISTORY is deliberately NOT folded into $unsafe: it describes something already recovered from.
     # docs/research/build-resource-governance.md
@@ -732,17 +765,29 @@ if (-not $memCheckNow.Ok) {
 $code = 1
 try {
     if ($Mode -eq 'run') {
-        # Same derivation an ordinary build gets by default; -RunMemoryGB bypasses it for one invocation. See this script's own header.
+        # Same derivation an ordinary build gets by default; Linux rejects an explicit -RunMemoryGB above.
         $runMemGB = if ($RunMemoryGB -gt 0) { $RunMemoryGB } else { Get-JobMemoryCapGB -MaxConcurrent $MaxConcurrent }
-        $runCpuRate = Get-JobCpuRatePercent
         Write-Host "[pg] run ($($runPlan.Label)): $($runPlan.LaunchExe) $($runPlan.LaunchArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }))" -ForegroundColor Cyan
-        $code = Invoke-ProcessInJobObject -Exe $runPlan.LaunchExe -CmdArgs $runPlan.LaunchArgs -WorkingDirectory $rustRoot `
-            -Priority $Priority -JobMemoryGB $runMemGB -CpuRatePercent $runCpuRate -Subject 'run'
+        $invokeArgs = @{
+            Exe = $runPlan.LaunchExe; CmdArgs = $runPlan.LaunchArgs; WorkingDirectory = $rustRoot
+            Priority = $Priority; Subject = 'run'
+        }
+        if (-not $IsLinux) {
+            $invokeArgs['JobMemoryGB'] = $runMemGB
+            $invokeArgs['CpuRatePercent'] = Get-JobCpuRatePercent
+        }
+        if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
+        $code = Invoke-ProcessInJobObject @invokeArgs
     } elseif ($Mode -eq 'corpus-test') {
         $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) "pg-corpus-test-$PID.log"
-        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -CaptureStdoutPath $capturePath -Priority $Priority -JobMaxConcurrent $MaxConcurrent
+        $invokeArgs = @{
+            Exe = 'cargo'; CmdArgs = $cargoArgs; WorkingDirectory = $rustRoot; CaptureStdoutPath = $capturePath
+            Priority = $Priority; JobMaxConcurrent = $MaxConcurrent
+        }
+        if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
+        $code = Invoke-CargoWithReaper @invokeArgs
         $lines = if (Test-Path $capturePath) { Get-Content $capturePath } else { @() }
         $lines | ForEach-Object { Write-Host $_ }
         $caseLines = @($lines | Where-Object { $_ -match '^PANGLOSS_CORPUS_CASES\s+(\S+)\s+(\d+)$' })
@@ -760,11 +805,16 @@ try {
     } else {
         $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
-        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs $cargoArgs -WorkingDirectory $rustRoot -Priority $Priority -JobMaxConcurrent $MaxConcurrent
+        $invokeArgs = @{
+            Exe = 'cargo'; CmdArgs = $cargoArgs; WorkingDirectory = $rustRoot
+            Priority = $Priority; JobMaxConcurrent = $MaxConcurrent
+        }
+        if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
+        $code = Invoke-CargoWithReaper @invokeArgs
         if ($code -eq 0 -and (Test-BackendCardRegenerationScope -BuildMode $Mode -BuildPackage $Package)) {
             $releaseBuild = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile))
             $code = Invoke-BackendCardRegeneration -RustRoot $rustRoot -ReleaseBuild:$releaseBuild `
-                -BuildPriority $Priority -BuildMaxConcurrent $MaxConcurrent
+                -BuildPriority $Priority -BuildMaxConcurrent $MaxConcurrent -HostCgroupProof $linuxHostProof
         }
     }
 } finally {
