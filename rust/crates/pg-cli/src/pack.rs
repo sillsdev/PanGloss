@@ -1,17 +1,9 @@
-//! Builds and writes a `.pgpack`: the ADR 0001/0005 capability-trust stamp, ADR 0004's required runtime features, FST health, and the foma/runtime payloads.
-
 use std::fs;
 
 use pg_foma::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
 use pg_foma::health_evaluator::evaluate_health;
-
-/// Honestly-labeled placeholder: no Rust-HermitCrab runtime-payload serializer exists yet, so the bytes announce themselves rather than imitating a real payload.
-const PLACEHOLDER_RUNTIME_PAYLOAD: &[u8] =
-    b"PANGLOSS-PLACEHOLDER-RUNTIME-PAYLOAD: no Rust-HermitCrab \
-runtime-payload serializer exists yet anywhere in this workspace; this byte content is NOT a \
-compiled artifact and must never be loaded as one.";
 
 /// Applies readiness independently of capability trust; raw NotProductionReady/MachineLimit/CannotRepresent findings never admit.
 pub(crate) fn validate_health_readiness(
@@ -202,7 +194,6 @@ mod tests {
             "an oversized payload must be refused publication"
         );
 
-        // Mirrors `run_pack`'s own gate-then-write sequence, so a refusal here must leave no file.
         let dir = scratch_dir("oversized-refusal");
         let out_path = dir.join("out.pgpack");
         let attempt: Result<(), String> = (|| {
