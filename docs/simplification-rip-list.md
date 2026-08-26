@@ -155,7 +155,8 @@ audit above.
 Status key: **VERIFIED** (source, focused behavior proof, integration proof, docs, and residue grep
 all passed) · **LANDED UNVERIFIED** (committed source exists but the full proof gate has not passed)
 · **AUTHORIZED** (decision made; rip it out) · **REJECTED** (do not build/restore it) · **SPLIT**
-(execute only the authorized portion) · **RETAINED** · **PROTECTED** · **DEFERRED NEXT** · **OPEN** · **BLOCKED**
+(execute only the authorized portion) · **PARTIAL** (some, but not all, of the item landed) ·
+**RETAINED** · **PROTECTED** · **DEFERRED NEXT** · **OPEN** · **BLOCKED**
 (needs a decision) · **VERIFY** (needs source evidence or measurement). `DONE` is no longer used:
 it hid live remnants. Only reviewed commits count as landed work; tests and documentation are part
 of the completion gate, not evidence for restoring a rejected contract.

@@ -76,12 +76,12 @@ the existing `pg-worker-containment` safe API, and `rust/tools/pg.ps1` as the so
 5. Format and compile the test contract, without editing production files:
 
    ```powershell
-   rust/tools/pg.ps1 -Mode fmt-check
    rust/tools/pg.ps1 -Mode test -Package pg-worker-containment -TestTarget linux_containment -NoNextest -MaxConcurrent 1 -Jobs 2 -TestThreads 1
    ```
 
-   On Windows, the target-specific test must compile cleanly and run zero Linux tests. On the
-   designated Linux runner, record the intended red failures. Commit only the test rewrite.
+   The wrapper runs comment hygiene and rustfmt before Cargo. On Windows, the target-specific test
+   must compile cleanly and run zero Linux tests. On the designated Linux runner, record the
+   intended red failures. Commit only the test rewrite.
 
 ## Task 2: Resolve and validate the delegated root
 
@@ -145,7 +145,6 @@ the existing `pg-worker-containment` safe API, and `rust/tools/pg.ps1` as the so
 8. Run the Windows-safe compile/gate before committing:
 
    ```powershell
-   rust/tools/pg.ps1 -Mode check -Package pg-worker-containment -MaxConcurrent 1 -Jobs 2
    rust/tools/pg.ps1 -Mode test -Package pg-worker-containment -NoNextest -MaxConcurrent 1 -Jobs 2 -TestThreads 1
    ```
 
@@ -239,7 +238,7 @@ the existing `pg-worker-containment` safe API, and `rust/tools/pg.ps1` as the so
 
    ```powershell
    pwsh -NoProfile -File rust/tools/tests/run-all.ps1
-   rust/tools/pg.ps1 -Mode check -Package pg-worker-containment -MaxConcurrent 1 -Jobs 2
+   rust/tools/pg.ps1 -Mode test -Package pg-worker-containment -NoNextest -MaxConcurrent 1 -Jobs 2 -TestThreads 1
    ```
 
    Then run the Linux narrow gate through the new wrapper inside the configured host service.
