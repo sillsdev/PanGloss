@@ -670,19 +670,6 @@ impl BackendSelection {
         self.ranked_candidates().first().map(|r| r.strategy)
     }
 
-    /// Returns at most the requested number of normally admissible candidates. The caller may
-    /// request two for a measured comparison; no refused backend, nor one with a Representability
-    /// or Containment finding, can enter this list — a Readiness-only (e.g. NotProductionReady
-    /// payload size) backend can. Ranking is clean report, severity, finding count, then committed
-    /// preference.
-    pub fn select_up_to(&self, limit: usize) -> Vec<EmissionStrategy> {
-        self.ranked_candidates()
-            .into_iter()
-            .take(limit.min(2))
-            .map(|r| r.strategy)
-            .collect()
-    }
-
     fn ranked_candidates(&self) -> Vec<&BackendReport> {
         let mut candidates: Vec<_> = self.reports.iter().filter(|r| r.is_selected()).collect();
         candidates.sort_by(|a, b| {
