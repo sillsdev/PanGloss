@@ -1565,8 +1565,10 @@ mod tests {
             "36 25 0:32 /tenant /sys/fs/cgroup/a rw - cgroup2 cgroup rw,memory\n",
             "37 25 0:33 /tenant /sys/fs/cgroup/b rw - cgroup2 cgroup rw,memory\n",
         );
-        let error = select_cgroup2_mount(text, Path::new("/tenant/build"))
-            .expect_err("tied cgroup mounts must be unavailable");
+        let error = match select_cgroup2_mount(text, Path::new("/tenant/build")) {
+            Err(error) => error,
+            Ok(_) => panic!("tied cgroup mounts must be unavailable"),
+        };
         assert!(error.to_string().contains("ambiguous"));
     }
 
