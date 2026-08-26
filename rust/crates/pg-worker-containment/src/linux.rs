@@ -368,6 +368,9 @@ impl ContainedWorkerProcess {
 
     fn final_evidence_and_peak_raw(&mut self) -> Result<FinalEvidence, ContainmentError> {
         let mut failures = Vec::new();
+        if self.direct_exit.is_none() {
+            failures.push("direct worker child has not been reaped".to_string());
+        }
         if let Err(error) = self.observe_memory_peak() {
             failures.push(error.to_string());
         }
@@ -384,8 +387,10 @@ impl ContainedWorkerProcess {
             Ok(_) => failures.push("worker cgroup is still populated during finalization".into()),
             Err(error) => failures.push(error.to_string()),
         }
-        if let Err(error) = self.remove_cgroup() {
-            failures.push(error.to_string());
+        if failures.is_empty() {
+            if let Err(error) = self.remove_cgroup() {
+                failures.push(error.to_string());
+            }
         }
         if failures.is_empty() {
             Ok(FinalEvidence {
@@ -591,8 +596,32 @@ impl CleanupContext<'_> {
     fn run(mut self, deadline: Instant) -> CleanupReport {
         let mut failures = Vec::new();
         if self.removed {
+            if self.direct_exit.is_none() {
+                match self.process_id {
+                    Some(process_id) => match reap_process(process_id, deadline) {
+                        Ok(status) => match decode_wait_status(status) {
+                            Ok(termination) => {
+                                self.direct_exit = Some(DirectChildExit {
+                                    process_id: process_id as u32,
+                                    termination,
+                                });
+                            }
+                            Err(error) => failures.push(error.to_string()),
+                        },
+                        Err(error) => failures.push(error.to_string()),
+                    },
+                    None => failures.push("removed worker has no process identity".to_string()),
+                }
+            }
             return CleanupReport {
-                result: Ok(()),
+                result: if failures.is_empty() {
+                    Ok(())
+                } else {
+                    Err(failed(format!(
+                        "worker cleanup failed: {}",
+                        failures.join("; ")
+                    )))
+                },
                 direct_exit: self.direct_exit,
                 memory_evidence: self.memory_evidence,
                 peak_memory_charge_bytes: self.peak_memory_charge_bytes,
