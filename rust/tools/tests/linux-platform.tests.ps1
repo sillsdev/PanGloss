@@ -177,6 +177,12 @@ Committed_AS:   2048 kB
             'the wrapper must report the minimum finite cap from mapped visible ancestors'
     }
 
+    Test-Case 'Linux unified cgroup parsing preserves colons in membership paths' {
+        Assert-LinuxAdapterReady
+        $membership = Read-LinuxUnifiedMembership -Text "0::/svc/tenant:blue/leaf`n"
+        Assert-Equal '/svc/tenant:blue/leaf' $membership 'only the first two cgroup delimiters may be structural'
+    }
+
     Test-Case 'Linux cgroup preflight accepts an unbounded leaf when an ancestor is finite' {
         Assert-LinuxAdapterReady
         $files = @{} + $validCgroupFiles
