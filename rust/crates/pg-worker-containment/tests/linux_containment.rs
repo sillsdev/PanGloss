@@ -4,6 +4,7 @@ use pg_worker_containment::{
     ChildTermination, ContainedWorkerProcess, ContainmentError, ExecutionLimits, LaunchOptions,
     MemoryLimitEvidence,
 };
+use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -84,6 +85,7 @@ fn spawn_or_skip(
     options: &LaunchOptions,
     memory_bytes: u64,
 ) -> Option<ContainedWorkerProcess> {
+    assert_configured_root_ready();
     match ContainedWorkerProcess::spawn(child_executable(), args, options, limits(memory_bytes)) {
         Ok(process) => Some(process),
         Err(ContainmentError::Unavailable { detail }) if !required_capability() => {
@@ -131,6 +133,7 @@ fn run_clean_child(
 fn missing_executable_returns_typed_spawn_failure_without_fallback() {
     let directory = temporary_directory("missing");
     let missing = directory.join("does-not-exist");
+    let snapshot = configured_worker_root_snapshot();
     let result =
         ContainedWorkerProcess::spawn(&missing, &[], &LaunchOptions::default(), limits(64 << 20));
     match result {
@@ -143,40 +146,211 @@ fn missing_executable_returns_typed_spawn_failure_without_fallback() {
         Err(error) => panic!("missing executable returned the wrong spawn error: {error}"),
         Ok(_) => panic!("missing executable must fail during contained spawn, not fall back"),
     }
+    if let Some((mapped, before)) = snapshot {
+        let after = direct_worker_children(&mapped).expect("read delegated root children");
+        assert_eq!(
+            after, before,
+            "missing executable left a worker cgroup residue"
+        );
+    }
     fs::remove_dir(&directory).expect("remove missing-executable test directory");
 }
 
-fn optional_cgroup_relative_path() -> Option<String> {
-    fs::read_to_string("/proc/self/cgroup")
-        .ok()?
-        .lines()
-        .find_map(|line| line.strip_prefix("0::"))
-        .map(str::to_string)
+struct EnvironmentGuard {
+    key: &'static str,
+    original: Option<OsString>,
 }
 
-fn cgroup_mountpoint() -> PathBuf {
-    let mountinfo = fs::read_to_string("/proc/self/mountinfo").expect("read mountinfo");
-    mountinfo
-        .lines()
-        .find_map(|line| {
-            let (left, right) = line.split_once(" - ")?;
-            if !right
-                .split_whitespace()
-                .next()
-                .is_some_and(|kind| kind == "cgroup2")
-            {
-                return None;
-            }
-            let field = left.split_whitespace().nth(4)?;
-            Some(PathBuf::from(
-                field.replace(r"\040", " ").replace(r"\011", "\t"),
-            ))
+impl EnvironmentGuard {
+    fn set(key: &'static str, value: Option<&OsStr>) -> Self {
+        let original = std::env::var_os(key);
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+        Self { key, original }
+    }
+}
+
+impl Drop for EnvironmentGuard {
+    fn drop(&mut self) {
+        match self.original.as_deref() {
+            Some(value) => std::env::set_var(self.key, value),
+            None => std::env::remove_var(self.key),
+        }
+    }
+}
+
+fn canonical_hierarchy_path(value: &OsStr) -> Option<String> {
+    let value = value.to_str()?;
+    if value == "/" {
+        return Some(value.to_string());
+    }
+    if !value.starts_with('/')
+        || value.ends_with('/')
+        || value.contains("//")
+        || value
+            .split('/')
+            .skip(1)
+            .any(|component| component.is_empty() || component == "." || component == "..")
+    {
+        return None;
+    }
+    Some(value.to_string())
+}
+
+fn configured_delegated_root() -> Option<String> {
+    canonical_hierarchy_path(std::env::var_os("PANGLOSS_CGROUP_DELEGATED_ROOT")?.as_os_str())
+}
+
+fn unified_membership(path: &Path) -> Option<String> {
+    fs::read_to_string(path).ok()?.lines().find_map(|line| {
+        let relative = line.strip_prefix("0::")?.trim();
+        Some(if relative.is_empty() {
+            "/".to_string()
+        } else if relative.starts_with('/') {
+            relative.to_string()
+        } else {
+            format!("/{relative}")
         })
-        .expect("Linux test host has a cgroup2 mount")
+    })
 }
 
-fn cgroup_absolute(relative: &str) -> PathBuf {
-    cgroup_mountpoint().join(relative.trim_start_matches('/'))
+fn unescape_mountinfo(value: &str) -> String {
+    value
+        .replace(r"\040", " ")
+        .replace(r"\011", "\t")
+        .replace(r"\012", "\n")
+        .replace(r"\134", "\\")
+}
+
+fn hierarchy_components(path: &str) -> impl Iterator<Item = &str> {
+    path.trim_matches('/')
+        .split('/')
+        .filter(|component| !component.is_empty())
+}
+
+fn hierarchy_contains(ancestor: &str, descendant: &str) -> bool {
+    ancestor == "/"
+        || ancestor == descendant
+        || descendant
+            .strip_prefix(ancestor.trim_end_matches('/'))
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn map_hierarchy_to_cgroup_mount(hierarchy: &str) -> Option<PathBuf> {
+    let mountinfo = fs::read_to_string("/proc/self/mountinfo").ok()?;
+    let mut candidates = mountinfo.lines().filter_map(|line| {
+        let (left, right) = line.split_once(" - ")?;
+        if right.split_whitespace().next()? != "cgroup2" {
+            return None;
+        }
+        let fields = left.split_whitespace().collect::<Vec<_>>();
+        let mount_root = unescape_mountinfo(fields.get(3)?);
+        let mount_point = PathBuf::from(unescape_mountinfo(fields.get(4)?));
+        hierarchy_contains(&mount_root, hierarchy).then_some((
+            hierarchy_components(&mount_root).count(),
+            mount_root,
+            mount_point,
+        ))
+    });
+    let first = candidates.next()?;
+    let (_, mount_root, mount_point) = candidates.fold(first, |best, candidate| {
+        if candidate.0 > best.0 {
+            candidate
+        } else {
+            best
+        }
+    });
+    let suffix = hierarchy
+        .strip_prefix(mount_root.trim_end_matches('/'))
+        .unwrap_or("")
+        .trim_start_matches('/');
+    Some(if suffix.is_empty() {
+        mount_point
+    } else {
+        mount_point.join(suffix)
+    })
+}
+
+fn current_unified_membership() -> Option<String> {
+    unified_membership(Path::new("/proc/self/cgroup"))
+}
+
+fn parent_hierarchy(path: &str) -> Option<String> {
+    let parent = Path::new(path).parent()?.to_str()?;
+    Some(if parent.is_empty() {
+        "/".to_string()
+    } else {
+        parent.to_string()
+    })
+}
+
+fn direct_worker_children(root: &Path) -> std::io::Result<BTreeSet<OsString>> {
+    let mut children = BTreeSet::new();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name
+            .as_os_str()
+            .to_string_lossy()
+            .starts_with(".pangloss-worker-")
+        {
+            children.insert(name);
+        }
+    }
+    Ok(children)
+}
+
+fn configured_worker_root_snapshot() -> Option<(PathBuf, BTreeSet<OsString>)> {
+    let root = configured_delegated_root()?;
+    let mapped = map_hierarchy_to_cgroup_mount(&root)?;
+    let children = direct_worker_children(&mapped).expect("read delegated root children");
+    Some((mapped, children))
+}
+
+fn current_parent_worker_root_snapshot() -> Option<(PathBuf, BTreeSet<OsString>)> {
+    let current = current_unified_membership()?;
+    let root = parent_hierarchy(&current)?;
+    let mapped = map_hierarchy_to_cgroup_mount(&root)?;
+    let children = direct_worker_children(&mapped).expect("read current parent children");
+    Some((mapped, children))
+}
+
+fn assert_configured_root_ready() {
+    let Some(raw_root) = std::env::var_os("PANGLOSS_CGROUP_DELEGATED_ROOT") else {
+        return;
+    };
+    let root = canonical_hierarchy_path(&raw_root).expect("configured delegated root is canonical");
+    let current = current_unified_membership().expect("read current unified cgroup membership");
+    assert!(
+        current != root && hierarchy_contains(&root, &current),
+        "current membership {current:?} must be a strict descendant of delegated root {root:?}"
+    );
+    let mapped_root = map_hierarchy_to_cgroup_mount(&root)
+        .expect("map configured delegated root through a visible cgroup2 mount");
+    assert!(
+        fs::read_to_string(mapped_root.join("cgroup.procs"))
+            .expect("read delegated root cgroup.procs")
+            .trim()
+            .is_empty(),
+        "configured delegated root must be empty"
+    );
+}
+
+fn assert_unavailable_spawn(context: &str) {
+    match ContainedWorkerProcess::spawn(
+        child_executable(),
+        &[OsString::from("cgroup")],
+        &LaunchOptions::default(),
+        limits(256 << 20),
+    ) {
+        Err(ContainmentError::Unavailable { detail }) => {
+            assert!(!detail.trim().is_empty(), "{context} returned empty detail")
+        }
+        Err(error) => panic!("{context} returned the wrong error: {error}"),
+        Ok(_) => panic!("{context} unexpectedly spawned a worker"),
+    }
 }
 
 #[test]
@@ -186,6 +360,50 @@ fn cgroup_capability_unavailable_is_skip_unless_required() {
         return;
     };
     assert_eq!(exit, ChildTermination::Exited(0));
+}
+
+#[test]
+fn absent_delegated_root_is_a_typed_unavailable_error() {
+    let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
+    let _environment = EnvironmentGuard::set("PANGLOSS_CGROUP_DELEGATED_ROOT", None);
+    assert_unavailable_spawn("absent delegated root");
+}
+
+#[test]
+fn malformed_delegated_roots_fail_without_worker_residue() {
+    let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
+    for raw_root in ["", "relative", "/.", "/..", "/foo//bar", "/foo/"] {
+        let snapshot = current_parent_worker_root_snapshot();
+        let _environment =
+            EnvironmentGuard::set("PANGLOSS_CGROUP_DELEGATED_ROOT", Some(OsStr::new(raw_root)));
+        assert_unavailable_spawn(&format!("malformed delegated root {raw_root:?}"));
+        if let Some((mapped, before)) = snapshot {
+            let after = direct_worker_children(&mapped).expect("read current parent children");
+            assert_eq!(
+                after, before,
+                "malformed root {raw_root:?} left worker cgroup residue"
+            );
+        }
+    }
+}
+
+#[test]
+fn delegated_root_outside_current_membership_is_unavailable() {
+    let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
+    let _environment = EnvironmentGuard::set(
+        "PANGLOSS_CGROUP_DELEGATED_ROOT",
+        Some(OsStr::new("/.pangloss-definitely-not-an-ancestor")),
+    );
+    assert_unavailable_spawn("non-ancestor delegated root");
+}
+
+#[test]
+fn populated_delegated_root_is_unavailable() {
+    let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
+    let current = current_unified_membership().expect("read current unified cgroup membership");
+    let _environment =
+        EnvironmentGuard::set("PANGLOSS_CGROUP_DELEGATED_ROOT", Some(OsStr::new(&current)));
+    assert_unavailable_spawn("populated delegated root");
 }
 
 #[test]
@@ -331,11 +549,25 @@ fn stdin_stdout_and_stderr_remain_connected_to_the_contained_child() {
 }
 
 #[test]
-fn child_starts_in_current_unified_cgroup_on_its_first_action() {
-    let Some(parent) = optional_cgroup_relative_path() else {
-        eprintln!("SKIP: Linux host has no unified cgroup entry");
+fn child_starts_in_configured_delegated_root_on_its_first_action() {
+    let Some(root) = configured_delegated_root() else {
+        eprintln!("SKIP: PANGLOSS_CGROUP_DELEGATED_ROOT is not configured");
         return;
     };
+    let current = current_unified_membership().expect("read current unified cgroup membership");
+    assert!(
+        current != root && hierarchy_contains(&root, &current),
+        "current membership {current:?} must be a strict descendant of delegated root {root:?}"
+    );
+    let mapped_root =
+        map_hierarchy_to_cgroup_mount(&root).expect("map configured delegated root mount");
+    assert!(
+        fs::read_to_string(mapped_root.join("cgroup.procs"))
+            .expect("read delegated root cgroup.procs")
+            .trim()
+            .is_empty(),
+        "configured delegated root must be empty before launch"
+    );
     let args = [OsString::from("cgroup")];
     let Some((exit, stdout, stderr)) = run_clean_child(&args, &LaunchOptions::default()) else {
         return;
@@ -345,10 +577,15 @@ fn child_starts_in_current_unified_cgroup_on_its_first_action() {
         .strip_prefix("CGROUP:0::")
         .expect("fixture emitted unified cgroup membership")
         .trim();
-    assert_ne!(child, parent, "child must have its own cgroup");
+    assert_ne!(child, current, "child must not stay in supervisor cgroup");
     assert!(
-        parent == "/" || child.starts_with(&(parent.trim_end_matches('/').to_string() + "/")),
-        "child cgroup {child:?} escaped current delegated parent {parent:?}"
+        hierarchy_contains(&root, child),
+        "child cgroup {child:?} escaped delegated root {root:?}"
+    );
+    assert_eq!(
+        parent_hierarchy(child).expect("worker cgroup has a parent"),
+        root,
+        "worker must be a direct child of delegated root"
     );
 }
 
@@ -585,7 +822,8 @@ fn completed_child_cgroup_is_removed_after_tree_cleanup() {
         .expect("fixture emitted cgroup")
         .trim();
     process.final_evidence_and_peak().expect("final evidence");
-    let path = cgroup_absolute(relative);
+    let path = map_hierarchy_to_cgroup_mount(relative)
+        .expect("map completed worker cgroup through a visible mount");
     assert!(
         !path.exists(),
         "worker cgroup removal was not confirmed before final evidence returned: {}",
