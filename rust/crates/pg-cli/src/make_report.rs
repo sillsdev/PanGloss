@@ -1242,16 +1242,6 @@ mod tests {
         assert!(rendered.contains("provenance=ProvenBound"), "{rendered}");
     }
 
-    fn admitted_current_grammar_never_engages_capability_override_for_supplied_pack() {
-        let grammar = pg_grammar::load(ADMIT_GRAMMAR_XML).expect("admitted fixture loads");
-        let semantics = GrammarSemantics::derive(&grammar);
-        let selection = select_backends(&semantics);
-        let decision = crate::gated_backend_decision(&selection);
-
-        assert!(!capability_override_engaged(&decision, true));
-    }
-
-
     /// Below-floor latency never renders as a literal `0`; direct proof over the rendering helper, independent of real timing noise.
     #[test]
     fn below_floor_latency_never_reports_as_a_bare_millis_zero() {
