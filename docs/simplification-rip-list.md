@@ -317,6 +317,10 @@ permission.
    completed artifact and structured provenance. Protected: sequential independent P/Q attempts.
    Status: **PARTIAL** until the worker adapters pass and Stage 3 migrates every production build
    route; adapter proof alone verifies only the artifact-worker sub-slice and does not unlock Stage 4.
+   Committed checkpoints: replacement descendant-failure tests (`40897d45`) and typed containment
+   outcomes plus the required health/pack v5 break (`b330892f`). Still pending, in order: concrete
+   safe helper API with the Windows adapter, Linux adapter/CI proof, production routing, then
+   deletion of the shared direct-`Command` supervisor loop and its source-shape test.
 3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
    top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
    `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
@@ -394,6 +398,70 @@ permission.
 | 7 publication proof | `pg-pack/trust.rs`, format/manifest, CLI pack/report, `pg-wasm/pack.rs` | overridden-manifest/WASM acceptance and allow-unproven publication tests | local unproven generation remains; every publication route rejects it; no persistent override record |
 | 8 schemas/docs | schema owners plus cited docs/OpenSpec | delete stale compatibility fixtures before shims | current round-trip passes; stale versions fail loudly; contract grep matches source |
 
+### Audited Stage 2 kill ledger (`b330892f` anchors)
+
+Execute this only after the safe lifecycle seam and both platform adapters pass their gates:
+
+1. In `worker_execution_limits_contract.rs`, retain/rewrite the descendant timeout and crash proofs
+   (lines 168–254) and the protocol classification cases (281–323). Delete the source-shape test
+   `supervisor_accepts_execution_limits_as_its_only_execution_control_input` (325–361) only after
+   its behavioral replacements are red. Keep defaults/configuration, protocol v9, payload-limit
+   authority, exact-payload, wire-versus-execution-limit, and build-identity coverage.
+2. Replace `worker.rs:1205–1400`; the old direct loop itself is lines 1252–1400. Remove its one
+   `Command::spawn`, four direct `kill`/`wait` pairs, `try_wait`, direct pipe extraction, and three
+   unbounded reader/writer joins. Preserve request prevalidation and all raw-protocol helpers.
+3. The replacement order is fixed: prevalidate; contained launch; start bounded protocol I/O; poll
+   child/containment/time/stderr/protocol; terminate the whole tree on non-success; bound tree drain,
+   child reap, pipe closure, and reader joins; accept only clean exit + exact EOF + empty tree + final
+   clean containment poll.
+4. Rewrite the stale standard-library/caller-owned-containment docs in `worker.rs:1–14,49–54,
+   1205–1215` and `lib.rs:338–345`, and then remove `Command`/`Stdio` imports that have no remaining
+   use. Retain `SpawnFailed`, but describe a contained launch failure.
+5. Do not delete the descendant fixture branches or synthetic protocol-output modes. The obsolete
+   `PANGLOSS_WORKER_TEST_SLEEP_MS`/`CRASH` branches are already absent and must not return.
+6. Defer Pack's `--watchdog`, health-only branch, placeholder, and hidden-child wording to Stage 3;
+   the hidden worker entry point itself remains required. Recipe supervision, Git commands, WSL
+   oracle processes, test launchers, and batch threads are explicitly outside this deletion.
+
+Expected old-loop target: 196 source lines including documentation, with 149 lines in the direct
+implementation region. Replacement size is not counted as deletion until its committed diff exists.
+
+### Audited Stage 3 kill ledger (`b330892f` anchors)
+
+1. Rewrite chooser tests first: `backend_selection.rs:739–1111`,
+   `backend_selection_contract.rs:67–189,312–407`, five-language reports (40–162), and trusted
+   selected builds (74–239). New assertions name the requested backend; P builds only P; P+Q run
+   sequentially and independently; P failure does not suppress Q; mismatch/stale/missing artifacts
+   fail without substitution. Preserve independent capability reports and strategy facts.
+2. Delete `BACKEND_PREFERENCE`, `preference_index`, rank keys, `selected`, `preferred`, and
+   `select_up_to` from `backend_selection.rs`. Refactor the result into keyed, independent reports;
+   analysis reports facts and never returns a production route.
+3. Replace `completed_build::select_completed_build` and `PreferredBuildMissing` with validation of
+   one explicitly requested strategy. Preserve grammar/attempt identity, realized-route, trust,
+   payload-presence, and integrity checks.
+4. Change `run_selected_compile_worker` to accept an explicit route, not `selection.preferred()`.
+   Keep route encoding/validation and protocol-error transport. Decide whether the currently unused
+   selected-worker convenience API gains a real caller or is deleted rather than preserved by its
+   source-shape test.
+5. Make Pack consume one named completed artifact. Delete its fixed `GATED_BACKEND`, in-process and
+   watchdog compilation branches, `PLACEHOLDER_FOMA_PAYLOAD`, substitution/explanation state, and
+   chooser-derived certificate attachment. Rewrite Pack tests as completed-artifact ingestion tests
+   before source deletion.
+6. Classify CLI parse/batch, report, FST-health, witnessed coverage, WASM, and FFI constructors at
+   the recorded open boundary. Any retained compile-consuming operation must take an explicit route
+   or completed artifact; none may silently compile fixed Foma, retry, or switch engines. Preserve
+   per-word guess-root fallback and other linguistic/correctness fallbacks.
+7. Delete cross-backend retry advice in `health_evaluator.rs` and the advice catalog only where it
+   recommends backend substitution. Preserve apply-time caller-controlled remedies and all
+   grammar-required routing.
+8. Residue gate: no production `BACKEND_PREFERENCE`, `preferred`, `select_up_to`, rank key, implicit
+   backend fallback/retry, placeholder Pack payload, or chooser-derived worker route. Optimizer
+   winner/Pareto terms remain only inside deferred within-backend tuning.
+
+Expected Stage 3 deletion/rewrite opportunity: roughly 800–1,200 lines in selector/build/worker/
+CLI/report/health/witnessed source and tests, plus 150–300 lines if adjacent WASM/FFI APIs are placed
+in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
+
 ### Per-commit staging checklist
 
 - Name the single contract changed or preserved.
@@ -408,14 +476,16 @@ permission.
 
 ## Tally
 
-Committed branch range `ff6fe2e2..635aa44e`: **4,127 deletions / 2,462 additions, net −1,665
-lines** across 60 files. This is a branch-wide mechanical line tally, not a claim that every commit
-is cleanup: it includes the ratified charter, raw-transport design/plan, and replacement tests. The
-completed raw-transport range removed 432 and added 426 lines in `worker.rs` plus
-`worker_contract.rs` (net −6 production lines), while deliberately adding 186 lines of subprocess
-fixture/integration proof. Uncommitted work is never counted until its exact staged snapshot is
-inspected and committed. Remaining deletion opportunity is tracked by the stages above; estimates
-below are directional only:
+Committed branch range `ff6fe2e2..b330892f`: **4,154 deletions / 3,307 additions, net −847 lines**
+across 62 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
+needed before the old containment loop can be removed. The completed raw-transport range removed
+432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
+deliberately adding 186 lines of subprocess fixture/integration proof. The Stage 2 typed-outcome/
+schema checkpoint added 339 and removed 54 lines; count it as replacement scaffolding, not as a
+removal win. Uncommitted work is never counted until its exact staged snapshot is inspected and
+committed. Remaining deletion opportunity is tracked by the stages above; estimates below are
+directional only:
 
 | Section | Est. lines |
 |---|---|

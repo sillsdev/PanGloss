@@ -32,28 +32,35 @@ required health/pack version bump from Stage 8, not the broader compatibility sw
 internal compile caps remain until Stage 4; this stage does not legitimize them or remove them
 early.
 
-The internal seam owns:
+The concrete safe API in `pg-worker-containment` owns:
 
 ```text
 ContainedWorkerProcess
   spawn(executable, args, stdio, execution limits)
-  try_wait_direct_child()
-  poll_containment() -> Result<Option<MemoryEvent>, ContainmentError>
-  terminate_tree()
+  take_stdio()
+  try_wait_direct_child() -> exit status with diagnostics
+  poll_containment() -> native memory-limit evidence or clean state
+  terminate_tree(deadline)
   wait_tree_empty(deadline)
-  peak_memory_charge_bytes()
+  reap_direct_child(deadline)
+  final_evidence_and_peak()
 ```
 
-`pg-foma` keeps its crate-wide `forbid(unsafe_code)`. The lifecycle state machine and artifact
-acceptance barrier stay safe and private there. A small workspace crate, `pg-worker-containment`,
-owns only the narrowly audited native Windows/Linux launch and containment operations and exposes a
-safe contained-process API. Do not weaken `pg-foma`'s unsafe-code policy or leak Job/cgroup handles
-through its public API.
+The helper owns all native handles and returns intrinsic Windows/Linux evidence without reducing it
+to a Boolean event. `pg-foma` keeps its crate-wide `forbid(unsafe_code)`, owns protocol parsing and
+selected-build metadata, and produces the existing `WorkerOutcome` as the only terminal outcome.
+It latches the first native memory event so a later clean poll cannot erase it. Do not add a second
+`LifecycleOutcome`, stage `Vec<u8>` inside containment, or create an uncalled generic production
+trait solely for fake tests. A narrow test-only adapter may script the concrete operations, but it
+must drive the same supervisor state machine used by production. Do not leak Job/cgroup handles
+through either crate's public API.
 
 Containment is established before worker code can run. There is no successful unmanaged fallback.
 The supervisor accepts a selected artifact only after the direct child exits successfully, stdout
 parsing reaches exact EOF, the containment tree is empty, and a final containment poll reports no
-memory-limit or containment error. A late event after direct-child exit discards the payload.
+memory-limit or containment error. A late event after direct-child exit discards the payload. Every
+failure path bounds tree termination, tree drain, direct-child reap, parent-pipe closure, and reader
+joins; cleanup failure has precedence without destroying lower-priority diagnostic evidence.
 
 ## Typed outcomes
 

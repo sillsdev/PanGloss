@@ -11,21 +11,21 @@ Files:
 - `rust/crates/pg-foma/tests/worker_execution_limits_contract.rs`
 - `rust/crates/pg-foma/tests/backend_selection_contract.rs`
 
-- [ ] Add descendant modes: idle holders for both stdout and stderr, delayed sentinel writer, and
+- [x] Add descendant modes: idle holders for both stdout and stderr, delayed sentinel writer, and
       a bounded allocator that touches and retains every page.
-- [ ] Add executable red tests for descendant timeout cleanup, direct-child crash cleanup,
+- [x] Add executable red tests for descendant timeout cleanup, direct-child crash cleanup,
       successful selected payload, and no artifact on every observable failure.
-- [ ] Rewrite `ChildCrashed` docs/unit expectations so a crash is not classified as
+- [x] Rewrite `ChildCrashed` docs/unit expectations so a crash is not classified as
       `HostContainmentFired` without OS evidence; audit the backend-selection contract for the same
       assumption.
-- [ ] Add red proof for a descendant surviving its direct parent's crash. Stage the deterministic
-      containment-unavailable, cleanup-deadline, and late-event proofs first in Task 2 beside the
-      private seam they script; do not fake them with timing or nonexistent public variants here.
+- [x] Add red proof for a descendant surviving its direct parent's crash. Add the deterministic
+      containment-unavailable, cleanup-deadline, and late-event proofs in Task 5 against the real
+      helper API through a narrow test-only fake; do not create an orphan production abstraction.
 - [ ] Replace the source-shape-only execution-control test with behavioral containment assertions.
-- [ ] Tighten malformed/truncated/trailing selected-output cases to `ProtocolViolation`; they may
+- [x] Tighten malformed/truncated/trailing selected-output cases to `ProtocolViolation`; they may
       not fall through to `ChildCrashed` or a containment classification.
-- [ ] Run the narrow platform test and record the intended red failures before implementation.
-- [ ] Commit tests separately.
+- [x] Run the narrow platform test and record the intended red failures before implementation.
+- [x] Commit tests separately (`40897d45`).
 
 Rewrite/delete ledger for this task:
 
@@ -44,7 +44,7 @@ wire-versus-execution-limit, and completed-build-identity tests. Keep
 `backend_selection_contract::readiness_labels_stay_selectable_while_containment_and_representability_do_not`;
 it protects an axis distinction rather than the old spawn seam.
 
-## Task 2: Define the internal containment seam and outcomes
+## Task 2: Lock the typed outcomes before native implementation
 
 Files:
 
@@ -53,26 +53,23 @@ Files:
 - `rust/crates/pg-foma/src/health_evaluator.rs`
 - `rust/crates/pg-pack/src/manifest.rs`
 - `rust/crates/pg-pack/src/format.rs`
-- new `rust/crates/pg-foma/src/worker_containment.rs` and platform submodules as needed
 
-- [ ] First add deterministic seam tests with a scripted fake for setup failure before child start,
-      cleanup-deadline failure, and a containment event arriving after clean direct-child exit and
-      parsed payload. Record executable red failures before implementing the seam behavior.
-- [ ] Add `ContainedWorkerProcess` with spawn, poll, terminate-tree, wait-empty, and peak-memory
-      operations; keep platform types private.
-- [ ] Add `MemoryLimitKilled`, `ContainmentUnavailable`, and `ContainmentFailed`; retain configured
+- [x] Add `MemoryLimitKilled`, `ContainmentUnavailable`, and `ContainmentFailed`; retain configured
       limit, observed peak, and native trigger evidence on the worker outcome. Add the truthful
       worker-tree peak-memory health metric and advance only the affected health/pack schemas to v5;
       reject stale standalone and embedded health versions.
-- [ ] Make every non-success discard parsed selected payload.
-- [ ] Bound termination, tree drain, child reap, and reader joins; close parent pipe endpoints before
-      joining readers after failed termination.
-- [ ] Encode deterministic failure precedence and keep `ChildCrashed` distinct absent an OS-proven
+- [x] Keep `ChildCrashed` distinct absent an OS-proven
       containment event.
-- [ ] Do not change backend selection, compile refusal caps, apply budgets, or transport framing.
-- [ ] Preserve `pg-foma`'s `forbid(unsafe_code)`; keep its state machine safe and place no native
-      FFI in this crate.
-- [ ] Commit before platform implementation.
+- [x] Do not change backend selection, compile refusal caps, apply budgets, or transport framing.
+- [x] Preserve `pg-foma`'s `forbid(unsafe_code)` and place no native FFI in that crate.
+- [x] Commit the typed contract separately (`b330892f`).
+
+Rejected implementation (`2026-08-26`): do not recreate an uncalled generic
+`pg-foma::worker_containment` module, a second `LifecycleOutcome`, or containment-owned `Vec<u8>`
+payload staging. The reviewed 375-line attempt lost native evidence, omitted bounded pipe/reap
+cleanup, and could not express the existing `WorkerOutcome`; it was deleted before commit. The
+concrete safe process API belongs in `pg-worker-containment`, while `worker.rs` remains the sole
+owner of protocol parsing, staged build metadata, failure precedence, and terminal `WorkerOutcome`.
 
 ## Task 3: Windows Job Object adapter
 
@@ -87,6 +84,10 @@ Files:
       Security, JobObjects, and Threading features; keep unsafe calls private and narrowly audited.
 - [ ] Set `deny(unsafe_op_in_unsafe_fn)` in the helper crate, confine unsafe blocks to target-specific
       modules, and require a `SAFETY:` justification at every block.
+- [ ] Define the concrete safe owned process API here: contained launch with owned stdio, direct
+      child status with exit diagnostics, native memory-event evidence, bounded terminate/drain/
+      child-reap operations, final evidence capture, and peak-memory query. Do not add another
+      worker outcome or parse/stage protocol payloads in this crate.
 - [ ] Create/configure an unnamed job before launch.
 - [ ] Launch through `CreateProcessW` + `STARTUPINFOEXW` with atomic job-list assignment and an
       explicit inherited-handle list.
@@ -128,12 +129,22 @@ Files:
 
 - `rust/crates/pg-foma/src/worker.rs`
 - `rust/crates/pg-foma/src/lib.rs`
-- containment modules
+- `pg-worker-containment` safe API
 - containment tests
 - cleanup charter
 
 - [ ] Route `run_compile_worker` exclusively through `ContainedWorkerProcess`.
+- [ ] Add a narrow test-only adapter over the concrete operations. Script setup-unavailable before
+      launch, cleanup-deadline failure, early and late native memory events, failed direct-child
+      status, reader closure, bounded reap, and failure precedence. The production path must use the
+      same state machine; tests may not exercise an isolated duplicate lifecycle.
 - [ ] Poll containment, wall time, protocol output, and stderr without reader deadlock.
+- [ ] Latch native memory evidence once observed; a later clean poll can never erase it.
+- [ ] Keep `WorkerOutcome` as the sole terminal result. `worker.rs`, not containment, owns parsed
+      output and selected-build metadata, and every non-success discards them.
+- [ ] Bound termination, tree drain, child reap, and reader joins; close parent pipe endpoints before
+      joining readers after failed termination. Cleanup failure takes precedence but lower-priority
+      evidence remains available in diagnostics.
 - [ ] Accept completion only after clean child exit, exact EOF, empty tree, and a final successful
       containment poll; prove that a late containment event discards an otherwise valid payload.
 - [ ] Only after both platform adapters pass, delete the Windows and Linux direct spawn/kill
