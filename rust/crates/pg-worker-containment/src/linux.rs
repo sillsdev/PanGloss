@@ -448,6 +448,8 @@ struct CreatedCgroup {
 struct SpawnGuard {
     cgroup: Option<CreatedCgroup>,
     process_id: Option<libc::pid_t>,
+    // Explicit failures consume the emergency cleanup attempt; Drop handles only unwinds.
+    cleanup_claimed: bool,
 }
 
 impl SpawnGuard {
@@ -455,6 +457,7 @@ impl SpawnGuard {
         Self {
             cgroup: Some(cgroup),
             process_id: None,
+            cleanup_claimed: false,
         }
     }
 
@@ -471,6 +474,7 @@ impl SpawnGuard {
     }
 
     fn fail(&mut self, initiating: ContainmentError) -> ContainmentError {
+        self.cleanup_claimed = true;
         combine_initiating_cleanup(initiating, self.cleanup())
     }
 
@@ -513,7 +517,9 @@ impl SpawnGuard {
 
 impl Drop for SpawnGuard {
     fn drop(&mut self) {
-        let _ = self.cleanup();
+        if !self.cleanup_claimed {
+            let _ = self.cleanup();
+        }
     }
 }
 
