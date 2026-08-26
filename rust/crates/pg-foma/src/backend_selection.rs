@@ -589,15 +589,6 @@ impl BackendSelection {
         }
     }
 
-    /// Reads an already-composed `crate::capability::StrategyEnvelope` rather than composing one,
-    /// so a caller that already holds the envelope pays for no second plan walk.
-    ///
-    /// A backend named by `BACKEND_PREFERENCE` but absent from `envelope` is simply omitted; the
-    /// envelope, not this list, decides which backends were composed at all.
-    pub fn from_envelope(envelope: &StrategyEnvelope) -> Self {
-        Self::from_envelope_with_backend_findings(envelope, None, &[])
-    }
-
     /// Builds reports from an envelope and optionally attaches the backend-native TunedSurface
     /// resource characterization.  Every committed backend still receives exactly one report,
     /// including when TunedSurface is refused by capability admission.
