@@ -175,9 +175,7 @@ impl ContainedWorkerProcess {
         }
         if result < 0 {
             let error = std::io::Error::last_os_error();
-            let initiating = unavailable(format!(
-                "clone3 with cgroup placement failed: {error}"
-            ));
+            let initiating = unavailable(format!("clone3 with cgroup placement failed: {error}"));
             return Err(guard.fail(initiating));
         }
         let process_id = result as libc::pid_t;
@@ -247,7 +245,15 @@ impl ContainedWorkerProcess {
 
     pub(crate) fn try_wait_direct_child(
         &mut self,
+        deadline: Instant,
     ) -> Result<Option<DirectChildExit>, ContainmentError> {
+        match self.try_wait_direct_child_raw() {
+            Ok(result) => Ok(result),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn try_wait_direct_child_raw(&mut self) -> Result<Option<DirectChildExit>, ContainmentError> {
         if let Some(exit) = self.direct_exit {
             return Ok(Some(exit));
         }
@@ -271,7 +277,15 @@ impl ContainedWorkerProcess {
 
     pub(crate) fn poll_containment(
         &mut self,
+        deadline: Instant,
     ) -> Result<Option<MemoryLimitEvidence>, ContainmentError> {
+        match self.poll_containment_raw() {
+            Ok(result) => Ok(result),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn poll_containment_raw(&mut self) -> Result<Option<MemoryLimitEvidence>, ContainmentError> {
         self.observe_memory_peak()?;
         let events = read_events(self.cgroup.as_raw_fd())?;
         self.latch_memory_evidence(events)?;
@@ -279,16 +293,25 @@ impl ContainedWorkerProcess {
     }
 
     pub(crate) fn terminate_tree(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
-        if let Err(error) = write_at(self.cgroup.as_raw_fd(), "cgroup.kill", b"1") {
-            return Err(combine_initiating_cleanup(error, self.cleanup(deadline)));
-        }
-        if let Err(error) = self.wait_tree_empty(deadline) {
+        if let Err(error) = self.terminate_tree_raw(deadline) {
             return Err(combine_initiating_cleanup(error, self.cleanup(deadline)));
         }
         Ok(())
     }
 
+    fn terminate_tree_raw(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
+        write_at(self.cgroup.as_raw_fd(), "cgroup.kill", b"1")?;
+        self.wait_tree_empty_raw(deadline)
+    }
+
     pub(crate) fn wait_tree_empty(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
+        match self.wait_tree_empty_raw(deadline) {
+            Ok(()) => Ok(()),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn wait_tree_empty_raw(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
         loop {
             let populated = read_cgroup_event(self.cgroup.as_raw_fd(), "populated")?;
             if populated == 0 {
@@ -307,11 +330,21 @@ impl ContainedWorkerProcess {
         &mut self,
         deadline: Instant,
     ) -> Result<DirectChildExit, ContainmentError> {
+        match self.reap_direct_child_raw(deadline) {
+            Ok(result) => Ok(result),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn reap_direct_child_raw(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<DirectChildExit, ContainmentError> {
         if let Some(exit) = self.direct_exit {
             return Ok(exit);
         }
         loop {
-            if let Some(exit) = self.try_wait_direct_child()? {
+            if let Some(exit) = self.try_wait_direct_child_raw()? {
                 return Ok(exit);
             }
             if Instant::now() >= deadline {
@@ -323,7 +356,17 @@ impl ContainedWorkerProcess {
         }
     }
 
-    pub(crate) fn final_evidence_and_peak(&mut self) -> Result<FinalEvidence, ContainmentError> {
+    pub(crate) fn final_evidence_and_peak(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<FinalEvidence, ContainmentError> {
+        match self.final_evidence_and_peak_raw() {
+            Ok(result) => Ok(result),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn final_evidence_and_peak_raw(&mut self) -> Result<FinalEvidence, ContainmentError> {
         let mut failures = Vec::new();
         if let Err(error) = self.observe_memory_peak() {
             failures.push(error.to_string());
@@ -547,6 +590,15 @@ struct CleanupContext<'a> {
 impl CleanupContext<'_> {
     fn run(mut self, deadline: Instant) -> CleanupReport {
         let mut failures = Vec::new();
+        if self.removed {
+            return CleanupReport {
+                result: Ok(()),
+                direct_exit: self.direct_exit,
+                memory_evidence: self.memory_evidence,
+                peak_memory_charge_bytes: self.peak_memory_charge_bytes,
+                removed: true,
+            };
+        }
         if self.process_id.is_some() {
             if let Err(error) = write_at(self.child, "cgroup.kill", b"1") {
                 failures.push(error.to_string());
@@ -592,15 +644,20 @@ impl CleanupContext<'_> {
                 Err(error) => failures.push(error.to_string()),
             }
         }
-        if let Err(error) = remove_named_cgroup(self.parent, self.name) {
-            failures.push(error.to_string());
-        } else {
-            self.removed = true;
+        if !self.removed {
+            if let Err(error) = remove_named_cgroup(self.parent, self.name) {
+                failures.push(error.to_string());
+            } else {
+                self.removed = true;
+            }
         }
         let result = if failures.is_empty() {
             Ok(())
         } else {
-            Err(failed(format!("worker cleanup failed: {}", failures.join("; "))))
+            Err(failed(format!(
+                "worker cleanup failed: {}",
+                failures.join("; ")
+            )))
         };
         CleanupReport {
             result,
@@ -678,9 +735,7 @@ impl DelegatedRoot {
         let mount = most_specific_covering_mount(&hierarchy_path)?;
         let directory = open_mapped_root(&mount, &hierarchy_path)?;
         require_empty_root_and_memory_delegation(directory.as_raw_fd())?;
-        Ok(Self {
-            directory,
-        })
+        Ok(Self { directory })
     }
 }
 
@@ -696,7 +751,10 @@ fn parse_canonical_hierarchy_path(value: &OsStr) -> Result<PathBuf, ContainmentE
             "PANGLOSS_CGROUP_DELEGATED_ROOT contains duplicate separators",
         ));
     }
-    for component in bytes.split(|byte| *byte == b'/').filter(|part| !part.is_empty()) {
+    for component in bytes
+        .split(|byte| *byte == b'/')
+        .filter(|part| !part.is_empty())
+    {
         if component == b"." || component == b".." || component.contains(&0) {
             return Err(unavailable(
                 "PANGLOSS_CGROUP_DELEGATED_ROOT contains an invalid component",
@@ -741,7 +799,9 @@ fn most_specific_covering_mount(path: &Path) -> Result<CgroupMount, ContainmentE
         .map_err(|error| unavailable(format!("reading /proc/self/mountinfo: {error}")))?
         .lines()
     {
-        let Some(mount) = parse_cgroup2_mount(line) else { continue };
+        let Some(mount) = parse_cgroup2_mount(line) else {
+            continue;
+        };
         if hierarchy_is_under(path, Path::new(&mount.root)) {
             matches.push(mount);
         }
@@ -751,7 +811,9 @@ fn most_specific_covering_mount(path: &Path) -> Result<CgroupMount, ContainmentE
         .map(|mount| component_count(Path::new(&mount.root)))
         .max()
     else {
-        return Err(unavailable("no visible cgroup-v2 mount covers the delegated root"));
+        return Err(unavailable(
+            "no visible cgroup-v2 mount covers the delegated root",
+        ));
     };
     let selected = matches
         .into_iter()
@@ -771,7 +833,9 @@ fn hierarchy_is_under(path: &Path, root: &Path) -> bool {
 }
 
 fn component_count(path: &Path) -> usize {
-    path.components().filter(|component| matches!(component, std::path::Component::Normal(_))).count()
+    path.components()
+        .filter(|component| matches!(component, std::path::Component::Normal(_)))
+        .count()
 }
 
 fn open_mapped_root(mount: &CgroupMount, hierarchy: &Path) -> Result<OwnedFd, ContainmentError> {
@@ -784,7 +848,10 @@ fn open_mapped_root(mount: &CgroupMount, hierarchy: &Path) -> Result<OwnedFd, Co
         )
     };
     if mount_fd < 0 {
-        return Err(unavailable(format!("opening cgroup-v2 mount: {}", std::io::Error::last_os_error())));
+        return Err(unavailable(format!(
+            "opening cgroup-v2 mount: {}",
+            std::io::Error::last_os_error()
+        )));
     }
     // SAFETY: mount returned a fresh directory descriptor with no Rust owner; this transfer
     // gives exactly one OwnedFd ownership of it.
@@ -793,7 +860,9 @@ fn open_mapped_root(mount: &CgroupMount, hierarchy: &Path) -> Result<OwnedFd, Co
     let suffix = if root == Path::new("/") {
         hierarchy.strip_prefix("/").unwrap_or(hierarchy)
     } else {
-        hierarchy.strip_prefix(root).map_err(|_| unavailable("mount root mapping escaped"))?
+        hierarchy
+            .strip_prefix(root)
+            .map_err(|_| unavailable("mount root mapping escaped"))?
     };
     for component in suffix.components() {
         let std::path::Component::Normal(component) = component else {
@@ -809,7 +878,10 @@ fn open_mapped_root(mount: &CgroupMount, hierarchy: &Path) -> Result<OwnedFd, Co
             )
         };
         if fd < 0 {
-            return Err(unavailable(format!("opening mapped delegated root: {}", std::io::Error::last_os_error())));
+            return Err(unavailable(format!(
+                "opening mapped delegated root: {}",
+                std::io::Error::last_os_error()
+            )));
         }
         // SAFETY: openat returned a fresh descriptor and current is replaced only after ownership transfer.
         current = unsafe { OwnedFd::from_raw_fd(fd) };
@@ -819,16 +891,22 @@ fn open_mapped_root(mount: &CgroupMount, hierarchy: &Path) -> Result<OwnedFd, Co
 
 fn require_empty_root_and_memory_delegation(root: RawFd) -> Result<(), ContainmentError> {
     if read_text_at(root, "cgroup.type")?.trim() != "domain" {
-        return Err(unavailable("configured delegated root is not a normal domain cgroup"));
+        return Err(unavailable(
+            "configured delegated root is not a normal domain cgroup",
+        ));
     }
     if !read_text_at(root, "cgroup.procs")?.trim().is_empty() {
-        return Err(unavailable("configured delegated root cgroup.procs is not empty"));
+        return Err(unavailable(
+            "configured delegated root cgroup.procs is not empty",
+        ));
     }
     if !read_text_at(root, "cgroup.subtree_control")?
         .split_whitespace()
         .any(|value| value == "memory")
     {
-        return Err(unavailable("configured delegated root does not delegate memory"));
+        return Err(unavailable(
+            "configured delegated root does not delegate memory",
+        ));
     }
     Ok(())
 }
@@ -870,9 +948,7 @@ fn configure_child_cgroup(child: RawFd, requested: u64) -> Result<u64, Containme
 
 fn remove_named_cgroup(parent: RawFd, name: &CString) -> Result<(), ContainmentError> {
     // SAFETY: cgroup parent fd and name are owned/live and the kernel reads the name immediately.
-    let result = unsafe {
-        libc::unlinkat(parent, name.as_ptr(), AT_REMOVEDIR)
-    };
+    let result = unsafe { libc::unlinkat(parent, name.as_ptr(), AT_REMOVEDIR) };
     if result != 0 {
         return Err(failed(format!(
             "removing worker cgroup: {}",
@@ -1224,42 +1300,49 @@ fn parse_cgroup_event_value(text: &str, wanted: &str) -> Result<u64, &'static st
 }
 
 fn read_events(dir: RawFd) -> Result<MemoryEvents, ContainmentError> {
+    parse_memory_events(&read_text_at(dir, "memory.events")?)
+        .map_err(|detail| failed(format!("memory.events {detail}")))
+}
+
+fn parse_memory_events(text: &str) -> Result<MemoryEvents, &'static str> {
     let mut events = MemoryEvents::default();
     let mut saw_max = false;
     let mut saw_oom_kill = false;
-    for line in read_text_at(dir, "memory.events")?.lines() {
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
         let mut fields = line.split_whitespace();
-        let Some(name) = fields.next() else { continue };
+        let Some(name) = fields.next() else {
+            return Err("contains a malformed record");
+        };
         let Some(value) = fields.next() else {
-            return Err(failed("memory.events contains a truncated record"));
+            return Err("contains a truncated record");
         };
         if fields.next().is_some() {
-            return Err(failed("memory.events contains an invalid record"));
+            return Err("contains an invalid record");
         }
+        let numeric = value.parse().map_err(|_| "record value is not numeric")?;
         match name {
             "max" => {
                 if saw_max {
-                    return Err(failed("memory.events contains duplicate max records"));
+                    return Err("contains duplicate max records");
                 }
-                events.max = value
-                    .parse()
-                    .map_err(|_| failed("memory.events max is not numeric"))?;
+                events.max = numeric;
                 saw_max = true;
             }
             "oom_kill" => {
                 if saw_oom_kill {
-                    return Err(failed("memory.events contains duplicate oom_kill records"));
+                    return Err("contains duplicate oom_kill records");
                 }
-                events.oom_kill = value
-                    .parse()
-                    .map_err(|_| failed("memory.events oom_kill is not numeric"))?;
+                events.oom_kill = numeric;
                 saw_oom_kill = true;
             }
             _ => {}
         }
     }
     if !saw_max || !saw_oom_kill {
-        return Err(failed("memory.events lacks required max and oom_kill records"));
+        return Err("lacks required max and oom_kill records");
     }
     Ok(events)
 }

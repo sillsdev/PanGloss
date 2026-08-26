@@ -27,12 +27,14 @@ impl ContainedWorkerProcess {
 
     pub(crate) fn try_wait_direct_child(
         &mut self,
+        _deadline: Instant,
     ) -> Result<Option<DirectChildExit>, ContainmentError> {
         Err(unavailable())
     }
 
     pub(crate) fn poll_containment(
         &mut self,
+        _deadline: Instant,
     ) -> Result<Option<MemoryLimitEvidence>, ContainmentError> {
         Err(unavailable())
     }
@@ -52,7 +54,10 @@ impl ContainedWorkerProcess {
         Err(unavailable())
     }
 
-    pub(crate) fn final_evidence_and_peak(&mut self) -> Result<FinalEvidence, ContainmentError> {
+    pub(crate) fn final_evidence_and_peak(
+        &mut self,
+        _deadline: Instant,
+    ) -> Result<FinalEvidence, ContainmentError> {
         Err(unavailable())
     }
 }

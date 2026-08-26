@@ -1,6 +1,6 @@
 use crate::{
-    compare_environment_keys, ChildTermination, ContainedStdio, ContainmentError, DirectChildExit, ExecutionLimits,
-    FinalEvidence, LaunchOptions, MemoryLimitEvidence,
+    compare_environment_keys, ChildTermination, ContainedStdio, ContainmentError, DirectChildExit,
+    ExecutionLimits, FinalEvidence, LaunchOptions, MemoryLimitEvidence,
 };
 use std::ffi::{c_void, OsStr, OsString};
 use std::fs::File;
@@ -15,7 +15,6 @@ use windows_sys::Win32::Foundation::{
     WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
-use windows_sys::Win32::System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus};
 use windows_sys::Win32::System::JobObjects::{
     CreateJobObjectW, JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
     JobObjectLimitViolationInformation2, JobObjectNotificationLimitInformation2,
@@ -33,6 +32,7 @@ use windows_sys::Win32::System::Threading::{
     PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTF_USESTDHANDLES,
     STARTUPINFOEXW,
 };
+use windows_sys::Win32::System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus};
 
 const JOB_OBJECT_MSG_NOTIFICATION_LIMIT: u32 = 11;
 const MAX_NOTIFICATION_RESERVE_BYTES: usize = 64 * 1024 * 1024;
@@ -218,7 +218,15 @@ impl ContainedWorkerProcess {
 
     pub(crate) fn try_wait_direct_child(
         &mut self,
+        deadline: Instant,
     ) -> Result<Option<DirectChildExit>, ContainmentError> {
+        match self.try_wait_direct_child_raw() {
+            Ok(result) => Ok(result),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn try_wait_direct_child_raw(&mut self) -> Result<Option<DirectChildExit>, ContainmentError> {
         if let Some(exit) = self.direct_exit {
             return Ok(Some(exit));
         }
@@ -247,7 +255,15 @@ impl ContainedWorkerProcess {
 
     pub(crate) fn poll_containment(
         &mut self,
+        deadline: Instant,
     ) -> Result<Option<MemoryLimitEvidence>, ContainmentError> {
+        match self.poll_containment_raw() {
+            Ok(result) => Ok(result),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn poll_containment_raw(&mut self) -> Result<Option<MemoryLimitEvidence>, ContainmentError> {
         let info = self.query_limits()?;
         self.observe_peak(info.PeakJobMemoryUsed as u64);
         self.poll_memory_limit_message()?;
@@ -255,17 +271,25 @@ impl ContainedWorkerProcess {
     }
 
     pub(crate) fn terminate_tree(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
-        // SAFETY: the job handle is owned and valid for this object's lifetime; terminating the
-        // job is the only tree-wide kill operation exposed by this adapter.
-        unsafe {
-            if TerminateJobObject(self.job.raw_handle(), 1) == 0 {
-                return Err(win32_error("terminating worker job"));
-            }
+        match self.terminate_tree_raw(deadline) {
+            Ok(()) => Ok(()),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
         }
-        self.wait_tree_empty(deadline)
+    }
+
+    fn terminate_tree_raw(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
+        self.terminate_job_raw()?;
+        self.wait_tree_empty_raw(deadline)
     }
 
     pub(crate) fn wait_tree_empty(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
+        match self.wait_tree_empty_raw(deadline) {
+            Ok(()) => Ok(()),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn wait_tree_empty_raw(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
         loop {
             let accounting = self.query_accounting()?;
             if accounting.ActiveProcesses == 0 {
@@ -281,6 +305,16 @@ impl ContainedWorkerProcess {
     }
 
     pub(crate) fn reap_direct_child(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<DirectChildExit, ContainmentError> {
+        match self.reap_direct_child_raw(deadline) {
+            Ok(result) => Ok(result),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn reap_direct_child_raw(
         &mut self,
         deadline: Instant,
     ) -> Result<DirectChildExit, ContainmentError> {
@@ -304,14 +338,24 @@ impl ContainedWorkerProcess {
                 return Err(win32_error("waiting for worker process"));
             }
             return self
-                .try_wait_direct_child()?
+                .try_wait_direct_child_raw()?
                 .ok_or_else(|| ContainmentError::Failed {
                     detail: "worker process was signaled but has no exit status".to_string(),
                 });
         }
     }
 
-    pub(crate) fn final_evidence_and_peak(&mut self) -> Result<FinalEvidence, ContainmentError> {
+    pub(crate) fn final_evidence_and_peak(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<FinalEvidence, ContainmentError> {
+        match self.final_evidence_and_peak_raw() {
+            Ok(result) => Ok(result),
+            Err(error) => Err(combine_initiating_cleanup(error, self.cleanup(deadline))),
+        }
+    }
+
+    fn final_evidence_and_peak_raw(&mut self) -> Result<FinalEvidence, ContainmentError> {
         let info = self.query_limits()?;
         self.observe_peak(info.PeakJobMemoryUsed as u64);
         self.poll_memory_limit_message()?;
@@ -319,6 +363,41 @@ impl ContainedWorkerProcess {
             memory_limit: self.memory_evidence,
             peak_memory_charge_bytes: self.peak_memory_charge_bytes,
         })
+    }
+
+    fn cleanup(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
+        let mut failures = Vec::new();
+        if let Err(error) = self.terminate_job_raw() {
+            failures.push(error.to_string());
+        }
+        if let Err(error) = self.wait_tree_empty_raw(deadline) {
+            failures.push(error.to_string());
+        }
+        if self.direct_exit.is_none() {
+            if let Err(error) = self.reap_direct_child_raw(deadline) {
+                failures.push(error.to_string());
+            }
+        }
+        if let Err(error) = self.final_evidence_and_peak_raw() {
+            failures.push(error.to_string());
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(ContainmentError::Failed {
+                detail: format!("worker cleanup failed: {}", failures.join("; ")),
+            })
+        }
+    }
+
+    fn terminate_job_raw(&self) -> Result<(), ContainmentError> {
+        // SAFETY: the job handle is owned and valid for this object's lifetime.
+        unsafe {
+            if TerminateJobObject(self.job.raw_handle(), 1) == 0 {
+                return Err(win32_error("terminating worker job"));
+            }
+        }
+        Ok(())
     }
 
     fn query_limits(&self) -> Result<JOBOBJECT_EXTENDED_LIMIT_INFORMATION, ContainmentError> {
@@ -602,6 +681,18 @@ fn process_creation_error() -> ContainmentError {
         ContainmentError::Failed {
             detail: format!("creating contained worker process (Win32 error {code})"),
         }
+    }
+}
+
+fn combine_initiating_cleanup(
+    initiating: ContainmentError,
+    cleanup: Result<(), ContainmentError>,
+) -> ContainmentError {
+    match cleanup {
+        Ok(()) => initiating,
+        Err(error) => ContainmentError::Failed {
+            detail: format!("{initiating}; cleanup failed: {error}"),
+        },
     }
 }
 
