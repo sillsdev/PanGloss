@@ -131,12 +131,8 @@ fn run_clean_child(
 fn missing_executable_returns_typed_spawn_failure_without_fallback() {
     let directory = temporary_directory("missing");
     let missing = directory.join("does-not-exist");
-    let result = ContainedWorkerProcess::spawn(
-        &missing,
-        &[],
-        &LaunchOptions::default(),
-        limits(64 << 20),
-    );
+    let result =
+        ContainedWorkerProcess::spawn(&missing, &[], &LaunchOptions::default(), limits(64 << 20));
     match result {
         Err(ContainmentError::Failed { .. }) => {}
         Err(ContainmentError::Unavailable { detail }) if !required_capability() => {

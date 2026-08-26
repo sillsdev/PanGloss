@@ -1,8 +1,8 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![doc = "OS-enforced process-tree containment for selected compile workers."]
 
-use std::ffi::OsString;
 use std::cmp::Ordering;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -210,9 +210,14 @@ fn compare_environment_keys(left: &std::ffi::OsStr, right: &std::ffi::OsStr) -> 
     let result = unsafe {
         CompareStringOrdinal(
             left.as_ptr(),
-            left.len().try_into().expect("environment key length fits i32"),
+            left.len()
+                .try_into()
+                .expect("environment key length fits i32"),
             right.as_ptr(),
-            right.len().try_into().expect("environment key length fits i32"),
+            right
+                .len()
+                .try_into()
+                .expect("environment key length fits i32"),
             1,
         )
     };
