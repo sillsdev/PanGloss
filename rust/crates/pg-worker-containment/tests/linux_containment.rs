@@ -1066,6 +1066,55 @@ fn ordinary_abort_and_timeout_have_no_memory_limit_evidence() {
 }
 
 #[test]
+fn finalization_before_direct_reap_reports_error_but_cleans_up() {
+    let args = [OsString::from("cgroup")];
+    let Some(mut process) = spawn_or_skip(&args, &LaunchOptions::default(), 256 << 20) else {
+        return;
+    };
+    let stdio = process.take_stdio().expect("stdio once");
+    drop(stdio.stdin);
+    let (stdout_handle, stdout_receiver) = spawn_reader(stdio.stdout);
+    let (stderr_handle, stderr_receiver) = spawn_reader(stdio.stderr);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let stdout = String::from_utf8(finish_reader(stdout_handle, stdout_receiver)).expect("stdout");
+    let _stderr = finish_reader(stderr_handle, stderr_receiver);
+    let relative = stdout
+        .strip_prefix("CGROUP:0::")
+        .expect("fixture emitted cgroup")
+        .trim()
+        .to_owned();
+    let path = map_hierarchy_to_cgroup_mount(&relative).expect("map worker cgroup mount");
+    assert!(
+        path.exists(),
+        "worker cgroup disappeared before finalization"
+    );
+
+    process
+        .wait_tree_empty(deadline)
+        .expect("empty worker cgroup");
+    let error = match process.final_evidence_and_peak(deadline) {
+        Ok(_) => panic!("finalization succeeded before direct-child reap"),
+        Err(error) => error,
+    };
+    match error {
+        ContainmentError::Failed { detail } => assert!(
+            detail.contains("direct worker child has not been reaped"),
+            "wrong finalization diagnostic: {detail}"
+        ),
+        error => panic!("finalization returned the wrong error: {error}"),
+    }
+
+    let exit = process
+        .reap_direct_child(deadline)
+        .expect("cleanup cached the direct-child exit");
+    assert_eq!(exit.termination, ChildTermination::Exited(0));
+    assert!(
+        !path.exists(),
+        "finalization cleanup did not remove worker cgroup"
+    );
+}
+
+#[test]
 fn completed_child_cgroup_is_removed_after_tree_cleanup() {
     let args = [OsString::from("cgroup")];
     let Some(mut process) = spawn_or_skip(&args, &LaunchOptions::default(), 256 << 20) else {
