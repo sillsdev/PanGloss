@@ -81,13 +81,7 @@ fn partition_k_recall_parity_via_generator_and_oracle() {
     let ro = rules_in_order(&g);
     // This test is about recall, not the budget mechanism, so an effectively-unbounded budget just proves the compile doesn't spuriously trip on a grammar this tiny.
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let result = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
         .unwrap_or_else(|e| panic!("gated compile must not hit any budget: {e}"));
@@ -166,7 +160,7 @@ fn partition_k_overbudget_trips_group_budget_fast() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 8, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(usize::MAX, 8);
 
     let start = Instant::now();
     let err = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)

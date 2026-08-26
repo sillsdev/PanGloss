@@ -64,13 +64,7 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
@@ -208,13 +202,7 @@ fn compile_net(
 ) -> foma::types::Fsm {
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -251,13 +239,7 @@ fn quantifier_bounded_environment_compiles_and_matches_oracle() {
     let entry_below_min = common::gate_template::entry_id_of(&g, "entryBelowMin");
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min]
         .into_iter()
         .collect();
@@ -352,13 +334,7 @@ fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
     let entry_below_min = common::gate_template::entry_id_of(&g, "entryBelowMin");
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min]
         .into_iter()
         .collect();

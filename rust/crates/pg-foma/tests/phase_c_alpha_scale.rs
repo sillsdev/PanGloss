@@ -88,13 +88,7 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let root_id = entry_id_of(&g, &alpha.root_entry_xml_id);
     let mut entries = HashSet::new();
@@ -213,7 +207,7 @@ fn alpha_scale_overbudget_trips_tuple_budget() {
     };
     assert_eq!(rule.xml_id, alpha.rule_xml_ids[0]);
 
-    let budget = ComposeBudget::with_caps(usize::MAX, usize::MAX, 3, usize::MAX, usize::MAX, None);
+    let budget = ComposeBudget::with_caps(3, usize::MAX);
     let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
         .expect_err("10 surviving tuples must exceed a tuple_cap of 3");
     match err {

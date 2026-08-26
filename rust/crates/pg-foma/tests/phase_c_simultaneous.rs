@@ -73,13 +73,7 @@ fn compile_net(
 ) -> foma::types::Fsm {
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -169,13 +163,7 @@ fn sim_trivial_lone_subrule_now_compiles() {
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
@@ -322,13 +310,7 @@ fn sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly() {
     .collect();
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_pi, entry_pu].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -459,13 +441,7 @@ fn sim_overlap_env_stays_honest_unsupported() {
         .map(|&id| &g.prules[id.0 as usize])
         .collect();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();

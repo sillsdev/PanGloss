@@ -108,13 +108,7 @@ fn no_compounding_xml() -> String {
 
 fn unbounded_budget() -> ComposeBudget {
     ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    )
+        usize::MAX, usize::MAX)
 }
 
 fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {

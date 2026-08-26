@@ -169,13 +169,7 @@ fn stratum_1_devoice_rewrite_proposer_confirm_matches_oracle() {
     let alphabet1 = SegAlphabet::new(table1);
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let mut entries = HashSet::new();
     entries.insert(entry_k);

@@ -82,13 +82,7 @@ fn multi_table_rewrite_compiles_correctly_against_its_owning_table() {
     let opts = FomaOptions::default();
     // Unbounded caps: this gate is about the correct compile, not the budget mechanism.
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let mut entries = std::collections::HashSet::new();
     entries.insert(entry_voiced);

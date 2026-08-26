@@ -105,13 +105,7 @@ fn the_registry_offers_more_than_three_distinct_plans_and_every_extra_one_is_equ
     let opts = FomaOptions::default();
     // Unbounded: a budget trip here would surface as an Err rather than a disagreement, silently weakening the equivalence claim below.
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let word_refs: Vec<&str> = words.iter().map(String::as_str).collect();
 
     // NON-VACUITY: `differential_oracle`'s `Agree` also holds vacuously when both result sets are empty, so first confirm the baseline actually analyzes some of these words before trusting any `Agree` verdict below.
@@ -122,13 +116,7 @@ fn the_registry_offers_more_than_three_distinct_plans_and_every_extra_one_is_equ
         &alphabet,
         &prules,
         &ComposeBudget::with_caps(
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            None,
-        ),
+            usize::MAX, usize::MAX),
     )
     .expect("baseline plan must compile");
     let baseline_net = baseline_built

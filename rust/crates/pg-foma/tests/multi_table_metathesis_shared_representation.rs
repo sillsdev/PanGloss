@@ -147,13 +147,7 @@ fn current_compile_fires_on_table_a_originated_material_and_preserves_identity()
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let cd_a_m = table_a.lookup_nfd("m").unwrap();
     let cd_a_x = table_a.lookup_nfd("x").unwrap();
@@ -249,13 +243,7 @@ fn containment_holds_for_the_same_table_entry_the_oracle_can_analyze() {
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let entry_root2 = entry_id_of(&g, "eRoot2");
     let morpheme_root2 = g.entries[entry_root2.0 as usize].morpheme.0;
@@ -353,13 +341,7 @@ fn fst_proposes_root1_for_its_correctly_metathesized_surface() {
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let entry_root1 = entry_id_of(&g, "eRoot1");
     let entry_root2 = entry_id_of(&g, "eRoot2");

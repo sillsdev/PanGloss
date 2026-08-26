@@ -125,13 +125,7 @@ fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
     let opts = FomaOptions::default();
     // `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate, so this builds the equivalent never-trips budget via the public constructor.
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let registry = default_registry();
 
     let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());

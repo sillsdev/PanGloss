@@ -140,13 +140,7 @@ fn current_compile_fires_on_table_a_originated_material() {
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let cd_a_x = table_a.lookup_nfd("x").unwrap();
     let cd_b_y = table_b.lookup_nfd("y").unwrap();
@@ -189,13 +183,7 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
 
     let entry_root1 = entry_id_of(&g, "eRoot1");
     let entry_root2 = entry_id_of(&g, "eRoot2");

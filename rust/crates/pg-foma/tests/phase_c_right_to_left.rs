@@ -75,13 +75,7 @@ fn compile_net(
 ) -> foma::types::Fsm {
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -156,13 +150,7 @@ fn rtl_plain_rule_now_compiles_and_matches_oracle() {
     let alphabet_ref = &alphabet;
     let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let uemit = emit_underlying_filtered_with_budget(&g, alphabet_ref, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
@@ -286,13 +274,7 @@ fn rtl_feature_environment_swap_matches_oracle() {
     .collect();
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_contextful, entry_no_right].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -424,13 +406,7 @@ fn rtl_deletion_matches_oracle() {
     .collect();
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_with, entry_no_right].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -556,13 +532,7 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
     let entry_x_only = entry_id_of(&g, "entryXOnly");
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_xy, entry_x_only].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -691,13 +661,7 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
         .collect();
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_aaa].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -827,13 +791,7 @@ fn rtl_anchor_fixture_matches_oracle() {
     .collect();
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -906,13 +864,7 @@ fn rtl_segments_environment_fixture_matches_oracle() {
     .collect();
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -988,13 +940,7 @@ fn rtl_cross_table_segments_environment_matches_oracle() {
         .map(|id| g.entries[id.0 as usize].morpheme.0)
         .collect();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .expect("lexc emission");
@@ -1093,13 +1039,7 @@ fn rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level() {
         let alphabet = SegAlphabet::new(table);
         let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
         let budget = ComposeBudget::with_caps(
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            None,
-        );
+            usize::MAX, usize::MAX);
         let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
             .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
         assert!(uemit.skipped.is_empty());

@@ -88,13 +88,7 @@ fn promoted_backend_fixtures_replay_and_offer_distinct_plans_or_elimination_evid
                 &alphabet,
                 &prules,
                 &pg_foma::compose_budget::ComposeBudget::with_caps(
-                    usize::MAX,
-                    usize::MAX,
-                    usize::MAX,
-                    usize::MAX,
-                    usize::MAX,
-                    None,
-                ),
+                    usize::MAX, usize::MAX),
             )
             .unwrap_or_else(|e| panic!("{name} candidate did not build: {e}"));
         }

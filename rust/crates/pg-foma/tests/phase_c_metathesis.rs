@@ -73,13 +73,7 @@ fn compile_net(
 ) -> foma::types::Fsm {
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -113,13 +107,7 @@ fn full_containment_check(
         .collect();
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -293,13 +281,7 @@ fn metathesis_multi_member_classes_transpose_precisely_not_naively() {
         .collect();
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_qs].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -485,13 +467,7 @@ fn metathesis_grammar_gen_recipe_confirms_the_reversed_tag_round_trip() {
     );
 
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
     let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
@@ -700,13 +676,7 @@ fn metathesis_right_to_left_switch_index_remap_matches_the_derived_formula() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
     let net = compile_and_compose_rules_with_budget(
@@ -816,13 +786,7 @@ fn metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
     let budget = ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    );
+        usize::MAX, usize::MAX);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
     let composed = compile_and_compose_rules_with_budget(

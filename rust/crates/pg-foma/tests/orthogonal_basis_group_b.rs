@@ -475,13 +475,7 @@ fn copy_width_bound(label: &str, grammar: &Grammar, rule_name: &str) -> Option<u
 /// A budget that can never trip, chain depth included; `with_caps` leaves `chain_depth_cap` at `None` by construction, since `ComposeBudget::unbounded()` is invisible from an integration test crate.
 fn unbounded_budget() -> ComposeBudget {
     ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    )
+        usize::MAX, usize::MAX)
 }
 
 /// The residual strings the reduplication peel offers to a proposer for `word`, in first-seen order; the closure returns no candidates since the claim is about the scan, observable without a compiled FST.

@@ -119,13 +119,7 @@ const NO_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>PlainAlon
 /// `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate, so an integration test builds the equivalent never-trips budget through the public constructor.
 fn unbounded_budget() -> ComposeBudget {
     ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    )
+        usize::MAX, usize::MAX)
 }
 
 fn load(xml: &str) -> Grammar {

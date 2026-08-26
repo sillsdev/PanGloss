@@ -186,13 +186,7 @@ const COMPOUND_FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 /// A never-tripping budget built through the public constructor, since `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate; never `from_env()`, so this gate's numbers can't depend on the launching shell's environment.
 fn never_trips() -> ComposeBudget {
     ComposeBudget::with_caps(
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        usize::MAX,
-        None,
-    )
+        usize::MAX, usize::MAX)
 }
 
 fn load(xml: &str) -> Grammar {
