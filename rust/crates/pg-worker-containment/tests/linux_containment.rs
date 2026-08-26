@@ -120,8 +120,15 @@ fn run_clean_child(
     let deadline = Instant::now() + Duration::from_secs(10);
     let exit = process.reap_direct_child(deadline).expect("reap child");
     process.wait_tree_empty(deadline).expect("empty tree");
-    assert!(process.poll_containment().expect("final poll").is_none());
-    let evidence = process.final_evidence_and_peak().expect("final evidence");
+    assert!(
+        process
+            .poll_containment(deadline)
+            .expect("final poll")
+            .is_none()
+    );
+    let evidence = process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence");
     assert!(evidence.memory_limit.is_none());
     Some((
         exit.termination,
@@ -132,9 +139,13 @@ fn run_clean_child(
 
 #[test]
 fn missing_executable_returns_typed_spawn_failure_without_fallback() {
+    // The process/fd before-after comparison assumes the designated Linux gate uses one test
+    // thread; unrelated concurrent fixtures would legitimately change these snapshots.
     let directory = temporary_directory("missing");
     let missing = directory.join("does-not-exist");
     let snapshot = configured_worker_root_snapshot();
+    let child_snapshot = direct_child_process_snapshot().expect("snapshot direct children");
+    let fd_snapshot = supervisor_fd_snapshot().expect("snapshot supervisor fds");
     let result =
         ContainedWorkerProcess::spawn(&missing, &[], &LaunchOptions::default(), limits(64 << 20));
     match result {
@@ -159,20 +170,31 @@ fn missing_executable_returns_typed_spawn_failure_without_fallback() {
             "missing executable left a worker cgroup residue"
         );
     }
+    assert_eq!(
+        direct_child_process_snapshot().expect("snapshot direct children after spawn"),
+        child_snapshot,
+        "missing executable left a direct child process"
+    );
+    assert_eq!(
+        supervisor_fd_snapshot().expect("snapshot supervisor fds after spawn"),
+        fd_snapshot,
+        "missing executable left a supervisor-owned fd"
+    );
     fs::remove_dir(&directory).expect("remove missing-executable test directory");
 }
 
 struct EnvironmentGuard {
-    key: &'static str,
+    key: OsString,
     original: Option<OsString>,
 }
 
 impl EnvironmentGuard {
-    fn set(key: &'static str, value: Option<&OsStr>) -> Self {
-        let original = std::env::var_os(key);
+    fn set(key: impl Into<OsString>, value: Option<&OsStr>) -> Self {
+        let key = key.into();
+        let original = std::env::var_os(&key);
         match value {
-            Some(value) => std::env::set_var(key, value),
-            None => std::env::remove_var(key),
+            Some(value) => std::env::set_var(&key, value),
+            None => std::env::remove_var(&key),
         }
         Self { key, original }
     }
@@ -181,8 +203,8 @@ impl EnvironmentGuard {
 impl Drop for EnvironmentGuard {
     fn drop(&mut self) {
         match self.original.as_deref() {
-            Some(value) => std::env::set_var(self.key, value),
-            None => std::env::remove_var(self.key),
+            Some(value) => std::env::set_var(&self.key, value),
+            None => std::env::remove_var(&self.key),
         }
     }
 }
@@ -308,6 +330,51 @@ fn direct_worker_children(root: &Path) -> std::io::Result<BTreeSet<OsString>> {
     Ok(children)
 }
 
+fn direct_child_process_snapshot() -> std::io::Result<BTreeSet<u32>> {
+    let supervisor = std::process::id();
+    let mut children = BTreeSet::new();
+    for entry in fs::read_dir("/proc")? {
+        let entry = entry?;
+        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        let stat = match fs::read_to_string(entry.path().join("stat")) {
+            Ok(stat) => stat,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        let Some((_, fields)) = stat.rsplit_once(") ") else {
+            continue;
+        };
+        let mut fields = fields.split_whitespace();
+        let _state = fields.next();
+        let Some(parent) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        if parent == supervisor {
+            children.insert(pid);
+        }
+    }
+    Ok(children)
+}
+
+fn supervisor_fd_snapshot() -> std::io::Result<BTreeSet<OsString>> {
+    let mut targets = BTreeSet::new();
+    for entry in fs::read_dir("/proc/self/fd")? {
+        let entry = entry?;
+        let target = match fs::read_link(entry.path()) {
+            Ok(target) => target,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        if target.starts_with("/proc/") && target.file_name() == Some(OsStr::new("fd")) {
+            continue;
+        }
+        targets.insert(target.into_os_string());
+    }
+    Ok(targets)
+}
+
 fn configured_worker_root_snapshot() -> Option<(PathBuf, BTreeSet<OsString>)> {
     let root = configured_delegated_root()?;
     let mapped = map_hierarchy_to_cgroup_mount(&root)?;
@@ -376,7 +443,7 @@ fn assert_unavailable_spawn(context: &str) {
             let _ = process.terminate_tree(deadline);
             let _ = process.reap_direct_child(deadline);
             let _ = process.wait_tree_empty(deadline);
-            let _ = process.final_evidence_and_peak();
+            let _ = process.final_evidence_and_peak(deadline);
             drop(process.take_stdio());
             panic!("{context} unexpectedly spawned a worker");
         }
@@ -538,16 +605,14 @@ fn launch_options_preserve_clear_override_remove_and_environment() {
     let _guard = ENVIRONMENT_LOCK.lock().expect("environment lock");
     let upper = format!("PANGLOSS_CGROUP_CASE_{}", std::process::id());
     let lower = upper.to_ascii_lowercase();
-    std::env::set_var(&upper, "upper inherited ✓");
-    std::env::set_var(&lower, "lower inherited 漢");
+    let _upper_environment = EnvironmentGuard::set(&upper, Some(OsStr::new("upper inherited ✓")));
+    let _lower_environment = EnvironmentGuard::set(&lower, Some(OsStr::new("lower inherited 漢")));
     let args = [
         OsString::from("environment"),
         OsString::from(&upper),
         OsString::from(&lower),
     ];
     let Some(result) = run_clean_child(&args, &LaunchOptions::default()) else {
-        std::env::remove_var(&upper);
-        std::env::remove_var(&lower);
         return;
     };
     assert_eq!(
@@ -567,8 +632,6 @@ fn launch_options_preserve_clear_override_remove_and_environment() {
         OsString::from(&lower),
     ];
     let Some(result) = run_clean_child(&args, &options) else {
-        std::env::remove_var(&upper);
-        std::env::remove_var(&lower);
         return;
     };
     assert_eq!(
@@ -595,8 +658,6 @@ fn launch_options_preserve_clear_override_remove_and_environment() {
         result.1.lines().collect::<Vec<_>>(),
         ["BYTES:76,61,6c,75,65", "ABSENT", "ABSENT"]
     );
-    std::env::remove_var(&upper);
-    std::env::remove_var(&lower);
 }
 
 #[test]
@@ -672,11 +733,13 @@ fn stdin_stdout_and_stderr_remain_connected_to_the_contained_child() {
         finish_reader(stderr_handle, stderr_receiver),
         b"stderr marker\n"
     );
-    assert!(process
-        .final_evidence_and_peak()
-        .expect("final evidence")
-        .memory_limit
-        .is_none());
+    assert!(
+        process
+            .final_evidence_and_peak(deadline)
+            .expect("final evidence")
+            .memory_limit
+            .is_none()
+    );
 }
 
 #[test]
@@ -707,15 +770,20 @@ fn contained_stdio_works_when_supervisor_stdin_is_closed() {
         finish_reader(stderr_handle, stderr_receiver),
         b"stderr marker\n"
     );
-    assert!(process
-        .final_evidence_and_peak()
-        .expect("final evidence")
-        .memory_limit
-        .is_none());
+    assert!(
+        process
+            .final_evidence_and_peak(deadline)
+            .expect("final evidence")
+            .memory_limit
+            .is_none()
+    );
 }
 
 #[test]
-fn child_starts_in_configured_delegated_root_on_its_first_action() {
+fn child_reports_membership_in_direct_delegated_root_sibling() {
+    // This behavioral check proves the reported final topology. Atomic first-instruction
+    // placement is a structural property of the Linux adapter: clone3 must remain its sole
+    // launch route with CLONE_INTO_CGROUP and no spawn-then-move fallback.
     let Some(root) = configured_delegated_root() else {
         if required_capability() {
             panic!("PANGLOSS_CGROUP_DELEGATED_ROOT is required for Linux containment tests");
@@ -784,11 +852,13 @@ fn termination_kills_descendant_tree_and_closes_both_pipes_within_deadline() {
     let stderr = finish_reader(stderr_handle, stderr_receiver);
     assert!(stdout.windows(6).any(|bytes| bytes == b"holder"));
     assert!(stderr.windows(6).any(|bytes| bytes == b"holder"));
-    assert!(process
-        .final_evidence_and_peak()
-        .expect("final evidence")
-        .memory_limit
-        .is_none());
+    assert!(
+        process
+            .final_evidence_and_peak(deadline)
+            .expect("final evidence")
+            .memory_limit
+            .is_none()
+    );
     assert!(!late.exists(), "killed descendant wrote delayed sentinel");
     fs::remove_dir_all(&directory).expect("remove test directory");
 }
@@ -813,7 +883,10 @@ fn aggregate_descendant_memory_limit_latches_hierarchical_event_evidence() {
     wait_for_file(&ready, Instant::now() + Duration::from_secs(5));
     let deadline = Instant::now() + Duration::from_secs(15);
     let evidence = loop {
-        if let Some(evidence) = process.poll_containment().expect("poll containment") {
+        if let Some(evidence) = process
+            .poll_containment(deadline)
+            .expect("poll containment")
+        {
             break evidence;
         }
         assert!(Instant::now() < deadline, "memory evidence did not fire");
@@ -835,7 +908,9 @@ fn aggregate_descendant_memory_limit_latches_hierarchical_event_evidence() {
     assert!(max_event_count_delta.get() > 0);
     process.reap_direct_child(deadline).expect("direct reap");
     process.wait_tree_empty(deadline).expect("tree empty");
-    let final_evidence = process.final_evidence_and_peak().expect("final evidence");
+    let final_evidence = process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence");
     assert!(final_evidence.memory_limit.is_some());
     assert!(final_evidence.peak_memory_charge_bytes > 0);
     let _ = finish_reader(stdout_handle, stdout_receiver);
@@ -868,7 +943,9 @@ fn direct_child_crash_cleans_up_its_living_descendant_without_memory_evidence() 
         .terminate_tree(deadline)
         .expect("kill living descendant");
     process.wait_tree_empty(deadline).expect("tree empty");
-    let final_evidence = process.final_evidence_and_peak().expect("final evidence");
+    let final_evidence = process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence");
     assert!(final_evidence.memory_limit.is_none());
     let _ = finish_reader(stdout_handle, stdout_receiver);
     let _ = finish_reader(stderr_handle, stderr_receiver);
@@ -905,8 +982,20 @@ fn concurrent_fork_fanout_during_termination_leaves_no_surviving_descendants() {
     process.wait_tree_empty(deadline).expect("tree empty");
     let stdout = finish_reader(stdout_handle, stdout_receiver);
     let stderr = finish_reader(stderr_handle, stderr_receiver);
-    assert!(stdout.windows(5).any(|bytes| bytes == b"race-"));
-    assert!(stderr.windows(5).any(|bytes| bytes == b"race-"));
+    assert!(
+        stdout
+            .lines()
+            .filter(|line| line.starts_with("race-"))
+            .count()
+            >= 4
+    );
+    assert!(
+        stderr
+            .lines()
+            .filter(|line| line.starts_with("race-"))
+            .count()
+            >= 4
+    );
     std::thread::sleep(Duration::from_millis(2300));
     let survivors = fs::read_dir(&survivors)
         .expect("survivor directory")
@@ -930,11 +1019,13 @@ fn ordinary_abort_and_timeout_have_no_memory_limit_evidence() {
     let exit = process.reap_direct_child(deadline).expect("reap abort");
     assert!(matches!(exit.termination, ChildTermination::Signaled(_)));
     process.wait_tree_empty(deadline).expect("empty tree");
-    assert!(process
-        .final_evidence_and_peak()
-        .expect("final evidence")
-        .memory_limit
-        .is_none());
+    assert!(
+        process
+            .final_evidence_and_peak(deadline)
+            .expect("final evidence")
+            .memory_limit
+            .is_none()
+    );
     let _ = finish_reader(stdout_handle, stdout_receiver);
     let _ = finish_reader(stderr_handle, stderr_receiver);
 
@@ -960,11 +1051,13 @@ fn ordinary_abort_and_timeout_have_no_memory_limit_evidence() {
     process
         .wait_tree_empty(deadline)
         .expect("empty timeout tree");
-    assert!(process
-        .final_evidence_and_peak()
-        .expect("final evidence")
-        .memory_limit
-        .is_none());
+    assert!(
+        process
+            .final_evidence_and_peak(deadline)
+            .expect("final evidence")
+            .memory_limit
+            .is_none()
+    );
     let _ = finish_reader(stdout_handle, stdout_receiver);
     let _ = finish_reader(stderr_handle, stderr_receiver);
     assert!(!late.exists());
@@ -990,7 +1083,9 @@ fn completed_child_cgroup_is_removed_after_tree_cleanup() {
         .strip_prefix("CGROUP:0::")
         .expect("fixture emitted cgroup")
         .trim();
-    process.final_evidence_and_peak().expect("final evidence");
+    process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence");
     let path = map_hierarchy_to_cgroup_mount(relative)
         .expect("map completed worker cgroup through a visible mount");
     assert!(

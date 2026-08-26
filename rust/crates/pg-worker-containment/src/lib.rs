@@ -326,12 +326,18 @@ impl ContainedWorkerProcess {
         self.inner.take_stdio()
     }
 
-    pub fn try_wait_direct_child(&mut self) -> Result<Option<DirectChildExit>, ContainmentError> {
-        self.inner.try_wait_direct_child()
+    pub fn try_wait_direct_child(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<Option<DirectChildExit>, ContainmentError> {
+        self.inner.try_wait_direct_child(deadline)
     }
 
-    pub fn poll_containment(&mut self) -> Result<Option<MemoryLimitEvidence>, ContainmentError> {
-        self.inner.poll_containment()
+    pub fn poll_containment(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<Option<MemoryLimitEvidence>, ContainmentError> {
+        self.inner.poll_containment(deadline)
     }
 
     pub fn terminate_tree(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
@@ -349,8 +355,11 @@ impl ContainedWorkerProcess {
         self.inner.reap_direct_child(deadline)
     }
 
-    pub fn final_evidence_and_peak(&mut self) -> Result<FinalEvidence, ContainmentError> {
-        self.inner.final_evidence_and_peak()
+    pub fn final_evidence_and_peak(
+        &mut self,
+        deadline: Instant,
+    ) -> Result<FinalEvidence, ContainmentError> {
+        self.inner.final_evidence_and_peak(deadline)
     }
 }
 

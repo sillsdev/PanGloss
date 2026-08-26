@@ -38,16 +38,20 @@ The concrete safe API in `pg-worker-containment` owns:
 ContainedWorkerProcess
   spawn(executable, args, stdio, execution limits)
   take_stdio()
-  try_wait_direct_child() -> exit status with diagnostics
-  poll_containment() -> native memory-limit evidence or clean state
+  try_wait_direct_child(deadline) -> exit status with diagnostics
+  poll_containment(deadline) -> native memory-limit evidence or clean state
   terminate_tree(deadline)
   wait_tree_empty(deadline)
   reap_direct_child(deadline)
-  final_evidence_and_peak()
+  final_evidence_and_peak(deadline)
 ```
 
 The helper owns all native handles and returns intrinsic Windows/Linux evidence without reducing it
-to a Boolean event. `pg-foma` keeps its crate-wide `forbid(unsafe_code)`, owns protocol parsing and
+to a Boolean event. Every fallible lifecycle method takes the caller's absolute cleanup deadline;
+when one returns an operational error it must attempt the complete bounded cleanup sequence with
+that same deadline before returning. The fixed emergency deadline remains internal to launch
+failure guards and `Drop` only; it is never substituted for a caller deadline or exposed as a
+named execution envelope. `pg-foma` keeps its crate-wide `forbid(unsafe_code)`, owns protocol parsing and
 selected-build metadata, and produces the existing `WorkerOutcome` as the only terminal outcome.
 It latches the first native memory event so a later clean poll cannot erase it. Do not add a second
 `LifecycleOutcome`, stage `Vec<u8>` inside containment, or create an uncalled generic production
@@ -220,7 +224,9 @@ Tests are written before the spawn seam is replaced:
 10. a direct child that exits cleanly before a late containment event still loses its payload;
 11. memory fixtures touch and retain their pages, and descendants retain both stdout and stderr.
 12. the configured Linux delegation root is empty, the supervisor is in a strict child leaf, and
-    every worker starts in a sibling attempt cgroup without upward authority discovery;
+    every worker reports membership in a sibling attempt cgroup without upward authority
+    discovery; atomic first-instruction placement is reviewed structurally from the clone3-only
+    implementation rather than claimed by this behavioral topology test;
 13. missing-executable, launch-handshake, and orderly-unwind failures leave no direct child,
     descendant, or per-attempt cgroup, and cleanup failure outranks the initiating error.
 

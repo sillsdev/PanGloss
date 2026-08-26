@@ -93,7 +93,12 @@ fn run_child(args: &[OsString], options: &LaunchOptions) -> (ChildTermination, S
     let deadline = Instant::now() + Duration::from_secs(10);
     let exit = process.reap_direct_child(deadline).expect("reap child");
     process.wait_tree_empty(deadline).expect("empty tree");
-    assert!(process.poll_containment().expect("final poll").is_none());
+    assert!(
+        process
+            .poll_containment(deadline)
+            .expect("final poll")
+            .is_none()
+    );
     (
         exit.termination,
         String::from_utf8(finish_reader(stdout_handle, stdout_receiver)).expect("UTF-8 stdout"),
@@ -273,7 +278,10 @@ fn aggregate_descendant_memory_limit_latches_native_evidence_and_kills_tree() {
         let (stderr_handle, stderr_receiver) = spawn_reader(stdio.stderr);
         let deadline = Instant::now() + Duration::from_secs(10);
         let evidence = loop {
-            if let Some(evidence) = process.poll_containment().expect("poll containment") {
+            if let Some(evidence) = process
+                .poll_containment(deadline)
+                .expect("poll containment")
+            {
                 break evidence;
             }
             assert!(Instant::now() < deadline, "memory evidence did not fire");
@@ -290,7 +298,9 @@ fn aggregate_descendant_memory_limit_latches_native_evidence_and_kills_tree() {
         assert!(peak_job_memory_used_bytes >= notification_limit_bytes);
         process.reap_direct_child(deadline).expect("direct reap");
         process.wait_tree_empty(deadline).expect("tree empty");
-        let final_evidence = process.final_evidence_and_peak().expect("final evidence");
+        let final_evidence = process
+            .final_evidence_and_peak(deadline)
+            .expect("final evidence");
         assert_eq!(final_evidence.memory_limit, Some(evidence));
         assert!(final_evidence.peak_memory_charge_bytes > 0);
         let _stdout = finish_reader(stdout_handle, stdout_receiver);

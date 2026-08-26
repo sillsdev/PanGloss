@@ -394,7 +394,7 @@ mod unix_child {
             eprintln!("race-{index}");
             io::stdout().flush().map_err(io_error)?;
             io::stderr().flush().map_err(io_error)?;
-            if index == 0 {
+            if index == 3 {
                 fs::write(Path::new(&ready), b"ready").map_err(io_error)?;
             }
             std::thread::sleep(Duration::from_millis(cadence_ms));

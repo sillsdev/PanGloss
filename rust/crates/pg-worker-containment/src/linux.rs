@@ -1334,7 +1334,7 @@ fn failed(detail: impl Into<String>) -> ContainmentError {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_wait_status, parse_cgroup_event_value};
+    use super::{decode_wait_status, parse_cgroup_event_value, parse_memory_events};
 
     #[test]
     fn cgroup_event_parser_accepts_numeric_populated_zero() {
@@ -1365,5 +1365,44 @@ mod tests {
     #[test]
     fn wait_status_parser_rejects_non_terminal_status() {
         assert!(decode_wait_status(0x37).is_err());
+    }
+
+    #[test]
+    fn memory_events_parser_rejects_duplicate_required_records() {
+        for text in [
+            "max 1\nmax 2\noom_kill 1\n",
+            "max 1\noom_kill 1\noom_kill 2\n",
+        ] {
+            assert!(parse_memory_events(text).is_err(), "accepted: {text:?}");
+        }
+    }
+
+    #[test]
+    fn memory_events_parser_rejects_truncated_malformed_and_overflowing_required_values() {
+        for text in [
+            "max\noom_kill 1\n",
+            "max 1 trailing\noom_kill 1\n",
+            "max nope\noom_kill 1\n",
+            "max 1\noom_kill 18446744073709551616\n",
+        ] {
+            assert!(parse_memory_events(text).is_err(), "accepted: {text:?}");
+        }
+    }
+
+    #[test]
+    fn memory_events_parser_rejects_malformed_and_overflowing_unknown_values() {
+        for text in [
+            "max 1\noom_kill 1\nunknown nope\n",
+            "max 1\noom_kill 1\nunknown 18446744073709551616\n",
+        ] {
+            assert!(parse_memory_events(text).is_err(), "accepted: {text:?}");
+        }
+    }
+
+    #[test]
+    fn memory_events_parser_rejects_missing_required_records() {
+        for text in ["max 1\n", "oom_kill 1\n", "unknown 1\n"] {
+            assert!(parse_memory_events(text).is_err(), "accepted: {text:?}");
+        }
     }
 }
