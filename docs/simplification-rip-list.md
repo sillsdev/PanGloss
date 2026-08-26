@@ -477,8 +477,8 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed branch range `ff6fe2e2..9c7330c2`: **4,236 deletions / 5,088 additions, net +852 lines**
-across 69 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed branch range `ff6fe2e2..316aab29`: **4,236 deletions / 5,971 additions, net +1,735 lines**
+across 70 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
@@ -486,8 +486,11 @@ deliberately adding 186 lines of subprocess fixture/integration proof. The Stage
 schema checkpoint added 339 and removed 54 lines; count it as replacement scaffolding, not as a
 removal win. The Windows containment checkpoint added 1,739 and removed 128 lines, primarily its
 native adapter and adversarial process-tree test harness. It is prerequisite containment, not a
-removal win; the authorized shared-loop and routing deletions remain downstream. Uncommitted work
-is never counted until its exact staged snapshot is inspected and committed. Remaining deletion
+removal win; the authorized shared-loop and routing deletions remain downstream. The committed
+Linux acceptance contract and its cross-platform API corrections added 883 lines without deleting
+production code; it is deliberately red/unrunnable until the Linux adapter exists and is not a
+Linux runtime pass. Uncommitted work is never counted until its exact staged snapshot is inspected
+and committed. Remaining deletion
 opportunity is tracked by the stages above; estimates below are directional only:
 
 | Section | Est. lines |
