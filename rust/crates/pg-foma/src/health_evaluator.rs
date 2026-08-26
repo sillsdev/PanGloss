@@ -258,20 +258,6 @@ pub struct ApplyBudgetTrip {
     pub word: Option<String>,
 }
 
-/// Shared remedy for every budget-tripped finding: fall back to the full engine, or raise the tripped budget's env var. Never a grammar edit (`requires_linguistic_equivalence: false`).
-fn retry_full_engine_remedy() -> Remedy {
-    Remedy {
-        rank: 1,
-        description: "Use the default (full) morphological-parser engine for this grammar \
-            instead of the FST-propose/composition path, or raise the specific tripped budget's \
-            own env var only if you understand why this grammar's composition is this large, and \
-            re-run."
-            .to_string(),
-        requires_linguistic_equivalence: false,
-        caveat: None,
-    }
-}
-
 /// The threshold a non-`Severity::WithinLimits` size finding crossed -- read from the shared `IDEAL_MAX_BYTES` constant so a threshold change cannot desync a second copy.
 fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
     match severity {
@@ -373,7 +359,7 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
         report.closure_refusal.as_ref().map(|refusal| refusal.code),
         Some(ClosureRefusalCode::DepthBudgetExceeded)
     );
-    let (code, severity, explanation, remedies) = if depth_budget_stop {
+    let (code, severity, explanation) = if depth_budget_stop {
         (
             FindingCode::ResourceBudgetReached,
             Severity::NotProductionReady,
@@ -383,7 +369,6 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
                  unusable, but no fixed affix depth is a language boundary and nothing here shows \
                  the grammar is unrepresentable.{closure_detail}"
             ),
-            vec![retry_full_engine_remedy()],
         )
     } else {
         (
@@ -394,7 +379,6 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
                  this compile path's coverage is entirely unknown, the maximal case of R6's \"any \
                  uncertainty that could omit an analysis fails closed\".{closure_detail}"
             ),
-            vec![retry_full_engine_remedy()],
         )
     };
     HealthFinding {
@@ -407,7 +391,6 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
         provenance: ValueProvenance::Observed,
         threshold: None,
         explanation,
-        remedies,
     }
 }
 
@@ -429,7 +412,6 @@ fn enum_budget_finding(exceeded: &EnumBudgetExceeded) -> HealthFinding {
             value = exceeded.value,
             limit = exceeded.limit,
         ),
-        remedies: vec![retry_full_engine_remedy()],
     }
 }
 
@@ -444,7 +426,6 @@ fn backend_compilation_failed_finding(detail: String) -> HealthFinding {
         provenance: ValueProvenance::Observed,
         threshold: None,
         explanation: detail,
-        remedies: vec![retry_full_engine_remedy()],
     }
 }
 
@@ -491,7 +472,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  this compilation stopped rather than continue.",
                 measure = measure.label(),
             ),
-            remedies: vec![retry_full_engine_remedy()],
         },
         ComposeError::AlphaTupleBudgetExceeded {
             surviving,
@@ -511,7 +491,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  {surviving} surviving tuple assignments (limit {limit}), an exact count proven \
                  to exceed the remaining budget before the per-tuple compile loop began."
             ),
-            remedies: vec![retry_full_engine_remedy()],
         },
         ComposeError::GroupBudgetExceeded {
             groups,
@@ -531,7 +510,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  groups (limit {limit}), an exact count proven to exceed the remaining budget \
                  before any per-group compile work began."
             ),
-            remedies: vec![retry_full_engine_remedy()],
         },
         ComposeError::EmitLineBudgetExceeded { lines, limit } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
@@ -546,7 +524,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                 "Templated/underlying-form lexc emission wrote {lines} lines (limit {limit}) \
                  before this compilation stopped."
             ),
-            remedies: vec![retry_full_engine_remedy()],
         },
         ComposeError::ComposeStepTimedOut {
             elapsed,
@@ -566,7 +543,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  elapsed, limit {limit:?}); the worker thread was abandoned (not killed) and this \
                  attempt is terminal for this grammar -- never retry the identical call."
             ),
-            remedies: vec![retry_full_engine_remedy()],
         },
         ComposeError::ChainDepthExceeded { depth, limit, site } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
@@ -602,7 +578,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  exact count proven to admit more admissible rule orderings than this grammar's \
                  ordering-multiplicity budget allows before any combinatorial walk began."
             ),
-            remedies: vec![retry_full_engine_remedy()],
         },
         ComposeError::CompoundPairBudgetExceeded {
             heads,
@@ -624,7 +599,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                  count proven to exceed the compound-pair budget before any compound lexc text was \
                  written."
             ),
-            remedies: vec![retry_full_engine_remedy()],
         },
     }
 }

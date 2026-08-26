@@ -52,7 +52,6 @@ const TUNED_CONTRIBUTORS: &[&str] = &[
     "Closure work is measured as static cost evidence against the managed internal budget",
 ];
 const TUNED_REMEDIES: &[&str] = &[
-    "use-loop-capable-backend",
     "order-or-slot-localize-rules",
 ];
 const TUNED_SOURCES: &[&str] = &["src/emit.rs", "src/junctions.rs", "src/preexpand.rs"];

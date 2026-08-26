@@ -213,15 +213,6 @@ evidence_refs = ["backend:foma", "route:surface-composite-closure", "predicate:c
 equivalence_caveat = "Don't make any change that would make your language invalid!"
 
 [[entry.remedy]]
-rank = 20
-remedy_key = "use-loop-capable-backend"
-description = "Using a backend that represents the reachable ordinary affix sequence with loops or finite counter states would make that backend work for your language if it admits every affected rule."
-effort = "medium"
-prerequisites = ["the alternate backend admits every affected rule"]
-contraindications = ["the alternate backend cannot prove complete closure"]
-equivalence_caveat = "Backend choice must preserve the complete analysis set."
-
-[[entry.remedy]]
 rank = 30
 remedy_key = "order-or-slot-localize-rules"
 description = "Ordering the affected rules or placing mutually exclusive choices in affix slots would make this backend work for your language if that structure is valid for the language."
