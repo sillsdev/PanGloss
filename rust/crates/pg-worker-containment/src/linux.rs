@@ -66,8 +66,7 @@ struct CgroupMount {
     mountpoint: PathBuf,
 }
 
-/// Linux cgroup-v2 containment. The cgroup is created below the explicitly configured delegated
-/// root, and clone3 places the child there before its first instruction.
+/// Linux cgroup-v2 containment beneath the explicitly configured delegated root.
 pub(crate) struct ContainedWorkerProcess {
     parent_cgroup: OwnedFd,
     cgroup: OwnedFd,
@@ -153,10 +152,9 @@ impl ContainedWorkerProcess {
             )
         };
         if result == 0 {
-            // This branch is entered before any user code in the child. It intentionally uses
-            // only raw operations; allocation or locking here could deadlock after clone.
-            // SAFETY: clone3 guarantees this branch has the same live allocations and fd table;
-            // child_exec uses only the prebuilt pointers and async-signal-safe raw operations.
+            // Allocation or locking here could deadlock before exec.
+            // SAFETY: clone3 preserves the live allocations/fds; child_exec uses only prebuilt
+            // pointers and async-signal-safe raw operations.
             unsafe {
                 child_exec(
                     &mut spec,
@@ -925,9 +923,7 @@ fn prepare_environment(options: &LaunchOptions) -> Result<Vec<CString>, Containm
         .collect()
 }
 
-/// # Safety
-/// Called only in the clone3 child with prebuilt CString pointers and valid inherited fds; it
-/// performs no allocation, locking, or operations outside the async-signal-safe libc surface.
+// The clone3 child supplies prebuilt strings and valid inherited fds.
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn child_exec(
     spec: &mut ExecSpec,
@@ -970,9 +966,7 @@ unsafe fn child_exec(
     report_child_error(launch_error, *libc::__errno_location());
 }
 
-/// # Safety
-/// `launch_error` is the child-only writable end of a CLOEXEC pipe and remains open until this
-/// function exits; the four-byte stack value is valid for the synchronous raw write.
+// `launch_error` is the live child-only writable end of the CLOEXEC status pipe.
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn report_child_error(launch_error: RawFd, errno: c_int) -> ! {
     let bytes = errno.to_ne_bytes();
