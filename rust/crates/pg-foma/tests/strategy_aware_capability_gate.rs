@@ -455,7 +455,7 @@ fn templated_selector_refuses_each_known_unsupported_shape_with_per_allomorph_di
             .expect("tuned backend must be reported");
         assert!(
             !matches!(tuned.decision(), CompileDecision::Refuse(_)),
-            "{root:?}:{category}/{name} ({surface}) must remain within Tuned's capability envelope; resource findings may still exclude it from normal selection: {tuned:?}"
+            "{root:?}:{category}/{name} ({surface}) must remain within Tuned's capability envelope: {tuned:?}"
         );
     }
 }

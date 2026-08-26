@@ -1425,17 +1425,6 @@ fn build_failed_evaluated(
     )
 }
 
-fn tuned_surface_resource_refusal(grammar: &Grammar, limit: usize) -> Option<String> {
-    crate::characterization::tuned_surface_resource_finding_with_limit(grammar, limit).map(
-        |finding| {
-            format!(
-                "resource characterization refused TunedSurface: {}",
-                finding.explanation
-            )
-        },
-    )
-}
-
 /// `EmissionStrategy::TunedSurfaceProbed`: the default compilation of this grammar, through `FomaProposer::new` (emit -> lexc -> foma compile) rather than `build_controllable`.
 fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
@@ -1443,19 +1432,6 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     expected: &[(String, Vec<WordAnalysis>)],
     budget: RuntimeBudget,
 ) -> EvaluatedPlan {
-    if let Some(reason) =
-        tuned_surface_resource_refusal(
-            grammar,
-            crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
-        )
-    {
-        return failed_evaluated_over(
-            EmissionStrategy::TunedSurfaceProbed,
-            Certification::StaticRejected { reason },
-            0,
-            expected.len() as u64,
-        );
-    }
     let t = Instant::now();
     let proposer = match FomaProposer::new(grammar) {
         Ok(p) => p,
@@ -2095,13 +2071,6 @@ fn realize_accuracy_proposer(
     }
     match candidate.adapter {
         LoweringAdapter::TunedSurfaceEmit => {
-            if let Some(reason) = tuned_surface_resource_refusal(
-                grammar,
-                crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
-            )
-            {
-                return Err((EmissionStrategy::TunedSurfaceProbed, reason));
-            }
             FomaProposer::new(grammar)
                 .map(|proposer| (EmissionStrategy::TunedSurfaceProbed, proposer))
                 .map_err(|e| {

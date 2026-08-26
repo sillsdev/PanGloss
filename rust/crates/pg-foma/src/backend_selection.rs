@@ -25,7 +25,7 @@ use pg_grammar::model::Grammar;
 
 use crate::advice_catalog::{
     builtin_catalog, RemedyEffort, BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY,
-    PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY, TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY,
+    PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY,
 };
 use crate::capability::{
     compose_envelope_across_strategies, default_registry, meet, CapabilityDiagnostic,
@@ -450,45 +450,6 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
         dedup_advice_references(std::mem::take(&mut report.advice_references));
 }
 
-/// Attaches the backend-native TunedSurface resource finding and its catalogued advice.
-fn attach_tuned_surface_resource_finding(report: &mut BackendReport, finding: HealthFinding) {
-    let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
-    let entry = catalog
-        .entry_for(TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY)
-        .expect("the TunedSurface resource finding must have a catalog entry");
-
-    report.findings.push(finding.clone());
-    if !report
-        .failed_predicates
-        .iter()
-        .any(|predicate| predicate == &entry.failed_predicate)
-    {
-        report
-            .failed_predicates
-            .push(entry.failed_predicate.clone());
-    }
-    if !report.shapes.iter().any(|shape| shape == &entry.shape_key) {
-        report.shapes.push(entry.shape_key.clone());
-    }
-    report.cost_evidence.push(CostEvidence {
-        metric: finding.metric,
-        value: finding.value,
-        threshold: finding.threshold,
-        provenance: finding.provenance,
-    });
-    report
-        .advice_references
-        .extend(entry.remedies.iter().map(|remedy| {
-            AdviceReference::new(
-                entry.shape_key.clone(),
-                remedy.remedy_key.clone(),
-                remedy.effort,
-            )
-        }));
-    report.advice_references =
-        dedup_advice_references(std::mem::take(&mut report.advice_references));
-}
-
 fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {
     CompileDecision::Refuse(
         markers
@@ -536,19 +497,8 @@ impl BackendSelection {
         }
     }
 
-    /// Builds reports from an envelope and optionally attaches the backend-native TunedSurface
-    /// resource characterization.  Every committed backend still receives exactly one report,
-    /// including when TunedSurface is refused by capability admission.
-    pub fn from_envelope_with_tuned_surface_resource_finding(
-        envelope: &StrategyEnvelope,
-        finding: Option<HealthFinding>,
-    ) -> Self {
-        Self::from_envelope_with_backend_findings(envelope, finding, &[])
-    }
-
     fn from_envelope_with_backend_findings(
         envelope: &StrategyEnvelope,
-        tuned_surface_finding: Option<HealthFinding>,
         plan_composed_markers: &[FragmentSpec],
     ) -> Self {
         let reports = BACKEND_PREFERENCE
@@ -571,11 +521,6 @@ impl BackendSelection {
                         BackendReport::accepted(strategy, decision, Vec::new())
                             .expect("non-refusing decision must be accepted")
                     };
-                    if strategy == EmissionStrategy::TunedSurfaceProbed {
-                        if let Some(finding) = tuned_surface_finding.clone() {
-                            attach_tuned_surface_resource_finding(&mut report, finding);
-                        }
-                    }
                     report
                 })
             })
@@ -606,10 +551,6 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
     let plan_composed_markers = crate::build::unbuildable_markers(&plan);
     BackendSelection::from_envelope_with_backend_findings(
         &envelope,
-        crate::characterization::tuned_surface_resource_finding_with_limit(
-            g,
-            crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
-        ),
         &plan_composed_markers,
     )
 }
