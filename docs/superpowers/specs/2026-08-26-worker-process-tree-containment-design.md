@@ -1,6 +1,6 @@
 # Worker process-tree containment design
 
-Status: approved by the cleanup charter; implementation pending.
+Status: approved; Windows verified, corrected Linux topology approved, Linux implementation pending.
 
 ## Goal
 
@@ -110,15 +110,50 @@ are supported; an incompatible host job yields `ContainmentUnavailable`, never a
 
 ## Linux adapter
 
-Use cgroup v2 only. Discover the cgroup2 mount from `/proc/self/mountinfo` and the current cgroup
-from `/proc/self/cgroup`. Create a generated per-attempt child beneath an explicitly delegated,
-writable parent; its generated name is an implementation detail, not caller identity or an
-execution envelope. Require `memory` in the parent's `cgroup.subtree_control` and writable
-`memory.max`, `memory.oom.group`, `cgroup.procs`, `cgroup.events`, and `cgroup.kill` surfaces.
-For this checkpoint, the supervisor's current unified cgroup is the delegated parent: never walk
-upward looking for writable authority and never enable a missing controller. The service/container
-manager must launch the supervisor inside a cgroup it has delegated; otherwise containment is
-unavailable. This is host infrastructure, not a caller-selected build envelope.
+### Delegation-topology correction (ratified 2026-08-26)
+
+The original draft treated the supervisor's current cgroup as the delegated parent. That topology
+is rejected: [cgroup v2's no-internal-process rule](https://docs.kernel.org/admin-guide/cgroup-v2.html#no-internal-process-constraint)
+forbids a normal non-root domain cgroup from both containing the supervisor and distributing the
+memory controller to children. An empty explicit delegation root plus a separate supervisor leaf
+is therefore a correctness requirement, not an optional deployment preference.
+
+Two alternatives remain rejected for this stage. The adapter does not infer authority by moving one
+level above a specially named supervisor leaf, because that turns a naming convention into ambient
+authority. It also does not require an inherited directory descriptor, because the explicit
+hierarchy path can be validated against kernel-reported membership and keeps the `pg.ps1`/runner
+contract substantially smaller. Revisit the descriptor design only if path validation proves
+insufficient on a real delegated host.
+
+Use cgroup v2 only. The host supplies `PANGLOSS_CGROUP_DELEGATED_ROOT` as the absolute hierarchy
+path reported by `/proc/*/cgroup`, not as a filesystem path. It identifies one empty cgroup that the
+host has explicitly delegated to PanGloss. There is no inferred default. Missing, relative,
+non-canonical, inaccessible, or ambiguous configuration yields `ContainmentUnavailable`.
+
+The host topology is fixed:
+
+```text
+configured delegated root (empty; memory enabled for children)
+├── supervisor leaf (PanGloss, runner, and their non-worker processes)
+└── .pangloss-worker-<generated attempt id> (one contained build tree)
+```
+
+The adapter discovers cgroup2 mounts from `/proc/self/mountinfo` and current membership from
+`/proc/self/cgroup`, then maps the configured hierarchy path through the most-specific visible
+cgroup2 mount whose mount root contains it. It validates that the supervisor's current membership
+is a strict descendant of the configured root and that the configured root's own `cgroup.procs` is
+empty. It never searches ancestors for writable authority, derives authority by stripping the
+current path, or enables a controller. A service manager such as systemd must create the empty
+delegated root, place the supervisor in a leaf (`DelegateSubgroup=` is one valid mechanism), enable
+the memory controller for the root's children, and pass the exact root path.
+
+Create each generated worker cgroup directly beneath the configured root, as a sibling of the
+supervisor leaf. The generated name is an implementation detail, not caller identity or an
+execution envelope. Require `memory` in the root's `cgroup.subtree_control` and writable
+`memory.max`, `memory.oom.group`, `cgroup.procs`, `cgroup.events`, `memory.events`, and `cgroup.kill`
+surfaces on the worker cgroup. This authority locator is host infrastructure, not a caller-selected
+build envelope, semantic build configuration, resource limit, backend-selection input, or artifact
+identity field.
 
 Set `memory.max`, `memory.oom.group=1`, and `memory.swap.max=0` where available. Place the child in
 the cgroup before it can execute compile work. This checkpoint uses
@@ -136,7 +171,13 @@ proof. An ancestor-cgroup kill without local evidence remains a process failure.
 
 On failure, write `1` to `cgroup.kill`, wait for `cgroup.events` to report `populated 0`, reap the
 direct child, capture `memory.peak` and `memory.events`, then remove the cgroup within the bounded
-cleanup deadline. Orderly supervisor errors and unwinds must run this cleanup; abrupt supervisor
+cleanup deadline. Orderly launch errors, later supervisor errors, and Rust unwinds must attempt the
+complete sequence. Cleanup continues after an individual cleanup operation fails; a cleanup failure
+takes precedence over the initiating error while retaining that lower-priority diagnostic. `Drop`
+performs the same bounded best-effort sequence for an owned live process rather than only sending
+`cgroup.kill`. Launch-error and `Drop` cleanup use a fixed five-second emergency grace; this is an
+internal lifecycle bound, not a fourth configurable execution limit. Operations reached through the
+owned API continue to use the supervisor-supplied absolute cleanup deadline. Abrupt supervisor
 process death is outside this stage's portable guarantee because cgroup v2 has no job-handle-close
 equivalent. Missing delegation, controller support, `cgroup.kill`, permission, or race-free
 placement yields `ContainmentUnavailable`. Process groups, RSS polling, `RLIMIT_AS`, and
@@ -178,6 +219,10 @@ Tests are written before the spawn seam is replaced:
    unsupported-host failure;
 10. a direct child that exits cleanly before a late containment event still loses its payload;
 11. memory fixtures touch and retain their pages, and descendants retain both stdout and stderr.
+12. the configured Linux delegation root is empty, the supervisor is in a strict child leaf, and
+    every worker starts in a sibling attempt cgroup without upward authority discovery;
+13. missing-executable, launch-handshake, and orderly-unwind failures leave no direct child,
+    descendant, or per-attempt cgroup, and cleanup failure outranks the initiating error.
 
 Only after both adapters and their platform gates pass may direct `Command::spawn`/`Child::kill`
 and “caller supplies process-tree policy” documentation be deleted.
