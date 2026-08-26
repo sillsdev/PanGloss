@@ -48,7 +48,6 @@ use thiserror::Error;
 
 use crate::manifest::PackManifest;
 use crate::signature::{self, SignatureState};
-use crate::trust::CapabilityTrust;
 
 /// Fixed PanGloss magic bytes opening every `.pgpack` container.
 pub const MAGIC: [u8; 8] = *b"PGLOPACK";
@@ -136,17 +135,6 @@ pub enum PgPackError {
     FingerprintMismatch,
     #[error("invalid pack manifest JSON: {0}")]
     ManifestJson(String),
-    #[error("overridden capability trust cannot carry an FST completeness certificate")]
-    OverriddenCompletenessConflict,
-}
-
-fn validate_trust_completeness(manifest: &PackManifest) -> Result<(), PgPackError> {
-    if matches!(&manifest.capability_trust, CapabilityTrust::Overridden(_))
-        && manifest.fst_completeness.is_some()
-    {
-        return Err(PgPackError::OverriddenCompletenessConflict);
-    }
-    Ok(())
 }
 
 fn validate_manifest_schema(manifest: &PackManifest) -> Result<(), PgPackError> {
@@ -220,7 +208,6 @@ pub fn write_pack(
     if manifest.package_fingerprint != expected_fingerprint {
         return Err(PgPackError::FingerprintMismatch);
     }
-    validate_trust_completeness(manifest)?;
 
     let manifest_json = manifest.to_canonical_json();
     let manifest_bytes = manifest_json.as_bytes();
@@ -390,7 +377,6 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
         .map_err(|e| PgPackError::ManifestJson(e.to_string()))?;
     validate_manifest_schema(&manifest)?;
     validate_health_schema(&manifest)?;
-    validate_trust_completeness(&manifest)?;
 
     let runtime_payload = runtime_bytes.to_vec();
     let foma_payload = foma_bytes.to_vec();
@@ -431,7 +417,6 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
 mod tests {
     use super::*;
     use crate::compat::RequiredRuntimeFeatures;
-    use crate::trust::CapabilityTrust;
     use pg_foma::health::HealthReport;
 
     fn synthetic_manifest_for(runtime_payload: &[u8], foma_payload: &[u8]) -> PackManifest {
@@ -447,7 +432,6 @@ mod tests {
                 hc_port_semver: (1, 0, 0),
                 extensions: vec![],
             },
-            capability_trust: CapabilityTrust::Proven,
             fst_health: HealthReport::new(vec![]),
             backend_assessments: vec![],
             fst_completeness: Some(crate::manifest::FstCompletenessCertificate {

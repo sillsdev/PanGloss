@@ -1,6 +1,6 @@
 //! The `.pgpack` **pack manifest**: carries package/grammar identity, payload format versions,
-//! the required-runtime-feature set, a capability-trust stamp, an FST-health
-//! admission/findings/override field, creation metadata, and a versioned licensing/authenticity
+//! the required-runtime-feature set, an FST-health admission/findings/override field, creation
+//! metadata, and a versioned licensing/authenticity
 //! section. "Pack manifest" is the per-`.pgpack` blob's own name -- distinct from the
 //! source-controlled capability registry; bare unqualified "manifest" is banned -- every doc
 //! comment in this crate uses the full term.
@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use crate::compat::RequiredRuntimeFeatures;
 use crate::license::LicenseDeclaration;
 use crate::signature::SignatureBlock;
-use crate::trust::CapabilityTrust;
 use pg_foma::advice_catalog::RemedyEffort;
 use pg_foma::health::{HealthFinding, HealthReport, Metric, MetricValue, ValueProvenance};
 
@@ -91,9 +90,6 @@ pub struct PackManifest {
     pub package_fingerprint: String,
     /// The required-runtime-feature set this pack was built against.
     pub required_runtime_features: RequiredRuntimeFeatures,
-    /// The capability-trust stamp: proven, or overridden/unproven with its permanent
-    /// override record.
-    pub capability_trust: CapabilityTrust,
     /// The FST-health raw admission/findings/audit-record report (reusing
     /// `pg_foma::health::HealthReport`/`Severity`/`HealthReport::admission` verbatim --
     /// never redefined here).
@@ -109,8 +105,8 @@ pub struct PackManifest {
     pub license: Option<LicenseDeclaration>,
     /// Free-form creation metadata: who/what produced this pack.
     pub created_by: String,
-    /// Free-form creation timestamp; like `CapabilityOverrideRecord::recorded_at`, this avoids a
-    /// timestamp type dependency in the manifest schema.
+    /// Free-form creation timestamp; this avoids a timestamp type dependency in the manifest
+    /// schema.
     pub created_at: String,
     /// Optional publisher signature. `None` means this pack is unsigned
     /// (`crate::signature::SignatureState::Unsigned`). Always the **last** field serialized so
@@ -153,7 +149,6 @@ impl PackManifest {
 mod tests {
     use super::*;
     use crate::compat::RequiredRuntimeFeatures;
-    use crate::trust::CapabilityTrust;
     use pg_foma::health::HealthReport;
 
     fn synthetic_manifest() -> PackManifest {
@@ -169,7 +164,6 @@ mod tests {
                 hc_port_semver: (1, 0, 0),
                 extensions: vec![],
             },
-            capability_trust: CapabilityTrust::Proven,
             fst_health: HealthReport::new(vec![]),
             backend_assessments: vec![],
             fst_completeness: Some(FstCompletenessCertificate {

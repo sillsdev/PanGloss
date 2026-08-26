@@ -8,8 +8,7 @@
 //! `format` for the exact byte layout, `format::write_pack`/`format::read_pack` for the
 //! writer/reader, and `manifest::PackManifest` for every field the manifest carries: the
 //! required-runtime-feature set (`compat::RequiredRuntimeFeatures`), the
-//! capability-trust stamp (`trust::CapabilityTrust`), the FST-health admission
-//! (`pg_foma::health::HealthReport`, reused verbatim, never redefined), an optional license
+//! FST-health admission (`pg_foma::health::HealthReport`, reused verbatim, never redefined), an optional license
 //! declaration (`license::LicenseDeclaration`), and an optional Ed25519 publisher signature
 //! (`signature::SignatureBlock`) whose state (`signature::SignatureState`) is reported but
 //! never gates a read.
@@ -17,7 +16,7 @@
 //! # What this crate is not (yet)
 //! `pg-cli`'s `pangloss pack` subcommand (`pg-cli/src/pack.rs`) is a real producer: it constructs a
 //! manifest from an actual compiled grammar and writes it via `format::write_pack`. `pg-wasm`
-//! (`pg-wasm/src/pack.rs`) is a real load-time consumer of the manifest/compatibility/trust
+//! (`pg-wasm/src/pack.rs`) is a real load-time consumer of the manifest/compatibility
 //! sections. **The two payload sections are not both real yet, though.** The foma payload IS real
 //! whenever the grammar's foma compile succeeds — `pg_foma::analyzer::FomaProposer::
 //! foma_binary_payload` serializes the actually-compiled network via foma's own existing
@@ -52,7 +51,6 @@ pub mod format;
 pub mod license;
 pub mod manifest;
 pub mod signature;
-pub mod trust;
 
 pub use compat::{ProvidedRuntimeFeatures, RequiredRuntimeFeatures};
 pub use format::{
@@ -65,4 +63,3 @@ pub use manifest::{
     PackManifest, MANIFEST_FORMAT_TAG, MANIFEST_SCHEMA_VERSION,
 };
 pub use signature::{sign, verify, SignatureBlock, SignatureState};
-pub use trust::{CapabilityOverrideRecord, CapabilityTrust, OverriddenConfig};

@@ -90,11 +90,10 @@ pub const COVERAGE_UNVERIFIED_STATEMENT: &str = "Held-out status is an ATTESTATI
     measurement: nothing in the artifact records what its author read while authoring, and \
     PanGloss does not train. This property is UNVERIFIED beyond the named attestor's own claim.";
 
-// Trust status: a local mirror, not a dependency on pg-pack (which itself depends on pg-foma for HealthReport, so depending back would be circular); field-for-field matches pg_pack::trust's shapes.
+// Trust status is local readiness metadata, not pack metadata.
 
-/// One fail-closed configuration a capability override force-compiled through — mirrors
-/// `pg_pack::trust::OverriddenConfig`'s shape (predicate/construct/witness), the same vocabulary
-/// `CapabilityDiagnostic` already uses.
+/// One fail-closed configuration a capability override force-compiled through, using the same
+/// predicate/construct/witness vocabulary `CapabilityDiagnostic` already uses.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OverriddenConfig {
     pub predicate: String,
@@ -102,9 +101,7 @@ pub struct OverriddenConfig {
     pub witness: String,
 }
 
-/// The permanent capability override record — mirrors `pg_pack::trust::CapabilityOverrideRecord`'s
-/// shape field-for-field, so a caller assembling this from a real pack manifest is a trivial
-/// projection.
+/// The local capability override record retained on readiness reports; it is not pack metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OverrideRecord {
     pub authorized_by: String,
@@ -113,9 +110,8 @@ pub struct OverrideRecord {
     pub overridden_configs: Vec<OverriddenConfig>,
 }
 
-/// The binary capability-trust axis, as this module consumes it. Mirrors
-/// `pg_pack::trust::CapabilityTrust` exactly (tag `"status"`, `snake_case` variants) so the two
-/// serialize identically wherever that matters.
+/// The binary capability-trust axis used by local readiness reports (tag `"status"`, with
+/// `snake_case` variants).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum TrustStatus {

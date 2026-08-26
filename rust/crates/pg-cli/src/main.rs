@@ -640,9 +640,7 @@ fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResu
                  {backend} declined (ADR 0005) -- THIS RUN'S OUTPUT IS RECALL-UNSAFE, NOT a clean \
                  result. This is a SESSION/REPORT-LEVEL marker only for this invocation -- \
                  `batch`/`parse` write no persistent artifact of their own, so there is nothing \
-                 for a pack-manifest stamp to attach to here. For a real, PERSISTENT, indelible \
-                 ADR 0005 stamp, use `pangloss pack <grammar> <out.pgpack> --allow-unproven` \
-                 instead, which writes this same override record into an actual .pgpack manifest.",
+                 for a pack-manifest stamp to attach to here.",
                 diags.len()
             )];
             for d in &diags {

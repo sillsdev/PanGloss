@@ -713,24 +713,6 @@ impl PgPack {
         self.loaded.manifest.grammar_id.clone()
     }
 
-    /// ADR 0005's pack-level degraded-trust signal: `true` iff this pack was force-compiled past
-    /// a characteristics-check refusal (`pg_pack::CapabilityTrust::Overridden`) and is therefore
-    /// indelibly unproven/recall-unsafe. A consuming application keys its warning banner off this
-    /// at load time; the pack still loaded and may still be analyzed -- the signal, not a refusal,
-    /// is the safety mechanism (ADR 0005).
-    #[wasm_bindgen(js_name = isUnproven)]
-    pub fn is_unproven(&self) -> bool {
-        self.loaded.is_unproven()
-    }
-
-    /// The same ADR 0005 signal as `PgPack::is_unproven`, exposed under the name a per-analysis-
-    /// result flag on packaged-artifact analysis should also use: every
-    /// result drawn from an unproven pack must carry this flag.
-    #[wasm_bindgen(js_name = analysisTrustFlag)]
-    pub fn analysis_trust_flag(&self) -> bool {
-        self.loaded.analysis_trust_flag()
-    }
-
     /// `"unsigned"`, `"valid"`, or `"invalid"` (`pg_pack::SignatureState`). Reported for the
     /// caller's information only -- R2A: signature state never gates a load or analysis, so this
     /// is meaningful regardless of its value.

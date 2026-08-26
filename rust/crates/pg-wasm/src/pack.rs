@@ -11,18 +11,14 @@
 //! feature this build genuinely lacks is refused, with a typed `PackLoadError`, never a crash
 //! and never a version-equality mismatch.
 //!
-//! `load_pack` also surfaces, at load time, the two other signals the pack manifest
-//! carries: the `pg_pack::CapabilityTrust` stamp (a pack force-compiled past a
-//! characteristics-check refusal is indelibly `Overridden`/unproven, and still loads — see
-//! `LoadedPack::is_unproven` — the degraded-trust *signal*, not a refusal, is the safety
-//! mechanism) and the pack's `pg_pack::SignatureState` (reported for the caller's information
-//! only; it never gates a load, exactly as `pg_pack::read_pack` itself already
-//! guarantees). The FST-health admission field is `pg_foma::health::HealthReport` reused
+//! `load_pack` also surfaces, at load time, the pack's `pg_pack::SignatureState` (reported for
+//! the caller's information only; it never gates a load, exactly as `pg_pack::read_pack` itself
+//! already guarantees). The FST-health admission field is `pg_foma::health::HealthReport` reused
 //! verbatim through `pg_pack::PackManifest::fst_health` — this module does not redefine, re-
 //! derive, or duplicate that schema; see `LoadedPack::fst_health_admission`.
 //!
 //! # Analysis-only boundary
-//! This module depends only on `pg_pack` (plain data types: manifest, compat, trust) and reuses
+//! This module depends only on `pg_pack` (plain data types: manifest and compat) and reuses
 //! `pg_foma::health` (also plain data). It performs zero FST/lexc compilation, links no compiler
 //! constructor, and never calls `pg_foma::analyzer::FomaProposer::new` or any other emit/compile
 //! entry point — the one thing it does is validate an already-compiled artifact's manifest and
@@ -34,8 +30,8 @@
 //! that scope will sit behind.
 
 use pg_pack::{
-    CapabilityTrust, PackManifest, PgPackError, ProvidedRuntimeFeatures, ReadPack,
-    RequiredRuntimeFeatures, SignatureState,
+    PackManifest, PgPackError, ProvidedRuntimeFeatures, ReadPack, RequiredRuntimeFeatures,
+    SignatureState,
 };
 
 /// This build's own required-runtime-feature vocabulary (only constructs needing a
@@ -116,8 +112,8 @@ pub enum PackLoadError {
 
 /// A `.pgpack` that has passed both the container's own structural validation
 /// (`pg_pack::read_pack`) and this Runtime's `required ⊆ provided` containment check.
-/// Carries everything `load_pack`'s caller needs to surface the trust signal and the
-/// FST-health admission alongside the raw parsed manifest and payload bytes.
+/// Carries everything `load_pack`'s caller needs to surface the signature state and FST-health
+/// admission alongside the raw parsed manifest and payload bytes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoadedPack {
     pub manifest: PackManifest,
@@ -130,39 +126,9 @@ pub struct LoadedPack {
 }
 
 impl LoadedPack {
-    /// The pack-level degraded-trust signal: `true` iff this pack was force-compiled past
-    /// a characteristics-check refusal via the capability override
-    /// (`pg_pack::CapabilityTrust::Overridden`). A consuming application keys its "this is
-    /// potentially broken" banner off this at load time. See `LoadedPack::analysis_trust_flag`
-    /// for the same signal reused as the per-analysis-result flag.
-    pub fn is_unproven(&self) -> bool {
-        self.manifest.capability_trust.is_unproven()
-    }
-
-    /// The per-analysis-result degraded/experimental flag this pack's "two-level" trust signal
-    /// names: at load, the pack reports pack-level `unproven`/`overridden` status; on every
-    /// analysis, each result carries a degraded/experimental flag. Identical truth value to
-    /// `LoadedPack::is_unproven` today — a pack's trust stamp is a single pack-wide fact, so
-    /// every analysis drawn from the same pack necessarily carries the same flag — kept as its own
-    /// named accessor so the eventual per-word analysis result type (not yet wired)
-    /// has one obvious call to copy onto itself rather than reaching into `manifest` directly.
-    pub fn analysis_trust_flag(&self) -> bool {
-        self.is_unproven()
-    }
-
-    /// The override record when `LoadedPack::is_unproven` is `true` — who authorized
-    /// the override, why, and exactly which fail-closed configurations were force-compiled through
-    /// (`None` for a cleanly `pg_pack::CapabilityTrust::Proven` pack).
-    pub fn override_record(&self) -> Option<&pg_pack::CapabilityOverrideRecord> {
-        match &self.manifest.capability_trust {
-            CapabilityTrust::Proven => None,
-            CapabilityTrust::Overridden(record) => Some(record),
-        }
-    }
-
     /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`,
     /// reused verbatim — this module never redefines or re-derives the health schema). It is the
-    /// worst raw severity among the report's findings; capability trust is separate.
+    /// worst raw severity among the report's findings.
     pub fn fst_health_admission(&self) -> pg_foma::health::Severity {
         self.manifest.fst_health.admission()
     }
@@ -224,7 +190,6 @@ mod tests {
 
     fn synthetic_manifest(
         required_runtime_features: RequiredRuntimeFeatures,
-        capability_trust: CapabilityTrust,
         runtime_payload: &[u8],
         foma_payload: &[u8],
     ) -> PackManifest {
@@ -234,7 +199,6 @@ mod tests {
             grammar_id: "synthetic-wasm-wiring-grammar".to_string(),
             package_fingerprint: pg_pack::fingerprint_hex(runtime_payload, foma_payload),
             required_runtime_features,
-            capability_trust,
             fst_health: HealthReport::new(Vec::new()),
             backend_assessments: vec![],
             fst_completeness: Some(pg_pack::FstCompletenessCertificate {
@@ -258,7 +222,6 @@ mod tests {
     fn pack_whose_required_features_are_a_subset_of_provided_loads() {
         let manifest = synthetic_manifest(
             synthetic_required(vec![OP_REDUPLICATION_PEEL.to_string()]),
-            CapabilityTrust::Proven,
             RUNTIME_PAYLOAD,
             FOMA_PAYLOAD,
         );
@@ -268,8 +231,6 @@ mod tests {
         assert_eq!(loaded.manifest, manifest);
         assert_eq!(loaded.runtime_payload, RUNTIME_PAYLOAD);
         assert_eq!(loaded.foma_payload, FOMA_PAYLOAD);
-        assert!(!loaded.is_unproven());
-        assert!(!loaded.analysis_trust_flag());
         assert_eq!(loaded.signature_state, SignatureState::Unsigned);
         assert_eq!(
             loaded.fst_health_admission(),
@@ -297,7 +258,6 @@ mod tests {
     fn loaded_pack_with_health(severity: pg_foma::health::Severity) -> LoadedPack {
         let mut manifest = synthetic_manifest(
             synthetic_required(Vec::new()),
-            CapabilityTrust::Proven,
             RUNTIME_PAYLOAD,
             FOMA_PAYLOAD,
         );
@@ -334,7 +294,6 @@ mod tests {
         // Old packs run unchanged forever: nothing beyond baseline must load like a fully-populated pack.
         let manifest = synthetic_manifest(
             synthetic_required(Vec::new()),
-            CapabilityTrust::Proven,
             RUNTIME_PAYLOAD,
             FOMA_PAYLOAD,
         );
@@ -346,7 +305,6 @@ mod tests {
     fn pack_requiring_an_unprovided_runtime_operation_is_rejected_with_typed_diagnostic() {
         let manifest = synthetic_manifest(
             synthetic_required(vec!["pg.brand-new.unimplemented-op".to_string()]),
-            CapabilityTrust::Proven,
             RUNTIME_PAYLOAD,
             FOMA_PAYLOAD,
         );
@@ -376,7 +334,6 @@ mod tests {
         );
         let manifest = synthetic_manifest(
             required,
-            CapabilityTrust::Proven,
             RUNTIME_PAYLOAD,
             FOMA_PAYLOAD,
         );
@@ -397,26 +354,11 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn proven_pack_carries_no_override_record() {
-        let manifest = synthetic_manifest(
-            synthetic_required(Vec::new()),
-            CapabilityTrust::Proven,
-            RUNTIME_PAYLOAD,
-            FOMA_PAYLOAD,
-        );
-        let bytes = pg_pack::write_pack(&manifest, RUNTIME_PAYLOAD, FOMA_PAYLOAD).unwrap();
-        let loaded = load_pack(&bytes).unwrap();
-        assert!(!loaded.is_unproven());
-        assert_eq!(loaded.override_record(), None);
-    }
-
     // Signature state is reported, never gates: it plays no role in the containment decision.
     #[test]
     fn signature_state_is_independent_of_runtime_feature_compatibility() {
         let manifest = synthetic_manifest(
             synthetic_required(vec![OP_REDUPLICATION_PEEL.to_string()]),
-            CapabilityTrust::Proven,
             RUNTIME_PAYLOAD,
             FOMA_PAYLOAD,
         );
