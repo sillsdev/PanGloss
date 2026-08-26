@@ -1783,8 +1783,7 @@ mod compose_budget_tests {
         let opts = FomaOptions::default();
         let rule = synth_alpha_rule(&g);
 
-        let budget =
-            ComposeBudget::with_caps(usize::MAX, usize::MAX, 3, usize::MAX, usize::MAX, None);
+        let budget = ComposeBudget::with_caps(3, usize::MAX);
         let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
             .expect_err("6 surviving tuples must exceed a tuple_cap of 3");
         match err {

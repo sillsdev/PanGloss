@@ -563,8 +563,7 @@ mod group_budget_tests {
             "16 entries realizing every 2^4 combination must yield 16 groups"
         );
 
-        let budget =
-            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 8, usize::MAX, None);
+        let budget = ComposeBudget::with_caps(usize::MAX, 8);
         let start = std::time::Instant::now();
         let err = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
             .expect_err("16 groups must exceed a group_cap of 8");
@@ -600,8 +599,7 @@ mod group_budget_tests {
         let gated = find_gated_subrules(&g, &ro);
         assert!(gated.is_empty());
 
-        let budget =
-            ComposeBudget::with_caps(usize::MAX, usize::MAX, usize::MAX, 1, usize::MAX, None);
+        let budget = ComposeBudget::with_caps(usize::MAX, 1);
         let result = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
             .expect("exactly 1 group must not exceed a group_cap of 1");
         assert_eq!(result.groups, 1);

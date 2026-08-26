@@ -669,10 +669,6 @@ mod compose_budget_tests {
         let budget = ComposeBudget::with_caps(
             usize::MAX,
             usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            None,
         );
         assert_eq!(budget.chain_depth_cap(), None);
         budget
@@ -787,10 +783,6 @@ mod compose_budget_tests {
         let budget = ComposeBudget::with_caps(
             usize::MAX,
             usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            usize::MAX,
-            None,
         );
         assert_eq!(budget.ordering_multiplicity_cap(), None);
         budget
