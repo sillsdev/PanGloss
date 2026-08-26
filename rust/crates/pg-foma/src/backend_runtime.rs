@@ -1708,12 +1708,7 @@ pub fn finished_net_digests(
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
     let opts = FomaOptions::default();
-    let compose = ComposeBudget::from_env().with_step_timeout(
-        budget
-            .build
-            .filter(|limit| *limit != u64::MAX)
-            .map(std::time::Duration::from_nanos),
-    );
+    let compose = ComposeBudget::from_env();
     plans
         .iter()
         .map(|candidate| {
@@ -1746,12 +1741,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
     let opts = FomaOptions::default();
-    let compose = ComposeBudget::from_env().with_step_timeout(
-        budget
-            .build
-            .filter(|limit| *limit != u64::MAX)
-            .map(std::time::Duration::from_nanos),
-    );
+    let compose = ComposeBudget::from_env();
     let selection = cache.select(words);
     let comparable = selection.comparable;
     let expected = selection.expected;
@@ -1982,12 +1972,7 @@ pub fn assess_accuracy_with_cache(
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
     let opts = FomaOptions::default();
-    let compose = ComposeBudget::from_env().with_step_timeout(
-        budget
-            .build
-            .filter(|limit| *limit != u64::MAX)
-            .map(std::time::Duration::from_nanos),
-    );
+    let compose = ComposeBudget::from_env();
     let selection = cache.select(words);
     if !selection.exclusions.is_empty() {
         let stage = if selection.capped {

@@ -17,11 +17,6 @@
 //! `foma = "=0.4.0"`'s own source, not inferred)
 //!
 //! ## Limitations (the honest part, not hidden)
-//! - `call_with_deadline`'s wall-clock wrapper *detects*, it does not *stop*: the worker thread is
-//!   abandoned (never joined) and keeps running/allocating until it finishes naturally. Treat
-//!   `ComposeError::ComposeStepTimedOut` as TERMINAL for that grammar (fall back to another
-//!   engine), never retry the identical call; a long-lived server embedding this must track
-//!   abandoned-thread count itself.
 //! - `catch_unwind` is not a safety net for this module either: stack-overflow and allocator-OOM
 //!   abort the process, bypassing every check here. Large worker-thread stacks reduce but do not
 //!   eliminate overflow risk.
@@ -35,13 +30,6 @@ use foma::constructions::{fsm_compose, fsm_union};
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
-
-/// Compile-time proof that `Fsm` is `Send`, required to move it into `call_with_deadline`'s worker thread; a future non-`Send` field breaks this build rather than silently miscompiling.
-#[allow(dead_code)]
-fn assert_send<T: Send>() {}
-const _: fn() = || {
-    assert_send::<Fsm>();
-};
 
 // Defaults / env overrides: `HC_*`-prefixed, parsed as the field's own type, falling back to the documented default when unset/unparsable.
 
@@ -108,11 +96,6 @@ pub(crate) fn line_budget_from_env() -> usize {
         .unwrap_or(DEFAULT_LINE_BUDGET)
 }
 
-/// `HC_COMPOSE_STEP_TIMEOUT_MS`: wall-clock deadline for every checked
-/// compose/union/minimize call, via `call_with_deadline`. **Default OFF** (`None`) --
-/// this mirrors `pg-rules/src/stratum.rs`'s `StepBudget`'s own opt-in convention: a wall-clock
-/// abandon-on-timeout mechanism is a much bigger hammer (it detects, but does not stop, a runaway
-/// call), so it stays opt-in until a caller has a concrete reason to want it.
 pub(crate) fn step_timeout_from_env() -> Option<Duration> {
     std::env::var("HC_COMPOSE_STEP_TIMEOUT_MS")
         .ok()
@@ -322,12 +305,6 @@ pub enum ComposeError {
         limit: usize,
         gated_subrules: usize,
     },
-    /// `call_with_deadline` timed out; the worker thread is abandoned, not killed. Always terminal for this grammar; never retry.
-    ComposeStepTimedOut {
-        elapsed: Duration,
-        limit: Duration,
-        site: &'static str,
-    },
     /// `check_chain_depth` found a cumulative derivation/unapplication step count exceeding `chain_depth_cap`.
     ChainDepthExceeded {
         depth: usize,
@@ -366,17 +343,6 @@ impl fmt::Display for ComposeError {
                  over- or under-fire a gated rule), so this is always a fall-back-engine signal, \
                  never a partial result; raise HC_COMPOSE_GROUP_BUDGET only if you understand why \
                  this grammar realizes this many distinct gating vectors."
-            ),
-            ComposeError::ComposeStepTimedOut {
-                elapsed,
-                limit,
-                site,
-            } => write!(
-                f,
-                "composition step at {site:?} exceeded its wall-clock deadline ({elapsed:?} elapsed, \
-                 limit {limit:?}). The worker thread computing it was ABANDONED (not killed) and may \
-                 still be running/allocating -- treat this as TERMINAL for this grammar, never retry \
-                 the identical call; use the default (full) morphological-parser engine instead."
             ),
             ComposeError::ChainDepthExceeded { depth, limit, site } => write!(
                 f,
@@ -460,7 +426,6 @@ impl ComposeBudget {
         }
     }
 
-    /// Overrides the per-composition-step deadline while retaining every configured size cap.
     pub fn with_step_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.step_timeout = timeout;
         self
@@ -632,38 +597,7 @@ impl ComposeBudget {
     }
 }
 
-/// Wall-clock wrapper (design doc §5): runs `f` on a dedicated 256MB-stack worker thread (the same
-/// large-stack convention this crate's own P6 example drivers already use around this exact call
-/// shape, e.g. `examples/p6_replace_prototype.rs`'s `STACK_BYTES`) and waits up to `timeout` via an
-/// `mpsc` channel. `Err(elapsed)` means the worker thread is ABANDONED (module doc: dropping the
-/// unjoined `JoinHandle` detaches it; it keeps running/allocating until it finishes naturally) --
-/// this function does not and cannot kill it, only stop waiting for it.
-pub(crate) fn call_with_deadline<F>(f: F, timeout: Duration) -> Result<Fsm, Duration>
-where
-    F: FnOnce() -> Fsm + Send + 'static,
-{
-    const DEADLINE_WORKER_STACK_BYTES: usize = 256 * 1024 * 1024;
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    let start = std::time::Instant::now();
-    std::thread::Builder::new()
-        .stack_size(DEADLINE_WORKER_STACK_BYTES)
-        .spawn(move || {
-            let result = f();
-            // The receiver may already be gone (timed out); an ignored `send` failure just means nobody's listening.
-            let _ = tx.send(result);
-        })
-        .expect("spawn compose-budget deadline worker thread");
-    match rx.recv_timeout(timeout) {
-        Ok(net) => Ok(net),
-        Err(_) => Err(start.elapsed()),
-    }
-}
-
-/// Checked `fsm_compose` (V1/V2, design doc §4): optionally runs under `call_with_deadline`
-/// (only when `budget.step_timeout` is `Some` -- default OFF, module doc). `site` is a short,
-/// stable label identifying the call site (design doc §4's own per-site names) for `ComposeError`'s
-/// message.
+/// Checked `fsm_compose` (V1/V2, design doc §4).
 pub(crate) fn compose_checked(
     opts: &FomaOptions,
     a: Fsm,
@@ -671,20 +605,7 @@ pub(crate) fn compose_checked(
     budget: &ComposeBudget,
     site: &'static str,
 ) -> Result<Fsm, ComposeError> {
-    let net = match budget.step_timeout {
-        None => fsm_compose(opts, a, b),
-        Some(timeout) => {
-            let opts = opts.clone();
-            call_with_deadline(move || fsm_compose(&opts, a, b), timeout).map_err(|elapsed| {
-                ComposeError::ComposeStepTimedOut {
-                    elapsed,
-                    limit: timeout,
-                    site,
-                }
-            })?
-        }
-    };
-    Ok(net)
+    Ok(fsm_compose(opts, a, b))
 }
 
 /// Checked `fsm_union` -- see `compose_checked`'s doc (identical shape, `fsm_union` in place of
@@ -696,20 +617,7 @@ pub(crate) fn union_checked(
     budget: &ComposeBudget,
     site: &'static str,
 ) -> Result<Fsm, ComposeError> {
-    let net = match budget.step_timeout {
-        None => fsm_union(opts, a, b),
-        Some(timeout) => {
-            let opts = opts.clone();
-            call_with_deadline(move || fsm_union(&opts, a, b), timeout).map_err(|elapsed| {
-                ComposeError::ComposeStepTimedOut {
-                    elapsed,
-                    limit: timeout,
-                    site,
-                }
-            })?
-        }
-    };
-    Ok(net)
+    Ok(fsm_union(opts, a, b))
 }
 
 /// Checked `fsm_minimize` -- see `compose_checked`'s doc (unary in place of binary).
@@ -719,20 +627,7 @@ pub(crate) fn minimize_checked(
     budget: &ComposeBudget,
     site: &'static str,
 ) -> Result<Fsm, ComposeError> {
-    let net = match budget.step_timeout {
-        None => fsm_minimize(opts, a),
-        Some(timeout) => {
-            let opts = opts.clone();
-            call_with_deadline(move || fsm_minimize(&opts, a), timeout).map_err(|elapsed| {
-                ComposeError::ComposeStepTimedOut {
-                    elapsed,
-                    limit: timeout,
-                    site,
-                }
-            })?
-        }
-    };
-    Ok(net)
+    Ok(fsm_minimize(opts, a))
 }
 
 #[cfg(test)]

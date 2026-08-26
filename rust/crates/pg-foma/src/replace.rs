@@ -1804,7 +1804,7 @@ mod compose_budget_tests {
         }
     }
 
-    /// Proves the checked wrappers are pure passthrough when every cap is `usize::MAX` and `step_timeout` is `None`.
+    /// Proves the checked wrappers are pure passthrough when every cap is `usize::MAX`.
     #[test]
     fn unbounded_budget_never_trips_on_small_fixture() {
         let g = synth_alpha_grammar();

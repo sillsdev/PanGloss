@@ -60,10 +60,9 @@
 //!    operation they would gate even starts (`compose_budget.rs`'s own doc, verbatim, for all
 //!    three: "checked BEFORE..."), on an exact, already-known count — a proven work bound — so
 //!    they map to `FindingCode::ProvenBoundExceedsBudget` with
-//!    `ValueProvenance::ProvenBound`. `ComposeStepTimedOut`/`ChainDepthExceeded` are only detected
-//!    AFTER the checked operation (an actual wall-clock wait, an actual recursion) already executed
-//!    and produced/consumed a measured value, so they map to
-//!    `FindingCode::ResourceBudgetReached` with `ValueProvenance::Observed`.
+//!    `ValueProvenance::ProvenBound`. `ChainDepthExceeded` is only detected AFTER the checked
+//!    operation (an actual recursion) already executed and produced/consumed a measured value, so
+//!    it maps to `FindingCode::ResourceBudgetReached` with `ValueProvenance::Observed`.
 //! 2. **`crate::health::Metric::OrderingRuleCount` is a new variant this change appends** to
 //!    `crate::health`'s `Metric` enum (see that enum's own doc on the variant) — the only schema
 //!    edit this evaluator makes: an appended variant, with no renumbering, no removal, no change to
@@ -482,25 +481,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
                 "Partitioning {gated_subrules} gated subrule(s) produced {groups} distinct gating \
                  groups (limit {limit}), an exact count proven to exceed the remaining budget \
                  before any per-group compile work began."
-            ),
-        },
-        ComposeError::ComposeStepTimedOut {
-            elapsed,
-            limit,
-            site,
-        } => HealthFinding {
-            code: FindingCode::ResourceBudgetReached,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Compile,
-            affected: vec![(*site).to_string()],
-            metric: Metric::ElapsedMillis,
-            value: MetricValue::Millis(elapsed.as_millis() as u64),
-            provenance: ValueProvenance::Observed,
-            threshold: Some(MetricValue::Millis(limit.as_millis() as u64)),
-            explanation: format!(
-                "Composition step at {site:?} exceeded its wall-clock deadline ({elapsed:?} \
-                 elapsed, limit {limit:?}); the worker thread was abandoned (not killed) and this \
-                 attempt is terminal for this grammar -- never retry the identical call."
             ),
         },
         ComposeError::ChainDepthExceeded { depth, limit, site } => HealthFinding {
