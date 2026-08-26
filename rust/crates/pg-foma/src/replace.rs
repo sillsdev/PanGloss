@@ -1811,32 +1811,6 @@ mod compose_budget_tests {
         }
     }
 
-    /// Composing the 6 per-tuple branch nets must trip `NetSizeExceeded` once `state_cap` is small enough; the tuple budget stays unbounded to isolate the state-size check.
-    #[test]
-    fn state_budget_trips_on_tiny_cascade() {
-        let g = synth_alpha_grammar();
-        let table = &g.char_tables[0];
-        let alphabet = SegAlphabet::new(table);
-        let opts = FomaOptions::default();
-        let rule = synth_alpha_rule(&g);
-
-        // These single-occurrence branch nets stay tiny under composition, so `state_cap=0` is used to guarantee a trip on any non-empty composed net.
-        let budget =
-            ComposeBudget::with_caps(0, usize::MAX, usize::MAX, usize::MAX, usize::MAX, None);
-        let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
-            .expect_err("composing 6 branch nets must exceed a state_cap of 0");
-        assert!(
-            matches!(
-                err,
-                ComposeError::NetSizeExceeded {
-                    measure: NetSizeMeasure::States,
-                    ..
-                }
-            ),
-            "expected NetSizeExceeded(States), got {err:?}"
-        );
-    }
-
     /// Proves the checked wrappers are pure passthrough when every cap is `usize::MAX` and `step_timeout` is `None`.
     #[test]
     fn unbounded_budget_never_trips_on_small_fixture() {

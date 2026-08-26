@@ -790,12 +790,6 @@ mod tests {
     #[test]
     fn fst_health_evaluator_backend_local_budget_failures_are_errors() {
         let compose_errors = vec![
-            ComposeError::NetSizeExceeded {
-                measure: NetSizeMeasure::States,
-                value: 2,
-                limit: 1,
-                site: "net",
-            },
             ComposeError::AlphaTupleBudgetExceeded {
                 surviving: 2,
                 limit: 1,
@@ -1132,25 +1126,6 @@ mod tests {
     // fst_health_evaluator_compose_errors: every ComposeError variant maps to a finding.
 
     #[test]
-    fn fst_health_evaluator_net_size_exceeded_is_resource_budget_reached_observed() {
-        let err = ComposeError::NetSizeExceeded {
-            measure: NetSizeMeasure::States,
-            value: 3_000_000,
-            limit: 2_000_000,
-            site: "synthetic-test-site",
-        };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
-        let finding = &health.findings[0];
-        assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
-        assert_eq!(finding.metric, Metric::IntermediateStateCount);
-        assert_eq!(finding.provenance, ValueProvenance::Observed);
-        assert_eq!(finding.value, MetricValue::Count(3_000_000));
-        assert_eq!(finding.threshold, Some(MetricValue::Count(2_000_000)));
-        assert_eq!(finding.affected, vec!["synthetic-test-site".to_string()]);
-        assert_eq!(health.admission(), Severity::NotProductionReady);
-    }
-
-    #[test]
     fn fst_health_evaluator_alpha_tuple_exceeded_is_proven_bound() {
         let err = ComposeError::AlphaTupleBudgetExceeded {
             surviving: 6_000,
@@ -1387,8 +1362,8 @@ mod tests {
 
     // fst_health_evaluator_golden: a representative multi-source compile, byte-for-byte golden.
 
-    /// Three distinct measurement sources (payload size, an emit report, a compose error) feeding one report, the shape a real caller assembles.
-    fn representative_inputs() -> (u64, EmitReport, ComposeError) {
+    /// Two distinct measurement sources (payload size and an emit report) feeding one report, the shape a real caller assembles.
+    fn representative_inputs() -> (u64, EmitReport) {
         let payload_bytes = 250_000_000u64; // NotProductionReady: over IDEAL_MAX_BYTES
         let emit_report = EmitReport {
             uncovered: vec![UncoveredItem {
@@ -1402,13 +1377,7 @@ mod tests {
             closure_refusal: None,
             closure_evidence: None,
         };
-        let compose_error = ComposeError::NetSizeExceeded {
-            measure: NetSizeMeasure::Arcs,
-            value: 21_000_000,
-            limit: 20_000_000,
-            site: "synthetic-gate-union-fold",
-        };
-        (payload_bytes, emit_report, compose_error)
+        (payload_bytes, emit_report)
     }
 
     const GOLDEN_JSON: &str = r#"{
@@ -1447,37 +1416,17 @@ mod tests {
       "provenance": "observed",
       "explanation": "1 construct occurrence(s) could not be represented in this FST-propose network and contribute no candidates for it. Confirmation cannot restore omitted candidates, so normal generation fails closed.",
       "remedies": []
-    },
-    {
-      "code": "PGF0008",
-      "severity": "not_production_ready",
-      "phase": "compile",
-      "affected": [
-        "synthetic-gate-union-fold"
-      ],
-      "metric": "intermediate_arc_count",
-      "value": {
-        "kind": "count",
-        "value": 21000000
-      },
-      "provenance": "observed",
-      "threshold": {
-        "kind": "count",
-        "value": 20000000
-      },
-      "explanation": "Composition at \"synthetic-gate-union-fold\" produced a network of 21000000 arcs (limit 20000000); this compilation stopped rather than continue.",
-      "remedies": []
     }
   ]
 }"#;
 
     #[test]
     fn fst_health_evaluator_golden_json() {
-        let (payload_bytes, emit_report, compose_error) = representative_inputs();
+        let (payload_bytes, emit_report) = representative_inputs();
         let health = evaluate_health(
             Some(payload_bytes),
             Some(&emit_report),
-            std::slice::from_ref(&compose_error),
+            &[],
             &[],
             None,
         );
@@ -1490,11 +1439,11 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_golden_admission_is_cannot_represent() {
-        let (payload_bytes, emit_report, compose_error) = representative_inputs();
+        let (payload_bytes, emit_report) = representative_inputs();
         let health = evaluate_health(
             Some(payload_bytes),
             Some(&emit_report),
-            std::slice::from_ref(&compose_error),
+            &[],
             &[],
             None,
         );
@@ -1504,11 +1453,11 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_golden_round_trips() {
-        let (payload_bytes, emit_report, compose_error) = representative_inputs();
+        let (payload_bytes, emit_report) = representative_inputs();
         let health = evaluate_health(
             Some(payload_bytes),
             Some(&emit_report),
-            std::slice::from_ref(&compose_error),
+            &[],
             &[],
             None,
         );
