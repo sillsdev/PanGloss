@@ -66,8 +66,8 @@ struct CgroupMount {
     mountpoint: PathBuf,
 }
 
-/// Linux cgroup-v2 containment. The cgroup is created below the caller's delegated cgroup,
-/// and clone3 places the child there before its first instruction.
+/// Linux cgroup-v2 containment. The cgroup is created below the explicitly configured delegated
+/// root, and clone3 places the child there before its first instruction.
 pub(crate) struct ContainedWorkerProcess {
     parent_cgroup: OwnedFd,
     cgroup: OwnedFd,
@@ -850,6 +850,7 @@ fn decode_mountinfo_field(value: &str) -> String {
             match code.as_str() {
                 "040" => decoded.push(' '),
                 "011" => decoded.push('\t'),
+                "012" => decoded.push('\n'),
                 "134" => decoded.push('\\'),
                 _ => {
                     decoded.push('\\');
@@ -975,7 +976,22 @@ unsafe fn child_exec(
 #[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn report_child_error(launch_error: RawFd, errno: c_int) -> ! {
     let bytes = errno.to_ne_bytes();
-    let _ = libc::write(launch_error, bytes.as_ptr().cast::<c_void>(), bytes.len());
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let result = libc::write(
+            launch_error,
+            bytes[offset..].as_ptr().cast::<c_void>(),
+            bytes.len() - offset,
+        );
+        if result > 0 {
+            offset += result as usize;
+            continue;
+        }
+        if result < 0 && *libc::__errno_location() == libc::EINTR {
+            continue;
+        }
+        break;
+    }
     libc::_exit(127);
 }
 
