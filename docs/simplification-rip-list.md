@@ -321,16 +321,18 @@ permission.
    Committed checkpoints: replacement descendant-failure tests (`40897d45`), typed containment
    outcomes plus the required health/pack v5 break (`b330892f`), and the safe helper API with its
    verified Windows adapter (`9c7330c2`), test-first Linux wrapper contract (`b6894312` through
-   `9249b4ee`), and the fail-closed Linux wrapper source checkpoint (`694de90f`). Still pending, in
-   order: required-capability CI plus a real delegated-host/service-lifecycle run, production
-   routing, then deletion of the shared direct-`Command` supervisor loop and its source-shape test.
+   `9249b4ee`), the fail-closed Linux wrapper source checkpoint (`694de90f`), and the pinned hosted
+   Linux RED/GREEN gate (`42f64571`, `9243cc25`). Still pending, in order: a green execution of that
+   exact delegated-host/service-lifecycle job, production routing, then deletion of the shared
+   direct-`Command` supervisor loop and its source-shape test.
    Cross-platform fixture success is not Linux runtime proof and does not authorize that deletion.
    A fresh final-tip Windows rerun reported 5 unit and 11 Windows containment tests passing and the
    managed command exited cleanly. The earlier procgov teardown hang did not reproduce with an
    immediate-exit child or the exact cached Cargo target, so no speculative watchdog code was added.
-   The Linux CI dependency remains the sole platform gate: repository evidence contains no matching
-   provisioned runner, and this host has no WSL, Docker, or Podman Linux environment. Workflow-only
-   wiring is deliberately not counted as progress.
+   The Linux CI dependency remains the sole platform gate. The pinned `ubuntu-24.04` job provisions
+   its own transient delegated systemd service and controlled service-main-death probe, removing the
+   former need for a pre-provisioned self-hosted runner. The job has not yet executed, so workflow-
+   only wiring is prerequisite progress, not Linux runtime proof or deletion authority.
 3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
    top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
    `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
@@ -490,8 +492,8 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..efcaafa6` (through the explicit completed-route commits):
-**4,436 deletions / 10,162 additions, net +5,726 lines** across 78 files. Production Rust accounts
+Committed rebased branch range `1225f25a..9243cc25` (through the hosted-Linux gate commits):
+**4,436 deletions / 10,511 additions, net +6,075 lines** across 81 files. Production Rust accounts
 for 1,978 deletions and Rust integration tests for 964 deletions. This is a branch-wide mechanical
 line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
@@ -506,6 +508,8 @@ Linux wrapper contract and source checkpoint added 1,172 lines and removed 27 ac
 files. Its 623-line test contract came first; its 549-addition/27-deletion production commit is
 prerequisite infrastructure, not a removal win or a Linux runtime pass. The explicit completed-route
 slice then removed 98 and added 36 lines across its RED test and GREEN production commits (net -62).
+The hosted-Linux gate added 132 RED-contract lines and 212 workflow/script lines without deleting
+production code; those 344 lines are prerequisite proof infrastructure, not a removal win.
 Uncommitted work is never counted until its exact staged snapshot is inspected and committed. Remaining deletion
 opportunity is tracked by the stages above; estimates below are directional only:
 

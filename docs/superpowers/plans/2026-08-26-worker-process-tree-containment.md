@@ -141,20 +141,26 @@ Files:
       host-managed ancestral cgroup cap before Cargo starts and has no bare-Cargo fallback. Committed
       as `694de90f` after the separate Linux contract commits. This check means source-complete only:
       host-service interruption cleanup and real Linux execution remain unproved.
-- [ ] Commit and run the Linux containment target on a deliberately delegated Linux runner with
-      `PANGLOSS_CGROUP_TEST_REQUIRED=1`. Generic `ubuntu-latest` workspace tests do not establish
-      delegated cgroup authority. External dependency: a runner launched in a writable delegated
-      cgroup with the memory controller enabled, `cgroup.kill`, and permitted `clone3`.
+- [x] Commit a dedicated required job on pinned `ubuntu-24.04` that creates a bounded transient
+      systemd service with `DelegateSubgroup=pangloss-supervisor`, explicitly enables the memory
+      controller, and runs the target with `PANGLOSS_CGROUP_TEST_REQUIRED=1`. Its separate
+      service-main-death probe must also prove that a TERM-resistant descendant and the unit cgroup
+      disappear. The RED contract is `42f64571`; the reviewed workflow/script is `9243cc25`.
+- [ ] Obtain a green execution of that exact hosted job. Checked-in workflow source is not runtime
+      evidence and does not authorize supervisor deletion by itself.
 - [ ] Do not claim the Linux runtime gate from Windows or from a capability-skipped Linux run.
 
-Source status at `694de90f`: the native containment adapter is compile-checked for the Linux target
-from Windows, and the managed wrapper has a reviewed 25-case cross-platform contract. Neither is a
-Linux runtime claim. Required-capability CI, a real delegated-host run, and host-service interruption
-proof remain the gate before supervisor integration or deletion of the old spawn/kill loop.
-The final-tip Windows Cargo run reported 5 unit and 11 Windows containment tests passing, but the
-outer wrapper required interruption after procgov failed to exit; record the test results as green
-and the wrapper lifecycle gate as open. The required Linux CI job cannot honestly be landed as proof
-until its labeled delegated runner and service contract exist.
+Source status at `9243cc25`: the native containment adapter is compile-checked for the Linux target
+from Windows, the managed wrapper has a reviewed 25-case cross-platform contract, and a pinned
+GitHub-hosted Ubuntu job now provisions the required delegated topology plus controlled
+host-service interruption probe. None of those source checks is a Linux runtime claim. One green
+execution of that exact required job remains the gate before supervisor integration or deletion of
+the old spawn/kill loop.
+The final-tip Windows Cargo run reported 5 unit and 11 Windows containment tests passing and the
+managed wrapper exited cleanly. The earlier procgov teardown hang did not reproduce with either
+immediate-exit diagnostic child, so it did not justify speculative watchdog code. The hosted job
+removes the former self-hosted provisioning dependency, but its first real run—not the YAML
+commit—must close the Linux gate.
 
 ## Task 5: Supervisor integration and deletion audit
 
