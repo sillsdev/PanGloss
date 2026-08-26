@@ -347,7 +347,8 @@ permission.
    supervisor routing, Pack/CLI migration, and the broader chooser deletion remain untouched until
    Stage 2's Linux gate. The independent RED/GREEN pair `5d428ca7`/`f2f7d69e` also deleted the
    zero-caller, explicitly rejected top-N `select_up_to` method and its ranking-only tests while
-   preserving `preferred()` for the later atomic route migration.
+   preserving `preferred()` for the later atomic route migration. `ecdbb65e`/`341fb5a4` deleted the
+   final zero-caller envelope convenience constructor; the richer production selector path remains.
 4. **Delete internal compile refusal caps (A1-A5/A9/A10/C2-C4/H5).** Only after stages 2-3 prove
    containment, rewrite cap/refusal/retry tests, then remove state/arc/tuple/group/line/compound/order
    representability stops, named-envelope remedies, and old constants while preserving measurements.
@@ -497,9 +498,9 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..f2f7d69e` (through the top-N selector deletion):
-**4,572 deletions / 10,492 additions, net +5,920 lines** across 81 files. Production Rust accounts
-for 2,090 deletions and Rust integration tests for 988 deletions. This is a branch-wide mechanical
+Committed rebased branch range `1225f25a..341fb5a4` (through the unused envelope-constructor deletion):
+**4,581 deletions / 10,500 additions, net +5,919 lines** across 81 files. Production Rust accounts
+for 2,099 deletions and Rust integration tests for 988 deletions. This is a branch-wide mechanical
 line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
@@ -520,6 +521,8 @@ including 105 production deletions. The branch-range totals are smaller than add
 where this cleanup deletes lines introduced after the baseline; both numbers are intentional.
 The top-N RED/GREEN commits then removed 67 and added 5 lines at commit scope (net -62), including
 13 production lines; their focused backend-selection contract passes 11/11.
+The final envelope-constructor RED/GREEN pair removed 9 and added 4 lines at commit scope (net -5),
+all nine deletions in production; the same 11/11 contract remains green.
 Uncommitted work is never counted until its exact staged snapshot is inspected and committed. Remaining deletion
 opportunity is tracked by the stages above; estimates below are directional only:
 
