@@ -348,11 +348,16 @@ without pulling replacement design forward.
    chain depth must be classified by call site before deletion; uncertainty blocks that hunk only.
    Status: **RIP IN PROGRESS.** `79d1b058`/`0cf2da0a` removed the compound-pair test and the entire
    `HC_COMPOUND_PAIR_BUDGET` refusal while retaining compound emission, licensing, and chain-depth
-   safety. Schema vocabulary is deferred to the schema sweep.
+   safety. `1aac38b7`/`566606ec` removed the post-operation state/arc net-size refusal while retaining
+   telemetry and the remaining independently classified safety families. Schema vocabulary and
+   broad config-field cleanup are deferred to their own sweeps.
 5. **Delete duplicate analysis traversal (E2).** Remove production-emitter-and-discard and separate
    closure characterization walkers from `characterization`, `preexpand`, `emit`, runtime, and
    selection. Gate: analysis performs no production compile/traversal; a selected build performs its
    required pre-expansion exactly once. Protected: cheap grammar facts and real build traversal.
+   Status: **RIPPED FIRST.** `ab0ed0ed` deleted dry-run tests and `516821e0` deleted the two
+   hand-written walkers, emitter-and-discard wrappers, and selection/runtime prechecks: 978 deleted,
+   4 structural lines added. Production trace/evidence and the real pre-expansion remain.
 6. **Build the smaller explicit path and separate Analyze, Test, and Package (E1/A2/A3).** Only after
    authorized ripping is complete, move proposal/confirmation/duplicate metrics
    to a post-build corpus operation. `pack` consumes one explicitly named completed artifact and
@@ -495,10 +500,11 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..0cf2da0a`:
-**7,114 deletions / 10,312 additions, net +3,198 lines** across 87 files. The dedicated rip-first
-range `1c7cc837..0cf2da0a` removed **2,743 lines**, added 15 structural/fixture lines, and is net
-**-2,728 lines** across 21 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..516821e0`:
+**8,360 deletions / 10,285 additions, net +1,925 lines** across 91 files. The dedicated rip-first
+range `1c7cc837..516821e0` removed **4,082 lines**, added 81 structural/fixture/documentation lines,
+and is net **-4,001 lines** across 30 files. Excluding the rip-ledger rewrite itself, code and tests
+removed 4,044 lines and added 44. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
