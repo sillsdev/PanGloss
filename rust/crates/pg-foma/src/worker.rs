@@ -862,13 +862,6 @@ fn write_child_output<W: Write>(
 
 // Supervisor (parent side).
 
-/// Which captured output stream breached its byte cap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputStream {
-    Stdout,
-    Stderr,
-}
-
 /// Every terminal outcome the SUPERVISOR (parent) itself observes -- as opposed to
 /// `CompileWorkerOutcome`, which the child observes and reports about itself. A
 /// `WorkerOutcome::Completed` wraps a real `CompileWorkerOutcome`; every other variant is an
@@ -885,11 +878,8 @@ pub enum WorkerOutcome {
     },
     /// The child was killed after `elapsed` exceeded `limit` -- an external execution limit, not a grammar-health verdict.
     WallTimeoutKilled { elapsed: Duration, limit: Duration },
-    /// Captured stdout or stderr reached its byte cap and the child was killed; all four wire streams have versioned limits enforced by the parent.
-    OutputLimitExceeded {
-        stream: OutputStream,
-        limit_bytes: u64,
-    },
+    /// Captured stderr reached its byte cap and the child was killed.
+    StderrOutputLimitExceeded { limit_bytes: u64 },
     /// The child exited abnormally (panic-as-abort, stack overflow, allocator OOM, or an external
     /// kill) without producing a valid result frame; `detail` names the observed status and why
     /// parsing failed.
@@ -909,7 +899,7 @@ impl WorkerOutcome {
     /// describing the parent-observed supervisor event.
     ///
     /// **Two different facts, two different codes.** `WallTimeoutKilled`/
-    /// `OutputLimitExceeded`/`ChildCrashed` are all genuine external-monitor aborts -- the
+    /// `StderrOutputLimitExceeded`/`ChildCrashed` are all genuine external-monitor aborts -- the
     /// supervisor protecting the host from a runaway child -- so they use
     /// `FindingCode::HostContainmentFired` at `Severity::MachineLimit`. `ChildCrashed` is kept
     /// here too even though its own doc admits the cause is ambiguous (panic-as-abort, stack
@@ -977,10 +967,7 @@ impl WorkerOutcome {
                     remedies: Vec::new(),
                 }])
             }
-            WorkerOutcome::OutputLimitExceeded {
-                stream,
-                limit_bytes,
-            } => HealthReport::new(vec![HealthFinding {
+            WorkerOutcome::StderrOutputLimitExceeded { limit_bytes } => HealthReport::new(vec![HealthFinding {
                 code: FindingCode::HostContainmentFired,
                 severity: Severity::MachineLimit,
                 phase: Phase::Compile,
@@ -990,7 +977,7 @@ impl WorkerOutcome {
                 provenance: ValueProvenance::Observed,
                 threshold: Some(MetricValue::Bytes(*limit_bytes)),
                 explanation: format!(
-                    "The compile worker process was killed after its captured {stream:?} \
+                    "The compile worker process was killed after its captured stderr \
                          output reached the {limit_bytes}-byte protocol limit."
                 ),
                 remedies: Vec::new(),
@@ -1156,26 +1143,6 @@ fn spawn_worker_output_reader<R: Read + Send + 'static>(
     })
 }
 
-/// Parses one generic result frame for focused protocol tests.
-#[cfg(test)]
-fn parse_result_frame(buf: &[u8]) -> Result<CompileWorkerResult, String> {
-    if buf.len() < 8 {
-        return Err(format!(
-            "only {} byte(s), too short for a length prefix",
-            buf.len()
-        ));
-    }
-    match read_worker_output(std::io::Cursor::new(buf), None)? {
-        ParsedWorkerOutput::Completed(outcome) => Ok(CompileWorkerResult {
-            protocol_version: WORKER_PROTOCOL_VERSION,
-            outcome,
-        }),
-        ParsedWorkerOutput::SelectedCompleted { .. } => {
-            Err("selected result requires a payload-aware parser".to_string())
-        }
-    }
-}
-
 /// The parent-side supervisor (the platform-parity contract's "standard-library
 /// `Child::try_wait`/`Child::kill` wall-time control"): spawns `child_exe child_args...` (expected to eventually call `run_worker_child` on
 /// its own stdin/stdout -- e.g. `pangloss`'s hidden `__compile-worker-child` subcommand, or this
@@ -1295,8 +1262,7 @@ pub fn run_compile_worker(
         if stderr_overflow.load(Ordering::SeqCst) {
             let _ = child.kill();
             let _ = child.wait();
-            forced_outcome = Some(WorkerOutcome::OutputLimitExceeded {
-                stream: OutputStream::Stderr,
+            forced_outcome = Some(WorkerOutcome::StderrOutputLimitExceeded {
                 limit_bytes: protocol_limits.max_captured_stderr_bytes,
             });
             break;
@@ -1819,46 +1785,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn parse_result_frame_rejects_declared_length_over_limit() {
-        let mut buf = Vec::new();
-        let huge = WORKER_PROTOCOL_LIMITS.max_result_bytes + 1;
-        buf.extend_from_slice(&huge.to_le_bytes());
-        let err = parse_result_frame(&buf).expect_err("must reject");
-        assert!(err.contains("exceeds"));
-    }
-
-    #[test]
-    fn parse_result_frame_rejects_short_buffer() {
-        let err = parse_result_frame(&[1, 2, 3]).expect_err("too short");
-        assert!(err.contains("too short"));
-    }
-
-    #[test]
-    fn parse_result_frame_rejects_a_stale_worker_protocol() {
-        let stale = CompileWorkerResult {
-            protocol_version: WORKER_PROTOCOL_VERSION - 1,
-            outcome: CompileWorkerOutcome::ProtocolViolation {
-                detail: "synthetic stale result".to_string(),
-            },
-        };
-        let body = serde_json::to_vec(&stale).expect("serialize stale result");
-        let mut frame = Vec::new();
-        write_frame(&mut frame, &body).expect("frame stale result");
-
-        let error = parse_result_frame(&frame)
-            .expect_err("a pre-cleanup child result must not enter a lockstep parent");
-        assert!(error.contains("protocol version"), "error: {error}");
-        assert!(
-            error.contains(&(WORKER_PROTOCOL_VERSION - 1).to_string()),
-            "error: {error}"
-        );
-        assert!(
-            error.contains(&WORKER_PROTOCOL_VERSION.to_string()),
-            "error: {error}"
-        );
-    }
-
     // `run_worker_child` in-process: protocol handling plus the grammar-content outcomes reachable without a real adversarial grammar.
 
     fn call_child(request_bytes: &[u8]) -> CompileWorkerResult {
@@ -2089,8 +2015,7 @@ mod tests {
                 elapsed: Duration::from_secs(5),
                 limit: Duration::from_secs(2),
             },
-            WorkerOutcome::OutputLimitExceeded {
-                stream: OutputStream::Stdout,
+            WorkerOutcome::StderrOutputLimitExceeded {
                 limit_bytes: 1024,
             },
             WorkerOutcome::ChildCrashed {

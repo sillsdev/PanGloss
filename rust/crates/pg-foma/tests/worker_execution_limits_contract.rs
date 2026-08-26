@@ -11,6 +11,33 @@ use pg_foma::worker::{
 const GIB: u64 = 1024 * 1024 * 1024;
 static CHILD_ENV_LOCK: Mutex<()> = Mutex::new(());
 
+fn selected_request(payload_limit: u64) -> CompileWorkerRequest {
+    let request = CompileWorkerRequest::new("unused.xml", GrammarFormat::Xml);
+    let mut json = serde_json::to_value(request).expect("serialize selected request fixture");
+    json["selected"] = serde_json::json!({
+        "attempt_id": "attempt-test",
+        "route": "templated-underlying-tokens",
+        "max_serialized_fst_bytes": payload_limit,
+    });
+    serde_json::from_value(json).expect("deserialize selected request fixture")
+}
+
+fn run_selected_output_mode(mode: &str, wall_time: Duration) -> WorkerOutcome {
+    let _guard = CHILD_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    std::env::set_var("PANGLOSS_WORKER_TEST_OUTPUT_MODE", mode);
+    let request = selected_request(1024);
+    let limits = ExecutionLimits::try_new(GIB, 10 * GIB, wall_time)
+        .expect("positive test limits must be valid");
+    let outcome = run_compile_worker(
+        Path::new(env!("CARGO_BIN_EXE_worker_test_child")),
+        &[],
+        &request,
+        &limits,
+    );
+    std::env::remove_var("PANGLOSS_WORKER_TEST_OUTPUT_MODE");
+    outcome
+}
+
 #[test]
 fn execution_limits_have_the_ratified_finite_defaults() {
     assert_eq!(
@@ -136,6 +163,41 @@ fn wall_limit_kills_a_slow_worker_process() {
     assert!(
         elapsed < Duration::from_secs(4),
         "the supervisor must return before the child's five-second sleep; took {elapsed:?}"
+    );
+}
+
+#[test]
+fn malformed_selected_payload_processes_never_complete() {
+    for mode in ["selected-missing", "selected-truncated", "selected-trailing"] {
+        let outcome = run_selected_output_mode(mode, Duration::from_secs(2));
+        assert!(
+            matches!(
+                &outcome,
+                WorkerOutcome::ProtocolViolation { .. } | WorkerOutcome::ChildCrashed { .. }
+            ),
+            "synthetic mode {mode:?} must not complete a selected payload: {outcome:?}"
+        );
+        assert!(
+            !matches!(&outcome, WorkerOutcome::SelectedCompleted { .. }),
+            "synthetic mode {mode:?} unexpectedly completed: {outcome:?}"
+        );
+    }
+}
+
+#[test]
+fn selected_payload_process_stalling_after_header_is_killed_by_wall_limit() {
+    let started = Instant::now();
+    let outcome = run_selected_output_mode("selected-stall", Duration::from_millis(200));
+    let elapsed = started.elapsed();
+    match outcome {
+        WorkerOutcome::WallTimeoutKilled { limit, .. } => {
+            assert_eq!(limit, Duration::from_millis(200));
+        }
+        other => panic!("expected stalled selected worker to be killed, got {other:?}"),
+    }
+    assert!(
+        elapsed < Duration::from_secs(4),
+        "the supervisor must return before the synthetic child's five-second stall; took {elapsed:?}"
     );
 }
 

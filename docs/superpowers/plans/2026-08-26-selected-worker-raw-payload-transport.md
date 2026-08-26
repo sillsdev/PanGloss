@@ -277,11 +277,11 @@ Expected: all selected unit tests pass. The full workspace, corpus tests, ignore
 - Modify: `rust/crates/pg-foma/src/bin/worker_test_child.rs`
 - Modify: `rust/crates/pg-foma/tests/worker_execution_limits_contract.rs`
 
-- [ ] **Step 1: Add explicit test-child output modes**
+- [x] **Step 1: Add explicit test-child output modes**
 
 Add test-only environment modes that write: a valid selected-success header without a payload, a truncated raw payload, and valid frames plus a trailing byte. Each mode must use the production framing format; it must not call production compile code after emitting the synthetic stream.
 
-- [ ] **Step 2: Add real-process behavioral tests**
+- [x] **Step 2: Add real-process behavioral tests**
 
 Build a selected request through the public serde surface without exposing a test-only production
 constructor:
@@ -305,11 +305,11 @@ wall-time test and add a mode that stalls after the success header; assert the w
 and returns no selected completion. Hold `CHILD_ENV_LOCK` for every test that changes a child-mode
 environment variable and remove that variable before releasing the guard.
 
-- [ ] **Step 3: Remove superseded source-string protocol tests**
+- [x] **Step 3: Remove superseded source-string protocol tests**
 
 Delete any source-inspection assertion whose invariant is now exercised through `run_compile_worker` or `run_worker_child`. Retain source checks only for identity/configuration surfaces that cannot be reached behaviorally in this slice.
 
-- [ ] **Step 4: Commit before verification**
+- [x] **Step 4: Commit before verification**
 
 ```powershell
 git add -- rust/crates/pg-foma/src/bin/worker_test_child.rs rust/crates/pg-foma/tests/worker_execution_limits_contract.rs
