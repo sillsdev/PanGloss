@@ -317,10 +317,11 @@ permission.
    completed artifact and structured provenance. Protected: sequential independent P/Q attempts.
    Status: **PARTIAL** until the worker adapters pass and Stage 3 migrates every production build
    route; adapter proof alone verifies only the artifact-worker sub-slice and does not unlock Stage 4.
-   Committed checkpoints: replacement descendant-failure tests (`40897d45`) and typed containment
-   outcomes plus the required health/pack v5 break (`b330892f`). Still pending, in order: concrete
-   safe helper API with the Windows adapter, Linux adapter/CI proof, production routing, then
-   deletion of the shared direct-`Command` supervisor loop and its source-shape test.
+   Committed checkpoints: replacement descendant-failure tests (`40897d45`), typed containment
+   outcomes plus the required health/pack v5 break (`b330892f`), and the safe helper API with its
+   verified Windows adapter (`9c7330c2`). Still pending, in order: Linux adapter/CI proof,
+   production routing, then deletion of the shared direct-`Command` supervisor loop and its
+   source-shape test. The Windows checkpoint does not authorize that deletion by itself.
 3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
    top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
    `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
@@ -476,16 +477,18 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed branch range `ff6fe2e2..b330892f`: **4,154 deletions / 3,307 additions, net −847 lines**
-across 62 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed branch range `ff6fe2e2..9c7330c2`: **4,236 deletions / 5,088 additions, net +852 lines**
+across 69 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
 deliberately adding 186 lines of subprocess fixture/integration proof. The Stage 2 typed-outcome/
 schema checkpoint added 339 and removed 54 lines; count it as replacement scaffolding, not as a
-removal win. Uncommitted work is never counted until its exact staged snapshot is inspected and
-committed. Remaining deletion opportunity is tracked by the stages above; estimates below are
-directional only:
+removal win. The Windows containment checkpoint added 1,739 and removed 128 lines, primarily its
+native adapter and adversarial process-tree test harness. It is prerequisite containment, not a
+removal win; the authorized shared-loop and routing deletions remain downstream. Uncommitted work
+is never counted until its exact staged snapshot is inspected and committed. Remaining deletion
+opportunity is tracked by the stages above; estimates below are directional only:
 
 | Section | Est. lines |
 |---|---|

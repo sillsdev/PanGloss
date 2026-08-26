@@ -97,7 +97,8 @@ Files:
 - [x] Enforce job memory and kill-on-close; implement terminate/wait/peak diagnostics.
 - [x] Prove success, descendant termination, aggregate memory kill, bounded pipe EOF, and managed-wrapper
       nested-job behavior.
-- [ ] Commit and run only the Windows containment target through `rust/tools/pg.ps1`.
+- [x] Commit and run only the Windows containment target through `rust/tools/pg.ps1`
+      (`9c7330c2`): 14 containment tests and all 665 `pg-foma` library tests passed.
 
 ## Task 4: Linux cgroup-v2 adapter
 
