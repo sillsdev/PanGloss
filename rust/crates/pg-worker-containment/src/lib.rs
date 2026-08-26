@@ -356,6 +356,7 @@ fn platform_spawn(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
 
     #[test]
     fn limit_configuration_rejects_zero_dimensions() {
@@ -373,11 +374,35 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn environment_overrides_are_case_insensitive() {
         let options = LaunchOptions::new().env("Path", "one").env("PATH", "two");
         assert_eq!(options.environment().len(), 1);
         assert_eq!(options.environment()[0].1, Some(OsString::from("two")));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn environment_overrides_preserve_case_distinct_keys_on_linux() {
+        let options = LaunchOptions::new().env("Path", "one").env("PATH", "two");
+        assert_eq!(options.environment().len(), 2);
+        assert_eq!(
+            options
+                .environment()
+                .iter()
+                .find(|(key, _)| key == "Path")
+                .and_then(|(_, value)| value.as_deref()),
+            Some(OsStr::new("one"))
+        );
+        assert_eq!(
+            options
+                .environment()
+                .iter()
+                .find(|(key, _)| key == "PATH")
+                .and_then(|(_, value)| value.as_deref()),
+            Some(OsStr::new("two"))
+        );
     }
 
     #[cfg(windows)]

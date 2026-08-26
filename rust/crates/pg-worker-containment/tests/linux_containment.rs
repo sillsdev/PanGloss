@@ -127,6 +127,29 @@ fn run_clean_child(
     ))
 }
 
+#[test]
+fn missing_executable_returns_typed_spawn_failure_without_fallback() {
+    let directory = temporary_directory("missing");
+    let missing = directory.join("does-not-exist");
+    let result = ContainedWorkerProcess::spawn(
+        &missing,
+        &[],
+        &LaunchOptions::default(),
+        limits(64 << 20),
+    );
+    match result {
+        Err(ContainmentError::Failed { .. }) => {}
+        Err(ContainmentError::Unavailable { detail }) if !required_capability() => {
+            eprintln!("SKIP: Linux cgroup containment unavailable: {detail}");
+            fs::remove_dir(&directory).expect("remove missing-executable test directory");
+            return;
+        }
+        Err(error) => panic!("missing executable returned the wrong spawn error: {error}"),
+        Ok(_) => panic!("missing executable must fail during contained spawn, not fall back"),
+    }
+    fs::remove_dir(&directory).expect("remove missing-executable test directory");
+}
+
 fn optional_cgroup_relative_path() -> Option<String> {
     fs::read_to_string("/proc/self/cgroup")
         .ok()?
