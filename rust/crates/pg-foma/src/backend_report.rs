@@ -4,10 +4,10 @@ use crate::backend_optimizer::{
     Termination,
 };
 
-/// Bumped 2 -> 3 when inert optimizer-report counters and the unused candidate pruning reason
-/// were removed from the artifact. Reports from the prior schema are not comparable and must not
+/// Bumped 3 -> 4 when the always-zero `build_failures` and `unvisited` pruning buckets were
+/// removed from the artifact. Reports from the prior schema are not comparable and must not
 /// silently deserialize as if they were current.
-pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 3;
+pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 4;
 pub const DETERMINISTIC_SCORE_SCHEMA_VERSION: u32 = 2;
 use crate::backend_space::FeasibleCount;
 use crate::backend_space::PilotSummary;
@@ -35,10 +35,8 @@ pub struct PruningWaterfall {
     pub declared_not_searched: u64,
     pub materialization_rejects: u64,
     pub capability_rejected: u64,
-    pub build_failures: u64,
     pub evaluated: u64,
     pub confirmed: u64,
-    pub unvisited: u64,
     pub budget_pruned: u64,
 }
 
@@ -56,9 +54,7 @@ impl PruningWaterfall {
                 .saturating_add(self.duplicates)
                 .saturating_add(self.materialization_rejects)
                 .saturating_add(self.capability_rejected)
-                .saturating_add(self.build_failures)
                 .saturating_add(self.evaluated)
-                .saturating_add(self.unvisited)
                 .saturating_add(self.budget_pruned)
             && self.confirmed <= self.evaluated
     }

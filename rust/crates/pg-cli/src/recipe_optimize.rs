@@ -764,7 +764,6 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
                 .iter()
                 .filter(|e| e.evidence.certification.selectable())
                 .count() as u64,
-            unvisited: 0,
             budget_pruned: outcome.search.unexplored,
             ..Default::default()
         },
