@@ -115,7 +115,7 @@ row names it at all — design.md D5) and therefore has never had an occasion to
    principle, build `((root+root)+root)+root...` to arbitrary depth.
 3. **What makes it a good FST stress case.** Unbounded self-recursion is exactly the shape a
    finite-state proposer must refuse gracefully or bound explicitly — it is the direct morphological
-   analogue of `QuantifierPattern`'s unbounded-quantifier gap (§1.2.5) and of
+   analogue of `QuantifierPattern`'s unbounded-quantifier configuration (already closed, §1.2.6) and of
    `UnorderedMorphRuleApplication`'s chain-depth budget (already closed, §1.1): does the compiler's
    `CompoundingRecursionSafePredicate` correctly distinguish "the rule *could* recurse" from "the
    rule *actually* self-feeds in this grammar," and does the depth-budgeted construction the design

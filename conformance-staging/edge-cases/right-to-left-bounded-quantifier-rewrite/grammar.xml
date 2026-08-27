@@ -22,12 +22,13 @@
 
          CORRECTION TO THE RESEARCH DOC'S OWN PREMISE (discovered while authoring this fixture):
          S1.2.2 assumed a Quantifier node anywhere in an RTL rule's own LHS/RHS/environment is still
-         an excluded shape. Empirically this holds for an UNBOUNDED quantifier (the shape
+         an excluded shape. That holds for NEITHER bound: `crate::replace::pattern_slots`
+         (rust/crates/pg-foma/src/replace.rs) accepts a well-formed alpha-free quantifier whether it
+         is genuinely UNBOUNDED (min=1 max=-1 in the rule's own LHS, the shape
          `rust/crates/pg-foma/src/capability.rs`'s own
-         `right_to_left_predicate_refuses_quantifier_shaped_rule` unit test probes, min=1 max=-1 in
-         the rule's own LHS) but NOT for a genuinely BOUNDED one in the rule's own environment, as
-         built here: `crate::replace::pattern_slots` (rust/crates/pg-foma/src/replace.rs) DOES
-         accept it (per `compile-bounded-fst-quantifiers`'s own `Slot::Repeat` support), so this
+         `right_to_left_predicate_confirm_only_for_unbounded_quantifier_shaped_rule` unit test
+         probes) or BOUNDED in the rule's own environment, as built here (per
+         `compile-bounded-fst-quantifiers`'s own `Slot::Repeat` support), so this
          rule's own `RightToLeftRewriteDetail::reversal_construction_attempted` characterizes `true`
          and `RightToLeftRewriteFaithfulReversalPredicate` returns `ConfirmOnly`, not `Refuse` (see
          the paired rust/crates/pg-foma/tests/cover_right_to_left_bounded_quantifier_rewrite.rs

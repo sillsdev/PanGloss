@@ -18,7 +18,7 @@ doc):
 2. **The capability gate's own (already-correct) `ConfirmOnly` verdict.**
    `RightToLeftRewriteFaithfulReversalPredicate`
    (`right-to-left-rewrite.faithful-reversal-construction`) returns `ConfirmOnly` via
-   `evaluate_capability` for this grammar -- NOT `Refuse`.
+   `best_case_across_backends_for_grammar` for this grammar -- NOT `Refuse`.
 3. **The oracle's own correct, bound-aware behavior.** `pg_parse::Morpher` correctly applies the
    alternation exactly up to (and not beyond) the bounded quantifier's own `max="2"` -- see "What it
    pins" below.
@@ -60,12 +60,14 @@ draft (matching `subrule-morphosyntactic-gating`'s own identical finding) produc
 signatures until a fully-specified `PhonologicalFeatureSystem` was added -- see grammar.xml's own G2a
 comment. Cross-checked in-repo by `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`'s
 `all_discovered_fixtures_match_oracle` test (dual-root discovery, default `cargo test --workspace`
-suite) -- that test is what actually gates CI. The capability-gate Refuse verdict is additionally
-pinned directly by `rust/crates/pg-foma/tests/
-cover_right_to_left_bounded_quantifier_rewrite.rs`, which asserts `evaluate_capability` returns
-`CompileDecision::Refuse` naming `RightToLeftRewrite`/`right-to-left-rewrite.faithful-reversal-construction`,
-and separately re-derives every word's oracle analysis as an explicit regression gate -- this is the
-test that should FAIL (prompting deliberate review) the day this specific excluded shape is promoted.
+suite) -- that test is what actually gates CI. The capability-gate `ConfirmOnly` verdict is
+additionally pinned directly by `rust/crates/pg-foma/tests/
+cover_right_to_left_bounded_quantifier_rewrite.rs`, whose
+`capability_gate_confirms_only_for_bounded_quantifier_in_rtl_environment` asserts
+`best_case_across_backends_for_grammar` returns `CompileDecision::ConfirmOnly`, and which separately
+re-derives every word's oracle analysis as an explicit regression gate -- this is the test that
+should FAIL (prompting deliberate review) the day this shape either regresses to `Refuse` or is
+promoted to `Admit`.
 
 ## Graduation
 

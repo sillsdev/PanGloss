@@ -166,11 +166,12 @@ TSV must filter those out or every count doubles.
 
 ## What would make this table complete
 
-1. **tasks.md 4.5** (unbounded quantifier) — unblocks Indonesian on the foma path with enforcement ON,
-   turning the force-compiled row above into a certified one.
-2. **tasks.md 4.1** (recursive compounding) — one of Sena's two refusals.
-3. A finished Sena default run (~75+ min) for final rather than indicative percentiles.
-4. A build-time column, once the CLI reports its existing `compile_ms`/`morpher_build_ms` measurements.
-5. Amharic and Sena foma-path numbers are gated on the ADR 0005 override by design and should be
+Both reducible refusals this section used to list are closed — tasks.md 4.5 (unbounded
+quantifier) and 4.1 (recursive compounding); the UPDATE block above records the re-counted refusal
+sets. What is still missing:
+
+1. A finished Sena default run (~75+ min) for final rather than indicative percentiles.
+2. A build-time column, once the CLI reports its existing `compile_ms`/`morpher_build_ms` measurements.
+3. Amharic and Sena foma-path numbers are gated on the ADR 0005 override by design and should be
    retained only as developer diagnostics, never certified or published as production. If shared,
    it must remain explicitly labeled with the `trust=unproven` stamp.
