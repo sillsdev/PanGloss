@@ -930,7 +930,6 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             Some(p) => {
                 let bytes = fs::read(p).map_err(|e| format!("read --pack {p}: {e}"))?;
                 let read = pg_pack::read_pack(&bytes).map_err(|e| format!("read_pack {p}: {e}"))?;
-                crate::pack::validate_health_readiness(&read.manifest.fst_health, false)?;
                 if read.manifest.grammar_id != grammar_id {
                     eprintln!(
                         "warning: --pack {p}'s manifest grammar_id ({:?}) does not match this \
