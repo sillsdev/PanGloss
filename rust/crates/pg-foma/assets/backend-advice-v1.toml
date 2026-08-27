@@ -9,15 +9,6 @@ failed_predicate = "the backend is unavailable or its compiler process failed"
 evidence_refs = ["route:backend-construction", "predicate:backend-available", "metric:build-process-result"]
 equivalence_caveat = "Don't make any change that would make your language invalid!"
 
-[[entry.remedy]]
-rank = 10
-remedy_key = "retry-backend-build"
-description = "Retrying the backend from a clean build state would make this backend work for your language if the failure was transient."
-effort = "easy"
-prerequisites = ["the backend and its dependencies are installed"]
-contraindications = ["the backend capability report already refuses the grammar"]
-equivalence_caveat = "A clean retry changes build state, not the grammar's linguistic analysis."
-
 [[entry]]
 shape_key = "late-structural-reachability"
 backend_id = "foma"
