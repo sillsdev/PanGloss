@@ -58,15 +58,6 @@ pub struct BackendAssessment {
     pub status_detail: Option<String>,
 }
 
-/// Evidence required before a compiled FST payload may be called complete.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FstCompletenessCertificate {
-    pub backend: String,
-    pub uncovered_constructs: usize,
-    pub pending_successors: usize,
-    pub compiled_payload_present: bool,
-}
-
 /// The `.pgpack` pack manifest: canonical JSON, embedded length-prefixed in the container by
 /// `crate::format::write_pack`. Every field this module's own doc names has a slot
 /// here.
@@ -95,9 +86,6 @@ pub struct PackManifest {
     pub fst_health: HealthReport,
     /// Findings and advice for every considered backend, successful or failed.
     pub backend_assessments: Vec<BackendAssessment>,
-    /// Present only when construction exhausted its worklist and produced a real payload.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fst_completeness: Option<FstCompletenessCertificate>,
     /// Optional license declaration: declaration/provenance only; never gates analysis.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<LicenseDeclaration>,
