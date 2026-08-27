@@ -471,22 +471,6 @@ impl FomaProposer {
         (ApplyOutcome::Complete(out), counts)
     }
 
-    /// Opt-in diagnostic sibling of `Self::propose`. The ordinary proposal APIs do not call a
-    /// clock or allocate diagnostic state; callers pay this instrumentation cost only here.
-    pub fn propose_with_diagnostics(
-        &mut self,
-        word: &str,
-    ) -> (Vec<Candidate>, ProposalDiagnostics) {
-        let (outcome, diagnostics) =
-            self.propose_with_diagnostics_budgeted(word, &ApplyBudget::unbounded());
-        match outcome {
-            ApplyOutcome::Complete(candidates) => (candidates, diagnostics),
-            ApplyOutcome::Incomplete { .. } => {
-                unreachable!("ApplyBudget::unbounded() can never report Incomplete")
-            }
-        }
-    }
-
     /// `Self::propose_budgeted` with opt-in path, byte, decode, dedup, and timing diagnostics.
     /// Budget dimensions and first-seen candidate order are identical to the ordinary path.
     pub fn propose_with_diagnostics_budgeted(
