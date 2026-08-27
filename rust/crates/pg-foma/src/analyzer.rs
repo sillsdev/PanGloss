@@ -572,15 +572,6 @@ impl FomaProposer {
         (net.statecount, net.arccount)
     }
 
-    /// Raw `apply_up` over this proposer's own live handle — undecoded, undeduped, unnormalized
-    /// (unlike `Self::propose`/`Self::propose_budgeted`). Exposed so a round-trip test can
-    /// compare THIS exact traversal against `apply_up_against` run on a network reconstructed
-    /// from this same proposer's serialized `Self::foma_binary_payload` bytes, without going
-    /// through `propose`'s richer decode/dedup pipeline on one side only.
-    pub fn apply_up_raw(&mut self, word: &str) -> Vec<String> {
-        self.handle.up(word).collect()
-    }
-
     /// This proposer's own compiled network, as built by `apply_init` (`Self::foma_binary_payload`'s doc explains why `last_net` is always `Some` here).
     fn network(&self) -> &foma::types::Fsm {
         self.handle.last_net.as_ref().expect(
@@ -600,18 +591,6 @@ pub fn read_foma_binary_payload(
     bytes: &[u8],
 ) -> std::result::Result<foma::types::Fsm, foma::error::FomaError> {
     foma::io::fsm_read_binary_mem(bytes)
-}
-
-/// Applies `word` up (`apply_up`) against an arbitrary already-compiled network — e.g. one just
-/// reconstructed by `read_foma_binary_payload` — and drains every surface->analysis path into an
-/// owned `Vec`. Lets a round-trip test check apply-agreement between an original compile and its
-/// reconstructed twin without needing its own `foma::apply` dependency (mirrors
-/// `read_foma_binary_payload`'s own reasoning). NFD-normalization is deliberately NOT applied
-/// here (unlike `FomaProposer::propose_budgeted`) — this is a thin, direct `apply_up` wrapper for
-/// comparing two networks against the SAME literal input, not a query-normalization entry point.
-pub fn apply_up_against(net: &foma::types::Fsm, word: &str) -> Vec<String> {
-    let mut handle = foma::apply::apply_init(net);
-    handle.up(word).collect()
 }
 
 #[cfg(test)]
