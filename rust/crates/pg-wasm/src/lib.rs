@@ -16,9 +16,8 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use web_time::Instant;
 
-/// `.pgpack` load-time compatibility (ADR 0004 `required ⊆ provided` containment) and the ADR
-/// 0005 capability-trust stamp -- see `pack`'s own module doc. `PgPack` below is this module's
-/// wasm-bindgen-facing wrapper.
+/// `.pgpack` load-time compatibility (ADR 0004 `required ⊆ provided` containment) -- see `pack`'s
+/// own module doc. `PgPack` below is this module's wasm-bindgen-facing wrapper.
 pub mod pack;
 
 /// Call once from JS before anything else — routes Rust panics to `console.error` instead of a

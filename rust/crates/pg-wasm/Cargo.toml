@@ -14,9 +14,8 @@ pg-grammar.workspace = true
 pg-parse.workspace = true
 pg-realize.workspace = true
 pg-lexicon.workspace = true
-# `.pgpack` load-time compatibility (ADR 0004 required ⊆ provided containment) + the ADR 0005
-# capability-trust stamp (`openspec/changes/make-wasm-analysis-only`) -- see `src/pack.rs`. Reuses
-# `pg-pack`'s manifest/compat/trust types verbatim; this crate never redefines them.
+# `.pgpack` load-time compatibility (ADR 0004 required ⊆ provided containment) -- see `src/pack.rs`.
+# Reuses `pg-pack`'s manifest/compat types verbatim; this crate never redefines them.
 pg-pack.workspace = true
 pg-foma.workspace = true
 thiserror.workspace = true

@@ -1,13 +1,15 @@
 //! The cheap characterization pass: reports constructs, quantifier/alternative products, alpha
 //! tuples, templates/slots, predicted emitted work, peeled/confirm-only expansion, and
-//! unknown/unbounded work without invoking foma. Unknown cost is not itself a MachineLimit/
+//! unknown/unbounded work before a selected production backend build. Unknown cost is not itself a MachineLimit/
 //! CannotRepresent verdict when construction is recall-preserving; any uncertainty that could omit
 //! an analysis fails closed.
 //!
 //! # Consume, never remeasure (same discipline as `crate::health_evaluator`)
 //! `characterization_findings` takes a `&Grammar`, derives ONE
 //! `crate::grammar_semantics::GrammarSemantics` from it, and reads exactly two existing, already-
-//! tested, pure-Rust (no foma, no I/O) facts off it — never re-derives their logic itself:
+//! tested facts off it — never re-derives their logic itself. Memoized characteristics may construct
+//! Foma networks for `Simultaneous` subrules; that is characterization work, not a selected production
+//! backend build:
 //! - `crate::grammar_semantics::GrammarSemantics::characteristics` — this crate's own one-time,
 //!   exhaustive walk over every represented `pg_grammar::model::Grammar` construct variant. Its
 //!   `crate::capability::CharacteristicsProfile::cardinality`
@@ -263,8 +265,8 @@ impl ClosureTrace {
 /// A conservative, uncalibrated placeholder (see this module's doc, "Bounded products"); never used to reject a compile, `Predicted`/`LargeMultiplier` evidence only.
 const RULE_PRODUCT_WARNING_THRESHOLD: u64 = 64;
 
-/// The characterization walker: every `crate::health::HealthFinding` this crate can derive BEFORE any
-/// foma compile is attempted, from `g` alone. See this module's own doc for the
+/// The characterization walker: every `crate::health::HealthFinding` this crate can derive before a
+/// selected production backend build, from `g` alone. See this module's own doc for the
 /// semantic-vs-cost-uncertainty split and the bounded-product findings.
 pub fn characterization_findings(g: &Grammar) -> Vec<HealthFinding> {
     characterization_findings_with_semantics(&GrammarSemantics::derive(g))

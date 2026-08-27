@@ -194,7 +194,7 @@ of the completion gate, not evidence for restoring a rejected contract.
 | A4 | `evaluate_via_tuned_emit_mode` rejected on mere *presence* of a finding, before construction | historical `backend_runtime.rs` | **LANDED UNVERIFIED** — removed by `516821e0`; the live function now builds directly |
 | A5 | `realize_accuracy_proposer` / `tuned_surface_resource_refusal` repeated the pre-refusal | historical `backend_runtime.rs` | **LANDED UNVERIFIED** — removed by `516821e0`; the live function now realizes directly |
 | A6 | Marker-bearing candidates banked `Unsupported` with zero work measured | `backend_runtime.rs` | **LANDED UNVERIFIED** — re-audit after A4/A5 deletion |
-| A7 | `--watchdog` structurally cannot produce a real artifact | `pack.rs:267-325,479-489,562-565,624-642` | **LANDED UNVERIFIED** — `54508605`/`8889877b`/`c7fe5aaf`/`f1b46d49` plus residue cleanup `0f8ac724`/`dfeeb7ad`; old producer/placeholder claims and deleted-command coverage are removed |
+| A7 | `--watchdog` structurally cannot produce a real artifact | `pack.rs:267-325,479-489,562-565,624-642` | **LANDED UNVERIFIED** — `54508605`/`8889877b`/`c7fe5aaf`/`f1b46d49` plus residue cleanup `0f8ac724`/`dfeeb7ad`/`a00ac0ee`; old producer/placeholder claims and deleted-command coverage are removed |
 | A8 | 16 MiB result metadata frame must not cap the selected payload | `worker_contract.rs`, `worker.rs` | **VERIFIED** — protocol v9 uses an independently bounded raw frame; filesystem transport and legacy parser/capture residue are deleted; prefix-before-allocation, clean exit, malformed streams, and supervisor-limit authority are proven |
 | A9 | `finished_net_digests` marker rejection | `backend_runtime.rs` `unbuildable_marker_reason` | **RETAINED** — audited as semantic representability: the selected plan-composed adapter does not implement those marked subtrees; this is not a resource estimate |
 | A10 | Internal construction caps in `compose_budget.rs` can still stop a representable build | 1,334-line file, 165 refs / 27 files | **AUTHORIZED** — retain useful measurements; delete internal representability/size refusals. The supervised worker's three configured execution limits are the only resource stops |
@@ -211,7 +211,7 @@ carrying cost, and deleting it now costs nothing.
 |---|---|---|---|---|
 | B1 | `#[serde(alias)]` on every `Severity` variant for pre-schema-3 spellings, plus the test pinning them | `health.rs` | 60–120 | **LANDED UNVERIFIED** — aliases and the compatibility test removed; full completion gate is not recorded here |
 | B2 | `health::OverrideRecord`, kept solely to deserialize already-written reports | `health.rs` | 80–150 | **LANDED UNVERIFIED** — type, field, fixtures, projection, and override-only tests removed; full completion gate is not recorded here |
-| B3 | Persistent capability-override records in pack manifests/WASM consumers | `pg_pack::trust`, `readiness_verdict.rs` | — | **LANDED UNVERIFIED** — `67c661cc`/`05ba71b8` removed publication acceptance and persistent override/trust data; `1cad7f2c` removed the stale make-report pack-trust projection. Local unproven status remains only as build metadata, and publication rejects it |
+| B3 | Persistent capability-override records in pack manifests/WASM consumers | `pg_pack::trust`, `readiness_verdict.rs` | — | **LANDED UNVERIFIED** — `67c661cc`/`05ba71b8` removed persistent override representation and acceptance; `1cad7f2c` removed the stale make-report pack-trust projection. Any future publication route MUST reject unproven output |
 | B4 | `Certification::MultiplicityMismatch` — doc says "no longer produced, kept for deserializing old reports" | `backend_optimizer.rs` | 20–40 | **LANDED UNVERIFIED** — variant and compatibility fixture removed; full completion gate is not recorded here |
 | B5 | `Truncated { corpus: Option<..> }` carries live oracle evidence | `backend_optimizer.rs`, `backend_runtime.rs`, `backend_report.rs` | — | **PROTECTED** — audited and retained; live producers and consumers |
 | B6 | `HEALTH_SCHEMA_VERSION` stamps and validates stored health artifacts | `health.rs`, `fst_health.rs` | — | **LANDED UNVERIFIED** — strict current v7 validation and stale-version rejection are recorded in `49163cb8`/`3d1750f1`/`12d3d2bb`; current optional fields are retained as live schema fields, not compatibility defaults |
@@ -359,13 +359,12 @@ already rejected behavior.
    direct-`Command` supervisor. The external adapters and hidden worker child remain as destination
    substrate. The hosted Linux correction exists in `032e0076`/`1c7cc837`; rerun it only after the
    minimal explicit route is assembled.
-3. **Delete cross-backend automatic choice and route explicit builds (D2/A7).** Rewrite preference,
-   top-N, fallback, retry, winner, and Pareto tests first. Delete `BACKEND_PREFERENCE`, `preferred`,
-   `select_up_to`, rank keys, fallback paths, watchdog/placeholder pack compilation, and production
-   in-process build routes. The worker receives an explicit backend and validates the result matches
-   it. Protected: independent per-backend analysis reports, registry/mechanism capability facts,
-   grammar-required correctness routing, and deferred within-backend tuning.
-   Status: **RIP IN PROGRESS.** `e10ab3ca`/`64323d45` removed chooser assertions and APIs;
+3. **Cross-backend automatic choice and watchdog/placeholder paths (D2/A7).** Preference, top-N,
+   fallback, retry, winner, and Pareto selection paths are removed; the worker receives an explicit
+   backend and validates the result matches it. Protected: independent per-backend analysis reports,
+   registry/mechanism capability facts, grammar-required correctness routing, and deferred
+   within-backend tuning.
+   Status: **WATCHDOG/PLACEHOLDER DELETION LANDED; ROUTE-WIRING REMAINS DEFERRED.** `e10ab3ca`/`64323d45` removed chooser assertions and APIs;
    `54508605`/`8889877b`/`9396c7b3`/`f1b46d49` removed legacy Pack compile tests, build machinery,
    implicit report builds, and callers. `a148d2e6`/`c3b8aeaa` removed compile-retry assertions and
    advice. `b3521c0e`/`7982e6ee`/`1c2fc84b` removed the last direct-Foma parse/batch test, fixed
@@ -373,7 +372,8 @@ already rejected behavior.
    shared-helper holes were followed forward: `c143c532`/`40891313`/`e03e83e9` deleted the live
    Foma stats tests, helper, and fixture instead of restoring them. `7d987667`/`45633e83` removed
    cross-backend substitution advice. `d8dda4f7`/`af32379a` removed WASM tests and source for
-   automatic Foma compilation/fallback; `99f478b2` removed its severity-based publication boolean.
+   automatic Foma compilation/fallback; `99f478b2` removed its severity-based publication boolean;
+   `a00ac0ee` removed the remaining stale producer/placeholder documentation.
    Protected `make_report.rs` still references the deleted `foma_invalid_shape`, `GATED_BACKEND`,
    and `gated_backend_decision`; these are intentional forward compile holes whose consumers must be
    deleted in the report/corpus tranche. Explicit destination wiring and completed-artifact
@@ -418,10 +418,10 @@ already rejected behavior.
    to a post-build corpus operation. `pack` consumes one explicitly named completed artifact and
    never compiles or substitutes payloads. Gate: analysis runs independently; corpus work is absent
    from build-only paths; package rejects missing/stale/mismatched artifacts.
-7. **Remove publication overrides (B3).** Keep explicitly local unproven generation/testing metadata;
-   delete persistent `CapabilityOverrideRecord` data and all pack/WASM acceptance of unproven output.
-   `pangloss pack` rejects `--allow-unproven` and every unproven artifact unconditionally.
-   Status: **RIPPED FIRST.** `67c661cc` deleted publication-acceptance tests and `05ba71b8` deleted
+7. **Publication overrides (B3) are removed.** Persistent `CapabilityOverrideRecord` data and pack/WASM
+   acceptance of unproven output are deleted. Local unproven generation/testing metadata remains; any
+   future publication route MUST reject unproven output.
+   Status: **LANDED UNVERIFIED.** `67c661cc` deleted publication-acceptance tests and `05ba71b8` deleted
    persistent override/trust types, the manifest field, and WASM override signal APIs. Local
    parse/batch readiness metadata remains. `1cad7f2c` then removed `make-report`'s stale persistent
    pack-trust projection. Manifest schema v6 and strict v5 rejection belong to the later schema/add

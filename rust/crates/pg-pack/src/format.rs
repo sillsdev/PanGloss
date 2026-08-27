@@ -532,7 +532,7 @@ mod tests {
 
     // --- Real foma binary-memory bytes (not just the plain-ASCII synthetic fixtures above) ---
 
-    /// A tiny, deterministic, real compiled foma network, built via the same compiler entry point `pg_foma::analyzer::FomaProposer` calls in production.
+    /// A tiny, deterministic, real compiled foma network for exercising binary payload handling.
     const REAL_LEXC_SOURCE: &str = "LEXICON Root\ncat # ;\ndog # ;\n";
 
     fn compile_real_network() -> foma::types::Fsm {

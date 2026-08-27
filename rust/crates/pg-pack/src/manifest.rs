@@ -1,5 +1,5 @@
 //! The `.pgpack` **pack manifest**: carries package/grammar identity, payload format versions,
-//! the required-runtime-feature set, an FST-health admission/findings/override field, creation
+//! the required-runtime-feature set, an FST-health admission/findings field, creation
 //! metadata, and a versioned licensing/authenticity
 //! section. "Pack manifest" is the per-`.pgpack` blob's own name -- distinct from the
 //! source-controlled capability registry; bare unqualified "manifest" is banned -- every doc
