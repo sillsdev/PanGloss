@@ -940,21 +940,6 @@ impl MorphologyRelationPlan {
         &self.relation
     }
 
-    pub fn direct_wrapper_for(&self, allomorph: AllomorphId) -> Option<(&[String], &[String])> {
-        self.slot_projections
-            .iter()
-            .flat_map(|projection| projection.alternatives())
-            .find_map(|alternative| {
-                if alternative.allomorph != allomorph {
-                    return None;
-                }
-                matches!(
-                    &alternative.decision,
-                    MorphologyRewrite::DirectWholeRootWrapper { .. }
-                )
-                .then_some((alternative.prefix_variants(), alternative.suffix_variants()))
-            })
-    }
 }
 
 fn slot_allomorphs<'a>(
