@@ -71,7 +71,7 @@ use crate::compose_budget::{ApplyDimension, ComposeError};
 use crate::emit::{ClosureRefusalCode, EmitReport, FomaTier};
 use crate::health::{
     severity_for_size_bytes, FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase,
-    Remedy, Severity, ValueProvenance,
+    Severity, ValueProvenance,
 };
 /// This evaluator's own distillation of one `crate::compose_budget::ApplyOutcome::Incomplete` —
 /// see this module's "Judgment calls" item 6 for why `evaluate_health` takes this instead of the
@@ -295,22 +295,13 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
         threshold: Some(MetricValue::Count(trip.limit as u64)),
         explanation: format!(
             "Apply-time {label} reached {value} (limit {limit}) before this word completed; the \
-             word is incomplete, never a definitive partial analysis -- other words in the same \
-             batch remain valid and this word may be explicitly resubmitted with a larger apply \
-             budget.",
+             word is incomplete, never a definitive partial analysis. Other words in the same \
+             batch remain valid.",
             label = trip.dimension.label(),
             value = trip.value,
             limit = trip.limit,
         ),
-        remedies: vec![Remedy {
-            rank: 1,
-            description:
-                "Explicitly retry this word alone with a larger caller-selected apply-time \
-                budget."
-                    .to_string(),
-            requires_linguistic_equivalence: false,
-            caveat: None,
-        }],
+        remedies: Vec::new(),
     }
 }
 
