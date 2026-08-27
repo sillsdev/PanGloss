@@ -403,11 +403,3 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
 pub fn select_backends_for_grammar(g: &Grammar) -> BackendSelection {
     select_backends(&GrammarSemantics::derive(g))
 }
-
-#[cfg(test)]
-mod tests {
-    //! Synthetic, delanguaged fixtures only, in this crate's established test-module style: XML
-    //! through `pg_grammar::load` rather than a hand-built `Grammar`.
-
-    use super::*;
-}
