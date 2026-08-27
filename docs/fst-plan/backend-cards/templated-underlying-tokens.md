@@ -20,7 +20,6 @@
   - Rule ordering affects cascade depth and intermediate alphabets
   - Null and deletion rules add epsilon/truncation branches to the relation
 - Remedies:
-  - `use-whole-grammar-backend`
   - `regularize-phonology`
   - `order-rules`
 - Advice: [authoritative remedy text and shape-specific effort](../../../rust/crates/pg-foma/assets/backend-advice-v1.toml). A remedy would make this backend work for your language only when its stated prerequisites hold.

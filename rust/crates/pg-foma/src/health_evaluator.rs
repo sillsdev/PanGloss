@@ -209,6 +209,7 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
         provenance: ValueProvenance::Observed,
         threshold: None,
         explanation,
+        remedies: Vec::new(),
     }
 }
 
@@ -223,6 +224,7 @@ fn backend_compilation_failed_finding(detail: String) -> HealthFinding {
         provenance: ValueProvenance::Observed,
         threshold: None,
         explanation: detail,
+        remedies: Vec::new(),
     }
 }
 

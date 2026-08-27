@@ -42,7 +42,7 @@ use pg_grammar::model::Grammar;
 
 use crate::analyzer::FomaProposer;
 use crate::backend_selection::select_backends;
-use crate::capability::CharacteristicKind;
+use crate::capability::{CharacteristicKind, CompileDecision};
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
@@ -191,10 +191,10 @@ pub fn observe_grammar_with(
         .iter()
         .copied()
         .map(|strategy| {
-            let selected = selection
-                .report_for(strategy)
-                .is_some_and(|report| report.is_selected());
-            if !selected {
+            let representable = selection.report_for(strategy).is_some_and(|report| {
+                !matches!(report.decision(), CompileDecision::Refuse(_))
+            });
+            if !representable {
                 return (strategy, BackendOutcome::RefusedBySelector);
             }
             // A compiler contract violation panics rather than returning Err; a crash must not lose the whole sweep, and it is never a witness either way.

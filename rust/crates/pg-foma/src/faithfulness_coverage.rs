@@ -44,7 +44,7 @@ use crate::backend_runtime::{
     word_proposal_containment, RunEvaluationCache, RuntimeBudget, WordEvidence,
 };
 use crate::backend_selection::select_backends;
-use crate::capability::CharacteristicKind;
+use crate::capability::{CharacteristicKind, CompileDecision};
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
@@ -157,10 +157,10 @@ pub fn observe_fixture_containment(
     let mut not_attempted: Vec<(EmissionStrategy, ContainmentOutcome)> = Vec::new();
     let mut selected_strategies: Vec<EmissionStrategy> = Vec::new();
     for &strategy in ALL_STRATEGIES {
-        let selected = selection
-            .report_for(strategy)
-            .is_some_and(|report| report.is_selected());
-        if selected {
+        let representable = selection.report_for(strategy).is_some_and(|report| {
+            !matches!(report.decision(), CompileDecision::Refuse(_))
+        });
+        if representable {
             selected_strategies.push(strategy);
         } else {
             not_attempted.push((

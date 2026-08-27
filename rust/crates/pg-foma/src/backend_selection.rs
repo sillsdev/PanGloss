@@ -16,13 +16,15 @@ use crate::advice_catalog::{
     PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY,
 };
 use crate::capability::{
-    compose_envelope_across_strategies, default_registry, CapabilityDiagnostic, CompileDecision,
+    compose_envelope_across_strategies, default_registry, meet, CapabilityDiagnostic,
+    CompileDecision, StrategyEnvelope,
 };
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance};
 use crate::junctions::PhonologyProbe;
 use crate::plan::FragmentSpec;
+use crate::strategy_coverage::ALL_STRATEGIES;
 
 /// Why a backend report exists even when no artifact can be produced from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,6 +380,45 @@ impl BackendSelection {
         self.reports.iter().find(|r| r.strategy == strategy)
     }
 
+    /// One report per committed backend, in [`crate::strategy_coverage::ALL_STRATEGIES`]
+    /// order.
+    ///
+    /// That order is the enum's own declaration order and carries no preference: this
+    /// function reports every backend's independent verdict and selects none. A backend the
+    /// envelope has no verdict for becomes an explicit `Missing` report rather than vanishing
+    /// from the explanation.
+    fn from_envelope_with_backend_findings(
+        envelope: &StrategyEnvelope,
+        plan_composed_markers: &[FragmentSpec],
+    ) -> Self {
+        let reports = ALL_STRATEGIES
+            .iter()
+            .map(|&strategy| {
+                let Some(decision) = envelope.decision_for(strategy) else {
+                    return BackendReport::missing(strategy, "backend was not available");
+                };
+                // Marker leaves are subtrees build_controllable does not build, so a marked
+                // plan is not representable by PlanComposed however the envelope scored it.
+                let decision = if strategy == EmissionStrategy::PlanComposed
+                    && !plan_composed_markers.is_empty()
+                {
+                    meet(
+                        decision.clone(),
+                        plan_composed_marker_refusal(plan_composed_markers),
+                    )
+                } else {
+                    decision.clone()
+                };
+                if matches!(decision, CompileDecision::Refuse(_)) {
+                    BackendReport::refused(strategy, decision)
+                } else {
+                    BackendReport::accepted(strategy, decision, Vec::new())
+                        .expect("a non-refusing decision is always accepted")
+                }
+            })
+            .collect();
+        Self { reports }
+    }
 }
 
 /// Selects over an already-derived `crate::grammar_semantics::GrammarSemantics` — the primary form,

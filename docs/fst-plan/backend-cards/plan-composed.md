@@ -21,7 +21,6 @@
   - Null, deletion, and structural marker leaves can require unsupported subtrees
   - Branching multiplies gate-group and replacement combinations
 - Remedies:
-  - `use-whole-grammar-backend`
   - `implement-required-plan-subtrees`
   - `use-obligation-templates`
 - Advice: [authoritative remedy text and shape-specific effort](../../../rust/crates/pg-foma/assets/backend-advice-v1.toml). A remedy would make this backend work for your language only when its stated prerequisites hold.

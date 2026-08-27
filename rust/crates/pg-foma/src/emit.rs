@@ -2975,8 +2975,7 @@ pub(crate) fn plan_topology_decisions(g: &Grammar, phon: Option<&PhonologyProbe>
         .flat_map(|s| &s.prules)
         .map(|&id| &g.prules[id.0 as usize])
         .collect();
-    let alphabet = SegAlphabet::new(surface_table(g));
-    let plan = enumerate_default(g, &alphabet, &prules_in_order, phon);
+    let plan = enumerate_default(g, &prules_in_order, phon);
     let wants_composite_emission = plan_has_leaf(&plan, &FragmentSpec::CompositeEmissionMarker);
     let wants_structural_composite = plan_has_leaf(&plan, &FragmentSpec::StructuralCompositeMarker);
     (wants_composite_emission, wants_structural_composite)
