@@ -638,7 +638,6 @@ impl DiagnosticPipeline {
             &mut skipped,
             &mut tuple_reports,
         )
-        .map_err(|error| format!("rule compile/compose failed: {error}"))?
         .ok_or("no phonological rule compiled")?;
         if !skipped.is_empty() {
             return Err(format!(
@@ -1117,7 +1116,7 @@ fn run_rule_variation_diagnostics(
             &mut skipped,
             &mut reports,
         );
-        let Ok(Some(rule_net)) = compiled else {
+        let Some(rule_net) = compiled else {
             println!(
                 "rule-variation\ttargeted-optional\tposition={position}\tharness_compile_failure"
             );
@@ -1277,7 +1276,7 @@ fn diagnostic_variant_recoveries(
     } else {
         let mut skipped = Vec::new();
         let mut reports = Vec::new();
-        let Ok(Some(rule_net)) = compile_and_compose_rules_recall_safe(
+        let Some(rule_net) = compile_and_compose_rules_recall_safe(
             &opts,
             g,
             alphabet,
@@ -1345,7 +1344,7 @@ fn trace_analysis_through_rules(
     for (position, (id, rule)) in indexed_rules.into_iter().enumerate() {
         let mut skipped = Vec::new();
         let mut reports = Vec::new();
-        let Ok(Some(rule_net)) = compile_and_compose_rules_recall_safe(
+        let Some(rule_net) = compile_and_compose_rules_recall_safe(
             &opts,
             g,
             alphabet,

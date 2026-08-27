@@ -103,7 +103,6 @@ fn run() {
         &mut skipped_rules,
         &mut tuple_reports,
     )
-    .expect("compose budget ok")
     .expect("rules must compile");
     println!("skipped_rules = {skipped_rules:?}");
 

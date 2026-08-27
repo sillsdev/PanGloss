@@ -392,8 +392,8 @@ impl EmissionStrategy {
 /// **Emitted: gate-group order** (candidate `"gate-group-permuted"`, via `permute_gate_groups`).
 /// `crate::oracle`'s own module doc proves this is sound and non-vacuous:
 /// `crate::build::build_controllable` folds every `Gate` group's compiled network together with
-/// `crate::compose_budget::union_checked` (commutative) and always finishes with
-/// `crate::compose_budget::minimize_checked`, so a `Gate` node's group ORDER cannot affect the
+/// `foma::constructions::fsm_union` (commutative) and always finishes with
+/// `foma::minimize::fsm_minimize`, so a `Gate` node's group ORDER cannot affect the
 /// final relation — only membership does. Reordering the groups changes the `Gate` node's content
 /// address (`NodeId = hash(kind, children, config)`, and both `partition.groups` and `children`
 /// are part of that content) without changing what the built network recognizes: a real, distinct,

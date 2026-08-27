@@ -636,7 +636,7 @@ fn expand_family(family: &BackendFamily) -> Vec<BackendInstance> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SafeTransform {
     Identity,
-    /// Reorders a `Gate` node's partition groups; safe because `build_controllable` folds groups commutatively via `union_checked`.
+    /// Reorders a `Gate` node's partition groups; safe because `build_controllable` folds groups commutatively via `fsm_union`.
     GatePermutation,
     /// Reorders a root `Union`'s children. Same commutativity argument, different node kind.
     UnionPermutation,

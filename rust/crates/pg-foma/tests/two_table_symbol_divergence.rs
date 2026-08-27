@@ -10,7 +10,7 @@ use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
 use pg_foma::compose_budget::ComposeBudget;
-use pg_foma::replace::{compile_and_compose_rules_with_budget, SegAlphabet};
+use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered_with_budget;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
@@ -188,16 +188,14 @@ fn stratum_1_devoice_rewrite_proposer_confirm_matches_oracle() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules_with_budget(
+    let rule_net = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet1,
         &[devoice_rule],
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("devoice rule compile must not hit any budget: {e}"))
     .expect("devoice rule must compile to Some(net)");
     assert!(skipped.is_empty());
 

@@ -13,7 +13,7 @@ use foma::options::FomaOptions;
 
 use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{
-    compile_and_compose_rules_with_budget, is_fully_supported_shape, SegAlphabet,
+    compile_and_compose_rules, is_fully_supported_shape, SegAlphabet,
 };
 use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered_with_budget;
@@ -64,7 +64,7 @@ fn oracle_candidate_set(
         .collect()
 }
 
-/// Compiles `rule` via `compile_and_compose_rules_with_budget`, composes it after `lexc_source`, and minimizes.
+/// Compiles `rule` via `compile_and_compose_rules`, composes it after `lexc_source`, and minimizes.
 fn compile_net(
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -78,16 +78,14 @@ fn compile_net(
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules_with_budget(
+    let rule_net = compile_and_compose_rules(
         &opts,
         g,
         alphabet,
         &[rule],
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("rule compile must not hit any budget: {e}"))
     .expect("admitted Simultaneous rule must now compile to Some(net)");
     assert!(skipped.is_empty(), "rule must not be skipped: {skipped:?}");
     fsm_minimize(&opts, fsm_compose(&opts, lexc_net, rule_net))
@@ -167,16 +165,14 @@ fn sim_trivial_lone_subrule_now_compiles() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules_with_budget(
+    let composed = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet,
         &ro,
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
     assert!(
         skipped.is_empty(),
@@ -364,7 +360,7 @@ fn sim_nonoverlap_env_now_compiles_and_matches_oracle_exactly() {
     );
 }
 
-// sim-overlap-env: two subrules whose right environments genuinely overlap (shared member) -- must stay honest-unsupported (`Ok(None)`, `skipped`), never a wrong compile.
+// sim-overlap-env: two subrules whose right environments genuinely overlap (shared member) -- must stay honest-unsupported (`None`, `skipped`), never a wrong compile.
 
 const SIM_OVERLAP_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -445,16 +441,14 @@ fn sim_overlap_env_stays_honest_unsupported() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules_with_budget(
+    let composed = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet,
         &ro,
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
     assert_eq!(
         skipped,

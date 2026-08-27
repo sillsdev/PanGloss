@@ -12,7 +12,7 @@ use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
 use pg_foma::compose_budget::ComposeBudget;
-use pg_foma::replace::{compile_and_compose_rules_with_budget, SegAlphabet};
+use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered_with_budget;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
@@ -68,16 +68,14 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules_with_budget(
+    let composed = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet,
         &ro,
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
     // The quantifier-bearing rule is no longer skipped at all -- it compiles to a real network, alpha-free (a trivial 1-entry tuple report).
     assert!(
@@ -207,16 +205,14 @@ fn compile_net(
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules_with_budget(
+    let rule_net = compile_and_compose_rules(
         &opts,
         g,
         alphabet,
         &[rule],
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("rule compile must not hit any budget: {e}"))
     .expect("bounded-quantifier rule must compile to Some(net)");
     assert!(skipped.is_empty(), "rule must not be skipped: {skipped:?}");
     fsm_minimize(&opts, fsm_compose(&opts, lexc_net, rule_net))
@@ -407,16 +403,14 @@ fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
     // Post-`build-unbounded-quantifier-support`: no longer skipped at all.
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules_with_budget(
+    let composed = compile_and_compose_rules(
         &FomaOptions::default(),
         &g,
         &alphabet,
         &[&g.prules[0]],
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
     assert!(
         skipped.is_empty(),

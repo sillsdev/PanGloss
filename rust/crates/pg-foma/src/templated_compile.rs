@@ -45,7 +45,6 @@ pub enum TemplatedCompileError {
     MissingCharacterTable,
     Unsupported(EmitReport),
     LexcCompileFailed,
-    RuleCompileFailed(String),
     NoCompiledRules,
     CleanupCompileFailed(String),
 }
@@ -61,7 +60,6 @@ impl fmt::Display for TemplatedCompileError {
                 report.uncovered.len()
             ),
             Self::LexcCompileFailed => write!(f, "templated lexc failed to compile"),
-            Self::RuleCompileFailed(error) => write!(f, "rule compile/compose failed: {error}"),
             Self::NoCompiledRules => write!(f, "no phonological rule compiled"),
             Self::CleanupCompileFailed(regex) => {
                 write!(f, "boundary cleanup regex failed to compile: {regex:?}")
@@ -126,7 +124,6 @@ pub fn compile_templated_morphotactics(
                 &mut skipped_rules,
                 &mut tuple_reports,
             )
-            .map_err(|error| TemplatedCompileError::RuleCompileFailed(error.to_string()))?
             .ok_or(TemplatedCompileError::NoCompiledRules)?,
         )
     };

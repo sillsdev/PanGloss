@@ -14,7 +14,7 @@ use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
 
 use pg_foma::compose_budget::ComposeBudget;
-use pg_foma::replace::{compile_and_compose_rules_with_budget, SegAlphabet};
+use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered_with_budget;
 use pg_grammar::chardef::CharDefId;
@@ -136,7 +136,7 @@ fn pre_fix_equivalent_swap_net_never_fires_on_table_a_originated_material() {
     );
 }
 
-/// Steps 2+3: THE FIX CLOSES IT, and SWITCH-POSITION IDENTITY HOLDS. Compiles the SAME rule via the CURRENT `compile_and_compose_rules_with_budget`, then checks it fires on table-A-originated material and never substitutes a different alias at either switch position, using CONTAINS/subset checks rather than exact equality since the fix adds branches that may harmlessly pass identity through alongside the genuine swap.
+/// Steps 2+3: THE FIX CLOSES IT, and SWITCH-POSITION IDENTITY HOLDS. Compiles the SAME rule via the CURRENT `compile_and_compose_rules`, then checks it fires on table-A-originated material and never substitutes a different alias at either switch position, using CONTAINS/subset checks rather than exact equality since the fix adds branches that may harmlessly pass identity through alongside the genuine swap.
 /// See `docs/research/pg-foma-multi-table-metathesis-shared-representation.md` for why this construction is safe by construction.
 #[test]
 fn current_compile_fires_on_table_a_originated_material_and_preserves_identity() {
@@ -158,16 +158,14 @@ fn current_compile_fires_on_table_a_originated_material_and_preserves_identity()
     let rule = metathesis_rule(&g);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules_with_budget(
+    let rule_net = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet_b,
         std::slice::from_ref(&rule),
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("mrCrossTableSwap compile must not hit any budget: {e}"))
     .expect("mrCrossTableSwap must compile to Some(net)");
     assert!(
         skipped.is_empty(),
@@ -264,16 +262,14 @@ fn containment_holds_for_the_same_table_entry_the_oracle_can_analyze() {
     let rule = metathesis_rule(&g);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules_with_budget(
+    let rule_net = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet_b,
         std::slice::from_ref(&rule),
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("mrCrossTableSwap compile must not hit any budget: {e}"))
     .expect("mrCrossTableSwap must compile to Some(net)");
     assert!(skipped.is_empty());
 
@@ -364,16 +360,14 @@ fn fst_proposes_root1_for_its_correctly_metathesized_surface() {
     let rule = metathesis_rule(&g);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules_with_budget(
+    let rule_net = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet_b,
         std::slice::from_ref(&rule),
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("mrCrossTableSwap compile must not hit any budget: {e}"))
     .expect("mrCrossTableSwap must compile to Some(net)");
     assert!(skipped.is_empty());
 

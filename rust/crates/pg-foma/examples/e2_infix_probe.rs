@@ -227,8 +227,7 @@ fn run() {
         &rules_in_order,
         &mut skipped_rules,
         &mut tuple_reports,
-    )
-    .expect("compose budget ok");
+    );
     let rules_elapsed = t_rules.elapsed();
     println!("\nrule compile+compose: {rules_elapsed:?}; skipped: {skipped_rules:?}");
     let rule_net = rule_net.expect("Amharic's 7 rules must compile (see skipped_rules if not)");

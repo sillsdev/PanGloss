@@ -401,7 +401,7 @@ pub struct RightToLeftRewriteDetail {
     /// owning `pg_grammar::chardef::CharDefTable` — i.e. exactly the construct-shape floor
     /// `compile_rewrite_rule_subset` itself requires before it ever calls [`fsm_reverse`
     /// ](foma::reverse::fsm_reverse). `false` means the rule is STILL honestly skipped
-    /// (`Ok(None)`) by the real compiler, same as any other unsupported pattern construct.
+    /// (`None`) by the real compiler, same as any other unsupported pattern construct.
     pub reversal_construction_attempted: bool,
     /// The SPECIFIC reason `reversal_construction_attempted` is `false`, if it IS `false` and the
     /// reason is a pattern-shape one — `None` when `reversal_construction_attempted` is `true`
@@ -1842,7 +1842,7 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
 /// existing plain/iterative sequential-compose machinery (fold every subrule's compiled branch via
 /// `fsm_compose`, unchanged) is CORRECT for it, not merely reused for convenience. `Err(reason)`
 /// otherwise — `crate::replace::compile_rewrite_rule_subset` treats that identically to any other
-/// unsupported shape (`Ok(None)`, honest-unsupported, never a wrong compile).
+/// unsupported shape (`None`, honest-unsupported, never a wrong compile).
 ///
 /// Computed FRESH against `g`/`rule` directly (no pre-built `CharacteristicsProfile` needed) --
 /// this runs at actual COMPILE time (once per rule), not characterization time (once per plan
@@ -2050,7 +2050,7 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 ///   (`crate::lower::PatternLowerScope::RewriteRuleCompile`)):
 ///   `PredicateVerdict::Refuse`, NAMING the exact failing shape via
 ///   `RightToLeftRewriteDetail::unsupported_reason` — the real compiler already honestly skips
-///   (`Ok(None)`) exactly this rule (never a silent LTR fallback), so a grammar depending on it
+///   (`None`) exactly this rule (never a silent LTR fallback), so a grammar depending on it
 ///   must be refused rather than silently missing recall; overridable via the capability override.
 ///
 /// # Provenance
@@ -2104,11 +2104,11 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
                     "this rule's own LHS/RHS/environment pattern needs a construct \
                      `crate::replace::pattern_slots` does not support (under \
                      `crate::lower::PatternLowerScope::RewriteRuleCompile`): {reason} -- the real \
-                     compiler already honestly skips (Ok(None)) this exact rule rather than \
+                     compiler already honestly skips (None) this exact rule rather than \
                      silently mis-compiling it"
                 ),
                 None => "this rule has no resolvable owning character-definition table -- the \
-                          real compiler already honestly skips (Ok(None)) this exact rule rather \
+                          real compiler already honestly skips (None) this exact rule rather \
                           than silently mis-compiling it"
                     .to_string(),
             };
@@ -2134,7 +2134,7 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 /// derivation this predicate's disposition below relies on). Any pattern needing
 /// `Quantifier`/`Segments`/`Anchor`/a disagree-polarity alpha var/`Slot::Alpha`/`Slot::Repeat`
 /// anywhere, or with no resolvable owning table, stays unsupported
-/// (`crate::replace::compile_metathesis_rule` itself returns `Ok(None)`, honestly skipped) --
+/// (`crate::replace::compile_metathesis_rule` itself returns `None`, honestly skipped) --
 /// direction was never what made those shapes unsupported.
 ///
 /// **Cross-table shared-representation recall.** `crate::replace::slot_candidates` alias-expands
@@ -2168,7 +2168,7 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 ///   `crate::replace::pattern_slots` does not accept (a `Slot::Alpha`/`Slot::Repeat`
 ///   occurrence) — `crate::replace::compile_metathesis_rule`'s own module doc, "Scope" section, has
 ///   the full, evidence-based account of which of these is genuinely reachable): [`PredicateVerdict
-///   ::Refuse`] — the real compiler already honestly skips (`Ok(None)`) exactly this rule, never a
+///   ::Refuse`] — the real compiler already honestly skips (`None`) exactly this rule, never a
 ///   silent wrong compile; overridable via the capability override.
 ///
 /// # Provenance
@@ -2237,7 +2237,7 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
                           resolvable owning character-definition table -- NOT a direction, since \
                           Dir::RightToLeft compiles via the same mirror-and-reverse construction \
                           compile_rtl_branch_net uses for RTL rewrite rules -- the real compiler \
-                          already honestly skips (Ok(None)) this exact rule rather than silently \
+                          already honestly skips (None) this exact rule rather than silently \
                           mis-compiling it"
                     .to_string(),
             });

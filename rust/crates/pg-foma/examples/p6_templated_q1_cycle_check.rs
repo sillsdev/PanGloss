@@ -75,7 +75,6 @@ fn run() {
         &mut skipped_rules,
         &mut tuple_reports,
     )
-    .expect("compose budget ok")
     .expect("Aweti's 18 rules must compile");
     println!(
         "rule net: {} states, {} arcs; skipped={skipped_rules:?}",

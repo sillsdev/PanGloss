@@ -58,8 +58,7 @@ fn check(label: &str, g: &Grammar) {
         &rules_in_order,
         &mut skipped,
         &mut tuple_reports,
-    )
-    .expect("compose budget ok");
+    );
     println!("original compile_and_compose_rules: skipped={skipped:?}");
     match composed {
         Some(net) => println!(

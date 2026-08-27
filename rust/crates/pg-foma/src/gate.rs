@@ -140,15 +140,15 @@
 
 use std::collections::{HashMap, HashSet};
 
+use foma::constructions::{fsm_compose, fsm_union};
+use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
 use pg_grammar::model::{Grammar, LexEntryId, MprGroupMatchType, PhonRuleDef, RewriteSubruleDef};
 
-use crate::compose_budget::{
-    compose_checked, minimize_checked, union_checked, ComposeBudget, ComposeError,
-};
-use crate::replace::{compile_and_compose_rules_gated_with_budget, SegAlphabet, TupleReport};
+use crate::compose_budget::{ComposeBudget, ComposeError};
+use crate::replace::{compile_and_compose_rules_gated, SegAlphabet, TupleReport};
 use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
 
 /// One (rule position in `prules_in_order`, subrule index within that rule) pair whose
@@ -289,11 +289,11 @@ pub fn compile_gated_grammar(
 /// `compile_gated_grammar`'s core, with the `ComposeBudget` threaded in explicitly rather than
 /// read from env -- what tests call directly (design doc §6).
 ///
-/// `budget` is checked via `compose_checked`/`union_checked` on the per-group `lexc .o. rules`
-/// compose and the per-group union fold.
-/// It is also checked via `minimize_checked`, as this function's own FINAL step on the fully unioned
-///   network -- design doc §4: "`compile_gated_grammar` takes ownership of their own FINAL
-///   `minimize_checked` instead of leaving it to example drivers", turning a convention (every
+/// `budget` is shared with the underlying emitter, whose compound-chain work can genuinely fail.
+/// The ordinary foma compose/union/minimize operations themselves are infallible.
+/// This function also performs its own FINAL minimize on the fully unioned
+///   network -- `compile_gated_grammar` takes ownership of its own FINAL minimize instead of leaving
+///   it to example drivers, turning a convention (every
 ///   example driver already minimizes its own further-composed network) into an enforced
 ///   invariant at this layer. Callers that further compose this result (every example/test driver
 ///   does, with a boundary-cleanup net) still need their OWN final minimize afterward -- minimizing
@@ -357,7 +357,7 @@ pub fn compile_gated_grammar_with_budget(
             }
         };
         let mut group_skipped_rules = Vec::new();
-        let rules_net = compile_and_compose_rules_gated_with_budget(
+        let rules_net = compile_and_compose_rules_gated(
             opts,
             g,
             alphabet,
@@ -365,8 +365,7 @@ pub fn compile_gated_grammar_with_budget(
             &subrule_ok,
             &mut group_skipped_rules,
             &mut tuple_reports,
-            budget,
-        )?;
+        );
         // Only report a rule as skipped once, deduped, since every group would otherwise re-report the same unsupported construct.
         for s in group_skipped_rules {
             if !skipped_rules.contains(&s) {
@@ -375,36 +374,19 @@ pub fn compile_gated_grammar_with_budget(
         }
 
         let group_net = match rules_net {
-            Some(rules) => compose_checked(
-                opts,
-                lexc_net,
-                rules,
-                budget,
-                "compile_gated_grammar lexc.o.rules",
-            )?,
+            Some(rules) => fsm_compose(opts, lexc_net, rules),
             None => lexc_net,
         };
         final_net = Some(match final_net {
             None => group_net,
             // Safe union: groups are lexically disjoint (module doc "why the union is safe here").
-            Some(prev) => union_checked(
-                opts,
-                prev,
-                group_net,
-                budget,
-                "compile_gated_grammar group union fold",
-            )?,
+            Some(prev) => fsm_union(opts, prev, group_net),
         });
     }
 
     // This function's own final minimize, taking ownership of the invariant instead of leaving it to every caller.
     let final_net = match final_net {
-        Some(net) => Some(minimize_checked(
-            opts,
-            net,
-            budget,
-            "compile_gated_grammar final minimize",
-        )?),
+        Some(net) => Some(fsm_minimize(opts, net)),
         None => None,
     };
 

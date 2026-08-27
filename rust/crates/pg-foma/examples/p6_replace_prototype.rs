@@ -113,8 +113,7 @@ fn run() {
         &rules_in_order,
         &mut skipped_rules,
         &mut tuple_reports,
-    )
-    .expect("compose budget ok");
+    );
     let rules_elapsed = t_rules.elapsed();
     println!("\nrule compile+compose: {rules_elapsed:?}");
     println!("skipped rules: {skipped_rules:?}");

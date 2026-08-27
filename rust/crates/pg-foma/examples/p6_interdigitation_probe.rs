@@ -62,7 +62,7 @@ fn run() {
         let result = compile_rewrite_rule(&opts, &g, &alphabet, r);
         let elapsed = t0.elapsed();
         match result {
-            Ok(Some((net, reports))) => {
+            Some((net, reports)) => {
                 println!(
                     "{} {:?} mode={:?} dir={:?} fully-supported-shape={}: COMPILED in {elapsed:?} \
                      -> {} states, {} arcs",
@@ -79,11 +79,10 @@ fn run() {
                     }
                 }
             }
-            Ok(None) => println!(
+            None => println!(
                 "{} {:?}: NOT COMPILED (unsupported construct — see prototype report for which) in {elapsed:?}",
                 r.xml_id, r.name
             ),
-            Err(budget_err) => println!("{} {:?}: COMPOSE BUDGET EXCEEDED: {budget_err} in {elapsed:?}", r.xml_id, r.name),
         }
     }
 
@@ -99,8 +98,7 @@ fn run() {
         &rules_in_order,
         &mut skipped,
         &mut tuple_reports,
-    )
-    .expect("compose budget ok");
+    );
     let all_elapsed = t_all.elapsed();
     println!("cascade compile+compose: {all_elapsed:?}");
     println!("skipped: {skipped:?}");

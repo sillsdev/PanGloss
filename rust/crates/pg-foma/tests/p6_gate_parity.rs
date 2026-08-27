@@ -269,7 +269,6 @@ fn ungated_cascade_would_have_missed_the_excluded_root() {
     let mut tuple_reports = Vec::new();
     let rules_net =
         compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
-            .expect("compose budget ok")
             .expect(
                 "ungated cascade must still compile (prule5's shape is supported, just ungated)",
             );
@@ -361,7 +360,6 @@ fn ungated_cascade_would_have_missed_the_noun_entry() {
     let mut tuple_reports = Vec::new();
     let rules_net =
         compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports)
-            .expect("compose budget ok")
             .expect(
                 "ungated cascade must still compile (prule1's shape is supported, just ungated)",
             );
@@ -538,7 +536,6 @@ fn amharic_gated_subrules_and_tuple_counts_unregressed() {
                 &mut skipped,
                 &mut tuple_reports,
             )
-            .expect("compose budget ok")
             .expect("Amharic's 7 rules must still compile via the untouched entry point");
             assert!(
                 skipped.is_empty(),

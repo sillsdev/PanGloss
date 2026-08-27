@@ -63,7 +63,7 @@
 //!   out of scope, not attempted in this slice.
 //!
 //! ## `Dir::RightToLeft`: the reversal construction
-//! `Dir::RightToLeft` used to be honestly skipped (the same `Ok(None)` treatment `Simultaneous`
+//! `Dir::RightToLeft` used to be honestly skipped (the same `None` treatment `Simultaneous`
 //! still gets); this change gives it real, direction-faithful semantics via the STANDARD
 //! finite-state technique for "prefer the rightmost, not leftmost, non-overlapping match" (Beesley
 //! & Karttunen, *Finite State Morphology*, ch. 6 "Directional replacement rules"): reverse ∘
@@ -112,7 +112,7 @@
 //! finding above.
 //!
 //! ## `RewriteMode::Simultaneous`: compiling the ADMITTED case
-//! `RewriteMode::Simultaneous` used to be honestly skipped UNCONDITIONALLY (`Ok(None)` for every
+//! `RewriteMode::Simultaneous` used to be honestly skipped UNCONDITIONALLY (`None` for every
 //! such rule, regardless of subrule shape — the same treatment metathesis and an unsupported
 //! pattern construct get). It still stays that way for a rule whose subrules the
 //! `simultaneous.subrule-overlap` predicate (`crate::capability::
@@ -230,7 +230,7 @@
 //! `Fsm` characterization (`MAX_QUANTIFIER_BOUND`, checked in `pattern_slots` before any regex is even
 //! rendered, let alone parsed — the same "check the search result before the expensive part"
 //! principle),
-//! rather than a new `crate::compose_budget::ComposeBudget` dimension: `pattern_slots` is a pure
+//! rather than a new composition-budget dimension: `pattern_slots` is a pure
 //! structural walk with no `ComposeBudget` threaded through it (every existing caller — this file's
 //! own compile path, `crate::lower::lower_span`, `crate::capability`'s structural probes — calls it
 //! with only a `&Grammar`/`&CharDefTable`), and widening that signature crate-wide for one
@@ -300,7 +300,7 @@
 //!   `crate::lower::lower_span`'s own callers are unaffected, still passing
 //!   `crate::lower::PatternLowerScope::Baseline`.
 
-use foma::constructions::fsm_universal;
+use foma::constructions::{fsm_compose, fsm_union, fsm_universal};
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
@@ -314,8 +314,6 @@ use pg_grammar::model::{
     Dir, Grammar, MetathesisRuleDef, PRuleId, PhonRuleDef, RewriteMode, RewriteRuleDef,
     RewriteSubruleDef, TableId,
 };
-
-use crate::compose_budget::{compose_checked, union_checked, ComposeBudget, ComposeError};
 
 /// Private-Use-Area base codepoint every `CharDefId` is offset from; no in-scope grammar has enough char-defs to overflow the PUA block.
 const PUA_BASE: u32 = 0xE000;
@@ -340,7 +338,7 @@ impl RepresentationAliasMap {
     /// Cheap: `O(total char-defs across every table)`, a characterization-time cost identical in
     /// shape to `multi_table_detail`'s own pairwise scan (that function's own doc: "cheap for any
     /// grammar in scope — table counts are small"). Built fresh per call (not memoized across
-    /// rules) — deliberately simple for now; alias-set size/rebuild cost is a `ComposeBudget`
+    /// rules) — deliberately simple for now; alias-set size/rebuild cost is a separate
     /// question the design doc's own "What this design does NOT settle" section defers to future
     /// measurement on a real multi-table grammar, not something to guess a cache shape for here.
     pub(crate) fn build(g: &Grammar) -> Self {
@@ -721,7 +719,7 @@ mod representation_alias_map_tests {
 /// choice (matching this module's whole "approximate only upward, report don't hide" discipline)
 /// is an honest `None` a caller can route to its OWN "uncovered"/`Unsupported` handling, never a
 /// silent guess. `compile_rewrite_rule_subset` treats `None` exactly like an unsupported pattern
-/// construct (`Ok(None)`, reported `skipped` by its own caller); `capability.rs`'s
+/// construct (`None`, reported `skipped` by its own caller); `capability.rs`'s
 /// `lower_subrule_span` rounds it to `crate::capability::LoweredSpan::Unsupported` (any approximation rounds toward
 /// `Refuse`).
 pub(crate) fn owning_table<'g>(g: &'g Grammar, rule: &RewriteRuleDef) -> Option<&'g CharDefTable> {
@@ -861,16 +859,15 @@ fn compile_rtl_branch_net(
     left_slots: &[Slot],
     right_slots: &[Slot],
     asg: &AlphaAssignment,
-    budget: &ComposeBudget,
     rule_xml_id: &str,
-) -> Result<Fsm, ComposeError> {
+) -> Fsm {
     let plain_regex =
         render_branch_regex(alphabet, lhs_slots, rhs_slots, left_slots, right_slots, asg);
     let plain_net = fsm_parse_regex(opts, &plain_regex, None, None).unwrap_or_else(|| {
         panic!("foma rejected compiled regex for rule {rule_xml_id}: {plain_regex:?}")
     });
     match dir {
-        Dir::LeftToRight => Ok(plain_net),
+        Dir::LeftToRight => plain_net,
         Dir::RightToLeft => {
             let mirror_lhs = reversed_slots(lhs_slots);
             let mirror_rhs = reversed_slots(rhs_slots);
@@ -893,13 +890,7 @@ fn compile_rtl_branch_net(
                     )
                 });
             let reversed_net = fsm_reverse(mirror_net);
-            union_checked(
-                opts,
-                plain_net,
-                reversed_net,
-                budget,
-                "compile_rtl_branch_net safety-net union",
-            )
+            fsm_union(opts, plain_net, reversed_net)
         }
     }
 }
@@ -915,17 +906,14 @@ fn compile_rtl_branch_net(
 /// this prototype's driver skips and reports.
 ///
 /// Thin wrapper over `compile_rewrite_rule_subset` that includes every subrule (the pre-gating
-/// behavior, unchanged for every existing caller). Builds a production `ComposeBudget` from
-/// `HC_COMPOSE_*` env vars exactly once (mirrors `crate::emit::emit_with_precision`'s own
-/// "read env in the production entry point only" convention).
+/// behavior, unchanged for every existing caller).
 pub fn compile_rewrite_rule(
     opts: &FomaOptions,
     g: &Grammar,
     alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
-) -> Result<Option<(Fsm, Vec<TupleReport>)>, ComposeError> {
-    let budget = ComposeBudget::from_env();
-    compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, &budget)
+) -> Option<(Fsm, Vec<TupleReport>)> {
+    compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true)
 }
 
 /// Identical to `compile_rewrite_rule`, but SKIPS any subrule for which `allowed(subrule_index)`
@@ -942,12 +930,9 @@ pub fn compile_rewrite_rule(
 /// supported-but-gated subrule reports the WHOLE rule uncovered for every group, matching
 /// `compile_rewrite_rule`'s own pre-existing all-or-nothing `?` short-circuit — not a regression).
 ///
-/// `budget`: checked via `compose_checked` on every fold step of the per-alpha-tuple
-/// union-by-composition below.
-///
 /// **Mode/dir detection:**
 /// `rule.mode`/`rule.dir` are checked FIRST, via `is_fully_supported_shape` -- a rule outside
-/// that shape returns `Ok(None)` immediately, exactly the same "uncovered, caller reports it
+/// that shape returns `None` immediately, exactly the same "uncovered, caller reports it
 /// `skipped`" contract `pattern_slots` already uses for an unsupported PATTERN construct (a
 /// malformed `Quantifier` or a disagree-polarity alpha var -- cross-table and same-table
 /// `Segments` plus any `Anchor` no longer disqualify a rewrite rule's own pattern at all, per this
@@ -955,7 +940,7 @@ pub fn compile_rewrite_rule(
 /// an unsupported mode/dir was silently
 /// compiled via plain foma `->` as if it were Iterative/LeftToRight -- a WRONG network with no
 /// signal ("silent mis-map"). `Dir::RightToLeft` used to be gated out here too
-/// (`Ok(None)`, honestly skipped) until it gained
+/// (`None`, honestly skipped) until it gained
 /// real semantics (`compile_rtl_branch_net`, module doc) -- both `Iterative` directions now
 /// compile unconditionally. `RewriteMode::Simultaneous` used to be gated out here UNCONDITIONALLY
 /// too, until `is_fully_supported_shape` gained a
@@ -969,7 +954,7 @@ pub fn compile_rewrite_rule(
 /// `tests/f3_parity.rs`'s multiset parity gates staying green.
 ///
 /// # `_alphabet` is unused
-/// Every existing caller (this file's own `compile_and_compose_rules(_gated)_with_budget`, every
+/// Every existing caller (this file's own `compile_and_compose_rules` variants, every
 /// `tests/phase_c_*`/example driver) passes a single, grammar-wide `&SegAlphabet` built once
 /// (typically `SegAlphabet::new(surface_table(g))`, the LAST stratum's table) and reused across
 /// EVERY rule in the cascade, regardless of which table that rule actually owns. Since
@@ -985,14 +970,13 @@ pub fn compile_rewrite_rule_subset(
     _alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
-    budget: &ComposeBudget,
-) -> Result<Option<(Fsm, Vec<TupleReport>)>, ComposeError> {
+) -> Option<(Fsm, Vec<TupleReport>)> {
     if !is_fully_supported_shape(g, rule) {
-        return Ok(None);
+        return None;
     }
     // Resolved once per rule, never an implicit table-zero default; `None` is treated like an unsupported construct, reported `skipped` by callers.
     let Some(table) = owning_table(g, rule) else {
-        return Ok(None);
+        return None;
     };
     // `owning_table_id` shares `owning_table`'s own stratum lookup, so it is guaranteed `Some` here too.
     let table_id = owning_table_id(g, rule)
@@ -1013,23 +997,23 @@ pub fn compile_rewrite_rule_subset(
         let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
         let Some(lhs_slots) = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)
         else {
-            return Ok(None);
+            return None;
         };
         let Some(rhs_slots) = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)
         else {
-            return Ok(None);
+            return None;
         };
         let left_slots = match &subrule.left_env {
             Some(p) => match pattern_slots(g, table, p, &mut next_occurrence, scope) {
                 Some(s) => s,
-                None => return Ok(None),
+                None => return None,
             },
             None => Vec::new(),
         };
         let right_slots = match &subrule.right_env {
             Some(p) => match pattern_slots(g, table, p, &mut next_occurrence, scope) {
                 Some(s) => s,
-                None => return Ok(None),
+                None => return None,
             },
             None => Vec::new(),
         };
@@ -1055,24 +1039,17 @@ pub fn compile_rewrite_rule_subset(
                 &left_slots,
                 &right_slots,
                 asg,
-                budget,
                 &rule.xml_id,
-            )?;
+            );
             net = Some(match net {
                 None => branch_net,
                 // Sequential composition, not union -- see the per-subrule composition note above this loop.
-                Some(prev) => compose_checked(
-                    opts,
-                    prev,
-                    branch_net,
-                    budget,
-                    "compile_rewrite_rule_subset alpha-tuple fold",
-                )?,
+                Some(prev) => fsm_compose(opts, prev, branch_net),
             });
         }
     }
 
-    Ok(net.map(|n| (n, reports)))
+    net.map(|n| (n, reports))
 }
 
 /// Compile every `Rewrite`-kind `PhonRuleDef` in `stratum_prules` order into individual foma
@@ -1085,19 +1062,15 @@ pub fn compile_rewrite_rule_subset(
 /// Returns `None` if there are zero compilable rules at all (the composition would be a no-op —
 /// callers should compose with an identity net instead of calling this).
 ///
-/// Builds a production `ComposeBudget` from `HC_COMPOSE_*` env vars exactly once (mirrors
-/// `crate::emit::emit_with_precision`'s own convention). Tests that need a deterministic, tiny
-/// budget should call `compile_and_compose_rules_with_budget` directly instead.
-///
-/// Deliberately NOT given a final `minimize_checked` call (unlike `crate::gate::
+/// Deliberately NOT given a final minimize call (unlike `crate::gate::
 /// compile_gated_grammar`): `tests/p6_gate_parity.rs`'s
 /// `amharic_gated_subrules_and_tuple_counts_unregressed` hard-asserts this function's return value
 /// is BYTE IDENTICAL to a fixed state/arc count (82 states / 1,110,358 arcs) with no minimize
 /// applied by this function itself -- adding one here would change those counts (composing minimal
 /// nets is not itself guaranteed minimal) and break that regression guard. Callers that want a
 /// minimal composed rule net should call
-/// `crate::compose_budget::minimize_checked` themselves (every example driver already does, via
-/// `foma::minimize::fsm_minimize`, on the FULL `lexc .o. rules .o. cleanup` composition, not on this
+/// `foma::minimize::fsm_minimize` themselves (every example driver already does, on the FULL
+/// `lexc .o. rules .o. cleanup` composition, not on this
 /// function's return value alone).
 pub fn compile_and_compose_rules(
     opts: &FomaOptions,
@@ -1106,17 +1079,8 @@ pub fn compile_and_compose_rules(
     prules_in_order: &[&PhonRuleDef],
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Result<Option<Fsm>, ComposeError> {
-    let budget = ComposeBudget::from_env();
-    compile_and_compose_rules_with_budget(
-        opts,
-        g,
-        alphabet,
-        prules_in_order,
-        skipped,
-        tuple_reports,
-        &budget,
-    )
+) -> Option<Fsm> {
+    compile_and_compose_rules_internal(opts, g, alphabet, prules_in_order, skipped, tuple_reports, false)
 }
 
 /// Compile the same ordered cascade for a propose-then-confirm caller, but preserve an identity
@@ -1142,43 +1106,8 @@ pub fn compile_and_compose_rules_recall_safe(
     prules_in_order: &[&PhonRuleDef],
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Result<Option<Fsm>, ComposeError> {
-    let budget = ComposeBudget::from_env();
-    compile_and_compose_rules_internal(
-        opts,
-        g,
-        alphabet,
-        prules_in_order,
-        skipped,
-        tuple_reports,
-        &budget,
-        true,
-    )
-}
-
-/// `compile_and_compose_rules`'s core, with the `ComposeBudget` threaded in explicitly rather
-/// than read from env -- what tests call directly (design doc §6: "explicit-caps constructors,
-/// never env vars").
-#[allow(clippy::too_many_arguments)]
-pub fn compile_and_compose_rules_with_budget(
-    opts: &FomaOptions,
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    prules_in_order: &[&PhonRuleDef],
-    skipped: &mut Vec<String>,
-    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-    budget: &ComposeBudget,
-) -> Result<Option<Fsm>, ComposeError> {
-    compile_and_compose_rules_internal(
-        opts,
-        g,
-        alphabet,
-        prules_in_order,
-        skipped,
-        tuple_reports,
-        budget,
-        false,
-    )
+) -> Option<Fsm> {
+    compile_and_compose_rules_internal(opts, g, alphabet, prules_in_order, skipped, tuple_reports, true)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1189,26 +1118,19 @@ fn compile_and_compose_rules_internal(
     prules_in_order: &[&PhonRuleDef],
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-    budget: &ComposeBudget,
     optional_every_rule: bool,
-) -> Result<Option<Fsm>, ComposeError> {
+) -> Option<Fsm> {
     let mut composed: Option<Fsm> = None;
     for pr in prules_in_order {
         let rule = match pr {
             PhonRuleDef::Rewrite(rule) => rule,
             PhonRuleDef::Metathesis(m) => {
                 // A shape left honestly unsupported falls through to the same `skipped` report every unsupported construct uses, never a silent wrong compile.
-                match compile_metathesis_rule(opts, g, alphabet, m, budget)? {
+                match compile_metathesis_rule(opts, g, alphabet, m) {
                     Some(net) => {
                         composed = Some(match composed {
                             None => net,
-                            Some(prev) => compose_checked(
-                                opts,
-                                prev,
-                                net,
-                                budget,
-                                "compile_and_compose_rules cascade fold",
-                            )?,
+                            Some(prev) => fsm_compose(opts, prev, net),
                         });
                     }
                     None => skipped.push(format!("{} (metathesis, unhandled)", m.xml_id)),
@@ -1217,35 +1139,23 @@ fn compile_and_compose_rules_internal(
             }
         };
         // `is_fully_supported_shape` detects an unsupported RightToLeft/Simultaneous shape and reports it `skipped`, never a silent mis-map.
-        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true, budget)? {
+        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true) {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 let net = if optional_every_rule {
-                    union_checked(
-                        opts,
-                        net,
-                        fsm_universal(),
-                        budget,
-                        "compile_and_compose_rules recall-safe identity union",
-                    )?
+                    fsm_union(opts, net, fsm_universal())
                 } else {
                     net
                 };
                 composed = Some(match composed {
                     None => net,
-                    Some(prev) => compose_checked(
-                        opts,
-                        prev,
-                        net,
-                        budget,
-                        "compile_and_compose_rules cascade fold",
-                    )?,
+                    Some(prev) => fsm_compose(opts, prev, net),
                 });
             }
             None => skipped.push(rule.xml_id.clone()),
         }
     }
-    Ok(composed)
+    composed
 }
 
 /// Identical to `compile_and_compose_rules`, but for ONE GATING GROUP (`crate::gate`): for every
@@ -1257,9 +1167,6 @@ fn compile_and_compose_rules_internal(
 /// unsupported-construct rule (absent from the group's cascade, i.e. identity for this group) —
 /// see `compile_rewrite_rule_subset`'s doc.
 ///
-/// Builds a production `ComposeBudget` from `HC_COMPOSE_*` env vars exactly once -- same
-/// convention as `compile_and_compose_rules`. Tests should call
-/// `compile_and_compose_rules_gated_with_budget` directly instead.
 #[allow(clippy::too_many_arguments)]
 pub fn compile_and_compose_rules_gated(
     opts: &FomaOptions,
@@ -1269,51 +1176,18 @@ pub fn compile_and_compose_rules_gated(
     subrule_ok: &dyn Fn(usize, usize) -> bool,
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-) -> Result<Option<Fsm>, ComposeError> {
-    let budget = ComposeBudget::from_env();
-    compile_and_compose_rules_gated_with_budget(
-        opts,
-        g,
-        alphabet,
-        prules_in_order,
-        subrule_ok,
-        skipped,
-        tuple_reports,
-        &budget,
-    )
-}
-
-/// `compile_and_compose_rules_gated`'s core, with the `ComposeBudget` threaded in explicitly
-/// rather than read from env -- what `crate::gate::compile_gated_grammar_with_budget` and tests
-/// call directly, so a whole gated-grammar compile shares ONE budget across every group's cascade.
-#[allow(clippy::too_many_arguments)]
-pub fn compile_and_compose_rules_gated_with_budget(
-    opts: &FomaOptions,
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    prules_in_order: &[&PhonRuleDef],
-    subrule_ok: &dyn Fn(usize, usize) -> bool,
-    skipped: &mut Vec<String>,
-    tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
-    budget: &ComposeBudget,
-) -> Result<Option<Fsm>, ComposeError> {
+) -> Option<Fsm> {
     let mut composed: Option<Fsm> = None;
     for (rule_pos, pr) in prules_in_order.iter().enumerate() {
         let rule = match pr {
             PhonRuleDef::Rewrite(rule) => rule,
             PhonRuleDef::Metathesis(m) => {
                 // A `MetathesisRuleDef` carries no subrules, so gating does not apply -- every group compiles the same metathesis relation.
-                match compile_metathesis_rule(opts, g, alphabet, m, budget)? {
+                match compile_metathesis_rule(opts, g, alphabet, m) {
                     Some(net) => {
                         composed = Some(match composed {
                             None => net,
-                            Some(prev) => compose_checked(
-                                opts,
-                                prev,
-                                net,
-                                budget,
-                                "compile_and_compose_rules_gated cascade fold",
-                            )?,
+                            Some(prev) => fsm_compose(opts, prev, net),
                         });
                     }
                     None => skipped.push(format!("{} (metathesis, unhandled)", m.xml_id)),
@@ -1323,24 +1197,18 @@ pub fn compile_and_compose_rules_gated_with_budget(
         };
         // Mode/dir detection lives in `compile_rewrite_rule_subset` (`is_fully_supported_shape`), so an unsupported shape is reported `skipped`, never silently mis-compiled.
         let allowed = |sub_idx: usize| subrule_ok(rule_pos, sub_idx);
-        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &allowed, budget)? {
+        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &allowed) {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 composed = Some(match composed {
                     None => net,
-                    Some(prev) => compose_checked(
-                        opts,
-                        prev,
-                        net,
-                        budget,
-                        "compile_and_compose_rules_gated cascade fold",
-                    )?,
+                    Some(prev) => fsm_compose(opts, prev, net),
                 });
             }
             None => skipped.push(rule.xml_id.clone()),
         }
     }
-    Ok(composed)
+    composed
 }
 
 /// `true` iff `rule.mode` (and, for `Simultaneous`, `rule`'s own subrule shape against `g`) is a
@@ -1362,7 +1230,7 @@ pub fn compile_and_compose_rules_gated_with_budget(
 /// that machinery is not an approximation, it is the correct construction. A rule the predicate
 /// cannot prove non-overlapping for (or with a self-opaquing subrule, or an unsupported pattern
 /// node in a lowered span) stays OUTSIDE this shape -- `compile_rewrite_rule_subset` returns
-/// `Ok(None)` for it exactly like any other unsupported construct, honest-unsupported, never a
+/// `None` for it exactly like any other unsupported construct, honest-unsupported, never a
 /// wrong compile.
 pub fn is_fully_supported_shape(g: &Grammar, rule: &RewriteRuleDef) -> bool {
     match rule.mode {
@@ -1416,12 +1284,11 @@ fn compile_metathesis_swap_net(
     slots: &[Slot],
     left_idx: usize,
     right_idx: usize,
-    budget: &ComposeBudget,
     rule_xml_id: &str,
     table: &CharDefTable,
     table_id: TableId,
     aliases: &RepresentationAliasMap,
-) -> Result<Option<Fsm>, ComposeError> {
+) -> Option<Fsm> {
     let leading_anchor = matches!(slots.first(), Some(Slot::Anchor(_)));
     let trailing_anchor = matches!(slots.last(), Some(Slot::Anchor(_)));
     let start = usize::from(leading_anchor);
@@ -1434,7 +1301,7 @@ fn compile_metathesis_swap_net(
         || left_idx >= end
         || right_idx >= end
     {
-        return Ok(None);
+        return None;
     }
     let effective_slots = &slots[start..end];
     let adjusted_left = left_idx - start;
@@ -1448,7 +1315,7 @@ fn compile_metathesis_swap_net(
     for slot in effective_slots {
         match slot_candidates(slot, table, table_id, aliases) {
             Some(members) if !members.is_empty() => candidates.push(members),
-            _ => return Ok(None), // Slot::Alpha/Slot::Repeat, or a vacuous empty class.
+            _ => return None, // Slot::Alpha/Slot::Repeat, or a vacuous empty class.
         }
     }
 
@@ -1486,16 +1353,10 @@ fn compile_metathesis_swap_net(
         });
         net = Some(match net {
             None => branch_net,
-            Some(prev) => union_checked(
-                opts,
-                prev,
-                branch_net,
-                budget,
-                "compile_metathesis_rule cross-product union",
-            )?,
+            Some(prev) => fsm_union(opts, prev, branch_net),
         });
     }
-    Ok(net)
+    net
 }
 
 /// The `Dir::RightToLeft` mirror's own switch indices: `(n - 1 - left_idx, n - 1 - right_idx)`. Factored out so `metathesis_mirror_switch_index_remap_tests` can pin the arithmetic without building a whole `Fsm`.
@@ -1549,7 +1410,7 @@ mod metathesis_mirror_switch_index_remap_tests {
 }
 
 /// Compiles one `MetathesisRuleDef` into the dedicated swap relation (module doc above), or
-/// `Ok(None)` for a shape this change leaves honestly unsupported — the SAME "uncovered, caller
+/// `None` for a shape this change leaves honestly unsupported — the SAME "uncovered, caller
 /// reports it `skipped`" contract `compile_rewrite_rule_subset` already uses for an unsupported
 /// `RewriteRuleDef` pattern construct.
 ///
@@ -1572,10 +1433,9 @@ pub(crate) fn compile_metathesis_rule(
     g: &Grammar,
     alphabet: &SegAlphabet,
     rule: &MetathesisRuleDef,
-    budget: &ComposeBudget,
-) -> Result<Option<Fsm>, ComposeError> {
+) -> Option<Fsm> {
     let Some(table) = owning_table_for_metathesis(g, rule) else {
-        return Ok(None);
+        return None;
     };
     // Shares `owning_table_for_metathesis`'s own stratum lookup, so this is guaranteed `Some` here too.
     let table_id = owning_table_id_for_metathesis(g, rule)
@@ -1585,13 +1445,13 @@ pub(crate) fn compile_metathesis_rule(
     // Must stay in lockstep with `capability::metathesis_swap_construction_attempted`'s own scope, or the two could admit different rule sets.
     let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
     let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence, scope) else {
-        return Ok(None);
+        return None;
     };
     let left_idx = rule.left_switch as usize;
     let right_idx = rule.right_switch as usize;
     if left_idx == right_idx || left_idx >= slots.len() || right_idx >= slots.len() {
         // Defensive: both are always in bounds by construction; honest-unsupported rather than a panic if that ever changes.
-        return Ok(None);
+        return None;
     }
 
     let Some(plain_net) = compile_metathesis_swap_net(
@@ -1600,18 +1460,17 @@ pub(crate) fn compile_metathesis_rule(
         &slots,
         left_idx,
         right_idx,
-        budget,
         &rule.xml_id,
         table,
         table_id,
         &alias_map,
-    )?
+    )
     else {
-        return Ok(None);
+        return None;
     };
 
     match rule.dir {
-        Dir::LeftToRight => Ok(Some(plain_net)),
+        Dir::LeftToRight => Some(plain_net),
         Dir::RightToLeft => {
             // `slots` never contains a `Slot::Repeat`/`Slot::Alpha` here, so every slot is atomic and `reversed_slots` is a pure index reversal.
             let mirror_slots = reversed_slots(&slots);
@@ -1623,25 +1482,18 @@ pub(crate) fn compile_metathesis_rule(
                 &mirror_slots,
                 mirror_left_idx,
                 mirror_right_idx,
-                budget,
                 &rule.xml_id,
                 table,
                 table_id,
                 &alias_map,
-            )?
+            )
             else {
-                // Kept as an honest `Ok(None)` rather than `unreachable!` in case this equivalence is ever violated.
-                return Ok(None);
+                // Kept as an honest `None` rather than `unreachable!` in case this equivalence is ever violated.
+                return None;
             };
             let reversed_net = fsm_reverse(mirror_net);
-            let unioned = union_checked(
-                opts,
-                plain_net,
-                reversed_net,
-                budget,
-                "compile_metathesis_rule RTL safety-net union",
-            )?;
-            Ok(Some(unioned))
+            let unioned = fsm_union(opts, plain_net, reversed_net);
+            Some(unioned)
         }
     }
 }
@@ -1794,11 +1646,8 @@ mod owning_table_tests {
         let table = owning_table(&g, rule).expect("prule_alpha_t1 has an owning stratum");
         let alphabet = SegAlphabet::new(table);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
-
         let (net, reports) =
-            compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
-                .expect("unbounded budget must never trip")
+            compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true)
                 .expect("prule_alpha_t1 must compile");
         assert!(net.statecount > 0);
         assert_eq!(reports.len(), 1, "exactly one alpha-bearing subrule");

@@ -14,7 +14,7 @@ use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
 
 use pg_foma::compose_budget::ComposeBudget;
-use pg_foma::replace::{compile_and_compose_rules_with_budget, SegAlphabet};
+use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered_with_budget;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
@@ -64,7 +64,7 @@ fn oracle_candidate_set(
         .collect()
 }
 
-/// Compiles `rule` (stratum 0's table) via `compile_and_compose_rules_with_budget`, composes after `lexc_source`, and minimizes -- shared plumbing every containment witness below uses.
+/// Compiles `rule` (stratum 0's table) via `compile_and_compose_rules`, composes after `lexc_source`, and minimizes -- shared plumbing every containment witness below uses.
 fn compile_net(
     g: &Grammar,
     alphabet: &SegAlphabet,
@@ -78,16 +78,14 @@ fn compile_net(
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rule_net = compile_and_compose_rules_with_budget(
+    let rule_net = compile_and_compose_rules(
         &opts,
         g,
         alphabet,
         &[rule],
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("rule compile must not hit any budget: {e}"))
     .expect("metathesis rule must now compile to Some(net)");
     assert!(skipped.is_empty(), "rule must not be skipped: {skipped:?}");
     fsm_minimize(&opts, fsm_compose(&opts, lexc_net, rule_net))
@@ -679,16 +677,14 @@ fn metathesis_right_to_left_switch_index_remap_matches_the_derived_formula() {
         usize::MAX, usize::MAX);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let net = compile_and_compose_rules_with_budget(
+    let net = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet,
         &[&g.prules[0]],
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"))
     .expect("RTL metathesis rule must compile to Some(net)");
     assert!(skipped.is_empty());
 
@@ -789,16 +785,14 @@ fn metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset() {
         usize::MAX, usize::MAX);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules_with_budget(
+    let composed = compile_and_compose_rules(
         &opts,
         &g,
         &alphabet,
         &[&g.prules[0]],
         &mut skipped,
         &mut tuple_reports,
-        &budget,
     )
-    .unwrap_or_else(|e| panic!("compile must not hit any budget: {e}"));
 
     let net = composed.expect("a final-anchor metathesis pattern must compile");
     assert!(

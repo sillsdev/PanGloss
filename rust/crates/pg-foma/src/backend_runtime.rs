@@ -1654,23 +1654,7 @@ fn realize_plan_composed(
         };
     };
     // Mandatory finish step, not an optimization: without it the net still carries the inter-morph boundary tokens uflexc emits, which a surface query never contains, so apply_up returns nothing and recall reads as zero.
-    let mut net = match crate::build::finish_controllable_net(
-        opts,
-        net,
-        surface_table(grammar),
-        alphabet,
-        compose,
-    ) {
-        Ok(net) => net,
-        Err(e) => {
-            return RealizedPlanComposed::Failed {
-                certification: Certification::BuildFailed {
-                    reason: format!("boundary-cleanup finish failed: {e}"),
-                },
-                build,
-            };
-        }
-    };
+    let mut net = crate::build::finish_controllable_net(opts, net, surface_table(grammar), alphabet);
     // Closes an asymmetry: `FomaProposer::new` calls `prepare_network_for_apply`, but `from_precompiled_network` (every plan-composed candidate's constructor) deliberately did not, so above ARC_SORT_MIN_ARCS the hand-spun baseline got foma's binary-search arc traversal and its plan-composed comparison point did not.
     // See `docs/research/pg-foma-recipe-runtime-design-notes.md` for why this is worth keeping despite measuring inert on every current fixture.
     crate::analyzer::prepare_network_for_apply(&mut net);

@@ -1,6 +1,6 @@
-//! Composition-path budget guards for (`crate::replace`, `crate::gate`, `crate::uflexc`) -- a path
-//! that, until this module, had **no `Result`-returning public API at all** (bare `Option`/`Fsm`/
-//! report structs, example drivers `panic!` on failure).
+//! Composition-path budget guards for the emit/gate/uflexc paths whose network operations can
+//! genuinely exceed configured limits. The ordinary replacement cascade uses direct foma
+//! operations and reports unsupported rules through its existing `Option` contract.
 //!
 //! ## Why this budget is path-local
 //! The composition cascade
@@ -20,11 +20,6 @@
 //!   out of scope here.
 
 use std::fmt;
-
-use foma::constructions::{fsm_compose, fsm_union};
-use foma::minimize::fsm_minimize;
-use foma::options::FomaOptions;
-use foma::types::Fsm;
 
 // Chain-depth dimension: closes stack overflow from a deep derivation/unapplication chain, but only where wired (`check_chain_depth`'s
 // callers) and off by default. See docs/research/pg-foma-compose-budget-design-notes.md for scope and why the default is off.
@@ -295,9 +290,9 @@ impl ComposeBudget {
     /// a caller reports its current cumulative derivation/unapplication step count for one word,
     /// and this returns `ComposeError::ChainDepthExceeded` once `depth` exceeds
     /// `Self::chain_depth_cap`. Deterministic logical counter, never a wall-clock check
-    /// (deterministic logical counters are the primary fast-failure mechanism). Mirrors `compose_checked`/
-    /// `union_checked`/`minimize_checked`'s own "check the crate's own vocabulary of a typed
-    /// `ComposeError`, `site` names the call site" shape, but takes a caller-reported logical
+    /// (deterministic logical counters are the primary fast-failure mechanism). This uses the
+    /// crate's own typed `ComposeError` vocabulary and names the call site, but takes a
+    /// caller-reported logical
     /// count directly rather than measuring a returned `Fsm` -- there is no `Fsm` to inspect for
     /// a recursion-depth counter, unlike the size dimensions above.
     ///
@@ -326,39 +321,6 @@ impl ComposeBudget {
         }
     }
 
-}
-
-/// Checked `fsm_compose` (V1/V2, design doc §4).
-pub(crate) fn compose_checked(
-    opts: &FomaOptions,
-    a: Fsm,
-    b: Fsm,
-    budget: &ComposeBudget,
-    site: &'static str,
-) -> Result<Fsm, ComposeError> {
-    Ok(fsm_compose(opts, a, b))
-}
-
-/// Checked `fsm_union` -- see `compose_checked`'s doc (identical shape, `fsm_union` in place of
-/// `fsm_compose`). Recall `fsm_union` does NOT minimize internally (module doc).
-pub(crate) fn union_checked(
-    opts: &FomaOptions,
-    a: Fsm,
-    b: Fsm,
-    budget: &ComposeBudget,
-    site: &'static str,
-) -> Result<Fsm, ComposeError> {
-    Ok(fsm_union(opts, a, b))
-}
-
-/// Checked `fsm_minimize` -- see `compose_checked`'s doc (unary in place of binary).
-pub(crate) fn minimize_checked(
-    opts: &FomaOptions,
-    a: Fsm,
-    budget: &ComposeBudget,
-    site: &'static str,
-) -> Result<Fsm, ComposeError> {
-    Ok(fsm_minimize(opts, a))
 }
 
 #[cfg(test)]

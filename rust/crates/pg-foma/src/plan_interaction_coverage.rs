@@ -76,7 +76,7 @@
 //!    characteristics.
 //! 2. **Gate-group sibling reordering** (`crate::gate`'s own module doc, "why the union is safe
 //!    here": partition groups are lexically disjoint by construction; `crate::build::
-//!    build_controllable`'s `union_checked` call site, same argument; `crate::oracle::
+//!    build_controllable`'s `fsm_union` call site, same argument; `crate::oracle::
 //!    permute_gate_groups` + its own `differential_oracle_agrees_on_permuted_gate_groups_of_the_same
 //!    _grammar` test, oracle.rs): reordering a `crate::plan::PlanNodeKind::Gate` node's
 //!    `partition.groups` changes that node's OWN content address but never the composed relation
@@ -379,7 +379,7 @@ pub fn retired_interactions() -> Vec<RetiredInteraction> {
             label: "Gate-group sibling reordering (Compose-group siblings under a shared Gate)",
             evidence: "crate::gate's own module doc (\"why the union is safe here\": a Gate node's \
                 partition groups are lexically disjoint by construction) plus crate::build's \
-                union_checked call site (same argument, restated at build time) plus \
+                fsm_union call site (same argument, restated at build time) plus \
                 crate::oracle::permute_gate_groups's own doc and its \
                 differential_oracle_agrees_on_permuted_gate_groups_of_the_same_grammar test: \
                 reordering a Gate node's partition.groups changes that node's own content address but \

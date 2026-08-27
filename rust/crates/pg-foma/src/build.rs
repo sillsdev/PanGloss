@@ -7,9 +7,9 @@
 //! plan::PlanNodeKind::Gate`] node and its per-group `Compose{LexiconFragment, Replace}` children --
 //! and calls the SAME low-level primitives `crate::gate::compile_gated_grammar_with_budget` uses
 //! (`crate::uflexc::emit_underlying_filtered_with_budget`, [`crate::replace::
-//! compile_and_compose_rules_gated_with_budget`], `crate::compose_budget`'s checked compose/union/
-//! minimize wrappers). Neither `gate.rs`'s nor `replace.rs`'s bodies are touched -- this module only
-//! calls their existing `pub` entry points.
+//! compile_and_compose_rules_gated`], and direct foma compose/union/minimize calls). The gate and
+//! replacement entry points own their unsupported-rule handling; this module only calls their
+//! public APIs.
 //!
 //! Proven equivalent to `crate::gate::compile_gated_grammar_with_budget`'s own direct-compile
 //! output by an APPLY-based test (`equivalence_tests`, below) -- run real query words through BOTH
@@ -18,7 +18,7 @@
 //! shortcut: two networks can differ in shape (state numbering, arc order) and still be the *same
 //! relation* modulo determinization/minimization choices, so `apply` is what actually matters here;
 //! the module's own test additionally checks minimized state/arc counts as a cheap, meaningful
-//! (not merely coincidental, given both paths run the same final `minimize_checked` on networks
+//! (not merely coincidental, given both paths run the same final `fsm_minimize` on networks
 //! built from the same primitives) extra signal -- but never in place of the apply comparison.
 //!
 //! # Scope: controllable subtree only
@@ -37,7 +37,7 @@
 //! An earlier version of this module built ONE shared `Replace` subplan per grammar, so every
 //! gate group's `Replace` subplan was the identical, content-addressed-SHARED [`crate::plan::
 //! NodeId`], yet the COMPILED `Fsm` that node had to produce differed PER GROUP, because
-//! `crate::replace::compile_and_compose_rules_gated_with_budget`'s `subrule_ok` callback is a
+//! `crate::replace::compile_and_compose_rules_gated`'s `subrule_ok` callback is a
 //! function of the *group*, not of the `Replace` node's own content. A naive content-addressed
 //! interpreter that memoizes a built `Fsm` per `NodeId` would therefore have built the shared
 //! `Replace` node's cascade ONCE and silently reused that WRONG network for every other group -- an
@@ -82,23 +82,23 @@
 //! second time (see that function's own doc for why the pointer-identity approach is sound). No other
 //! visibility change was needed -- every other primitive this module calls
 //! (`crate::uflexc::emit_underlying_filtered_with_budget`, [`crate::replace::
-//! compile_and_compose_rules_gated_with_budget`], `crate::compose_budget`'s checked wrappers,
+//! compile_and_compose_rules_gated`], and direct foma composition,
 //! `crate::gate::GatedCompileResult`) was already `pub`/`pub(crate)`.
 
 use std::collections::HashSet;
 
+use foma::constructions::{fsm_compose, fsm_union};
+use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 
-use crate::compose_budget::{
-    compose_checked, minimize_checked, union_checked, ComposeBudget, ComposeError,
-};
+use crate::compose_budget::ComposeBudget;
 use crate::enumerate::rule_id_of;
 use crate::gate::GatedCompileResult;
 use crate::plan::{FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, ReplaceCascadeSpec};
-use crate::replace::{compile_and_compose_rules_gated_with_budget, SegAlphabet, TupleReport};
+use crate::replace::{compile_and_compose_rules_gated, SegAlphabet, TupleReport};
 use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
 
 /// The two marker fragments `crate::enumerate::enumerate_default` places alongside the `Gate` node
@@ -326,13 +326,12 @@ pub fn finish_controllable_net(
     net: Fsm,
     table: &pg_grammar::chardef::CharDefTable,
     alphabet: &SegAlphabet,
-    budget: &ComposeBudget,
-) -> Result<Fsm, ComposeError> {
+) -> Fsm {
     let net = match boundary_cleanup_net(opts, table, alphabet) {
-        Some(cleanup) => compose_checked(opts, net, cleanup, budget, "finish_controllable_net")?,
+        Some(cleanup) => fsm_compose(opts, net, cleanup),
         None => net,
     };
-    minimize_checked(opts, net, budget, "finish_controllable_net")
+    fsm_minimize(opts, net)
 }
 
 /// Interprets `plan`'s controllable subtree (module doc) into a real, composed `Fsm` -- the plan-walk
@@ -444,7 +443,7 @@ pub fn build_controllable(
         let subrule_ok = subrule_ok_for_group(&cascade.gated_subrules, &cascade.group_key);
 
         let mut group_skipped_rules = Vec::new();
-        let rules_net = compile_and_compose_rules_gated_with_budget(
+        let rules_net = compile_and_compose_rules_gated(
             opts,
             g,
             alphabet,
@@ -452,8 +451,7 @@ pub fn build_controllable(
             &subrule_ok,
             &mut group_skipped_rules,
             &mut tuple_reports,
-            budget,
-        )?;
+        );
         for s in group_skipped_rules {
             if !skipped_rules.contains(&s) {
                 skipped_rules.push(s);
@@ -461,35 +459,18 @@ pub fn build_controllable(
         }
 
         let group_net = match rules_net {
-            Some(rules) => compose_checked(
-                opts,
-                lexc_net,
-                rules,
-                budget,
-                "build_controllable lexc.o.rules",
-            )?,
+            Some(rules) => fsm_compose(opts, lexc_net, rules),
             None => lexc_net,
         };
         final_net = Some(match final_net {
             None => group_net,
             // Safe: groups are lexically disjoint.
-            Some(prev) => union_checked(
-                opts,
-                prev,
-                group_net,
-                budget,
-                "build_controllable group union fold",
-            )?,
+            Some(prev) => fsm_union(opts, prev, group_net),
         });
     }
 
     let final_net = match final_net {
-        Some(net) => Some(minimize_checked(
-            opts,
-            net,
-            budget,
-            "build_controllable final minimize",
-        )?),
+        Some(net) => Some(fsm_minimize(opts, net)),
         None => None,
     };
 

@@ -203,9 +203,7 @@ fn finished_net_from_lexc(grammar: &Grammar, alphabet: &SegAlphabet, lexc_source
         net,
         &grammar.char_tables[0],
         alphabet,
-        &never_trips(),
     )
-    .expect("the boundary-cleanup finish must not trip an unbounded budget")
 }
 
 /// The production plan-composed pipeline `backend_runtime::realize_plan_composed` hands to a proposer: `build::build_controllable` (applying `reroute_null_shaped_affix_chains`), then `finish_controllable_net`.
@@ -223,8 +221,7 @@ fn finished_production_net(grammar: &Grammar) -> Fsm {
         .net
         .take()
         .expect("the default plan must produce a network");
-    pg_foma::build::finish_controllable_net(&opts, net, &grammar.char_tables[0], &alphabet, &budget)
-        .expect("the boundary-cleanup finish must not trip an unbounded budget")
+    pg_foma::build::finish_controllable_net(&opts, net, &grammar.char_tables[0], &alphabet)
 }
 
 /// The `SegAlphabet` token characters for this grammar's `Boundary`-kind char-defs; recomputed here since `build::boundary_tokens` is `pub(crate)`.

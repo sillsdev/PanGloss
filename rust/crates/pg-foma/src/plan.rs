@@ -217,7 +217,7 @@ pub struct GatePartitionSpec {
 ///
 /// **`gated_subrules` + `group_key`:** a `Replace`
 /// node compiled underneath a `PlanNodeKind::Gate` group must exclude/include specific SUBRULES
-/// per that group's own gating key (`crate::replace::compile_and_compose_rules_gated_with_budget`'s
+/// per that group's own gating key (`crate::replace::compile_and_compose_rules_gated`'s
 /// `subrule_ok` callback) -- a fact that, before this fix, lived only on the `Gate` node's
 /// `GatePartitionSpec`, NOT on the `Replace` node's own content. That made two groups needing
 /// DIFFERENT `subrule_ok` behavior reference the SAME `Replace` `NodeId` (`crate::enumerate`'s own

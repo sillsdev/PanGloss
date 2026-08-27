@@ -155,9 +155,8 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
         .net
         .take()
         .ok_or_else(|| "plan-composed build produced no network".to_string())?;
-    crate::build::finish_controllable_net(&opts, net, surface_table(g), &alphabet, &budget)
-        .map(|_| ())
-        .map_err(|e| format!("plan-composed boundary-cleanup finish failed: {e:?}"))
+    crate::build::finish_controllable_net(&opts, net, surface_table(g), &alphabet);
+    Ok(())
 }
 
 /// Characterizes `g`, asks `crate::backend_selection` which backends may run it, and COMPILES with

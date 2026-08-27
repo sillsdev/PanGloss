@@ -56,8 +56,8 @@
 //! a non-vacuous same-relation exercise. `permute_gate_groups` builds one: a copy of the input
 //! plan with every `Gate` node's `partition.groups` (and paired `children`) reordered (reversed).
 //! Because `build_controllable` folds every group's compiled network together with
-//! `crate::compose_budget::union_checked` (commutative) and always finishes with
-//! `crate::compose_budget::minimize_checked`, a `Gate` node's group ORDER cannot affect the final
+//! `foma::constructions::fsm_union` (commutative) and always finishes with
+//! `foma::minimize::fsm_minimize`, a `Gate` node's group ORDER cannot affect the final
 //! relation -- only membership does. Reordering therefore changes the `Gate` node's content address
 //! (`crate::plan::NodeId` is `hash(kind, children, config)`, and both `partition.groups` and
 //! `children` are part of that content) without changing what the built network recognizes: a real,
@@ -385,7 +385,7 @@ fn copy_node(
 /// as long as key and child stay paired, reordering groups cannot desync which key gates which
 /// compiled network. Only the ORDER changes, never membership, so `differential_oracle` run over
 /// `plan` and `permute_gate_groups(plan)` is expected to `Agree` (module doc: union is commutative,
-/// the build always ends in `minimize_checked`).
+/// the build always ends in `fsm_minimize`).
 ///
 /// # Panics
 /// Via `Plan::add_node`'s own debug-only invariant, if `plan` contains a malformed `Gate` node
