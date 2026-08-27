@@ -64,7 +64,6 @@ pub struct FstCompletenessCertificate {
     pub backend: String,
     pub uncovered_constructs: usize,
     pub pending_successors: usize,
-    pub enumeration_budget_exceeded: bool,
     pub compiled_payload_present: bool,
 }
 
