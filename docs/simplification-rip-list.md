@@ -307,8 +307,8 @@ apply/candidate budgets remain separate.
 | I1 | Historical large dirty-tree churn | **RETAINED DISCIPLINE** — every slice is separately committed; final snapshot must be clean |
 | I2 | Baseline worktree at `.claude/worktrees/baseline-verify` | **VERIFIED** — path is absent |
 | I3 | Mismatch ledger accuracy | **LANDED UNVERIFIED** — B3 publication-override persistence is resolved by `67c661cc`/`05ba71b8`/`1cad7f2c`; B6 strict versioning remains tracked above |
-| I4 | `2026-08-23-developer-fst-controls.md` drifts both ways; obsolete once C1 lands | **AUTHORIZED** — replace or delete with C1 |
-| I5 | Docs referencing envelope retry, automatic selection, build-time corpus work, or compatibility guarantees | **AUTHORIZED** — update in the same slice that removes each behavior |
+| I4 | `2026-08-23-developer-fst-controls.md` drifts both ways; obsolete once C1 lands | **LANDED UNVERIFIED** — the document was deleted with the named closure controls in `1c8e1773`; nothing in the tree references it |
+| I5 | Docs referencing envelope retry, automatic selection, build-time corpus work, or compatibility guarantees | **RETAINED DISCIPLINE** — a rule about how each slice works, not an item to delete: every tranche above updates the prose in the same slice that removes the behaviour, prose-last. Residue is found by the per-tranche residue searches, not by a standing backlog row |
 
 ---
 
@@ -797,3 +797,36 @@ part of the deletion tally and must not be described as removed. Only the cross-
 ranking glue is authorized in this cleanup. Any future five-figure estimate must count only actual
 deletions, not the protected substrate. The test suite is the least explored surface and the most
 likely to hold the remainder: 2,493 tests, written against a design that has changed twice.
+
+---
+
+## Completion gate: NOT met as of 2026-08-27
+
+Demolition is not exhausted. The gate this file sets — no `AUTHORIZED`, `PARTIAL`, `OPEN`, `VERIFY`,
+or unreviewed tranche left standing — is unmet, and the reason is not a backlog of unstaged
+deletions. It is that what remains is not deletion work:
+
+- **`F10` is the one genuinely large removal surface left, and it is unmeasured.** Two mechanical
+  probes over the test tree found nothing: no integration test imports a name that no longer
+  exists, and no test calls an associated function defined nowhere in the workspace. Whatever
+  dead weight is in those 2,493 tests is semantic — a test that still compiles and still passes
+  while pinning nothing anyone wants — so finding it needs judgment per test, not a sweep. Do not
+  issue it as one task.
+- **`G1`-`G5` are correctness defects, not cruft.** This file already forbids mixing them into a
+  mechanical deletion slice, and that has been respected. Each needs its own evidence.
+- **`H2`/`H3` are refactors** (split `capability.rs`; reduce the 15-file shotgun edit for adding a
+  backend). Neither removes behaviour.
+- **`D1`/`H4` are `VERIFY`** — they need a measurement or a decision, not a deletion.
+- **`D5`/`D8` are consolidation**, ~140 lines of duplication, worth doing but not cruft removal.
+- **`REP_VARIANT_CAP` is refused on evidence**, not pending. See the containment inventory above.
+
+Two compile holes are known, stated, and deliberately unrepaired: `run_make_report`'s `pack_path`
+match has no `None` arm and never assigns `trust` on its `else` branch. Both are for the
+replacement phase, which will have to decide whether `make-report` requires an explicitly named
+artifact — the direction the ratified Package contract points.
+
+The honest next step is therefore **not another rip**. It is the replacement stage this file's
+execution order already names: define the smallest coherent explicit-backend/completed-artifact
+surface, repair the intentional compile holes against it, add tests for that final surface only,
+and then run authoritative verification through `rust/tools/pg.ps1`. `F10` is best done after
+that, when a passing suite makes "this test pins nothing" a checkable claim rather than a guess.
