@@ -6,7 +6,7 @@
 //!
 //! This module owns the pattern-lowering vocabulary (`Slot`, `pattern_slots`,
 //! `slots_from_nodes`, `resolve_alpha_tuples`, `render_slots`, `AlphaAssignment`,
-//! `TupleReport`, `class_members`, `slots_contain_alpha`, `MAX_QUANTIFIER_BOUND`) that
+//! `TupleReport`, `class_members`, `slots_contain_alpha`) that
 //! `replace.rs`'s rewrite-rule/metathesis compilation also uses; `replace.rs` re-exports every one
 //! at its own path so existing callers are unaffected by where the logic actually lives.
 //!
@@ -23,8 +23,8 @@
 //! finitely bounded and a genuinely unbounded (`max: None`) alpha-free `PatternNode::Quantifier`
 //! natively (`Slot::Repeat`), and since `lower_span` calls `pattern_slots` directly rather than
 //! re-deriving pattern coverage, either shape anywhere in `left_env`/`focus`/`right_env` lowers for
-//! free. An inverted-bound (`min > max`), over-budget-finite (past `MAX_QUANTIFIER_BOUND`), or
-//! alpha-nested quantifier is not representable: `pattern_slots` returns `None` for it, and
+//! free. An inverted-bound (`min > max`), alpha-nested, or empty-children quantifier is not
+//! representable: `pattern_slots` returns `None` for it, and
 //! `UnsupportedPatternNode::Quantifier` is the typed reason `diagnose_unsupported` reports.
 
 use std::collections::HashSet;
@@ -137,14 +137,11 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
     })
 }
 
-/// Characterization ceiling on a `Quantifier`'s own finite `max` bound, checked before any xre text is rendered; a finite `max` above this ceiling is honestly reported unsupported, never silently clamped (which would round an honest refusal toward false acceptance). Never applied to a genuinely unbounded quantifier — `max: None` is a different, always-native-size construction, not a bound above this ceiling.
-const MAX_QUANTIFIER_BOUND: u32 = 512;
-
 /// Walk `pattern`'s nodes into `Slot`s, numbering each `Alpha` occurrence sequentially from
 /// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
 /// `replace.rs`'s `compile_rewrite_rule`, or this module's own `lower_span`, which resets its own
 /// FRESH counter per span). Returns `None` (uncovered) on a disagree-polarity `Context`; an
-/// out-of-scope `Quantifier` (inverted/over-budget-finite/alpha-nested/empty-children — see
+/// out-of-scope `Quantifier` (inverted/alpha-nested/empty-children — see
 /// `Slot::Repeat`'s own doc; a genuinely UNBOUNDED quantifier is not, by itself, out of
 /// scope); or, when `scope` is
 /// `PatternLowerScope::Baseline`, any `Segments`/`Anchor` node at all (when `scope` is
@@ -212,14 +209,10 @@ fn slots_from_nodes(
                 }
             }
             PatternNode::Quantifier { min, max, children } => {
-                // A genuinely unbounded quantifier is accepted here: it has its own native, finite-size foma construction, so refusing it would be a scope line, not a feasibility finding. The inverted-bound/MAX_QUANTIFIER_BOUND checks below apply only to a finite bound and are skipped for `None`.
+                // A genuinely unbounded quantifier is accepted here: it has its own native, finite-size foma construction, so refusing it would be a scope line, not a feasibility finding. The inverted-bound check applies only to a finite bound and is skipped for `None`.
                 if let Some(max_v) = max {
                     // Inverted bound: no sound finite construction exists for it; honest-unsupported rather than silently swapping/clamping min/max.
                     if min > max_v {
-                        return None;
-                    }
-                    // Checked before recursing into children or rendering any xre text — the cheapest possible predictor.
-                    if *max_v > MAX_QUANTIFIER_BOUND {
                         return None;
                     }
                 }
@@ -493,14 +486,14 @@ pub(crate) fn render_slots(
 /// respectively; under `PatternLowerScope::RewriteRuleCompile`, both lower successfully instead
 /// (`Segments` preserves table semantics same- or cross-table; `Anchor` always lowers to
 /// `Slot::Anchor`), so those two variants become baseline-scope-only refusals. `Quantifier` covers
-/// an inverted, over-budget-finite, alpha-nested, or empty-children quantifier — a finitely bounded
+/// an inverted, alpha-nested, or empty-children quantifier — a finitely bounded
 /// or genuinely unbounded, alpha-free quantifier never reaches this variant, since `pattern_slots`
 /// accepts it directly as a `Slot::Repeat`. `AlphaDisagreePolarity` is not a distinct node kind but
 /// the same "cannot lower faithfully" outcome for a disagree-polarity alpha variable, refused under
 /// every `PatternLowerScope` tier — an orthogonal, pre-existing gap unrelated to direction/reversal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedPatternNode {
-    /// An inverted, over-budget-finite, alpha-nested, or empty-children `Quantifier`; pinned by `inverted_finite_quantifier_still_unsupported`.
+    /// An inverted, alpha-nested, or empty-children `Quantifier`; pinned by `inverted_finite_quantifier_still_unsupported`.
     Quantifier,
     /// An inline pre-segmented literal `Segments` shape group, under `PatternLowerScope::Baseline` only.
     Segments,
@@ -577,7 +570,7 @@ fn diagnose_unsupported_nodes(
             }
             PatternNode::Quantifier { min, max, children } => {
                 if let Some(max_v) = max {
-                    if min > max_v || *max_v > MAX_QUANTIFIER_BOUND {
+                    if min > max_v {
                         return Some(UnsupportedPatternNode::Quantifier);
                     }
                 }
@@ -956,7 +949,7 @@ mod tests {
         );
     }
 
-    // A genuinely unbounded (max: None) quantifier compiles via foma's native E*/E^>N operator; MAX_QUANTIFIER_BOUND and the inverted-bound check apply only to a finite max.
+    // A genuinely unbounded (max: None) quantifier compiles via foma's native E*/E^>N operator.
 
     use foma::apply::{apply_init, apply_up};
 
