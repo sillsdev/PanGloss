@@ -92,10 +92,6 @@ pub(crate) struct GrammarHandle {
     force_next_pool_build_failure: std::sync::atomic::AtomicBool,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     pool_build_count: std::sync::atomic::AtomicUsize,
-    /// Never read directly after construction — it exists purely to *own* the allocation
-    /// `morpher` points into (dropping it is what actually frees the grammar). That's a real
-    /// use the `dead_code` lint can't see, hence the explicit allow.
-    #[allow(dead_code)]
     pub(crate) grammar: Arc<Grammar>,
 }
 
