@@ -1,16 +1,11 @@
-//! `pangloss fst-health <grammar> [<out.json>]` runs the grammar-only characterization pass and
-//! writes one canonical `HealthReport`. It compiles no backend artifact and evaluates no
-//! corpus, though characterization does construct `foma` networks for the
-//! simultaneous-overlap predicate (`pg_foma::capability::LoweredSpan`). Proposal,
-//! confirmation, and duplicate-analysis measurements belong to a separate post-build
-//! corpus operation over an explicitly completed artifact.
+//! `pangloss fst-health <grammar> [<out.json>]`: grammar characterization to one
+//! `HealthReport`. See `docs/research/pg-cli-make-report-design-notes.md`.
 
 use std::fs;
 
 use pg_foma::characterization::characterization_findings;
 use pg_foma::health::HealthReport;
 use pg_grammar::model::Grammar;
-
 
 /// Builds a report from grammar characterization only; no backend compiler or corpus is run.
 fn build_health_report(grammar: &Grammar) -> HealthReport {
@@ -108,5 +103,4 @@ mod tests {
         assert!(summary.contains("containment="), "{summary}");
         assert!(summary.contains("process="), "{summary}");
     }
-
 }

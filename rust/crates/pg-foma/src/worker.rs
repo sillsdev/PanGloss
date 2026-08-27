@@ -81,9 +81,14 @@ pub enum FrameError {
         limit: u64,
     },
     /// The declared frame length cannot be represented by this process's `usize`.
-    LengthNotAddressable { declared: u64 },
+    LengthNotAddressable {
+        declared: u64,
+    },
     /// The process could not reserve the declared frame body without panicking.
-    AllocationFailed { declared: u64, detail: String },
+    AllocationFailed {
+        declared: u64,
+        detail: String,
+    },
     /// The frame body's bytes did not parse as valid UTF-8 JSON matching the expected type.
     Json(String),
 }
@@ -310,10 +315,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     let compose_budget = request.compose_budget();
 
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::analyzer::FomaProposer::new_with_budget_and_profile(
-            &grammar,
-            &compose_budget,
-        )
+        crate::analyzer::FomaProposer::new_with_budget_and_profile(&grammar, &compose_budget)
     }));
 
     let (result, profile) = match compiled {
@@ -337,12 +339,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
                 .report
                 .as_ref()
                 .expect("FomaProposer::new always runs the tuned emitter and supplies its report");
-            let health = crate::health_evaluator::evaluate_health(
-                None,
-                Some(report),
-                &[],
-                &[],
-            );
+            let health = crate::health_evaluator::evaluate_health(None, Some(report), &[], &[]);
             CompileWorkerOutcome::Success {
                 final_state_count: profile.final_state_count,
                 final_arc_count: profile.final_arc_count,
@@ -464,11 +461,7 @@ fn compile_selected_from_request(
             }
         };
         let (wire, payload_bytes) = completed.into_wire_and_payload();
-        finish_selected_payload(
-            wire,
-            payload_bytes,
-            limits.max_serialized_fst_bytes(),
-        )
+        finish_selected_payload(wire, payload_bytes, limits.max_serialized_fst_bytes())
     })();
     outcome
 }
@@ -583,10 +576,7 @@ fn write_result<W: Write>(output: &mut W, result: &CompileWorkerResult) -> io::R
     write_frame(output, &json)
 }
 
-fn write_child_output<W: Write>(
-    output: &mut W,
-    child_output: WorkerChildOutput,
-) -> io::Result<()> {
+fn write_child_output<W: Write>(output: &mut W, child_output: WorkerChildOutput) -> io::Result<()> {
     let result = CompileWorkerResult {
         protocol_version: WORKER_PROTOCOL_VERSION,
         outcome: child_output.outcome.clone(),
@@ -602,18 +592,15 @@ fn write_child_output<W: Write>(
 }
 
 fn build_process_failure_health(detail: String) -> HealthReport {
-    HealthReport::new(vec![HealthFinding {
-        code: FindingCode::BuildProcessFailed,
-        severity: Severity::NotProductionReady,
-        phase: Phase::Compile,
-        affected: Vec::new(),
-        metric: Metric::UnknownUnboundedWork,
-        value: MetricValue::Unbounded,
-        provenance: ValueProvenance::Observed,
-        threshold: None,
-        explanation: detail,
-        remedies: Vec::new(),
-    }])
+    HealthReport::new(vec![HealthFinding::new(
+        FindingCode::BuildProcessFailed,
+        Severity::NotProductionReady,
+        Phase::Compile,
+        Metric::UnknownUnboundedWork,
+        MetricValue::Unbounded,
+        ValueProvenance::Observed,
+        detail,
+    )])
 }
 
 #[cfg(test)]
@@ -654,11 +641,7 @@ mod tests {
 
     fn selected_success(payload: &[u8]) -> CompileWorkerResult {
         let digest = sha256_hex(payload);
-        selected_success_with(
-            payload.len() as u64,
-            digest.clone(),
-            digest,
-        )
+        selected_success_with(payload.len() as u64, digest.clone(), digest)
     }
 
     #[test]
@@ -684,11 +667,7 @@ mod tests {
     fn selected_payload_one_byte_over_limit_emits_no_raw_frame() {
         let payload = b"four".to_vec();
 
-        let output = finish_selected_payload(
-            selected_build(sha256_hex(&payload)),
-            payload,
-            3,
-        );
+        let output = finish_selected_payload(selected_build(sha256_hex(&payload)), payload, 3);
 
         assert!(matches!(
             output,
@@ -727,10 +706,7 @@ mod tests {
 
         let json = serde_json::to_value(result).expect("serialize selected success");
 
-        assert_eq!(
-            json["outcome"]["SelectedSuccess"]["payload_byte_len"],
-            4
-        );
+        assert_eq!(json["outcome"]["SelectedSuccess"]["payload_byte_len"], 4);
         assert_eq!(
             json["outcome"]["SelectedSuccess"]["payload_sha256"],
             sha256_hex(payload)
@@ -932,5 +908,4 @@ mod tests {
         }
         let _ = std::fs::remove_file(&path);
     }
-
 }

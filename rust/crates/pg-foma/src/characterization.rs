@@ -72,7 +72,9 @@ use serde::{Deserialize, Serialize};
 use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
 use crate::capability_entry::best_case_across_backends;
 use crate::grammar_semantics::GrammarSemantics;
-use crate::health::{FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance};
+use crate::health::{
+    FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
+};
 
 /// Default logical-work budget for TunedSurface composite closure. This counts reachable
 /// root/chain-state x rule applications, never affix depth. Ordinary selection keeps this budget
@@ -198,19 +200,15 @@ impl ClosureTrace {
         true
     }
 
-    pub(crate) fn record_successors(
-        &self,
-        depth: usize,
-        ordinal: u32,
-        successors: usize,
-    ) -> bool {
+    pub(crate) fn record_successors(&self, depth: usize, ordinal: u32, successors: usize) -> bool {
         let mut state = self.state.lock().expect("closure trace mutex poisoned");
         if state.terminal.is_some() || state.stop.is_some() {
             return false;
         }
         state.synthesized_successors = state.synthesized_successors.saturating_add(successors);
         if depth >= self.limits.depth_cap && successors != 0 {
-            state.pending_successor_count = state.pending_successor_count.saturating_add(successors);
+            state.pending_successor_count =
+                state.pending_successor_count.saturating_add(successors);
             state.pending_rule_ordinals.push(ordinal);
             state.stop = Some(ClosureStopReason::DepthBudgetReached);
             return false;
@@ -222,15 +220,14 @@ impl ClosureTrace {
         let mut state = self.state.lock().expect("closure trace mutex poisoned");
         state.pending_rule_ordinals.sort_unstable();
         state.pending_rule_ordinals.dedup();
-        let worklist_empty = state.terminal.is_none()
-            && state.stop.is_none()
-            && state.pending_successor_count == 0;
+        let worklist_empty =
+            state.terminal.is_none() && state.stop.is_none() && state.pending_successor_count == 0;
         let terminal = match state.terminal {
             Some(terminal) => terminal,
             None => match state.stop {
-            Some(reason) => ClosureTerminal::Incomplete(reason),
-            None if worklist_empty => ClosureTerminal::Complete,
-            None => ClosureTerminal::Incomplete(ClosureStopReason::InternalConstructionFault),
+                Some(reason) => ClosureTerminal::Incomplete(reason),
+                None if worklist_empty => ClosureTerminal::Complete,
+                None => ClosureTerminal::Incomplete(ClosureStopReason::InternalConstructionFault),
             },
         };
         CharacterizationResult {
@@ -305,16 +302,14 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
             )
         })
         .collect();
-    Some(HealthFinding {
-        code: FindingCode::BackendCoverageIncomplete,
-        severity: Severity::CannotRepresent,
-        phase: Phase::Characterization,
-        affected,
-        metric: Metric::BackendCoverageGapCount,
-        value: MetricValue::Count(diags.len() as u64),
-        provenance: ValueProvenance::Observed,
-        threshold: None,
-        explanation: format!(
+    Some(HealthFinding::new(
+        FindingCode::BackendCoverageIncomplete,
+        Severity::CannotRepresent,
+        Phase::Characterization,
+        Metric::BackendCoverageGapCount,
+        MetricValue::Count(diags.len() as u64),
+        ValueProvenance::Observed,
+        format!(
             "This grammar's ADR 0001 capability gate resolves to Refuse: {} construct(s) have no \
              predicate-proven recall-preserving compilation path ({}), so this characterization walk cannot \
              guarantee every HermitCrab analysis would be retained. R6: any uncertainty that could \
@@ -323,8 +318,8 @@ fn semantic_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFind
             diags.len(),
             witnesses.join("; "),
         ),
-        remedies: Vec::new(),
-    })
+    )
+        .affecting(affected))
 }
 
 /// `CompileDecision::ConfirmOnly`: recall-preserving, but this characterization stage has no proven cost bound for the construct(s) that landed here. Always `LargeMultiplier`/`Predicted`; `None` for `Admit`/`Refuse`.
@@ -332,24 +327,21 @@ fn cost_uncertainty_finding(decision: &CompileDecision) -> Option<HealthFinding>
     if !matches!(decision, CompileDecision::ConfirmOnly) {
         return None;
     }
-    Some(HealthFinding {
-        code: FindingCode::UnknownUnboundedConstruct,
-        severity: Severity::LargeMultiplier,
-        phase: Phase::Characterization,
-        affected: Vec::new(),
-        metric: Metric::UnknownUnboundedWork,
-        value: MetricValue::Unbounded,
-        provenance: ValueProvenance::Predicted,
-        threshold: None,
-        explanation: "This grammar's ADR 0001 capability gate resolves to ConfirmOnly: at least \
+    Some(HealthFinding::new(
+        FindingCode::UnknownUnboundedConstruct,
+        Severity::LargeMultiplier,
+        Phase::Characterization,
+        Metric::UnknownUnboundedWork,
+        MetricValue::Unbounded,
+        ValueProvenance::Predicted,
+        "This grammar's ADR 0001 capability gate resolves to ConfirmOnly: at least \
              one construct rests at a config-predicate-resolved recall-preserving disposition \
              (propose the superset, HermitCrab confirm prunes false positives), but this characterization \
              stage has no proven bound on the FST-compile cost it adds. Not itself a CannotRepresent verdict \
              (R6: unknown cost in a recall-preserving construction); a recall-preserving compilation \
              attempt is permitted under the fixed internal limits."
             .to_string(),
-        remedies: Vec::new(),
-    })
+    ))
 }
 
 /// One `Predicted`/`LargeMultiplier` finding per rule with a genuinely unbounded (`max="-1"`) quantifier occurrence.
@@ -358,16 +350,14 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
         .observations()
         .iter()
         .filter_map(|o| match &o.detail {
-            ObservationDetail::QuantifierPattern(d) if !d.all_bounded => Some(HealthFinding {
-                code: FindingCode::UnknownUnboundedConstruct,
-                severity: Severity::LargeMultiplier,
-                phase: Phase::Characterization,
-                affected: vec![format!("{:?}", d.rule)],
-                metric: Metric::UnknownUnboundedWork,
-                value: MetricValue::Unbounded,
-                provenance: ValueProvenance::Predicted,
-                threshold: None,
-                explanation: format!(
+            ObservationDetail::QuantifierPattern(d) if !d.all_bounded => Some(HealthFinding::new(
+                FindingCode::UnknownUnboundedConstruct,
+                Severity::LargeMultiplier,
+                Phase::Characterization,
+                Metric::UnknownUnboundedWork,
+                MetricValue::Unbounded,
+                ValueProvenance::Predicted,
+                format!(
                     "Rule {:?} has at least one quantifier occurrence with no concrete max bound \
                      (the DTD's max=\"-1\" Kleene sentinel); this characterization stage cannot bound the \
                      FST-compile cost this rule adds ahead of time. Not itself a CannotRepresent verdict (R6): a \
@@ -375,8 +365,8 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
                      limits.",
                     d.rule,
                 ),
-                remedies: Vec::new(),
-            }),
+            )
+                .affecting(vec![format!("{:?}", d.rule)])),
             _ => None,
         })
         .collect()
@@ -390,16 +380,14 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
     if product <= RULE_PRODUCT_WARNING_THRESHOLD {
         return None;
     }
-    Some(HealthFinding {
-        code: FindingCode::RuleInteractionProduct,
-        severity: Severity::LargeMultiplier,
-        phase: Phase::Characterization,
-        affected: Vec::new(),
-        metric: Metric::UnknownUnboundedWork,
-        value: MetricValue::Count(product),
-        provenance: ValueProvenance::Predicted,
-        threshold: Some(MetricValue::Count(RULE_PRODUCT_WARNING_THRESHOLD)),
-        explanation: format!(
+    Some(HealthFinding::new(
+        FindingCode::RuleInteractionProduct,
+        Severity::LargeMultiplier,
+        Phase::Characterization,
+        Metric::UnknownUnboundedWork,
+        MetricValue::Count(product),
+        ValueProvenance::Predicted,
+        format!(
             "This grammar has {mrule_count} morphological rule(s) and {prule_count} phonological \
              rule(s) ({mrule_count} x {prule_count} = {product}), above this characterization stage's \
              conservative {RULE_PRODUCT_WARNING_THRESHOLD}-product warning band. This is a cheap, \
@@ -407,8 +395,8 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
              compile-work count; consider whether constraining or decomposing one of the two rule \
              sets reduces their multiplicative interaction."
         ),
-        remedies: Vec::new(),
-    })
+    )
+        .against_threshold(MetricValue::Count(RULE_PRODUCT_WARNING_THRESHOLD)))
 }
 
 #[cfg(test)]

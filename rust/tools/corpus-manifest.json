@@ -27,7 +27,7 @@
       "logical_name": "indonesian",
       "purpose": "Template-less standalone-rule morphotactics with MPR-gated nasal substitution. The reference grammar for proposer recall on the gated compile path, and the only real grammar whose backend candidates currently reach full-HC confirmation.",
       "files": [
-        { "path": "indonesian-hc.xml", "role": "grammar", "required": true },
+        { "path": "indonesian.fwdata", "role": "grammar-fwdata", "required": true },
         {
           "path": "indonesian-words.txt",
           "role": "corpus",
@@ -55,7 +55,7 @@
       "logical_name": "sena",
       "purpose": "Large-lexicon templated grammar (255k+ lexc lines). Drives emit/compile throughput and the propose-then-confirm perf track.",
       "files": [
-        { "path": "sena-hc.xml", "role": "grammar", "required": true },
+        { "path": "sena.fwdata", "role": "grammar-fwdata", "required": true },
         {
           "path": "sena-words.txt",
           "role": "corpus",
@@ -77,7 +77,7 @@
       "logical_name": "amharic",
       "purpose": "Templatic root-and-pattern interdigitation with AffixTemplate morphotactics. The grammar whose productive morphology lives in the composite-emission and structural-composite subtrees that build_controllable does not build.",
       "files": [
-        { "path": "amharic-hc.xml", "role": "grammar", "required": true },
+        { "path": "amharic.fwdata", "role": "grammar-fwdata", "required": true },
         {
           "path": "amharic-words.txt",
           "role": "corpus",
@@ -101,7 +101,7 @@
       "logical_name": "aweti",
       "purpose": "Deep truncation chain with a 24-level derivation and many zero-width truncation mrules. The enumeration-explosion and compose-budget stress case; imported from fwdata/JSON rather than HC XML.",
       "files": [
-        { "path": "aweti.json", "role": "grammar-snapshot", "required": true },
+        { "path": "aweti.json", "role": "grammar-snapshot", "required": false },
         {
           "path": "aweti-words.txt",
           "role": "corpus",
@@ -112,7 +112,7 @@
             "notes": "No header, but the phonology's phonemes/boundaryMarkers (samples/data/aweti.json) define no hyphen or space, so lines containing either (e.g. 'itywytu-put', 'waráju-puza', 'kaminuʼat-puza', 'ị- tyᴾ', 'awytyza ʼytoto') are guaranteed batch status SKIPPED. Line 147 is a stray 'µ' (micro sign) with no linguistic content; line 175 'wejmopáb' ends in a bare 'b', a phoneme this inventory does not define outside its ejective-marked forms. The slow-word tail is broad: a full-corpus oracle sample timed out on 61 of 196 non-skipped words. Sampling MUST pass both --word-timeout-ms and --threads=1. TunedSurface exceeds the current default closure-work envelope and the other two backends have typed coverage gaps, so normal selection has no path and writes no trusted FST. The legacy eager construction measured 3,093,412 composites; that scale evidence must not be mistaken for a safe retry recommendation."
           }
         },
-        { "path": "aweti.fwdata", "role": "grammar-fwdata", "required": false }
+        { "path": "aweti.fwdata", "role": "grammar-fwdata", "required": true }
       ],
       "requiring_tests": [
         "pg-foma --test p6_templated_morphotactics_gate",

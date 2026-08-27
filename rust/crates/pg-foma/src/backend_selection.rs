@@ -21,7 +21,9 @@ use crate::capability::{
 };
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
-use crate::health::{FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance};
+use crate::health::{
+    FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
+};
 use crate::junctions::PhonologyProbe;
 use crate::plan::FragmentSpec;
 use crate::strategy_coverage::ALL_STRATEGIES;
@@ -119,6 +121,16 @@ impl BackendReport {
 
     pub fn advice_references(&self) -> &[AdviceReference] {
         &self.advice_references
+    }
+
+    /// Whether this backend can represent the grammar: true for `Admit` and `ConfirmOnly`,
+    /// false only for a refusal.
+    ///
+    /// A Compatibility report fact about one backend, never a Selector decision (ADR-0001).
+    /// It answers the representability axis and says nothing about readiness or containment,
+    /// which is why it is not named for whether the backend was picked.
+    pub fn can_represent(&self) -> bool {
+        !matches!(self.decision, CompileDecision::Refuse(_))
     }
 
     pub fn status_detail(&self) -> Option<&str> {
@@ -265,26 +277,28 @@ fn attach_capability_refusal(report: &mut BackendReport) {
         })
         .collect::<Vec<_>>()
         .join("; ");
-    report.findings.push(HealthFinding {
-        code: FindingCode::BackendCoverageIncomplete,
-        severity: Severity::CannotRepresent,
-        phase: Phase::Characterization,
-        affected: diagnostics
-            .iter()
-            .map(|diagnostic| diagnostic.construct.clone())
-            .collect(),
-        metric: Metric::BackendCoverageGapCount,
-        value: MetricValue::Count(diagnostics.len() as u64),
-        provenance: ValueProvenance::Observed,
-        threshold: None,
-        explanation: format!(
-            "{:?} cannot prove a complete FST relation for {} characterized construct(s): \
+    report.findings.push(
+        HealthFinding::new(
+            FindingCode::BackendCoverageIncomplete,
+            Severity::CannotRepresent,
+            Phase::Characterization,
+            Metric::BackendCoverageGapCount,
+            MetricValue::Count(diagnostics.len() as u64),
+            ValueProvenance::Observed,
+            format!(
+                "{:?} cannot prove a complete FST relation for {} characterized construct(s): \
              {explanation}",
-            report.strategy,
-            diagnostics.len()
+                report.strategy,
+                diagnostics.len()
+            ),
+        )
+        .affecting(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.construct.clone())
+                .collect(),
         ),
-        remedies: Vec::new(),
-    });
+    );
 
     let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
     for diagnostic in diagnostics {
@@ -314,18 +328,18 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
         .status_detail
         .as_deref()
         .unwrap_or("backend construction did not complete");
-    report.findings.push(HealthFinding {
-        code,
-        severity: Severity::NotProductionReady,
-        phase: Phase::Compile,
-        affected: vec![format!("{:?}", report.strategy)],
-        metric: Metric::UnknownUnboundedWork,
-        value: MetricValue::Count(1),
-        provenance: ValueProvenance::Observed,
-        threshold: None,
-        explanation: format!("{:?} is not buildable: {detail}", report.strategy),
-        remedies: Vec::new(),
-    });
+    report.findings.push(
+        HealthFinding::new(
+            code,
+            Severity::NotProductionReady,
+            Phase::Compile,
+            Metric::UnknownUnboundedWork,
+            MetricValue::Count(1),
+            ValueProvenance::Observed,
+            format!("{:?} is not buildable: {detail}", report.strategy),
+        )
+        .affecting(vec![format!("{:?}", report.strategy)]),
+    );
 
     let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
     let entry = catalog
@@ -380,13 +394,7 @@ impl BackendSelection {
         self.reports.iter().find(|r| r.strategy == strategy)
     }
 
-    /// One report per committed backend, in [`crate::strategy_coverage::ALL_STRATEGIES`]
-    /// order.
-    ///
-    /// That order is the enum's own declaration order and carries no preference: this
-    /// function reports every backend's independent verdict and selects none. A backend the
-    /// envelope has no verdict for becomes an explicit `Missing` report rather than vanishing
-    /// from the explanation.
+    /// One report per backend in [`crate::strategy_coverage::ALL_STRATEGIES`] declaration order.
     fn from_envelope_with_backend_findings(
         envelope: &StrategyEnvelope,
         plan_composed_markers: &[FragmentSpec],
@@ -397,8 +405,7 @@ impl BackendSelection {
                 let Some(decision) = envelope.decision_for(strategy) else {
                     return BackendReport::missing(strategy, "backend was not available");
                 };
-                // Marker leaves are subtrees build_controllable does not build, so a marked
-                // plan is not representable by PlanComposed however the envelope scored it.
+                // Marker leaves name subtrees build_controllable cannot build.
                 let decision = if strategy == EmissionStrategy::PlanComposed
                     && !plan_composed_markers.is_empty()
                 {
@@ -430,10 +437,7 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
     let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
     let envelope = compose_envelope_across_strategies(semantics, &plan, &default_registry());
     let plan_composed_markers = crate::build::unbuildable_markers(&plan);
-    BackendSelection::from_envelope_with_backend_findings(
-        &envelope,
-        &plan_composed_markers,
-    )
+    BackendSelection::from_envelope_with_backend_findings(&envelope, &plan_composed_markers)
 }
 
 /// `select_backends` from a bare `&Grammar`, deriving the semantics itself. **Check-only**: nothing

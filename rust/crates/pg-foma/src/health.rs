@@ -454,6 +454,88 @@ impl HealthFinding {
     pub fn class(&self) -> FindingClass {
         self.code.class()
     }
+
+    /// The only supported way to build a finding.
+    ///
+    /// Takes what every producer already sets; `affected`, `threshold` and `remedies` are opt-in
+    /// through the builders below because they genuinely vary. Constructing the struct literally
+    /// is refused by `tests/health_finding_seam.rs`, so a field added here reaches every producer
+    /// at once rather than silently defaulting at the sites that forgot it.
+    ///
+    /// Three severities name an axis outright and must agree with the code's own class:
+    /// `CannotRepresent` is `Representability`, `MachineLimit` is `Containment`,
+    /// `LargeMultiplier` is `Readiness`. The other three -- `WithinLimits`, `Elevated`,
+    /// `NotProductionReady` -- are positions on the blocking scale, reachable from any class;
+    /// `NotProductionReady` is commonly a payload size, but a budget stop, a proven bound and a
+    /// build-process fault all land there too, and the class is what says which.
+    ///
+    /// # Panics
+    /// On a severity/class disagreement. `CONTEXT.md`'s three axes must never merge, so that
+    /// pairing is unrepresentable rather than merely discouraged.
+    #[allow(clippy::too_many_arguments)] // the seven facts every finding carries; the three that vary are builders
+    pub fn new(
+        code: FindingCode,
+        severity: Severity,
+        phase: Phase,
+        metric: Metric,
+        value: MetricValue,
+        provenance: ValueProvenance,
+        explanation: impl Into<String>,
+    ) -> Self {
+        if let Some(axis) = severity_axis(severity) {
+            assert_eq!(
+                code.class(),
+                axis,
+                "{code:?} answers {:?} but {severity:?} names {axis:?}; a severity that names an \
+                 axis must agree with its code's class (CONTEXT.md, \"three axes that must never \
+                 merge\")",
+                code.class()
+            );
+        }
+        HealthFinding {
+            code,
+            severity,
+            phase,
+            affected: Vec::new(),
+            metric,
+            value,
+            provenance,
+            threshold: None,
+            explanation: explanation.into(),
+            remedies: Vec::new(),
+        }
+    }
+
+    /// The grammar/rule/construct identifiers this finding is about.
+    #[must_use]
+    pub fn affecting(mut self, affected: Vec<String>) -> Self {
+        self.affected = affected;
+        self
+    }
+
+    /// The effective threshold `value` was compared against.
+    #[must_use]
+    pub fn against_threshold(mut self, threshold: MetricValue) -> Self {
+        self.threshold = Some(threshold);
+        self
+    }
+
+    /// Ranked, applicable remedies.
+    #[must_use]
+    pub fn with_remedies(mut self, remedies: Vec<Remedy>) -> Self {
+        self.remedies = remedies;
+        self
+    }
+}
+
+/// The axis a severity names, or `None` for a tier reachable from any class.
+fn severity_axis(severity: Severity) -> Option<FindingClass> {
+    match severity {
+        Severity::CannotRepresent => Some(FindingClass::Representability),
+        Severity::MachineLimit => Some(FindingClass::Containment),
+        Severity::LargeMultiplier => Some(FindingClass::Readiness),
+        Severity::WithinLimits | Severity::Elevated | Severity::NotProductionReady => None,
+    }
 }
 
 /// The aggregated report for one grammar compilation. See `HealthReport::admission` for the
@@ -660,18 +742,16 @@ mod tests {
     }
 
     fn synthetic_finding(severity: Severity) -> HealthFinding {
-        HealthFinding {
-            code: FindingCode::PayloadSizeBand,
+        HealthFinding::new(
+            FindingCode::PayloadSizeBand,
             severity,
-            phase: Phase::Compile,
-            affected: vec!["synthetic-construct".to_string()],
-            metric: Metric::PayloadBytes,
-            value: MetricValue::Bytes(1),
-            provenance: ValueProvenance::Observed,
-            threshold: None,
-            explanation: "synthetic test finding".to_string(),
-            remedies: Vec::new(),
-        }
+            Phase::Compile,
+            Metric::PayloadBytes,
+            MetricValue::Bytes(1),
+            ValueProvenance::Observed,
+            "synthetic test finding".to_string(),
+        )
+        .affecting(vec!["synthetic-construct".to_string()])
     }
 
     #[test]
@@ -760,28 +840,27 @@ mod tests {
 
     /// One NotProductionReady payload-size label.
     fn representative_report() -> HealthReport {
-        HealthReport::new(vec![
-            HealthFinding {
-                code: FindingCode::PayloadSizeBand,
-                severity: Severity::NotProductionReady,
-                phase: Phase::Compile,
-                affected: vec!["synthetic-stress-grammar".to_string()],
-                metric: Metric::PayloadBytes,
-                value: MetricValue::Bytes(1_500_000_000),
-                provenance: ValueProvenance::Observed,
-                threshold: Some(MetricValue::Bytes(IDEAL_MAX_BYTES)),
-                explanation: "Final FST payload is 1,500,000,000 bytes, over the 100,000,000-byte \
+        HealthReport::new(vec![HealthFinding::new(
+            FindingCode::PayloadSizeBand,
+            Severity::NotProductionReady,
+            Phase::Compile,
+            Metric::PayloadBytes,
+            MetricValue::Bytes(1_500_000_000),
+            ValueProvenance::Observed,
+            "Final FST payload is 1,500,000,000 bytes, over the 100,000,000-byte \
                     NotProductionReady threshold."
+                .to_string(),
+        )
+        .affecting(vec!["synthetic-stress-grammar".to_string()])
+        .against_threshold(MetricValue::Bytes(IDEAL_MAX_BYTES))
+        .with_remedies(vec![Remedy {
+            rank: 1,
+            description:
+                "Review the measured compile cost and simplify the grammar before publication."
                     .to_string(),
-                remedies: vec![Remedy {
-                    rank: 1,
-                    description: "Review the measured compile cost and simplify the grammar before publication."
-                        .to_string(),
-                    requires_linguistic_equivalence: false,
-                    caveat: None,
-                }],
-            },
-        ])
+            requires_linguistic_equivalence: false,
+            caveat: None,
+        }])])
     }
 
     const GOLDEN_JSON: &str = r#"{
@@ -880,10 +959,7 @@ mod tests {
             .copied()
             .filter(|code| code.class() == FindingClass::Containment)
             .collect();
-        assert_eq!(
-            containment,
-            vec![FindingCode::ResourceBudgetReached]
-        );
+        assert_eq!(containment, vec![FindingCode::ResourceBudgetReached]);
     }
 
     #[test]
@@ -898,26 +974,30 @@ mod tests {
     // fst_health_admission_by_class: the per-class view, additive alongside `admission`.
 
     fn class_finding(code: FindingCode, severity: Severity) -> HealthFinding {
-        HealthFinding {
+        HealthFinding::new(
             code,
             severity,
-            phase: Phase::Compile,
-            affected: vec!["synthetic-construct".to_string()],
-            metric: Metric::PayloadBytes,
-            value: MetricValue::Bytes(1),
-            provenance: ValueProvenance::Observed,
-            threshold: None,
-            explanation: "synthetic per-class test finding".to_string(),
-            remedies: Vec::new(),
-        }
+            Phase::Compile,
+            Metric::PayloadBytes,
+            MetricValue::Bytes(1),
+            ValueProvenance::Observed,
+            "synthetic per-class test finding".to_string(),
+        )
+        .affecting(vec!["synthetic-construct".to_string()])
     }
 
     #[test]
     fn admission_by_class_separates_a_resource_stop_from_a_representability_gap() {
         // Demonstrates the blur is gone: one severity used to hide which question was failing.
         let report = HealthReport::new(vec![
-            class_finding(FindingCode::ResourceBudgetReached, Severity::NotProductionReady), // Containment
-            class_finding(FindingCode::BackendCoverageIncomplete, Severity::CannotRepresent), // Representability
+            class_finding(
+                FindingCode::ResourceBudgetReached,
+                Severity::NotProductionReady,
+            ), // Containment
+            class_finding(
+                FindingCode::BackendCoverageIncomplete,
+                Severity::CannotRepresent,
+            ), // Representability
         ]);
 
         // The existing publish-gating value is untouched: still the plain max over everything.
@@ -941,8 +1021,14 @@ mod tests {
     #[test]
     fn admission_by_class_render_names_all_four_axes() {
         let report = HealthReport::new(vec![
-            class_finding(FindingCode::ResourceBudgetReached, Severity::NotProductionReady), // Containment
-            class_finding(FindingCode::BackendCoverageIncomplete, Severity::CannotRepresent), // Representability
+            class_finding(
+                FindingCode::ResourceBudgetReached,
+                Severity::NotProductionReady,
+            ), // Containment
+            class_finding(
+                FindingCode::BackendCoverageIncomplete,
+                Severity::CannotRepresent,
+            ), // Representability
         ]);
         assert_eq!(
             report.admission_by_class().render(),
@@ -976,12 +1062,19 @@ mod tests {
                 Severity::Elevated,
             )]),
             HealthReport::new(vec![
-                class_finding(FindingCode::UnknownUnboundedConstruct, Severity::NotProductionReady),
-                class_finding(FindingCode::BackendCoverageIncomplete, Severity::LargeMultiplier),
+                class_finding(
+                    FindingCode::UnknownUnboundedConstruct,
+                    Severity::NotProductionReady,
+                ),
+                class_finding(
+                    FindingCode::BackendCoverageIncomplete,
+                    Severity::LargeMultiplier,
+                ),
             ]),
-            HealthReport::new(vec![
-                class_finding(FindingCode::BackendCompilationFailed, Severity::MachineLimit),
-            ]),
+            HealthReport::new(vec![class_finding(
+                FindingCode::BackendCompilationFailed,
+                Severity::MachineLimit,
+            )]),
         ];
 
         for report in reports {

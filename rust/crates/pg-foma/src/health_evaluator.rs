@@ -83,7 +83,10 @@ fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
             unreachable!("payload_size_finding filters Severity::WithinLimits before calling this")
         }
         Severity::NotProductionReady => MetricValue::Bytes(crate::health::IDEAL_MAX_BYTES),
-        Severity::Elevated | Severity::LargeMultiplier | Severity::MachineLimit | Severity::CannotRepresent => {
+        Severity::Elevated
+        | Severity::LargeMultiplier
+        | Severity::MachineLimit
+        | Severity::CannotRepresent => {
             unreachable!(
                 "severity_for_size_bytes produces only WithinLimits/NotProductionReady; every other severity is reserved for non-size producers"
             )
@@ -97,21 +100,21 @@ fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
     if severity == Severity::WithinLimits {
         return None;
     }
-    Some(HealthFinding {
-        code: FindingCode::PayloadSizeBand,
-        severity,
-        phase: Phase::Compile,
-        affected: Vec::new(),
-        metric: Metric::PayloadBytes,
-        value: MetricValue::Bytes(bytes),
-        provenance: ValueProvenance::Observed,
-        threshold: Some(size_band_crossed_threshold(severity)),
-        explanation: format!(
+    Some(
+        HealthFinding::new(
+            FindingCode::PayloadSizeBand,
+            severity,
+            Phase::Compile,
+            Metric::PayloadBytes,
+            MetricValue::Bytes(bytes),
+            ValueProvenance::Observed,
+            format!(
             "Final FST payload is {bytes} bytes, in the {severity:?} band (R6 decimal-byte size \
              thresholds)."
         ),
-        remedies: Vec::new(),
-    })
+        )
+        .against_threshold(size_band_crossed_threshold(severity)),
+    )
 }
 
 /// `crate::emit::FomaTier::Partial`'s observed coverage gaps, which refuse normal generation.
@@ -121,22 +124,20 @@ fn partial_tier_finding(report: &EmitReport, uncovered_count: usize) -> HealthFi
         .iter()
         .map(|item| item.id.clone())
         .collect();
-    HealthFinding {
-        code: FindingCode::BackendCoverageIncomplete,
-        severity: Severity::CannotRepresent,
-        phase: Phase::Compile,
-        affected,
-        metric: Metric::BackendCoverageGapCount,
-        value: MetricValue::Count(uncovered_count as u64),
-        provenance: ValueProvenance::Observed,
-        threshold: None,
-        explanation: format!(
+    HealthFinding::new(
+        FindingCode::BackendCoverageIncomplete,
+        Severity::CannotRepresent,
+        Phase::Compile,
+        Metric::BackendCoverageGapCount,
+        MetricValue::Count(uncovered_count as u64),
+        ValueProvenance::Observed,
+        format!(
             "{uncovered_count} construct occurrence(s) could not be represented in this \
              FST-propose network and contribute no candidates for it. Confirmation cannot restore \
              omitted candidates, so normal generation fails closed."
         ),
-        remedies: Vec::new(),
-    }
+    )
+    .affecting(affected)
 }
 
 /// A backend-local unsupported result: no artifact for this route, but not a whole-build invariant failure.
@@ -199,33 +200,28 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
             ),
         )
     };
-    HealthFinding {
+    HealthFinding::new(
         code,
         severity,
-        phase: Phase::Compile,
-        affected,
-        metric: Metric::UnknownUnboundedWork,
+        Phase::Compile,
+        Metric::UnknownUnboundedWork,
         value,
-        provenance: ValueProvenance::Observed,
-        threshold: None,
+        ValueProvenance::Observed,
         explanation,
-        remedies: Vec::new(),
-    }
+    )
+    .affecting(affected)
 }
 
 fn backend_compilation_failed_finding(detail: String) -> HealthFinding {
-    HealthFinding {
-        code: FindingCode::BackendCompilationFailed,
-        severity: Severity::NotProductionReady,
-        phase: Phase::Compile,
-        affected: Vec::new(),
-        metric: Metric::UnknownUnboundedWork,
-        value: MetricValue::Unbounded,
-        provenance: ValueProvenance::Observed,
-        threshold: None,
-        explanation: detail,
-        remedies: Vec::new(),
-    }
+    HealthFinding::new(
+        FindingCode::BackendCompilationFailed,
+        Severity::NotProductionReady,
+        Phase::Compile,
+        Metric::UnknownUnboundedWork,
+        MetricValue::Unbounded,
+        ValueProvenance::Observed,
+        detail,
+    )
 }
 
 /// Every `crate::emit::EmitReport`-sourced finding: the tier disposition.
@@ -246,22 +242,21 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
 /// Every `crate::compose_budget::ComposeError` variant, exhaustively.
 fn compose_error_finding(err: &ComposeError) -> HealthFinding {
     match err {
-        ComposeError::ChainDepthExceeded { depth, limit, site } => HealthFinding {
-            code: FindingCode::ResourceBudgetReached,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Apply,
-            affected: vec![(*site).to_string()],
-            metric: Metric::ApplyChainDepth,
-            value: MetricValue::Count(*depth as u64),
-            provenance: ValueProvenance::Observed,
-            threshold: Some(MetricValue::Count(*limit as u64)),
-            explanation: format!(
+        ComposeError::ChainDepthExceeded { depth, limit, site } => HealthFinding::new(
+            FindingCode::ResourceBudgetReached,
+            Severity::NotProductionReady,
+            Phase::Apply,
+            Metric::ApplyChainDepth,
+            MetricValue::Count(*depth as u64),
+            ValueProvenance::Observed,
+            format!(
                 "Derivation/unapplication chain depth at {site:?} reached {depth} nested steps \
                  (limit {limit}); this deterministically closes the stack-overflow failure class \
                  (ADR 0003) instead of relying on a larger call stack."
             ),
-            remedies: Vec::new(),
-        },
+        )
+        .affecting(vec![(*site).to_string()])
+        .against_threshold(MetricValue::Count(*limit as u64)),
     }
 }
 
@@ -271,16 +266,14 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
         ApplyDimension::DecodedPaths => Metric::ProposalPathCount,
         ApplyDimension::Candidates => Metric::ProposalCandidateCount,
     };
-    HealthFinding {
-        code: FindingCode::ResourceBudgetReached,
-        severity: Severity::NotProductionReady,
-        phase: Phase::Apply,
-        affected: trip.word.iter().cloned().collect(),
+    HealthFinding::new(
+        FindingCode::ResourceBudgetReached,
+        Severity::NotProductionReady,
+        Phase::Apply,
         metric,
-        value: MetricValue::Count(trip.value as u64),
-        provenance: ValueProvenance::Observed,
-        threshold: Some(MetricValue::Count(trip.limit as u64)),
-        explanation: format!(
+        MetricValue::Count(trip.value as u64),
+        ValueProvenance::Observed,
+        format!(
             "Apply-time {label} reached {value} (limit {limit}) before this word completed; the \
              word is incomplete, never a definitive partial analysis -- other words in the same \
              batch remain valid and this word may be explicitly resubmitted with a larger apply \
@@ -289,16 +282,17 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
             value = trip.value,
             limit = trip.limit,
         ),
-        remedies: vec![Remedy {
-            rank: 1,
-            description:
-                "Explicitly retry this word alone with a larger caller-selected apply-time \
+    )
+    .affecting(trip.word.iter().cloned().collect())
+    .against_threshold(MetricValue::Count(trip.limit as u64))
+    .with_remedies(vec![Remedy {
+        rank: 1,
+        description: "Explicitly retry this word alone with a larger caller-selected apply-time \
                 budget."
-                    .to_string(),
-            requires_linguistic_equivalence: false,
-            caveat: None,
-        }],
-    }
+            .to_string(),
+        requires_linguistic_equivalence: false,
+        caveat: None,
+    }])
 }
 
 /// The evaluator: turns every
@@ -341,9 +335,7 @@ pub fn evaluate_health(
 }
 
 /// Converts every typed Foma construction failure into nonempty backend-local health evidence.
-pub fn evaluate_foma_error(
-    error: &FomaError,
-) -> HealthReport {
+pub fn evaluate_foma_error(error: &FomaError) -> HealthReport {
     match error {
         FomaError::LexcCompileFailed(report) => {
             let mut health = evaluate_health(None, Some(report), &[], &[]);
@@ -355,8 +347,7 @@ pub fn evaluate_foma_error(
             )));
             HealthReport::new(health.findings)
         }
-        FomaError::Unsupported(report)
-        | FomaError::Incomplete(report) => {
+        FomaError::Unsupported(report) | FomaError::Incomplete(report) => {
             let mut health = evaluate_health(None, Some(report), &[], &[]);
             if health.findings.is_empty() {
                 health
@@ -414,9 +405,8 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_lexc_failure_is_explicit_even_with_full_emit_report() {
-        let health = evaluate_foma_error(&FomaError::LexcCompileFailed(
-            synthetic_full_emit_report(),
-        ));
+        let health =
+            evaluate_foma_error(&FomaError::LexcCompileFailed(synthetic_full_emit_report()));
         assert!(health
             .findings
             .iter()
@@ -425,13 +415,11 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_backend_local_budget_failures_are_errors() {
-        let compose_errors = vec![
-            ComposeError::ChainDepthExceeded {
-                depth: 2,
-                limit: 1,
-                site: "apply",
-            },
-        ];
+        let compose_errors = vec![ComposeError::ChainDepthExceeded {
+            depth: 2,
+            limit: 1,
+            site: "apply",
+        }];
         for error in compose_errors {
             let health = evaluate_health(None, None, &[error], &[]);
             assert_eq!(health.admission(), Severity::NotProductionReady);
@@ -459,7 +447,8 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_evaluator_over_ideal_payload_produces_not_production_ready_payload_size_band_finding() {
+    fn fst_health_evaluator_over_ideal_payload_produces_not_production_ready_payload_size_band_finding(
+    ) {
         let bytes = 500_000_000u64;
         let report = evaluate_health(Some(bytes), None, &[], &[]);
         assert_eq!(report.findings.len(), 1);
@@ -479,12 +468,7 @@ mod tests {
     #[test]
     fn fst_health_evaluator_not_production_ready_payload_matches_health_schema_worked_scenario() {
         // `IDEAL_MAX_BYTES` is the only size threshold; one byte more crosses into NotProductionReady.
-        let report = evaluate_health(
-            Some(crate::health::IDEAL_MAX_BYTES + 1),
-            None,
-            &[],
-            &[],
-        );
+        let report = evaluate_health(Some(crate::health::IDEAL_MAX_BYTES + 1), None, &[], &[]);
         assert_eq!(report.findings[0].severity, Severity::NotProductionReady);
         assert_eq!(
             report.findings[0].threshold,
@@ -827,12 +811,7 @@ mod tests {
     #[test]
     fn fst_health_evaluator_golden_json() {
         let (payload_bytes, emit_report) = representative_inputs();
-        let health = evaluate_health(
-            Some(payload_bytes),
-            Some(&emit_report),
-            &[],
-            &[],
-        );
+        let health = evaluate_health(Some(payload_bytes), Some(&emit_report), &[], &[]);
         let json = health.to_json().expect("serialization must succeed");
         assert_eq!(
             json, GOLDEN_JSON,
@@ -843,12 +822,7 @@ mod tests {
     #[test]
     fn fst_health_evaluator_golden_admission_is_cannot_represent() {
         let (payload_bytes, emit_report) = representative_inputs();
-        let health = evaluate_health(
-            Some(payload_bytes),
-            Some(&emit_report),
-            &[],
-            &[],
-        );
+        let health = evaluate_health(Some(payload_bytes), Some(&emit_report), &[], &[]);
         // An uncovered construct is CannotRepresent even when resource findings have lower severity.
         assert_eq!(health.admission(), Severity::CannotRepresent);
     }
@@ -856,12 +830,7 @@ mod tests {
     #[test]
     fn fst_health_evaluator_golden_round_trips() {
         let (payload_bytes, emit_report) = representative_inputs();
-        let health = evaluate_health(
-            Some(payload_bytes),
-            Some(&emit_report),
-            &[],
-            &[],
-        );
+        let health = evaluate_health(Some(payload_bytes), Some(&emit_report), &[], &[]);
         let json = health.to_json().expect("serialization must succeed");
         let parsed = HealthReport::from_json(&json).expect("deserialization must succeed");
         assert_eq!(

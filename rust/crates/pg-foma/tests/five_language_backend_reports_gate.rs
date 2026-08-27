@@ -1,32 +1,15 @@
-//! Pins complete static backend reports for the five private reference grammars.
+//! Static backend reports for the five private reference grammars.
 
 use pg_conformance_fixtures::corpus;
-use pg_foma::backend_selection::{
-    select_backends_for_grammar, BackendSelection, BackendStatus,
-};
+use pg_foma::backend_selection::{select_backends_for_grammar, BackendSelection, BackendStatus};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::health::{FindingCode, Severity};
+use pg_foma::strategy_coverage::ALL_STRATEGIES;
 use pg_grammar::model::Grammar;
 
-fn load_xml(name: &str) -> Grammar {
-    let path = corpus::require(name);
-    let xml = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    pg_grammar::load(&xml).unwrap_or_else(|error| panic!("load {}: {error}", path.display()))
-}
-fn load_snapshot(name: &str) -> Grammar {
-    let path = corpus::require(name);
-    let json = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    let snapshot = pg_snapshot::Snapshot::from_json(&json)
-        .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()));
-    pg_grammar::compile_project(&snapshot)
-        .map(|(grammar, _)| grammar)
-        .unwrap_or_else(|error| panic!("compile {}: {error:?}", path.display()))
-}
-
-fn load_fwdata(name: &str) -> Grammar {
-    let path = corpus::require(name);
+/// The named corpus' grammar, whatever file the manifest says backs it.
+fn load(logical_name: &str) -> Grammar {
+    let path = corpus::grammar_for(logical_name);
     let (snapshot, _) = pg_fwdata::import_file(&path)
         .unwrap_or_else(|error| panic!("import {}: {error}", path.display()));
     pg_grammar::compile_project(&snapshot)
@@ -88,7 +71,7 @@ fn assert_backend(
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn sena_backend_reports_are_complete() {
-    let selection = characterize("sena", &load_xml("sena-hc.xml"));
+    let selection = characterize("sena", &load("sena"));
     assert_backend(
         &selection,
         EmissionStrategy::TunedSurfaceProbed,
@@ -115,3 +98,22 @@ fn sena_backend_reports_are_complete() {
     );
 }
 
+/// Every backend reports on every reference grammar; exact verdicts await a measured run.
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn every_reference_grammar_reports_on_every_backend() {
+    for name in ["indonesian", "amharic", "aweti", "mbugwe"] {
+        let selection = characterize(name, &load(name));
+        for &strategy in ALL_STRATEGIES {
+            let report = selection
+                .report_for(strategy)
+                .unwrap_or_else(|| panic!("{name}: no report for {strategy:?}"));
+            assert_ne!(
+                report.status(),
+                BackendStatus::Missing,
+                "{name}: {strategy:?} reported Missing; every committed backend must produce a \
+                 real compatibility report, since an absent one reads as a pass it did not earn"
+            );
+        }
+    }
+}

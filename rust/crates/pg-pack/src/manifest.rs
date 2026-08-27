@@ -15,6 +15,8 @@ use crate::compat::RequiredRuntimeFeatures;
 use crate::license::LicenseDeclaration;
 use crate::signature::SignatureBlock;
 use pg_foma::advice_catalog::RemedyEffort;
+use pg_foma::backend_selection::{BackendReport, BackendSelection, BackendStatus};
+use pg_foma::capability::CompileDecision;
 use pg_foma::health::{HealthFinding, HealthReport, Metric, MetricValue, ValueProvenance};
 
 /// This manifest schema's own version. Bump only on a wire-incompatible change to
@@ -53,6 +55,67 @@ pub struct BackendAssessment {
     pub cost_evidence: Vec<BackendCostEvidence>,
     pub advice_references: Vec<BackendAdviceReference>,
     pub status_detail: Option<String>,
+}
+
+impl BackendAssessment {
+    /// One backend's Compatibility report, projected into the manifest shape.
+    ///
+    /// Lives here rather than in a caller because the manifest owns this shape: a second consumer
+    /// would otherwise copy the label spellings, and `"admit"`/`"accepted"` are wire values that
+    /// must not drift. `pg-foma` cannot host it -- that would need `pg-pack` in its dependencies,
+    /// and the dependency runs the other way.
+    ///
+    /// `cost_evidence` is always empty. `BackendReport` no longer carries per-backend cost
+    /// measurements, so the honest projection is an empty vector rather than an invented one.
+    pub fn from_report(report: &BackendReport) -> Self {
+        BackendAssessment {
+            backend: report.strategy().label().to_string(),
+            decision: decision_label(report.decision()).to_string(),
+            status: backend_status_label(report.status()).to_string(),
+            findings: report.findings().to_vec(),
+            failed_predicates: report.failed_predicates().to_vec(),
+            shapes: report.shapes().to_vec(),
+            cost_evidence: Vec::new(),
+            advice_references: report
+                .advice_references()
+                .iter()
+                .map(|reference| BackendAdviceReference {
+                    shape_key: reference.shape_key.clone(),
+                    remedy_key: reference.remedy_key.clone(),
+                    effort: reference.effort,
+                })
+                .collect(),
+            status_detail: report.status_detail().map(str::to_string),
+        }
+    }
+}
+
+/// Every backend's report in manifest shape, one entry per backend and none singled out.
+pub fn backend_assessments(selection: &BackendSelection) -> Vec<BackendAssessment> {
+    selection
+        .reports()
+        .iter()
+        .map(BackendAssessment::from_report)
+        .collect()
+}
+
+/// The manifest's wire spelling for a `CompileDecision`.
+fn decision_label(decision: &CompileDecision) -> &'static str {
+    match decision {
+        CompileDecision::Admit => "admit",
+        CompileDecision::ConfirmOnly => "confirm_only",
+        CompileDecision::Refuse(_) => "refuse",
+    }
+}
+
+/// The manifest's wire spelling for a `BackendStatus`.
+fn backend_status_label(status: BackendStatus) -> &'static str {
+    match status {
+        BackendStatus::Accepted => "accepted",
+        BackendStatus::Refused => "refused",
+        BackendStatus::Missing => "missing",
+        BackendStatus::Failed => "failed",
+    }
 }
 
 /// The `.pgpack` pack manifest: canonical JSON, embedded length-prefixed in the container by
@@ -181,5 +244,4 @@ mod tests {
         let manifest = synthetic_manifest();
         assert_eq!(manifest.to_canonical_json(), manifest.to_canonical_json());
     }
-
 }

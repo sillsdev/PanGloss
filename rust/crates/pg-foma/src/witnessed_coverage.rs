@@ -41,8 +41,8 @@ use foma::options::FomaOptions;
 use pg_grammar::model::Grammar;
 
 use crate::analyzer::FomaProposer;
-use crate::backend_selection::select_backends;
-use crate::capability::{CharacteristicKind, CompileDecision};
+use crate::backend_selection::{select_backends, BackendReport};
+use crate::capability::CharacteristicKind;
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
@@ -133,20 +133,11 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
     let alphabet = SegAlphabet::new(table);
     let semantics = GrammarSemantics::derive(g);
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
-    let plan = enumerate_default(
-        g,
-        semantics.prules_in_order(),
-        phonology.as_ref(),
-    );
+    let plan = enumerate_default(g, semantics.prules_in_order(), phonology.as_ref());
     let opts = FomaOptions::default();
-    let mut built = crate::build::build_controllable(
-        &plan,
-        &opts,
-        g,
-        &alphabet,
-        semantics.prules_in_order(),
-    )
-    .map_err(|e| format!("plan-composed build failed: {e:?}"))?;
+    let mut built =
+        crate::build::build_controllable(&plan, &opts, g, &alphabet, semantics.prules_in_order())
+            .map_err(|e| format!("plan-composed build failed: {e:?}"))?;
     let net = built
         .net
         .take()
@@ -191,9 +182,9 @@ pub fn observe_grammar_with(
         .iter()
         .copied()
         .map(|strategy| {
-            let representable = selection.report_for(strategy).is_some_and(|report| {
-                !matches!(report.decision(), CompileDecision::Refuse(_))
-            });
+            let representable = selection
+                .report_for(strategy)
+                .is_some_and(BackendReport::can_represent);
             if !representable {
                 return (strategy, BackendOutcome::RefusedBySelector);
             }

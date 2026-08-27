@@ -98,6 +98,81 @@ pub fn require(relative: &str) -> PathBuf {
     candidate
 }
 
+/// Every role the manifest uses for a grammar input, whatever the file format behind it.
+const GRAMMAR_ROLES: &[&str] = &["grammar", "grammar-fwdata", "grammar-snapshot"];
+
+/// The grammar input for a named corpus, resolved through the manifest.
+///
+/// Callers name the corpus, not the file: `grammar_for("indonesian")` rather than
+/// `require("indonesian-hc.xml")`. Which file backs a grammar, and in which format, is the
+/// manifest's to state -- a caller that writes the path instead makes the manifest advisory and
+/// has to be edited alongside it whenever the input changes.
+///
+/// # Panics
+/// When the corpus is not declared, declares no required grammar input, or that input is absent.
+/// An explicitly requested corpus test must fail rather than report a pass it did not earn.
+pub fn grammar_for(logical_name: &str) -> PathBuf {
+    require(&declared_file(logical_name, |file| {
+        file.required && GRAMMAR_ROLES.contains(&file.role.as_str())
+    }))
+}
+
+/// The word list for a named corpus, resolved through the manifest. See [`grammar_for`].
+///
+/// # Panics
+/// On the same conditions as [`grammar_for`].
+pub fn words_for(logical_name: &str) -> PathBuf {
+    require(&declared_file(logical_name, |file| {
+        file.required && file.role == "corpus"
+    }))
+}
+
+/// The one manifest-declared path for `logical_name` matching `wanted`.
+fn declared_file(logical_name: &str, wanted: impl Fn(&CorpusFile) -> bool) -> String {
+    let manifest =
+        load_manifest().unwrap_or_else(|error| panic!("corpus manifest unreadable: {error}"));
+    let entry = manifest
+        .corpora
+        .iter()
+        .find(|corpus| corpus.logical_name == logical_name)
+        .unwrap_or_else(|| {
+            panic!(
+                "no corpus named {logical_name:?} in {}; declared: {}",
+                manifest_path().display(),
+                manifest
+                    .corpora
+                    .iter()
+                    .map(|corpus| corpus.logical_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        });
+    let matches: Vec<&CorpusFile> = entry.files.iter().filter(|file| wanted(file)).collect();
+    match matches.as_slice() {
+        [file] => file.path.clone(),
+        [] => panic!(
+            "{logical_name} declares no required input of the role this caller asked for; it \
+             declares: {}",
+            entry
+                .files
+                .iter()
+                .map(|file| format!("{} ({})", file.path, file.role))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        several => panic!(
+            "{logical_name} declares {} inputs of that role ({}); the manifest must name exactly \
+             one so a caller never has to choose",
+            several.len(),
+            several
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
 /// Emit the machine-readable executed-case count the managed front end checks.
 ///
 /// `label` should identify the suite (typically the test-function name). Call it once per test with

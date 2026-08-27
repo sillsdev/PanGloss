@@ -5,9 +5,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
-use pg_foma::backend_selection::{
-    select_backends, BackendReport, BackendSelection, BackendStatus,
-};
+use pg_foma::backend_selection::{select_backends, BackendSelection};
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::health::HealthReport;
@@ -269,10 +267,7 @@ fn render_backend_assessments(
                 .map(|evidence| {
                     markdown_cell(&format!(
                         "metric={:?}; value={:?}; threshold={:?}; provenance={:?}",
-                        evidence.metric,
-                        evidence.value,
-                        evidence.threshold,
-                        evidence.provenance,
+                        evidence.metric, evidence.value, evidence.threshold, evidence.provenance,
                     ))
                 })
                 .collect::<Vec<_>>()
@@ -594,15 +589,11 @@ fn render_markdown_with_assessments(
     out
 }
 
-/// The backend a `--engine=foma` run actually compiles with, and therefore the only one whose
-/// compatibility report licenses that run. A fact about the analyzer, not a preference among
-/// backends: `select_backends` still reports every backend independently and ranks none.
+/// The backend a `--engine=foma` run compiles with; an analyzer fact, not a preference.
 const GATED_BACKEND: pg_foma::enumerate::EmissionStrategy =
     pg_foma::analyzer::FomaProposer::EMISSION_STRATEGY;
 
-/// [`GATED_BACKEND`]'s own verdict out of `selection`, fail-closed: a backend the selector
-/// never reported on is a refusal, never a silent pass, since "I could not look" must not read
-/// as "the gate is satisfied".
+/// [`GATED_BACKEND`]'s verdict, fail-closed: an unreported backend is a refusal.
 fn gated_backend_decision(selection: &BackendSelection) -> CompileDecision {
     match selection.report_for(GATED_BACKEND) {
         Some(report) => report.decision().clone(),
@@ -611,54 +602,6 @@ fn gated_backend_decision(selection: &BackendSelection) -> CompileDecision {
             construct: GATED_BACKEND.label().to_string(),
             witness: "the selector produced no report for this backend".to_string(),
         }]),
-    }
-}
-
-fn decision_label(decision: &CompileDecision) -> &'static str {
-    match decision {
-        CompileDecision::Admit => "admit",
-        CompileDecision::ConfirmOnly => "confirm_only",
-        CompileDecision::Refuse(_) => "refuse",
-    }
-}
-
-fn backend_status_label(status: BackendStatus) -> &'static str {
-    match status {
-        BackendStatus::Accepted => "accepted",
-        BackendStatus::Refused => "refused",
-        BackendStatus::Missing => "missing",
-        BackendStatus::Failed => "failed",
-    }
-}
-
-/// Every backend's report, projected into the manifest shape, one entry per backend and none
-/// singled out.
-///
-/// `cost_evidence` is always empty: `BackendReport` no longer carries per-backend cost
-/// measurements, and this command measures nothing of its own to put there.
-fn backend_assessments_from(selection: &BackendSelection) -> Vec<pg_pack::BackendAssessment> {
-    selection.reports().iter().map(assessment_from_report).collect()
-}
-
-fn assessment_from_report(report: &BackendReport) -> pg_pack::BackendAssessment {
-    pg_pack::BackendAssessment {
-        backend: report.strategy().label().to_string(),
-        decision: decision_label(report.decision()).to_string(),
-        status: backend_status_label(report.status()).to_string(),
-        findings: report.findings().to_vec(),
-        failed_predicates: report.failed_predicates().to_vec(),
-        shapes: report.shapes().to_vec(),
-        cost_evidence: Vec::new(),
-        advice_references: report
-            .advice_references()
-            .iter()
-            .map(|reference| pg_pack::BackendAdviceReference {
-                shape_key: reference.shape_key.clone(),
-                remedy_key: reference.remedy_key.clone(),
-                effort: reference.effort,
-            })
-            .collect(),
-        status_detail: report.status_detail().map(str::to_string),
     }
 }
 
@@ -768,7 +711,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         trust = TrustStatus::Proven; // no override was exercised; there is simply no artifact.
         measurements = None;
         fst_health = None;
-        backend_assessments = Some(backend_assessments_from(&selection));
+        backend_assessments = Some(pg_pack::backend_assessments(&selection));
         build_time_line = format!(
             "not measured -- the grammar was refused and no compiled artifact was \
              ever built ({REFUSED_REPORT_REMEDIATION}; the resulting \
@@ -824,9 +767,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         pack_pin = pack_pin_line;
         fst_health = Some(health);
         backend_assessments = Some(assessments);
-        // Nothing here force-compiles past a refusal, so no override is exercised and there
-        // is nothing to record. Whether the artifact itself may be published is the
-        // publication route's question, asked where publication happens.
+        // Nothing here force-compiles, so no override is exercised and none is recorded.
         trust = TrustStatus::Proven;
 
         // Nothing is measured here: this command no longer compiles anything of its own.
@@ -967,7 +908,10 @@ mod tests {
             .expect("assessment rendering must produce markdown");
         assert!(rendered.contains("Shapes: synthetic-shape"), "{rendered}");
         assert!(rendered.contains("Cost evidence:"), "{rendered}");
-        assert!(rendered.contains("metric=CompositeRulePairCount"), "{rendered}");
+        assert!(
+            rendered.contains("metric=CompositeRulePairCount"),
+            "{rendered}"
+        );
         assert!(rendered.contains("value=Count(42)"), "{rendered}");
         assert!(rendered.contains("threshold=Some(Count(10))"), "{rendered}");
         assert!(rendered.contains("provenance=ProvenBound"), "{rendered}");
@@ -1079,5 +1023,4 @@ mod tests {
     }
 
     const GOLDEN_MD: &str = include_str!("make_report_golden.md");
-
 }

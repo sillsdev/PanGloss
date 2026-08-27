@@ -6,18 +6,16 @@ use pg_foma::health::{
 };
 
 fn finding(severity: Severity, code: FindingCode) -> HealthFinding {
-    HealthFinding {
+    HealthFinding::new(
         code,
         severity,
-        phase: Phase::Compile,
-        affected: vec!["synthetic-rule".to_string()],
-        metric: Metric::UnknownUnboundedWork,
-        value: MetricValue::Count(1),
-        provenance: ValueProvenance::Observed,
-        threshold: None,
-        explanation: "synthetic finding".to_string(),
-        remedies: Vec::new(),
-    }
+        Phase::Compile,
+        Metric::UnknownUnboundedWork,
+        MetricValue::Count(1),
+        ValueProvenance::Observed,
+        "synthetic finding".to_string(),
+    )
+    .affecting(vec!["synthetic-rule".to_string()])
 }
 fn refused(strategy: EmissionStrategy) -> BackendReport {
     BackendReport::refused(
