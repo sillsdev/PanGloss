@@ -95,7 +95,6 @@ pub struct PackManifest {
     /// never redefined here).
     pub fst_health: HealthReport,
     /// Findings and advice for every considered backend, successful or failed.
-    #[serde(default)]
     pub backend_assessments: Vec<BackendAssessment>,
     /// Present only when construction exhausted its worklist and produced a real payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]

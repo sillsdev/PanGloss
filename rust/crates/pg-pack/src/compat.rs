@@ -26,7 +26,6 @@ pub struct RequiredRuntimeFeatures {
     /// Stable runtime-operation identifiers this pack's execution needs (only
     /// constructs needing a runtime operation contribute — e.g. a reduplication peel op).
     /// Freeform stable strings; this schema step does not mint an operation-identifier registry.
-    #[serde(default)]
     pub runtime_operations: Vec<String>,
     /// The foma-feature level this pack's proposer payload assumes.
     pub foma_feature_level: u32,
@@ -34,7 +33,6 @@ pub struct RequiredRuntimeFeatures {
     /// `(major, minor, patch)`.
     pub hc_port_semver: (u32, u32, u32),
     /// Additional named extensions beyond the fixed fields above — append-only, freeform.
-    #[serde(default)]
     pub extensions: Vec<String>,
 }
 
