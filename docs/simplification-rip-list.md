@@ -188,13 +188,13 @@ of the completion gate, not evidence for restoring a rejected contract.
 
 | # | Item | Evidence | Status |
 |---|---|---|---|
-| A1 | `ResourceBudgetReached` / `ProvenBoundExceedsBudget` classed as machine-health, so they exclude a backend | `health.rs:468-487`, `backend_selection.rs:227-252` | **AUTHORIZED** — live contradiction found; make them measurements/labels, never cross-backend selection input |
+| A1 | `ResourceBudgetReached` / `ProvenBoundExceedsBudget` classed as machine-health, so they exclude a backend | `health.rs:468-487`, `backend_selection.rs:227-252` | **LANDED UNVERIFIED** — `0e57b994`/`98d4d423`/`870d84e6`; retain them as measurements/labels, never cross-backend selection input |
 | A2 | Pack write gate refuses on a severity number | `pack.rs:202-232` | **AUTHORIZED** — live contradiction found; publication follows capability proof, not size/readiness severity |
 | A3 | Apply-phase + severity used as a proxy for category | `pack.rs:202-232`, oversized-pack test | **AUTHORIZED** — rewrite the stale test before deleting the gate |
 | A4 | `evaluate_via_tuned_emit_mode` rejected on mere *presence* of a finding, before construction | historical `backend_runtime.rs` | **LANDED UNVERIFIED** — removed by `516821e0`; the live function now builds directly |
 | A5 | `realize_accuracy_proposer` / `tuned_surface_resource_refusal` repeated the pre-refusal | historical `backend_runtime.rs` | **LANDED UNVERIFIED** — removed by `516821e0`; the live function now realizes directly |
 | A6 | Marker-bearing candidates banked `Unsupported` with zero work measured | `backend_runtime.rs` | **LANDED UNVERIFIED** — re-audit after A4/A5 deletion |
-| A7 | `--watchdog` structurally cannot produce a real artifact | `pack.rs:267-325,479-489,562-565,624-642` | **AUTHORIZED** — live watchdog/placeholder production path remains |
+| A7 | `--watchdog` structurally cannot produce a real artifact | `pack.rs:267-325,479-489,562-565,624-642` | **LANDED UNVERIFIED** — `54508605`/`8889877b`/`c7fe5aaf`/`f1b46d49` plus residue cleanup `0f8ac724`/`dfeeb7ad`; old producer/placeholder claims and deleted-command coverage are removed |
 | A8 | 16 MiB result metadata frame must not cap the selected payload | `worker_contract.rs`, `worker.rs` | **VERIFIED** — protocol v9 uses an independently bounded raw frame; filesystem transport and legacy parser/capture residue are deleted; prefix-before-allocation, clean exit, malformed streams, and supervisor-limit authority are proven |
 | A9 | `finished_net_digests` marker rejection | `backend_runtime.rs` `unbuildable_marker_reason` | **RETAINED** — audited as semantic representability: the selected plan-composed adapter does not implement those marked subtrees; this is not a resource estimate |
 | A10 | Internal construction caps in `compose_budget.rs` can still stop a representable build | 1,334-line file, 165 refs / 27 files | **AUTHORIZED** — retain useful measurements; delete internal representability/size refusals. The supervised worker's three configured execution limits are the only resource stops |
@@ -214,7 +214,7 @@ carrying cost, and deleting it now costs nothing.
 | B3 | Persistent capability-override records in pack manifests/WASM consumers | `pg_pack::trust`, `readiness_verdict.rs` | — | **AUTHORIZED** — delete from publishable artifacts. Local unproven status survives only in build metadata, which pack rejects |
 | B4 | `Certification::MultiplicityMismatch` — doc says "no longer produced, kept for deserializing old reports" | `backend_optimizer.rs` | 20–40 | **LANDED UNVERIFIED** — variant and compatibility fixture removed; full completion gate is not recorded here |
 | B5 | `Truncated { corpus: Option<..> }` carries live oracle evidence | `backend_optimizer.rs`, `backend_runtime.rs`, `backend_report.rs` | — | **PROTECTED** — audited and retained; live producers and consumers |
-| B6 | `HEALTH_SCHEMA_VERSION` stamps and validates stored health artifacts | `health.rs`, `fst_health.rs` | — | **AUTHORIZED** — keep strict versioning, bump for the break, reject old reports, delete compatibility-only defaults/tests |
+| B6 | `HEALTH_SCHEMA_VERSION` stamps and validates stored health artifacts | `health.rs`, `fst_health.rs` | — | **LANDED UNVERIFIED** — strict current v7 validation and stale-version rejection are recorded in `49163cb8`/`3d1750f1`/`12d3d2bb`; current optional fields are retained as live schema fields, not compatibility defaults |
 | B7 | `ResourceEnvelopeId` versioned identity (`ManagedV1`, `TunedSurfaceWork10kV1`) | `resource_envelope.rs`, 47 refs / 9 files | see C1 | **AUTHORIZED** — delete both named envelopes and their persisted provenance |
 
 ---
@@ -315,7 +315,7 @@ path with three externally enforced, configurable execution limits. Verified old
 |---|---|---|
 | I1 | Historical large dirty-tree churn | **RETAINED DISCIPLINE** — every slice is separately committed; final snapshot must be clean |
 | I2 | Baseline worktree at `.claude/worktrees/baseline-verify` | **VERIFIED** — path is absent |
-| I3 | Mismatch ledger accuracy | **AUTHORIZED** — B3 persistence and B6 stale-version acceptance still contradict the charter; correct them with their behavior slices |
+| I3 | Mismatch ledger accuracy | **AUTHORIZED** — B3 persistence still contradicts the charter; B6 strict versioning is landed and tracked above |
 | I4 | `2026-08-23-developer-fst-controls.md` drifts both ways; obsolete once C1 lands | **AUTHORIZED** — replace or delete with C1 |
 | I5 | Docs referencing envelope retry, automatic selection, build-time corpus work, or compatibility guarantees | **AUTHORIZED** — update in the same slice that removes each behavior |
 
