@@ -43,13 +43,6 @@
 //! separate since they come from different stages of the pipeline; exit is non-zero only on a
 //! hard `pg_fwdata::ImportError` (I/O failure / not-a-`.fwdata`-file), never on either warning list.
 //!
-//! ## `diagnose` (see `diagnostics.rs`'s own doc for the full contract)
-//! `diagnose <grammar> <words.txt> <out-dir>` writes `<out-dir>/build.json` and
-//! `<out-dir>/assessment.json`: a build-side report (grammar identity/counts) and a word-run-side report whose
-//! entries reuse `pg_realize::word_gloss_signature` for gloss signatures and record each word's
-//! in-process apply-path containment outcome
-//! (`pg_foma::analyzer::FomaProposer::propose_budgeted`) — never a watchdog, which is compile-only.
-//!
 //! ## `fst-health` (see `fst_health.rs`'s own doc for the full contract)
 //! `fst-health <grammar> [<out.json>]` runs the cheap, grammar-only
 //! `pg_foma::characterization::characterization_findings` pass and writes one canonical
@@ -57,7 +50,7 @@
 //! measurements belong to a separate post-build operation over an explicitly completed artifact.
 //! `<out.json>` omitted prints the JSON to stdout.
 //!
-//! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`, `diagnose`)
+//! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`)
 //! now dispatches on the path's extension via `load_grammar`: `.xml` (or anything else) is the
 //! legacy HC-XML path (`pg_grammar::load`, unchanged, no warnings); `.json` loads a `pg-snapshot`
 //! `Snapshot` (`Snapshot::from_json`) and compiles it (`pg_grammar::compile_project`); `.fwdata`
@@ -82,7 +75,6 @@ use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod assess;
 mod coverage;
-mod diagnostics;
 mod fst_health;
 mod make_report;
 mod pack;
@@ -171,13 +163,6 @@ fn run() -> ExitCode {
         Some("compare") => assess::exit(assess::run_compare(&args[2..]), "compare"),
         Some("golden-diff") => assess::exit(assess::run_golden_diff(&args[2..]), "golden-diff"),
         Some("investigate") => assess::exit(assess::run_investigate(&args[2..]), "investigate"),
-        Some("diagnose") => match diagnostics::run_diagnose(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss diagnose: {e}");
-                ExitCode::FAILURE
-            }
-        },
         Some("fst-health") => match fst_health::run_fst_health(&args[2..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -245,7 +230,6 @@ fn run() -> ExitCode {
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
                  usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
-                 usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
                  usage: pangloss assess <grammar> (--suite <suite.json> | --words <words.txt>) [--pipeline foma-confirm|hermitcrab] [--budget-paths N] [--budget-candidates N] [--report <path>]\n\
                  usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
                  usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
