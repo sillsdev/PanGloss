@@ -65,17 +65,6 @@ impl fmt::Display for FomaError {
     }
 }
 
-impl FomaError {
-    /// The emitter evidence carried by construction failures.
-    pub fn emit_report(&self) -> Option<&EmitReport> {
-        match self {
-            FomaError::LexcCompileFailed(report)
-            | FomaError::Unsupported(report)
-            | FomaError::Incomplete(report) => Some(report),
-        }
-    }
-}
-
 impl std::error::Error for FomaError {}
 
 pub type Result<T> = std::result::Result<T, FomaError>;
