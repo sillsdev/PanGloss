@@ -438,7 +438,6 @@ mod tests {
                 backend: "synthetic".to_string(),
                 uncovered_constructs: 0,
                 pending_successors: 0,
-                enumeration_budget_exceeded: false,
                 compiled_payload_present: true,
             }),
             license: None,
