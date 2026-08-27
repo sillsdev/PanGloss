@@ -189,8 +189,8 @@ of the completion gate, not evidence for restoring a rejected contract.
 | # | Item | Evidence | Status |
 |---|---|---|---|
 | A1 | `ResourceBudgetReached` / `ProvenBoundExceedsBudget` classed as machine-health, so they exclude a backend | `health.rs:468-487`, `backend_selection.rs:227-252` | **LANDED UNVERIFIED** — `0e57b994`/`98d4d423`/`870d84e6`; retain them as measurements/labels, never cross-backend selection input |
-| A2 | Pack write gate refuses on a severity number | `pack.rs:202-232` | **AUTHORIZED** — live contradiction found; publication follows capability proof, not size/readiness severity |
-| A3 | Apply-phase + severity used as a proxy for category | `pack.rs:202-232`, oversized-pack test | **AUTHORIZED** — rewrite the stale test before deleting the gate |
+| A2 | Pack write gate refuses on a severity number | `pack.rs` | **LANDED UNVERIFIED** — `0e001bdc` removed the stale test and `0e3240c2` removed `validate_health_readiness` and its one call site, with the consequence explicitly accepted by the user. The gate never blocked publication: nothing writes a pack, and its only caller was `make-report --pack`, which reads one. Publication follows capability proof, not size/readiness severity, and any future publication route must reject unproven and unready output at the point of publication |
+| A3 | Apply-phase + severity used as a proxy for category | `pack.rs`, oversized-pack test | **LANDED UNVERIFIED** — removed with A2 by `0e3240c2`; the stale test went first in `0e001bdc`, as required |
 | A4 | `evaluate_via_tuned_emit_mode` rejected on mere *presence* of a finding, before construction | historical `backend_runtime.rs` | **LANDED UNVERIFIED** — removed by `516821e0`; the live function now builds directly |
 | A5 | `realize_accuracy_proposer` / `tuned_surface_resource_refusal` repeated the pre-refusal | historical `backend_runtime.rs` | **LANDED UNVERIFIED** — removed by `516821e0`; the live function now realizes directly |
 | A6 | Marker-bearing candidates banked `Unsupported` with zero work measured; `finished_net_digests` marker rejection | `backend_runtime.rs::unbuildable_marker_reason` | **RETAINED** — semantic representability, not a resource estimate. Marker-bearing `PlanComposed` candidates are rejected before partial-network measurement; the PlanComposed-network guard remains incomplete for those marked subtrees |
@@ -729,10 +729,12 @@ apply/candidate budgets, `HC_COMPOSE_CHAIN_DEPTH_BUDGET`, compound-chain refusal
 and external `ExecutionLimits`. Their intermediate compile holes are intentional; no stale test
 result authorizes restoring rejected paths.
 
-The health-publication readiness test deletion (`0e001bdc`) is committed, but its matching source
-deletion is not included in these totals: `make_report.rs` and `pack.rs` remain an isolated dirty
-diff pending explicit acceptance of the publication-readiness consequence. Uncommitted work is
-never counted until its exact staged snapshot is inspected and committed.
+The health-publication readiness deletion is now complete: `0e001bdc` removed the stale test and
+`0e3240c2` removed `validate_health_readiness` plus its one call site, after the user explicitly
+accepted the consequence (`make-report --pack` now reports on an unhealthy pack instead of erroring;
+see A2). `pack.rs` is a test-only module afterwards, and its `evaluate_health` call drops the fifth
+argument the live 4-arity signature had stopped accepting. Only `emit.rs` remains as an
+uncommitted protected diff, and the containment inventory above says it stays that way.
 
 The remaining-cap audit classified `PATTERN_ITER_CAP`, compound/absolute chain-depth limits, the
 structural closure depth, and apply path/candidate limits as live termination or safety boundaries;
