@@ -11,10 +11,9 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 use pg_parse::{Morpher, ParseOptions};
@@ -63,8 +62,6 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
@@ -199,8 +196,6 @@ fn compile_net(
     lexc_source: &str,
 ) -> foma::types::Fsm {
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -234,12 +229,10 @@ fn quantifier_bounded_environment_compiles_and_matches_oracle() {
     let entry_max = common::gate_template::entry_id_of(&g, "entryMax");
     let entry_below_min = common::gate_template::entry_id_of(&g, "entryBelowMin");
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min]
         .into_iter()
         .collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -329,12 +322,10 @@ fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
     let entry_max = common::gate_template::entry_id_of(&g, "entryMax");
     let entry_below_min = common::gate_template::entry_id_of(&g, "entryBelowMin");
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_min, entry_max, entry_below_min]
         .into_iter()
         .collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 

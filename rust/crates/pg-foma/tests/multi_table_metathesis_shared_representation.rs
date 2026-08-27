@@ -13,10 +13,9 @@ use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
@@ -146,8 +145,6 @@ fn current_compile_fires_on_table_a_originated_material_and_preserves_identity()
     let alphabet_a = SegAlphabet::new(table_a);
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let cd_a_m = table_a.lookup_nfd("m").unwrap();
     let cd_a_x = table_a.lookup_nfd("x").unwrap();
@@ -240,8 +237,6 @@ fn containment_holds_for_the_same_table_entry_the_oracle_can_analyze() {
     let table_b = &g.char_tables[1];
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let entry_root2 = entry_id_of(&g, "eRoot2");
     let morpheme_root2 = g.entries[entry_root2.0 as usize].morpheme.0;
@@ -249,7 +244,7 @@ fn containment_holds_for_the_same_table_entry_the_oracle_can_analyze() {
 
     let mut entries = HashSet::new();
     entries.insert(entry_root2);
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet_b, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet_b, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(
         uemit.skipped.is_empty(),
@@ -336,8 +331,6 @@ fn fst_proposes_root1_for_its_correctly_metathesized_surface() {
     let alphabet_a = SegAlphabet::new(table_a);
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let entry_root1 = entry_id_of(&g, "eRoot1");
     let entry_root2 = entry_id_of(&g, "eRoot2");
@@ -347,7 +340,7 @@ fn fst_proposes_root1_for_its_correctly_metathesized_surface() {
     entries.insert(entry_root1);
     entries.insert(entry_root2);
     // Lexc emission is table-blind by construction; table B's alphabet is passed only because it's the grammar's last-stratum/surface table, matching every production caller's convention, not because it changes ROOT1's emitted tokens.
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet_b, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet_b, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(
         uemit.skipped.is_empty(),

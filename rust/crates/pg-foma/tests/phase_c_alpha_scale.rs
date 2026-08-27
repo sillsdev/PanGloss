@@ -11,10 +11,9 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_grammar_gen::oracle::{sweep, OracleOpts};
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
@@ -69,13 +68,11 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let root_id = entry_id_of(&g, &alpha.root_entry_xml_id);
     let mut entries = HashSet::new();
     entries.insert(root_id);
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(
         uemit.skipped.is_empty(),

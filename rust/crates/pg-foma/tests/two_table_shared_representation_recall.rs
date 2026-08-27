@@ -12,10 +12,9 @@ use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
@@ -139,8 +138,6 @@ fn current_compile_fires_on_table_a_originated_material() {
     let alphabet_a = SegAlphabet::new(table_a);
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let cd_a_x = table_a.lookup_nfd("x").unwrap();
     let cd_b_y = table_b.lookup_nfd("y").unwrap();
@@ -180,8 +177,6 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
     let table_b = &g.char_tables[1];
     let alphabet_b = SegAlphabet::new(table_b);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let entry_root1 = entry_id_of(&g, "eRoot1");
     let entry_root2 = entry_id_of(&g, "eRoot2");
@@ -192,7 +187,7 @@ fn fst_propose_confirm_matches_oracle_across_the_table_boundary() {
     let mut entries = HashSet::new();
     entries.insert(entry_root1);
     entries.insert(entry_root2);
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet_b, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet_b, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(
         uemit.skipped.is_empty(),

@@ -7,10 +7,9 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::PhonRuleDef;
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 
@@ -80,14 +79,11 @@ fn multi_table_rewrite_compiles_correctly_against_its_owning_table() {
     let table1_chardef = &g.char_tables[1];
     let alphabet1 = SegAlphabet::new(table1_chardef);
     let opts = FomaOptions::default();
-    // Unbounded caps: this gate is about the correct compile, not the budget mechanism.
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let mut entries = std::collections::HashSet::new();
     entries.insert(entry_voiced);
     entries.insert(entry_voiceless);
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet1, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet1, Some(&entries))
         .unwrap_or_else(|e| panic!("stratum-1 lexc emission must not hit any budget: {e}"));
     assert!(
         uemit.skipped.is_empty(),

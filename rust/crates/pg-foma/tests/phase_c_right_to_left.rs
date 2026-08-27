@@ -13,12 +13,11 @@ use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{
     compile_and_compose_rules, is_fully_supported_shape, SegAlphabet,
 };
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Dir, Grammar, LexEntryId, PatternNode, PhonRuleDef};
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 use pg_parse::{Morpher, ParseOptions};
@@ -74,8 +73,6 @@ fn compile_net(
     lexc_source: &str,
 ) -> foma::types::Fsm {
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -147,9 +144,7 @@ fn rtl_plain_rule_now_compiles_and_matches_oracle() {
 
     let alphabet_ref = &alphabet;
     let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
-    let uemit = emit_underlying_filtered_with_budget(&g, alphabet_ref, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, alphabet_ref, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -271,10 +266,8 @@ fn rtl_feature_environment_swap_matches_oracle() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_contextful, entry_no_right].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -403,10 +396,8 @@ fn rtl_deletion_matches_oracle() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_with, entry_no_right].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -529,10 +520,8 @@ fn rtl_epenthesis_construction_is_correct_at_the_fst_level() {
     let entry_xy = entry_id_of(&g, "entryXY");
     let entry_x_only = entry_id_of(&g, "entryXOnly");
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_xy, entry_x_only].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -658,10 +647,8 @@ fn rtl_distinct_leftmost_rightmost_differs_from_ltr_and_is_recall_safe_against_t
         .into_iter()
         .collect();
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_aaa].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -788,10 +775,8 @@ fn rtl_anchor_fixture_matches_oracle() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -861,10 +846,8 @@ fn rtl_segments_environment_fixture_matches_oracle() {
     .into_iter()
     .collect();
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -937,10 +920,8 @@ fn rtl_cross_table_segments_environment_matches_oracle() {
         .into_iter()
         .map(|id| g.entries[id.0 as usize].morpheme.0)
         .collect();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .expect("lexc emission");
     let net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
     let morpher = Morpher::new(&g, usize::MAX);
@@ -1036,9 +1017,7 @@ fn rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level() {
         let table = &g.char_tables[0];
         let alphabet = SegAlphabet::new(table);
         let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
-        let budget = ComposeBudget::with_caps(
-            usize::MAX, usize::MAX);
-        let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+        let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
             .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
         assert!(uemit.skipped.is_empty());
         // Must not panic -- the real, previously-refused compile path now succeeds end-to-end.

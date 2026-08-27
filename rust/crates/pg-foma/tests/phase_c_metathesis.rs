@@ -13,10 +13,9 @@ use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 use pg_parse::{Morpher, ParseOptions};
@@ -72,8 +71,6 @@ fn compile_net(
     lexc_source: &str,
 ) -> foma::types::Fsm {
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let lexc_net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .unwrap_or_else(|| panic!("lexc must compile:\n{lexc_source}"));
     let mut skipped = Vec::new();
@@ -104,10 +101,8 @@ fn full_containment_check(
         .into_iter()
         .collect();
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -278,10 +273,8 @@ fn metathesis_multi_member_classes_transpose_precisely_not_naively() {
         .into_iter()
         .collect();
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [entry_qs].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -464,10 +457,8 @@ fn metathesis_grammar_gen_recipe_confirms_the_reversed_tag_round_trip() {
          predict for this reversed tag order (this file's top doc, gap 1)"
     );
 
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let entries: HashSet<LexEntryId> = [LexEntryId(0)].into_iter().collect();
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
         .unwrap_or_else(|e| panic!("lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
 
@@ -673,8 +664,6 @@ fn metathesis_right_to_left_switch_index_remap_matches_the_derived_formula() {
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
     let net = compile_and_compose_rules(
@@ -781,8 +770,6 @@ fn metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset() {
     let table = &g.char_tables[0];
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
     let composed = compile_and_compose_rules(

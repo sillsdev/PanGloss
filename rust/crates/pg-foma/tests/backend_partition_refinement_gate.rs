@@ -113,9 +113,7 @@ fn the_registry_offers_more_than_three_distinct_plans_and_every_extra_one_is_equ
         &opts,
         &grammar,
         &alphabet,
-        &prules,
-        &ComposeBudget::with_caps(
-            usize::MAX, usize::MAX),
+        &prules
     )
     .expect("baseline plan must compile");
     let baseline_net = baseline_built

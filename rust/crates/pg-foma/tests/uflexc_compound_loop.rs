@@ -5,11 +5,10 @@ use std::collections::HashSet;
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::gate::{find_gated_subrules, partition_entries};
 use pg_foma::replace::SegAlphabet;
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 
 /// Head root `fasu` (posH) and non-head root `bel` (posN) fall in different gate-partition groups; the inert `x -> y` rewrite keeps the test about the partition alone, never about whether the rule fires.
@@ -106,11 +105,6 @@ fn no_compounding_xml() -> String {
     xml.replace(" morphologicalRules=\"cr1\"", "")
 }
 
-fn unbounded_budget() -> ComposeBudget {
-    ComposeBudget::with_caps(
-        usize::MAX, usize::MAX)
-}
-
 fn rules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
     g.strata
         .iter()
@@ -184,13 +178,12 @@ fn compound_levels_are_grammar_wide_under_a_real_gate_partition() {
     );
 
     let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let budget = unbounded_budget();
     let head_tag = root_tag(&g, "eHead");
     let non_head_tag = root_tag(&g, "eNon");
 
     for (gi, group) in groups.iter().enumerate() {
         let allowed: HashSet<LexEntryId> = group.entries.clone();
-        let report = emit_underlying_filtered_with_budget(&g, &alphabet, Some(&allowed), &budget)
+        let report = emit_underlying_filtered(&g, &alphabet, Some(&allowed))
             .unwrap_or_else(|e| panic!("group {gi} must emit: {e}"));
         let lexc = &report.lexc_source;
 
@@ -253,7 +246,7 @@ fn a_grammar_without_compounding_emits_no_compound_machinery() {
     );
 
     let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let report = emit_underlying_filtered_with_budget(&g, &alphabet, None, &unbounded_budget())
+    let report = emit_underlying_filtered(&g, &alphabet, None)
         .expect("control fixture must emit");
     let lexc = &report.lexc_source;
     assert!(
@@ -280,7 +273,7 @@ fn the_compound_unroll_stays_bounded_on_the_staged_fixture() {
         .expect("missing pinned synthetic fixture compounding-non-recursive");
     let g = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let report = emit_underlying_filtered_with_budget(&g, &alphabet, None, &unbounded_budget())
+    let report = emit_underlying_filtered(&g, &alphabet, None)
         .expect("fixture must emit");
 
     let net = fsm_lexc_parse_string(&FomaOptions::default(), None, &report.lexc_source)

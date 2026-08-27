@@ -9,10 +9,9 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::replace::{compile_and_compose_rules, SegAlphabet};
 use pg_foma::tags;
-use pg_foma::uflexc::emit_underlying_filtered_with_budget;
+use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
@@ -168,13 +167,11 @@ fn stratum_1_devoice_rewrite_proposer_confirm_matches_oracle() {
     let table1 = &g.char_tables[1];
     let alphabet1 = SegAlphabet::new(table1);
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
     let mut entries = HashSet::new();
     entries.insert(entry_k);
     entries.insert(entry_g);
-    let uemit = emit_underlying_filtered_with_budget(&g, &alphabet1, Some(&entries), &budget)
+    let uemit = emit_underlying_filtered(&g, &alphabet1, Some(&entries))
         .unwrap_or_else(|e| panic!("stratum-1 lexc emission must not hit any budget: {e}"));
     assert!(uemit.skipped.is_empty());
     let lexc_net = fsm_lexc_parse_string(&opts, None, &uemit.lexc_source)

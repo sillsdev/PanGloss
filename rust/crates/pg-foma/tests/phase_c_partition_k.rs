@@ -1,5 +1,5 @@
 //! Partition-k / MPR-POS subrule gating: recall-parity. Calls the production
-//! `pg_foma::gate::compile_gated_grammar_with_budget` entry point directly rather than a
+//! `pg_foma::gate::compile_gated_grammar` entry point directly rather than a
 //! hand-assembled compose, and checks recall by generating each of the `2^k` bare-root entries,
 //! sweeping the real per-stratum phonological cascade for ground truth, then verifying the
 //! compiled net relates that same surface string to the same root tag.
@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::ComposeBudget;
-use pg_foma::gate::compile_gated_grammar_with_budget;
+use pg_foma::gate::compile_gated_grammar;
 use pg_foma::replace::SegAlphabet;
 use pg_foma::tags;
 use pg_grammar::model::{Grammar, PhonRuleDef};
@@ -70,11 +69,8 @@ fn partition_k_recall_parity_via_generator_and_oracle() {
     let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
     let ro = rules_in_order(&g);
-    // This test is about recall, not the budget mechanism, so an effectively-unbounded budget just proves the compile doesn't spuriously trip on a grammar this tiny.
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
 
-    let result = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
+    let result = compile_gated_grammar(&opts, &g, &alphabet, &ro)
         .unwrap_or_else(|e| panic!("gated compile must not hit any budget: {e}"));
     assert_eq!(
         result.groups, 4,

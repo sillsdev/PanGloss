@@ -6,7 +6,6 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 use pg_conformance_fixtures::{discover, FixtureRef};
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::enumerate::{enumerate_default, prules_in_order};
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::net_shape::{ApplyDirection, NetShape, ShapeVerdict};
@@ -183,12 +182,6 @@ const COMPOUND_FIXTURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-/// A never-tripping budget built through the public constructor, since `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate; never `from_env()`, so this gate's numbers can't depend on the launching shell's environment.
-fn never_trips() -> ComposeBudget {
-    ComposeBudget::with_caps(
-        usize::MAX, usize::MAX)
-}
-
 fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}"))
 }
@@ -213,9 +206,8 @@ fn finished_production_net(grammar: &Grammar) -> Fsm {
     let phonology = PhonologyProbe::new(grammar);
     let plan = enumerate_default(grammar, &prules, phonology.as_ref());
     let opts = FomaOptions::default();
-    let budget = never_trips();
     let mut built =
-        pg_foma::build::build_controllable(&plan, &opts, grammar, &alphabet, &prules, &budget)
+        pg_foma::build::build_controllable(&plan, &opts, grammar, &alphabet, &prules)
             .expect("the default plan must build on a synthetic fixture");
     let net = built
         .net
