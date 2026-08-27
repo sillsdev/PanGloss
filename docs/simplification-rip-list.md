@@ -485,6 +485,15 @@ already rejected behavior.
 | 7 publication proof | `pg-pack/trust.rs`, format/manifest, CLI pack/report, `pg-wasm/pack.rs` | overridden-manifest/WASM acceptance and allow-unproven publication tests | local unproven generation remains; every publication route rejects it; no persistent override record |
 | 8 schemas/docs | schema owners plus cited docs/OpenSpec | delete stale compatibility fixtures before shims | current round-trip passes; stale versions fail loudly; contract grep matches source |
 
+### 2026-08-27 CLI assessment-producer deletion tranche
+
+Commits `f6852b18` and `84c3267d` complete the deletion-first tranche: **1,672 deletions / 5
+additions** across the tests and CLI producer surface. The grammar/corpus `assess` producer and
+`investigate --grammar` rerun attribution are removed; `compare`, `golden-diff`, and report-only
+`investigate` remain. CLI acceptance coverage for those retained consumers, including strict
+rejection of removed flags, is deferred until the post-demolition replacement/repair phase. Old
+producer-coupled tests must not be restored.
+
 ### Audited Stage 2 kill ledger (`b330892f` anchors)
 
 Historical anchors retained so the deletion can be audited. The 2026-08-26 rip-first decision

@@ -6,6 +6,12 @@ document describes the checked-in JSON Schemas exactly as written; where the sch
 `docs/grammar-assessment-handoff-spec.md` disagree, that is called out rather than papered over
 (see [Known inconsistencies](#known-inconsistencies-with-the-prose-spec)).
 
+Status (2026-08-27): the grammar/corpus `pangloss assess` producer and grammar-backed
+`investigate` rerun/attribution path are removed from the CLI. These schemas remain the wire-format
+reference for existing artifacts and retained `compare`, `golden-diff`, and report-only
+`investigate` consumers. The pipeline and missing-cause enum values below are retained only for
+v1 artifact compatibility; they are not CLI selection or rerun behavior.
+
 Normative semantics live in `docs/grammar-assessment-handoff-spec.md`. Decision rationale lives in
 `openspec/changes/add-grammar-assessment/design.md` (D1-D15). This document is a map of the wire
 format for people writing a code generator, not a restatement of either.
@@ -38,12 +44,12 @@ declared JSON Schema subset.
 ## What each artifact is for
 
 - **`assessment-suite`** — the caller's input: a versioned, ordered list of cases (each an opaque
-  `caseId`, an input string, and an optional required/forbidden/allowed expectation). PanGloss
-  validates and executes a suite exactly as supplied; it never authors, edits, or transitions one.
-- **`assessment-report`** — the immutable result of running one suite against one compiled grammar
-  under one pipeline: a per-case outcome (`complete` / `incomplete` / `not_attempted`), the
-  authoritative analysis set for complete cases only, import/compiler provenance, and three
-  identity digests.
+  `caseId`, an input string, and an optional required/forbidden/allowed expectation). It remains
+  caller-owned and is consumed by artifact producers; it is never authored or transitioned by the
+  retained CLI.
+- **`assessment-report`** — an immutable result artifact from an assessment run: a per-case outcome
+  (`complete` / `incomplete` / `not_attempted`), the authoritative analysis set for complete cases
+  only, provenance, execution metadata, and three identity digests.
 - **`grammar-delta`** — the exact structural difference between a baseline and a candidate
   `assessment-report`, matched by `caseId` (following declared `supersedes` links), categorized
   into a closed set of change kinds. It never labels an addition an improvement or a removal a
@@ -51,12 +57,11 @@ declared JSON Schema subset.
 - **`golden-set-diff`** — the exact difference between one assessment's observed output and the
   same suite's declared expectations: `missingRequired`, `observedForbidden`, `unexpected`, etc.,
   as structured identities, never bare counts, with denominators on every aggregate.
-- **`investigation-handoff`** — evidence for one case bound to the exact report, model fingerprint,
-  and pipeline that produced it: observed/missing analyses, construct references, a pruned failure
-  narrative, and an explicit engine caveat. It supplies material for a human or an AI to draw a
-  conclusion from; no field makes a root-cause claim or prescribes a grammar edit
-  (`rust/crates/pg-assess/src/handoff.rs` enforces this structurally, including a test that greps
-  the serialized artifact for prescriptive language).
+- **`investigation-handoff`** — a handoff for one case bound to an exact report and its recorded
+  execution metadata. The v1 wire shape retains observed/missing analyses, construct references,
+  narrative, and caveat fields for existing artifacts; the retained CLI supplies report-only
+  handoffs and does not regenerate evidence or compute cause attribution. No field makes a
+  root-cause claim or prescribes a grammar edit.
 
 ## `common.defs.json` and how `$ref` resolves against it
 
@@ -131,7 +136,7 @@ identical JSON can never collide:
   *any* change, including `generatedAt`, file paths, or reworded diagnostic prose.
 - **`semanticDigest`** — projection `pangloss.assessment-semantic/v1`. Drops timestamps,
   paths, timings, and `sourceSha256`. "Was this the same run?" Rests entirely on `modelFingerprint`
-  (see below), plus pipeline, effective budgets, importer/compiler versions, and outcomes/analyses.
+  (see below), plus recorded execution metadata, importer/compiler versions, and outcomes/analyses.
 - **`outcomeDigest`** — projection `pangloss.assessment-outcome/v1`. Drops everything
   `semanticDigest` drops, plus tool/importer/compiler versions, budgets, and pipeline. "Did the
   grammar behave the same?" Only the suite digest, per-case outcome kind, and deduplicated identity
@@ -171,7 +176,7 @@ discriminated union / switch statement for each rather than falling back to a st
 
 | Field | Values | Defined in |
 |---|---|---|
-| `execution.pipeline` (report), `binding.pipeline` (handoff) | `foma-confirm`, `hermitcrab` | artifact files (inline) |
+| `execution.pipeline` (report), `binding.pipeline` (handoff) | retained v1 values: `foma-confirm`, `hermitcrab` | artifact files (inline) |
 | per-case `outcome` (`caseOutcomeKind`) | `complete`, `incomplete`, `not_attempted` | `common.defs.json` |
 | top-level report `status` (`batchOutcome`) | `complete`, `partial`, `failed` | `common.defs.json` |
 | `incompleteReason.kind` | `logicalBudget`, `wallClockTimeout` (`oneOf`, each with its own required fields) | `common.defs.json` |
@@ -188,7 +193,7 @@ discriminated union / switch statement for each rather than falling back to a st
 | `constructRef.kind` | `lexicalEntry`, `morphologicalRule`, `phonologicalRule`, `stratum`, `template` | `investigation-handoff.schema.json` |
 | `constructRef.idKind` (`SourceIdKind`) | `sourceId`, `compilerAssigned` | `investigation-handoff.schema.json` |
 | `evidence.availability` (`EvidenceAvailability`) | `retained`, `regenerated`, `unavailable` | `investigation-handoff.schema.json` |
-| `missingAnalysisCause` | `hermitcrabRejected`, `proposerRecallGap`, `neitherPipelineProduces`, `undetermined` | `investigation-handoff.schema.json` |
+| `missingAnalysisCause` (retained v1 field) | `hermitcrabRejected`, `proposerRecallGap`, `neitherPipelineProduces`, `undetermined` | `investigation-handoff.schema.json` |
 
 `analysisIdentityProfile` is a `const` (currently one fixed value, not an enum of alternatives) —
 treat it as a version tag to compare for equality, not a set to switch over.
@@ -209,8 +214,8 @@ Everywhere else, closed means closed: a client's deserializer must not silently 
 does not recognize. If a client generates strict types (Rust `#[serde(deny_unknown_fields)]`,
 similarly strict codegen in other languages, or literal JSON Schema validation with
 `additionalProperties: false`), a payload carrying a field the client's generated version does not
-know about will be **rejected outright**, not silently dropped. That is intentional on the producer
-side — `rust/crates/pg-assess/schemas/README.md` states the reasoning: a schema that tolerated
+know about will be **rejected outright**, not silently dropped. That is intentional for artifact
+producers — `rust/crates/pg-assess/schemas/README.md` states the reasoning: a schema that tolerated
 unknown fields could grow a construct nothing checks and still look green — but it means a client
 must track `schemaVersion` bumps and regenerate rather than assuming forward compatibility for any
 field outside the two `extensions`/`sourceReferences` escape hatches.

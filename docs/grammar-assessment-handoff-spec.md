@@ -6,15 +6,16 @@ Date: 2026-07-28.
 
 ## 1. Purpose
 
-PanGloss must provide the deterministic execution and evidence layer for a grammar-change workflow:
+PanGloss provides the deterministic evidence-consumption layer for a grammar-change workflow:
 
-1. import and compile an explicitly identified baseline grammar;
-2. import and compile an explicitly identified candidate grammar;
-3. run the same caller-supplied assessment suite against each;
-4. emit immutable, machine-readable assessment reports;
-5. compare those reports by structured analysis identity;
-6. compare either report with caller-supplied expected-analysis policy;
-7. produce trace and FieldWorks-investigation artifacts on demand.
+1. consume immutable, machine-readable assessment reports;
+2. compare those reports by structured analysis identity;
+3. compare a report with caller-supplied expected-analysis policy;
+4. produce a report-only investigation handoff on demand.
+
+The grammar/corpus report producer is outside this CLI's retained surface. The compare, golden-diff,
+and report-only investigate consumers remain supported; no replacement producer route is specified
+during demolition.
 
 PanGloss reports facts. It does not decide whether a grammar is linguistically better, approve a
 proposal, mutate FieldWorks, persist review workflow, call an AI model, or impersonate a native
@@ -25,38 +26,22 @@ added analysis as a gain and every removed analysis as a regression. More analys
 necessarily better, and fewer analyses are not necessarily worse. Quality requires comparison with
 explicit required, forbidden, allowed, exact, or unresolved expectations.
 
-## 2. Existing PanGloss capabilities to reuse
+## 2. Retained PanGloss capabilities
 
-Do not build a second path around existing PanGloss behavior. Reuse:
-
-- `.fwdata` streaming import through `pg-fwdata`;
-- versioned `pg-snapshot` JSON;
-- grammar compilation through `pg-grammar`;
-- the FST-propose plus Rust-HermitCrab-confirm pipeline;
-- the Rust-HermitCrab-only pipeline;
-- structured analysis identity already defined in `CONTEXT.md`;
-- atomic complete/incomplete/not-attempted word outcomes;
-- import and compiler-health diagnostics;
-- tracing, diagnosis, breadcrumbs, and stable FieldWorks source IDs;
-- current resource envelopes, logical budgets, watchdog behavior, and capability reporting;
-- existing CLI and SDK packaging.
-
-The new work composes these capabilities into stable assessment artifacts and comparison operations.
+Reuse the existing assessment wire schemas, canonical artifact digests, structured analysis identity,
+report parsing, report comparison, golden-diff evaluation, and report-only investigation handoff
+APIs. The retained CLI consumes caller-owned artifacts; it does not import or compile a grammar,
+execute a corpus, or produce a replacement assessment report route.
 
 ## 3. Normative boundaries
 
 ### 3.1 PanGloss owns
 
-- grammar-source import and import warnings;
-- compiled-model identity;
-- parser execution;
-- structured analysis identity;
-- atomic per-case execution outcomes;
-- immutable build and assessment reports;
+- assessment artifact schema and identity semantics;
 - exact report-to-report semantic deltas;
 - exact observed-to-expected deltas;
-- parser/compiler diagnostics, traces, and factual breadcrumbs;
-- content fingerprints for all PanGloss-owned inputs and outputs.
+- report-bound investigation handoffs;
+- content fingerprints and diagnostics already present in caller-owned artifacts.
 
 ### 3.2 The caller owns
 
@@ -94,14 +79,14 @@ Use the terminology already established in `PanGloss/CONTEXT.md`.
 | Compiled model | Immutable in-memory model or `.pgpack` identified by a PanGloss model fingerprint |
 | Assessment suite | Caller-supplied, versioned cases and optional executable expectations |
 | Assessment case | Stable caller-issued case ID, input form, metadata, and optional expected-analysis policy |
-| Assessment report | Immutable result of one suite against one compiled model and named pipeline |
+| Assessment report | Immutable artifact describing one completed assessment run |
 | Grammar delta | Exact relationship between two assessment reports |
 | Golden-set diff | Exact relationship between a completed observed set and caller-supplied expectations |
 | Structured analysis identity | PanGloss's versioned canonical semantic identity, not display output |
-| Complete outcome | The complete confirmed analysis set under the selected pipeline and budgets |
+| Complete outcome | A complete authoritative analysis set recorded in a report |
 | Incomplete outcome | Analysis began but a typed limit or failure prevented a complete set |
 | Not-attempted outcome | The batch stopped before this case began |
-| Context difference | A recorded difference in model, engine, importer, options, budgets, or suite inputs |
+| Context difference | A recorded difference in report provenance or execution metadata |
 | Investigation handoff | Machine-readable factual evidence for FieldWorks or another diagnostic client |
 
 ## 5. Required public operations
@@ -110,30 +95,7 @@ Exact command spelling may follow existing `pg-cli` conventions, but the followi
 capabilities are required and must also be available through an internal Rust API suitable for the
 PanGloss SDK.
 
-### 5.1 Assess one model
-
-Illustrative CLI:
-
-```text
-pangloss assess <grammar-source> <suite.json> --report <assessment.json>
-  [--engine foma|hermitcrab]
-  [--resource-envelope <name>]
-  [--word-timeout-ms <n>]
-  [--batch-budget <...>]
-```
-
-Behavior:
-
-1. Hash the exact grammar-source bytes.
-2. Import and compile using the requested pipeline and options.
-3. Retain all importer and compiler diagnostics.
-4. Validate the suite before running any case.
-5. Execute cases in declared order.
-6. Emit one atomic outcome per case.
-7. Write an immutable assessment report.
-8. Never modify the grammar source or suite.
-
-### 5.2 Compare two assessment reports
+### 5.1 Compare two assessment reports
 
 Illustrative CLI:
 
@@ -152,7 +114,7 @@ Behavior:
 - Report context differences without refusing comparison.
 - Never label additions as improvements or removals as regressions.
 
-### 5.3 Compare an assessment with expectations
+### 5.2 Compare an assessment with expectations
 
 Illustrative CLI:
 
@@ -169,28 +131,21 @@ Behavior:
 - Produce missing-required, observed-forbidden, unexpected, matching, and allowed identities.
 - Never update the suite.
 
-This operation may be performed automatically by `assess` when the suite contains expectations, but
-the assessment report and golden-set-diff report remain logically distinct immutable artifacts.
+A producer may create the assessment report separately; the report and golden-set-diff remain
+logically distinct immutable artifacts.
 
-### 5.4 Generate a trace or investigation handoff
+### 5.3 Report-only investigation handoff
 
-Illustrative CLI:
+The retained CLI operation is:
 
 ```text
-pangloss investigate <assessment.json> --case <case-id>
-  [--analysis <identity-digest>]
-  --report <handoff.json>
-  [--trace <trace.json>]
+pangloss investigate <assessment.json> --case <case-id> --report <handoff.json>
 ```
 
-Behavior:
-
-- Verify that the assessment report, model fingerprint, case, input, pipeline, and options agree.
-- Re-run only when necessary and state whether evidence was retained or regenerated.
-- Emit stable source IDs, analysis identities, relevant breadcrumbs, trace references, completeness,
-  and truncation.
-- Suggest trace filters only as factual navigation aids.
-- Never claim a root cause or prescribe a grammar edit.
+It reads the selected report and emits a handoff bound to that report and case. It does not accept
+a grammar path, rerun a case, select a pipeline, regenerate traces, or attribute a missing analysis.
+The handoff can carry only evidence already represented by the report and explicit unavailable
+status; it never claims a root cause or prescribes a grammar edit.
 
 ## 6. Assessment-suite schema
 
@@ -345,7 +300,6 @@ Top-level fields:
     "analysisIdentityProfile": "..."
   },
   "execution": {
-    "pipeline": "foma-confirm",
     "resourceEnvelope": {},
     "options": {},
     "startedAt": "...",
@@ -373,13 +327,10 @@ Each case result contains:
 
 ### 7.2 Atomicity and completeness
 
-- A `complete` result contains the entire confirmed analysis set.
-- An `incomplete` result may contain diagnostic partial candidates, but they are clearly separated
-  and never serialized in the authoritative `analyses` field.
-- A `not_attempted` result contains no analyses.
-- Import failure before case execution produces a build/import report and a typed failed-assessment
-  result; it does not fabricate per-word empty sets.
-- Completed earlier cases remain valid when a cumulative batch budget prevents later cases.
+- A `complete` result contains the entire authoritative analysis set recorded in the report.
+- An `incomplete` result does not authorize consumers to infer an empty analysis set.
+- A `not_attempted` result contains no authoritative analyses.
+- Comparison and golden-diff preserve the outcome kind and typed reason rather than collapsing it.
 
 ### 7.3 Report identity
 
@@ -433,9 +384,9 @@ Completeness transitions are explicit, for example:
 - `complete_to_not_attempted`;
 - `incomplete_reason_changed`.
 
-Different importer warnings, pipelines, options, budgets, compiler versions, source hashes, or
-identity profiles are listed in `contextDifferences`. Comparison still runs when identities are
-compatible. Incompatible identity profiles produce `not_comparable`, not an inferred conversion.
+Different execution metadata, source hashes, compiler versions, or identity profiles are listed in
+`contextDifferences`. Comparison still runs when identities are compatible. Incompatible identity
+profiles produce `not_comparable`, not an inferred conversion.
 
 ## 9. Golden-set-diff schema
 
@@ -467,45 +418,19 @@ Aggregate counts must retain denominators:
 
 Never report “97% passed” without the numerator, denominator, exclusions, and incomplete count.
 
-## 10. Build and import diagnostics
+## 10. Stored report diagnostics
 
-An assessment must retain:
-
-- every `.fwdata` importer warning;
-- skipped or unsupported construct IDs;
-- dangling/stale-reference diagnostics;
-- compiler-health findings;
-- capability profile and overrides;
-- model fingerprint;
-- resource envelope;
-- whether a `.pgpack` was loaded or compilation occurred;
-- exact PanGloss version/revision.
-
-A caller must be able to distinguish:
-
-1. the grammar really changed parser behavior;
-2. the importer dropped or skipped different data;
-3. execution became incomplete;
-4. the identity profile changed;
-5. only resource/timing evidence changed.
+Reports may contain importer/compiler warnings, skipped or unsupported construct IDs, stale-reference
+diagnostics, capability metadata, model fingerprints, resource metadata, and completeness
+transitions. Comparison exposes differences in this metadata without changing compatible identity
+comparison. The retained CLI does not create new import or compile diagnostics.
 
 ## 11. Exit behavior
 
-PanGloss process exit codes describe whether the requested evidence operation completed, not whether
-the grammar is good.
-
-Minimum categories:
-
-- success: requested artifact was validly produced, even if it contains disagreements or incomplete
-  case outcomes;
-- invalid input/schema;
-- unsupported capability or incompatible identity profile;
-- resource containment prevented producing the requested top-level artifact;
-- internal error.
-
-If CI wants to gate on missing/forbidden analyses, it must interpret the golden-set-diff artifact or
-use an explicit opt-in convenience flag whose behavior is exactly documented. The default comparison
-command does not make publication policy.
+Retained CLI exit codes describe whether the requested evidence operation completed, not whether
+the grammar is good: success, invalid input/schema, unsupported capability or incompatible identity
+profile, and internal error. CI must interpret the golden-set-diff artifact when it needs a policy
+gate; comparison itself does not make a publication decision.
 
 ## 12. Determinism and limits
 
@@ -514,10 +439,6 @@ command does not make publication policy.
 - Comparisons use sets of structured identities, never discovery order.
 - Duplicate evidence is retained separately.
 - All string normalization follows the existing PanGloss snapshot/import contracts.
-- Every operation uses existing logical budgets and absolute resource ceilings.
-- No automatic retry with larger budgets.
-- Explicit retry creates a new report with the new resource envelope and references the earlier
-  attempt; it never mutates the earlier report.
 - Output, metadata, trace, and source-reference sizes have documented hard limits.
 
 ## 13. Security and privacy
@@ -540,136 +461,54 @@ command does not make publication policy.
 - Golden expectations state their identity profile explicitly.
 - A profile migration is caller-owned and produces a new suite revision.
 
-## 15. Required tests
+## 15. Required consumer tests
 
-### 15.1 Suite validation
+### 15.1 Identity and comparison
 
-- duplicate `caseId` rejected;
-- duplicate surface forms with distinct case IDs accepted;
-- overlapping required/forbidden/allowed identities rejected;
-- unsupported suite version rejected;
-- unresolved/out-of-scope cases retained but not adjudicated;
-- closed-world empty expectation means complete empty output;
-- incomplete result does not satisfy an empty expectation.
-
-### 15.2 Identity and comparison
-
-- engine discovery order does not change semantic comparison;
+- producer discovery order does not change semantic comparison;
 - gloss-only differences do not change structured identity;
 - changed morpheme, root position, or category/POS changes identity;
 - baseline removed and candidate added simultaneously reports `mixed`;
-- case present on only one side is not silently dropped;
+- a case present on only one side is not silently dropped;
 - incompatible identity profiles report `not_comparable`.
 
-### 15.3 Completeness
+### 15.2 Golden policy
 
-- complete empty differs from incomplete;
-- complete-to-incomplete is a completeness transition, not `removed_only`;
-- cumulative batch exhaustion preserves completed earlier cases and marks later cases not attempted;
-- explicit retry produces a new immutable report.
-
-### 15.4 Import and provenance
-
-- importer warnings appear in the report;
-- differing import warnings appear in context differences;
-- source hash and model fingerprint are distinct;
-- same semantic run produces the same semantic digest;
-- timestamps and paths do not change semantic digest;
-- canonical report mutation changes `reportId`.
-
-### 15.5 Golden policy
-
-- required present agrees;
-- required missing disagrees;
-- forbidden absent agrees;
-- forbidden observed disagrees;
+- required present agrees and required missing disagrees;
+- forbidden absent agrees and forbidden observed disagrees;
 - allowed observed agrees;
-- unknown observed under open-world policy is not unexpected;
-- unknown observed under closed-world policy is unexpected;
-- unresolved case is `not_adjudicated`;
-- incomplete case is `not_evaluable`.
+- unknown observed follows open-world/closed-world policy;
+- unresolved cases are `not_adjudicated`;
+- incomplete cases are `not_evaluable`.
 
-### 15.6 Investigation handoff
+### 15.3 Report-only investigation handoff
 
-- handoff links exact case, report, model, pipeline, and identity;
-- stable FieldWorks source IDs survive into the handoff;
-- regenerated trace is labeled regenerated;
-- truncated trace is labeled incomplete;
-- handoff contains no root-cause or automatic-repair claim.
+- handoff binds the exact report and case;
+- stable FieldWorks source IDs survive when present in the report;
+- unavailable evidence is labeled unavailable rather than regenerated;
+- no field makes a root-cause or automatic-repair claim.
 
-### 15.7 End-to-end fixtures
+## 16. Retained CLI scope
 
-At least one synthetic `.fwdata` fixture must demonstrate:
-
-- two cases with the same surface form but different case IDs/source references;
-- a required analysis newly appearing;
-- a forbidden analysis newly appearing;
-- a legitimate allowed alternative;
-- an analysis removed while another is added;
-- a complete empty analysis set;
-- a word timeout;
-- an importer warning;
-- an on-demand trace and FieldWorks investigation handoff.
-
-Run the fixture through both `foma-confirm` and Rust-HermitCrab-only pipelines and compare their
-complete structured analysis sets under the existing parity contract.
-
-## 16. Delivery slices
-
-### Slice 1: immutable single-model assessment
-
-- assessment-suite v1 parser and validator;
-- `assess`;
-- assessment-report v1;
-- structured identity serialization;
-- semantic digest;
-- complete/incomplete/not-attempted tests.
-
-### Slice 2: report comparison
-
-- `compare`;
-- grammar-delta v1;
-- context differences;
-- mixed and completeness transitions;
-- deterministic comparison tests.
-
-### Slice 3: executable expectations
-
-- required/forbidden/allowed/closed-world semantics;
-- `golden-diff`;
-- golden-set-diff v1;
-- denominator-aware aggregate reporting.
-
-### Slice 4: diagnostic handoff
-
-- `investigate`;
-- trace artifact references;
-- FieldWorks investigation-handoff v1;
-- retained versus regenerated evidence.
-
-### Slice 5: SDK stabilization
-
-- Rust APIs for all four operations;
-- CLI and SDK schema fixtures;
-- compatibility documentation;
-- representative Windows and Linux conformance;
-- performance and output-size measurements on real projects.
+- `compare` consumes two assessment reports and emits a structured grammar delta.
+- `golden-diff` consumes a report and suite expectations and emits a structured policy diff.
+- Report-only `investigate` consumes a report and case ID and emits a bound handoff.
+- Assessment-suite and assessment-report schemas remain wire-format references for artifact producers
+  and consumers.
+- CLI acceptance coverage for retained consumers, including strict rejection of removed flags, is
+  deferred to the post-demolition replacement/repair phase. Producer-coupled tests are not restored.
 
 ## 17. Normative v1 resolutions
 
 This section closes representation and execution choices that the preceding semantic sections leave
 illustrative. If wording above is ambiguous, this section governs v1.
 
-### 17.1 Public pipelines
+### 17.1 Retained operation boundary
 
-Use `--pipeline`, not `--engine`:
-
-- `foma-confirm` — FST proposal followed by Rust-HermitCrab confirmation;
-- `hermitcrab` — Rust-HermitCrab-only analysis.
-
-The default is `foma-confirm`. An unavailable pipeline returns `unsupported_capability`; there is no
-silent fallback. The illustrative `--engine foma|hermitcrab` spelling above is replaced by
-`--pipeline foma-confirm|hermitcrab`.
+The CLI no longer exposes a grammar/corpus assessment producer or a pipeline-selection flag.
+`compare`, `golden-diff`, and report-only `investigate` operate on caller-owned artifacts. The
+`foma-confirm` and `hermitcrab` values may remain in stored report/handoff schema data for wire
+compatibility, but this CLI does not choose between them or rerun either pipeline.
 
 ### 17.2 Canonical JSON and artifact IDs
 
@@ -710,12 +549,11 @@ enums, nullability, size bounds, and representation.
 
 - `adjudicated`, `unresolved`, `out_of_scope`, and cases with no expectation execute normally.
 - `invalid` cases produce `not_attempted/case_status_invalid` by default.
-- `assess --include-invalid` explicitly executes invalid cases.
 - Only `adjudicated` expectations are evaluated for agreement.
 - Missing expectations, `unresolved`, and `out_of_scope` produce `not_adjudicated` in golden diff.
 - `invalid` cases not explicitly executed produce `not_evaluable` with their not-attempted reason.
 
-### 17.5 Golden-diff attribution
+### 17.5 Golden-diff policy binding
 
 V1 `golden-diff` requires the exact suite ID, revision, semantic digest, and identity profile recorded
 in the assessment report. It does not reevaluate an old run against revised policy. A policy change
@@ -740,39 +578,27 @@ For one `caseId`:
 Changed tags, source references, or display metadata are context differences but do not prevent an
 analysis-set comparison.
 
-### 17.7 Top-level assessment failure
+### 17.7 Stored assessment status
 
-An assessment report has top-level `status: complete|partial|failed` and nullable typed `failure`.
-When suite validation succeeded but import/compile/setup failed safely, PanGloss emits a failed
-assessment artifact whose cases are `not_attempted/assessment_setup_failed`, alongside all available
-build/import evidence. If containment or an internal crash prevents a trustworthy assessment
-artifact, PanGloss emits only the available failure/build artifact and returns the applicable nonzero
-exit code.
-
-“Atomic case result” means an authoritative analysis set appears only for a complete case. Report
-files are written to a sibling temporary file, flushed, and atomically renamed; a crash leaves either
-no destination or one complete valid JSON artifact.
+Consumers preserve the report's top-level `status` and nullable typed `failure`. They must not
+infer a successful empty analysis set from a failed or incomplete report. Producer-side setup,
+containment, and publication behavior is outside this retained CLI contract.
 
 ### 17.8 Exit codes
 
-- `0` — requested artifact was validly produced, even when it reports disagreement or incomplete
-  cases;
+For retained evidence operations:
+
+- `0` — requested artifact was validly produced;
 - `2` — invalid input or schema;
 - `3` — unsupported capability or incompatible identity profile;
-- `4` — resource containment prevented production of the requested top-level artifact;
 - `70` — internal error.
 
-### 17.9 Grammar-source and identity rules
+### 17.9 Report identity rules
 
-V1 accepts file sources only: `.fwdata`, `pg-snapshot` `.json`, and `.pgpack`. `sourceSha256` hashes
-exact file bytes. Formatting-only differences may change `sourceSha256` without changing the compiled
-`modelFingerprint`; both are retained.
-
-The v1 identity profile is `machine-word-analysis-v1`, normatively defined by the Structured analysis
-identity entry in `PanGloss/CONTEXT.md` and the checked-in v1 schema. The suite-level declaration
-applies to every expectation. `identityDigest` is an index only: equality is confirmed with the full
-canonical structured value. Unequal structured identities with the same digest are an integrity
-error.
+For existing reports, `sourceSha256`, `modelFingerprint`, and `identityDigest` retain the
+distinctions defined by the v1 wire schema. The identity profile remains caller-declared and
+comparisons with incompatible profiles are `not_comparable`; this retained CLI does not accept
+grammar sources or compile models.
 
 ### 17.10 Diagnostics, limits, and redaction
 
@@ -788,56 +614,34 @@ represented as an explicit caller-supplied redacted reference.
 
 ### 17.11 Investigation availability
 
-Full traces need not be retained in the assessment report. When regeneration is required,
-`investigate` accepts `--grammar-source` or an accessible `.pgpack`, verifies its source hash/model
-fingerprint, and reruns the exact case, pipeline, semantic options, and resource envelope. If source
-or capability is unavailable, the handoff records `evidenceAvailability: unavailable` and contains no
-invented trace. Retained and regenerated evidence have distinct artifact IDs, and regenerated evidence
-is never represented as captured during the original assessment.
+The retained `investigate` operation is report-only. It reads the requested report and case and
+emits a handoff bound to that report; it does not accept `--grammar` or `--grammar-source`, rerun
+a case, regenerate traces, select a pipeline, or perform cause attribution. Evidence unavailable
+in the report remains explicitly unavailable.
 
-### 17.12 Parity fixture scope
-
-The end-to-end fixture compares full structured analysis sets only for cases complete in both
-`foma-confirm` and `hermitcrab`. Any incomplete case fails that conformance fixture rather than being
-compared as an empty set. This is the existing PanGloss propose-and-confirm parity invariant, not a
-new cross-product quality policy.
 ### 17.13 Final operation rules
 
-- Comparing reports with incompatible identity profiles still produces a valid grammar-delta artifact:
-  every affected case is `not_comparable/identity_profile_changed`, and the command exits `0`.
-  Exit `3` is reserved for a requested capability/profile that PanGloss cannot load or execute, where
-  the requested top-level artifact cannot be validly produced.
-- Assessment `status` is `complete` when every runnable case completed; policy-skipped invalid cases
-  do not make it partial. It is `partial` when at least one case completed but another runnable case
-  is incomplete or not attempted because execution/batch limits intervened. It is `failed` when
-  import/compile/setup prevented all runnable cases from completing. Complete and partial reports are
-  valid comparison inputs and normally exit `0`.
-- `--report` never overwrites an existing path. An existing destination is invalid input (exit `2`),
-  even if its bytes match. Callers choose a new path or verify/reuse the existing artifact themselves.
-- The CLI artifact sink defaults to a sibling directory `<report>.artifacts/sha256/<hex>` and uses
-  atomic create-without-overwrite. The Rust API accepts an `ArtifactSink` abstraction returning a
-  content-addressed artifact reference. Reports include the sink-relative locator as nonsemantic
-  metadata plus SHA-256, media type, byte length, and item count; retrieval always verifies SHA-256.
-- An `invalid` case executed with `--include-invalid` remains `not_adjudicated`; execution provides
-  diagnostic evidence but does not promote invalid policy to an expectation.
-- For the definition of done, a “changed case” has category `added_only`, `removed_only`, `mixed`,
-  `completeness_changed`, `baseline_only`, `candidate_only`, or `not_comparable`. Context-only changes
-  attached to an otherwise `unchanged` case do not make it a changed case. Investigation is required
-  for any changed case that exists on the selected baseline or candidate side; it may also be invoked
-  for unchanged cases.
+- Comparing incompatible identity profiles still produces a valid
+  `not_comparable/identity_profile_changed` grammar-delta artifact and normally exits `0`.
+- `golden-diff` evaluates expectations represented by the supplied suite; it does not mutate the
+  suite or create a new assessment run.
+- Report-only `investigate` does not rerun, regenerate, or attribute; it emits only a handoff bound
+  to the selected report and case.
+- `--report` writes the requested retained-consumer artifact through the shared output path.
+
 ## 18. Definition of done
 
-PanGloss's part is complete when an external caller can:
+The retained PanGloss surface is complete when an external caller can:
 
-1. provide baseline and candidate `.fwdata` files plus one versioned suite;
-2. obtain two immutable assessment reports;
-3. obtain an exact structural grammar delta;
-4. obtain an exact expected-versus-observed diff;
-5. identify every incomplete, skipped, unsupported, or importer-affected case;
-6. request a trace/handoff for any changed case;
-7. verify artifact identity and provenance;
-8. make its own human or AI review decision without reading PanGloss console prose;
-9. do all of the above without PanGloss modifying FieldWorks data, expectations, or review state.
+1. compare baseline and candidate assessment reports by structured identity;
+2. obtain an exact expected-versus-observed golden diff;
+3. identify incomplete, skipped, unsupported, or importer-affected cases from report data;
+4. request a report-only handoff for a selected case;
+5. verify artifact identity and provenance;
+6. make its own human or AI review decision without reading PanGloss console prose.
+
+The grammar/corpus report producer and any replacement/repair acceptance route are intentionally
+deferred until after demolition. Old producer-coupled tests must not be restored.
 
 ## 19. Explicitly deferred
 
