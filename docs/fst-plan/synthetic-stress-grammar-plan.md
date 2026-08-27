@@ -5,14 +5,11 @@ Status: REVISED 2026-07-28. Companion to `foma-fst-plan.md` (P6 section) and
 playing whack-a-mole with each new language, and can we get ahead of it systematically?
 
 > **Current policy note (2026-08-23).** The stress corpus is developer/test evidence, not a
-> production acceptance path. `--allow-unproven` is a developer-build-only capability override
-> that may lose valid parses; it may write local developer evidence, but never production-publishes
-> or certifies an artifact. The distinct
-> `--remove-size-limits` developer control removes internal deterministic size/work caps only:
-> exact completion remains required, and the external watchdog/RSS guard, bounded I/O, and
+> production acceptance path. Removed developer flag spellings are rejected; finite
+> `ExecutionLimits`, exact completion, and the external watchdog/RSS guard, bounded I/O, and
 > non-disableable absolute ceiling remain mandatory. A complete and accurate stress build may
 > report `Error` health evidence, but `Error` is production-unready; `Critical` is a correctness
-> gap. The legacy `--no-enforce-capability` escape is developer-only.
+> gap.
 
 ## 1. Why this is not (entirely) whack-a-mole
 
@@ -123,13 +120,11 @@ self-skip-guarded, non-vacuous gate style:
 
 1. **Parity:** FST-propose + HC-confirm recall == 100% of oracle parses on the generated
    word list (any <100% is a compiler gap, per standing policy — never a bypass).
-2. **Resource envelope:** compile time, peak RSS proxy (network states/arcs), and per-word
+2. **Finite execution limits:** compile time, peak RSS proxy (network states/arcs), and per-word
    apply p99 under declared budgets.
 3. **Honest failure:** the deliberately-over-budget variant of the same recipe must return
-   the typed budget error, never OOM, never panic — this is the machine-safety assertion for a
-   normal named envelope. A developer stress run using `--remove-size-limits` may cross those
-   internal caps, but it still requires external watchdog/RSS containment and the absolute
-   ceiling; a containment stop is incomplete evidence, never a trusted artifact.
+   the typed budget error, never OOM, never panic — this is the machine-safety assertion for finite
+   `ExecutionLimits`. A containment stop is incomplete evidence, never a trusted artifact.
 
 ## 5. Phasing
 

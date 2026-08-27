@@ -9,10 +9,10 @@
 //! # Two distinct axes (do not conflate)
 //! This module's severity axis (`Severity`: WithinLimits/Elevated/LargeMultiplier/
 //! NotProductionReady/MachineLimit/CannotRepresent — a **cost/size** axis) is a *different*
-//! dimension from the capability-trust axis (characteristics-check hard-fail vs. capability
-//! override, binary proven-vs-unproven). A pack can be cost-healthy yet capability-unproven, or
-//! vice versa — this module models only the cost/health axis; it is not an admission mechanism for
-//! capability trust and does not re-implement the capability registry.
+//! dimension from capability correctness (the characteristics-check hard-fail boundary). A build
+//! can be cost-healthy yet fail a capability check, or vice versa — this module models only the
+//! cost/health axis; it is not an admission mechanism for capability correctness and does not
+//! re-implement the capability registry.
 //!
 //! # Severity names the blocking TIER; FindingClass names the fact
 //! `Severity` is the publication-blocking axis, not an alarm level and not itself a statement of
@@ -37,10 +37,10 @@
 //! backend coverage gaps) — and `HealthReport::admission` aggregates across all of them,
 //! not size alone.
 //!
-//! # Admission and trust boundaries
+//! # Admission boundary
 //! `Severity::NotProductionReady` and `Severity::MachineLimit` remain explicit readiness
-//! failures. Health admission always reflects raw severity; capability trust is a separate
-//! manifest-level axis. Apply-time execution containment remains a hard boundary as well.
+//! failures. Health admission always reflects raw severity. Apply-time execution containment
+//! remains a hard boundary as well.
 //!
 //! # Worst severity ("FST admission result")
 //! `HealthReport::admission` returns the worst raw finding severity — the publication gate's floor.
@@ -97,8 +97,8 @@ pub const HEALTH_SCHEMA_VERSION: u32 = 7;
 
 // Severity + payload-size threshold
 
-/// The cost/health severity axis — deliberately **distinct** from the capability-trust axis
-/// (proven-vs-unproven capability checks). This is the publication-blocking TIER, not a statement
+/// The cost/health severity axis — deliberately **distinct** from capability correctness checks.
+/// This is the publication-blocking TIER, not a statement
 /// of WHY: `FindingCode::class()` (`FindingClass`) is what names the fact behind a finding, and a
 /// single severity here can be reached by several unrelated facts (see `NotProductionReady`'s own
 /// doc for the clearest case).
@@ -423,7 +423,7 @@ pub struct Remedy {
 pub struct HealthFinding {
     /// The current `PGFdddd` code (`FindingCode`).
     pub code: FindingCode,
-    /// This finding's severity on the cost/health axis (never the capability-trust axis).
+    /// This finding's severity on the cost/health axis.
     pub severity: Severity,
     /// Which production stage produced or predicted this finding.
     pub phase: Phase,

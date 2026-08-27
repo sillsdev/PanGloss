@@ -119,7 +119,7 @@ the driving construct (nested circumfixing):
 - **PlanComposed cannot build the material at all**: composite/structural subtrees are
   unbuildable markers for `build_controllable`, so `unbuildable_marker_reason` rejects the
   candidate before partial network measurement. The guard is called by the plan evaluators and
-  accuracy realization path in `backend_runtime.rs`.
+  accuracy realization path in `backend_runtime.rs` (`build_candidate`, `evaluate_plans*`).
 
 The heuristic therefore names a missing point in the backend design space — emit each side of the
 stem as an independent local automaton (prefix ordering/transformation and suffix

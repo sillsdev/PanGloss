@@ -67,20 +67,16 @@ would make your language invalid!”
    fail. Reports retain findings, predicates, shapes, cost evidence, advice references, and status.
 2. Semantic/representability gaps, including inability to prove that a construction can be
    complete, are Critical. An otherwise complete strategy stopped by the selected resource
-   envelope is an Error-level incomplete attempt. Normal production builds fail closed on either.
-   A developer stress attempt may use hidden
-   `--remove-size-limits` to disable only internal deterministic size/work caps, while retaining
-   worker isolation, bounded I/O, external watchdog/RSS/absolute ceilings, capability checks,
-   complete closure, finalized payload, and parity. Hidden developer-only `--allow-unproven` is a
-   separate correctness override that may omit valid parses, is rejected in production, and never
-   produces a publishable or certifiable result. Partial/truncated/skipped output is never success.
+   finite limits are an Error-level incomplete attempt. Normal production builds fail closed on either.
+   Finite `ExecutionLimits`, worker isolation, bounded I/O, external watchdog/RSS/absolute
+   ceilings, capability checks, complete closure, finalized payload, and parity remain mandatory;
+   partial/truncated/skipped output is never success. Removed developer flag spellings are rejected
+   and do not create a correctness or publication override.
 3. A completeness certificate exists only when a real FST payload was built, the emitter reported
    Full, no constructs were uncovered, no successors remained, and no enumeration budget tripped.
 4. The selector reports warnings and errors for every backend. Normal production selection chooses
-   only a correctness-admitted backend with health at most Warning; an explicit stress selection
-   may attempt a complete Error candidate, but keeps it production-unready. Critical correctness
-   candidates remain refused unless a developer explicitly uses `--allow-unproven`; ranking and
-   fallback never silently change these dispositions.
+   only a correctness-admitted backend with health at most Warning; Error and Critical candidates
+   remain unselected. Ranking and fallback never silently change these dispositions.
 5. Mbugwe is deferred from the current three-language production-acceptance slice and is not its
    acceptance blocker. It is included in the five-grammar developer stress loop. Its existing
    reports and full morphological parser are evidence inputs; the parser is an analysis path, not
@@ -112,8 +108,8 @@ Generate one checked-in Markdown card for each executable backend:
 
 Each card is generated from a single versioned capability catalog and contains:
 
-- stable backend and envelope IDs plus human names;
-- whether each envelope is inherent or controlled by a named switch, including its default;
+- stable backend and cost-dimension IDs plus human names;
+- how each cost dimension is bounded by finite `ExecutionLimits`;
 - Big-O notation, named variables, and which ordering, null, deletion, or other features contribute;
 - linked remedy IDs and a reference to the authoritative shared advice catalog; and
 - the mandatory language-validity safety statement on potentially meaning-changing remedies.

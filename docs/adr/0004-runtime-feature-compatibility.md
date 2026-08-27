@@ -48,7 +48,7 @@ makes "old packs run forever" arithmetic rather than a promise.
   a runtime operation (e.g. reduplication → the query-time peel op) contribute, plus format
   version and extensions. Most constructs are fully lowered and impose no runtime requirement.
 - **Manifest schema is thereby determined:** payload-format version + required
-  runtime-feature/semantic-version set + FST-health admission/findings/override + identity/
+  runtime-feature/semantic-version set + FST-health admission/findings + identity/
   provenance. This fills the previously-missing WASM-manifest health-admission field. (There
   is no separate "certification" consumer of this provenance: correctness is proven by the
   in-repo conformance integration tests against committed ground truth — see ADR 0001 — not by

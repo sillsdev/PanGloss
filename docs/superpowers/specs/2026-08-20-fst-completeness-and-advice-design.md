@@ -35,9 +35,9 @@ The diagnostic may mention depth as one factor. It must not say that depth five 
 
 PanGloss does not wait for a word to expose an omitted path. Completeness is decided from the grammar and the compiler's construction state.
 
-For a finite construction, the compiler maintains a worklist of reachable abstract or concrete states. A successful build ends only when the worklist is empty. If a resource envelope stops the build while the worklist is nonempty, PanGloss knows the construction is incomplete and writes no FST.
+For a finite construction, the compiler maintains a worklist of reachable abstract or concrete states. A successful build ends only when the worklist is empty. If finite `ExecutionLimits` stop the build while the worklist is nonempty, PanGloss knows the construction is incomplete and writes no FST.
 
-For an unsupported or potentially unbounded construction, the characteristics check analyzes the grammar's transition graph at build time. A strongly connected component with no supported FST loop and no decreasing finite counter is not proven finitely enumerable. That backend refuses before expensive construction. Large or uncertain projected cost alone never becomes a correctness refusal; it remains cost evidence and is attempted only within the selected resource envelope.
+For an unsupported or potentially unbounded construction, the characteristics check analyzes the grammar's transition graph at build time. A strongly connected component with no supported FST loop and no decreasing finite counter is not proven finitely enumerable. That backend refuses before expensive construction. Large or uncertain projected cost alone never becomes a correctness refusal; it remains cost evidence and is attempted only within finite `ExecutionLimits`.
 
 The old pattern—return at a fixed recursion depth and treat emitted entries as complete—is forbidden.
 
@@ -47,21 +47,12 @@ The old pattern—return at a fixed recursion depth and treat emitted entries as
 
 Consequently, `RepresentsWithKnownGap` may not map to `ConfirmOnly` when “gap” means possible under-proposal. That backend must refuse the affected grammar shape. A separate representation state may describe a proven over-approximation.
 
-### Resource retry, stress control, and capability override are distinct
+### Resource containment and capability refusal
 
-An explicit resource retry is a new caller-requested compilation under a named, versioned operational envelope. It may raise an entry, probe, state, arc, memory, or elapsed-time budget and reruns the complete algorithm from a clean state. PanGloss never escalates a budget or retries automatically, and the prior terminal finding remains in the build history.
-
-A resource retry never converts a nonempty worklist into a successful artifact and never relabels incomplete output as trusted. A developer-only stress attempt may instead use hidden
-`--remove-size-limits` to disable only internal deterministic size/work caps. Worker isolation,
-bounded I/O, external watchdog/RSS/absolute ceilings, capability checks, exact completion,
-finalized payload, and parity remain required.
-
-Separately, hidden developer-build-only `--allow-unproven` may expose a correctness-refused route
-for grounding and may omit valid parses by definition. It is rejected in production and cannot
-publish or certify. Any resulting artifact is indelibly `unproven`, carries the degraded trust
-signal on load and every analysis, and cannot satisfy the conformance gate. It does not remove
-size/work limits; `--no-enforce-capability` is legacy developer-only/non-production. Neither flag
-can make partial, truncated, or skipped output accurate.
+Compilation uses finite `ExecutionLimits`, worker isolation, bounded I/O, external watchdog/RSS/
+absolute ceilings, exact completion, finalized payload, and parity. PanGloss never escalates a
+budget or retries automatically, and a nonempty worklist never becomes a successful artifact.
+Removed developer flag spellings are rejected; no flag creates a trust or publication exception.
 
 ## Semantic model
 
@@ -75,7 +66,7 @@ Each backend classifies every reachable mechanism component as one of:
 - `Unsupported`: no recall-preserving lowering is known; or
 - `UnboundedUnknown`: a cycle exists but neither supported loop semantics nor a finite decreasing measure is proven.
 
-Only the first three are normally buildable. `ProvenSupersetLoop` yields `ConfirmOnly`; `ExactLoop` and `FiniteClosure` yield exact proposal for that component. `Unsupported` and `UnboundedUnknown` refuse unless the explicit development capability override is in effect, in which case the result remains unproven.
+Only the first three are normally buildable. `ProvenSupersetLoop` yields `ConfirmOnly`; `ExactLoop` and `FiniteClosure` yield exact proposal for that component. `Unsupported` and `UnboundedUnknown` refuse.
 
 ### Abstract state for finite closure
 
@@ -109,7 +100,8 @@ Every successful FST build carries an internal `FstCompletenessCertificate` asse
 - all deliberate over-approximations and their confirmation predicates; and
 - a stable certificate/schema version.
 
-`FomaTier::Full`, package trust, and readiness certification must require a valid completeness certificate in addition to an empty `uncovered` list.
+`FomaTier::Full` and readiness certification must require a valid completeness certificate in addition
+to an empty `uncovered` list.
 
 ## Backend behavior
 
@@ -119,7 +111,7 @@ This remains the preferred shipping Foma proposer for grammar components its rou
 
 Ordinary rule chains may use existing lexc structure where it is complete. Structural composites and surface-probed interactions use exhaustive finite closure to the grammar-derived bound. The current fixed `MAX_EXTRA_RULES` and `STRUCT_MAX_EXTRA_RULES` behavior cannot be a success condition.
 
-Surface probing that materializes root-plus-rule spellings remains an enumerated operation until the corresponding phonology is soundly lowered to a transducer. If enumeration cannot finish under the managed production envelope, the backend returns Error and no production artifact; a developer stress attempt may continue only under the separate `--remove-size-limits` contract and still needs complete closure, finalized payload, and parity.
+Surface probing that materializes root-plus-rule spellings remains an enumerated operation until the corresponding phonology is soundly lowered to a transducer. If enumeration cannot finish under finite `ExecutionLimits`, the backend returns Error and no artifact.
 
 ### TemplatedUnderlyingTokens
 
@@ -150,8 +142,8 @@ The FST readiness severities are ordered `Ideal`, `Info`, `Warning`, and `Error`
 - `Ideal` means no health finding;
 - `Info` records useful evidence without recommending action;
 - `Warning` permits a proven build but identifies cost or maintainability concerns;
-- `Error` means a complete strategy exists but is production-unready or the current resource
-  envelope did not complete it.
+- `Error` means a complete strategy exists but is production-unready or finite `ExecutionLimits`
+  did not complete it.
 
 Correctness remains binary and separate from that graded readiness axis. A correctness refusal is
 presented as `Critical`: the backend cannot currently prove a recall-preserving representation or
@@ -161,12 +153,11 @@ The selector reads all backend reports. A normal production candidate must be
 correctness-admitted and have a worst severity of Ideal, Info, or Warning; an Error or Critical
 report is retained but is not selectable for a normal build. An explicit developer stress
 selection may attempt an Error candidate, but only for a complete result and with its Error
-readiness status preserved. Critical correctness remains refused unless `--allow-unproven` is
-explicitly requested, and then the result is untrusted. The selector first prefers a candidate
+readiness status preserved. Critical correctness remains refused. The selector first prefers a candidate
 with no findings, then the candidate with the least severe and least numerous findings. Ties use
 the committed backend preference order so selection is reproducible.
 
-The selector returns no plan when there is no normal generation candidate, one plan in the ordinary case, or the two highest-ranked plans when the committed selection policy requests a measured comparison between close candidates, such as overlapping projected-cost intervals. The two-plan result preserves primary/secondary order and cannot include an Error or Critical backend. If no plan is selected, PanGloss reports every backend's reasons and remedies. The explicit development capability override is a caller choice, not an automatic selector fallback.
+The selector returns no plan when there is no normal generation candidate, one plan in the ordinary case, or the two highest-ranked plans when the committed selection policy requests a measured comparison between close candidates, such as overlapping projected-cost intervals. The two-plan result preserves primary/secondary order and cannot include an Error or Critical backend. If no plan is selected, PanGloss reports every backend's reasons and remedies.
 
 ## Outcome policy
 
@@ -182,30 +173,16 @@ Depth alone never triggers a Warning. A depth metric may appear in a Warning whe
 
 ### Error
 
-An Error means a semantically sound complete strategy exists, but the current production
-operational envelope is insufficient. The normal production path emits no FST. A developer stress
-attempt may continue with `--remove-size-limits`; if it reaches an empty worklist and emits an
-exact, parity-verified payload, that result is accurate evidence but remains Error and
-production-unready.
-
-The normal path out of Error is a caller-requested retry with a changed named resource envelope
-and a clean construction state. A proven retry succeeds only with an empty worklist and a complete
-certificate. `--allow-unproven` is not an Error/resource override and never turns an Error or
-partial result into a successful proven build.
+An Error means a semantically sound complete strategy exists, but finite `ExecutionLimits` stopped
+the attempt. The normal production path emits no FST. A nonempty worklist or containment stop never
+becomes a successful artifact; only a clean complete construction with a valid certificate can
+proceed.
 
 ### Critical
 
-A Critical means the selected backend has no known recall-preserving representation or cannot prove termination/completeness for the reachable grammar shape. Normal production compilation emits no FST. Only the explicit development capability override may force compilation, and it can produce only an indelibly unproven artifact with the degraded trust signal.
+A Critical means the selected backend has no known recall-preserving representation or cannot prove termination/completeness for the reachable grammar shape. Normal production compilation emits no FST.
 
 Examples include nonregular copying assigned to a pure FST backend, a zero-surface cycle without a finite counter, a known under-proposal route, or a compiler state that contradicts its certificate.
-
-### Development and test override
-
-Development and tests may use `--allow-unproven` to inspect refused shapes; it may omit valid
-parses and cannot produce a proven package. `--remove-size-limits` is a separate hidden stress
-control for internal deterministic size/work caps and never disables containment or completion
-checks. Both are explicit developer-build switches, never automatic selector fallbacks or
-production/publication controls.
 
 ## Backend-specific advice
 
@@ -321,14 +298,10 @@ The suite includes:
 2. a later-allomorph structural/reduplication case proving every allomorph participates in classification and closure;
 3. a repeated-application case proving counters, rather than rule-ID deduplication, bound closure;
 4. a tiny injected resource budget that leaves pending work, returns Error, and writes no artifact;
-5. a stress run with internal size/work caps removed that either completes with exact payload and
-   parity while retaining Error readiness, or terminates at an external safety ceiling without
-   claiming success;
-6. an unsupported/unbounded zero-surface cycle that returns Critical before normal emission and
-   remains unproven under `--allow-unproven`;
-7. a word with both shallow and deep analyses proving the proposer contains the entire HC result;
-8. negative controls for wrong rule order, root, anchor, incomplete chains, production rejection
-   of both developer-only switches, and rejection of partial/truncated/skipped output.
+5. an unsupported/unbounded zero-surface cycle that returns Critical before emission;
+6. a word with both shallow and deep analyses proving the proposer contains the entire HC result;
+7. negative controls for wrong rule order, root, anchor, incomplete chains, rejection of removed
+   developer switch spellings, and rejection of partial/truncated/skipped output.
 
 These fixtures are permanently PanGloss-specific and are never promoted to Machine.
 
@@ -337,9 +310,9 @@ These fixtures are permanently PanGloss-specific and are never promoted to Machi
 ### 1. Fail closed immediately
 
 - Detect a legal successor at every current fixed-depth return.
-- Treat such a return as incomplete and emit no proven FST; the explicit development capability override may expose it only as unproven state.
+- Treat such a return as incomplete and emit no FST.
 - Make under-proposing `RepresentsWithKnownGap` refuse rather than `ConfirmOnly`.
-- Make Critical refuse normal production compilation; preserve only the explicit unproven development capability override.
+- Make Critical refuse compilation.
 - Add the PanGloss-only red/green refusal fixtures.
 
 This slice makes the current product honest while Mbugwe remains deferred from production
@@ -359,7 +332,7 @@ certification and active in the developer stress loop.
 - Project and observe entries, probes, states, arcs, memory, and time.
 - Attribute cost to dominant typed factors rather than depth thresholds.
 - Embed the versioned advice catalog and render backend-specific remedies.
-- Require normal/proven Error retries to name a changed resource envelope and retain the prior finding.
+- Record the terminal Error finding and retain it with the prior evidence; do not retry automatically.
 
 ### 4. Loop-capable lowering
 
@@ -377,13 +350,10 @@ certification and active in the developer stress loop.
 - Every failed backend names its failed predicate and conditional remedies.
 - Every backend report is retained, and selector ordering is deterministic.
 - Warning always permits generation of a certified artifact.
-- Error emits no production artifact under the managed envelope. A clean retry or developer stress
-  attempt may succeed only with complete closure, finalized payload, and parity; a complete stress
-  result remains Error and production-unready.
-- Critical correctness gaps emit no proven artifact; `--allow-unproven` may expose only an
-  indelibly unproven, potentially omission-prone developer result.
-- Neither developer-only switch overrides worker isolation, bounded I/O, watchdog/RSS/absolute
-  ceilings, capability checks, completion, payload, or parity; partial output is never success.
+- Error emits no artifact when finite limits stop the attempt; partial output is never success.
+- Critical correctness gaps emit no artifact.
+- Removed developer switch spellings are rejected; worker isolation, bounded I/O, watchdog/RSS/
+  absolute ceilings, capability checks, completion, payload, and parity remain mandatory.
 - PanGloss-only completeness fixtures cannot enter the Machine promotion workflow.
 
 ## Explicitly rejected alternatives
@@ -392,5 +362,5 @@ certification and active in the developer stress loop.
 - Emitting a partial FST with a Warning.
 - Falling back to HC only for words where the FST returns no candidate.
 - Treating a known under-proposal gap as `ConfirmOnly`.
-- Letting a resource override accept partial output.
+- Letting a limit change accept partial output.
 - Generic grammar advice that is not connected to a backend failure predicate.

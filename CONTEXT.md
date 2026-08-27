@@ -409,28 +409,11 @@ _Avoid_: Supported (unqualified)
 The CI check that makes "supported" mean "proven accurate": a construct or configuration may not flip from fail-closed to supported unless the in-repo conformance suite exercises it and passes. The capability registry is cross-checked against conformance coverage, and marking anything supported without a covering, passing fixture breaks the build. This is how the claim "if a grammar compiles, it is accurate" is mechanically enforced rather than promised — the conformance suite is the gate through which a construct earns "supported."
 _Avoid_: Certification, sign-off (there is no separate terminal certification stage; ground truth is committed per-fixture and integration tests run the current engine against it)
 
-**Capability override**:
-The hidden, developer-build-only `--allow-unproven` escape hatch that force-compiles a grammar the
-characteristics check refused. It may omit valid parses and is useful only for inspecting behavior or
-gathering grounding evidence. Any resulting output is indelibly stamped unproven/recall-unsafe; it
-never loads as a trusted production artifact, passes the conformance gate, or becomes publishable.
-The override is recorded in the build evidence and, where an artifact is written, the pack manifest.
-It is cleared only by genuine proof plus a clean recompile. It does not remove size/work limits.
-_Avoid_: Bypass, disable-check (it does not silence the contract; it records the exception and marks the result)
-
 **Capability enforcement**:
 The normal compiler policy always applies capability predicates and fails closed when complete
 construction cannot be proven. `--allow-unproven` is an explicitly degraded diagnostic path, never
 an alternative way to obtain a trusted or publishable result.
 _Avoid_: Public production selector, correctness proof
-
-**Unproven-grammar trust signal**:
-The strong, machine-readable degraded-trust status a developer Runtime broadcasts for a
-capability-overridden pack — pack-level `unproven` at load and a degraded/experimental flag on
-every analysis result — which tooling keys off to warn that valid parses may be missing. The
-signal is required for developer inspection but is not a production/publication substitute:
-production rejects the unproven result before it can be shipped. A proven pack fires neither.
-_Avoid_: Warning (unqualified), error band (that is the separate cost/health axis)
 
 **Compilation plan**:
 A first-class, enumerable description of one legal composition topology for a grammar. Multiple plans may pass capability for one grammar; because every capability-passing plan is recall-preserving, all produce the identical confirmed analysis set and differ only in cost.

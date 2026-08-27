@@ -1,6 +1,8 @@
 # Stress Grammar Construction and Production Admission
 
-**Status:** Proposed implementation contract; direction approved, pending document review.
+**Status:** Superseded for the current route. Retain the four-verdict distinctions and finite
+`ExecutionLimits`; the removed developer-switch and publication/retry policy is historical and is
+not an implementation instruction.
 
 ## Purpose
 
@@ -36,7 +38,7 @@ they are **not one ordered severity scale**, and no single collapsed value may s
 | `LargeMultiplier` | Static analysis | Before compiling | No | No — informational only | Check grammar optimization |
 | `CannotRepresent` | Static analysis | Before compiling | Yes — nothing can be built for the affected feature | Yes, unconditionally | Implement the feature, or use the full morphological-parser engine |
 | `NotProductionReady` | Post-compile measurement | After the FST has already compiled | No | Yes | Reduce the built artifact's size/cost, or accept it as developer-only evidence |
-| `MachineLimit` | Host monitoring (an external watchdog) | During compiling | Aborts the attempt; its partial output is unusable | N/A — the attempt produced no artifact | Retry with internal caps removed, bounded only by machine containment (see below) |
+| `MachineLimit` | Host monitoring (an external watchdog) | During compiling | Aborts the attempt; its partial output is unusable | N/A — the attempt produced no artifact | Report the contained failure; no partial artifact is accepted |
 
 - **`LargeMultiplier`** is raised by static analysis before any compilation starts, when an N × M × O
   multiplier is too large. It blocks nothing: a complete, proven artifact built despite the finding may
@@ -63,7 +65,7 @@ passes semantic parity is **correct and complete but not production-ready**. Its
 
 ## Normal production path
 
-Production builds use a named, versioned resource envelope. They report all backend findings, select
+Production builds use finite `ExecutionLimits`. They report all backend findings, select
 only correctness-admitted production candidates, and publish only completed artifacts that satisfy the
 production-readiness policy. `LargeMultiplier` findings remain visible. `CannotRepresent` results are
 never published, because nothing was built for them. `NotProductionReady` results are never published
@@ -71,59 +73,8 @@ either — but, unlike `CannotRepresent`, a `NotProductionReady` verdict never s
 being compiled in the first place; it only stops it from being published. Compiling and publishing are
 separate gates, and only `CannotRepresent` closes the first one.
 
-The public production CLI and library surface expose neither experimental switch below. Production
-binaries reject either spelling as an unknown option. A dedicated `developer-tools` build feature owns
-the parsing, help text, and APIs for both switches; release packaging must not enable that feature.
-
-## Developer correctness override: `--allow-unproven`
-
-`--allow-unproven` bypasses a correctness or representability refusal (`CannotRepresent`) solely for
-compiler development and grounding. The resulting proposal may omit valid parses. It is stamped
-`trust=unproven`, may be written as a local developer evidence artifact, but may not enter normal
-backend selection, production publication, certification, or be used as evidence that PanGloss
-accurately represents the grammar.
-
-The switch does not suppress diagnostics or remove resource containment. It exists to inspect a known
-gap, compare experimental behavior, and build the conformance evidence needed to eliminate the gap.
-`--no-enforce-capability` is a legacy unstamped bypass and must be removed or restricted to the same
-developer-only surface; it may not remain a production escape hatch.
-
-## Developer stress control: `--remove-size-limits`
-
-`--remove-size-limits` requests a clean high-risk attempt with internal deterministic size and work caps
-disabled. It does not bypass capability checks and does not change trust. The report records the switch
-and every observed counter.
-
-The phrase does not mean unlimited execution. All of these remain mandatory and non-disableable:
-
-- isolated, killable worker execution;
-- bounded request, result, and payload transport;
-- parent-enforced wall-clock and RSS ceilings;
-- the versioned absolute resource ceiling;
-- apply-time containment;
-- empty worklist and zero pending, skipped, truncated, or uncovered material;
-- finalized-payload identity and semantic parity checks.
-
-If any containment boundary fires, the attempt is incomplete and yields no accurate artifact — that is
-a `MachineLimit` result, not a verdict about the grammar. If the attempt completes, it may produce a
-proven developer stress artifact even while its production-readiness verdict remains
-`NotProductionReady`.
-
-When an artificial *internal* cap — not machine containment — is what stopped a build, the remedy is to
-re-run with those internal caps removed, bounded only by machine containment, rather than retrying
-against a larger named resource envelope. A larger arbitrary number is still arbitrary: it cannot tell
-you whether the grammar's real cost sits inside or outside some bound, only that one particular number
-happened to be big enough this time or not. Removing the internal cap instead makes the outcome
-informative and binary — either the attempt fits inside machine containment, or it hits `MachineLimit`
-— and either answer is worth more than picking a bigger number and finding out later. A run made this
-way is developer evidence: whether it completes or is stopped by `MachineLimit`, it is never
-production-publishable.
-
-## Combined switches
-
-Developers may combine the switches only to investigate both a correctness gap and extreme cost. The
-result remains `trust=unproven` regardless of whether construction completes. Completion evidence is
-still recorded, but it cannot establish recall or production readiness.
+The removed `--allow-unproven`, `--no-enforce-capability`, and `--remove-size-limits` spellings are
+rejected; no flag removes finite execution limits or creates a trust/publication exception.
 
 ## Five-grammar acceptance loop
 
@@ -134,9 +85,9 @@ For each stress grammar, PanGloss will:
    pre-compile) from `NotProductionReady` readiness findings (post-compile measurement) and `MachineLimit`
    containment results (produced during an attempt, about the attempt, never about the grammar);
 3. rank the correctness-admitted backends by findings and estimated remedy effort;
-4. try the best candidate under the normal named envelope;
-5. when the normal result is `NotProductionReady` for size/work alone, or an artificial internal cap
-   stopped the build, optionally rerun in contained developer stress mode with internal limits removed;
+4. try the best candidate under finite `ExecutionLimits`;
+5. treat a contained or incomplete attempt as a failure with no artifact; do not retry by removing
+   internal limits;
 6. accept accuracy only after complete construction, exact payload handoff, and full analysis-set parity;
 7. preserve all findings, contributors, and remedies even when a stress build succeeds.
 
@@ -153,9 +104,6 @@ PanGloss-only conformance fixtures must prove the policy without promotion to Ma
 - `NotProductionReady` never prevents an FST from being compiled — only from being published as a
   production artifact;
 - a live successor or a `MachineLimit` stop cannot produce a successful artifact;
-- `--remove-size-limits` retains outer containment and all correctness checks, and removing its internal
-  caps still resolves to exactly two outcomes: fits, or `MachineLimit` — never a bigger arbitrary number;
-- `--allow-unproven` is developer-only and produces only explicitly unproven output; any persisted
-  pack is local developer evidence, never a production-publishable or certifiable artifact;
-- production binaries expose and accept neither experimental switch;
+- removed developer switch spellings are rejected, while finite `ExecutionLimits`, exact completion,
+  and outer containment remain mandatory;
 - every backend report survives selection and shares stable remedy references where applicable.
