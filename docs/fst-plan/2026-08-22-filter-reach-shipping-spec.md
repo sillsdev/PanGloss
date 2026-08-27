@@ -70,8 +70,10 @@ would make your language invalid!”
    finite limits are an Error-level incomplete attempt. Normal production builds fail closed on either.
    Finite `ExecutionLimits`, worker isolation, bounded I/O, external watchdog/RSS/absolute
    ceilings, capability checks, complete closure, finalized payload, and parity remain mandatory;
-   partial/truncated/skipped output is never success. Removed developer flag spellings are rejected
-   and do not create a correctness or publication override.
+   partial/truncated/skipped output is never success. Hidden `--allow-unproven` remains a
+   developer/local-testing generation path; it may omit valid parses and retain local build
+   evidence, but it never publishes and creates no persistent pack trust or override field. The
+   removed `--remove-size-limits` and legacy `--no-enforce-capability` spellings are rejected.
 3. A completeness certificate exists only when a real FST payload was built, the emitter reported
    Full, no constructs were uncovered, no successors remained, and no enumeration budget tripped.
 4. The selector reports warnings and errors for every backend. Normal production selection chooses

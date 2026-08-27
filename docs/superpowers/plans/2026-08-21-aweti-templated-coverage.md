@@ -10,10 +10,13 @@
 
 > **Current policy note (2026-08-23).** This plan's route acceptance remains a production
 > criterion: only complete, correctly represented routes with no correctness gap are selectable.
-> Removed developer flag spellings are rejected. Finite `ExecutionLimits`, exact completion,
-> external watchdog/RSS containment, bounded I/O, and the absolute ceiling remain mandatory. A
-> complete/accurate stress result may be retained as `Error` evidence, but `Error` is
-> production-unready and `Critical` is a correctness gap.
+> Hidden `--allow-unproven` remains a developer/local-testing generation path; it may omit valid
+> parses and retain local build evidence, but never publishes and creates no persistent pack trust
+> or override field. The removed `--remove-size-limits` and legacy `--no-enforce-capability`
+> spellings are rejected. Finite `ExecutionLimits`, exact completion, external watchdog/RSS
+> containment, bounded I/O, and the absolute ceiling remain mandatory. A complete/accurate stress
+> result may be retained as `Error` evidence, but `Error` is production-unready and `Critical` is
+> a correctness gap.
 
 **Goal:** Route Aweti away from the 3,093,412-entry eager enumeration path, close the six known templated recall gaps, and prove the selected route against the real corpus.
 

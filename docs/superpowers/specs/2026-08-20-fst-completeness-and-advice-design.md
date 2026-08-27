@@ -52,7 +52,10 @@ Consequently, `RepresentsWithKnownGap` may not map to `ConfirmOnly` when â€œgapâ
 Compilation uses finite `ExecutionLimits`, worker isolation, bounded I/O, external watchdog/RSS/
 absolute ceilings, exact completion, finalized payload, and parity. PanGloss never escalates a
 budget or retries automatically, and a nonempty worklist never becomes a successful artifact.
-Removed developer flag spellings are rejected; no flag creates a trust or publication exception.
+Hidden `--allow-unproven` remains a developer/local-testing generation path; it may omit valid
+parses and retain local build evidence, but never publishes and creates no persistent pack trust or
+override field. The removed `--remove-size-limits` and legacy `--no-enforce-capability` spellings
+are rejected; no flag creates a trust or publication exception.
 
 ## Semantic model
 

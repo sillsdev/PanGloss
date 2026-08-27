@@ -1,8 +1,8 @@
 # Stress Grammar Construction and Production Admission
 
 **Status:** Superseded for the current route. Retain the four-verdict distinctions and finite
-`ExecutionLimits`; the removed developer-switch and publication/retry policy is historical and is
-not an implementation instruction.
+`ExecutionLimits`; the prior publication/retry policy is historical and is not an implementation
+instruction. `--allow-unproven` remains a local developer/testing generation path only.
 
 ## Purpose
 
@@ -73,8 +73,10 @@ either — but, unlike `CannotRepresent`, a `NotProductionReady` verdict never s
 being compiled in the first place; it only stops it from being published. Compiling and publishing are
 separate gates, and only `CannotRepresent` closes the first one.
 
-The removed `--allow-unproven`, `--no-enforce-capability`, and `--remove-size-limits` spellings are
-rejected; no flag removes finite execution limits or creates a trust/publication exception.
+`--allow-unproven` remains a developer/local-testing generation path; it may omit valid parses and
+retain local build evidence, but never publishes and creates no persistent pack trust or override
+field. The removed `--no-enforce-capability` and `--remove-size-limits` spellings are rejected; no
+flag removes finite execution limits or creates a trust/publication exception.
 
 ## Five-grammar acceptance loop
 

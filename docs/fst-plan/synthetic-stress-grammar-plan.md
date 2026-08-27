@@ -5,8 +5,11 @@ Status: REVISED 2026-07-28. Companion to `foma-fst-plan.md` (P6 section) and
 playing whack-a-mole with each new language, and can we get ahead of it systematically?
 
 > **Current policy note (2026-08-23).** The stress corpus is developer/test evidence, not a
-> production acceptance path. Removed developer flag spellings are rejected; finite
-> `ExecutionLimits`, exact completion, and the external watchdog/RSS guard, bounded I/O, and
+> production acceptance path. Hidden `--allow-unproven` remains a developer/local-testing
+> generation path; it may omit valid parses and retain local build evidence, but never publishes
+> and creates no persistent pack trust or override field. The removed `--remove-size-limits` and
+> legacy `--no-enforce-capability` spellings are rejected; finite `ExecutionLimits`, exact
+> completion, and the external watchdog/RSS guard, bounded I/O, and
 > non-disableable absolute ceiling remain mandatory. A complete and accurate stress build may
 > report `Error` health evidence, but `Error` is production-unready; `Critical` is a correctness
 > gap.
