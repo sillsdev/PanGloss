@@ -19,30 +19,12 @@
 //!   over every backend's compatibility report (see that function's own doc), composing
 //!   `characterize` with the predicate registry (`crate::capability::compose_envelope`/
 //!   `crate::capability::default_registry`) into one final `crate::capability::CompileDecision`.
-//!   This is NOT the same verdict `pg-cli`'s own `run_capability_gate` enforces —
-//!   those read one specific backend's report via `crate::backend_selection::select_backends`, so
-//!   this module's findings carry "some backend" semantics rather than "the backend this run will
-//!   compile with." This module reuses the join's FINAL, predicate-resolved verdict directly
-//!   rather than re-implementing the disposition/predicate-resolution logic itself — a raw,
-//!   unresolved `crate::capability::Disposition::ConfigPredicate` characteristic (e.g.
-//!   `Compounding`, `UnorderedMorphRuleApplication`, `QuantifierPattern`) only resolves to a real
-//!   `ConfirmOnly`-vs-`Refuse` verdict THROUGH that predicate registry, so reasoning from raw
-//!   per-kind dispositions alone (without running the registry) would misclassify most
-//!   `ConfigPredicate` characteristics. Both this module and `best_case_across_backends` read the
-//!   SAME memoized profile off one `crate::grammar_semantics::GrammarSemantics`, so a
-//!   `pangloss fst-health` run characterizes once rather than running `characterize`'s real
-//!   `foma::types::Fsm` construction for `Simultaneous`-mode subrules twice.
 //!
 //! # Two distinct axes this module keeps separate
 //! - **Semantic uncertainty** (`semantic_uncertainty_finding`): [`crate::capability::CompileDecision::
 //!   Refuse`] — at least one construct has no predicate-proven recall-preserving compilation path at
 //!   all. This characterization walk cannot guarantee every HermitCrab analysis survives, so it reports a
 //!   `CannotRepresent` finding naming every `crate::capability::CapabilityDiagnostic` the gate collected.
-//!   This finding never itself blocks the actual compiler pass (it is evidence, not a second gate —
-//!   `pg-cli`'s own `run_capability_gate` is the real enforcement point a caller
-//!   consults separately, and read a different, per-backend verdict — see this doc's opening
-//!   section); it is this module's own whole-grammar-join reading, never a re-implementation of
-//!   that gate's predicate-resolution logic.
 //! - **Cost uncertainty** (`cost_uncertainty_finding`, `unbounded_quantifier_findings`):
 //!   `crate::capability::CompileDecision::ConfirmOnly` (a first-class, non-failure verdict:
 //!   propose the superset, HermitCrab confirm prunes false positives) or a specific
@@ -73,9 +55,8 @@
 //!    `crate::health::FindingCode::UnknownUnboundedConstruct`; the rule-interaction proxy is an
 //!    exact bounded product instead and uses `crate::health::FindingCode::RuleInteractionProduct`.
 //! 2. **`semantic_uncertainty_finding`'s `affected` names each [`crate::capability::
-//!    CapabilityDiagnostic::construct`] string verbatim** (the same field `pg-cli`'s own
-//!    `run_capability_gate` already prints to stderr) — never a re-derived
-//!    identifier scheme.
+//!    CapabilityDiagnostic::construct`] string verbatim** — never a re-derived identifier
+//!    scheme.
 //! 3. **`rule_interaction_product_finding`'s `affected` is empty** — this is a grammar-wide
 //!    cardinality fact, not about any one construct, matching `crate::health_evaluator`'s own
 //!    "grammar-level findings with no specific construct identifier ... leave `affected` empty"
