@@ -240,9 +240,6 @@ pub(crate) struct MorphotacticIndex {
     /// `rule -> [(template id, slot index)]` for every `(template, slot)` whose `slot.rules` names this rule.
     rule_slot_sites: FxHashMap<MRuleId, Vec<(u16, u8)>>,
     templates: Vec<TemplateInfo>,
-    /// The reverse of `rule_loose_sites`; kept for diagnostics/tests even though `next_state` only ever needs the per-rule direction.
-    #[allow(dead_code)]
-    loose_by_stratum: Vec<Vec<MRuleId>>,
     /// Authored `multipleApplication`, using the model's default of one.
     rule_application_bounds: Vec<u16>,
 }
@@ -285,14 +282,12 @@ impl MorphotacticIndex {
 
         let mut rule_loose_sites: FxHashMap<MRuleId, Vec<u8>> = FxHashMap::default();
         let mut rule_slot_sites: FxHashMap<MRuleId, Vec<(u16, u8)>> = FxHashMap::default();
-        let mut loose_by_stratum: Vec<Vec<MRuleId>> = vec![Vec::new(); g.strata.len()];
         let mut template_owner: Vec<u8> = vec![0; g.templates.len()];
 
         for (s, sd) in g.strata.iter().enumerate() {
             let s = s as u8;
             for &mid in &sd.mrules {
                 rule_loose_sites.entry(mid).or_default().push(s);
-                loose_by_stratum[s as usize].push(mid);
             }
             for &tid in &sd.templates {
                 template_owner[tid.0 as usize] = s;
@@ -342,7 +337,6 @@ impl MorphotacticIndex {
             rule_loose_sites,
             rule_slot_sites,
             templates,
-            loose_by_stratum,
             rule_application_bounds: g.mrules.iter().map(MorphRuleDef::max_apps).collect(),
         }
     }
@@ -362,16 +356,6 @@ impl MorphotacticIndex {
         self.templates
             .get(template as usize)
             .map(|info| info.owning_stratum)
-    }
-
-    /// Diagnostic/test accessor (module doc's `loose_by_stratum` field comment) -- every rule id
-    /// loose in stratum `s`'s own `sd.mrules`.
-    #[cfg(test)]
-    pub(crate) fn loose_rules_in_stratum(&self, s: u8) -> &[MRuleId] {
-        self.loose_by_stratum
-            .get(s as usize)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
     }
 
     /// Subset construction (module doc / plan doc "The automaton"): every legal way `rule` can fire
