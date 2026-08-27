@@ -98,8 +98,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
 ///
-/// Bumped to 5 when the truthful OS-contained worker-tree peak-memory-charge metric was added.
-pub const HEALTH_SCHEMA_VERSION: u32 = 5;
+/// Bumped to 6 when the dead intermediate-network and compile-work health labels were removed.
+pub const HEALTH_SCHEMA_VERSION: u32 = 6;
 
 // Severity + payload-size threshold
 
@@ -211,12 +211,6 @@ pub enum Phase {
 pub enum Metric {
     /// Final FST payload size, in bytes (decimal, matching `severity_for_size_bytes`).
     PayloadBytes,
-    /// An intermediate composition/union/minimize product's state count (`Fsm::statecount`).
-    IntermediateStateCount,
-    /// An intermediate product's arc count (`Fsm::arccount`).
-    IntermediateArcCount,
-    /// Emitted lexc line count.
-    EmittedLineCount,
     /// Wall-clock or logical elapsed compile time, in milliseconds.
     ElapsedMillis,
     /// FST-propose candidate count for one word or one compilation-wide sample.
@@ -291,10 +285,6 @@ pub enum MetricValue {
 pub enum FindingCode {
     /// Final FST payload size crossed the size threshold (`severity_for_size_bytes`).
     PayloadSizeBand,
-    /// An intermediate composition/union/minimize product grew large relative to its budget.
-    IntermediateNetworkGrowth,
-    /// Compile-time logical construction work approached or reached its budget.
-    CompileWorkBudget,
     /// FST-propose candidate or path volume is large, independent of final correctness or size.
     ProposalVolume,
     /// HermitCrab confirmation count, rejection share, or confirmation work is large.
@@ -354,8 +344,6 @@ impl FindingCode {
     /// (uniqueness, format, round trip) iterates.
     pub const ALL: &'static [FindingCode] = &[
         FindingCode::PayloadSizeBand,
-        FindingCode::IntermediateNetworkGrowth,
-        FindingCode::CompileWorkBudget,
         FindingCode::ProposalVolume,
         FindingCode::ConfirmationWork,
         FindingCode::DuplicateAnalysisOverlap,
@@ -375,8 +363,6 @@ impl FindingCode {
     pub const fn code(self) -> &'static str {
         match self {
             FindingCode::PayloadSizeBand => "PGF0001",
-            FindingCode::IntermediateNetworkGrowth => "PGF0002",
-            FindingCode::CompileWorkBudget => "PGF0003",
             FindingCode::ProposalVolume => "PGF0004",
             FindingCode::ConfirmationWork => "PGF0005",
             FindingCode::DuplicateAnalysisOverlap => "PGF0006",
@@ -397,14 +383,6 @@ impl FindingCode {
         match self {
             FindingCode::PayloadSizeBand => {
                 "Final FST payload size crossed the size threshold (R6 decimal-byte threshold)."
-            }
-            FindingCode::IntermediateNetworkGrowth => {
-                "An intermediate composition/union/minimize product grew large relative to its \
-                 budget."
-            }
-            FindingCode::CompileWorkBudget => {
-                "Compile-time logical construction work (states/arcs/tuples/groups/lines) \
-                 approached or reached its budget."
             }
             FindingCode::ProposalVolume => {
                 "FST-propose candidate or path volume is large, independent of final correctness \
@@ -469,13 +447,11 @@ impl FindingCode {
         match self {
             FindingCode::BackendCoverageIncomplete => FindingClass::Representability,
             FindingCode::PayloadSizeBand => FindingClass::Readiness,
-            FindingCode::IntermediateNetworkGrowth => FindingClass::Readiness,
             FindingCode::ProposalVolume => FindingClass::Readiness,
             FindingCode::ConfirmationWork => FindingClass::Readiness,
             FindingCode::DuplicateAnalysisOverlap => FindingClass::Readiness,
             FindingCode::ApplicationTimeWork => FindingClass::Readiness,
             FindingCode::UnknownUnboundedConstruct => FindingClass::Readiness,
-            FindingCode::CompileWorkBudget => FindingClass::Readiness,
             FindingCode::ResourceBudgetReached => FindingClass::Containment,
             FindingCode::ProvenBoundExceedsBudget => FindingClass::Containment,
             FindingCode::BackendCompilationFailed => FindingClass::Process,

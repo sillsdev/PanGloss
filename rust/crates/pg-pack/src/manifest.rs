@@ -24,8 +24,8 @@ pub const MANIFEST_FORMAT_TAG: &str = "pangloss-pack-manifest";
 /// `PackManifest`'s shape — independent of `crate::format::CONTAINER_VERSION` (the container
 /// framing) and of `crate::compat::RequiredRuntimeFeatures::payload_format_version` (the
 /// runtime-payload format), which each version separately.
-/// Bumped to 5 because the embedded FST-health report moved to health schema v5.
-pub const MANIFEST_SCHEMA_VERSION: u32 = 5;
+/// Bumped to 6 because the embedded FST-health report moved to health schema v6.
+pub const MANIFEST_SCHEMA_VERSION: u32 = 6;
 
 /// One catalog remedy linked to the grammar shape it addresses for one backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
