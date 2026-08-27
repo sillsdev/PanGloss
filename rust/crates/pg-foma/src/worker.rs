@@ -188,7 +188,7 @@ pub struct CompileWorkerRequest {
     pub protocol_version: u32,
     pub grammar_path: String,
     pub grammar_format: GrammarFormat,
-    /// `ComposeBudget::chain_depth_cap` -- `None` (unbounded) by default, mirroring that field's
+    /// configured `chain_depth_cap` field -- `None` (unbounded) by default, mirroring that field's
     /// own uncalibrated-default convention (`compose_budget.rs`'s "Chain-depth dimension" doc).
     pub chain_depth_cap: Option<usize>,
     /// Additive selected-backend payload request. `None` preserves the original worker behavior.

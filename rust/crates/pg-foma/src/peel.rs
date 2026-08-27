@@ -60,7 +60,7 @@
 //! synthetic single-layer grammar this crate has seen, so their own cost is unchanged). With genuine
 //! D-deep nested structure, cost is `O(word length ^ D)` in the worst (fully self-similar) case
 //! before this change's chain-depth cap intervenes — `D` bounded by
-//! `crate::compose_budget::ComposeBudget::chain_depth_cap` once one is configured (`None`,
+//! the configured `chain_depth_cap` field once one is configured (`None`,
 //! production's default via `crate::compose_budget::ComposeBudget::from_env`, leaves `D` bounded
 //! only by the word's own length, per `crate::compose_budget::ComposeBudget`'s own documented
 //! "uncalibrated default" caveat — the same one every other dimension in that module already
@@ -218,7 +218,7 @@ impl ReduplicationPeeler {
     /// `crate::compose_budget::ComposeBudget::check_chain_depth` call (module doc's "Big-O"
     /// section) — `Err(`[`crate::compose_budget::ComposeError::ChainDepthExceeded`]`)` means a
     /// genuinely deep nested-reduplication chain exceeded `budget`'s configured
-    /// `crate::compose_budget::ComposeBudget::chain_depth_cap`; the caller gets a typed, honest
+    /// configured `chain_depth_cap` field; the caller gets a typed, honest
     /// refusal for this word rather than this module silently doing an unbounded amount of work.
     pub fn peel_candidates(
         &self,
