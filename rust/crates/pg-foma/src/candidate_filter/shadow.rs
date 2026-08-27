@@ -79,6 +79,16 @@ impl CandidateFilterSettings {
         }
     }
 
+    pub fn with_budget(mut self, budget: FilterBudget) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    pub fn with_ledger_caps(mut self, caps: LedgerCaps) -> Self {
+        self.ledger_caps = caps;
+        self
+    }
+
     pub fn mode(&self) -> FilterMode {
         self.mode
     }
