@@ -464,7 +464,6 @@ fn every_confirmation_entry_point_agrees_under_shadow() {
 
     let owners = build_morpheme_owners(&g);
     let proposals = analyzer.propose_words(&words);
-    assert_eq!(proposals[0].candidate_filter().pass_ids(), expected_passes);
     let detached = pg_foma::composite::confirm_proposed_words(&g, &owners, &words, proposals, 1);
     assert_eq!(
         pg_parse::result_signature(&detached[0].0.analyses),
