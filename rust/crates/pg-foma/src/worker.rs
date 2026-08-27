@@ -1592,9 +1592,6 @@ mod tests {
                 elapsed: Duration::from_secs(5),
                 limit: Duration::from_secs(2),
             },
-            WorkerOutcome::StderrOutputLimitExceeded {
-                limit_bytes: 1024,
-            },
         ];
         for outcome in outcomes {
             let health = outcome.health_report();
