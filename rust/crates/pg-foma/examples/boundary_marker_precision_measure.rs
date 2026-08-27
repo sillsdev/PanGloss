@@ -9,7 +9,6 @@ use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 
 fn main() {
@@ -34,7 +33,6 @@ fn main() {
         .filter(|l| !l.is_empty())
         .collect();
 
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules: Vec<_> = grammar
         .strata
         .iter()
@@ -42,7 +40,7 @@ fn main() {
         .map(|id| &grammar.prules[id.0 as usize])
         .collect();
     let phonology = PhonologyProbe::new(&grammar);
-    let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(&grammar, &prules, phonology.as_ref());
     let candidates = Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar: &grammar,

@@ -49,7 +49,6 @@ use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, Lower
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
 use crate::lowering_adapter::LoweringAdapter;
-use crate::replace::SegAlphabet;
 use crate::strategy_coverage::ALL_STRATEGIES;
 
 /// One (fixture, backend) pair's containment outcome. Only `Held`/`Failed` come from a real
@@ -146,7 +145,7 @@ pub fn observe_fixture_containment(
             "fixture has no words".to_string(),
         );
     }
-    let Some(table) = grammar.char_tables.first() else {
+    let Some(_) = grammar.char_tables.first() else {
         return FixtureContainmentObservation::not_attempted(
             label,
             kinds,
@@ -180,11 +179,9 @@ pub fn observe_fixture_containment(
         };
     }
 
-    let alphabet = SegAlphabet::new(table);
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let baseline_plan = enumerate_default(
         grammar,
-        &alphabet,
         semantics.prules_in_order(),
         phonology.as_ref(),
     );

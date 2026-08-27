@@ -352,12 +352,11 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let corpus_evidence = run_cache.corpus_evidence(&words);
     // One derivation for this whole run, reused by every enumeration/materialization call below to avoid re-walking the grammar per candidate.
     let semantics = GrammarSemantics::derive(&grammar);
-    let alphabet = pg_foma::replace::SegAlphabet::new(&grammar.char_tables[0]);
     let prules = semantics.prules_in_order();
     let phon = pg_foma::junctions::PhonologyProbe::new_with_semantics(&semantics);
     let baseline_started = Instant::now();
     let baseline =
-        pg_foma::enumerate::enumerate_default(&grammar, &alphabet, prules, phon.as_ref());
+        pg_foma::enumerate::enumerate_default(&grammar, prules, phon.as_ref());
     let baseline_materialization_ns = elapsed_ns(baseline_started).max(1);
     let registry = Registry::seeded();
     registry

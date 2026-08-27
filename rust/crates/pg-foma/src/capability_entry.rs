@@ -50,11 +50,9 @@ use crate::capability::{
     compose_envelope_across_strategies, compose_envelope_with_semantics, default_registry,
     CompileDecision, StrategyEnvelope,
 };
-use crate::emit::surface_table;
 use crate::enumerate::enumerate_default;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::replace::SegAlphabet;
 
 /// Takes an already-derived `GrammarSemantics` so a caller needing both the profile and the verdict
 /// characterizes once rather than paying for a second full `crate::capability::characterize` walk.
@@ -69,10 +67,9 @@ use crate::replace::SegAlphabet;
 /// detail wants [`evaluate_capability_across_strategies`].
 pub fn best_case_across_backends(semantics: &GrammarSemantics<'_>) -> CompileDecision {
     let g = semantics.grammar();
-    let alphabet = SegAlphabet::new(surface_table(g));
     let phon = PhonologyProbe::new_with_semantics(semantics);
 
-    let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
+    let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
     let registry = default_registry();
     compose_envelope_with_semantics(semantics, &plan, &registry)
 }
@@ -91,10 +88,9 @@ pub fn best_case_across_backends_for_grammar(g: &Grammar) -> CompileDecision {
 
 pub fn evaluate_capability_across_strategies(g: &Grammar) -> StrategyEnvelope {
     let semantics = GrammarSemantics::derive(g);
-    let alphabet = SegAlphabet::new(surface_table(g));
     let phon = PhonologyProbe::new_with_semantics(&semantics);
 
-    let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
+    let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
     compose_envelope_across_strategies(&semantics, &plan, &default_registry())
 }
 

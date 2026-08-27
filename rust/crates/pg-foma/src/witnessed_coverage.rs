@@ -136,7 +136,6 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let plan = enumerate_default(
         g,
-        &alphabet,
         semantics.prules_in_order(),
         phonology.as_ref(),
     );

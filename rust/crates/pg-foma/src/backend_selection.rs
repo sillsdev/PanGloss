@@ -18,13 +18,11 @@ use crate::advice_catalog::{
 use crate::capability::{
     compose_envelope_across_strategies, default_registry, CapabilityDiagnostic, CompileDecision,
 };
-use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance};
 use crate::junctions::PhonologyProbe;
 use crate::plan::FragmentSpec;
-use crate::replace::SegAlphabet;
 
 /// Why a backend report exists even when no artifact can be produced from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -387,9 +385,8 @@ impl BackendSelection {
 /// already holds a semantics should never pay for a second.
 pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
     let g = semantics.grammar();
-    let alphabet = SegAlphabet::new(surface_table(g));
     let phon = PhonologyProbe::new_with_semantics(semantics);
-    let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
+    let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
     let envelope = compose_envelope_across_strategies(semantics, &plan, &default_registry());
     let plan_composed_markers = crate::build::unbuildable_markers(&plan);
     BackendSelection::from_envelope_with_backend_findings(

@@ -9,7 +9,6 @@ use pg_foma::capability::rhs_has_true_reduplication;
 use pg_foma::enumerate::{enumerate_default, prules_in_order};
 use pg_foma::gate::find_gated_subrules;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef, ReduplicationHint};
 
 fn load(path: &str) -> Result<Grammar, String> {
@@ -118,10 +117,9 @@ fn census(path: &str, budget: u64) -> Result<(), String> {
     let g = load(path)?;
     print_facts(&g);
 
-    let alphabet = SegAlphabet::new(&g.char_tables[0]);
     let prules = prules_in_order(&g);
     let phon = PhonologyProbe::new(&g);
-    let baseline = enumerate_default(&g, &alphabet, &prules, phon.as_ref());
+    let baseline = enumerate_default(&g, &prules, phon.as_ref());
 
     let registry = Registry::seeded();
     registry.validate_ready().map_err(|e| e.to_string())?;

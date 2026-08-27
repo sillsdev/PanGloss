@@ -547,9 +547,8 @@ pub fn plan_and_profile(g: &Grammar) -> (Plan, CharacteristicsProfile) {
 /// where sharing one `GrammarSemantics` lets it do one.
 pub fn plan_for_semantics(semantics: &GrammarSemantics<'_>) -> Plan {
     let g = semantics.grammar();
-    let alphabet = SegAlphabet::new(surface_table(g));
     let phon = PhonologyProbe::new_with_semantics(semantics);
-    enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref())
+    enumerate_default(g, semantics.prules_in_order(), phon.as_ref())
 }
 
 // Fuzz slice
@@ -583,7 +582,7 @@ pub fn fuzz_gate_group_reordering_for_grammar(
     let semantics = GrammarSemantics::derive(g);
     let alphabet = SegAlphabet::new(surface_table(g));
     let phon = PhonologyProbe::new_with_semantics(&semantics);
-    let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
+    let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
     let groups = gate_group_count(&plan);
     let permuted = permute_gate_groups(&plan);
 
