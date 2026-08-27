@@ -280,8 +280,7 @@ pub(crate) mod preexpand;
 /// GroupLineCount`]/`profile::ProfileLabel` -- collected from the PRODUCTION
 /// `emit::emit_with_budget_profiled` -> `foma::lexcread::fsm_lexc_parse_string` path
 /// (`analyzer::FomaProposer::new_with_budget`). See that module's
-/// own doc for the more expensive profiling this stays clear of, and
-/// `health_evaluator::profile_findings` for how this feeds profile-sourced health findings.
+/// own doc for the more expensive profiling this stays clear of.
 pub mod profile;
 /// The declared,
 /// versioned threshold policy — `readiness_policy::ThresholdPolicy`/[`readiness_policy::

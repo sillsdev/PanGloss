@@ -49,7 +49,7 @@ fn ordinary_affix_depth_five_and_ten_are_not_health_violations() {
             "ordinary depth {depth} must not leave uncovered constructs: {:?}",
             emitted.report.uncovered
         );
-        let health = evaluate_health(None, Some(&emitted.report), &[], &[], None);
+        let health = evaluate_health(None, Some(&emitted.report), &[], &[]);
         assert_eq!(
             health.admission(),
             Severity::WithinLimits,

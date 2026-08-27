@@ -907,15 +907,13 @@ fixture — several fixtures share a family, per the redirect's own instruction)
   fixture's own single-word scope makes it cheap but not zero-risk; left for a follow-on with an
   explicit process-level timeout wrapper.
 - **No raw states/arcs/payload-bytes table was produced for any of the 45 fixtures.** This was the
-  original brief's headline deliverable before the redirect; `pangloss fst-health` does not expose raw
-  compiled-network state/arc counts unless they are within 80% of `DEFAULT_STATE_BUDGET`/
-  `DEFAULT_ARC_BUDGET` (`health_evaluator.rs`'s `approaching_budget_finding` gate) — for these
-  intentionally tiny, minimal fixtures, none are. Getting exact numbers for all 45 would need a small,
-  clearly-temporary driver reading `FomaProposer::new_with_profile`'s `CompileProfile` fields directly
-  (not run in this pass, since the redirect explicitly de-prioritized this exact kind of
-  build-and-tabulate work for fixtures too small to discriminate anything). This is a genuine "the
-  tooling does not expose this metric for small grammars" finding in its own right, not a build we
-  chose to skip.
+  original brief's headline deliverable before the redirect; `pangloss fst-health` does not expose
+  the raw compiled-network state/arc measurements held by `CompileProfile`. Getting exact numbers
+  for all 45 would need a small, clearly-temporary driver reading
+  `FomaProposer::new_with_profile`'s `CompileProfile` fields directly (not run in this pass, since
+  the redirect explicitly de-prioritized this exact kind of build-and-tabulate work for fixtures
+  too small to discriminate anything). This is a genuine "the tooling does not expose this metric
+  for small grammars" finding in its own right, not a build we chose to skip.
 - **The four `recipe-*-generic` fixtures' own production numbers were cited from
   `docs/fst-plan/four-grammar-recipe-evidence-2026-07-28.md` rather than re-run.** That document
   already contains real `pangloss recipe-optimize` output (states/arcs/build-ns/apply-ns/proposal/

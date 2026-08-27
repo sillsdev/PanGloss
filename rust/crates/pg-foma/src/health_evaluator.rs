@@ -3,11 +3,10 @@
 //! module is the one place that reads real compile measurements and turns them into findings.
 //!
 //! # Scope: consume, never remeasure
-//! Measurements come from the admission
-//! walker, budget tracker, and compile profile once; the health evaluator consumes them without
-//! recomputation. This module reads only the measurement sources that exist in this crate
-//! **today**, plus the profile-label gate — nothing here calls `foma`, walks a grammar, or measures
-//! anything itself:
+//! Measurements come from the admission walker and budget tracker once; the health evaluator
+//! consumes them without recomputation. This module reads only the measurement sources that exist
+//! in this crate **today** — nothing here calls `foma`, walks a grammar, or measures anything
+//! itself:
 //! - **Payload size**: a plain `u64` byte count the caller already has (the emitted network /
 //!   `pg-pack` payload), scored by `crate::health::severity_for_size_bytes`; oversized payloads
 //!   remain readiness `NotProductionReady`, never `MachineLimit`/`CannotRepresent`.
@@ -17,10 +16,6 @@
 //!   `ApplyBudgetTrip` (this module's own lightweight distillation of a per-word
 //!   `crate::compose_budget::ApplyOutcome::Incomplete` — see that type's own doc for why it exists
 //!   instead of taking `ApplyOutcome<T>` generically).
-//! - **`crate::profile::CompileProfile`**: `profile_findings` enforces the production-only profile
-//!   label gate. The profile's raw final-network and emitted-line measurements remain available
-//!   on the profile itself, but this evaluator currently emits no profile-derived findings.
-//!
 //! Not populated here (observed audit fields populate only as their owning profile/budget
 //! instrumentation exists, and are never independently remeasured):
 //! `crate::health::FindingCode::ApplicationTimeWork`'s
@@ -70,15 +65,6 @@
 //!    measurement already carries** (a compose-budget `site` label, an `UncoveredItem::id`, a rule
 //!    XML id, an apply-time word) — never inventing a new identifier scheme; grammar-level findings
 //!    with no specific construct identifier (e.g. a payload-size finding) leave `affected` empty.
-//! 8. **The raw `CompileProfile` measurements remain owned by `crate::profile`** — this evaluator
-//!    does not remeasure, reinterpret, or replace them with a second set of values. The
-//!    production-only profile label gate remains enforced here, and non-production profiles are
-//!    refused outright.
-//! 9. **A non-`crate::profile::ProfileLabel::Production` profile is refused outright**
-//!     (empty `Vec`, never a partial fold), pinned by
-//!     `fst_health_evaluator_experimental_composition_profile_is_refused`. `evaluate_health`
-//!     never even needs to check this itself; `profile_findings` is the one and only place this
-//!     gate is enforced.
 
 use crate::analyzer::FomaError;
 use crate::compose_budget::{ApplyDimension, ComposeError};
@@ -87,22 +73,6 @@ use crate::health::{
     severity_for_size_bytes, FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase,
     Remedy, Severity, ValueProvenance,
 };
-use crate::profile::{CompileProfile, ProfileLabel};
-
-/// Profile-derived health findings are currently not emitted. The production-only gate is kept so
-/// that a profile carrying a non-production label cannot be treated as production evidence.
-/// Raw measurements remain available on `crate::profile::CompileProfile` for a future policy.
-///
-/// The production-only gate (this module's "Judgment calls" item 9): a `profile.label !=
-/// crate::profile::ProfileLabel::Production` is refused outright, returning an empty `Vec` — never
-/// partially folded in as production evidence.
-pub fn profile_findings(profile: &CompileProfile) -> Vec<HealthFinding> {
-    if profile.label != ProfileLabel::Production {
-        return Vec::new();
-    }
-    Vec::new()
-}
-
 /// This evaluator's own distillation of one `crate::compose_budget::ApplyOutcome::Incomplete` —
 /// see this module's "Judgment calls" item 6 for why `evaluate_health` takes this instead of the
 /// generic `ApplyOutcome<T>` directly. Callers build one of these per incomplete per-word apply
@@ -360,16 +330,11 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
 ///   chain-depth calls raised (typically zero or one per grammar, but a
 ///   caller collecting evidence across a batch or a diagnostic sweep may pass more than one).
 /// - `apply_budget_trips`: every per-word `ApplyBudgetTrip` this compilation's callers observed.
-/// - `compile_profile`: this crate's own `CompileProfile`, if this
-///   compilation collected one (`crate::analyzer::FomaProposer::new_with_profile`) — see
-///   `profile_findings`'s own doc for the production-only gate it enforces on a
-///   non-production-labeled profile.
 pub fn evaluate_health(
     payload_bytes: Option<u64>,
     emit_report: Option<&EmitReport>,
     compose_errors: &[ComposeError],
     apply_budget_trips: &[ApplyBudgetTrip],
-    compile_profile: Option<&CompileProfile>,
 ) -> HealthReport {
     let mut findings = Vec::new();
 
@@ -385,21 +350,16 @@ pub fn evaluate_health(
     for trip in apply_budget_trips {
         findings.push(apply_budget_trip_finding(trip));
     }
-    if let Some(profile) = compile_profile {
-        findings.extend(profile_findings(profile));
-    }
-
     HealthReport::new(findings)
 }
 
 /// Converts every typed Foma construction failure into nonempty backend-local health evidence.
 pub fn evaluate_foma_error(
     error: &FomaError,
-    compile_profile: Option<&CompileProfile>,
 ) -> HealthReport {
     match error {
         FomaError::LexcCompileFailed(report) => {
-            let mut health = evaluate_health(None, Some(report), &[], &[], compile_profile);
+            let mut health = evaluate_health(None, Some(report), &[], &[]);
             health
                 .findings
                 .push(backend_compilation_failed_finding(format!(
@@ -410,7 +370,7 @@ pub fn evaluate_foma_error(
         }
         FomaError::Unsupported(report)
         | FomaError::Incomplete(report) => {
-            let mut health = evaluate_health(None, Some(report), &[], &[], compile_profile);
+            let mut health = evaluate_health(None, Some(report), &[], &[]);
             if health.findings.is_empty() {
                 health
                     .findings
@@ -455,7 +415,7 @@ mod tests {
 
         // Every error must BLOCK; the exact band is per-cause, pinned by the split tests below.
         for error in cases {
-            let health = evaluate_foma_error(&error, None);
+            let health = evaluate_foma_error(&error);
             assert!(!health.findings.is_empty(), "empty health for {error}");
             assert!(
                 health.admission() >= Severity::NotProductionReady,
@@ -467,10 +427,9 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_lexc_failure_is_explicit_even_with_full_emit_report() {
-        let health = evaluate_foma_error(
-            &FomaError::LexcCompileFailed(synthetic_full_emit_report()),
-            None,
-        );
+        let health = evaluate_foma_error(&FomaError::LexcCompileFailed(
+            synthetic_full_emit_report(),
+        ));
         assert!(health
             .findings
             .iter()
@@ -487,7 +446,7 @@ mod tests {
             },
         ];
         for error in compose_errors {
-            let health = evaluate_health(None, None, &[error], &[], None);
+            let health = evaluate_health(None, None, &[error], &[]);
             assert_eq!(health.admission(), Severity::NotProductionReady);
         }
 
@@ -498,7 +457,7 @@ mod tests {
             word: Some("word".to_string()),
         };
         assert_eq!(
-            evaluate_health(None, None, &[], &[trip], None).admission(),
+            evaluate_health(None, None, &[], &[trip]).admission(),
             Severity::NotProductionReady
         );
     }
@@ -507,7 +466,7 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_within_limits_payload_produces_no_finding() {
-        let report = evaluate_health(Some(crate::health::IDEAL_MAX_BYTES), None, &[], &[], None);
+        let report = evaluate_health(Some(crate::health::IDEAL_MAX_BYTES), None, &[], &[]);
         assert!(report.findings.is_empty());
         assert_eq!(report.admission(), Severity::WithinLimits);
     }
@@ -515,7 +474,7 @@ mod tests {
     #[test]
     fn fst_health_evaluator_over_ideal_payload_produces_not_production_ready_payload_size_band_finding() {
         let bytes = 500_000_000u64;
-        let report = evaluate_health(Some(bytes), None, &[], &[], None);
+        let report = evaluate_health(Some(bytes), None, &[], &[]);
         assert_eq!(report.findings.len(), 1);
         let finding = &report.findings[0];
         assert_eq!(finding.code, FindingCode::PayloadSizeBand);
@@ -538,7 +497,6 @@ mod tests {
             None,
             &[],
             &[],
-            None,
         );
         assert_eq!(report.findings[0].severity, Severity::NotProductionReady);
         assert_eq!(
@@ -549,7 +507,7 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_oversized_payload_remains_not_production_ready_readiness() {
-        let report = evaluate_health(Some(10_000_000_000u64), None, &[], &[], None);
+        let report = evaluate_health(Some(10_000_000_000u64), None, &[], &[]);
         assert_eq!(report.findings[0].severity, Severity::NotProductionReady);
         assert_eq!(report.admission(), Severity::NotProductionReady);
     }
@@ -566,7 +524,7 @@ mod tests {
             closure_refusal: None,
             closure_evidence: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let health = evaluate_health(None, Some(&report), &[], &[]);
         assert!(health.findings.is_empty());
         assert_eq!(health.admission(), Severity::WithinLimits);
     }
@@ -593,7 +551,7 @@ mod tests {
             closure_refusal: None,
             closure_evidence: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let health = evaluate_health(None, Some(&report), &[], &[]);
         assert_eq!(health.findings.len(), 1);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
@@ -619,7 +577,7 @@ mod tests {
             closure_refusal: None,
             closure_evidence: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let health = evaluate_health(None, Some(&report), &[], &[]);
         assert_eq!(health.findings.len(), 1);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
@@ -655,7 +613,7 @@ mod tests {
         };
 
         for report in [&partial, &unsupported] {
-            let health = evaluate_health(None, Some(report), &[], &[], None);
+            let health = evaluate_health(None, Some(report), &[], &[]);
             let coverage_findings: Vec<_> = health
                 .findings
                 .iter()
@@ -698,7 +656,7 @@ mod tests {
             }),
             closure_evidence: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let health = evaluate_health(None, Some(&report), &[], &[]);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
         assert_eq!(finding.severity, Severity::CannotRepresent);
@@ -724,7 +682,7 @@ mod tests {
             }),
             closure_evidence: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let health = evaluate_health(None, Some(&report), &[], &[]);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.severity, Severity::NotProductionReady);
@@ -754,7 +712,7 @@ mod tests {
             }),
             closure_evidence: None,
         };
-        let health = evaluate_health(None, Some(&report), &[], &[], None);
+        let health = evaluate_health(None, Some(&report), &[], &[]);
         let finding = &health.findings[0];
         assert_eq!(finding.affected, vec!["mrule3", "mrule7"]);
         assert_eq!(finding.value, MetricValue::Count(11));
@@ -770,7 +728,7 @@ mod tests {
             limit: 24,
             site: "synthetic-peel-site",
         };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
+        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[]);
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.metric, Metric::ApplyChainDepth);
@@ -787,7 +745,7 @@ mod tests {
             limit: 10_000,
             word: Some("synthetic-word".to_string()),
         };
-        let health = evaluate_health(None, None, &[], std::slice::from_ref(&trip), None);
+        let health = evaluate_health(None, None, &[], std::slice::from_ref(&trip));
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.metric, Metric::ProposalPathCount);
@@ -803,7 +761,7 @@ mod tests {
             limit: 500,
             word: None,
         };
-        let health = evaluate_health(None, None, &[], std::slice::from_ref(&trip), None);
+        let health = evaluate_health(None, None, &[], std::slice::from_ref(&trip));
         let finding = &health.findings[0];
         assert_eq!(finding.metric, Metric::ProposalCandidateCount);
         assert!(finding.affected.is_empty());
@@ -813,50 +771,10 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_empty_report_is_within_limits() {
-        let health = evaluate_health(None, None, &[], &[], None);
+        let health = evaluate_health(None, None, &[], &[]);
         assert!(health.findings.is_empty());
         assert_eq!(health.admission(), Severity::WithinLimits);
         assert_eq!(health.schema_version, crate::health::HEALTH_SCHEMA_VERSION);
-    }
-
-    // fst_health_evaluator_profile: raw `crate::profile::CompileProfile` measurements remain
-    // available, and the production-only `ProfileLabel` gate is enforced.
-
-    fn synthetic_profile(
-        label: ProfileLabel,
-        final_state_count: Option<i64>,
-        final_arc_count: Option<i64>,
-        total_lexc_lines: Option<u64>,
-    ) -> CompileProfile {
-        CompileProfile {
-            label,
-            pipeline: "synthetic-test-pipeline".to_string(),
-            total_elapsed_millis: 5,
-            stages: Vec::new(),
-            group_lines: Vec::new(),
-            total_lexc_lines,
-            final_state_count,
-            final_arc_count,
-        }
-    }
-
-    /// A profile labeled `ExperimentalComposition` must be refused outright even when it carries
-    /// populated measurements.
-    #[test]
-    fn fst_health_evaluator_experimental_composition_profile_is_refused() {
-        let profile = synthetic_profile(
-            ProfileLabel::ExperimentalComposition,
-            Some(20_000_000),
-            Some(200_000_000),
-            Some(10_000_000),
-        );
-        assert!(
-            profile_findings(&profile).is_empty(),
-            "an experimental_composition-labeled profile must never satisfy production-profile gates"
-        );
-        let health = evaluate_health(None, None, &[], &[], Some(&profile));
-        assert!(health.findings.is_empty());
-        assert_eq!(health.admission(), Severity::WithinLimits);
     }
 
     // fst_health_evaluator_golden: a representative multi-source compile, byte-for-byte golden.
@@ -927,7 +845,6 @@ mod tests {
             Some(&emit_report),
             &[],
             &[],
-            None,
         );
         let json = health.to_json().expect("serialization must succeed");
         assert_eq!(
@@ -944,7 +861,6 @@ mod tests {
             Some(&emit_report),
             &[],
             &[],
-            None,
         );
         // An uncovered construct is CannotRepresent even when resource findings have lower severity.
         assert_eq!(health.admission(), Severity::CannotRepresent);
@@ -958,7 +874,6 @@ mod tests {
             Some(&emit_report),
             &[],
             &[],
-            None,
         );
         let json = health.to_json().expect("serialization must succeed");
         let parsed = HealthReport::from_json(&json).expect("deserialization must succeed");

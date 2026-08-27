@@ -12,18 +12,8 @@
 //! metrics, alpha-tuple/group counts, the running composition
 //! state/arc curve) needs that cascade wired into
 //! the production constructor first — merely having experimental `crate::replace`/`crate::gate`
-//! functions is insufficient. This module defines `ProfileLabel` as
-//! the gate that gap requires ("Metrics
-//! from an experimental cascade SHALL NOT be labeled as production") and `CompileProfile::label`
-//! is always `ProfileLabel::Production` for every profile this module's own production
-//! constructor (`CompileProfileBuilder::production`) builds — nothing here wires
-//! `crate::replace`/`crate::gate`'s experimental cascade to this module at all, but
-//! `ProfileLabel::ExperimentalComposition`
-//! exists now so a future change profiling the experimental cascade has a place to land its own
-//! label rather than inventing
-//! one under time pressure, and so `crate::health_evaluator::profile_findings` can enforce the gate
-//! today (its own doc/tests) even though nothing yet constructs the experimental variant outside
-//! this module's own tests.
+//! functions is insufficient. Every profile this module's production constructor
+//! (`CompileProfileBuilder::production`) builds is labeled `ProfileLabel::Production`.
 //!
 //! # No observer-induced minimization
 //! Every measurement here is a value the production path already computes for its own purposes:
@@ -89,11 +79,6 @@
 //!    network at all (an `Unsupported`/budget-exceeded early return) -- see
 //!    `crate::analyzer::FomaProposer::new_with_budget`'s own call site for exactly which outcomes
 //!    leave this `None`.
-//! 3. **No experimental-cascade instrumentation ships here** (see this module's own
-//!    "Scope: the production path only" section above) -- `ProfileLabel::ExperimentalComposition` is a real,
-//!    tested enum variant (`crate::health_evaluator::profile_findings`'s own gate test constructs
-//!    one directly) but nothing in `crate::replace`/`crate::gate` builds one yet; that wiring
-//!    depends on the experimental cascade reaching the production constructor first.
 
 use std::time::{Duration, Instant};
 
@@ -110,23 +95,14 @@ pub const PRODUCTION_PIPELINE: &str =
      foma::lexcread::fsm_lexc_parse_string)";
 
 /// Which pipeline a `CompileProfile` measures.
-/// See this module's doc "Scope: the production path only"
-/// section — nothing here constructs `ProfileLabel::ExperimentalComposition` outside
-/// this module's own tests, but the variant exists now so `crate::health_evaluator::
-/// profile_findings` can enforce "an experimental cascade's profile is labeled early" today.
+/// See this module's doc "Scope: the production path only" section: profiles produced by this
+/// module use the production pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProfileLabel {
     /// The surface-prebaked `crate::emit::emit_with_budget` -> `fsm_lexc_parse_string` path that is
     /// the ACTUAL network `crate::analyzer::FomaProposer::propose` looks up against today.
     Production,
-    /// A pre-production capture of `crate::replace`/`crate::gate`'s experimental cascade,
-    /// separate from the production constructor. The result is labeled
-    /// `experimental_composition` and cannot satisfy production-profile gates: a profile carrying
-    /// this label is refused outright before it can fold into a production
-    /// `crate::health::HealthReport`, pinned by
-    /// `fst_health_evaluator_experimental_composition_profile_is_refused`.
-    ExperimentalComposition,
 }
 
 /// The real, sequential stage boundaries this module instruments (see module doc "Stage
@@ -372,12 +348,4 @@ mod tests {
         assert_eq!(parsed, profile);
     }
 
-    #[test]
-    fn fst_profile_experimental_composition_label_is_distinct_from_production() {
-        // An experimental cascade's profile is labeled early and distinguishable from Production, even though nothing outside this test constructs one.
-        assert_ne!(
-            ProfileLabel::Production,
-            ProfileLabel::ExperimentalComposition
-        );
-    }
 }

@@ -398,7 +398,6 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
                 Some(report),
                 &[],
                 &[],
-                Some(&profile),
             );
             CompileWorkerOutcome::Success {
                 final_state_count: profile.final_state_count,
@@ -412,7 +411,7 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
             | FomaError::Unsupported(_)
             | FomaError::Incomplete(_)),
         ) => {
-            let health = crate::health_evaluator::evaluate_foma_error(&err, Some(&profile));
+            let health = crate::health_evaluator::evaluate_foma_error(&err);
             CompileWorkerOutcome::CompileFailed {
                 detail: err.to_string(),
                 health,

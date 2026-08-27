@@ -59,9 +59,8 @@
 //! slots: `crate::capability::GrammarCardinality::mrule_count` times `prule_count` is a cheap,
 //! generic proxy for how much morphological x phonological rule-interaction surface a grammar
 //! presents. `RULE_PRODUCT_WARNING_THRESHOLD` is a conservative, provisional placeholder (this
-//! crate's own repeated convention — mirrors
-//! `crate::health_evaluator::APPROACHING_BUDGET_WARNING_FRACTION`'s identical disclaimer): no
-//! real-grammar calibration evidence exists yet for this specific product, so this finding is
+//! crate's own repeated convention): no real-grammar calibration evidence exists yet for this
+//! specific product, so this finding is
 //! `Predicted`/`LargeMultiplier` only, never something that can reject a compile on its own. It is
 //! `crate::health::FindingCode::RuleInteractionProduct`, not `UnknownUnboundedConstruct`: the
 //! product is an EXACT, already-computed count (large, not unknown), the textbook
