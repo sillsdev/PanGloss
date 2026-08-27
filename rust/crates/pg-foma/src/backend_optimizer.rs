@@ -258,9 +258,6 @@ pub enum Certification {
     BuildFailed {
         reason: String,
     },
-    Timeout {
-        stage: String,
-    },
     Truncated {
         stage: String,
         /// Optional additive diagnostic evidence; `default`/`skip_serializing_if` keep legacy `Truncated { stage }` values readable and their wire shape unchanged.
@@ -1274,9 +1271,6 @@ mod tests {
             Certification::EstimateOnly,
             Certification::BuildFailed {
                 reason: "x".to_owned(),
-            },
-            Certification::Timeout {
-                stage: "confirm".to_owned(),
             },
             Certification::Truncated {
                 stage: "corpus".to_owned(),
