@@ -295,7 +295,7 @@ apply/candidate budgets remain separate.
 | H2 | `capability.rs` — 3,942 non-test lines, 15 predicates, one file | | **OPEN** — split, do not rip |
 | H3 | Adding a backend is a shotgun edit: 162 references across 15 files | | **OPEN** — simplify after D2 removes chooser/ranking coupling |
 | H4 | `PlanComposed` / `uflexc` is the weakest backend with known whole-construct holes | `strategy_coverage.rs` 142 | **VERIFY** — it may remain an explicitly selectable backend if capability analysis reports those holes honestly; it gets no fallback/preference role |
-| H5 | Old uncalibrated constants | 3,000 / 100 MB / 100 | **PARTIAL — RIPPED FIRST** — delete non-semantic truncation/refusal constants. `1749195f` removed `MAX_RENDER_VARIANTS` and its silent finite-variant truncation. Replacement execution defaults are 1 GB payload / 10 GB committed RAM / 10 minutes and are configurable, finite, and non-semantic. Closure/iteration/chain caps with live termination roles remain protected or deferred |
+| H5 | Old uncalibrated constants | 3,000 / 100 MB / 100 / 512 | **PARTIAL — RIPPED FIRST** — delete non-semantic truncation/refusal constants. `1749195f` removed `MAX_RENDER_VARIANTS` and its silent finite-variant truncation. `8b8277bf`/`f23ad388` removed the arbitrary `MAX_QUANTIFIER_BOUND = 512` finite-quantifier ceiling; large finite quantifiers lower natively and unsupported pattern shapes are still refused on semantic grounds. Replacement execution defaults are 1 GB payload / 10 GB committed RAM / 10 minutes and are configurable, finite, and non-semantic. Closure/iteration/chain caps with live termination roles remain protected or deferred |
 | H6 | Concurrent "kill the right one" scheduler | | **REJECTED** — explicitly selected builds run sequentially, so no cross-build resource arbitration machinery is needed |
 
 ---
@@ -394,7 +394,9 @@ already rejected behavior.
    `da9d2a00` removed dead health metrics/findings and broke their stale schema fixtures. `81375995`/
    `ff2d9ae6` removed no-op compose-wrapper tests and source/API error plumbing while preserving the
    real chain-depth checks. The TunedSurface closure work/depth caps remain explicitly deferred after
-   a safety audit found a cross-rule nontermination case.
+   a safety audit found a cross-rule nontermination case. `8b8277bf`/`f23ad388` then removed the
+   arbitrary `MAX_QUANTIFIER_BOUND = 512` finite-quantifier ceiling test-first and source-second,
+   with its documentation residue swept in `9bf811f6`/`78e0d319`/`07d46165`.
 5. **Delete duplicate analysis traversal (E2).** Remove production-emitter-and-discard and separate
    closure characterization walkers from `characterization`, `preexpand`, `emit`, runtime, and
    selection. Gate: analysis performs no production compile/traversal; a selected build performs its
@@ -486,6 +488,22 @@ additions** across the tests and CLI producer surface. The grammar/corpus `asses
 `investigate` remain. CLI acceptance coverage for those retained consumers, including strict
 rejection of removed flags, is deferred until the post-demolition replacement/repair phase. Old
 producer-coupled tests must not be restored.
+
+### 2026-08-27 finite quantifier ceiling tranche
+
+The arbitrary `MAX_QUANTIFIER_BOUND = 512` policy is removed: **187 deletions / 125 additions, net
+-62 lines** across `8b8277bf` (the stale finite-cap fixture/test first), `f23ad388` (the constant and
+both refusal checks second), `9bf811f6` and `78e0d319` (stale source/staging/status prose), and
+`07d46165` (the remaining fixture, benchmark, and typology verdict contracts). Large finite
+quantifiers now lower natively. Still rejected, and deliberately so on semantic grounds: inverted
+finite ranges, empty children, alpha-nested quantifiers, disagree-polarity alpha variables, and other
+unsupported pattern constructs. The positive unbounded-large-min test remains.
+
+Status: **LANDED UNVERIFIED.** Structurally accepted under the demolition discipline: negative
+residue searches for the deleted constant and for the deleted
+`right_to_left_predicate_refuses_quantifier_shaped_rule` citation, symbol-existence checks for every
+name the corrected prose cites, XML well-formedness of the edited fixture, `git diff --check`, and
+per-commit `--numstat`. No Cargo was run; the suite gate belongs to the final verification stage.
 
 ### Audited Stage 2 kill ledger (`b330892f` anchors)
 
@@ -584,10 +602,12 @@ or compatibility machinery already removed.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..3fd3afdf`:
-**14,073 deletions / 10,799 additions, net -3,274 lines** across 153 files. The dedicated rip-first
-range `1c7cc837..3fd3afdf` removed **9,872 lines**, added 672 structural/fixture/documentation lines,
-and is net **-9,200 lines** across 99 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..07d46165`:
+**20,587 deletions / 10,837 additions, net -9,750 lines** across 241 files. The dedicated rip-first
+range `1c7cc837..07d46165` removed **17,525 lines**, added 1,849 structural/fixture/documentation
+lines, and is net **-15,676 lines** across 199 files. 306 of those rip-first additions are the
+2026-08-27 continuation handoff plan itself (`24c8171a`); it is process scaffolding, not a removal
+win. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
