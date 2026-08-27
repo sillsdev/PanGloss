@@ -1,4 +1,4 @@
-//! `batch --stats`'s cache-writing side and the `stats` subcommand's cache-reading side of `pg_stats::StatsCache`; `--engine=foma` has no collector hook yet, so it records word-level rows only and every per-object report renders as empty for a foma-only cache.
+//! The HC `batch --stats` cache-writing path and the `stats` subcommand's cache-reading/reporting side of `pg_stats::StatsCache`, including synthetic Foma-cache report semantics.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -199,7 +199,7 @@ struct StatsOptionsRecord {
     guess: bool,
 }
 
-/// Shared tail of `run_batch_stats_hc`/`run_batch_stats_foma`: flushes `records` in batches and prints the one summary line `batch --stats` promises.
+/// Flushes HC `batch --stats` records in batches and prints the one summary line it promises.
 fn finish_stats_flush(
     cache: &mut pg_stats::StatsCache,
     grammar_path: &str,
@@ -306,82 +306,6 @@ pub(crate) fn run_batch_stats_hc(
         word_timeout_ms,
         memo: Some(memo),
         guess,
-    };
-    finish_stats_flush(
-        &mut outcome.cache,
-        grammar_path,
-        &grammar_hash,
-        &options,
-        records,
-        skipped,
-        total_elapsed,
-    )
-}
-
-/// `batch --stats`'s `--engine=foma` path: word-level rows only (no stats hook yet), so no per-object fact is ever recorded for this run.
-pub(crate) fn run_batch_stats_foma(
-    grammar: &Grammar,
-    grammar_path: &str,
-    analyzer: &mut pg_foma::composite::FomaAnalyzer,
-    words: &[String],
-    word_timeout_ms: Option<u64>,
-    cache_override: Option<&str>,
-) -> Result<(), String> {
-    let grammar_hash = grammar_hash_for(grammar_path)?;
-    let cache_path = resolve_cache_path(grammar_path, cache_override)?;
-    let mut outcome =
-        pg_stats::StatsCache::open(&cache_path, &grammar_hash).map_err(|e| e.to_string())?;
-    if outcome.wiped {
-        println!(
-            "stats: cache wiped (grammar changed): {}",
-            cache_path.display()
-        );
-    }
-    refuse_if_cache_engine_differs(&outcome.cache, "foma", &cache_path)?;
-
-    let refs: Vec<&str> = words.iter().map(String::as_str).collect();
-    let existing = outcome
-        .cache
-        .existing_words(&refs)
-        .map_err(|e| e.to_string())?;
-    let skipped = words
-        .iter()
-        .filter(|w| existing.contains(w.as_str()))
-        .count();
-
-    let start = Instant::now();
-    let mut records = Vec::new();
-    for word in words {
-        if existing.contains(word.as_str()) {
-            continue;
-        }
-        let invalid = crate::foma_invalid_shape(grammar, word);
-        let (passes, word_elapsed) = if invalid {
-            (0usize, Duration::ZERO)
-        } else {
-            let word_start = Instant::now();
-            let foma_outcome = analyzer.analyze_word(word);
-            (foma_outcome.analyses.len(), word_start.elapsed())
-        };
-        records.push(pg_stats::WordRecord {
-            form: word.clone(),
-            elapsed_ns: word_elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
-            attempts: 0,
-            passes: passes as u64,
-            capped: false,
-            timed_out: false,
-            invalid_shape: invalid,
-            facts: Vec::new(),
-        });
-    }
-    let total_elapsed = start.elapsed();
-
-    let options = StatsOptionsRecord {
-        engine: "foma",
-        step_cap: None,
-        word_timeout_ms,
-        memo: None,
-        guess: false,
     };
     finish_stats_flush(
         &mut outcome.cache,
