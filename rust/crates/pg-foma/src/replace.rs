@@ -274,11 +274,10 @@
 //!   feature lanes unify with the foreign segment, matching the oracle without reinterpreting raw
 //!   ids across tables. Both remain atomic under reversal.
 //! - **`Anchor` (word-boundary condition).** Lowers to a new `crate::lower::Slot::Anchor`,
-//!   rendered as foma's own `.#.` xre atom — IDENTICAL text regardless of [`pg_grammar::model::
-//!   AnchorSide`] (`Slot::Anchor`'s own doc has the full argument for why the tag itself never
-//!   needs inspecting: POSITION, not the tag, conveys word-initial vs. word-final). This is exactly
-//!   why the mirror-and-reverse construction swaps an anchor to the CORRECT opposite edge with
-//!   ZERO new code in `compile_rtl_branch_net`/`reversed_slots` themselves: an `Anchor(Right)`
+//!   rendered as foma's own `.#.` xre atom. The slot's position, not the source-side tag, conveys
+//!   word-initial vs. word-final. This is exactly why the mirror-and-reverse construction swaps an
+//!   anchor to the CORRECT opposite edge with ZERO new code in
+//!   `compile_rtl_branch_net`/`reversed_slots` themselves: an anchor
 //!   that is the LAST slot of the original `right_env` becomes, via the EXISTING `reversed_slots`
 //!   (pure position reversal, no anchor-specific case) plus the EXISTING left/right swap, the FIRST
 //!   slot of the mirror's own `left_env` — a leading `.#.` there means "start of the
@@ -1270,7 +1269,7 @@ fn slot_candidates(
     match slot {
         Slot::Fixed(cd) => Some(expand(std::slice::from_ref(cd))),
         Slot::Union(members) => Some(expand(members)),
-        Slot::ForeignFixed { .. } | Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor(_) => {
+        Slot::ForeignFixed { .. } | Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor => {
             None
         }
     }
@@ -1289,13 +1288,13 @@ fn compile_metathesis_swap_net(
     table_id: TableId,
     aliases: &RepresentationAliasMap,
 ) -> Option<Fsm> {
-    let leading_anchor = matches!(slots.first(), Some(Slot::Anchor(_)));
-    let trailing_anchor = matches!(slots.last(), Some(Slot::Anchor(_)));
+    let leading_anchor = matches!(slots.first(), Some(Slot::Anchor));
+    let trailing_anchor = matches!(slots.last(), Some(Slot::Anchor));
     let start = usize::from(leading_anchor);
     let end = slots.len().saturating_sub(usize::from(trailing_anchor));
     if slots[start..end]
         .iter()
-        .any(|slot| matches!(slot, Slot::Anchor(_)))
+        .any(|slot| matches!(slot, Slot::Anchor))
         || left_idx < start
         || right_idx < start
         || left_idx >= end

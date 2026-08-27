@@ -37,7 +37,7 @@ use foma::types::Fsm;
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
-    AnchorSide, Grammar, NaturalClassKind, Pattern, PatternNode, TableId, VarId,
+    Grammar, NaturalClassKind, Pattern, PatternNode, TableId, VarId,
 };
 
 use crate::replace::SegAlphabet;
@@ -124,10 +124,8 @@ pub(crate) enum Slot {
         max: Option<u32>,
         children: Vec<Slot>,
     },
-    /// A word-boundary condition, accepted only under `PatternLowerScope::RewriteRuleCompile`; renders identically as foma's `.#.` atom regardless of `AnchorSide`, since the compiled meaning comes from which side of the rule's focus marker the text sits on.
-    /// See `docs/research/pg-foma-lower-design-notes.md` for the RTL-reversal argument and why the unread `AnchorSide` field is kept anyway.
-    #[allow(dead_code)]
-    Anchor(AnchorSide),
+    /// A word-boundary condition, accepted only under `PatternLowerScope::RewriteRuleCompile`; renders as foma's `.#.` atom, with its meaning determined by its position relative to the rule's focus marker.
+    Anchor,
 }
 
 /// `true` iff `slots`, at any nesting depth through a `Slot::Repeat`'s `children`, contains a `Slot::Alpha` occurrence — checked at every depth so a nested quantifier can never smuggle one past a shallow check.
@@ -135,7 +133,7 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
     slots.iter().any(|s| match s {
         Slot::Alpha { .. } => true,
         Slot::Repeat { children, .. } => slots_contain_alpha(children),
-        Slot::Fixed(_) | Slot::ForeignFixed { .. } | Slot::Union(_) | Slot::Anchor(_) => false,
+        Slot::Fixed(_) | Slot::ForeignFixed { .. } | Slot::Union(_) | Slot::Anchor => false,
     })
 }
 
@@ -261,11 +259,11 @@ fn slots_from_nodes(
                     }
                 }
             }
-            PatternNode::Anchor(side) => {
+            PatternNode::Anchor(_) => {
                 if scope != PatternLowerScope::RewriteRuleCompile {
                     return None;
                 }
-                out.push(Slot::Anchor(*side));
+                out.push(Slot::Anchor);
             }
         }
     }
@@ -477,8 +475,8 @@ pub(crate) fn render_slots(
                     None => format!("[{inner}]^>{}", min - 1),
                 }
             }
-            // Foma's own `.#.` word-boundary xre atom, identical regardless of `AnchorSide`: the rendered position, not the tag, conveys word-initial vs word-final.
-            Slot::Anchor(_) => ".#.".to_string(),
+            // Foma's own `.#.` word-boundary xre atom: the rendered position, not the source-side tag, conveys word-initial vs word-final.
+            Slot::Anchor => ".#.".to_string(),
         };
         pieces.push(piece);
     }
