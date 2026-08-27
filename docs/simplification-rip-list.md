@@ -517,10 +517,10 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..139868d3`:
-**11,610 deletions / 10,456 additions, net -1,154 lines** across 131 files. The dedicated rip-first
-range `1c7cc837..139868d3` removed **7,372 lines**, added 292 structural/fixture/documentation lines,
-and is net **-7,080 lines** across 77 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..03745a5e`:
+**12,680 deletions / 10,516 additions, net -2,164 lines** across 133 files. The dedicated rip-first
+range `1c7cc837..03745a5e` removed **8,449 lines**, added 359 structural/fixture/documentation lines,
+and is net **-8,090 lines** across 79 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
@@ -542,10 +542,22 @@ The top-N RED/GREEN commits then removed 67 and added 5 lines at commit scope (n
 13 production lines; their focused backend-selection contract passes 11/11.
 The final envelope-constructor RED/GREEN pair removed 9 and added 4 lines at commit scope (net -5).
 The rip-first commits then removed the old supervisor, chooser, legacy Pack/report build path,
-compile-retry advice, and compound-pair refusal. Their intermediate compile holes are intentional;
-no stale test result authorizes restoring those rejected paths.
-Uncommitted work is never counted until its exact staged snapshot is inspected and committed. Remaining deletion
-opportunity is tracked by the stages above; estimates below are directional only:
+compile-retry advice, compound-pair and ordering-multiplicity refusals, legacy optimizer-report
+compatibility, the old `HealthReport.findings` serde default, and the eager enumeration budget.
+The enumeration tranche was staged test-first (`69efc9dc`) and source-second (`03745a5e`): it
+removed `EnumerationBudget`, `EnumMeasure`, `HC_ENUM_ENTRY_BUDGET`, `HC_ENUM_PROBE_BUDGET`, the
+worker's `BudgetTripped` outcome, and their refusal/health plumbing. It deliberately retained the
+real pre-expansion traversal, `ClosureTrace`/terminal evidence, semantic `UnboundedTransition`,
+apply/candidate budgets, `HC_COMPOSE_CHAIN_DEPTH_BUDGET`, compound-chain refusal, the hidden worker,
+and external `ExecutionLimits`. Their intermediate compile holes are intentional; no stale test
+result authorizes restoring rejected paths.
+
+The health-publication readiness test deletion (`0e001bdc`) is committed, but its matching source
+deletion is not included in these totals: `make_report.rs` and `pack.rs` remain an isolated dirty
+diff pending explicit acceptance of the publication-readiness consequence. Uncommitted work is
+never counted until its exact staged snapshot is inspected and committed.
+Remaining deletion opportunity is tracked by the stages above; estimates below are directional
+only:
 
 | Section | Est. lines |
 |---|---|
