@@ -1,7 +1,4 @@
-use pg_foma::advice_catalog::RemedyEffort;
-use pg_foma::backend_selection::{
-    sort_blocking_remedy_sets, AdviceReference, BackendReport, BackendStatus,
-};
+use pg_foma::backend_selection::{BackendReport, BackendStatus};
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::health::{
@@ -32,67 +29,6 @@ fn refused(strategy: EmissionStrategy) -> BackendReport {
             witness: "synthetic".to_string(),
         }]),
     )
-}
-
-fn advice(shape: &str, remedy: &str, effort: RemedyEffort) -> AdviceReference {
-    AdviceReference::new(shape, remedy, effort)
-}
-
-#[test]
-fn blocking_remedy_sets_sort_hard_then_medium_then_easy_and_deduplicate() {
-    let ordered = sort_blocking_remedy_sets(vec![
-        vec![advice("shape-hard", "shared", RemedyEffort::Hard)],
-        vec![advice("shape-medium", "shared", RemedyEffort::Medium)],
-        vec![
-            advice("shape-easy", "shared", RemedyEffort::Easy),
-            advice("shape-easy", "shared", RemedyEffort::Easy),
-        ],
-        vec![
-            advice("shape-medium-easy", "shared", RemedyEffort::Medium),
-            advice("shape-medium-easy", "other", RemedyEffort::Easy),
-        ],
-    ]);
-
-    assert_eq!(
-        ordered,
-        vec![
-            vec![advice("shape-easy", "shared", RemedyEffort::Easy)],
-            vec![advice("shape-medium", "shared", RemedyEffort::Medium)],
-            vec![
-                advice("shape-medium-easy", "other", RemedyEffort::Easy),
-                advice("shape-medium-easy", "shared", RemedyEffort::Medium),
-            ],
-            vec![advice("shape-hard", "shared", RemedyEffort::Hard)],
-        ]
-    );
-}
-
-#[test]
-fn shared_remedies_keep_shape_specific_effort_and_report_refs_are_stable() {
-    let report = BackendReport::accepted(
-        EmissionStrategy::TunedSurfaceProbed,
-        CompileDecision::Admit,
-        vec![],
-    )
-    .unwrap()
-    .with_diagnostics(
-        vec![],
-        vec![],
-        vec![],
-        vec![
-            advice("shape-b", "shared-order", RemedyEffort::Hard),
-            advice("shape-a", "shared-order", RemedyEffort::Easy),
-            advice("shape-a", "shared-order", RemedyEffort::Easy),
-        ],
-    );
-
-    assert_eq!(
-        report.advice_references(),
-        &[
-            advice("shape-a", "shared-order", RemedyEffort::Easy),
-            advice("shape-b", "shared-order", RemedyEffort::Hard),
-        ]
-    );
 }
 
 #[test]

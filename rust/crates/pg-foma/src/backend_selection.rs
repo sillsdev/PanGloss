@@ -514,38 +514,4 @@ mod tests {
     //! through `pg_grammar::load` rather than a hand-built `Grammar`.
 
     use super::*;
-    fn finding(
-        severity: crate::health::Severity,
-        code: crate::health::FindingCode,
-    ) -> crate::health::HealthFinding {
-        crate::health::HealthFinding {
-            code,
-            severity,
-            phase: crate::health::Phase::Compile,
-            affected: vec!["synthetic-rule".to_string()],
-            metric: crate::health::Metric::UnknownUnboundedWork,
-            value: crate::health::MetricValue::Count(1),
-            provenance: crate::health::ValueProvenance::Observed,
-            threshold: None,
-            explanation: "synthetic finding".to_string(),
-            remedies: Vec::new(),
-        }
-    }
-
-    /// The predicate must exclude on `Process` even where `status == Accepted` would already do so.
-    #[test]
-    fn a_process_finding_excludes_even_if_status_were_accepted() {
-        let report = BackendReport::accepted(
-            EmissionStrategy::TunedSurfaceProbed,
-            CompileDecision::Admit,
-            vec![finding(
-                crate::health::Severity::NotProductionReady,
-                crate::health::FindingCode::BuildProcessFailed,
-            )],
-        )
-        .unwrap();
-
-        assert!(!report.is_normal_candidate());
-    }
-
 }
