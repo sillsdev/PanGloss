@@ -375,10 +375,8 @@ mod tests {
             declared_not_searched: 2,
             materialization_rejects: 1,
             capability_rejected: 1,
-            build_failures: 1,
             evaluated: 3,
             confirmed: 2,
-            unvisited: 1,
             budget_pruned: 1,
         };
         assert!(waterfall.reconciles());

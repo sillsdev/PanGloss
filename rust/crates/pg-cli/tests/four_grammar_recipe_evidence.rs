@@ -22,9 +22,7 @@ fn accounted_pruning(report: &Value, label: &str) -> Value {
         "duplicates",
         "materialization_rejects",
         "capability_rejected",
-        "build_failures",
         "evaluated",
-        "unvisited",
         "budget_pruned",
     ]
     .into_iter()
