@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn waterfall_reconciles_without_counting_confirmation_twice() {
         let waterfall = PruningWaterfall {
-            generated: 12,
+            generated: 10,
             inapplicable: 1,
             duplicates: 1,
             declared_not_searched: 2,
