@@ -315,6 +315,15 @@ only after the rip stages below. During the rip, use `git diff --check` and targ
 defer Cargo and hosted-platform proof until the replacement stage unless a deletion can be checked
 without pulling replacement design forward.
 
+**Marching order for every remaining tranche:** (1) research and classify the candidate as obsolete
+resource policy, required semantic termination/correctness, or unresolved; (2) delete tests and
+fixtures that require the obsolete contract; (3) delete its source/API/schema/plumbing in a separate
+commit; (4) inspect the complete diff and run residue/protected-symbol checks; (5) record intentional
+compile holes and move on. Do not add a replacement abstraction, compatibility adapter, convenience
+API, or new positive test during steps 1-5. Replacement work begins only when the authorized removal
+inventory is exhausted. A safety finding narrows or defers that hunk; it never authorizes restoring
+already rejected behavior.
+
 1. **Finish raw selected-payload transport (A8).** Delete the rejected filesystem transport, legacy
    aggregate-result parser tests/helper, and stdout-only overflow residue. Add subprocess proof for
    missing, truncated, trailing, malformed, and stalled payloads. Gate: protocol 8 rejection; exact
@@ -358,7 +367,14 @@ without pulling replacement design forward.
    characterization, and capability routing while preserving `Cascade::combination` and exact
    unordered rule-count facts. The external 1 GiB payload, 10 GiB worker-tree RAM, and 10-minute
    limits remain. Chain-depth safety remains protected pending its separate call-site audit. Worker
-   protocol v10 is required in the later schema/add phase.
+   protocol v10 is required in the later schema/add phase. `69efc9dc`/`03745a5e` removed the eager
+   enumeration budget and worker/health refusal plumbing. `ae67f086`/`f878435e`/`f782c2ff`/
+   `1c8552c9` removed profile threshold tests, reference-band decisions, dead health projection, and
+   the single-value profile label while retaining raw compile measurements. `4e11c3d5`/`27f0cafe`/
+   `da9d2a00` removed dead health metrics/findings and broke their stale schema fixtures. `81375995`/
+   `ff2d9ae6` removed no-op compose-wrapper tests and source/API error plumbing while preserving the
+   real chain-depth checks. The TunedSurface closure work/depth caps remain explicitly deferred after
+   a safety audit found a cross-rule nontermination case.
 5. **Delete duplicate analysis traversal (E2).** Remove production-emitter-and-discard and separate
    closure characterization walkers from `characterization`, `preexpand`, `emit`, runtime, and
    selection. Gate: analysis performs no production compile/traversal; a selected build performs its
@@ -534,10 +550,10 @@ or compatibility machinery already removed.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..03745a5e`:
-**12,680 deletions / 10,516 additions, net -2,164 lines** across 133 files. The dedicated rip-first
-range `1c7cc837..03745a5e` removed **8,449 lines**, added 359 structural/fixture/documentation lines,
-and is net **-8,090 lines** across 79 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..ff2d9ae6`:
+**13,753 deletions / 10,752 additions, net -3,001 lines** across 153 files. The dedicated rip-first
+range `1c7cc837..ff2d9ae6` removed **9,550 lines**, added 623 structural/fixture/documentation lines,
+and is net **-8,927 lines** across 99 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
