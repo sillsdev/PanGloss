@@ -1107,10 +1107,6 @@ impl<'g> FomaAnalyzer<'g> {
             .collect()
     }
 
-    pub fn grammar(&self) -> &'g Grammar {
-        self.g
-    }
-
     /// Arm (or leave unarmed) the internal confirming `Morpher`'s `--word-timeout-ms` deadline
     /// (`pg_parse::Morpher::with_word_timeout`). `None` (also `Self::new`/`Self::from_cached`'s
     /// implicit default) is a complete no-op — behavior stays byte-identical to before this
