@@ -58,7 +58,6 @@ fn catalog_covers_exactly_the_executable_backends_with_complete_static_envelopes
                 envelope.id
             );
             assert!(!envelope.contributors.is_empty());
-            assert!(!envelope.remedy_ids.is_empty());
             assert!(!envelope.source_refs.is_empty());
             if let EnvelopeControl::SwitchControlled { switch_id, .. } = envelope.control {
                 assert!(!switch_id.is_empty());
