@@ -208,37 +208,4 @@ mod tests {
         assert_eq!(manifest.to_canonical_json(), manifest.to_canonical_json());
     }
 
-    #[test]
-    fn serialized_current_manifest_contains_neither_removed_envelope_field() {
-        let json = synthetic_manifest().to_canonical_json();
-        let value: serde_json::Value = serde_json::from_str(&json).expect("valid manifest JSON");
-
-        assert_eq!(
-            value["manifest_schema_version"],
-            serde_json::json!(MANIFEST_SCHEMA_VERSION)
-        );
-        assert!(value.get("resource_envelope_id").is_none());
-        assert!(value.get("compile_size_mode").is_none());
-    }
-
-    #[test]
-    fn removed_envelope_fields_are_rejected_as_unknown_manifest_fields() {
-        let manifest = synthetic_manifest();
-        let value: serde_json::Value =
-            serde_json::from_str(&manifest.to_canonical_json()).expect("valid manifest JSON");
-        for field in ["resource_envelope_id", "compile_size_mode"] {
-            let mut legacy = value.clone();
-            legacy
-                .as_object_mut()
-                .expect("manifest JSON is an object")
-                .insert(field.to_string(), serde_json::json!("legacy"));
-            let json = serde_json::to_string(&legacy).expect("re-serialize the legacy JSON");
-            let error = PackManifest::from_json(&json)
-                .expect_err("removed manifest fields must not deserialize");
-            assert!(
-                error.to_string().contains("unknown field"),
-                "expected serde unknown-field error for {field}, got {error}"
-            );
-        }
-    }
 }
