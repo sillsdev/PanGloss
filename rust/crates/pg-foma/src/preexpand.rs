@@ -710,28 +710,6 @@ fn process_root_work(
     (acc.recs, acc.report)
 }
 
-/// `build_composites`'s thin, env-driven wrapper: builds its own `MorphotacticIndex` (grammar-
-/// cheap -- linear in rules/templates/slots, never the expensive recursive probe), resolves
-/// `ExploreMode` from `HC_PREEXPAND_FLAT`, and an optional `ProbeBudget` from
-/// `HC_PREEXPAND_PROBE_CAP`. Test-only: a convenience wrapper for tests that don't need a shared
-/// `MorphotacticIndex`/`ProbeBudget`.
-#[cfg(test)]
-pub(crate) fn build_composites(
-    g: &Grammar,
-    width: usize,
-    phon: Option<&PhonologyProbe>,
-) -> (Vec<CompositeRec>, CompositeReport) {
-    let mt = MorphotacticIndex::build(g);
-    let mode = crate::morphotactics::explore_mode_from_env();
-    let cap = crate::morphotactics::probe_cap_from_env();
-    let counter = std::sync::atomic::AtomicUsize::new(0);
-    let probe_budget = cap.map(|cap| ProbeBudget {
-        cap,
-        counter: &counter,
-    });
-    build_composites_with_mode(g, width, phon, &mt, mode, probe_budget)
-}
-
 /// Build every rule-application/fusion composite for `g` (module doc). `width` is the same tag
 /// digit width `crate::emit::emit` computes; `phon` is the SAME `PhonologyProbe` instance
 /// `emit.rs` already builds once per grammar (`None` for a grammar with no phonological rules at
