@@ -261,7 +261,8 @@ pub fn enumerate_default(
 /// filtering, or evaluating a single candidate cannot separate them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CandidateRole {
-    /// This grammar's default compilation; a baseline needing marker subtrees `build_controllable` can't build is realized by the whole-grammar tuned adapter instead (see `crate::backend_runtime`).
+    /// This grammar's default compilation; a baseline needing marker subtrees that
+    /// `build_controllable` cannot build is rejected rather than rerouted to another adapter.
     Baseline,
     /// Any other candidate; never realized by a whole-grammar adapter it did not ask for, since that adapter derives its own topology and would measure the baseline network instead.
     Alternative,

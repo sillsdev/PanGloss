@@ -117,8 +117,8 @@ the driving construct (nested circumfixing):
   literal path (`rust/crates/pg-foma/src/structural_allomorph.rs:1-7`); `preexpand.rs:209` notes
   `CircumfixPrefix`/`CircumfixSuffix` are not exercised by the ordinary composite mechanism.
 - **PlanComposed cannot build the material at all**: composite/structural subtrees are
-  unbuildable markers for `build_controllable`, triggering tuned fallback or refusal
-  (`rust/crates/pg-foma/src/backend_runtime.rs:1847-1892`).
+  unbuildable markers for `build_controllable`, so the candidate is refused before partial
+  network measurement (`rust/crates/pg-foma/src/backend_runtime.rs:1847-1892`).
 
 The heuristic therefore names a missing point in the backend design space — emit each side of the
 stem as an independent local automaton (prefix ordering/transformation and suffix

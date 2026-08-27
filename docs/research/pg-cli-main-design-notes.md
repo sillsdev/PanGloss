@@ -39,13 +39,6 @@ carrying an unmissable `trust=unproven` degraded-trust marker naming every overr
 Because the override may omit valid parses, that output is never a certification or
 production-publication result.
 
-That marker is a session/report-level notice, not a persistent stamp: `batch`/`parse` produce no
-artifact of their own (a TSV file or a `word\tsignature` line, neither a pack), so there is nothing
-for a manifest stamp to attach to at this call site. The legacy `pangloss pack` path is the
-persistent home for that stamp — it writes `capability_trust`/`CapabilityOverrideRecord` into an
-actual `.pgpack` manifest. Under the current policy any such artifact is a quarantined developer/
-test artifact, not a production-publishable pack.
-
 Every branch writes to stderr, never stdout, matching `print_grammar_warnings`'s convention: the
 `batch`/`parse` protocol output (TSV rows to a file; the `word\tsignature` line) is never among
 `GateResult`'s lines, so a conformance runner reading only that protocol output cannot be perturbed

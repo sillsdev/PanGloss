@@ -14,23 +14,6 @@
 - [x] 3.2 Configuration-predicate granularity; over-refuse-never-under-refuse discipline — `CapabilityPredicate`/`PredicateVerdict`; `default_registry()` now ships **11 real predicates** (multi-table, RTL, simultaneous, quantifier, metathesis, circumfix, reduplication, compounding, unordered, MPR-append, MPR-overwrite), not just the one `SimultaneousSubruleOverlapPredicate` noted here previously — only `epenthesis.placeholder` remains a `FailClosedPlaceholder`
 - [x] 3.3 Wire the gate into the production compile path (the flip: block/stamp a real compile) — DONE for the CLI path: `pg-cli/src/main.rs`'s `capability_gate`/`run_capability_gate` call `evaluate_capability` and default-enforce on `--engine=foma`. **Policy follow-up remains:** hide and reject `--allow-unproven` and legacy `--no-enforce-capability` in production builds; both are currently reachable there. NOTE: this is the CLI entry point, not `emit.rs`/`gate.rs`/`replace.rs` themselves refusing internally — the compile functions still run unconditionally once the CLI-level gate lets a grammar through.
 
-## 4. Developer-only capability override + trust signal (ADR 0005)
-- [ ] 4.1 Explicit override that force-compiles; indelible unproven/recall-unsafe stamp in pack manifest
-      (force-compile via `--allow-unproven` is done and tested in `pg-cli/main.rs`, but the CLI's own
-      code comment is explicit: "No `.pgpack` packaging exists yet to carry ADR 0005's persistent,
-      indelible manifest stamp; this is a SESSION/REPORT-LEVEL marker only for this invocation." The
-      manifest-side type (`pg-pack/src/trust.rs::CapabilityTrust`) exists but isn't wired to this)
-- [ ] 4.2 Runtime degraded-trust signal (pack-level load + per-analysis flag)
-      (partial — `pg-wasm/src/pack.rs::is_unproven` gives a pack-level load signal, but no
-      per-analysis flag and no connection to a CLI-produced override yet)
-- [ ] 4.3 Override record (who/when/why/which configs); never passes conformance
-      (the record type exists — `pg-pack/src/trust.rs::CapabilityOverrideRecord`
-      (`authorized_by`/`reason`/`recorded_at`/`overridden_configs`) — but nothing populates it from the
-      CLI's `--allow-unproven` path yet; that path only emits a stderr marker, per 4.1)
-- [ ] 4.4 Compile the override parsing/help/API out of production builds and reject the spelling;
-      prove it remains developer-only, may omit valid parses, never publishes/certifies, does not
-      remove execution limits. Delete `--remove-size-limits` and reject its spelling.
-
 ## 5. Conformance-coverage CI gate
 - [ ] 5.1 Cross-check capability registry against `machine/conformance/` coverage; break build on gap
       (the cross-check itself is real and non-blocking: `pg-foma/src/conformance_coverage.rs`

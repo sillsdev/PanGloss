@@ -19,12 +19,10 @@ not test.
 ## What this module measures itself, versus what it only composes
 
 The readiness types define the *shape* of a certification, but nothing populated a real
-`Measurements` from a live grammar/pack until this module:
+`Measurements` from a live grammar until this module:
 
-- **Pack size + trust status** come from a real `.pgpack`, never a caller-supplied trust
-  parameter — see "Trust provenance" below.
 - **Lexicon scale** is `grammar.entries.len()`, a direct count from the in-memory `Grammar`, not
-  derived from the pack (whose runtime payload is still a placeholder).
+  a caller-supplied value.
 - **Latency percentiles** are measured in-process via nanosecond `Instant`/`Duration` timing over a
   real, freshly-built `FomaAnalyzer`, mirroring `pg-foma/tests/typology_speedup.rs`'s methodology:
   median-of-repeats per word, one discarded warmup call, a per-run-calibrated timer floor, and
@@ -37,33 +35,6 @@ The readiness types define the *shape* of a certification, but nothing populated
 - **The plan diagram and conformance verdict** are pure composition:
   `plan_diagram::{build_plan_document, render_mermaid}` and `readiness_verdict::certify`, exactly as
   `plan-diagram` and the readiness-verdict tests already exercise them. No new logic here.
-
-## Trust provenance: a real artifact, never a caller-settable parameter
-
-`certify`'s `trust: &TrustStatus` is never populated from a bare CLI flag. Either `--pack=<path>`
-names an existing `.pgpack` (read via `pg_pack::read_pack`, and `manifest.capability_trust` is the
-trust certified against), or, with no `--pack`, this module builds one itself via
-`crate::pack::build_pack` — the same capability-trust-stamping logic `pangloss pack` uses — and
-reads the trust back off the manifest that call produces. Either way the trust certified against is
-the real stamp on a real artifact.
-
-`map_trust` is a plain, non-lossy field-for-field projection of `pg_pack::CapabilityTrust` into
-`pg_foma::readiness_verdict::TrustStatus`. The two shapes are kept in a hand-maintained
-correspondence rather than a shared type because `pg-pack` already depends on `pg-foma` (for
-`HealthReport`), so the reverse dependency would cycle.
-
-## Capability enforcement mirrors the rest of the CLI
-
-Exactly like `run_batch`/`run_parse`/`pangloss pack`: a capability `Refuse` verdict with no
-`--allow-unproven` means no compiled artifact is built or measured at all — every check reports
-`NotAssessed` and the tier is `NotSupported`, citing the real refusal. `--allow-unproven` on
-`make-report` requires the same flag be passed to `pangloss pack` too; a caller cannot point
-`--pack` at a pre-built overridden artifact and have this command quietly measure against it
-without acknowledging the override at the report layer as well. This is a developer-only
-diagnostic route: because it may omit valid parses, a local evidence artifact/report cannot certify
-or production-publish the artifact. A separate developer stress run with `--remove-size-limits` may cross internal caps,
-but it still requires exact completion and outer containment; an Error report can be useful stress
-evidence without becoming production-ready.
 
 ## Latency methodology
 

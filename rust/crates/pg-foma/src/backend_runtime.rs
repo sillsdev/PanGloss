@@ -1133,16 +1133,11 @@ pub struct RuntimeEvaluation {
     /// Which compiler ACTUALLY produced the measured network, as opposed to which one the candidate
     /// declared.
     ///
-    /// These differ, and the difference is invisible without this field. `evaluate_plans`
-    /// evaluates a marker-carrying baseline evidence-first: it composes the plan, and only if that
-    /// FAILS does it fall back to the tuned emitter. That fallback is deliberate and must stay -- a
-    /// blanket veto on marker presence previously dropped grammars whose composed baseline confirms
-    /// perfectly well (`mpr-gated-exception` scores 27/38 confirmed as `PlanComposed` despite
-    /// carrying a marker). But it means a candidate declaring `PlanComposed` can be measured on the
-    /// tuned network: `backend-ordered-generic`'s baseline reports 79 states / 154 arcs and 366
-    /// proposals, which is the tuned network, while its declared strategy still says `PlanComposed`.
-    /// Anything attributing that measurement -- a report field, a diagram caption, a comparison
-    /// between candidates -- must read THIS, not the declaration.
+    /// These differ, and the difference is invisible without this field. Marker-bearing
+    /// `PlanComposed` candidates are rejected before partial-network measurement; the whole-grammar
+    /// adapters are measured only for candidates that select them. Anything attributing a
+    /// measurement -- a report field, diagram caption, or comparison -- must read THIS, not the
+    /// declared strategy.
     pub realized_strategy: EmissionStrategy,
 }
 
@@ -1512,11 +1507,9 @@ fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
 /// Evaluates every candidate through its own `LoweringAdapter` and the production
 /// propose→confirm pipeline. The caller-provided order is preserved.
 ///
-/// One exception, and it is load-bearing: a plan that needs composite/structural marker subtrees is
-/// routed to the whole-grammar tuned adapter (`crate::enumerate::CandidateRole::Baseline` only) or
-/// refused (any `crate::enumerate::CandidateRole::Alternative`), because `build_controllable`
-/// cannot build those subtrees and a templated grammar keeps nearly all of its productive morphology
-/// there.
+/// A plan that needs composite/structural marker subtrees is refused because
+/// `build_controllable` cannot build those subtrees. The whole-grammar adapters are measured only
+/// for candidates that select them; no candidate is rerouted to a different adapter.
 ///
 /// # Neither positional NOR parallel-slice baseline state is used here
 /// This function used to derive `is_baseline` from POSITION (`i == 0`), and a second entry point took

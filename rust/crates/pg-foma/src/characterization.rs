@@ -1,8 +1,8 @@
 //! The cheap characterization pass: reports constructs, quantifier/alternative products, alpha
 //! tuples, templates/slots, predicted emitted work, peeled/confirm-only expansion, and
-//! unknown/unbounded work before a selected production backend build. Unknown cost is not itself a MachineLimit/
-//! CannotRepresent verdict when construction is recall-preserving; any uncertainty that could omit
-//! an analysis fails closed.
+//! unknown/unbounded work before a selected production backend build. Unknown cost is not itself a
+//! MachineLimit or CannotRepresent verdict when construction is recall-preserving; any uncertainty
+//! that could omit an analysis fails closed.
 //!
 //! # Consume, never remeasure (same discipline as `crate::health_evaluator`)
 //! `characterization_findings` takes a `&Grammar`, derives ONE
