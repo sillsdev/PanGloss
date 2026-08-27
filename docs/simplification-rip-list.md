@@ -491,6 +491,48 @@ additions** across the tests and CLI producer surface. The grammar/corpus `asses
 rejection of removed flags, is deferred until the post-demolition replacement/repair phase. Old
 producer-coupled tests must not be restored.
 
+### 2026-08-27 REP_VARIANT_CAP containment inventory — verdict: still NO-GO
+
+The read-only production-call inventory the handoff required, run against `86fb56fb`. It asks
+whether every caller of `surface_variants`, `surface_variants_concat`,
+`surface_insert_action_variants`, `pattern_variants`, and `stripped_variants` reaches them only
+inside the supervised worker's process tree, under finite memory and time limits.
+
+**It does not, and the answer is not close.** Those five functions run during lexc emission and
+pre-expansion, so the question reduces to which entry points compile a proposer. Every
+`FomaProposer::new*` construction outside a test:
+
+| Entry point | Contained? |
+|---|---|
+| `pg-foma::worker.rs:313` (`new_with_budget_and_profile`) | **yes** — this is the supervised worker |
+| `pg-cli::make_report.rs:450,459` (`new_unproven_with_profile` / `new_with_profile`) | no — in-process in the CLI; this is the direct make-report route awaiting its own decision |
+| `pg-ffi::grammar.rs:59` (`new`) | no — in-process inside an embedding host application |
+| `pg-foma::backend_runtime.rs:1415,2014` (`new`) | no — in-process on the evaluate/assess corpus paths |
+| `pg-foma::composite.rs:611` (`new`) | no — in-process on the runtime analyzer path `parse`/`batch` use |
+| `pg-foma::witnessed_coverage.rs:115` (`new`) | no — in-process |
+
+Five live in-process production paths, and the handoff's own rule is that one is enough:
+**the cap-removal patch stays NO-GO.** Removing a recall-losing overflow bound is only safe where an
+external limit catches the blow-up instead, and on the FFI path in particular there is no such limit
+at all — the blow-up lands in the host application's address space.
+
+**Two further findings, independent of containment.** The uncommitted `emit.rs` patch changes
+`surface_variants`/`surface_variants_concat`/`stripped_variants`/`pattern_variants` from
+`(Vec<String>, bool)` to a bare `Vec<String>`, but six call sites outside `emit.rs` still consume the
+tuple — `precision.rs:441,501` and `preexpand.rs:326,581,663,666`. The patch as it stands does not
+build.
+
+More importantly, `precision.rs` does not merely *carry* the overflow flag, it **decides on it**:
+both sites match `Some((variants, false))` and fall through to `Unsupported` / `None` otherwise,
+with the comment "Overflow or unsegmentable: can't cheaply prove no overlap either." Dropping the
+flag turns "the variant set overflowed, so I cannot prove non-overlap" into "I proved
+non-overlap" — a silent precision regression, not a plumbing simplification. Any future
+cap-removal has to give `precision.rs` a different way to answer that question first.
+
+Do not stage the protected `emit.rs` diff on the strength of this entry. It records why the answer
+is no; reversing it needs the containment work, not another read of the same code.
+
+
 ### 2026-08-27 dead ComposeBudget forwarding tranche
 
 `uflexc::emit_underlying_filtered_with_budget` accepted a `&ComposeBudget` and never read it;
@@ -695,8 +737,11 @@ never counted until its exact staged snapshot is inspected and committed.
 The remaining-cap audit classified `PATTERN_ITER_CAP`, compound/absolute chain-depth limits, the
 structural closure depth, and apply path/candidate limits as live termination or safety boundaries;
 they are not deletion authority. `STRUCTURAL_FS_REACHABILITY_STATE_CAP` fails open and needs a
-separate termination design. `REP_VARIANT_CAP` is a larger recall-losing overflow-plumbing tranche
-authorized in principle but must be staged separately. Historical documents that show the removed
+separate termination design. `REP_VARIANT_CAP` was authorized in principle as a larger
+recall-losing overflow-plumbing tranche, but the 2026-08-27 containment inventory above returns
+**NO-GO**: five live in-process compile paths sit outside the supervised worker, and
+`precision.rs` decides on the overflow flag rather than merely carrying it. Historical documents
+that show the removed
 `fst-health <grammar> <words>` workflow remain queued for the final stale-contract documentation
 sweep; they do not authorize restoring that command path.
 Remaining deletion opportunity is tracked by the stages above; estimates below are directional
