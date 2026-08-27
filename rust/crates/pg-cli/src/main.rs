@@ -159,7 +159,6 @@ fn run() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
-        Some("assess") => assess::exit(assess::run_assess(&args[2..]), "assess"),
         Some("compare") => assess::exit(assess::run_compare(&args[2..]), "compare"),
         Some("golden-diff") => assess::exit(assess::run_golden_diff(&args[2..]), "golden-diff"),
         Some("investigate") => assess::exit(assess::run_investigate(&args[2..]), "investigate"),
@@ -230,10 +229,9 @@ fn run() -> ExitCode {
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
                  usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
-                 usage: pangloss assess <grammar> (--suite <suite.json> | --words <words.txt>) [--pipeline foma-confirm|hermitcrab] [--budget-paths N] [--budget-candidates N] [--report <path>]\n\
                  usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
                  usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
-                 usage: pangloss investigate <report.json> --case <caseId> [--grammar <path>] [--report <path>]\n\
+                 usage: pangloss investigate <report.json> --case <caseId> [--report <path>]\n\
                  usage: pangloss fst-health <grammar> [<out.json>]\n\
                  usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
                  usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
@@ -287,75 +285,6 @@ fn run_import(args: &[String]) -> Result<(), String> {
         snapshot.phonology.phonemes.len()
     );
     Ok(())
-}
-
-/// Load a `Grammar` from any of the three supported grammar-path shapes, dispatching on the
-/// path's extension (see the module doc's "`import` and `.json`/`.fwdata` grammar dispatch"
-/// section): `.json` -> `pg_snapshot::Snapshot::from_json` + `pg_grammar::compile_project`;
-/// `.fwdata` -> `pg_fwdata::import_file` + `pg_grammar::compile_project` (in-memory, no
-/// intermediate file); anything else (including `.xml`) -> the legacy `pg_grammar::load`, which
-/// never produces warnings of its own. Returns any compile/import warnings alongside the
-/// `Grammar` -- callers are responsible for printing them to stderr (never stdout; see the
-/// module doc).
-/// `load_grammar`, but keeping each warning's stable code instead of flattening it to prose.
-///
-/// `load_grammar` returns `Vec<String>` because almost every caller only ever prints warnings, and
-/// changing that signature would churn every one of them. But an assessment report is exactly the
-/// caller that must NOT lose the code: `compare` diffs importer diagnostics **by code and count**
-/// so that rewording a message is never reported as a change in the grammar's context.
-/// Flattening first and re-tagging everything `importer.warning` would give a caller one bucket,
-/// which cannot distinguish "the importer skipped 400 more constructs" from "one message was
-/// reworded".
-///
-/// So the two commands that build assessment reports use this; everything else keeps the simpler
-/// shape.
-///
-/// `pg_grammar::compile_project`'s own warnings are still plain `String` and are tagged
-/// `compiler.warning` here — honestly one bucket, because that is genuinely all the granularity
-/// that exists on that side today, rather than a code invented to look finer.
-pub(crate) fn load_grammar_coded(
-    path: &str,
-) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
-    let ext = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    const COMPILER: &str = "compiler.warning";
-    match ext {
-        "json" => {
-            let json = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-            let snapshot = pg_snapshot::Snapshot::from_json(&json)
-                .map_err(|e| format!("parse snapshot {path}: {e}"))?;
-            let mut warnings: Vec<pg_snapshot::Warning> = snapshot.validate();
-            let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
-                .map_err(|e| format!("compile {path}: {e:?}"))?;
-            warnings.extend(
-                compile_warnings
-                    .into_iter()
-                    .map(|w| pg_snapshot::Warning::new(COMPILER, w)),
-            );
-            Ok((grammar, warnings))
-        }
-        "fwdata" => {
-            let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
-                .map_err(|e| format!("import {path}: {e}"))?;
-            let mut warnings = report.warnings;
-            warnings.extend(snapshot.validate());
-            let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
-                .map_err(|e| format!("compile {path}: {e:?}"))?;
-            warnings.extend(
-                compile_warnings
-                    .into_iter()
-                    .map(|w| pg_snapshot::Warning::new(COMPILER, w)),
-            );
-            Ok((grammar, warnings))
-        }
-        _ => {
-            let xml = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-            let grammar = pg_grammar::load(&xml).map_err(|e| format!("load {path}: {e:?}"))?;
-            Ok((grammar, Vec::new()))
-        }
-    }
 }
 
 pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
