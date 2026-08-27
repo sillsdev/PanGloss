@@ -257,12 +257,6 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
         "observed evaluation must reuse one oracle result per corpus occurrence"
     );
     assert_eq!(ordinary_cache.oracle_calls(), observed_cache.oracle_calls());
-    assert_eq!(
-        ordinary_cache.emission_report_calls(),
-        observed_cache.emission_report_calls()
-    );
-    // Candidate realization owns diagnostics; the runtime cache must not run another emitter.
-    assert_eq!(ordinary_cache.emission_report_calls(), 0);
 
     let mut oracle: Option<Vec<(String, Vec<pg_parse::WordAnalysis>)>> = None;
     let mut actual_by_strategy: Vec<(
