@@ -16,9 +16,9 @@
 //! every measurement into `crate::health_evaluator::evaluate_health` to build a real
 //! `crate::health::HealthReport` -- never a second, parallel report shape. `WorkerOutcome`
 //! (what the PARENT reports for outcomes the child never got to write -- a wall-timeout kill, a
-//! flooded pipe, a crash, a malformed protocol message) maps each into the SAME
+//! crash, or a malformed protocol message) maps each into the SAME
 //! `crate::health::HealthReport`/`crate::health::HealthFinding` vocabulary via
-//! `WorkerOutcome::health_report`. A proven external-monitor abort (wall-timeout, output cap, or
+//! `WorkerOutcome::health_report`. A proven external-monitor abort (wall-timeout or
 //! OS-reported memory limit) uses `crate::health::FindingCode::HostContainmentFired`; an
 //! unproven child crash and spawn/protocol faults are instead build-process faults and use
 //! `crate::health::FindingCode::BuildProcessFailed` (see
@@ -35,8 +35,6 @@
 
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -283,7 +281,7 @@ pub struct CompileWorkerResult {
 }
 
 /// Every terminal outcome the CHILD itself can observe and report (see `WorkerOutcome` for the
-/// outcomes only the PARENT can observe -- a kill, a crash, a flooded pipe).
+/// outcomes only the PARENT can observe -- a kill, a crash, or malformed output).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompileWorkerOutcome {
     /// The compile completed under budget, carrying the final state/arc counts and the real `HealthReport` from `crate::health_evaluator::evaluate_health`.
@@ -677,8 +675,6 @@ pub enum WorkerOutcome {
     },
     /// The child was killed after `elapsed` exceeded `limit` -- an external execution limit, not a grammar-health verdict.
     WallTimeoutKilled { elapsed: Duration, limit: Duration },
-    /// Captured stderr reached its byte cap and the child was killed.
-    StderrOutputLimitExceeded { limit_bytes: u64 },
     /// The OS containment boundary reported that the aggregate worker-tree memory charge reached
     /// its configured limit. This outcome requires platform evidence; an abnormal exit alone is
     /// only `ChildCrashed`.
@@ -709,8 +705,8 @@ impl WorkerOutcome {
     /// the child's own real report unchanged; every other variant builds ONE synthetic finding
     /// describing the parent-observed supervisor event.
     ///
-    /// **Proven containment events stay distinct from process faults.** `WallTimeoutKilled`,
-    /// `StderrOutputLimitExceeded` and `MemoryLimitKilled` use `FindingCode::HostContainmentFired`
+    /// **Proven containment events stay distinct from process faults.** `WallTimeoutKilled` and
+    /// `MemoryLimitKilled` use `FindingCode::HostContainmentFired`
     /// at `Severity::MachineLimit`. A bare `ChildCrashed` does not prove which OS boundary fired,
     /// so it remains a process fault. `ContainmentUnavailable`, `ContainmentFailed`, `SpawnFailed`,
     /// and `ProtocolViolation` also use `FindingCode::BuildProcessFailed`
@@ -772,21 +768,6 @@ impl WorkerOutcome {
                     remedies: Vec::new(),
                 }])
             }
-            WorkerOutcome::StderrOutputLimitExceeded { limit_bytes } => HealthReport::new(vec![HealthFinding {
-                code: FindingCode::HostContainmentFired,
-                severity: Severity::MachineLimit,
-                phase: Phase::Compile,
-                affected: Vec::new(),
-                metric: Metric::UnknownUnboundedWork,
-                value: MetricValue::Bytes(*limit_bytes),
-                provenance: ValueProvenance::Observed,
-                threshold: Some(MetricValue::Bytes(*limit_bytes)),
-                explanation: format!(
-                    "The compile worker process was killed after its captured stderr \
-                         output reached the {limit_bytes}-byte protocol limit."
-                ),
-                remedies: Vec::new(),
-            }]),
             WorkerOutcome::MemoryLimitKilled {
                 limit_bytes,
                 evidence,
@@ -856,40 +837,6 @@ fn build_process_failure_health(detail: String) -> HealthReport {
         explanation: detail,
         remedies: Vec::new(),
     }])
-}
-
-/// Drains a non-protocol stream to EOF while retaining at most `cap` bytes.
-fn spawn_capped_reader<R: Read + Send + 'static>(
-    mut reader: R,
-    cap: u64,
-    buf: Arc<Mutex<Vec<u8>>>,
-    overflow: Arc<AtomicBool>,
-) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
-        let mut chunk = [0u8; 8192];
-        loop {
-            match reader.read(&mut chunk) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let mut guard = buf.lock().unwrap_or_else(|e| e.into_inner());
-                    if (guard.len() as u64) + (n as u64) > cap {
-                        overflow.store(true, Ordering::SeqCst);
-                        drop(guard);
-                        // Keep draining (discarding) so the child never blocks on a full pipe; the poll loop kills it shortly after observing `overflow`.
-                        loop {
-                            match reader.read(&mut chunk) {
-                                Ok(0) | Err(_) => break,
-                                Ok(_) => continue,
-                            }
-                        }
-                        break;
-                    }
-                    guard.extend_from_slice(&chunk[..n]);
-                }
-                Err(_) => break,
-            }
-        }
-    })
 }
 
 #[derive(Debug)]
