@@ -25,9 +25,6 @@ pg-fwdata.workspace = true
 # `pg_foma::composite::FomaAnalyzer` instead of the default `pg_parse::Morpher` path.
 pg-foma.workspace = true
 pg-assess.workspace = true
-# `pack.rs` (ADR 0004/0005 close-the-loop step): `pangloss pack` writes a real `.pgpack` via
-# `pg_pack::write_pack`, carrying the persistent ADR 0005 capability-trust stamp `--allow-unproven`
-# previously only emitted as a session/report-level stderr marker.
 pg-pack.workspace = true
 rayon.workspace = true
 serde.workspace = true

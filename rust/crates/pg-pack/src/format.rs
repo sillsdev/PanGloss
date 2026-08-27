@@ -33,15 +33,13 @@
 //! The foma payload's *content* is an opaque byte blob in foma's own existing binary-memory
 //! encoding (`fsm_read_binary_mem`) -- this module never parses it, per the hard rule against
 //! inventing a second network format. `pg_foma::analyzer::FomaProposer::foma_binary_payload`
-//! (`pg-cli`'s `pack.rs` production caller) writes real bytes in exactly this encoding via
-//! `foma::io::fsm_write_binary`; this module's own tests below exercise both that real encoding
+//! writes real bytes in exactly this encoding via `foma::io::fsm_write_binary`; this module's own
+//! tests below exercise both that real encoding
 //! (`round_trip_with_real_foma_binary_payload_not_just_synthetic_ascii`, gzip magic bytes and all)
 //! and plain-ASCII synthetic fixtures, since this module's byte-handling correctness must not
 //! depend on which kind of content either section happens to carry. The Rust-HermitCrab runtime
-//! payload is likewise opaque bytes from this module's point of view, but unlike the foma payload
-//! it has no real producer yet anywhere in this workspace (`pg_grammar::model::Grammar` is not
-//! serde-serializable today -- see `crate`'s own top-level doc, "What this crate is not (yet)") --
-//! its tests use only synthetic byte fixtures, honestly, because that is all that exists.
+//! payload is likewise opaque bytes from this module's point of view; its tests use synthetic byte
+//! fixtures for that section.
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;

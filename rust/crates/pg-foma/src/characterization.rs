@@ -19,7 +19,7 @@
 //!   over every backend's compatibility report (see that function's own doc), composing
 //!   `characterize` with the predicate registry (`crate::capability::compose_envelope`/
 //!   `crate::capability::default_registry`) into one final `crate::capability::CompileDecision`.
-//!   This is NOT the same verdict `pg-cli`'s own `run_capability_gate`/`pangloss pack` enforce —
+//!   This is NOT the same verdict `pg-cli`'s own `run_capability_gate` enforces —
 //!   those read one specific backend's report via `crate::backend_selection::select_backends`, so
 //!   this module's findings carry "some backend" semantics rather than "the backend this run will
 //!   compile with." This module reuses the join's FINAL, predicate-resolved verdict directly
@@ -39,7 +39,7 @@
 //!   all. This characterization walk cannot guarantee every HermitCrab analysis survives, so it reports a
 //!   `CannotRepresent` finding naming every `crate::capability::CapabilityDiagnostic` the gate collected.
 //!   This finding never itself blocks the actual compiler pass (it is evidence, not a second gate —
-//!   `pg-cli`'s own `run_capability_gate`/`pangloss pack` are the real enforcement points a caller
+//!   `pg-cli`'s own `run_capability_gate` is the real enforcement point a caller
 //!   consults separately, and read a different, per-backend verdict — see this doc's opening
 //!   section); it is this module's own whole-grammar-join reading, never a re-implementation of
 //!   that gate's predicate-resolution logic.
@@ -74,7 +74,7 @@
 //!    exact bounded product instead and uses `crate::health::FindingCode::RuleInteractionProduct`.
 //! 2. **`semantic_uncertainty_finding`'s `affected` names each [`crate::capability::
 //!    CapabilityDiagnostic::construct`] string verbatim** (the same field `pg-cli`'s own
-//!    `run_capability_gate`/`pangloss pack` already print to stderr) — never a re-derived
+//!    `run_capability_gate` already prints to stderr) — never a re-derived
 //!    identifier scheme.
 //! 3. **`rule_interaction_product_finding`'s `affected` is empty** — this is a grammar-wide
 //!    cardinality fact, not about any one construct, matching `crate::health_evaluator`'s own

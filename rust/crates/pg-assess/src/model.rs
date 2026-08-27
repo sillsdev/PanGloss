@@ -15,10 +15,6 @@
 //! changed" when something did. Because `semanticDigest` rests entirely on this value (design D3a),
 //! that failure would be invisible and load-bearing at the same time.
 //!
-//! Reusing `.pgpack`'s `package_fingerprint` is not available either: `pg-cli`'s pack path still
-//! writes `PLACEHOLDER_RUNTIME_PAYLOAD`, so that digest covers the foma payload and not the
-//! compiled model.
-//!
 //! Hashing the canonical source instead is complete by construction. Compilation is deterministic,
 //! so the canonical source plus the compiler version determines the model exactly, and no field can
 //! be forgotten because no field is enumerated.
