@@ -74,26 +74,6 @@ pub enum FeasibleCount {
     },
 }
 
-impl FeasibleCount {
-    pub fn lower(&self) -> u64 {
-        match self {
-            Self::Exact { value, .. } => *value,
-            Self::Estimate { lower, .. } => *lower,
-        }
-    }
-
-    pub fn upper(&self) -> u64 {
-        match self {
-            Self::Exact { value, .. } => *value,
-            Self::Estimate { upper, .. } => *upper,
-        }
-    }
-
-    pub fn is_exact(&self) -> bool {
-        matches!(self, Self::Exact { .. })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceCounts {
     pub syntactic: Count,
