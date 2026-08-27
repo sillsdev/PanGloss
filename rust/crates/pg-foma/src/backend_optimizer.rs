@@ -69,7 +69,6 @@ pub enum Termination {
     Complete,
     BudgetExhausted,
     NoCandidates,
-    BaselineOnly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
