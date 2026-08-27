@@ -18,15 +18,6 @@ prerequisites = ["the backend and its dependencies are installed"]
 contraindications = ["the backend capability report already refuses the grammar"]
 equivalence_caveat = "A clean retry changes build state, not the grammar's linguistic analysis."
 
-[[entry.remedy]]
-rank = 20
-remedy_key = "use-an-admitted-backend"
-description = "Using another admitted backend would make that backend work for your language if it proves complete coverage for every affected construct."
-effort = "medium"
-prerequisites = ["another backend is capability-admitted"]
-contraindications = ["every backend is refused or unavailable"]
-equivalence_caveat = "Backend choice must preserve the complete analysis set."
-
 [[entry]]
 shape_key = "late-structural-reachability"
 backend_id = "foma"
@@ -135,15 +126,6 @@ route = "plan-composed-materialization"
 failed_predicate = "the PlanComposed materializer does not build a required plan subtree"
 evidence_refs = ["backend:plan-composed", "route:plan-composed-materialization", "predicate:required-subtree-built", "witness:required-subtree-marker"]
 equivalence_caveat = "Don't make any change that would make your language invalid!"
-
-[[entry.remedy]]
-rank = 10
-remedy_key = "use-whole-grammar-backend"
-description = "Using an admitted whole-grammar backend would provide a complete route for your language without silently omitting the required subtree."
-effort = "easy"
-prerequisites = ["a whole-grammar backend admits every affected construct"]
-contraindications = ["every whole-grammar backend is refused or exceeds its resource envelope"]
-equivalence_caveat = "Backend choice must preserve the complete analysis set."
 
 [[entry.remedy]]
 rank = 20

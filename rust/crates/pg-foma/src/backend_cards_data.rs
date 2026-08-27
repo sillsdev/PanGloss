@@ -84,7 +84,6 @@ const TEMPLATED_CONTRIBUTORS: &[&str] = &[
     "Null and deletion rules add epsilon/truncation branches to the relation",
 ];
 const TEMPLATED_REMEDIES: &[&str] = &[
-    "use-whole-grammar-backend",
     "regularize-phonology",
     "order-rules",
 ];
@@ -118,7 +117,6 @@ const PLAN_CONTRIBUTORS: &[&str] = &[
     "Branching multiplies gate-group and replacement combinations",
 ];
 const PLAN_REMEDIES: &[&str] = &[
-    "use-whole-grammar-backend",
     "implement-required-plan-subtrees",
     "use-obligation-templates",
 ];
