@@ -196,7 +196,7 @@ of the completion gate, not evidence for restoring a rejected contract.
 | A6 | Marker-bearing candidates banked `Unsupported` with zero work measured; `finished_net_digests` marker rejection | `backend_runtime.rs::unbuildable_marker_reason` | **RETAINED** — semantic representability, not a resource estimate. Marker-bearing `PlanComposed` candidates are rejected before partial-network measurement; the PlanComposed-network guard remains incomplete for those marked subtrees |
 | A7 | `--watchdog` structurally cannot produce a real artifact | historical CLI pack producer/watchdog path | **LANDED UNVERIFIED** — `54508605`/`8889877b`/`c7fe5aaf`/`f1b46d49` plus residue cleanup `0f8ac724`/`dfeeb7ad`/`a00ac0ee`; old producer/placeholder claims and deleted-command coverage are removed |
 | A8 | 16 MiB result metadata frame must not cap the selected payload | `worker_contract.rs`, `worker.rs` | **VERIFIED** — protocol v9 uses an independently bounded raw frame; filesystem transport and legacy parser/capture residue are deleted; prefix-before-allocation, clean exit, malformed streams, and supervisor-limit authority are proven |
-| A10 | Internal construction caps in `compose_budget.rs` can still stop a representable build | 1,334-line file, 165 refs / 27 files | **PARTIAL — RIPPED FIRST** — retain useful measurements; delete internal representability/size refusals. The supervised worker's three configured execution limits are the only resource stops. `318c9f7d`/`11fff5e4`/`77226079` removed the dead uflexc/gate/`build_controllable` budget-forwarding chain; the three higher-level parameters it leaves unread are the next bounded slice |
+| A10 | Internal construction caps in `compose_budget.rs` can still stop a representable build | 1,334-line file, 165 refs / 27 files | **PARTIAL — RIPPED FIRST** — retain useful measurements; delete internal representability/size refusals. The supervised worker's three configured execution limits are the only resource stops. `318c9f7d`/`11fff5e4`/`77226079` removed the dead uflexc/gate/`build_controllable` budget-forwarding chain, and `b3c8d14d`/`7eb17a3b`/`86fb56fb` removed the three higher-level parameters it left unread |
 
 ---
 
@@ -507,21 +507,31 @@ Retained, as the tranche's stated protected boundary: `ComposeBudget` itself,
 and the apply path/candidate limits, compound-chain and closure work/depth guards, real
 pre-expansion and probe termination, and marker representability. `with_caps` was NOT restored.
 
-**Next bounded slice, audit already done.** `oracle::differential_oracle`, `selection::select_plan`,
-and `backend_runtime::build_candidate` each still take a `&ComposeBudget` whose only remaining
-reader was `build_controllable`, so all three are now unread. Removing them cascades into their own
-callers, which is why they stayed out of this tranche rather than being swept in silently.
-`oracle::minimize_disagreement` is NOT in that set: it forwards to `differential_oracle`, so it stays
-live until that one moves.
+**Follow-on slice, landed.** `oracle::differential_oracle`, `selection::select_plan`, and
+`backend_runtime::build_candidate` were each left holding a `&ComposeBudget` whose only remaining
+reader was `build_controllable`. `b3c8d14d`/`7eb17a3b`/`86fb56fb` removed all three:
+**78 deletions / 17 additions, net -61 lines** across 8 files, again test-first, source-second,
+prose-last. The cascade terminated inside `pg-foma` exactly as audited --
+`oracle::minimize_disagreement` (which only forwarded to `differential_oracle`),
+`backend_runtime::realize_plan_composed` and `realize_accuracy_proposer` (which only forwarded to
+`build_candidate`), backend_runtime's three `ComposeBudget::from_env` roots, and
+`plan_interaction_coverage`'s one `chain_depth_cap: None` literal. Nothing above those roots carried
+a budget, so no caller was left holding one it cannot use. `peel_budget` is untouched throughout:
+`peel_candidates` reads its chain-depth cap, and that contract is protected.
 
-**Pre-existing compile holes this tranche did not widen or hide.** `ComposeBudget::with_caps` is
-already absent while these integration tests still call it, each because a live consumer outside this
-tranche still takes a budget: `backend_partition_refinement_gate` (`differential_oracle`),
-`grammar_semantics_owner_gate` and `strategy_aware_capability_gate` (`select_plan`),
-`backend_promoted_fixtures` (`build_candidate`), and `orthogonal_basis_group_b` plus
-`f6_reduplication_peel_chain_depth` (`peel_candidates`, protected termination proofs). `build.rs`
-uses `ComposeError` without importing it at HEAD; its `compose_budget` import now names that symbol,
-which closes that one hole as a side effect of the import becoming honest.
+Four of the six `with_caps` holes closed with it. The two that remain are the `peel_candidates`
+callers, `orthogonal_basis_group_b` and `f6_reduplication_peel_chain_depth`, where the budget
+carries a real chain-depth contract and the test genuinely needs a never-tripping base value.
+`with_caps` must not come back for them; the repair, when the replacement phase reaches compile
+holes, is either `ComposeBudget::from_env().with_chain_depth_cap(n)` (already deterministic wherever
+a cap is set, since `chain_depth_cap` is the type's only field) or promoting the existing
+`ComposeBudget::unbounded()` from `#[cfg(test)] pub(crate)` to `pub` so an integration-test crate can
+see it. That is a decision for the repair phase, not a demolition edit.
+
+**Pre-existing compile holes neither tranche widened or hid.** `build.rs` used `ComposeError`
+without importing it at the handoff commit; its `compose_budget` import now names that symbol, which
+closed that hole as a side effect of the import becoming honest. The `with_caps` holes are covered by
+the follow-on slice above.
 
 Status: **LANDED UNVERIFIED.** Structural acceptance only: call-site and definition residue searches
 for both `_with_budget` names, a per-file classification of every surviving `ComposeBudget`
@@ -640,10 +650,10 @@ or compatibility machinery already removed.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..77226079`:
-**20,839 deletions / 10,907 additions, net -9,932 lines** across 242 files. The dedicated rip-first
-range `1c7cc837..77226079` removed **17,777 lines**, added 1,919 structural/fixture/documentation
-lines, and is net **-15,858 lines** across 200 files. 306 of those rip-first additions are the
+Committed rebased branch range `1225f25a..86fb56fb`:
+**20,908 deletions / 10,953 additions, net -9,955 lines** across 242 files. The dedicated rip-first
+range `1c7cc837..86fb56fb` removed **17,846 lines**, added 1,965 structural/fixture/documentation
+lines, and is net **-15,881 lines** across 200 files. 306 of those rip-first additions are the
 2026-08-27 continuation handoff plan itself (`24c8171a`); it is process scaffolding, not a removal
 win. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
