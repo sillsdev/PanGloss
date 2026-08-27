@@ -99,7 +99,7 @@ pub mod backend_space;
 /// build_controllable`], a `plan::Plan` interpreter for the controllable subtree (the `Gate`
 /// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
 /// enumerate_default`] emits) into a real, composed `foma::types::Fsm` -- proven equivalent to
-/// `gate::compile_gated_grammar_with_budget`'s own direct-compile output by an apply-based test.
+/// `gate::compile_gated_grammar`'s own direct-compile output by an apply-based test.
 /// Composite/structural-composite markers stay out of scope (that path's artifact type is a lexc
 /// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
 /// per-group-Replace-variance obstacle this step surfaced.

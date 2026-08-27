@@ -5,13 +5,13 @@
 //! there", that module's own doc). This module walks exactly the node kinds
 //! `crate::enumerate::enumerate_default` emits on the **controllable subtree** -- the [`crate::
 //! plan::PlanNodeKind::Gate`] node and its per-group `Compose{LexiconFragment, Replace}` children --
-//! and calls the SAME low-level primitives `crate::gate::compile_gated_grammar_with_budget` uses
-//! (`crate::uflexc::emit_underlying_filtered_with_budget`, [`crate::replace::
+//! and calls the SAME low-level primitives `crate::gate::compile_gated_grammar` uses
+//! (`crate::uflexc::emit_underlying_filtered`, [`crate::replace::
 //! compile_and_compose_rules_gated`], and direct foma compose/union/minimize calls). The gate and
 //! replacement entry points own their unsupported-rule handling; this module only calls their
 //! public APIs.
 //!
-//! Proven equivalent to `crate::gate::compile_gated_grammar_with_budget`'s own direct-compile
+//! Proven equivalent to `crate::gate::compile_gated_grammar`'s own direct-compile
 //! output by an APPLY-based test (`equivalence_tests`, below) -- run real query words through BOTH
 //! nets' `apply_up` and assert identical results, exactly the predicate a future differential oracle
 //! would use. This is a genuine correctness argument, not a structural-equality
@@ -70,7 +70,7 @@
 //!   `crate::plan::ComposeStrategy` has only the `Static` variant, so this step has nothing else
 //!   to reject and no strategy guard remains.
 //! - `crate::plan::PlanNodeKind::Leaf` tagged `crate::plan::FragmentSpec::LexiconFragment` --
-//!   read as `entries` for `crate::uflexc::emit_underlying_filtered_with_budget`'s own
+//!   read as `entries` for `crate::uflexc::emit_underlying_filtered`'s own
 //!   `allowed_entries` parameter (always `Some`, matching `enumerate_default`'s own invariant).
 //! - `crate::plan::PlanNodeKind::Replace` and its `crate::plan::FragmentSpec::RewriteRule` Leaf
 //!   children -- read and cross-validated against the `prules_in_order` slice the caller supplies
@@ -81,7 +81,7 @@
 //! its pointer-identity `PRuleId` recovery rather than re-deriving the same safety-relevant logic a
 //! second time (see that function's own doc for why the pointer-identity approach is sound). No other
 //! visibility change was needed -- every other primitive this module calls
-//! (`crate::uflexc::emit_underlying_filtered_with_budget`, [`crate::replace::
+//! (`crate::uflexc::emit_underlying_filtered`, [`crate::replace::
 //! compile_and_compose_rules_gated`], and direct foma composition,
 //! `crate::gate::GatedCompileResult`) was already `pub`/`pub(crate)`.
 
@@ -108,7 +108,7 @@ use crate::uflexc::{emit_underlying_filtered, UEmitReport};
 /// A caller that treats `build_controllable`'s net as if it represented the WHOLE grammar must
 /// consult this first. On a grammar whose plan carries either marker, the controllable-only net omits
 /// the material those subtrees contribute, and the omission is quiet: the net is smaller but
-/// perfectly well-formed, `build_controllable` returns `Ok`, and no budget trips. Measured on a
+/// perfectly well-formed and `build_controllable` returns `Ok`. Measured on a
 /// templated real grammar, the controllable-only net was 135 states / 3309 arcs against the tuned
 /// `crate::emit`-based path's 6376 states / 68693 arcs for the same grammar -- a 47x state deficit
 /// that proposed nothing for 19 of 20 corpus words while the tuned net proposed correctly.
@@ -135,7 +135,7 @@ pub fn unbuildable_markers(plan: &Plan) -> Vec<FragmentSpec> {
 /// collection `boundary_cleanup_net` (which deletes every one of them, unconditionally),
 /// `reroute_null_shaped_affix_chains` (which needs to recognize when a lexc line's ENTIRE
 /// underlying text is drawn only from this set, i.e. is about to be deleted down to nothing) and
-/// `crate::uflexc::emit_underlying_filtered_with_budget` (which needs the SAME "will be deleted to
+/// `crate::uflexc::emit_underlying_filtered` (which needs the SAME "will be deleted to
 /// nothing" test at EMISSION time, to keep a null-shaped line off a self-looping continuation by
 /// construction -- see that module's own "Null-shaped affixes are at most once per juncture"
 /// section) must agree on. Kept as one function so the three can never drift on which char-defs
@@ -313,7 +313,7 @@ fn reroute_line_if_null_shaped(
 /// Finishes a `build_controllable` net into one a `crate::analyzer::FomaProposer` can actually
 /// query: composes the boundary-token cleanup net, then re-minimizes.
 ///
-/// **This step is mandatory, not an optimization.** `crate::gate::compile_gated_grammar_with_budget`'s
+/// **This step is mandatory, not an optimization.** `crate::gate::compile_gated_grammar`'s
 /// own doc says so directly -- "Callers that further compose this result (every example/test driver
 /// does, with a boundary-cleanup net) still need their OWN final minimize afterward" -- because the
 /// composed net still carries the boundary tokens `uflexc` emitted between morphs, which a surface
@@ -335,12 +335,12 @@ pub fn finish_controllable_net(
 }
 
 /// Interprets `plan`'s controllable subtree (module doc) into a real, composed `Fsm` -- the plan-walk
-/// counterpart of `crate::gate::compile_gated_grammar_with_budget`. This function does not call
+/// counterpart of `crate::gate::compile_gated_grammar`. This function does not call
 /// into `gate.rs` at all (it never re-derives the partition itself); it calls the same public/
-/// `pub(crate)` low-level primitives that function itself uses. `g`/`alphabet`/`prules_in_order`/
-/// `budget` are the SAME inputs
+/// `pub(crate)` low-level primitives that function itself uses. `g`/`alphabet`/`prules_in_order`
+/// are the SAME inputs
 /// `crate::enumerate::enumerate_default` (which built `plan`) and
-/// `crate::gate::compile_gated_grammar_with_budget` both take -- `build_controllable` does not
+/// `crate::gate::compile_gated_grammar` both take -- `build_controllable` does not
 /// recompute grammar-derived facts `enumerate_default` already baked into `plan` (it never calls
 /// `crate::gate::find_gated_subrules`/`partition_entries` itself), it only reads them back out of the
 /// plan's own nodes.
@@ -349,9 +349,9 @@ pub fn finish_controllable_net(
 /// On any plan shape `crate::enumerate::enumerate_default` does not itself produce (a dangling
 /// `NodeId`, a `Gate` node missing from the root/root-`Union`, a group's `Compose` node with the wrong
 /// child count, a `Replace` cascade that doesn't match `prules_in_order`) --
-/// these are caller/plan-construction contract violations, not runtime/budget failures, so they panic
+/// these are caller/plan-construction contract violations, not runtime failures, so they panic
 /// loudly rather than returning a `ComposeError` variant that doesn't exist for them (mirrors this
-/// crate's existing convention, e.g. `crate::gate::compile_gated_grammar_with_budget`'s own
+/// crate's existing convention, e.g. `crate::gate::compile_gated_grammar`'s own
 /// `unwrap_or_else(|| panic!(...))` on a lexc-compile failure, and `crate::enumerate::rule_id_of`'s own
 /// panic on a caller-supplied slice not borrowed from `g.prules`).
 ///
@@ -856,7 +856,7 @@ mod null_shaped_guard_scope_tests {
 mod equivalence_tests {
     //! The correctness argument for this module's equivalence claim, made semantically meaningful
     //! rather than trivial. For an in-crate gated synthetic fixture, builds BOTH (a)
-    //! `compile_gated_grammar_with_budget` (today's direct-compile path) and (b)
+    //! `compile_gated_grammar` (today's direct-compile path) and (b)
     //! `build_controllable(enumerate_default(...))` (this module's plan-walk), then asserts the two
     //! resulting networks are EQUIVALENT BY APPLY -- `apply_up` on every distinguishing query word
     //! must yield IDENTICAL result sets. This is exactly the predicate a future differential oracle

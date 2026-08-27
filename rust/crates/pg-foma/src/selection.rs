@@ -47,9 +47,10 @@
 //! separate, still-open question — this module's own existence does not imply that flip happened.
 //!
 //! # A candidate that fails to build is unmeasurable, not un-admissible
-//! A `crate::compose_budget::ComposeBudget` cap can trip inside [`crate::build::
-//! build_controllable`] independently of capability admissibility (a `ComposeError` is a resource
-//! observation, not a recall-soundness one). Such a candidate stays in [`SelectionOutcome::
+//! [`crate::build::build_controllable`] can return a `ComposeError` -- its emitter refuses a
+//! compound chain that is too deep -- independently of capability admissibility (a
+//! `ComposeError` is a construction observation, not a recall-soundness one). Such a candidate
+//! stays in [`SelectionOutcome::
 //! considered`] with `measure: None` and is never the MINIMUM-objective choice (there is no
 //! objective value to compare), but it is not treated as inadmissible either — see `select_plan`'s
 //! own fallback for the degenerate case where NO admissible candidate measures successfully.

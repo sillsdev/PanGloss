@@ -65,8 +65,8 @@
 //!
 //! # Judgment call: `Result`, not a bare `OracleResult`
 //! `differential_oracle` returns `Result<OracleResult, ComposeError>`, not a bare `OracleResult` --
-//! `build_controllable` is itself fallible (a `crate::compose_budget::ComposeBudget` cap
-//! can trip on either plan), and this module has no sound way to turn that failure into an
+//! `build_controllable` is itself fallible (its emitter can refuse either plan's compound
+//! chain), and this module has no sound way to turn that failure into an
 //! `OracleResult` variant (neither "the two plans agree" nor "the two plans disagree" is true when
 //! one plan didn't build at all). Propagating `ComposeError` mirrors `build_controllable`'s own
 //! `Result` convention rather than inventing a third `OracleResult` case for "didn't run".

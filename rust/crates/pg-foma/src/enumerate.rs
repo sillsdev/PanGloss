@@ -74,8 +74,8 @@
 //!   the SAME `Replace` `NodeId` (also asserted) — the shared rewrite-rule Leaf CHILDREN still dedup
 //!   across every group either way, since those leaves' content never depended on the group at all.
 //! - **Per-group `LexiconFragment.entries` is always `Some(sorted group entries)`**, never `None`,
-//!   even for the single/ungated group — mirrors `compile_gated_grammar_with_budget`'s own call
-//!   (`emit_underlying_filtered_with_budget(g, alphabet, Some(&group.entries), budget)`, ALWAYS
+//!   even for the single/ungated group — mirrors `compile_gated_grammar`'s own call
+//!   (`emit_underlying_filtered(g, alphabet, Some(&group.entries))`, ALWAYS
 //!   `Some`, never `None`, even when there is exactly one group covering every entry). `entries`
 //!   is sorted (bucketed through a `HashSet` in `gate::EntryGroup`, so insertion order is not
 //!   itself stable) for the same reproducibility reason `partition_entries`' own group order is
@@ -108,7 +108,7 @@ use crate::plan::{
 use crate::{emit, preexpand};
 
 /// `g`'s phonological rules in stratum-cascade (authored) order, as literal borrows of `g.prules` —
-/// the exact slice `enumerate_default`, `crate::gate::compile_gated_grammar_with_budget`,
+/// the exact slice `enumerate_default`, `crate::gate::compile_gated_grammar`,
 /// `crate::gate::find_gated_subrules` and `crate::replace`'s cascade builders all take.
 ///
 /// The borrow-from-`g.prules` part is load-bearing, not stylistic: `rule_id_of` recovers a

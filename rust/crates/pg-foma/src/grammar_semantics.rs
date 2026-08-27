@@ -26,7 +26,7 @@
 //!   INTENTIONALLY independent second derivation, cross-checked against the characteristics profile
 //!   by `tests/structural_witness_gate.rs`. Making them projections would destroy exactly the
 //!   independence that gate exists to exploit. Left alone on purpose.
-//! - The compile paths themselves (`crate::gate::compile_gated_grammar_with_budget`,
+//! - The compile paths themselves (`crate::gate::compile_gated_grammar`,
 //!   `crate::emit`, `crate::replace`). Those take `prules_in_order` as an explicit parameter
 //!   from their caller and build live networks; this type owns the FACTS those paths are described
 //!   by, not the compilation.
@@ -257,7 +257,7 @@ impl<'g> GrammarSemantics<'g> {
 
     /// `g`'s phonological rules in stratum-cascade (authored) order, as literal borrows of
     /// `g.prules` -- the exact slice `crate::enumerate::enumerate_default`,
-    /// `crate::gate::compile_gated_grammar_with_budget` and `crate::replace`'s cascade builders
+    /// `crate::gate::compile_gated_grammar` and `crate::replace`'s cascade builders
     /// take. The borrow identity is load-bearing (see `crate::enumerate::prules_in_order`).
     pub fn prules_in_order(&self) -> &[&'g PhonRuleDef] {
         &self.prules_in_order
