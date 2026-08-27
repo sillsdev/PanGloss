@@ -192,7 +192,6 @@ mod tests {
         foma_payload: &[u8],
     ) -> PackManifest {
         PackManifest {
-            format: pg_pack::MANIFEST_FORMAT_TAG.to_string(),
             manifest_schema_version: pg_pack::MANIFEST_SCHEMA_VERSION,
             grammar_id: "synthetic-wasm-wiring-grammar".to_string(),
             package_fingerprint: pg_pack::fingerprint_hex(runtime_payload, foma_payload),

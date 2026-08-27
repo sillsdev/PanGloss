@@ -421,7 +421,6 @@ mod tests {
 
     fn synthetic_manifest_for(runtime_payload: &[u8], foma_payload: &[u8]) -> PackManifest {
         PackManifest {
-            format: crate::manifest::MANIFEST_FORMAT_TAG.to_string(),
             manifest_schema_version: crate::manifest::MANIFEST_SCHEMA_VERSION,
             grammar_id: "synthetic-stress-grammar".to_string(),
             package_fingerprint: fingerprint_hex(runtime_payload, foma_payload),

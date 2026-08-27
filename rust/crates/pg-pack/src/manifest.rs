@@ -139,7 +139,6 @@ mod tests {
 
     fn synthetic_manifest() -> PackManifest {
         PackManifest {
-            format: MANIFEST_FORMAT_TAG.to_string(),
             manifest_schema_version: MANIFEST_SCHEMA_VERSION,
             grammar_id: "synthetic-stress-grammar".to_string(),
             package_fingerprint: "0".repeat(64),
