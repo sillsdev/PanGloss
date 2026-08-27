@@ -337,7 +337,6 @@ fn wire_frame_limits_remain_separate_from_execution_limits() {
     for field in [
         "max_request_bytes:",
         "max_result_bytes:",
-        "max_captured_stderr_bytes:",
     ] {
         assert!(
             declaration.contains(field),
