@@ -9,7 +9,6 @@ use pg_foma::capability::{
     characterize_call_count, default_registry, reset_characterize_call_count,
 };
 use pg_foma::characterization::characterization_findings;
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::enumerate::enumerate_candidates;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
@@ -123,9 +122,6 @@ fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
     let ro = prules_in_order(&g);
     let phon = PhonologyProbe::new(&g);
     let opts = FomaOptions::default();
-    // `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate, so this builds the equivalent never-trips budget via the public constructor.
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let registry = default_registry();
 
     let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
@@ -136,7 +132,7 @@ fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
     );
 
     reset_characterize_call_count();
-    let outcome = select_plan(&candidates, &g, &registry, &opts, &alphabet, &ro, &budget);
+    let outcome = select_plan(&candidates, &g, &registry, &opts, &alphabet, &ro);
     let select_calls = characterize_call_count();
 
     assert!(

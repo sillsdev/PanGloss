@@ -9,7 +9,6 @@ use pg_foma::capability::{
     compose_envelope, compose_envelope_for_strategy, default_registry, CharacteristicKind,
     CompileDecision,
 };
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::enumerate::{
     enumerate_default, prules_in_order, CandidateRole, EmissionStrategy, LoweredCandidate,
 };
@@ -116,12 +115,6 @@ const NO_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>PlainAlon
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// `ComposeBudget::unbounded()` is `#[cfg(test)]`-only inside the crate, so an integration test builds the equivalent never-trips budget through the public constructor.
-fn unbounded_budget() -> ComposeBudget {
-    ComposeBudget::with_caps(
-        usize::MAX, usize::MAX)
-}
-
 fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}"))
 }
@@ -171,7 +164,6 @@ fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_
         &FomaOptions::default(),
         &alphabet,
         &ro,
-        &unbounded_budget(),
     );
 
     let plan_composed = &outcome.considered[0];
@@ -309,7 +301,6 @@ fn a_grammar_using_no_strategy_conditional_construct_is_unaffected() {
         &FomaOptions::default(),
         &alphabet,
         &ro,
-        &unbounded_budget(),
     );
     assert!(outcome.considered.iter().all(|c| c.is_admissible()));
 }

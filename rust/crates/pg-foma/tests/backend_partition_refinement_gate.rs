@@ -5,7 +5,6 @@ use pg_foma::backend_registry::{
     MaterializerContext, Registry, FAMILY_LAYERED_MORPHOLOGY, FAMILY_SPECIALIZED_BRANCH,
 };
 use pg_foma::build::build_controllable;
-use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::oracle::{differential_oracle, OracleResult};
@@ -102,9 +101,6 @@ fn the_registry_offers_more_than_three_distinct_plans_and_every_extra_one_is_equ
 
     // Every non-baseline candidate must be both structurally distinct from, and relationally identical to, the baseline.
     let opts = FomaOptions::default();
-    // Unbounded: a budget trip here would surface as an Err rather than a disagreement, silently weakening the equivalence claim below.
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX);
     let word_refs: Vec<&str> = words.iter().map(String::as_str).collect();
 
     // NON-VACUITY: `differential_oracle`'s `Agree` also holds vacuously when both result sets are empty, so first confirm the baseline actually analyzes some of these words before trusting any `Agree` verdict below.
@@ -151,7 +147,6 @@ fn the_registry_offers_more_than_three_distinct_plans_and_every_extra_one_is_equ
             &grammar,
             &alphabet,
             &prules,
-            &budget,
             &word_refs,
         )
         .expect("differential oracle must complete on this fixture");
