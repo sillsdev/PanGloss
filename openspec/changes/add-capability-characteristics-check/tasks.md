@@ -14,8 +14,8 @@
 - [x] 3.2 Configuration-predicate granularity; over-refuse-never-under-refuse discipline — `CapabilityPredicate`/`PredicateVerdict`; `default_registry()` now ships **11 real predicates** (multi-table, RTL, simultaneous, quantifier, metathesis, circumfix, reduplication, compounding, unordered, MPR-append, MPR-overwrite), not just the one `SimultaneousSubruleOverlapPredicate` noted here previously — only `epenthesis.placeholder` remains a `FailClosedPlaceholder`
 - [x] 3.3 Wire the gate into the production compile path (the flip: block a real compile) — **HISTORICAL/REMOVED:** the former CLI `capability_gate`/`run_capability_gate` wiring is no longer present at the current HEAD. Retain this entry only as historical completion evidence; it is not a current production-path claim.
 
-## 5. Conformance-coverage CI gate
-- [ ] 5.1 Cross-check capability registry against `machine/conformance/` coverage; break build on gap
+## 4. Conformance-coverage CI gate
+- [ ] 4.1 Cross-check capability registry against `machine/conformance/` coverage; break build on gap
       (the cross-check itself is real and non-blocking: `pg-foma/src/conformance_coverage.rs`
       (`construct_ids_for` mapping + a pure gap function) plus
       `pg-foma/tests/conformance_coverage_gate.rs` (replays every discovered fixture against
@@ -23,6 +23,6 @@
       build-breaking flip deferred." Left unchecked because the task's own text is "break build on
       gap," which this explicitly does not do yet)
 
-## 6. Design + specs
-- [x] 6.1 design.md (envelope composition, interaction predicates, provenance)
-- [x] 6.2 specs delta for the capability-boundary contract
+## 5. Design + specs
+- [x] 5.1 design.md (envelope composition, interaction predicates, provenance)
+- [x] 5.2 specs delta for the capability-boundary contract

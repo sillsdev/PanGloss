@@ -44,7 +44,7 @@ warnings/errors, dominant contributors, and ranked remedies for every backend.
 do not copy a partial artifact into results.
 - [ ] Commit each newly green language independently using `test(foma): record <language> stress evidence`.
 
-### Task 4: PanGloss-only policy conformance
+### Task 3: PanGloss-only policy conformance
 
 **Files:**
 - Create: `rust/crates/pg-foma/tests/fixtures/pangloss/fst-completeness/error-stress-completes/grammar.xml`
@@ -58,7 +58,7 @@ do not copy a partial artifact into results.
 focused stress/worker/selection gates.
 - [ ] Commit: `test(foma): pin stress admission policy`.
 
-### Task 5: Authoritative integration
+### Task 4: Authoritative integration
 
 - [ ] Run the focused worker, completion, selection, and five-grammar targets.
 - [ ] Run the single authoritative `pg-foma` package test through `pg.ps1` after all focused gates pass.
