@@ -52,11 +52,11 @@
 //! (`pg_foma::analyzer::FomaProposer::propose_budgeted`) — never a watchdog, which is compile-only.
 //!
 //! ## `fst-health` (see `fst_health.rs`'s own doc for the full contract)
-//! `fst-health <grammar> [<words.txt>] [<out.json>]` runs `pg_foma::characterization::characterization_findings`
-//! (a cheap, pre-compile pass) plus `pg_foma::health_evaluator::evaluate_health` (a standalone
-//! profiled compile), and — only when `<words.txt>` is given — a caller-supplied word set's
-//! proposal/confirmation counts, rejection share, and pre-dedup duplicate-analysis evidence, into
-//! one canonical `pg_foma::health::HealthReport`. `<out.json>` omitted prints the JSON to stdout.
+//! `fst-health <grammar> [<out.json>]` runs the cheap, grammar-only
+//! `pg_foma::characterization::characterization_findings` pass and writes one canonical
+//! `pg_foma::health::HealthReport`. It never compiles a backend or evaluates a corpus; corpus
+//! measurements belong to a separate post-build operation over an explicitly completed artifact.
+//! `<out.json>` omitted prints the JSON to stdout.
 //!
 //! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`, `diagnose`)
 //! now dispatches on the path's extension via `load_grammar`: `.xml` (or anything else) is the
@@ -304,7 +304,7 @@ fn run() -> ExitCode {
                  usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
                  usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
                  usage: pangloss investigate <report.json> --case <caseId> [--grammar <path>] [--report <path>]\n\
-                 usage: pangloss fst-health <grammar> [<words.txt>] [<out.json>]\n\
+                 usage: pangloss fst-health <grammar> [<out.json>]\n\
                  usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
                  usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
                  usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>]{} [--authorized-by=<name>] [--reason=<text>] [--repeats=N]\n\
