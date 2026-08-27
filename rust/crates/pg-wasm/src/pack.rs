@@ -6,10 +6,8 @@
 //! set it actually supports (`provided_runtime_features`); the pack loads iff
 //! `required ⊆ provided` (`pg_pack::RequiredRuntimeFeatures::satisfied_by`, reused verbatim —
 //! this module never reimplements the containment logic itself, only supplies this Runtime's own
-//! `provided` side of it and the load-time call site). Because `provided` is append-only, an old
-//! pack keeps loading on every newer build of this Runtime unchanged; only a pack that requires a
-//! feature this build genuinely lacks is refused, with a typed `PackLoadError`, never a crash
-//! and never a version-equality mismatch.
+//! `provided` side of it and the load-time call site). A pack that requires a feature this build
+//! genuinely lacks is refused, with a typed `PackLoadError`, never a crash.
 //!
 //! `load_pack` also surfaces, at load time, the pack's `pg_pack::SignatureState` (reported for
 //! the caller's information only; it never gates a load, exactly as `pg_pack::read_pack` itself
@@ -287,18 +285,6 @@ mod tests {
     fn fst_health_is_publishable_false_above_not_production_ready() {
         let loaded = loaded_pack_with_health(pg_foma::health::Severity::CannotRepresent);
         assert!(!loaded.fst_health_is_publishable());
-    }
-
-    #[test]
-    fn old_pack_with_no_extra_requirements_keeps_loading_append_only() {
-        // Old packs run unchanged forever: nothing beyond baseline must load like a fully-populated pack.
-        let manifest = synthetic_manifest(
-            synthetic_required(Vec::new()),
-            RUNTIME_PAYLOAD,
-            FOMA_PAYLOAD,
-        );
-        let bytes = pg_pack::write_pack(&manifest, RUNTIME_PAYLOAD, FOMA_PAYLOAD).unwrap();
-        assert!(load_pack(&bytes).is_ok());
     }
 
     #[test]

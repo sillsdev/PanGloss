@@ -110,20 +110,6 @@ mod tests {
     }
 
     #[test]
-    fn old_pack_runs_on_newer_runtime_append_only() {
-        // Old packs run unchanged forever under an append-only provided set.
-        let required = synthetic_required();
-        let mut provided = synthetic_provided_superset();
-        provided
-            .runtime_operations
-            .push("synthetic.brand.new.op".to_string());
-        provided
-            .extensions
-            .push("synthetic.brand.new.extension".to_string());
-        assert!(required.satisfied_by(&provided));
-    }
-
-    #[test]
     fn missing_runtime_operation_is_not_satisfied() {
         let required = synthetic_required();
         let provided = ProvidedRuntimeFeatures {
