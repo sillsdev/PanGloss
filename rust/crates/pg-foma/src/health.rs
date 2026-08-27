@@ -820,7 +820,7 @@ mod tests {
     }
 
     #[test]
-    fn worker_tree_peak_memory_metric_bumps_health_schema_version() {
+    fn dead_compile_work_labels_bump_health_schema_version() {
         assert_eq!(HEALTH_SCHEMA_VERSION, 6);
     }
 
@@ -934,7 +934,7 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_schema_rejects_stale_v4_reports() {
+    fn fst_health_schema_rejects_stale_v5_reports() {
         let stale = GOLDEN_JSON.replacen("\"schema_version\": 6", "\"schema_version\": 5", 1);
         let error = HealthReport::from_json(&stale).expect_err("schema v5 must be rejected");
         assert!(error.to_string().contains("schema version 5"));
