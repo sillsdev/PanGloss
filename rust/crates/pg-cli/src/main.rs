@@ -507,7 +507,6 @@ struct GateResult {
     /// Lines for the caller to `eprintln!`, in order — stderr-only by construction.
     stderr_lines: Vec<String>,
     /// `true` iff this call force-compiled a `Refuse` via `allow_unproven`, exposed as a plain bool so a test can key off the degraded-trust fact directly rather than string-matching stderr.
-    #[allow(dead_code)]
     overridden: bool,
 }
 
