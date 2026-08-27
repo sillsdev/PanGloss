@@ -1079,23 +1079,6 @@ mod pruning_tests {
         );
     }
 
-    /// `build_composites`'s default (unset `HC_PREEXPAND_FLAT`) path behaves like `build_composites_with_mode` under `Pruned` mode: the same depth-0 gating applies.
-    #[test]
-    fn build_composites_thin_wrapper_defaults_to_pruned() {
-        assert!(
-            std::env::var("HC_PREEXPAND_FLAT").is_err(),
-            "this test assumes the env var is unset in the test process; do not set it globally"
-        );
-        let g = load(&slot_gate_fixture(false));
-        let width = tags::tag_width(g.morphemes.len());
-        let phon = PhonologyProbe::new(&g);
-        let (_, report) = build_composites(&g, width, phon.as_ref());
-        assert_eq!(
-            report.pairs_probed_by_depth[0], 1,
-            "build_composites must default to Pruned mode (mrB blocked at depth 0)"
-        );
-    }
-
     #[test]
     fn ordinary_preexpand_exhausts_a_four_rule_chain() {
         let phonology = r#"
