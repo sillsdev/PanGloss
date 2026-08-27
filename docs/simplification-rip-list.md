@@ -215,31 +215,23 @@ carrying cost, and deleting it now costs nothing.
 | B4 | `Certification::MultiplicityMismatch` — doc says "no longer produced, kept for deserializing old reports" | `backend_optimizer.rs` | 20–40 | **LANDED UNVERIFIED** — variant and compatibility fixture removed; full completion gate is not recorded here |
 | B5 | `Truncated { corpus: Option<..> }` carries live oracle evidence | `backend_optimizer.rs`, `backend_runtime.rs`, `backend_report.rs` | — | **PROTECTED** — audited and retained; live producers and consumers |
 | B6 | `HEALTH_SCHEMA_VERSION` stamps and validates stored health artifacts | `health.rs`, `fst_health.rs` | — | **LANDED UNVERIFIED** — strict current v7 validation and stale-version rejection are recorded in `49163cb8`/`3d1750f1`/`12d3d2bb`; current optional fields are retained as live schema fields, not compatibility defaults |
-| B7 | `ResourceEnvelopeId` versioned identity (`ManagedV1`, `TunedSurfaceWork10kV1`) | `resource_envelope.rs`, 47 refs / 9 files | see C1 | **AUTHORIZED** — delete both named envelopes and their persisted provenance |
+| B7 | `ResourceEnvelopeId` versioned identity (`ManagedV1`, `TunedSurfaceWork10kV1`) | named-envelope identity and persisted provenance | see C1 | **LANDED UNVERIFIED** — `aff28856`/`22884062`/`1346cea7` removed the obsolete identity, provenance, and worker plumbing; `2a1138ef` removed stale manifest-field coverage |
 
 ---
 
 ## C. Replace "capped vs uncapped" with explicit worker limits
 
-The old system chooses between internal construction-cap profiles. The replacement is one build
-path with three externally enforced, configurable execution limits. Verified old reference counts:
-
-| Symbol | Refs | Files |
-|---|---|---|
-| `CompileSizeMode` | 53 | 10 |
-| `ResourceEnvelope` / `ResourceEnvelopeId` | 119 | 10 |
-| `--remove-size-limits` | 36 | 4 |
-| `developer-tools` feature gate | 78 | 6 |
-| `TunedSurfaceWork10kV1` | 6 | 2 |
-| `RetryAuthorization` | 6 | 2 |
-| `DeveloperStress` | 10 | 6 |
+The old named-envelope and size-mode system has been removed. The retained build path uses three
+externally enforced, configurable execution limits owned by `pg-worker-containment::ExecutionLimits`:
+1 GiB serialized payload, 10 GiB committed process-tree memory, and 10 minutes. Logical and
+apply/candidate budgets remain separate.
 
 | # | Item | Est. lines | Status |
 |---|---|---|---|
-| C1 | Delete the two-envelope / size-mode system; replace it with 1 GB serialized bytes, 10 GB process-tree committed memory, and 10-minute wall-clock defaults | 1,200–1,800 | **AUTHORIZED** |
-| C2 | Delete `RetryAuthorization`, automatic backend retry, and "increase envelope" remedies/tests | included above | **AUTHORIZED** |
-| C3 | Delete `resource_envelope.rs` named-profile/digest machinery; retain only a small execution-limit configuration type if that is its cleanest owner | included above | **AUTHORIZED** |
-| C4 | Delete `--remove-size-limits`; all three execution limits remain finite. Retain `developer-tools` only where still needed for local `--allow-unproven`, then reassess the feature itself | included above | **AUTHORIZED** |
+| C1 | Delete the two-envelope / size-mode system; retain finite external limits | 1,200–1,800 | **LANDED UNVERIFIED** — `aff28856`/`22884062` removed obsolete worker-control tests/source. `pg-worker-containment::ExecutionLimits` and its 1 GiB/10 GiB/10-minute defaults remain, with the containment contract retained |
+| C2 | Delete `RetryAuthorization`, automatic backend retry, and "increase envelope" remedies/tests | included above | **LANDED UNVERIFIED** — `c3b8aeaa` removed compile-retry advice and `22884062` removed obsolete retry/control plumbing; logical/apply budgets remain |
+| C3 | Delete `resource_envelope.rs` named-profile/digest machinery | included above | **LANDED UNVERIFIED** — `1346cea7` deleted the named-profile/digest module and `22884062` removed remaining worker-control plumbing |
+| C4 | Delete `--remove-size-limits`; keep finite execution limits and local developer-only controls | included above | **LANDED UNVERIFIED** — `aff28856`/`22884062`/`1346cea7` removed the obsolete flags and source controls; strict removed-flag and old-envelope-field rejection tests remain |
 
 ---
 
@@ -253,7 +245,7 @@ path with three externally enforced, configurable execution limits. Verified old
 | D4 | Admission-summary rendering implemented three times | `fst_health.rs`, `pack.rs`, `make_report.rs` | ~20 | **PARTIAL** (2 of 3; the third differs in output, left inline) |
 | D5 | `ConfirmedBuckets` flattening copy-pasted three times | `composite.rs` 669, 724, 918 | ~60 | **OPEN** |
 | D6 | Remedy rendering diverged between two tables | `make_report.rs` | ~30 | **LANDED UNVERIFIED** |
-| D7 | `CompileSizeMode` resolution re-inlined twice | `pack.rs`, `make_report.rs` | ~20 | **AUTHORIZED** (deliberately left; dies with C1) |
+| D7 | `CompileSizeMode` resolution re-inlined twice | `pack.rs`, `make_report.rs` | ~20 | **LANDED UNVERIFIED** — `22884062`/`1346cea7` removed the old size-mode/envelope resolution; protected-file historical compile-hole residue remains outside this tranche |
 | D8 | Three modules hand-assemble a 10-field `HealthFinding` literal; no shared builder | `health_evaluator.rs`, `characterization.rs`, `fst_health.rs` | ~80 | **OPEN** |
 
 ---

@@ -5,7 +5,7 @@
 //! source-controlled capability registry; bare unqualified "manifest" is banned -- every doc
 //! comment in this crate uses the full term.
 //!
-//! Field declaration order below is envelope-first, matching this crate's own [serde] default
+//! Field declaration order below follows this crate's own [serde] default
 //! (unmodified struct-field order), the same "canonical JSON" convention `pg-snapshot` and
 //! `pg_foma::health` already use.
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "pangloss/common.defs/v1",
   "title": "Shared definitions",
-  "description": "The pieces \u00a717.3 names besides the five artifacts: typed failures, diagnostics, per-case outcomes, resource envelopes, and the analysis identity every artifact keys on.",
+  "description": "The pieces \u00a717.3 names besides the five artifacts: typed failures, diagnostics, per-case outcomes, logical budgets, and the analysis identity every artifact keys on.",
   "$defs": {
     "digest": {
       "type": "string",
@@ -161,7 +161,7 @@
     },
     "resourceEnvelope": {
       "type": "object",
-      "description": "Effective logical budgets by dimension. Absent or empty means unbounded, which is the default until an envelope is named.",
+      "description": "Effective logical budgets by dimension. Absent or empty means unbounded when no logical budget is supplied.",
       "additionalProperties": {
         "type": "integer",
         "minimum": 0

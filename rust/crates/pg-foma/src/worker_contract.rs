@@ -1,4 +1,4 @@
-//! Always-built worker wire/default constants shared by the native worker and resource profiles.
+//! Always-built worker wire/default constants shared by the native worker and containment layer.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct WorkerProtocolLimits {

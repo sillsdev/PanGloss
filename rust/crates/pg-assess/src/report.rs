@@ -50,8 +50,7 @@ pub struct Execution {
     /// `foma-confirm` or `hermitcrab`. Recorded rather than inferred: the two pipelines must agree
     /// on complete cases, and a disagreement is exactly what a reader needs to see.
     pub pipeline: String,
-    /// Effective logical budgets by dimension. Empty means unbounded, which is the default until a
-    /// resource envelope is named.
+    /// Effective logical budgets by dimension. Empty means unbounded when no logical budget is supplied.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub budgets: BTreeMap<String, u64>,
     /// The outer wall-clock safety net, if one was armed. Recorded in the report but never in a
