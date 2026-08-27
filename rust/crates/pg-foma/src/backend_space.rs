@@ -347,10 +347,7 @@ pub struct PilotSummary {
     ///
     /// Those two quantiles are computed over the rows where those stages RAN, not over
     /// `sample_size`, so without this number a reader cannot tell a build p50 taken over 8 rows from
-    /// one taken over 1. `#[serde(default)]` so reports written before this field existed still
-    /// parse; a `0` there against a non-zero `build.p50` is itself the signal that the artifact
-    /// predates the fix.
-    #[serde(default)]
+    /// one taken over 1.
     pub executed_samples: u64,
 }
 

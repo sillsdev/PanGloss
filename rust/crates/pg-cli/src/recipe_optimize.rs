@@ -238,7 +238,6 @@ impl Evaluator<'_> {
                 certification: certification.clone(),
                 score: Some(score),
                 pruning_reason: None,
-                score_fields_complete: true,
             },
             realized_strategy: realized_strategy.to_owned(),
         };
@@ -636,7 +635,6 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             certification: e.evidence.certification.clone(),
             score: e.evidence.score,
             pruning_reason: None,
-            score_fields_complete: true,
         })
         .collect::<Vec<_>>();
     let baseline_id = states.iter().find(|s| s.baseline).map(|s| s.id.clone());

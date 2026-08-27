@@ -312,19 +312,11 @@ pub struct Score {
     pub confirmation: u64,
     /// Full-HC oracle step ticks consumed confirming this candidate's whole corpus.
     ///
-    /// The primary ranking component. `#[serde(default)]` so reports written before this field
-    /// existed still parse; a `0` from such a report simply ranks as no recorded work, which is what
-    /// "we did not measure it" honestly means here.
-    #[serde(default)]
+    /// The primary ranking component.
     pub confirmation_steps: u64,
     /// Raw proposer paths `apply_up` yielded across the whole corpus, before tag-decode/dedup --
     /// summed from `FomaWordDiagnostics::raw_paths` (see that field's doc). The propose-side
     /// counterpart to `confirmation_steps`: together they are the leading term of `Self::key`.
-    /// `#[serde(default)]` keeps older reports readable. Their containing report carries a
-    /// `score_schema_version`; backend_report.rs's test
-    /// validation_rejects_unknown_report_and_score_schema_versions pins that a legacy version
-    /// is rejected, so this default cannot be compared as if it meant measured zero work.
-    #[serde(default)]
     pub raw_paths: u64,
 }
 

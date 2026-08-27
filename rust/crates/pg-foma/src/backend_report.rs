@@ -19,76 +19,13 @@ pub struct SpaceCounts {
     pub static_count: u64,
     pub feasible: FeasibleCount,
 }
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CandidateReport {
     pub id: String,
     pub backend_id: String,
     pub certification: Certification,
     pub score: Option<Score>,
     pub pruning_reason: Option<String>,
-    /// Deserialization provenance for the deterministic coordinates that formerly defaulted.
-    /// Not serialized: it is recomputed from field presence every time JSON is read.
-    #[serde(skip)]
-    pub score_fields_complete: bool,
-}
-
-impl<'de> serde::Deserialize<'de> for CandidateReport {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(serde::Deserialize)]
-        struct ScoreWire {
-            states: u64,
-            arcs: u64,
-            build: u64,
-            apply: u64,
-            proposals: u64,
-            confirmation: u64,
-            #[serde(default)]
-            confirmation_steps: Option<u64>,
-            #[serde(default)]
-            raw_paths: Option<u64>,
-        }
-
-        #[derive(serde::Deserialize)]
-        struct CandidateWire {
-            id: String,
-            backend_id: String,
-            certification: Certification,
-            score: Option<ScoreWire>,
-            pruning_reason: Option<String>,
-        }
-
-        let wire = CandidateWire::deserialize(deserializer)?;
-        let (score, score_fields_complete) = match wire.score {
-            None => (None, true),
-            Some(score) => {
-                let complete = score.confirmation_steps.is_some() && score.raw_paths.is_some();
-                (
-                    Some(Score {
-                        states: score.states,
-                        arcs: score.arcs,
-                        build: score.build,
-                        apply: score.apply,
-                        proposals: score.proposals,
-                        confirmation: score.confirmation,
-                        confirmation_steps: score.confirmation_steps.unwrap_or_default(),
-                        raw_paths: score.raw_paths.unwrap_or_default(),
-                    }),
-                    complete,
-                )
-            }
-        };
-        Ok(Self {
-            id: wire.id,
-            backend_id: wire.backend_id,
-            certification: wire.certification,
-            score,
-            pruning_reason: wire.pruning_reason,
-            score_fields_complete,
-        })
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -156,9 +93,8 @@ pub struct BackendOptimizationReport {
     pub schema_version: u32,
     /// Version of the deterministic score evidence carried by every scored candidate.
     ///
-    /// Reports predating `raw_paths` omit this field and deserialize as `0`. They remain readable,
-    /// but validation refuses to rank their unmeasured proposer work as if it were a measured zero.
-    #[serde(default)]
+    /// Every scored report records the deterministic score schema used to produce its work
+    /// measurements. Reports from another schema are rejected by `validate`.
     pub score_schema_version: u32,
     pub input_hash: String,
     pub registry_version: String,
@@ -238,13 +174,6 @@ impl BackendOptimizationReport {
             .any(|candidate| candidate.score.is_some());
         if has_scores && self.score_schema_version != DETERMINISTIC_SCORE_SCHEMA_VERSION {
             return Err("unsupported deterministic score schema version");
-        }
-        if self
-            .candidates
-            .iter()
-            .any(|candidate| candidate.score.is_some() && !candidate.score_fields_complete)
-        {
-            return Err("deterministic score is missing measurement provenance");
         }
         if self
             .candidates
@@ -493,7 +422,6 @@ mod tests {
             confirmation_steps: 1,
             raw_paths: 0,
         });
-        r.candidates[0].score_fields_complete = true;
         r.frontier = vec!["a".into()];
         assert!(r.validate().is_ok());
         assert!(r.replay_parameters.contains_key("seed") || r.seed == 0);
@@ -627,7 +555,6 @@ mod tests {
             certification: Certification::EstimateOnly,
             score: None,
             pruning_reason: None,
-            score_fields_complete: true,
         }
     }
 
@@ -650,7 +577,6 @@ mod tests {
                 raw_paths: work,
             }),
             pruning_reason: None,
-            score_fields_complete: true,
         }
     }
 
