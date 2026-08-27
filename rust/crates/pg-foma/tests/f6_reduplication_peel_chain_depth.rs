@@ -141,9 +141,7 @@ fn deep_self_similar_chain_is_refused_deterministically() {
     let peeler = ReduplicationPeeler::new(&g);
     assert!(peeler.has_redup_rules());
     let mut propose = |_: &str| -> Vec<Candidate> { Vec::new() };
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX)
-    .with_chain_depth_cap(3);
+    let budget = ComposeBudget::unbounded().with_chain_depth_cap(3);
     let word = "a".repeat(16);
     let err = peeler
         .peel_candidates(&g, &word, &budget, &mut propose)
@@ -164,9 +162,7 @@ fn deep_self_similar_chain_succeeds_under_a_generous_cap() {
     let g = minimal_redup_grammar();
     let peeler = ReduplicationPeeler::new(&g);
     let mut propose = |_: &str| -> Vec<Candidate> { Vec::new() };
-    let budget = ComposeBudget::with_caps(
-        usize::MAX, usize::MAX)
-    .with_chain_depth_cap(64);
+    let budget = ComposeBudget::unbounded().with_chain_depth_cap(64);
     let word = "a".repeat(10);
     peeler
         .peel_candidates(&g, &word, &budget, &mut propose)

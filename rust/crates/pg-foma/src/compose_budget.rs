@@ -252,11 +252,15 @@ impl ComposeBudget {
         }
     }
 
-    /// A budget with no configured chain-depth cap --
-    /// for callers/tests that need a `&ComposeBudget` to satisfy a function signature but aren't
-    /// exercising this mechanism.
-    #[cfg(test)]
-    pub(crate) fn unbounded() -> Self {
+    /// A budget with no configured chain-depth cap, so `Self::check_chain_depth` never trips
+    /// at any depth.
+    ///
+    /// `pub` rather than `#[cfg(test)]`, because this crate's own integration tests are a
+    /// separate crate and cannot see a test-only item: a peel/chain-depth test needs a
+    /// never-tripping base value it can then narrow with [`Self::with_chain_depth_cap`], and
+    /// `Self::from_env` cannot serve, since it would make the test depend on the launching
+    /// shell's `HC_COMPOSE_CHAIN_DEPTH_BUDGET`.
+    pub fn unbounded() -> Self {
         ComposeBudget {
             chain_depth_cap: None,
         }
@@ -329,12 +333,11 @@ mod compose_budget_tests {
     }
 
     #[test]
-    fn chain_depth_with_caps_defaults_to_unbounded() {
-        // An unbounded budget leaves chain depth off by default.
+    fn chain_depth_is_off_on_an_unbounded_budget() {
         let budget = ComposeBudget::unbounded();
         budget
-            .check_chain_depth(usize::MAX, "chain_depth_with_caps_defaults_to_unbounded")
-            .expect("with_caps' default chain-depth cap must be unbounded");
+            .check_chain_depth(usize::MAX, "chain_depth_is_off_on_an_unbounded_budget")
+            .expect("an unbounded budget must leave chain depth off");
     }
 
     #[test]

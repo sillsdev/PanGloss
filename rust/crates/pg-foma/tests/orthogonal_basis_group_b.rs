@@ -472,10 +472,9 @@ fn copy_width_bound(label: &str, grammar: &Grammar, rule_name: &str) -> Option<u
 
 // Peel helpers. Every recall claim runs under an unbounded chain-depth budget, and a refusal is a typed `Err` this file never collapses into "found nothing".
 
-/// A budget that can never trip, chain depth included; `with_caps` leaves `chain_depth_cap` at `None` by construction, since `ComposeBudget::unbounded()` is invisible from an integration test crate.
+/// A budget that can never trip, chain depth included.
 fn unbounded_budget() -> ComposeBudget {
-    ComposeBudget::with_caps(
-        usize::MAX, usize::MAX)
+    ComposeBudget::unbounded()
 }
 
 /// The residual strings the reduplication peel offers to a proposer for `word`, in first-seen order; the closure returns no candidates since the claim is about the scan, observable without a compiled FST.
