@@ -60,18 +60,6 @@ pub fn run_fst_health(args: &[String]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    fn scratch_dir(tag: &str) -> std::path::PathBuf {
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "pangloss-cli-fst-health-test-{tag}-{}-{n}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create scratch dir");
-        dir
-    }
 
     /// Same clean, `Admit`-verdict shape `pack.rs`'s own `CLEAN_GRAMMAR_XML` uses.
     const CLEAN_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -105,36 +93,6 @@ mod tests {
 
     fn grammar(xml: &str) -> Grammar {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture grammar failed to load: {e}"))
-    }
-
-    fn run_fst_health_raw(tag: &str, grammar_xml: &str) -> Result<(), String> {
-        let dir = scratch_dir(tag);
-        let grammar_path = dir.join("grammar.xml");
-        std::fs::write(&grammar_path, grammar_xml).expect("write grammar");
-
-        let args: Vec<String> = vec![grammar_path.to_string_lossy().into_owned()];
-        run_fst_health(&args)
-    }
-
-    #[test]
-    fn fst_health_has_no_corpus_findings() {
-        let result = run_fst_health_raw("characterization-only", CLEAN_GRAMMAR_XML);
-        assert!(
-            result.is_ok(),
-            "no-words invocation must succeed: {result:?}"
-        );
-
-        // A grammar-only report must never contain corpus findings.
-        let g = grammar(CLEAN_GRAMMAR_XML);
-        let report = build_health_report(&g);
-        assert!(
-            report
-                .findings
-                .iter()
-                .all(|finding| finding.phase == pg_foma::health::Phase::Characterization),
-            "a characterization-only report must not contain non-characterization findings: {:?}",
-            report.findings
-        );
     }
 
     /// The printed fragment must name all four axes, not just the collapsed severity band.

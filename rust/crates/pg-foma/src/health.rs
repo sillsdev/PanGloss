@@ -53,11 +53,10 @@
 //! `ValueProvenance::Predicted` is diagnostic evidence only and cannot by itself justify
 //! `Severity::MachineLimit` — only an actual observed `Metric::ResourceBudget`-style outcome (a
 //! `FindingCode::ResourceBudgetReached` finding, `ValueProvenance::Observed`) or a
-//! `ValueProvenance::ProvenBound` that cannot fit the remaining budget
-//! (`FindingCode::ProvenBoundExceedsBudget`) does. This module records the distinction; it does
-//! not enforce it at construction time, so a caller-supplied `HealthFinding` is still free-form
-//! data as far as this schema is concerned — `crate::health_evaluator` is where this policy
-//! becomes load-bearing.
+//! `ValueProvenance::ProvenBound` remains diagnostic evidence about an exact value or conservative
+//! lower bound. This module records the distinction; it does not enforce it at construction time,
+//! so a caller-supplied `HealthFinding` is still free-form data as far as this schema is concerned
+//! — `crate::health_evaluator` is where this policy becomes load-bearing.
 //!
 //! # Finding codes
 //! `FindingCode` is the current `PGFdddd` registry: each published code keeps its meaning within
@@ -264,8 +263,6 @@ pub enum FindingCode {
     /// timeout, chain depth, apply-time proposal/path volume) was reached and stopped this
     /// attempt.
     ResourceBudgetReached,
-    /// An exact value or proven lower bound shows an operation cannot fit the remaining budget.
-    ProvenBoundExceedsBudget,
     /// A backend failed while compiling its emitted representation and produced no usable artifact.
     BackendCompilationFailed,
     /// Invalid build input, worker protocol failure, or a worker-process failure prevented a build.
@@ -304,7 +301,6 @@ impl FindingCode {
         FindingCode::PayloadSizeBand,
         FindingCode::UnknownUnboundedConstruct,
         FindingCode::ResourceBudgetReached,
-        FindingCode::ProvenBoundExceedsBudget,
         FindingCode::BackendCompilationFailed,
         FindingCode::BuildProcessFailed,
         FindingCode::BackendCoverageIncomplete,
@@ -318,7 +314,6 @@ impl FindingCode {
             FindingCode::PayloadSizeBand => "PGF0001",
             FindingCode::UnknownUnboundedConstruct => "PGF0007",
             FindingCode::ResourceBudgetReached => "PGF0008",
-            FindingCode::ProvenBoundExceedsBudget => "PGF0009",
             FindingCode::BackendCompilationFailed => "PGF0011",
             FindingCode::BuildProcessFailed => "PGF0012",
             FindingCode::BackendCoverageIncomplete => "PGF0013",
@@ -340,10 +335,6 @@ impl FindingCode {
                 "An internal, self-imposed compile/apply-time budget (net size, emit lines, \
                  compose timeout, chain depth, or apply-time proposal/path volume) was reached \
                  and stopped this attempt."
-            }
-            FindingCode::ProvenBoundExceedsBudget => {
-                "An exact value or proven conservative lower bound shows an operation cannot fit \
-                 in the remaining budget; compilation stopped before it."
             }
             FindingCode::BackendCompilationFailed => {
                 "A backend failed to compile its emitted representation into a usable artifact."
@@ -377,7 +368,6 @@ impl FindingCode {
             FindingCode::PayloadSizeBand => FindingClass::Readiness,
             FindingCode::UnknownUnboundedConstruct => FindingClass::Readiness,
             FindingCode::ResourceBudgetReached => FindingClass::Containment,
-            FindingCode::ProvenBoundExceedsBudget => FindingClass::Containment,
             FindingCode::BackendCompilationFailed => FindingClass::Process,
             FindingCode::BuildProcessFailed => FindingClass::Process,
             FindingCode::RuleInteractionProduct => FindingClass::Readiness,
