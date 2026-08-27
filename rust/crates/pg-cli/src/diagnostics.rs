@@ -11,11 +11,10 @@ use pg_assess::{
 };
 use pg_foma::compose_budget::ApplyBudget;
 use pg_foma::composite::{FomaAnalyzer, FomaApplyOutcome};
-use pg_foma::health::HealthReport;
 use pg_grammar::model::Grammar;
 
 /// This module's own schema version, written into every `BuildReport`/`AssessmentReport`; bump only on a wire-incompatible change to either type.
-pub const DIAGNOSTICS_SCHEMA_VERSION: u32 = 1;
+pub const DIAGNOSTICS_SCHEMA_VERSION: u32 = 2;
 
 /// The build-side report, kept separate and immutable from `assessment.json`: produced once per grammar load, independent of any word list.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -29,8 +28,6 @@ pub struct BuildReport {
     pub stratum_count: usize,
     /// `crate::load_grammar`'s own compile/import warnings, recorded here so a `build.json` consumer has them without re-running the load.
     pub load_warnings: Vec<String>,
-    /// `pg_foma::health::HealthReport` verbatim; always empty today, never a duplicate schema.
-    pub health: HealthReport,
 }
 
 /// Builds a `BuildReport` from an already-loaded grammar plus `crate::load_grammar`'s own warnings; pure, so directly unit-testable.
@@ -42,7 +39,6 @@ pub fn build_report(grammar: &Grammar, load_warnings: Vec<String>) -> BuildRepor
         morpheme_count: grammar.morphemes.len(),
         stratum_count: grammar.strata.len(),
         load_warnings,
-        health: HealthReport::new(Vec::new()),
     }
 }
 

@@ -45,8 +45,7 @@
 //!
 //! ## `diagnose` (see `diagnostics.rs`'s own doc for the full contract)
 //! `diagnose <grammar> <words.txt> <out-dir>` writes `<out-dir>/build.json` and
-//! `<out-dir>/assessment.json`: a build-side report (grammar identity/counts, an always-empty
-//! `pg_foma::health::HealthReport` until a real evaluator lands) and a word-run-side report whose
+//! `<out-dir>/assessment.json`: a build-side report (grammar identity/counts) and a word-run-side report whose
 //! entries reuse `pg_realize::word_gloss_signature` for gloss signatures and record each word's
 //! in-process apply-path containment outcome
 //! (`pg_foma::analyzer::FomaProposer::propose_budgeted`) — never a watchdog, which is compile-only.
