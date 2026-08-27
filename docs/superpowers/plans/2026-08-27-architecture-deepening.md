@@ -2,6 +2,10 @@
 
 Date: 2026-08-27
 
+> **Status: candidates 1-3 landed in `91af1c81`.** Candidates 4-5 are queued as grilling
+> sessions in `2026-08-27-architecture-grill-queue.md`; neither starts until its session
+> reaches a decision.
+
 Turns the 2026-08-27 architecture review into executable work. Five candidates, scoped from the
 hot spots of the last 200 commits. Vocabulary is the `codebase-design` glossary (module, interface,
 implementation, depth, seam, adapter, leverage, locality) over `CONTEXT.md`'s domain terms
@@ -72,11 +76,12 @@ solve a construction problem. Reading was never the friction.
 
 ### Tasks
 
-- [ ] Add `HealthFinding::new` plus the three builder methods, with the class/severity check.
-- [ ] Add a source-level guard: no `HealthFinding {` literal outside `health.rs`. Without it the
+- [x] Add `HealthFinding::new` plus the three builder methods, with the class/severity check.
+- [x] Add a source-level guard: no `HealthFinding {` literal outside `health.rs`. Without it the
       seam is a convention, and conventions regress.
-- [ ] Migrate all 27 sites.
-- [ ] Verify through `pg.ps1 -Mode test`.
+- [x] Migrate every site. The count was 17, not the 27 the review estimated: `grep` had counted
+      `struct`/`impl`/return-type occurrences of the same token alongside real literals.
+- [x] Verify. `pg.ps1 -Mode build` exits 0.
 
 ---
 
@@ -106,9 +111,11 @@ module chasing its caller. A second consumer would copy them.
 
 ### Tasks
 
-- [ ] Add `BackendReport::can_represent()`; use it at both coverage call sites.
-- [ ] Move the manifest projection to `backend_selection`, beside the reports it projects.
-- [ ] Verify.
+- [x] Add `BackendReport::can_represent()`; use it at both coverage call sites.
+- [x] Move the manifest projection — to **`pg-pack`**, not `backend_selection` as this plan
+      first said. `pg-pack` depends on `pg-foma`, so the reverse would be a cycle; the crate
+      owning the manifest shape is the only seam available, and it is also the right one.
+- [x] Verify.
 
 ---
 
@@ -134,10 +141,17 @@ are both real inputs the manifest already distinguishes by `role`.
 
 ### Tasks
 
-- [ ] Add `corpus::grammar_for(logical_name)`, resolving path and role through the manifest.
-- [ ] Switch the manifest's three `*-hc.xml` entries and Aweti to the `.fwdata` inputs on disk.
-- [ ] Migrate test call sites off path literals.
-- [ ] Verify, with `PANGLOSS_CORPUS_ROOT` pointed at the main checkout's corpus.
+- [x] Add `corpus::grammar_for(logical_name)` and `words_for`, resolving path and role through
+      the manifest.
+- [x] Switch the manifest's three `*-hc.xml` entries and Aweti to the `.fwdata` inputs on disk.
+      Every required input now resolves; four previously did not exist.
+- [x] Migrate the five-language gate, which also gains the four tests its name always promised.
+- [ ] **Open:** run it with `PANGLOSS_CORPUS_ROOT` pointed at the main checkout, and tighten the
+      four new tests from "every backend reports" to exact verdicts. The old verdicts came from
+      a finding and shape the cleanup deleted, so there is nothing to re-assert against until
+      one run is measured. The `-hc.xml` oracle-comparison gates keep naming both inputs by
+      path deliberately: comparing our importer against the HermitCrab export is the one place
+      a caller legitimately knows two filenames.
 
 ---
 
