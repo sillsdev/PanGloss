@@ -197,7 +197,7 @@ fn read(path: &str) -> Result<String, CliError> {
     std::fs::read_to_string(path).map_err(|e| CliError::invalid(format!("read {path}: {e}")))
 }
 
-/// Which loader a grammar path dispatches to, by extension; shared with `diagnose` so a `.json` grammar's `sourceKind` never disagrees between the two call sites.
+/// Which loader a grammar path dispatches to, by extension.
 pub(crate) fn source_kind_of(path: &str) -> SourceKind {
     if path.ends_with(".json") {
         SourceKind::Snapshot

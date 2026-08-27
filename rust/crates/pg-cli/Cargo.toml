@@ -30,9 +30,6 @@ pg-assess.workspace = true
 # previously only emitted as a session/report-level stderr marker.
 pg-pack.workspace = true
 rayon.workspace = true
-# `diagnostics.rs` (`openspec/changes/add-grammar-diagnostics`): `build.json`/`assessment.json`
-# canonical JSON. serde/serde_json are already pinned once at the workspace root (mirrors
-# `pg-foma`'s own `health.rs` two-line pattern).
 serde.workspace = true
 serde_json.workspace = true
 # `coverage.rs` (capability-coverage VISIBILITY): replays the in-repo SYNTHETIC conformance

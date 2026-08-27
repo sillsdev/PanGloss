@@ -703,14 +703,6 @@ impl<'g> FomaAnalyzer<'g> {
 
     /// `Self::analyze_word` under a deterministic magnitude budget, with no profiling.
     ///
-    /// This is the production budgeted path. Until it existed, the only way to obtain a typed
-    /// incomplete from the foma pipeline was
-    /// `Self::analyze_word_with_diagnostics_budgeted`, which clocks every decoded path — so
-    /// `pg-cli`'s `diagnose` compiled a *second* standalone proposer just to measure against a
-    /// budget, and the production pipeline itself remained unbounded and therefore unable to report
-    /// `incomplete` at all. Both of those follow from the missing entry point, not from anything
-    /// intrinsic.
-    ///
     /// One `budget` is shared cumulatively by the direct proposal and every proposal reduplication
     /// peeling requests, matching the diagnostic path's semantics exactly. A trip returns before
     /// confirmation runs: partial candidates are never confirmed, because a partial confirm would
@@ -1656,7 +1648,7 @@ mod tests {
 
     #[test]
     fn the_budgeted_production_path_agrees_with_the_diagnostic_one() {
-        // Two budgeted paths would be two contracts; they must agree on results, or `assess` and `diagnose` would disagree about the same word.
+        // Two budgeted paths are two contracts, so they must agree on results.
         let g = pg_grammar::load(DIAGNOSTICS_FIXTURE)
             .unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
         let mut analyzer = FomaAnalyzer::new(&g).expect("analyzer compiles");
