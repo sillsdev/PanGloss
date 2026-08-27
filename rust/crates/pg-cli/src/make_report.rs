@@ -1,5 +1,5 @@
-//! `pangloss make-report <grammar> <out.md> [options]`: one markdown report composing build time, artifact size, latency percentiles, the plan diagram, and the conformance verdict.
-//! What this module measures itself vs. only composes, trust provenance, capability enforcement, latency methodology, and the coverage token definition: docs/research/pg-cli-make-report-design-notes.md.
+//! `pangloss make-report <grammar> <out.md> [options]`: one markdown report composing an artifact's health and backend assessments, the plan diagram, and the conformance verdict.
+//! This module measures nothing of its own: it never compiles a grammar, so build time, latency and coverage report as not measured. Trust provenance and capability enforcement: docs/research/pg-cli-make-report-design-notes.md.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -690,7 +690,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     let fst_health: Option<HealthReport>;
     let backend_assessments: Option<Vec<pg_pack::BackendAssessment>>;
     let latency_methodology_line: String;
-    // Separate from `verdict.checks` on purpose: that only carries the Pass/Fail/NotAssessed outcome, never the attestor/date fields, which render from the `CoverageAssessment` this command built, not reconstructed from the tiered verdict after the fact.
+    // Separate from `verdict.checks` on purpose: that carries only the Pass/Fail/NotAssessed outcome, never the attestor/date fields a coverage attestation would need.
     let coverage_attestation_line: String;
 
     if !attempt_compile {
