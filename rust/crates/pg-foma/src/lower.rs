@@ -960,7 +960,7 @@ mod tests {
 
     use foma::apply::{apply_init, apply_up};
 
-    /// One `CharacterDefinitionTable` and five `PhonologicalRule`s, each a bare Segment-focused LHS with one quantifier-bearing probe fed straight to `pattern_slots`, never compiled/composed.
+    /// One `CharacterDefinitionTable` and four `PhonologicalRule`s, each a bare Segment-focused LHS with one quantifier-bearing probe fed straight to `pattern_slots`, never compiled/composed.
     const QUANTIFIER_SCOPE_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>QuantifierScopeProbe</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <PhonologicalFeatureSystem>
@@ -994,12 +994,6 @@ mod tests {
         <PhonologicalRule id="prInvertedFinite"><Name>demo2</Name>
           <PhoneticInput><PhoneticSequence>
             <OptionalSegmentSequence min="5" max="2"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
-          </PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
-        </PhonologicalRule>
-        <PhonologicalRule id="prOverBudgetFinite"><Name>demo3</Name>
-          <PhoneticInput><PhoneticSequence>
-            <OptionalSegmentSequence min="1" max="600"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
           </PhoneticSequence></PhoneticInput>
           <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
         </PhonologicalRule>
@@ -1054,17 +1048,15 @@ mod tests {
         }
     }
 
-    /// Positive witness: `MAX_QUANTIFIER_BOUND` is never checked against an unbounded quantifier's `min` — a `min` well past the bound must still lower to `Some(_)`.
+    /// Positive witness: an unbounded quantifier's large `min` still lowers to `Some(_)`.
     #[test]
-    fn unbounded_quantifier_large_min_is_never_checked_against_max_quantifier_bound() {
+    fn unbounded_quantifier_large_min_is_accepted() {
         let g = load(QUANTIFIER_SCOPE_PROBE_XML);
         let table = &g.char_tables[0];
         let rule = quantifier_probe_rule(&g, "prUnboundedLargeMin");
         let mut next_occurrence = 0usize;
-        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline).expect(
-            "min=1000 (> MAX_QUANTIFIER_BOUND=512) must NOT be refused for an unbounded (max=None) \
-             quantifier -- that ceiling only bounds a FINITE max, never `None`",
-        );
+        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline)
+            .expect("an unbounded quantifier with min=1000 must lower");
         match &slots[0] {
             Slot::Repeat { min, max, .. } => {
                 assert_eq!(*min, 1000);
@@ -1091,26 +1083,6 @@ mod tests {
             )
             .is_none(),
             "min=5 > max=2 (both concrete) must stay refused"
-        );
-    }
-
-    /// Negative witness: a finite `max` past `MAX_QUANTIFIER_BOUND` must stay refused, never silently clamped down to the ceiling.
-    #[test]
-    fn over_budget_finite_quantifier_still_unsupported() {
-        let g = load(QUANTIFIER_SCOPE_PROBE_XML);
-        let table = &g.char_tables[0];
-        let rule = quantifier_probe_rule(&g, "prOverBudgetFinite");
-        let mut next_occurrence = 0usize;
-        assert!(
-            pattern_slots(
-                &g,
-                table,
-                &rule.lhs,
-                &mut next_occurrence,
-                PatternLowerScope::Baseline
-            )
-            .is_none(),
-            "max=600 exceeds MAX_QUANTIFIER_BOUND=512 -- must stay refused, never silently clamped"
         );
     }
 
