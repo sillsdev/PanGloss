@@ -19,8 +19,8 @@
 //! WHY: `WithinLimits`/`Elevated`/`LargeMultiplier` never block, `NotProductionReady`/
 //! `MachineLimit`/`CannotRepresent` always do. Several unrelated causes converge on the same
 //! blocking tier -- `NotProductionReady` alone is emitted for an oversized-but-compiled payload, a
-//! self-imposed budget stop with nothing built, a build-process fault, and a pre-compile proven
-//! bound, none of which share a phase or a cause. `FindingCode::class()` (`FindingClass`) is what
+//! self-imposed budget stop with nothing built, and a build-process fault, none of which share a
+//! phase or a cause. `FindingCode::class()` (`FindingClass`) is what
 //! answers WHY: see `FindingClass`'s own doc for the four independent questions it distinguishes,
 //! and `HealthReport::admission_by_class` for reading them separately from the plain severity max.
 //!
@@ -77,7 +77,7 @@
 //!
 //! # Design notes
 //! - `FindingCode` covers the dimensions this crate currently measures (payload size,
-//!   unknown/unbounded cost, internal budget stops, proven-bound rejection, backend/process
+//!   unknown/unbounded cost, internal budget stops, backend/process
 //!   failures, coverage gaps, and bounded rule-interaction products). New measured dimensions
 //!   require a real producer and a versioned schema update.
 //! - `Phase` has three values (`Characterization`, `Compile`, `Apply`) rather than a simpler
@@ -110,8 +110,8 @@ pub const HEALTH_SCHEMA_VERSION: u32 = 7;
 /// - [`Severity::CannotRepresent`]: analysis of representability, and nothing can be built for the
 ///   affected feature.
 /// - [`Severity::NotProductionReady`]: this tier blocks publication; see its own doc for the
-///   several distinct facts (compiled-but-oversized, budget-stopped, process-faulted,
-///   proven-bound-exceeded) that all reach it.
+///   several distinct facts (compiled-but-oversized, budget-stopped, process-faulted) that all
+///   reach it.
 /// - [`Severity::MachineLimit`]: external process containment fired DURING a compile and aborted
 ///   it; never a statement about the grammar.
 ///
@@ -131,8 +131,8 @@ pub enum Severity {
     LargeMultiplier,
     /// The tier that blocks publication, whatever the underlying cause: an oversized-but-compiled
     /// payload, an internal-cap stop with nothing compiled, a build-process or backend-compilation
-    /// fault, or a pre-compile proven bound exceeding budget. Must not itself block compiling. Read
-    /// the finding's `FindingClass` for which of those it is.
+    /// fault. Must not itself block compiling. Read the finding's `FindingClass` for which of
+    /// those it is.
     NotProductionReady,
     /// External process containment fired DURING a compile and aborted it. Remedy: adjust the
     /// configured execution limit, use more machine, or choose a different algorithm.
