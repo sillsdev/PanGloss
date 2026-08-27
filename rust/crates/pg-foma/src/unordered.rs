@@ -1,11 +1,7 @@
-//! The compile-time cardinality gate for
-//! `MorphRuleOrder::Unordered` (`pg-grammar/src/model.rs:1057-1060`; `StratumDef.mrule_order`,
-//! `1067`) -- the second real production consumer of
-//! `crate::compose_budget::ComposeBudget`'s chain-depth-shaped budget discipline, after
-//! `crate::peel::ReduplicationPeeler`'s own per-word chain-depth check
-//! (`crate::compose_budget`'s "Chain-depth dimension" section doc).
+//! Cardinality facts and semantics for `MorphRuleOrder::Unordered`
+//! (`pg-grammar/src/model.rs:1057-1060`; `StratumDef.mrule_order`, `1067`).
 //!
-//! # What `Unordered` actually reaches, and what this module gates
+//! # What `Unordered` actually reaches
 //! `pg-rules/src/cascade.rs` ports three cascades off one shared recursion shape: `Cascade::linear`
 //! (phonological rules), `Cascade::permutation` (a `Linear` stratum: non-decreasing rule-index
 //! recursion), and `Cascade::combination` (an `Unordered` stratum: the module's own "k!-walk over
@@ -45,32 +41,24 @@
 //! synthetic fixture's `no_phonology_no_infix_rules_isolates_build_deriv_chain` test is the witness
 //! that isolates this.
 //!
-//! # What THIS module adds: the chain-depth-bounded / unbounded split's compile-time gate
+//! # Cardinality and construction shape
 //! `build_deriv_chain`'s `depth` for a role zone equals that zone's rule count (its own doc:
 //! `depth = rules.len().max(DERIV_DEPTH_MIN)`) -- so an `Unordered` stratum's own loose-rule count
 //! is EXACTLY the quantity whose growth predicts this construction's compiled-network cost (each
 //! extra level offers every rule again: `O(rule_count)` extra levels x `O(rule_count)` per-level
-//! arcs). `check_unordered_strata_bound` is the compile-time gate `crate::analyzer::
-//! FomaProposer::new_with_budget` calls, once per grammar, BEFORE handing any lexc source to the
-//! foma compiler: `unordered-application.chain-depth-bounded` (within
-//! `crate::compose_budget::ComposeBudget::ordering_multiplicity_cap`) proceeds unchanged;
-//! `unordered-application.unbounded` (exceeding it) is refused with a typed
-//! `crate::compose_budget::ComposeError::OrderingMultiplicityExceeded` -- an honest, deterministic
-//! refusal, never a silent truncation and never an attempt to actually build the (potentially very
-//! large, though NOT exponential by construction -- see this module's doc above) network.
+//! arcs). The `rule_count` is retained as a structural fact for diagnostics and analysis; it is
+//! not a representability judgment.
 //!
 //! # Big-O
-//! `check_unordered_strata_bound` itself is `O(strata + total mrules)` -- one pass over
-//! `g.strata`/`sd.mrules`, no FST construction, no recursion. The construction it gates
-//! (`build_deriv_chain`, for a zone with `n` `Unordered`-stratum-contributed loose rules) is
+//! Computing the facts is `O(strata + total mrules)` -- one pass over `g.strata`/`sd.mrules`, no
+//! FST construction, no recursion. The construction (`build_deriv_chain`, for a zone with `n`
+//! `Unordered`-stratum-contributed loose rules) is
 //! `O(n^2)` states/arcs (n levels x n rules/level) -- polynomial, NOT the `O(n!)` "k!-walk" the
 //! confirm-side combination cascade must itself explore (`cascade.rs`'s own naming) -- because
 //! `build_deriv_chain` encodes the union of admissible orderings IMPLICITLY, as a shared per-level
 //! choice point, rather than enumerating each of the (up to) `n!` orderings as a separate literal
-//! path. This is a deliberate choice: the calibrated bound gates
-//! `rule_count` directly (a sound, conservative proxy for the combinatorial
-//! danger) rather than a literally-computed ordering count, since no code path in this crate
-//! actually materializes `n!` distinct candidates for this construct.
+//! path. No code path in this crate actually materializes `n!` distinct candidates for this
+//! construct.
 //!
 //! # Runtime-feature declaration
 //! **None required.** `build_deriv_chain`'s construction fully LOWERS into the compiled FST network
@@ -82,16 +70,11 @@
 
 use pg_grammar::model::{Grammar, MorphRuleOrder, StratumId};
 
-use crate::compose_budget::{ComposeBudget, ComposeError};
-
-/// `crate::compose_budget::ComposeError`'s `site` label for every check this module makes.
-const ORDERING_MULTIPLICITY_SITE: &str = "unordered::check_unordered_strata_bound";
-
 /// One `Unordered` stratum's own cardinality facts (the chain-depth-bounded cardinality
 /// check) -- shared by `check_unordered_strata_bound` (the compile-time gate) and
 /// `crate::capability`'s `crate::capability::UnorderedStratumDetail` (the STATIC characterization,
-/// computed independently over the same `rule_count`/`within_bound` facts so the declared capability
-/// verdict and the real compile-time refusal can never silently drift apart).
+/// computed independently over the same cardinality facts so diagnostics can report the grammar's
+/// actual shape without changing its semantics.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct UnorderedStratumMetrics {
     pub stratum: StratumId,
@@ -99,16 +82,9 @@ pub(crate) struct UnorderedStratumMetrics {
     pub within_bound: bool,
 }
 
-/// One stratum's own `UnorderedStratumMetrics`, computed against
-/// `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET` directly (not a live
-/// `ComposeBudget` instance) -- `crate::capability::characterize` is a pure, `Grammar`-only
-/// static projection with no `ComposeBudget` in scope anywhere else in that module,
-/// so `crate::capability::UnorderedStratumDetail` is built directly from THIS function's own
-/// result (not a re-derived copy of its formula), sharing the SAME calibrated constant
-/// `check_unordered_strata_bound`'s own production-default `ComposeBudget::from_env`
-/// configures. Called for EVERY stratum by `crate::capability::characterize`'s own per-stratum
-/// walk, not just `Unordered` ones -- callers that only want `Unordered` strata should filter on
-/// `unordered_stratum_metrics` instead.
+/// One stratum's own `UnorderedStratumMetrics`, computed directly from its rule list. Called for
+/// every stratum by `crate::capability::characterize`'s per-stratum walk; callers that only want
+/// `Unordered` strata should filter on `unordered_stratum_metrics` instead.
 pub(crate) fn stratum_metrics(
     stratum: StratumId,
     sd: &pg_grammar::model::StratumDef,
@@ -117,13 +93,12 @@ pub(crate) fn stratum_metrics(
     UnorderedStratumMetrics {
         stratum,
         rule_count,
-        within_bound: rule_count <= crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET,
+        within_bound: true,
     }
 }
 
 /// Every `Unordered` stratum's own `UnorderedStratumMetrics` (`stratum_metrics`, filtered to
-/// `MorphRuleOrder::Unordered` strata only) -- this module's own tests use this directly; production
-/// code goes through `check_unordered_strata_bound`.
+/// `MorphRuleOrder::Unordered` strata only).
 #[cfg(test)]
 pub(crate) fn unordered_stratum_metrics(g: &Grammar) -> Vec<UnorderedStratumMetrics> {
     g.strata
@@ -132,25 +107,6 @@ pub(crate) fn unordered_stratum_metrics(g: &Grammar) -> Vec<UnorderedStratumMetr
         .filter(|(_, sd)| sd.mrule_order == MorphRuleOrder::Unordered)
         .map(|(i, sd)| stratum_metrics(StratumId(i as u8), sd))
         .collect()
-}
-
-/// The compile-time gate (module doc): `Err` iff SOME `Unordered` stratum's own loose-rule count
-/// exceeds `budget`'s `ComposeBudget::ordering_multiplicity_cap` -- checked against every
-/// `Unordered` stratum independently (two strata receive independent capability
-/// verdicts, and neither is inferred from the other), returning the FIRST breach found
-/// (document stratum order) rather than collecting every one -- mirrors
-/// `crate::morphotactics::EnumerationBudget`'s own "fail fast, do not keep computing once tripped"
-/// discipline; a caller that wants every breach can call `unordered_stratum_metrics` directly.
-pub(crate) fn check_unordered_strata_bound(
-    g: &Grammar,
-    budget: &ComposeBudget,
-) -> Result<(), ComposeError> {
-    for sd in &g.strata {
-        if sd.mrule_order == MorphRuleOrder::Unordered {
-            budget.check_ordering_multiplicity(sd.mrules.len(), ORDERING_MULTIPLICITY_SITE)?;
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

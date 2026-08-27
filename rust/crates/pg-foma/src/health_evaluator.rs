@@ -54,19 +54,10 @@
 //! the "FST admission result".
 //!
 //! # Judgment calls flagged for review
-//! 1. **`crate::compose_budget::ComposeError` variants split into two [`crate::health::
-//!    FindingCode`]s by *when* the check runs, not by variant name alone**:
-//!    `OrderingMultiplicityExceeded` is checked BEFORE the expensive operation it would gate even
-//!    starts, on an exact, already-known count — a proven work bound — so
-//!    they map to `FindingCode::ProvenBoundExceedsBudget` with
-//!    `ValueProvenance::ProvenBound`. `ChainDepthExceeded` is only detected AFTER the checked
-//!    operation (an actual recursion) already executed and produced/consumed a measured value, so
-//!    it maps to `FindingCode::ResourceBudgetReached` with `ValueProvenance::Observed`.
-//! 2. **`crate::health::Metric::OrderingRuleCount` is a new variant this change appends** to
-//!    `crate::health`'s `Metric` enum (see that enum's own doc on the variant) — the only schema
-//!    edit this evaluator makes: an appended variant, with no renumbering, no removal, no change to
-//!    any existing golden JSON.
-//! 3. **`crate::emit::FomaTier::Partial`'s `uncovered` count maps to
+//! 1. **`crate::compose_budget::ComposeError::ChainDepthExceeded` maps to
+//!    `FindingCode::ResourceBudgetReached` with `ValueProvenance::Observed`** because it is
+//!    detected after a real recursion/unapplication step count is measured.
+//! 2. **`crate::emit::FomaTier::Partial`'s `uncovered` count maps to
 //!    `FindingCode::BackendCoverageIncomplete` at `Severity::CannotRepresent`**. This is observed
 //!    semantic under-proposal, not uncertain cost: confirmation cannot manufacture a candidate
 //!    that the proposer omitted. `ValueProvenance::Observed` (not `Predicted`) is used throughout
@@ -460,25 +451,6 @@ fn compose_error_finding(err: &ComposeError) -> HealthFinding {
             ),
             remedies: Vec::new(),
         },
-        ComposeError::OrderingMultiplicityExceeded {
-            rule_count,
-            limit,
-            site,
-        } => HealthFinding {
-            code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Compile,
-            affected: vec![(*site).to_string()],
-            metric: Metric::OrderingRuleCount,
-            value: MetricValue::Count(*rule_count as u64),
-            provenance: ValueProvenance::ProvenBound,
-            threshold: Some(MetricValue::Count(*limit as u64)),
-            explanation: format!(
-                "An Unordered stratum at {site:?} has {rule_count} loose rules (limit {limit}), an \
-                 exact count proven to admit more admissible rule orderings than this grammar's \
-                 ordering-multiplicity budget allows before any combinatorial walk began."
-            ),
-        },
     }
 }
 
@@ -592,20 +564,6 @@ pub fn evaluate_foma_error(
                     .push(backend_compilation_failed_finding(error.to_string()));
             }
             HealthReport::new(health.findings)
-        }
-        FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit } => {
-            let compose_error = ComposeError::OrderingMultiplicityExceeded {
-                rule_count: *rule_count,
-                limit: *limit,
-                site: "foma backend unordered-stratum characterization",
-            };
-            evaluate_health(
-                None,
-                None,
-                std::slice::from_ref(&compose_error),
-                &[],
-                compile_profile,
-            )
         }
     }
 }

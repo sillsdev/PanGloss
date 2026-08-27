@@ -50,8 +50,6 @@ pub enum FomaError {
         /// health findings without recompiling or treating this refusal as a clean result.
         report: EmitReport,
     },
-    /// `check_unordered_strata_bound` found an `Unordered` stratum's loose-rule count exceeding the ordering-multiplicity budget, checked before `emit::emit_with_budget` builds anything.
-    UnorderedOrderingMultiplicityExceeded { rule_count: usize, limit: usize },
 }
 
 impl fmt::Display for FomaError {
@@ -92,17 +90,6 @@ impl fmt::Display for FomaError {
                  grammar's dynamic enumeration tree is this large -- raise the budget via \
                  HC_ENUM_ENTRY_BUDGET/HC_ENUM_PROBE_BUDGET and re-run."
             ),
-            FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit } => write!(
-                f,
-                "grammar has an Unordered stratum with {rule_count} loose rules, exceeding the \
-                 ordering-multiplicity budget (limit {limit}). MorphRuleOrder::Unordered's \
-                 any-order/any-subset combination cascade admits a combinatorial number of \
-                 admissible rule orderings in the loose-rule count; this grammar's \
-                 unordered-application.unbounded configuration is honestly unsupported \
-                 rather than silently truncated. \
-                 Raise HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET only if you understand why this \
-                 stratum's rule count is this large."
-            ),
         }
     }
 }
@@ -115,7 +102,6 @@ impl FomaError {
             | FomaError::Unsupported(report)
             | FomaError::Incomplete(report)
             | FomaError::EnumerationBudgetExceeded { report, .. } => Some(report),
-            FomaError::UnorderedOrderingMultiplicityExceeded { .. } => None,
         }
     }
 }
@@ -324,15 +310,13 @@ impl FomaProposer {
         Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true)
     }
 
-    /// `Self::new`'s core, with the fail-fast enumeration budget AND
-    /// the ordering-multiplicity budget both threaded
-    /// in explicitly rather than read from env -- what tests call directly (with a small
-    /// `crate::morphotactics::EnumerationBudget::with_caps`/
-    /// `ComposeBudget::with_ordering_multiplicity_cap`) to exercise
-    /// `FomaError::EnumerationBudgetExceeded`/`FomaError::UnorderedOrderingMultiplicityExceeded`
-    /// deterministically and fast, without setting `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`/
-    /// `HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET` (this crate's tests never touch those env vars,
-    /// mirroring `crate::morphotactics::ExploreMode`'s own doc's reasoning for `HC_PREEXPAND_FLAT`).
+    /// `Self::new`'s core, with the fail-fast enumeration budget threaded in explicitly rather
+    /// than read from env -- what tests call directly with a small
+    /// `crate::morphotactics::EnumerationBudget::with_caps` to exercise
+    /// `FomaError::EnumerationBudgetExceeded` deterministically and fast, without setting
+    /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` (this crate's tests never touch those env
+    /// vars, mirroring `crate::morphotactics::ExploreMode`'s own doc's reasoning for
+    /// `HC_PREEXPAND_FLAT`).
     ///
     /// Thin, zero-behavior-change wrapper over `Self::new_with_budget_and_profile`, discarding its
     /// `CompileProfile` -- proven byte-for-byte identical (same `Result`, same emitted network) by
@@ -369,20 +353,6 @@ impl FomaProposer {
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
 
-        // Reject unordered multiplicity before doing emission work.
-        if let Err(err) = crate::unordered::check_unordered_strata_bound(g, compose_budget) {
-            let err = match err {
-                crate::compose_budget::ComposeError::OrderingMultiplicityExceeded {
-                    rule_count,
-                    limit,
-                    ..
-                } => FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit },
-                other => unreachable!(
-                    "check_unordered_strata_bound only ever produces OrderingMultiplicityExceeded, got {other:?}"
-                ),
-            };
-            return (Err(err), profile.finish(None, None));
-        }
         let result = emit::emit_with_budget_profiled(
             g,
             crate::precision::PrecisionConfig::Strip,

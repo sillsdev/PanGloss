@@ -458,13 +458,11 @@ fn run_cases(
         }
         Pipeline::FomaConfirm => {
             let mut analyzer = FomaAnalyzer::new(grammar).map_err(|e| {
-                // Two different exit codes, not one: a tripped budget is containment (a larger envelope may run it), a compile failure is an emitter capability gap that no budget changes.
+                // A tripped enumeration budget is containment (a larger envelope may run it),
+                // while a compile failure is an emitter capability gap that no budget changes.
                 let message = format!("the foma-confirm pipeline cannot run this grammar: {e}");
                 match e {
-                    pg_foma::analyzer::FomaError::EnumerationBudgetExceeded { .. }
-                    | pg_foma::analyzer::FomaError::UnorderedOrderingMultiplicityExceeded {
-                        ..
-                    } => CliError {
+                    pg_foma::analyzer::FomaError::EnumerationBudgetExceeded { .. } => CliError {
                         code: EXIT_CONTAINED,
                         message,
                     },

@@ -327,13 +327,9 @@ pub mod tags;
 pub mod templated_compile;
 /// A feasibility prototype sibling of `replace`: the underlying-form lexc emitter.
 pub mod uflexc;
-/// The `MorphRuleOrder::Unordered` chain-depth-
-/// bounded/unbounded compile-time cardinality gate -- `unordered::check_unordered_strata_bound`,
-/// wired into `analyzer::FomaProposer::new_with_budget`, the second real production consumer of
-/// `compose_budget::ComposeBudget`'s chain-depth-shaped budget discipline after
-/// `peel::ReduplicationPeeler`. See that module's own doc for the full design, including the
-/// load-bearing finding that the "ordering-union proposal" is an
-/// EXISTING mechanism (`crate::emit::build_deriv_chain`), not a new one.
+/// Structural facts and semantics for `MorphRuleOrder::Unordered`, including the load-bearing
+/// finding that the "ordering-union proposal" is an EXISTING mechanism
+/// (`crate::emit::build_deriv_chain`), not a new one.
 pub(crate) mod unordered;
 /// The COLLECTED half of the per-strategy construct account: `witnessed_coverage::observe_grammar`
 /// characterizes a grammar, asks `backend_selection` which backends may run it, and then actually

@@ -2095,15 +2095,6 @@ pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, Compos
     compound_extra_levels_checked_with_cap(g, None)
 }
 
-fn fixed_compose_budget() -> ComposeBudget {
-    ComposeBudget {
-        chain_depth_cap: None,
-        ordering_multiplicity_cap: Some(
-            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET,
-        ),
-    }
-}
-
 fn compound_extra_levels_checked_with_cap(
     g: &Grammar,
     chain_depth_cap: Option<usize>,
@@ -2111,9 +2102,9 @@ fn compound_extra_levels_checked_with_cap(
     let compound_extra_levels = compound_depth_bound(g).saturating_sub(1).max(1);
     let budget = match chain_depth_cap {
         Some(cap) => {
-            let mut budget = fixed_compose_budget();
-            budget = budget.with_chain_depth_cap(cap);
-            budget
+            ComposeBudget {
+                chain_depth_cap: Some(crate::compose_budget::clamp_chain_depth_cap(cap)),
+            }
         }
         None => ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget()),
     };

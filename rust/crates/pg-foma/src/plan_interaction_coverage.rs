@@ -590,7 +590,6 @@ pub fn fuzz_gate_group_reordering_for_grammar(
     let opts = FomaOptions::default();
     let budget = ComposeBudget {
         chain_depth_cap: None,
-        ordering_multiplicity_cap: None,
     };
     let result = differential_oracle(
         &plan,

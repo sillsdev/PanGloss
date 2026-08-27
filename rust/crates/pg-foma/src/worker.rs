@@ -247,8 +247,6 @@ pub struct CompileWorkerRequest {
     /// `ComposeBudget::chain_depth_cap` -- `None` (unbounded) by default, mirroring that field's
     /// own uncalibrated-default convention (`compose_budget.rs`'s "Chain-depth dimension" doc).
     pub chain_depth_cap: Option<usize>,
-    /// `ComposeBudget::ordering_multiplicity_cap`.
-    pub ordering_multiplicity_cap: Option<usize>,
     /// Additive selected-backend payload request. `None` preserves the original worker behavior.
     #[serde(default)]
     pub(crate) selected: Option<SelectedCompileRequest>,
@@ -262,9 +260,6 @@ impl CompileWorkerRequest {
             grammar_path: grammar_path.into(),
             grammar_format,
             chain_depth_cap: None,
-            ordering_multiplicity_cap: Some(
-                crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET,
-            ),
             selected: None,
         }
     }
@@ -272,13 +267,9 @@ impl CompileWorkerRequest {
     pub fn compose_budget(&self) -> ComposeBudget {
         let mut budget = ComposeBudget {
             chain_depth_cap: None,
-            ordering_multiplicity_cap: None,
         };
         if let Some(cap) = self.chain_depth_cap {
             budget = budget.with_chain_depth_cap(cap);
-        }
-        if let Some(cap) = self.ordering_multiplicity_cap {
-            budget = budget.with_ordering_multiplicity_cap(cap);
         }
         budget
     }
@@ -421,13 +412,6 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
                 final_state_count: profile.final_state_count,
                 final_arc_count: profile.final_arc_count,
                 uncovered_count: report.uncovered.len(),
-                health,
-            }
-        }
-        Err(err @ FomaError::UnorderedOrderingMultiplicityExceeded { .. }) => {
-            let health = crate::health_evaluator::evaluate_foma_error(&err, Some(&profile));
-            CompileWorkerOutcome::BudgetTripped {
-                detail: err.to_string(),
                 health,
             }
         }
