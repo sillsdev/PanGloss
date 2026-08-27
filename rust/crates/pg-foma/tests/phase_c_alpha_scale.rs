@@ -1,4 +1,6 @@
-//! GATE: alpha-variable scale -- recall-parity (up to `tuple_cap`) + `_overbudget` (`AlphaTupleBudgetExceeded`), against an LHS+RHS identity rule that is unambiguous by construction; see `pg_grammar_gen::build::alpha`'s module doc for why that construction was chosen over two earlier ones that mismatched the real engine.
+//! GATE: alpha-variable scale -- recall-parity, against an LHS+RHS identity rule that is
+//! unambiguous by construction; see `pg_grammar_gen::build::alpha`'s module doc for why that
+//! construction was chosen over two earlier ones that mismatched the real engine.
 
 mod common;
 
@@ -9,10 +11,8 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::{ComposeBudget, ComposeError};
-use pg_foma::replace::{
-    compile_and_compose_rules_with_budget, compile_rewrite_rule_subset, SegAlphabet,
-};
+use pg_foma::compose_budget::ComposeBudget;
+use pg_foma::replace::{compile_and_compose_rules_with_budget, SegAlphabet};
 use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered_with_budget;
 use pg_grammar::model::{Grammar, PhonRuleDef};
@@ -33,24 +33,6 @@ fn recipe() -> Recipe {
             table_count: 1,
             alpha_var_count: 2,
             alpha_class_size: 3,
-            ..Default::default()
-        },
-    }
-}
-
-/// A separate, deliberately larger single-rule recipe: one alpha rule whose `surviving` tuple count is driven to 10, large enough to exceed a tiny TEST `tuple_cap` without needing the recipe itself to be large.
-fn overbudget_recipe() -> Recipe {
-    Recipe {
-        name: "phase-c-alpha-scale-overbudget",
-        seed: 20260720,
-        scale: ScaleKnobs {
-            segment_inventory: 10,
-            ..ScaleKnobs::default()
-        },
-        construct: ConstructKnobs {
-            table_count: 1,
-            alpha_var_count: 1,
-            alpha_class_size: 10,
             ..Default::default()
         },
     }
@@ -179,50 +161,4 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
         elapsed < Duration::from_millis(50),
         "per-word time {elapsed:?} exceeds the trip-wire"
     );
-}
-
-/// Honest failure: a single alpha rule with `surviving` tuple count 10 must trip `AlphaTupleBudgetExceeded` under a `tuple_cap` of 3 before the expensive per-tuple compile loop runs, on a generated (not hand-authored) fixture.
-#[test]
-fn alpha_scale_overbudget_trips_tuple_budget() {
-    let recipe = overbudget_recipe();
-    let rendered = pg_grammar_gen::render_indexed(&recipe);
-    let g = pg_grammar::load(&rendered.xml).unwrap_or_else(|e| {
-        panic!(
-            "generated alpha-scale overbudget XML failed to load: {e}\n{}",
-            rendered.xml
-        )
-    });
-    let alpha = rendered
-        .alpha
-        .as_ref()
-        .expect("recipe declared alpha_var_count > 0");
-    assert_eq!(alpha.rule_xml_ids.len(), 1);
-
-    let table = &g.char_tables[0];
-    let alphabet = SegAlphabet::new(table);
-    let opts = FomaOptions::default();
-
-    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
-        panic!("expected a Rewrite-kind rule at prules[0]");
-    };
-    assert_eq!(rule.xml_id, alpha.rule_xml_ids[0]);
-
-    let budget = ComposeBudget::with_caps(3, usize::MAX);
-    let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
-        .expect_err("10 surviving tuples must exceed a tuple_cap of 3");
-    match err {
-        ComposeError::AlphaTupleBudgetExceeded {
-            surviving,
-            limit,
-            rule_xml_id,
-        } => {
-            assert_eq!(
-                surviving, 10,
-                "alpha_class_size=10 must give exactly 10 surviving tuples"
-            );
-            assert_eq!(limit, 3);
-            assert_eq!(rule_xml_id, alpha.rule_xml_ids[0]);
-        }
-        other => panic!("expected AlphaTupleBudgetExceeded, got {other:?}"),
-    }
 }

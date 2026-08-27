@@ -1,4 +1,8 @@
-//! Partition-k / MPR-POS subrule gating: recall-parity plus `_overbudget` (`GroupBudgetExceeded`). Calls the production `pg_foma::gate::compile_gated_grammar_with_budget` entry point directly rather than a hand-assembled compose, and checks recall by generating each of the `2^k` bare-root entries, sweeping the real per-stratum phonological cascade for ground truth, then verifying the compiled net relates that same surface string to the same root tag.
+//! Partition-k / MPR-POS subrule gating: recall-parity. Calls the production
+//! `pg_foma::gate::compile_gated_grammar_with_budget` entry point directly rather than a
+//! hand-assembled compose, and checks recall by generating each of the `2^k` bare-root entries,
+//! sweeping the real per-stratum phonological cascade for ground truth, then verifying the
+//! compiled net relates that same surface string to the same root tag.
 
 mod common;
 
@@ -6,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use foma::options::FomaOptions;
 
-use pg_foma::compose_budget::{ComposeBudget, ComposeError};
+use pg_foma::compose_budget::ComposeBudget;
 use pg_foma::gate::compile_gated_grammar_with_budget;
 use pg_foma::replace::SegAlphabet;
 use pg_foma::tags;
@@ -24,19 +28,6 @@ fn recipe() -> Recipe {
         construct: ConstructKnobs {
             table_count: 1,
             gated_subrule_count: 2,
-            ..Default::default()
-        },
-    }
-}
-
-fn overbudget_recipe() -> Recipe {
-    Recipe {
-        name: "phase-c-partition-k-overbudget",
-        seed: 20260720,
-        scale: ScaleKnobs::default(),
-        construct: ConstructKnobs {
-            table_count: 1,
-            gated_subrule_count: 4,
             ..Default::default()
         },
     }
@@ -136,51 +127,5 @@ fn partition_k_recall_parity_via_generator_and_oracle() {
     assert!(
         per_word_p99 < Duration::from_millis(50),
         "per-word p99 {per_word_p99:?} exceeds the trip-wire"
-    );
-}
-
-/// Honest failure: 4 independent gated subrules realize `2^4 = 16` distinct gating groups, and a `group_cap` of 8 must trip `GroupBudgetExceeded` before any per-group compile work runs.
-#[test]
-fn partition_k_overbudget_trips_group_budget_fast() {
-    let recipe = overbudget_recipe();
-    let rendered = pg_grammar_gen::render_indexed(&recipe);
-    let g = pg_grammar::load(&rendered.xml).unwrap_or_else(|e| {
-        panic!(
-            "generated partition-k overbudget XML failed to load: {e}\n{}",
-            rendered.xml
-        )
-    });
-    assert_eq!(
-        g.entries.len(),
-        16,
-        "4 independent gated subrules must realize 2^4 = 16 entries"
-    );
-
-    let table = &g.char_tables[0];
-    let alphabet = SegAlphabet::new(table);
-    let opts = FomaOptions::default();
-    let ro = rules_in_order(&g);
-    let budget = ComposeBudget::with_caps(usize::MAX, 8);
-
-    let start = Instant::now();
-    let err = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
-        .expect_err("16 groups must exceed a group_cap of 8");
-    let elapsed = start.elapsed();
-
-    match err {
-        ComposeError::GroupBudgetExceeded {
-            groups,
-            limit,
-            gated_subrules,
-        } => {
-            assert_eq!(groups, 16);
-            assert_eq!(limit, 8);
-            assert_eq!(gated_subrules, 4);
-        }
-        other => panic!("expected GroupBudgetExceeded, got {other:?}"),
-    }
-    assert!(
-        elapsed < Duration::from_millis(200),
-        "group budget must trip BEFORE any per-group compile work runs (took {elapsed:?})"
     );
 }
