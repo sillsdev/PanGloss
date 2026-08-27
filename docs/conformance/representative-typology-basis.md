@@ -319,9 +319,9 @@ research.
    https://www.researchgate.net/publication/372327706_Metathesis.
 
 **Covered already? No.** design.md itself marks this **NEEDS-DECISION** (is a from-scratch RTL
-metathesis construction worth building at all, given its rarity, or a permanent scope boundary the
-way `MprGroupOverwrite` is?) — this document supplies the pattern basis for if/when that decision
-is made; it does not resolve the decision itself.
+metathesis construction worth building at all, given its rarity, or a permanent scope boundary?) —
+this document supplies the pattern basis for if/when that decision is made; it does not resolve the
+decision itself.
 
 #### 1.2.5 Multi-table — shared-representation-across-tables configuration
 
@@ -473,22 +473,13 @@ census, not typological research.
 ### 1.3 Permanent carve-outs — no fixture will ever close these (documented for completeness)
 
 These constructs are architecturally closed *without* a further representative pattern: either the
-disposition is unconditionally `ConfirmOnly`/`FailClosed` with no reachable further split (ADR 0001's
-own framing), or the residual gap is a resource ceiling or an oracle-verification gap rather than a
-missing pattern. Each is included here only so a future reader does not mistake "not discussed above"
-for "overlooked."
+disposition is unconditionally `ConfirmOnly` with no reachable further split (ADR 0001's own framing),
+or the residual gap is a resource ceiling or an oracle-verification gap rather than a missing pattern.
+Each is included here only so a future reader does not mistake "not discussed above" for "overlooked."
 
 - **`RealizationalMorphology`, `MprGroupAppend`, `CoOccurrenceConstraint`** — always `ConfirmOnly`,
   no `Refuse` split exists for any of them (design.md D2 rows 1, 4, 12); already representatively
   covered (§1.1).
-- **`MprGroupOverwrite`** — unconditionally `FailClosed`; `pg_grammar::model::mpr_add_output`'s own
-  doc calls a safe finite superset construction structurally unsound for history-dependent
-  `Overwrite` replace semantics, not merely unproven. For context only (no fixture is proposed):
-  the general phenomenon this predicate refuses — a later rule *replacing* rather than *adding to* an
-  earlier exponent — is well studied under "replacive"/non-concatenative exponence (ablaut, mutation,
-  templatic overwriting: https://blogg.uit.no/psv000/wp-content/uploads/sites/55/2018/04/bye_svenonius_160111.pdf),
-  but the specific *history-dependent group-overwrite* configuration this predicate refuses has no
-  claimed safe construction even in principle, so no representative fixture is proposed here.
 - **`Reduplication` × `RealizationalRule`** — a deliberate, faithfully-preserved oracle-parity
   carve-out (`crate::peel::is_reduplication_rule`'s own doc), not an unproven construction; no
   fixture is proposed.
@@ -554,7 +545,6 @@ for "overlooked."
 | **SubruleGating** | `subrule-morphosyntactic-gating` | Internal/external-sandhi-style subrule blocking | **No** |
 | CircumfixOutputAction — missing structural-composite shapes | none (premature) | Unknown pending census | Unknown |
 | RealizationalMorphology / MprGroupAppend / CoOccurrenceConstraint | — | (permanent carve-out, no split) | Yes |
-| MprGroupOverwrite | none (permanent carve-out) | Replacive/overwriting exponence (context only) | N/A |
 | Reduplication × RealizationalRule | none (permanent carve-out) | Oracle-parity quirk | N/A |
 | UnorderedMorphRuleApplication (unbounded) | none (resource ceiling) | N/A | N/A |
 | SimultaneousRewrite (genuine overlap) | none yet (oracle-gated) | Overlapping rewrite-subrule environments | Needs oracle, not pattern |

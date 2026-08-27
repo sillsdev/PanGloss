@@ -26,10 +26,10 @@ Set matching cannot distinguish "this fixture exercises the finer construct" fro
 exercises the coarser sibling and happens to tag the same row." So the finer characteristic can
 report `Covered` on **inherited** evidence.
 
-This is the same defect class G8 already fixed for one specific case: `MprGroupOverwrite`
-(`FailClosed`) was reporting `Covered` purely because `MprGroupAppend` tagged the shared
-`"MPR features/groups"` id, with the refusal never exercised. That fix was scoped to the
-`FailClosed`/`RefusalWitness` split. **The general case survived it.**
+This is the same shared-id inheritance defect that an earlier G8 implementation first exposed with
+`MprGroupOverwrite`: its row could be credited solely because `MprGroupAppend` tagged the shared
+`"MPR features/groups"` id. The old refusal-only terminology is retired. The current implementation
+keeps the general structural-witness check instead.
 
 ## Hand verification — the claim is true today
 
@@ -51,10 +51,10 @@ the aggregate count:
    affixation id, and those are genuine circumfixes (a morpheme wrapping the root on both sides).
    Note the same id is also tagged by plainly-suffixal words elsewhere (`coverage.csv:4-20`), which
    is exactly the coarseness that makes this check necessary.
-4. **`MprGroupAppend` / `MprGroupOverwrite`** — already resolved, not by luck.
-   `MprGroupOverwrite` no longer uses the passing-fixture path at all: G8 grades it by
-   `ContainmentEvidenceKind::RefusalWitness`, and `tests/coverage_citation_liveness.rs` now proves
-   that witness resolves to a real `#[test]`. This pair needs no further work.
+4. **`MprGroupAppend` / `MprGroupOverwrite`** — the shared id remains, so it is covered by a
+   structural witness rather than inherited from the sibling's tag. The current
+   `registered_structural_witnesses` entry checks that the grammar actually declares an overwrite
+   MPR group. No refusal-based evidence is involved.
 
 **So 20/20 Covered is a true statement about the current tree.** It is not an inflated number.
 
@@ -95,9 +95,8 @@ The shared-id list must be **computed** from `construct_ids_for`, not hardcoded,
 id with no structural witness must fail — otherwise a future mapping quietly reintroduces
 inheritance, which is the whole defect.
 
-Once that is green, the flip is honest: every row is either evidenced by a passing fixture whose
-grammar is checked to exhibit the construct, or by a refusal witness proven to resolve to a real
-test.
+Once that is green, the flip is honest: every shared row is evidenced by a passing fixture whose
+grammar is checked to exhibit the finer construct.
 
 ## What this does not claim
 

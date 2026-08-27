@@ -34,7 +34,7 @@ through `build(plan)` (task 1.3) and capability-safe plan selection (2.x).
 simultaneous-overlap automaton intersection. OPEN: migrating `replace.rs`'s own rewrite compilation
 onto the seam.
 
-**Stage 2 — ALL 11 CONSTRUCTS LANDED (code-path availability only).** Every construct moved from unconditional fail-closed to an
+**Stage 2 — ALL 11 CONSTRUCTS LANDED (code-path availability only).** Every construct has an
 honest predicate, with proposer-to-confirm containment where the oracle supports it: multi-table
 (owning-table threading), RTL (reversal + recall-safe union), simultaneous (admitted non-overlap),
 bounded quantifiers (`^{min,max}`), metathesis (swap relation), circumfix/null-output (fixed a real
@@ -42,7 +42,7 @@ multi-`InsertSegments` recall bug), template/truncation/reduplication (chain-dep
 incl. nested), realizational + constraints (already faithful; constraints are architecturally
 confirm-only), compounding (license-gated head×non-head cross product, budget-bounded; recursive
 fail-closed), unordered (existing derivation-chain superset + bounded/unbounded split), MPR groups
-(Append non-tracking baseline; Overwrite permanently fail-closed).
+(Append non-tracking baseline; Overwrite uses an explicit `ConfigPredicate` and structural witness).
 
 “Landed” here means that a compiler code path and its predicate boundary exist. It does not mean
 that Indonesian, Amharic, or Aweti has a complete, identity-bound, trusted FST; current
@@ -63,8 +63,7 @@ findings, refusal on Critical admission, and the change's own verification run. 
 `recipe-scoped-fst-health`. Note the caveat this repairs: "each change's `tasks.md` is precise" is not
 safe to assume — those notes were true when written and carry no timestamp.
 
-`make-wasm-analysis-only` has NOT removed the compiler from WASM
-(`PanGlossGrammar::new` still compiles from XML); `add-grammar-diagnostics` defers everything needing
+`add-grammar-diagnostics` defers everything needing
 a second pipeline, file artifacts, or the PowerShell/CI/skill layer; `add-reference-hermitcrab-parity`
 has the Rust gloss-signature unit but zero of the C# oracle harness.
 
@@ -114,13 +113,10 @@ Each outcome is pinned by a test at its site, and every fix left conformance at 
 **Measured conformance (2026-07-25, fresh release builds).** Default engine: **15 passed + 1 known
 divergence** (`edge-cases/simultaneous-epenthesis-cascade`, which pins a C# synthesis-side crash bug) —
 the standing baseline, unchanged by every change above. FST/foma engine under the now-default-enforcing
-gate: **10 passed, 5 unexpected failures** (down from 6). Every foma refusal is the gate working as
-designed — a loud capability Refuse instead of silent recall loss — and each remaining one is
-principled: an `Overwrite` MPR group (permanently fail-closed, the history-dependent trap), a
-`Modify`/`InsertContext` process-morph allomorph (honestly skipped, not mis-compiled), plus
-metathesis/compounding shapes outside their proven boundaries. The capability registry now contains
-**zero bare `FailClosedPlaceholder`s**: every `FailClosed`/`ConfigPredicate` characteristic has a real,
-evidenced predicate.
+gate: **10 passed, 5 unexpected failures** (down from 6). The historical baseline recorded
+`Modify`/`InsertContext` process-morph allomorphs (honestly skipped, not mis-compiled), plus
+metathesis/compounding shapes outside their proven boundaries. The current capability registry
+represents MPR Overwrite with an explicit `ConfigPredicate` and structural grammar witness.
 
 **Stage 4 — REFRAMED.** `certify-four-language-matrix` is renamed `run-synthetic-conformance-matrix`
 (its specs subdir likewise); the body already dropped the terminal-certification framing and the four
@@ -128,11 +124,6 @@ actual languages. The always-on CI gate it describes is the committed `conforman
 
 **Still open — and each is blocked or large, not merely unstarted:**
 
-- **WASM compiler removal** (`make-wasm-analysis-only` 3.2/3.3, §4) — one step closer now that
-  `pangloss pack` writes a genuinely reloadable foma proposer half, but still needs the consumer-side
-  "reconstruct an analyzer from `.pgpack` bytes" path *and* the runtime-grammar payload serializer,
-  which is itself blocked: `pg_grammar::model::Grammar` derives serde on almost none of its types and
-  `pg_featstruct::Interner<FeatureStruct>` has no impl at all.
 - **The C# HermitCrab oracle harness** (`add-reference-hermitcrab-parity` §§2/2A/3/4/5) — zero code
   exists; the Rust gloss-signature half is done.
 - **`reify-compilation-plans`' parked follow-on** (`add-compilation-cost-planner`): the projected-cost
@@ -224,7 +215,7 @@ the profile/envelope/predicate types, the default-deny characterizer (no catch-a
 (ADR 0005), and the **conformance-coverage CI gate** (supported ⟺ a passing in-repo
 `machine/conformance/` fixture, else the build breaks). Its first act marks every unproven
 configuration — including `MorphRuleDef::Compounding`, `MorphRuleOrder::Unordered`, and `MprGroup` —
-**fail-closed**. Everything else sequences behind this.
+behind an explicit predicate or confirm-only boundary. Everything else sequences behind this.
 
 ### 0B. Coverage ledger — evidence into the gate
 
@@ -287,7 +278,8 @@ events and `emit.rs` instrumentation.
 Each construct ships its **full kit**: a configuration-predicate capability boundary (never
 variant-level), oracle witnesses, a synthetic `machine/conformance/` fixture, big-O characterization
 + resource thresholds, a per-construct runtime-feature declaration (ADR 0004; default: fully lowered,
-contributes nothing), and diagnostics. A construct is promoted from fail-closed to supported only via
+contributes nothing), and diagnostics. A construct is promoted from an unproven/default-deny state to
+supported only via
 the Stage 0A gate. Merge in an order that respects `replace.rs`/`gate.rs` single-ownership:
 
 1. `fix-multitable-fst-compilation`
@@ -337,7 +329,7 @@ asserts its own non-vacuity so a shrunken report cannot pass trivially.
 
 **Three prerequisite gates had to be built first**, because the naive flip would have enshrined an
 overclaim rather than prevented one:
-- `coverage_citation_liveness.rs` — a `FailClosed` row's `Covered` verdict rests entirely on a
+- `coverage_citation_liveness.rs` — a `Covered` row's verdict rests entirely on a
   hand-written citation string; nothing had checked those resolved. It caught a real dangling citation
   on its first encounter with live work.
 - `exercises_tag_liveness.rs` — three fixtures tagged *characteristic names* where a `constructs.txt`
@@ -353,12 +345,10 @@ overclaim rather than prevented one:
 is worse than an advisory report, because the green light is what gets cited.* 20/20 Covered was true
 before the witnesses existed — and still not sufficient to flip.
 
-**Two things will never close, and are not gaps.** `MprGroupOverwrite` is a permanent carve-out
-present in **all three** reference grammars (`docs/benchmark-matrix.md`), so no reference grammar can
-ever clear the `--engine=foma` gate without the hidden developer-only ADR 0005
-`--allow-unproven` override — by design, not by omission. That override may omit valid parses and
-cannot publish or certify. And `SimultaneousRewrite`'s overlapping-subrule configuration stays
-oracle-blocked until a real `hc.dll` harness exists, which ADR 0001 itself names.
+**The shared-id issue for `MprGroupOverwrite` is not a permanent carve-out.** Its coverage uses the
+structural witness described in `docs/conformance/shared-construct-id-analysis.md`. And
+`SimultaneousRewrite`'s overlapping-subrule configuration stays oracle-blocked until a real `hc.dll`
+harness exists, which ADR 0001 itself names.
 
 **Do not read row-level coverage as completeness.** `Covered` means "evidenced at its own
 disposition," never `Admit` (ten rows are `ConfigPredicate`, three `ConfirmOnly`) and never
@@ -435,8 +425,8 @@ accuracy, since a token can receive a wrong analysis and still count; and an una
 never render as a passed one.
 
 **Expected first result, stated up front so it is not mistaken for a bug:** per
-`docs/benchmark-matrix.md`, all three reference grammars are currently refused on the compiled path,
-two of them by a permanent carve-out. Under an honest bar **none of them certifies today**. That is the
+`docs/benchmark-matrix.md`, all three reference grammars were refused on the compiled path at the
+recorded baseline. Under an honest bar **none of them certifies today**. That is the
 correct output of a bar set honestly, and the change must not be softened to produce cheerful output.
 
 ## Downstream — post-multi-topology, pre-ship
