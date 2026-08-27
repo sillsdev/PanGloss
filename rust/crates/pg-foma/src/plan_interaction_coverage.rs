@@ -518,12 +518,8 @@ pub fn compute_interaction_coverage(
 // Assembly glue: building a Plan + CharacteristicsProfile the way a real caller would
 
 /// Assembles `g`'s reified `Plan` (`enumerate_default`) and `CharacteristicsProfile` the way a
-/// real caller would — mirrors `crate::capability_entry::best_case_across_backends`'s own setup exactly
-/// (same `surface_table`/`SegAlphabet`/`PhonologyProbe` assembly), just returning both pieces
-/// instead of folding them into a `crate::capability::CompileDecision`. Lives in `src/` (not a
-/// test-only helper) because it needs `crate::emit::surface_table`, which is `pub(crate)` —
-/// `tests/plan_interaction_coverage_gate.rs` (an external test crate) cannot call it directly, so
-/// this one clean, additive entry point does the assembly once here.
+/// real caller would — mirrors `crate::capability_entry::best_case_across_backends`'s setup, but
+/// returns both pieces instead of folding them into a `crate::capability::CompileDecision`.
 ///
 /// Both halves come off ONE
 /// `GrammarSemantics`, rather than a module-local `prules_in_order` copy —

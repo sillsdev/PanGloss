@@ -10,27 +10,11 @@
 //! about the call graph, not this module — grep for callers to check.
 //!
 //! # Mirroring the real compile setup
-//! `crate::emit::emit_with_budget`'s own SETUP (its first few lines, before any lexc text is
-//! written) builds exactly three things this function also needs, the same way:
-//! - `table`/the segment alphabet: `emit_with_budget` calls `crate::emit::surface_table` (the
-//!   LAST stratum's char-def table — that function's own doc) and wraps it in a
-//!   `crate::replace::SegAlphabet` wherever the compose/gate seams need one (`crate::gate`/
-//!   `crate::replace`'s own production call sites, mirrored by `crate::enumerate`'s test-module
-//!   helpers this function also mirrors). `best_case_across_backends` does the identical
-//!   `SegAlphabet::new(surface_table(g))`.
-//! - `phon`: `emit_with_budget` calls `PhonologyProbe::new(g)` directly; so does this function.
-//! - `prules_in_order`: not a literal local in `emit_with_budget` itself (that function's mainline
-//!   lexc-emission path doesn't build a `Replace` cascade at all — see `crate::enumerate`'s own
-//!   module doc, "Judgment calls," for why `crate::gate`/`crate::replace`'s compose-seam prototype
-//!   and `emit.rs`'s mainline lexc path are two separate compile entry points today), but every
-//!   OTHER real construction site for this exact slice in this crate (`crate::gate::
-//!   compile_gated_grammar_with_budget`, `crate::enumerate`'s and `crate::capability`'s own test
-//!   modules) builds it the same way: `g`'s strata, in order, flattened over each stratum's own
-//!   `phonologicalRules` id list, as literal borrows of `g.prules` (required for
-//!   `crate::enumerate::rule_id_of`'s pointer-identity `PRuleId` recovery). That construction is
-//!   the shared `crate::enumerate::prules_in_order`, which `best_case_across_backends` calls.
+//! The shared `GrammarSemantics` owner supplies the authored-order phonological-rule borrows and
+//! phonology probe that `enumerate_default` needs. The rule slice borrows directly from `g.prules`,
+//! as required by `crate::enumerate::rule_id_of`'s pointer-identity recovery.
 //!
-//! `best_case_across_backends` then hands all three to `crate::enumerate::enumerate_default`
+//! `best_case_across_backends` hands those inputs to `crate::enumerate::enumerate_default`
 //! to get the reified `crate::plan::Plan`, and folds that together with
 //! `crate::capability::characterize`'s profile via `crate::capability::compose_envelope` against
 //! `crate::capability::default_registry` — the same two spines
