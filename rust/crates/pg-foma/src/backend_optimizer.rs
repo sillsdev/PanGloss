@@ -413,7 +413,6 @@ pub struct SearchResult {
     pub generated: u64,
     pub expanded: u64,
     pub pruned: u64,
-    pub seed: u64,
     pub parameters: BTreeMap<String, String>,
 }
 
@@ -422,7 +421,7 @@ pub trait SearchStrategy: Send + Sync {
     fn search(&self, candidates: &[CandidateState], budget: Budget, seed: u64) -> SearchResult;
 }
 
-fn empty_result(strategy: Strategy, seed: u64) -> SearchResult {
+fn empty_result(strategy: Strategy) -> SearchResult {
     SearchResult {
         selected: Vec::new(),
         strategy,
@@ -433,7 +432,6 @@ fn empty_result(strategy: Strategy, seed: u64) -> SearchResult {
         generated: 0,
         expanded: 0,
         pruned: 0,
-        seed,
         parameters: BTreeMap::new(),
     }
 }
@@ -464,9 +462,9 @@ impl SearchStrategy for Exhaustive {
         Strategy::Exhaustive
     }
 
-    fn search(&self, candidates: &[CandidateState], budget: Budget, seed: u64) -> SearchResult {
+    fn search(&self, candidates: &[CandidateState], budget: Budget, _seed: u64) -> SearchResult {
         if candidates.is_empty() {
-            return empty_result(self.strategy(), seed);
+            return empty_result(self.strategy());
         }
         let ordered = baseline_first(candidates.to_vec());
         let cap = capacity(budget, ordered.len());
@@ -490,7 +488,6 @@ impl SearchStrategy for Exhaustive {
             generated: candidates.len() as u64,
             expanded: cap as u64,
             pruned: 0,
-            seed,
             parameters: BTreeMap::from([("candidate-cap".to_owned(), cap.to_string())]),
         }
     }
@@ -508,7 +505,7 @@ impl SearchStrategy for DiverseBeam {
 
     fn search(&self, candidates: &[CandidateState], budget: Budget, seed: u64) -> SearchResult {
         if candidates.is_empty() {
-            return empty_result(self.strategy(), seed);
+            return empty_result(self.strategy());
         }
         let cap = self.width.min(capacity(budget, candidates.len()));
         let mut remaining = candidates.to_vec();
@@ -563,7 +560,6 @@ impl SearchStrategy for DiverseBeam {
             generated: candidates.len() as u64,
             expanded: cap as u64,
             pruned: 0,
-            seed,
             parameters: BTreeMap::from([("beam-width".to_owned(), self.width.to_string())]),
         }
     }
@@ -582,7 +578,7 @@ impl SearchStrategy for BranchAndBound {
 
     fn search(&self, candidates: &[CandidateState], budget: Budget, seed: u64) -> SearchResult {
         if candidates.is_empty() {
-            return empty_result(self.strategy(), seed);
+            return empty_result(self.strategy());
         }
         let cap = capacity(budget, candidates.len());
         let mut ordered = candidates.to_vec();
@@ -631,7 +627,6 @@ impl SearchStrategy for BranchAndBound {
             } else {
                 Termination::BudgetExhausted
             },
-            seed,
             parameters: BTreeMap::from([
                 ("candidate-cap".to_owned(), cap.to_string()),
                 ("bound".to_owned(), "admissible-lower-bound".to_owned()),
