@@ -307,11 +307,6 @@ pub fn parse_catalog(source: &str) -> Result<AdviceCatalog, CatalogError> {
 }
 
 impl AdviceCatalog {
-    /// Parse and validate a TOML catalog.
-    pub fn from_toml(source: &str) -> Result<Self, CatalogError> {
-        parse_catalog(source)
-    }
-
     /// Validate a catalog assembled by a caller rather than parsed from TOML.
     pub fn validate(&self) -> Result<(), CatalogError> {
         validate_catalog(self)
