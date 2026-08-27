@@ -368,8 +368,16 @@ already rejected behavior.
    Status: **RIP IN PROGRESS.** `e10ab3ca`/`64323d45` removed chooser assertions and APIs;
    `54508605`/`8889877b`/`9396c7b3`/`f1b46d49` removed legacy Pack compile tests, build machinery,
    implicit report builds, and callers. `a148d2e6`/`c3b8aeaa` removed compile-retry assertions and
-   advice. Explicit destination wiring and completed-artifact ingestion are intentionally not added
-   yet. The hidden worker child remains required.
+   advice. `b3521c0e`/`7982e6ee`/`1c2fc84b` removed the last direct-Foma parse/batch test, fixed
+   backend capability gate, engine flags, in-process compiler branches, and dead help. The resulting
+   shared-helper holes were followed forward: `c143c532`/`40891313`/`e03e83e9` deleted the live
+   Foma stats tests, helper, and fixture instead of restoring them. `7d987667`/`45633e83` removed
+   cross-backend substitution advice. `d8dda4f7`/`af32379a` removed WASM tests and source for
+   automatic Foma compilation/fallback; `99f478b2` removed its severity-based publication boolean.
+   Protected `make_report.rs` still references the deleted `foma_invalid_shape`, `GATED_BACKEND`,
+   and `gated_backend_decision`; these are intentional forward compile holes whose consumers must be
+   deleted in the report/corpus tranche. Explicit destination wiring and completed-artifact
+   ingestion are intentionally not added yet. The hidden worker child remains required.
 4. **Delete internal compile refusal caps (A1-A5/A9/A10/C2-C4/H5).** Rewrite cap/refusal/retry tests,
    then remove state/arc/tuple/group/line/compound/order
    representability stops, named-envelope remedies, and old constants while preserving measurements.
