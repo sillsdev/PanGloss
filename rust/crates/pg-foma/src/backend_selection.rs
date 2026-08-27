@@ -523,7 +523,7 @@ mod tests {
             severity,
             phase: crate::health::Phase::Compile,
             affected: vec!["synthetic-rule".to_string()],
-            metric: crate::health::Metric::EmittedLineCount,
+            metric: crate::health::Metric::UnknownUnboundedWork,
             value: crate::health::MetricValue::Count(1),
             provenance: crate::health::ValueProvenance::Observed,
             threshold: None,

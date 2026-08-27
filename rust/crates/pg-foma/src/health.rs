@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn worker_tree_peak_memory_metric_bumps_health_schema_version() {
-        assert_eq!(HEALTH_SCHEMA_VERSION, 5);
+        assert_eq!(HEALTH_SCHEMA_VERSION, 6);
     }
 
     #[test]
@@ -877,33 +877,9 @@ mod tests {
         assert_eq!(label(Severity::CannotRepresent), "cannot_represent");
     }
 
-    /// Two findings: one LargeMultiplier with a linguistic-equivalence-caveated remedy and one NotProductionReady payload-size label.
+    /// One NotProductionReady payload-size label.
     fn representative_report() -> HealthReport {
         HealthReport::new(vec![
-            HealthFinding {
-                code: FindingCode::IntermediateNetworkGrowth,
-                severity: Severity::LargeMultiplier,
-                phase: Phase::Compile,
-                affected: vec!["mrule:0042".to_string(), "mrule:0043".to_string()],
-                metric: Metric::IntermediateStateCount,
-                value: MetricValue::Count(1_250_000),
-                provenance: ValueProvenance::Observed,
-                threshold: Some(MetricValue::Count(1_000_000)),
-                explanation: "Composing mrule:0042 with mrule:0043 produced an intermediate \
-                    network of 1,250,000 states, above the 1,000,000-state compile-work band."
-                    .to_string(),
-                remedies: vec![Remedy {
-                    rank: 1,
-                    description: "Reorder mrule:0042 and mrule:0043 within their stratum."
-                        .to_string(),
-                    requires_linguistic_equivalence: true,
-                    caveat: Some(
-                        "Only applies if the two orders are linguistically equivalent; the \
-                            compiler cannot verify that on its own."
-                            .to_string(),
-                    ),
-                }],
-            },
             HealthFinding {
                 code: FindingCode::PayloadSizeBand,
                 severity: Severity::NotProductionReady,
@@ -928,36 +904,8 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 5,
+  "schema_version": 6,
   "findings": [
-    {
-      "code": "PGF0002",
-      "severity": "large_multiplier",
-      "phase": "compile",
-      "affected": [
-        "mrule:0042",
-        "mrule:0043"
-      ],
-      "metric": "intermediate_state_count",
-      "value": {
-        "kind": "count",
-        "value": 1250000
-      },
-      "provenance": "observed",
-      "threshold": {
-        "kind": "count",
-        "value": 1000000
-      },
-      "explanation": "Composing mrule:0042 with mrule:0043 produced an intermediate network of 1,250,000 states, above the 1,000,000-state compile-work band.",
-      "remedies": [
-        {
-          "rank": 1,
-          "description": "Reorder mrule:0042 and mrule:0043 within their stratum.",
-          "requires_linguistic_equivalence": true,
-          "caveat": "Only applies if the two orders are linguistically equivalent; the compiler cannot verify that on its own."
-        }
-      ]
-    },
     {
       "code": "PGF0001",
       "severity": "not_production_ready",
@@ -1011,10 +959,10 @@ mod tests {
 
     #[test]
     fn fst_health_schema_rejects_stale_v4_reports() {
-        let stale = GOLDEN_JSON.replacen("\"schema_version\": 5", "\"schema_version\": 4", 1);
-        let error = HealthReport::from_json(&stale).expect_err("schema v4 must be rejected");
-        assert!(error.to_string().contains("schema version 4"));
-        assert!(error.to_string().contains("expected 5"));
+        let stale = GOLDEN_JSON.replacen("\"schema_version\": 6", "\"schema_version\": 5", 1);
+        let error = HealthReport::from_json(&stale).expect_err("schema v5 must be rejected");
+        assert!(error.to_string().contains("schema version 5"));
+        assert!(error.to_string().contains("expected 6"));
     }
 
     // fst_health_finding_class: FindingCode -> FindingClass, the four-question vocabulary.
@@ -1160,7 +1108,7 @@ mod tests {
                 Severity::Elevated,
             )]),
             HealthReport::new(vec![
-                class_finding(FindingCode::CompileWorkBudget, Severity::NotProductionReady),
+                class_finding(FindingCode::UnknownUnboundedConstruct, Severity::NotProductionReady),
                 class_finding(FindingCode::BackendCoverageIncomplete, Severity::LargeMultiplier),
             ]),
             HealthReport::new(vec![

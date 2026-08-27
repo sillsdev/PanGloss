@@ -14,7 +14,7 @@ fn finding(severity: Severity, code: FindingCode) -> HealthFinding {
         severity,
         phase: Phase::Compile,
         affected: vec!["synthetic-rule".to_string()],
-        metric: Metric::EmittedLineCount,
+        metric: Metric::UnknownUnboundedWork,
         value: MetricValue::Count(1),
         provenance: ValueProvenance::Observed,
         threshold: None,
