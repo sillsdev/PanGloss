@@ -3036,8 +3036,8 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 /// Like `MetathesisDetail::swap_construction_attempted`'s own disclaimer, this predicate does not
 /// model a runtime-resource dimension: `crate::emit::build_structural_composites`'s closure-depth
 /// resource envelope and the shared
-/// `crate::morphotactics::EnumerationBudget` are calibrated resource limits the profile does
-/// not represent, not a structural fact about any one epenthesis rule.
+/// runtime resource limits are calibrated separately and are not structural facts about any one
+/// epenthesis rule.
 ///
 /// # Node applicability
 /// `CharacteristicKind::Epenthesis`'s own `ModelLocation` is a `PhonRuleDef::Rewrite` rule, which

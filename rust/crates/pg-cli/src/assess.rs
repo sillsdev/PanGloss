@@ -458,14 +458,8 @@ fn run_cases(
         }
         Pipeline::FomaConfirm => {
             let mut analyzer = FomaAnalyzer::new(grammar).map_err(|e| {
-                // A tripped enumeration budget is containment (a larger envelope may run it),
-                // while a compile failure is an emitter capability gap that no budget changes.
                 let message = format!("the foma-confirm pipeline cannot run this grammar: {e}");
                 match e {
-                    pg_foma::analyzer::FomaError::EnumerationBudgetExceeded { .. } => CliError {
-                        code: EXIT_CONTAINED,
-                        message,
-                    },
                     pg_foma::analyzer::FomaError::LexcCompileFailed(_)
                     | pg_foma::analyzer::FomaError::Unsupported(_)
                     | pg_foma::analyzer::FomaError::Incomplete(_) => CliError::unsupported(message),

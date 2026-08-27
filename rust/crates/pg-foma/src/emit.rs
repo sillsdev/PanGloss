@@ -205,7 +205,7 @@ use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::enumerate::enumerate_default;
 use crate::junctions::PhonologyProbe;
 use crate::morphotactics::{
-    ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
+    ChainState, ExploreMode, MorphotacticIndex, ProbeBudget,
 };
 use crate::plan::{FragmentSpec, Plan, PlanNodeKind};
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
@@ -337,23 +337,16 @@ pub enum FomaTier {
     Unsupported { reason: String },
 }
 
-/// Fail-fast enumeration budget (`crate::morphotactics::EnumerationBudget`'s own doc): set
-/// on `EmitReport` iff the default-on budget tripped during this `emit`/`emit_with_precision`
-/// call. Carries the exact numbers needed to build an honest, specific error message —
-/// `crate::analyzer::FomaError::EnumerationBudgetExceeded` is constructed directly from this
-/// struct's fields, so the message `FomaProposer::new`'s caller sees always matches what actually
-/// tripped, never a generic/stale string.
+/// Structured detail for a bounded emitter refusal. The field is retained for compatibility with
+/// the compound-chain-depth refusal, whose measured value and configured limit are useful to
+/// callers and diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumBudgetExceeded {
-    /// Human-readable label for which measure tripped (`crate::morphotactics::EnumMeasure::label`) —
-    /// e.g. "composite lexc entries (fusion + interdigitation + structural)" or "(root, rule) pairs
-    /// probed".
+    /// Human-readable label for the bounded condition.
     pub measure: &'static str,
-    /// The measured value at the moment the budget tripped (may be a little past `limit` — the
-    /// check is cooperative/relaxed across parallel workers, module doc).
+    /// The measured value when the refusal was produced.
     pub value: usize,
-    /// The threshold that was exceeded (the default, or `HC_ENUM_ENTRY_BUDGET`/
-    /// `HC_ENUM_PROBE_BUDGET` if set).
+    /// The configured threshold.
     pub limit: usize,
 }
 
@@ -387,9 +380,8 @@ pub struct EmitReport {
     pub uncovered: Vec<UncoveredItem>,
     pub counts: EmitCounts,
     pub tier: FomaTier,
-    /// `Some` iff the default-on enumeration budget aborted this build — always paired
-    /// with `tier: FomaTier::Unsupported { .. }` when set. `None` for every ordinary
-    /// `Full`/`Partial`/`Unsupported`-for-some-other-reason report.
+    /// Structured detail for a bounded emitter refusal, when one applies. `None` for ordinary
+    /// successful or unrelated failure reports.
     pub enum_budget_exceeded: Option<EnumBudgetExceeded>,
     /// Typed closure-refusal evidence; `None` for successful emission and unrelated failures.
     pub closure_refusal: Option<ClosureRefusal>,
@@ -2088,8 +2080,8 @@ fn compound_depth_bound(g: &Grammar) -> usize {
 /// module's depth bound and budget discipline verbatim rather than re-deriving either.
 ///
 /// `compound_chain_depth_and_budget_check` is now a thin front end onto this that additionally
-/// renders the `FomaTier::Unsupported`/`EnumBudgetExceeded` refusal the two `EmitResult`-returning
-/// emitters need -- the same "one construction, two presentations" split
+/// renders the `FomaTier::Unsupported` refusal and structured depth detail the two
+/// `EmitResult`-returning emitters need -- the same "one construction, two presentations" split
 /// `build_compound_chain`'s own doc uses.
 pub(crate) fn compound_extra_levels_checked(g: &Grammar) -> Result<usize, ComposeError> {
     compound_extra_levels_checked_with_cap(g, None)
@@ -3107,8 +3099,6 @@ struct StructCtx<'a> {
     mt: &'a MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'a>>,
-    /// Default-on fail-fast enumeration budget, re-derived rather than shared for the same reason `struct_morph_order_tags` is.
-    enum_budget: &'a EnumerationBudget,
     /// Memoized conservative reachability over authored sites and application bounds.
     dirty_reach: &'a RefCell<HashMap<ChainState, bool>>,
     closure_trace: Option<&'a crate::characterization::ClosureTrace>,
@@ -3162,9 +3152,6 @@ fn structural_successor_is_dirty(
 
 /// Conservatively tests transitive dirty-rule reachability over the finite morphotactic state graph.
 fn can_reach_dirty_candidate(ctx: &StructCtx<'_>, start: &ChainState) -> bool {
-    if ctx.enum_budget.is_tripped() {
-        return true;
-    }
     if let Some(&cached) = ctx.dirty_reach.borrow().get(start) {
         return cached;
     }
@@ -3172,9 +3159,6 @@ fn can_reach_dirty_candidate(ctx: &StructCtx<'_>, start: &ChainState) -> bool {
     let mut stack = vec![(start.clone(), false)];
     let mut visiting: HashSet<ChainState> = HashSet::new();
     while let Some((state, expanded)) = stack.pop() {
-        if ctx.enum_budget.is_tripped() {
-            return true;
-        }
         if ctx.dirty_reach.borrow().contains_key(&state) {
             continue;
         }
@@ -3185,10 +3169,6 @@ fn can_reach_dirty_candidate(ctx: &StructCtx<'_>, start: &ChainState) -> bool {
             let mut children = Vec::new();
             let mut keep_tail = false;
             for &mid in ctx.rules {
-                ctx.enum_budget.tick_probe();
-                if ctx.enum_budget.is_tripped() {
-                    return true;
-                }
                 let Some(next) = ctx.mt.next_state_fs_insensitive(&state, mid) else {
                     continue;
                 };
@@ -3229,10 +3209,6 @@ fn can_reach_dirty_candidate(ctx: &StructCtx<'_>, start: &ChainState) -> bool {
 
         let mut keep_tail = false;
         for &mid in ctx.rules {
-            ctx.enum_budget.tick_probe();
-            if ctx.enum_budget.is_tripped() {
-                return true;
-            }
             let Some(next) = ctx.mt.next_state_fs_insensitive(&state, mid) else {
                 continue;
             };
@@ -3272,10 +3248,6 @@ fn struct_extend(
     anchored: bool,
     acc: &mut StructAcc,
 ) {
-    // Same check-once-at-the-top budget guard as `crate::preexpand::extend`'s own.
-    if ctx.enum_budget.is_tripped() {
-        return;
-    }
     let base_fs = base_word.syn_fs.clone();
     // Failure to prove an anchored surface ordinarily reachable keeps it on the structural path.
     let ordinary_base = if anchored {
@@ -3292,9 +3264,6 @@ fn struct_extend(
         None
     };
     for (ridx, &mid) in ctx.rules.iter().enumerate() {
-        if ctx.enum_budget.is_tripped() {
-            return;
-        }
         let rule = &ctx.g.mrules[mid.0 as usize];
         let (req, rule_morpheme) = match rule {
             MorphRuleDef::AffixProcess(def) => (def.required_syn_fs, def.morpheme),
@@ -3320,10 +3289,6 @@ fn struct_extend(
         if let Some(budget) = &ctx.probe_budget {
             budget.tick();
         }
-        ctx.enum_budget.tick_probe();
-        if ctx.enum_budget.is_tripped() {
-            return;
-        }
 
         let synthesized = pg_rules::morph::synthesize(ctx.g, base_word, rule);
         if let Some(trace) = ctx.closure_trace {
@@ -3346,9 +3311,6 @@ fn struct_extend(
         next_rule_chain.push(mid);
 
         for w in synthesized {
-            if ctx.enum_budget.is_tripped() {
-                return;
-            }
             let mut next_chain = chain.to_vec();
             next_chain.push((rule_morpheme, tags::morph_tag_lexc(rule_morpheme, width)));
             let next_anchored = anchored || candidate_requires_structural_route(ctx.g, mid);
@@ -3367,9 +3329,6 @@ fn struct_extend(
                 continue;
             }
 
-            if ctx.enum_budget.is_tripped() {
-                return;
-            }
             let shape_has_boundary = w
                 .shape
                 .interior()
@@ -3428,11 +3387,6 @@ fn struct_extend(
                         tag_lexc: tag_lexc.clone(),
                         variants: vec![s.clone()],
                     });
-                    // Same enumeration-budget measure `crate::preexpand::extend`'s entries feed.
-                    ctx.enum_budget.add_entries(1);
-                    if ctx.enum_budget.is_tripped() {
-                        return;
-                    }
                 }
             }
 
@@ -3448,9 +3402,6 @@ fn struct_extend(
                     next_anchored,
                     acc,
                 );
-                if ctx.enum_budget.is_tripped() {
-                    return;
-                }
             }
         }
     }
@@ -3468,7 +3419,6 @@ fn build_structural_composites_on_current_stack(
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
     phon: Option<&PhonologyProbe>,
-    enum_budget: &EnumerationBudget,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
 ) -> (
     Vec<crate::preexpand::CompositeRec>,
@@ -3546,7 +3496,6 @@ fn build_structural_composites_on_current_stack(
                     mt,
                     mode,
                     probe_budget,
-                    enum_budget,
                     dirty_reach,
                     closure_trace,
                 };
@@ -3587,7 +3536,6 @@ fn build_structural_composites(
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
     phon: Option<&PhonologyProbe>,
-    enum_budget: &EnumerationBudget,
 ) -> (
     Vec<crate::preexpand::CompositeRec>,
     BTreeSet<u32>,
@@ -3605,7 +3553,6 @@ fn build_structural_composites(
         mode,
         probe_budget,
         phon,
-        enum_budget,
         None,
     )
 }
@@ -3621,7 +3568,6 @@ fn build_structural_composites_with_trace(
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
     phon: Option<&PhonologyProbe>,
-    enum_budget: &EnumerationBudget,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
 ) -> (
     Vec<crate::preexpand::CompositeRec>,
@@ -3642,7 +3588,6 @@ fn build_structural_composites_with_trace(
             mode,
             probe_budget,
             phon,
-            enum_budget,
             closure_trace,
         );
     }
@@ -3661,7 +3606,6 @@ fn build_structural_composites_with_trace(
                     mode,
                     probe_budget,
                     phon,
-                    enum_budget,
                     closure_trace,
                 )
             })
@@ -3762,24 +3706,13 @@ pub fn emit(g: &Grammar) -> EmitResult {
 /// without ever losing a confirmed analysis (`sena_precision_recall_invariance`/
 /// `indonesian_precision_recall_invariance` pin this on real grammars).
 ///
-/// Thin, env-driven wrapper over `emit_with_budget` (Fix 1's fail-fast enumeration budget,
-/// `crate::morphotactics::EnumerationBudget`'s own doc): builds the production budget from
-/// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` (or the documented defaults) exactly once, same
-/// "read the env var in the production entry point only" convention this crate already uses for
-/// `HC_PREEXPAND_FLAT`/`HC_PREEXPAND_PROBE_CAP` (`crate::morphotactics::explore_mode_from_env`'s
-/// own doc) — so parallel test processes never race process-global env state; tests that need to
-/// exercise the budget deterministically call `emit_with_budget` directly with an explicit,
-/// tiny `crate::morphotactics::EnumerationBudget` instead.
+/// Thin wrapper over the profiled surface emitter. The exploratory flat/pruned and probe-cap
+/// switches remain internal measurement controls; production resource limits belong to the
+/// external execution envelope rather than this eager enumeration path.
 pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResult {
-    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-    emit_with_budget(g, precision, &enum_budget)
+    emit_with_budget(g, precision)
 }
 
-/// `emit_with_precision`'s core, with the fail-fast enumeration budget threaded in explicitly rather
-/// than read from env — see `emit_with_precision`'s own doc for why tests should call this
-/// directly (with a small `crate::morphotactics::EnumerationBudget::with_caps`) instead of
-/// setting `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`.
-///
 /// Thin, zero-behavior-change wrapper over `emit_with_budget_profiled` with `profile: None`
 /// ("no observer-induced minimization" rule, proven byte-for-byte by
 /// `tests::fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off`
@@ -3788,9 +3721,8 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
 pub(crate) fn emit_with_budget(
     g: &Grammar,
     precision: PrecisionConfig,
-    enum_budget: &crate::morphotactics::EnumerationBudget,
 ) -> EmitResult {
-    emit_with_budget_profiled(g, precision, enum_budget, None)
+    emit_with_budget_profiled(g, precision, None)
 }
 
 /// The two deliberate seams in the tuned surface emitter: derive topology from the reified plan, and admit every collected root.
@@ -3830,19 +3762,17 @@ enum SurfaceRootScopePolicy {
 ///
 /// Every stage boundary below is a plain `Instant::now()`/`.elapsed()` pair around already-existing
 /// sequential code, never a closure: several stages sit across this function's own early `return`s
-/// (the enum-budget trip and the empty-roots bail-out), and a closure
+/// (the empty-roots bail-out and other early returns), and a closure
 /// cannot early-return its OUTER function, so timing via closures would not fit every stage
 /// `CompileStage` names (`crate::profile`'s own doc, `CompileProfileBuilder::push_stage`).
 pub(crate) fn emit_with_budget_profiled(
     g: &Grammar,
     precision: PrecisionConfig,
-    enum_budget: &crate::morphotactics::EnumerationBudget,
     profile: Option<&mut CompileProfileBuilder>,
 ) -> EmitResult {
     emit_with_budget_profiled_with_strategy(
         g,
         precision,
-        enum_budget,
         profile,
         SurfaceEmitStrategy::default(),
     )
@@ -3852,14 +3782,12 @@ pub(crate) fn emit_with_budget_profiled(
 fn emit_with_budget_profiled_with_strategy(
     g: &Grammar,
     precision: PrecisionConfig,
-    enum_budget: &crate::morphotactics::EnumerationBudget,
     profile: Option<&mut CompileProfileBuilder>,
     strategy: SurfaceEmitStrategy,
 ) -> EmitResult {
     emit_with_budget_profiled_with_strategy_and_trace(
         g,
         precision,
-        enum_budget,
         profile,
         strategy,
         None,
@@ -3875,14 +3803,9 @@ pub fn emit_tuned_surface(g: &Grammar) -> EmitResult {
             depth_cap: crate::characterization::DEFAULT_TUNED_CLOSURE_DEPTH_LIMIT,
         },
     );
-    let enum_budget = crate::morphotactics::EnumerationBudget::with_caps(
-        crate::morphotactics::DEFAULT_ENTRY_BUDGET,
-        crate::morphotactics::DEFAULT_PROBE_BUDGET,
-    );
     emit_with_budget_profiled_with_strategy_and_trace(
         g,
         PrecisionConfig::Strip,
-        &enum_budget,
         None,
         SurfaceEmitStrategy::default(),
         Some(&trace),
@@ -3898,7 +3821,6 @@ pub fn emit_tuned_surface_for_request(g: &Grammar) -> EmitResult {
 fn emit_with_budget_profiled_with_strategy_and_trace(
     g: &Grammar,
     precision: PrecisionConfig,
-    enum_budget: &crate::morphotactics::EnumerationBudget,
     mut profile: Option<&mut CompileProfileBuilder>,
     strategy: SurfaceEmitStrategy,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
@@ -4039,7 +3961,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             &morphotactic_index,
             explore_mode,
             probe_budget,
-            enum_budget,
             closure_trace,
         )
     } else {
@@ -4077,7 +3998,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 explore_mode,
                 probe_budget,
                 phon.as_ref(),
-                enum_budget,
                 closure_trace,
             );
         counts.composite_structural_entries = struct_composites.len();
@@ -4097,45 +4017,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         allow_env_trace,
     );
     stage_start = Instant::now();
-
-    // Both builders above check enum_budget cooperatively during their own recursion, but the grammar-level verdict is decided once, here, before any expensive derivation work runs.
-    if let Some((measure, value, limit)) = enum_budget.trip_reason() {
-        if let Some(trace) = closure_trace {
-            trace.stop(crate::characterization::ClosureStopReason::EnumerationBudgetReached);
-        }
-        let reason = format!(
-            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when \
-             enumeration aborted at the cap -- a floor, not a total (limit {limit}; Aweti's measured \
-             uncapped total is ~15x this cap). \
-             This grammar's morphotactics produce more composite lexc material than the eager \
-             Rust-side enumerator (`pg_foma::preexpand`/`pg_foma::emit::build_structural_composites`) \
-             can safely expand into a literal lexc source without risking a multi-GB `.lexc` file and \
-             an out-of-memory crash in foma's own `apply_up` (the Aweti grammar -- 855 roots, 123 \
-             rules, 3 strata -- is the motivating case: 2,833,559 fusion entries, a 691MB/9.7M-line \
-             lexc, and an ~8.8GB `apply_up` allocation that killed the process outright). Use the \
-             default (full) morphological-parser engine for this grammar instead of the foma-composite \
-             engine, or -- only if you understand why this grammar's dynamic enumeration tree is this \
-             large -- raise the budget via HC_ENUM_ENTRY_BUDGET/HC_ENUM_PROBE_BUDGET and re-run.",
-            measure.label()
-        );
-        return EmitResult {
-            lexc_source: String::new(),
-            report: EmitReport {
-                uncovered,
-                counts,
-                tier: FomaTier::Unsupported {
-                    reason: reason.clone(),
-                },
-                enum_budget_exceeded: Some(EnumBudgetExceeded {
-                    measure: measure.label(),
-                    value,
-                    limit,
-                }),
-                closure_refusal: None,
-                closure_evidence: closure_trace.map(|trace| trace.result()),
-            },
-        };
-    }
 
     if let Some(trace) = closure_trace {
         let evidence = trace.result();
@@ -4924,13 +4805,10 @@ fn verify_tags_reachable(
 /// - **No composite pipeline at all** (`crate::preexpand::build_composites_with_mode`,
 ///   `build_structural_composites`) — this is the mechanism whose `O(roots × rules^depth)`
 ///   eager Rust-side enumeration is exactly what OOMs on Aweti (855 roots × 135 mrules;
-///   `EmitReport::enum_budget_exceeded`'s own error text cites 2,833,559 fusion entries / 691MB
-///   lexc / ~8.8GB `apply_up` allocation for this grammar specifically), so skipping it
-///   unconditionally is the scale fix this function exists for. The `EnumerationBudget`
-///   plumbing is still threaded in and checked below regardless — defensive parity with
-///   `emit_with_budget`'s own shape, even though nothing in this function's own call graph
-///   (`collect_roots`/`build_deriv_chain`/`build_slot_chain` under this mode never recurse the way
-///   `struct_extend` does) can actually trip it today.
+///   the historical measurements for this grammar cite 2,833,559 fusion entries / 691MB lexc /
+///   ~8.8GB `apply_up` allocation), so skipping it
+///   unconditionally is the scale fix this function exists for. This path deliberately emits
+///   only the underlying-token skeleton and leaves composition to its dedicated backend.
 /// - **Aweti's 41 single-sided-truncation `is_structural_rule` mrules are NOT specially handled.**
 ///   Under `TextMode::SurfaceProbed`, `build_structural_composites` is what gives these rules
 ///   their CORRECT (LHS-material-dropped) surface; the ordinary two-entry `emit_rule_allomorphs`
@@ -4946,7 +4824,6 @@ pub fn emit_underlying_templated(
     alphabet: &SegAlphabet,
     allowed_entries: Option<&HashSet<LexEntryId>>,
 ) -> EmitResult {
-    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
     let width = tags::tag_width(g.morphemes.len());
     let table = alphabet.table();
 
@@ -4977,31 +4854,6 @@ pub fn emit_underlying_templated(
         allowed_entries,
         mode,
     );
-
-    // Checked here for parity with emit_with_budget's own shape; defensive, not load-bearing, since nothing in this function's call graph increments it today.
-    if let Some((measure, value, limit)) = enum_budget.trip_reason() {
-        let reason = format!(
-            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when enumeration aborted at the cap -- a floor, not a total (limit {limit}).",
-            measure.label()
-        );
-        return EmitResult {
-            lexc_source: String::new(),
-            report: EmitReport {
-                uncovered,
-                counts,
-                tier: FomaTier::Unsupported {
-                    reason: reason.clone(),
-                },
-                enum_budget_exceeded: Some(EnumBudgetExceeded {
-                    measure: measure.label(),
-                    value,
-                    limit,
-                }),
-                closure_refusal: None,
-                closure_evidence: None,
-            },
-        };
-    }
 
     if roots.is_empty() {
         return EmitResult {
@@ -6214,13 +6066,10 @@ mod structural_and_pattern_tests {
     #[test]
     fn explicit_default_surface_strategy_matches_profiled_wrapper() {
         let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
-        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-
         let mut wrapper_builder = crate::profile::CompileProfileBuilder::production();
         let through_wrapper = emit_with_budget_profiled(
             &g,
             PrecisionConfig::Strip,
-            &enum_budget,
             Some(&mut wrapper_builder),
         );
         let wrapper_profile = wrapper_builder.finish(None, None);
@@ -6229,7 +6078,6 @@ mod structural_and_pattern_tests {
         let through_explicit_default = emit_with_budget_profiled_with_strategy(
             &g,
             PrecisionConfig::Strip,
-            &enum_budget,
             Some(&mut explicit_builder),
             SurfaceEmitStrategy::default(),
         );
@@ -6286,10 +6134,9 @@ mod structural_and_pattern_tests {
     #[test]
     fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
-        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let mut builder = crate::profile::CompileProfileBuilder::production();
         let result =
-            emit_with_budget_profiled(&g, PrecisionConfig::Strip, &enum_budget, Some(&mut builder));
+            emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
         assert!(
             !matches!(result.report.tier, FomaTier::Unsupported { .. }),
             "sanity: this fixture must emit a usable network, got {:?}",
@@ -6319,14 +6166,10 @@ mod structural_and_pattern_tests {
     #[test]
     fn fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
-        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-
-        let without_profile =
-            emit_with_budget_profiled(&g, PrecisionConfig::Strip, &enum_budget, None);
+        let without_profile = emit_with_budget_profiled(&g, PrecisionConfig::Strip, None);
 
         let mut builder = crate::profile::CompileProfileBuilder::production();
-        let with_profile =
-            emit_with_budget_profiled(&g, PrecisionConfig::Strip, &enum_budget, Some(&mut builder));
+        let with_profile = emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
 
         assert_eq!(
             without_profile.lexc_source, with_profile.lexc_source,
@@ -6397,11 +6240,11 @@ mod structural_and_pattern_tests {
         );
         assert_eq!(
             without_profile.report.enum_budget_exceeded, with_profile.report.enum_budget_exceeded,
-            "profiling must preserve enumeration budget detail"
+            "profiling must preserve bounded-refusal detail"
         );
 
         // Also exercise emit_with_budget's thin wrapper, for parity with the non-profiled entry point every existing caller uses.
-        let via_wrapper = emit_with_budget(&g, PrecisionConfig::Strip, &enum_budget);
+        let via_wrapper = emit_with_budget(&g, PrecisionConfig::Strip);
         assert_eq!(via_wrapper.lexc_source, without_profile.lexc_source);
     }
 
@@ -6409,10 +6252,9 @@ mod structural_and_pattern_tests {
     #[test]
     fn fst_profile_group_line_counts_are_real_and_bounded_by_the_total() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
-        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let mut builder = crate::profile::CompileProfileBuilder::production();
         let _ =
-            emit_with_budget_profiled(&g, PrecisionConfig::Strip, &enum_budget, Some(&mut builder));
+            emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
         let profile = builder.finish(None, None);
 
         assert!(
@@ -6634,16 +6476,12 @@ mod structural_and_pattern_tests {
 
 #[cfg(test)]
 mod aweti_enum_census {
-    //! Measurement-only census of the Aweti enumeration-budget refusal: what the TRUE uncapped
-    //! composite-entry count is (the production refusal reports only the latch point, cap +
-    //! parallel overshoot, never the total), and where those entries come from (builder, chain
-    //! depth, rule, root). Both tests are `#[ignore]`d corpus measurements, run via
-    //! `pg.ps1 -Mode corpus-test -Package pg-foma -Filter aweti_enum_census`.
+    //! Measurement-only census of Aweti's composite enumeration and where entries come from
+    //! (builder, chain depth, rule, root). Both tests are `#[ignore]`d corpus measurements, run
+    //! via `pg.ps1 -Mode corpus-test -Package pg-foma -Filter aweti_enum_census`.
 
     use super::*;
-    use crate::morphotactics::{
-        EnumerationBudget, ExploreMode, MorphotacticIndex, DEFAULT_ENTRY_BUDGET,
-    };
+    use crate::morphotactics::{ExploreMode, MorphotacticIndex};
     use pg_conformance_fixtures::corpus;
     use pg_grammar::model::Grammar;
 
@@ -6685,8 +6523,6 @@ mod aweti_enum_census {
             let width = tags::tag_width(g.morphemes.len());
             let phon = PhonologyProbe::new(&g);
             let mt = MorphotacticIndex::build(&g);
-            let budget = EnumerationBudget::unbounded();
-
             let t0 = Instant::now();
             let (recs, report) = crate::preexpand::build_composites_with_mode(
                 &g,
@@ -6695,7 +6531,6 @@ mod aweti_enum_census {
                 &mt,
                 ExploreMode::Pruned,
                 None,
-                &budget,
             );
             println!(
                 "[census] preexpand done in {:?}: pairs_probed={} by_depth={:?} synth_successes={} interdigitation={} fusion={}",
@@ -6758,11 +6593,7 @@ mod aweti_enum_census {
             drop(surface_tags);
 
             let fusion_total = report.interdigitation_entries + report.fusion_entries;
-            println!(
-                "[census] preexpand fusion+interdigitation total = {fusion_total} = {:.1}x the {} default cap (structural measured by aweti_enum_census_uncapped_structural)",
-                fusion_total as f64 / DEFAULT_ENTRY_BUDGET as f64,
-                DEFAULT_ENTRY_BUDGET
-            );
+            println!("[census] preexpand fusion+interdigitation total = {fusion_total}");
             corpus::record_cases("aweti-enum-census-uncapped", 1);
         });
     }
@@ -6775,8 +6606,6 @@ mod aweti_enum_census {
             let Some(g) = load_aweti() else { return };
             let width = tags::tag_width(g.morphemes.len());
             let mt = MorphotacticIndex::build(&g);
-            let budget = EnumerationBudget::unbounded();
-
             let t1 = Instant::now();
             let struct_rules = structural_candidate_rules(&g);
             let cache = RuleCache::build(&g);
@@ -6792,7 +6621,6 @@ mod aweti_enum_census {
                     ExploreMode::Pruned,
                     None,
                     None,
-                    &budget,
                 );
             let mut s_by_len: std::collections::BTreeMap<usize, usize> =
                 std::collections::BTreeMap::new();
@@ -6808,12 +6636,7 @@ mod aweti_enum_census {
                 probe_would_refuse(&g),
                 srecs.len()
             );
-            println!(
-                "[census] structural entries = {} = {:.2}x the {} default cap on their own",
-                srecs.len(),
-                srecs.len() as f64 / DEFAULT_ENTRY_BUDGET as f64,
-                DEFAULT_ENTRY_BUDGET
-            );
+            println!("[census] structural entries = {}", srecs.len());
             corpus::record_cases("aweti-enum-census-uncapped-structural", 1);
         });
     }

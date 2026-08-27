@@ -296,12 +296,6 @@ pub enum CompileWorkerOutcome {
         uncovered_count: usize,
         health: HealthReport,
     },
-    /// A deterministic `ComposeBudget`/enumeration budget tripped before or during compilation;
-    /// `detail` is the originating error's `Display` text and `health` retains its findings.
-    BudgetTripped {
-        detail: String,
-        health: HealthReport,
-    },
     /// Emission was unsupported/incomplete, or its lexc source failed to compile; never a usable artifact.
     CompileFailed {
         detail: String,
@@ -369,13 +363,11 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
         Err(detail) => return CompileWorkerOutcome::GrammarLoadFailed { detail },
     };
 
-    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
     let compose_budget = request.compose_budget();
 
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::analyzer::FomaProposer::new_with_budget_and_profile(
             &grammar,
-            &enum_budget,
             &compose_budget,
         )
     }));
@@ -412,13 +404,6 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
                 final_state_count: profile.final_state_count,
                 final_arc_count: profile.final_arc_count,
                 uncovered_count: report.uncovered.len(),
-                health,
-            }
-        }
-        Err(err @ FomaError::EnumerationBudgetExceeded { .. }) => {
-            let health = crate::health_evaluator::evaluate_foma_error(&err, Some(&profile));
-            CompileWorkerOutcome::BudgetTripped {
-                detail: err.to_string(),
                 health,
             }
         }
@@ -740,8 +725,7 @@ impl WorkerOutcome {
         match self {
             WorkerOutcome::Completed(outcome) => match outcome {
                 CompileWorkerOutcome::Success { health, .. }
-                | CompileWorkerOutcome::BudgetTripped { health, .. } => health.clone(),
-                CompileWorkerOutcome::CompileFailed { health, .. }
+                | CompileWorkerOutcome::CompileFailed { health, .. }
                     if !health.findings.is_empty() =>
                 {
                     health.clone()

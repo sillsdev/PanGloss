@@ -1,5 +1,4 @@
-//! The Rust health **evaluator**: reads `crate::compose_budget`/
-//! `crate::morphotactics::EnumerationBudget` measurements and produces
+//! The Rust health **evaluator**: reads `crate::compose_budget` measurements and produces
 //! `crate::health::HealthFinding`s from them. `crate::health` owns the finding schema itself; this
 //! module is the one place that reads real compile measurements and turns them into findings.
 //!
@@ -11,8 +10,8 @@
 //! - **Payload size**: a plain `u64` byte count the caller already has (the emitted network /
 //!   `pg-pack` payload), scored by `crate::health::severity_for_size_bytes`; oversized payloads
 //!   remain readiness `NotProductionReady`, never `MachineLimit`/`CannotRepresent`.
-//! - **`crate::emit::EmitReport`**: `tier`/`uncovered`/`enum_budget_exceeded`, already produced
-//!   by `crate::emit::emit`/`emit_with_budget`.
+//! - **`crate::emit::EmitReport`**: `tier`/`uncovered`, already produced by
+//!   `crate::emit::emit`/`emit_with_budget`.
 //! - **`crate::compose_budget::ComposeError`** (compile-time composition budget trips) and
 //!   `ApplyBudgetTrip` (this module's own lightweight distillation of a per-word
 //!   `crate::compose_budget::ApplyOutcome::Incomplete` — see that type's own doc for why it exists
@@ -69,13 +68,7 @@
 //!    one route, (total, not partial, coverage loss), not the ordinary bounded-cost-uncertainty
 //!    shape the code otherwise names. `MetricValue::Unbounded` is used here (this compile's
 //!    residual coverage is definitionally unknown, not a countable partial gap).
-//! 5. **`crate::emit::EnumBudgetExceeded`'s free-form `measure: &'static str` label has no
-//!    dedicated `Metric`** (it names one of several different eager-enumeration measures --
-//!    `crate::morphotactics::EnumMeasure`'s own label set -- not one fixed quantity); this evaluator
-//!    reuses `Metric::UnknownUnboundedWork` (the closest existing "unbounded compile-time-work"
-//!    slot) and folds the exact label into the finding's `explanation` text, since `Metric` itself
-//!    cannot carry a free-form label.
-//! 6. **`ApplyBudgetTrip` is this module's own type, not `crate::compose_budget::ApplyOutcome<T>`
+//! 5. **`ApplyBudgetTrip` is this module's own type, not `crate::compose_budget::ApplyOutcome<T>`
 //!    directly**: `ApplyOutcome<T>`'s `Complete(T)` payload type varies by caller (e.g.
 //!    `Vec<Candidate>`) and carries nothing this evaluator needs; making `evaluate_health` generic
 //!    over `T` just to ignore `Complete`'s payload would cost every caller a type parameter for no
@@ -115,7 +108,7 @@ use crate::analyzer::FomaError;
 use crate::compose_budget::{
     ApplyDimension, ComposeError, DEFAULT_ARC_BUDGET, DEFAULT_LINE_BUDGET, DEFAULT_STATE_BUDGET,
 };
-use crate::emit::{ClosureRefusalCode, EmitReport, EnumBudgetExceeded, FomaTier};
+use crate::emit::{ClosureRefusalCode, EmitReport, FomaTier};
 use crate::health::{
     severity_for_size_bytes, FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase,
     Remedy, Severity, ValueProvenance,
@@ -379,27 +372,6 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
     }
 }
 
-/// The fail-fast eager-enumeration budget's trip, reusing `Metric::UnknownUnboundedWork`.
-fn enum_budget_finding(exceeded: &EnumBudgetExceeded) -> HealthFinding {
-    HealthFinding {
-        code: FindingCode::ResourceBudgetReached,
-        severity: Severity::NotProductionReady,
-        phase: Phase::Compile,
-        affected: Vec::new(),
-        metric: Metric::UnknownUnboundedWork,
-        value: MetricValue::Count(exceeded.value as u64),
-        provenance: ValueProvenance::Observed,
-        threshold: Some(MetricValue::Count(exceeded.limit as u64)),
-        explanation: format!(
-            "The eager-enumeration lexc-emission budget for {measure} reached {value} (limit \
-             {limit}); this build stopped before allocating further.",
-            measure = exceeded.measure,
-            value = exceeded.value,
-            limit = exceeded.limit,
-        ),
-    }
-}
-
 fn backend_compilation_failed_finding(detail: String) -> HealthFinding {
     HealthFinding {
         code: FindingCode::BackendCompilationFailed,
@@ -414,7 +386,7 @@ fn backend_compilation_failed_finding(detail: String) -> HealthFinding {
     }
 }
 
-/// Every `crate::emit::EmitReport`-sourced finding: the tier disposition plus the enumeration-budget finding when present.
+/// Every `crate::emit::EmitReport`-sourced finding: the tier disposition.
 fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
     let mut findings = Vec::new();
     match &report.tier {
@@ -425,9 +397,6 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
         FomaTier::Unsupported { reason } => {
             findings.push(unsupported_tier_finding(report, reason));
         }
-    }
-    if let Some(exceeded) = &report.enum_budget_exceeded {
-        findings.push(enum_budget_finding(exceeded));
     }
     findings
 }
@@ -555,8 +524,7 @@ pub fn evaluate_foma_error(
             HealthReport::new(health.findings)
         }
         FomaError::Unsupported(report)
-        | FomaError::Incomplete(report)
-        | FomaError::EnumerationBudgetExceeded { report, .. } => {
+        | FomaError::Incomplete(report) => {
             let mut health = evaluate_health(None, Some(report), &[], &[], compile_profile);
             if health.findings.is_empty() {
                 health
@@ -590,17 +558,6 @@ mod tests {
 
     #[test]
     fn fst_health_evaluator_every_foma_error_is_nonempty_backend_error() {
-        let enum_report = EmitReport {
-            tier: FomaTier::Unsupported {
-                reason: "synthetic enumeration refusal".to_string(),
-            },
-            enum_budget_exceeded: Some(EnumBudgetExceeded {
-                measure: "synthetic composite work",
-                value: 101,
-                limit: 100,
-            }),
-            ..synthetic_full_emit_report()
-        };
         let cases = vec![
             FomaError::LexcCompileFailed(synthetic_full_emit_report()),
             FomaError::Unsupported(EmitReport {
@@ -609,12 +566,6 @@ mod tests {
                 },
                 ..synthetic_full_emit_report()
             }),
-            FomaError::EnumerationBudgetExceeded {
-                measure: "synthetic composite work",
-                value: 101,
-                limit: 100,
-                report: enum_report,
-            },
         ];
 
         // Every error must BLOCK; the exact band is per-cause, pinned by the split tests below.

@@ -129,9 +129,8 @@ pub mod capability_entry;
 /// (`Unordered`-stratum rule counts, a grammar-wide mrule x prule product). See that module's own
 /// doc for the full design and judgment calls.
 pub mod characterization;
-/// Composition-path budget guards:
-/// `morphotactics::EnumerationBudget`'s sibling for the composition path (`replace`,
-/// `gate`, `uflexc`) -- size/count caps plus an opt-in wall-clock deadline for every
+/// Composition-path budget guards for (`replace`, `gate`, `uflexc`) -- size/count caps plus an
+/// opt-in wall-clock deadline for every
 /// compose/union/minimize call on that path. See that module's own doc for the full design.
 pub mod compose_budget;
 pub mod composite;

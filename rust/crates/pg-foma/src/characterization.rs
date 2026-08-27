@@ -105,7 +105,6 @@ const DEFAULT_TUNED_COMPOUND_CHAIN_DEPTH_LIMIT: usize = 200;
 pub enum ClosureStopReason {
     WorkBudgetReached,
     DepthBudgetReached,
-    EnumerationBudgetReached,
     ResourceBudgetReached,
     UnboundedTransition,
     UnsupportedTransition,

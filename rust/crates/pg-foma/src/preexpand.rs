@@ -138,7 +138,7 @@ use rayon::prelude::*;
 use crate::emit::{is_structural_rule, rule_role, stripped_variants, surface_variants, Role};
 use crate::junctions::PhonologyProbe;
 use crate::morphotactics::{
-    ChainState, EnumerationBudget, ExploreMode, MorphotacticIndex, ProbeBudget,
+    ChainState, ExploreMode, MorphotacticIndex, ProbeBudget,
 };
 use crate::tags;
 
@@ -442,8 +442,6 @@ struct ExtendCtx<'a> {
     mode: ExploreMode,
     /// Measurement-only safety valve; `None` in production, so every read below is a single branch with zero further cost.
     probe_budget: Option<ProbeBudget<'a>>,
-    /// Default-on fail-fast enumeration budget, always live and never panics; `extend` checks it before every recursive step.
-    enum_budget: &'a EnumerationBudget,
     closure_trace: Option<&'a crate::characterization::ClosureTrace>,
 }
 
@@ -467,15 +465,8 @@ fn extend(
     state: &ChainState,
     acc: &mut Acc,
 ) {
-    // Checked once at the top of every call, same shape as the depth guard above: docs/research/pg-foma-preexpand-design-notes.md.
-    if ctx.enum_budget.is_tripped() {
-        return;
-    }
     let base_fs = base_word.syn_fs.clone();
     for (ridx, &(mid, role)) in ctx.rules.iter().enumerate() {
-        if ctx.enum_budget.is_tripped() {
-            return;
-        }
         let rule = &ctx.g.mrules[mid.0 as usize];
         let (req, rule_morpheme) = rule_fs_and_morpheme(rule);
         // Restricts recursion to a rule adjacency the stratum/template machinery can actually produce; `Flat` is an A/B-measurement escape hatch, production always runs `Pruned`. A pure subset restriction: it can only skip a candidate the flat version would also have tried.
@@ -503,11 +494,6 @@ fn extend(
         if let Some(budget) = &ctx.probe_budget {
             budget.tick();
         }
-        ctx.enum_budget.tick_probe();
-        if ctx.enum_budget.is_tripped() {
-            return;
-        }
-
         let synth_out = synthesize_cached(ctx.g, mid, base_word, rule, ctx.cache);
         if let Some(trace) = ctx.closure_trace {
             if !trace.record_successors(depth, mid.0, synth_out.len()) {
@@ -528,9 +514,6 @@ fn extend(
             continue;
         }
         for w in synth_out {
-            if ctx.enum_budget.is_tripped() {
-                return;
-            }
             let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
                 continue;
             };
@@ -587,11 +570,6 @@ fn extend(
                     } else {
                         acc.report.fusion_entries += 1;
                     }
-                    // The "composite entries" measure: the one that actually predicts an Aweti-scale blow-up.
-                    ctx.enum_budget.add_entries(1);
-                    if ctx.enum_budget.is_tripped() {
-                        return;
-                    }
                 }
                 if is_infix {
                     acc.report.covered_infix_rules.insert(mid.0);
@@ -624,9 +602,6 @@ fn extend(
                 &next_state,
                 acc,
             );
-            if ctx.enum_budget.is_tripped() {
-                return;
-            }
         }
     }
 }
@@ -669,7 +644,6 @@ fn process_root_work(
     mt: &MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
-    enum_budget: &EnumerationBudget,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
     work: &RootWork,
 ) -> (Vec<CompositeRec>, CompositeReport) {
@@ -678,11 +652,6 @@ fn process_root_work(
         seen: rustc_hash::FxHashSet::default(),
         report: CompositeReport::default(),
     };
-
-    // Skips this root entirely once tripped, cheaper than entering the allomorph loop below even though each `extend` call would bail near-instantly anyway.
-    if enum_budget.is_tripped() {
-        return (acc.recs, acc.report);
-    }
 
     let entry = &g.entries[work.entry_id.0 as usize];
     let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
@@ -725,7 +694,6 @@ fn process_root_work(
             mt,
             mode,
             probe_budget,
-            enum_budget,
             closure_trace,
         };
         // Seeds the chain's automaton state at the root's own stratum, disabling template entry forever if the root is partial.
@@ -765,9 +733,7 @@ pub(crate) fn build_composites(
         cap,
         counter: &counter,
     });
-    // Default-on budget, env-driven like everything else in this thin wrapper.
-    let enum_budget = EnumerationBudget::from_env();
-    build_composites_with_mode(g, width, phon, &mt, mode, probe_budget, &enum_budget)
+    build_composites_with_mode(g, width, phon, &mt, mode, probe_budget)
 }
 
 /// Build every rule-application/fusion composite for `g` (module doc). `width` is the same tag
@@ -809,7 +775,6 @@ pub(crate) fn build_composites_with_mode(
     mt: &MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
-    enum_budget: &EnumerationBudget,
 ) -> (Vec<CompositeRec>, CompositeReport) {
     build_composites_with_mode_and_trace(
         g,
@@ -818,7 +783,6 @@ pub(crate) fn build_composites_with_mode(
         mt,
         mode,
         probe_budget,
-        enum_budget,
         None,
     )
 }
@@ -830,7 +794,6 @@ pub(crate) fn build_composites_with_mode_and_trace(
     mt: &MorphotacticIndex,
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
-    enum_budget: &EnumerationBudget,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
 ) -> (Vec<CompositeRec>, CompositeReport) {
     if !should_run(g, phon) {
@@ -877,7 +840,6 @@ pub(crate) fn build_composites_with_mode_and_trace(
                 mt,
                 mode,
                 probe_budget,
-                enum_budget,
                 closure_trace,
                 w,
             )
@@ -897,7 +859,6 @@ pub(crate) fn build_composites_with_mode_and_trace(
                     mt,
                     mode,
                     probe_budget,
-                    enum_budget,
                     closure_trace,
                     w,
                 )
@@ -916,7 +877,6 @@ pub(crate) fn build_composites_with_mode_and_trace(
                         mt,
                         mode,
                         probe_budget,
-                        enum_budget,
                         closure_trace,
                         w,
                     )
@@ -1062,7 +1022,6 @@ mod pruning_tests {
             &mt,
             ExploreMode::Flat,
             None,
-            &EnumerationBudget::unbounded(),
         );
         let (_, pruned) = build_composites_with_mode(
             &g,
@@ -1071,7 +1030,6 @@ mod pruning_tests {
             &mt,
             ExploreMode::Pruned,
             None,
-            &EnumerationBudget::unbounded(),
         );
 
         // Flat (ignores morphotactics) probes both mrA and mrB at depth 0; pruned must skip mrB, blocked by the mandatory non-vacuous slot 0.
@@ -1104,7 +1062,6 @@ mod pruning_tests {
             &mt,
             ExploreMode::Flat,
             None,
-            &EnumerationBudget::unbounded(),
         );
         let (_, pruned) = build_composites_with_mode(
             &g,
@@ -1113,7 +1070,6 @@ mod pruning_tests {
             &mt,
             ExploreMode::Pruned,
             None,
-            &EnumerationBudget::unbounded(),
         );
 
         // mrA (vacuous) is `Role::None`, so only mrB is ever attempted at depth 0; the point here is that pruning does not lose that attempt.
@@ -1176,7 +1132,6 @@ mod pruning_tests {
             &mt,
             ExploreMode::Pruned,
             None,
-            &EnumerationBudget::unbounded(),
         );
 
         assert_eq!(report.pending_successors, 0);
@@ -1223,7 +1178,6 @@ mod pruning_tests {
             &mt,
             ExploreMode::Flat,
             None,
-            &EnumerationBudget::unbounded(),
         );
         let flat_elapsed = t_flat.elapsed();
 
@@ -1235,7 +1189,6 @@ mod pruning_tests {
             &mt,
             ExploreMode::Pruned,
             None,
-            &EnumerationBudget::unbounded(),
         );
         let pruned_elapsed = t_pruned.elapsed();
 

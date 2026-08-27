@@ -38,18 +38,6 @@ pub enum FomaError {
     /// analyses that material does not propose. Confirmation cannot restore omitted candidates,
     /// so normal construction must refuse this report before compiling the partial network.
     Incomplete(EmitReport),
-    /// `emit::emit`'s enumeration budget tripped before a usable lexc source could be built: an honest, compiler-gap error, never a panic or a silent OOM.
-    EnumerationBudgetExceeded {
-        /// Which measure tripped (`crate::morphotactics::EnumMeasure::label`'s text).
-        measure: &'static str,
-        /// The measured value at the moment the budget tripped.
-        value: usize,
-        /// The threshold that was exceeded (the default, or an env-var override).
-        limit: usize,
-        /// The complete emitter report, retained so every caller can produce the same typed
-        /// health findings without recompiling or treating this refusal as a clean result.
-        report: EmitReport,
-    },
 }
 
 impl fmt::Display for FomaError {
@@ -73,35 +61,17 @@ impl fmt::Display for FomaError {
                 report.uncovered.len(),
                 report.tier
             ),
-            FomaError::EnumerationBudgetExceeded {
-                measure,
-                value,
-                limit,
-                ..
-            } => write!(
-                f,
-                "grammar exceeds the foma-engine's eager-enumeration budget: {measure} = {value} when \
-                 enumeration aborted at the cap -- a floor, not a total (limit {limit}). This \
-                 grammar's morphotactics produce more composite lexc material \
-                 than the eager Rust-side enumerator can safely expand into a literal lexc source \
-                 without risking a multi-GB `.lexc` file and an out-of-memory crash in foma's own \
-                 `apply_up`. Use the default (full) morphological-parser engine for this grammar \
-                 instead of the foma-composite engine, or -- only if you understand why this \
-                 grammar's dynamic enumeration tree is this large -- raise the budget via \
-                 HC_ENUM_ENTRY_BUDGET/HC_ENUM_PROBE_BUDGET and re-run."
-            ),
         }
     }
 }
 
 impl FomaError {
-    /// The emitter evidence carried by compile and enumeration failures.
+    /// The emitter evidence carried by construction failures.
     pub fn emit_report(&self) -> Option<&EmitReport> {
         match self {
             FomaError::LexcCompileFailed(report)
             | FomaError::Unsupported(report)
-            | FomaError::Incomplete(report)
-            | FomaError::EnumerationBudgetExceeded { report, .. } => Some(report),
+            | FomaError::Incomplete(report) => Some(report),
         }
     }
 }
@@ -272,31 +242,23 @@ impl FomaProposer {
     }
 
     /// Emit `g`'s lexc source, compile it, and build the (word-independent) `ApplyHandle` once.
-    /// Returns a typed error for invalid lexc, unsupported/incomplete emission, or a logical-work
-    /// budget breach; no unsupported emitter result is compiled into a proposer.
-    ///
-    /// Thin, env-driven wrapper over `Self::new_with_budget` -- same convention
-    /// `crate::emit::emit_with_precision` uses for the same reason (its own doc): reads
-    /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`
-    /// exactly once, here, in the production entry point, so parallel test processes never race
-    /// process-global env state.
+    /// Returns a typed error for invalid lexc or unsupported/incomplete emission; no unsupported
+    /// emitter result is compiled into a proposer.
     // FomaError is deliberately a small, flat enum (see its own doc above); boxing
     // `LexcCompileFailed`'s `EmitReport` to silence this lint would change the public enum's
     // variant shape for every downstream `match`, which is out of scope for a lint-only cleanup.
     #[allow(clippy::result_large_err)]
     pub fn new(g: &Grammar) -> Result<Self> {
-        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget(g, &enum_budget, &compose_budget)
+        Self::new_with_budget(g, &compose_budget)
     }
 
     /// `Self::new`, plus
     /// its own `CompileProfile` -- the production compile-time-profiling entry point. Reads the
-    /// same env vars `Self::new` does, exactly once, mirroring its convention.
+    /// same external compose limits `Self::new` does, exactly once, mirroring its convention.
     pub fn new_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
-        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget_and_profile(g, &enum_budget, &compose_budget)
+        Self::new_with_budget_and_profile(g, &compose_budget)
     }
 
     /// Development-only counterpart to [`Self::new_with_profile`]. It may compile an emitter
@@ -305,19 +267,10 @@ impl FomaProposer {
     /// resource-aborted result, because those paths intentionally contain no usable lexc source.
     #[cfg(feature = "developer-tools")]
     pub fn new_unproven_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
-        let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget_and_profile_policy(g, &enum_budget, &compose_budget, true)
+        Self::new_with_budget_and_profile_policy(g, &compose_budget, true)
     }
 
-    /// `Self::new`'s core, with the fail-fast enumeration budget threaded in explicitly rather
-    /// than read from env -- what tests call directly with a small
-    /// `crate::morphotactics::EnumerationBudget::with_caps` to exercise
-    /// `FomaError::EnumerationBudgetExceeded` deterministically and fast, without setting
-    /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET` (this crate's tests never touch those env
-    /// vars, mirroring `crate::morphotactics::ExploreMode`'s own doc's reasoning for
-    /// `HC_PREEXPAND_FLAT`).
-    ///
     /// Thin, zero-behavior-change wrapper over `Self::new_with_budget_and_profile`, discarding its
     /// `CompileProfile` -- proven byte-for-byte identical (same `Result`, same emitted network) by
     /// this file's own `fst_profile_new_with_budget_matches_new_with_budget_and_profile` test.
@@ -325,10 +278,9 @@ impl FomaProposer {
     #[allow(clippy::result_large_err)]
     pub(crate) fn new_with_budget(
         g: &Grammar,
-        enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
     ) -> Result<Self> {
-        Self::new_with_budget_and_profile(g, enum_budget, compose_budget).0
+        Self::new_with_budget_and_profile(g, compose_budget).0
     }
 
     /// `Self::new_with_budget`'s real core, with a `CompileProfileBuilder`
@@ -339,15 +291,13 @@ impl FomaProposer {
     /// always reflects real elapsed time up to that outcome, never a fabricated/zero value.
     pub(crate) fn new_with_budget_and_profile(
         g: &Grammar,
-        enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
     ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_budget_and_profile_policy(g, enum_budget, compose_budget, false)
+        Self::new_with_budget_and_profile_policy(g, compose_budget, false)
     }
 
     fn new_with_budget_and_profile_policy(
         g: &Grammar,
-        enum_budget: &crate::morphotactics::EnumerationBudget,
         compose_budget: &ComposeBudget,
         allow_incomplete: bool,
     ) -> (Result<Self>, CompileProfile) {
@@ -356,7 +306,6 @@ impl FomaProposer {
         let result = emit::emit_with_budget_profiled(
             g,
             crate::precision::PrecisionConfig::Strip,
-            enum_budget,
             Some(&mut profile),
         );
         Self::finish_profiled_compile(result, profile, allow_incomplete)
@@ -367,16 +316,6 @@ impl FomaProposer {
         mut profile: CompileProfileBuilder,
         allow_incomplete: bool,
     ) -> (Result<Self>, CompileProfile) {
-        // Checked before ever handing `result.lexc_source` to `fsm_lexc_parse_string`: when this is `Some`, `emit_with_budget_profiled` already bailed out early, so `lexc_source` is deliberately empty and must never be compiled.
-        if let Some(exceeded) = result.report.enum_budget_exceeded.as_ref() {
-            let err = FomaError::EnumerationBudgetExceeded {
-                measure: exceeded.measure,
-                value: exceeded.value,
-                limit: exceeded.limit,
-                report: result.report,
-            };
-            return (Err(err), profile.finish(None, None));
-        }
         if matches!(result.report.tier, FomaTier::Unsupported { .. }) {
             return (
                 Err(FomaError::Unsupported(result.report)),
@@ -941,7 +880,6 @@ mod profile_tests {
     //! Profiled construction must populate a real `CompileProfile` on success, match the non-profiled entry points byte-for-byte, and still produce a profile on a typed build failure.
 
     use super::*;
-    use crate::morphotactics::EnumerationBudget;
     use crate::profile::{CompileStage, ProfileLabel};
 
     /// Same minimal single-root fixture shape as `apply_budget_tests::FIXTURE`.
@@ -1025,13 +963,12 @@ mod profile_tests {
     #[test]
     fn new_with_budget_and_profile_matches_new_with_budget_byte_for_byte() {
         let g = load_fixture();
-        let enum_budget = EnumerationBudget::from_env();
         let compose_budget = ComposeBudget::from_env();
 
-        let mut without_profile = FomaProposer::new_with_budget(&g, &enum_budget, &compose_budget)
+        let mut without_profile = FomaProposer::new_with_budget(&g, &compose_budget)
             .unwrap_or_else(|e| panic!("new_with_budget failed: {e}"));
         let (with_profile, _profile) =
-            FomaProposer::new_with_budget_and_profile(&g, &enum_budget, &compose_budget);
+            FomaProposer::new_with_budget_and_profile(&g, &compose_budget);
         let mut with_profile =
             with_profile.unwrap_or_else(|e| panic!("new_with_budget_and_profile failed: {e}"));
 

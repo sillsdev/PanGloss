@@ -1,13 +1,9 @@
-//! Composition-path budget guards:
-//! [`EnumerationBudget`](crate::morphotactics::EnumerationBudget)'s sibling for the composition
-//! path (`crate::replace`, `crate::gate`, `crate::uflexc`) -- a path that, until this module, had
-//! **no `Result`-returning public API at all** (bare `Option`/`Fsm`/report structs, example drivers
-//! `panic!` on failure) and never imported `EnumerationBudget` (the eager-enumeration path's own
-//! guard covers `crate::preexpand`/`crate::emit` only, zero references from the composition path).
+//! Composition-path budget guards for (`crate::replace`, `crate::gate`, `crate::uflexc`) -- a path
+//! that, until this module, had **no `Result`-returning public API at all** (bare `Option`/`Fsm`/
+//! report structs, example drivers `panic!` on failure).
 //!
-//! ## Why this budget looks different from [`EnumerationBudget`](crate::morphotactics::EnumerationBudget)
-//! `EnumerationBudget` is a shared, cross-thread `AtomicUsize` latch because `crate::preexpand`'s
-//! composite builders run their per-root work across a rayon pool. The composition cascade
+//! ## Why this budget is path-local
+//! The composition cascade
 //! (`crate::replace`'s per-alpha-tuple/per-rule fold, `crate::gate`'s per-group loop) is strictly
 //! sequential -- no rayon anywhere in this path -- so a plain `&ComposeBudget` with no atomics and
 //! no interior mutability is sufficient. Revisit this if the
@@ -259,8 +255,8 @@ pub struct ComposeBudget {
 
 impl ComposeBudget {
     /// Production entry point: every cap from its own `HC_COMPOSE_*` env var (module doc), or the
-    /// documented default when unset/unparsable. Mirrors `EnumerationBudget::from_env`'s own
-    /// "read env exactly once, in the production entry point" convention.
+    /// documented default when unset/unparsable. The environment is read exactly once, in the
+    /// production entry point.
     pub fn from_env() -> Self {
         ComposeBudget {
             chain_depth_cap: chain_depth_cap_from_env(),
@@ -269,7 +265,7 @@ impl ComposeBudget {
 
     /// A budget with no configured chain-depth cap --
     /// for callers/tests that need a `&ComposeBudget` to satisfy a function signature but aren't
-    /// exercising this mechanism (mirrors `EnumerationBudget::unbounded`'s own doc/shape).
+    /// exercising this mechanism.
     #[cfg(test)]
     pub(crate) fn unbounded() -> Self {
         ComposeBudget {
