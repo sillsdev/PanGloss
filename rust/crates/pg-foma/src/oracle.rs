@@ -256,11 +256,11 @@ fn resolve_verdict(
 }
 
 /// The cheap, always-on differential-correctness tier: builds both plans via `build_controllable`, then compares their `apply_up` result sets over every word in `words`.
-/// `opts`/`g`/`alphabet`/`prules_in_order`/`budget` must be the SAME grammar-derived inputs both plans were enumerated against; this function does not detect a caller mismatch.
+/// `opts`/`g`/`alphabet`/`prules_in_order` must be the SAME grammar-derived inputs both plans were enumerated against; this function does not detect a caller mismatch.
 ///
 /// # Errors
 /// Propagates a `ComposeError` from either `build_controllable` call unchanged.
-#[allow(clippy::too_many_arguments)] // mirrors build_controllable's own args, taken for both plans plus labels/words
+#[allow(clippy::too_many_arguments)] // build_controllable's grammar-derived inputs, plus the two plans, their labels, and the words
 pub fn differential_oracle(
     plan_a: &Plan,
     plan_b: &Plan,
@@ -1781,7 +1781,7 @@ mod tests {
                 &["p", "t", "k"],
             )
             .unwrap_or_else(|e| {
-                panic!("both plans must build under an unbounded budget for {label}: {e:?}")
+                panic!("both plans must build for {label}: {e:?}")
             });
             match result {
                 OracleResult::Agree => {}

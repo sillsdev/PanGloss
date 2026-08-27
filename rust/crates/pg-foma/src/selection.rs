@@ -134,17 +134,16 @@ impl SelectionOutcome {
 /// minimum `states + arcs` among the ones `build_controllable` can actually measure, tie-broken by
 /// root `NodeId` (module doc).
 ///
-/// `g`/`registry`/`opts`/`alphabet`/`prules_in_order`/`budget` are the same grammar-derived and
+/// `g`/`registry`/`opts`/`alphabet`/`prules_in_order` are the same grammar-derived and
 /// build-configuration inputs `crate::oracle::differential_oracle` and `build_controllable`
 /// themselves take — this function does not recompute or re-derive any of them, only threads them
-/// through to `compose_envelope`/`build_controllable` for each candidate in turn (same trust
+/// through to `compose_envelope_for_strategy`/`build_controllable` for each candidate in turn (same trust
 /// convention those functions already document for their own parameters).
 ///
 /// # Panics
 /// If `candidates` contains a `crate::plan::Plan` with no root set — a caller/plan-construction
 /// contract violation (`crate::enumerate::enumerate_candidates` always sets a root), not a
 /// judgment this function can make a decision about.
-#[allow(clippy::too_many_arguments)] // mirrors build_controllable's/differential_oracle's own many grammar-derived parameters, taken once per candidate here.
 pub fn select_plan(
     candidates: &[LoweredCandidate],
     g: &Grammar,
