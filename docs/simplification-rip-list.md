@@ -351,9 +351,14 @@ without pulling replacement design forward.
    safety. `1aac38b7`/`566606ec` removed the post-operation state/arc net-size refusal while retaining
    telemetry. `4e1339f8`/`0087d5f1` removed the emitted-line refusal; `d52587f3`/`731e8fd2`
    removed the abandoned-thread compose timeout; `fecfab9d`/`104e3971`/`2e0a8180` then removed
-   their serialized no-op fields and fixture arguments. The external 1 GiB payload, 10 GiB worker-
-   tree RAM, and 10-minute limits remain. Tuple/group/order/chain safety are still independently
-   classified. Worker protocol v10 is required in the later schema/add phase.
+   their serialized no-op fields and fixture arguments. `656f4f49`/`4e6fdf55` removed tuple/group
+   refusal fixtures and implementation while preserving real alpha enumeration, agreement, gate
+   partitioning, and compilation. `39ccffbe`/`08bf3560`/`139868d3` removed the uncalibrated
+   100-rule unordered hard stop from tests, compile configuration, worker protocol, health,
+   characterization, and capability routing while preserving `Cascade::combination` and exact
+   unordered rule-count facts. The external 1 GiB payload, 10 GiB worker-tree RAM, and 10-minute
+   limits remain. Chain-depth safety remains protected pending its separate call-site audit. Worker
+   protocol v10 is required in the later schema/add phase.
 5. **Delete duplicate analysis traversal (E2).** Remove production-emitter-and-discard and separate
    closure characterization walkers from `characterization`, `preexpand`, `emit`, runtime, and
    selection. Gate: analysis performs no production compile/traversal; a selected build performs its
@@ -371,15 +376,20 @@ without pulling replacement design forward.
    `pangloss pack` rejects `--allow-unproven` and every unproven artifact unconditionally.
    Status: **RIPPED FIRST.** `67c661cc` deleted publication-acceptance tests and `05ba71b8` deleted
    persistent override/trust types, the manifest field, and WASM override signal APIs. Local
-   parse/batch readiness metadata remains. Manifest schema v6 and strict v5 rejection belong to the
-   later schema/add phase; stale report projections are the next deletion audit.
+   parse/batch readiness metadata remains. `1cad7f2c` then removed `make-report`'s stale persistent
+   pack-trust projection. Manifest schema v6 and strict v5 rejection belong to the later schema/add
+   phase.
 8. **Break schemas and sweep stale contracts (B1-B7/F9/I3-I5).** For each schema owner, bump and
    strictly validate the current version, delete aliases/defaults/shims/old fixtures, and update or
    supersede docs/OpenSpec that promise envelopes, retries, preference, build-time corpus work, or
    publication overrides. Historical documents receive a superseded marker rather than fabricated
    retroactive history. Dependency exception already advanced into Stage 2: the truthful
    worker-tree peak-memory metric bumps health and pack manifests to v5 and adds stale standalone/
-   embedded-health rejection; the remaining schema sweep stays here.
+   embedded-health rejection. `6576c05e`/`959f5b01` removed old-pack compatibility promises and
+   missing-current-pack-field defaults. `346b0737`/`6e03444e` removed legacy optimizer-report
+   fixtures, the custom candidate compatibility deserializer, provenance scaffolding, and defaults
+   for required current score/report/pilot fields. Semantic optionals and strict current version
+   checks remain. Schema/protocol bumps and unknown-field rejection stay in the later add phase.
 9. **Verify emitter consolidation separately (D1/G1).** Fix tag-reachability correctness first, then
    require byte/semantic parity over representative grammars before deleting either emitter path.
    No selection, containment, or tuning policy changes belong in this slice.
@@ -507,10 +517,10 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..2e0a8180`:
-**9,753 deletions / 10,357 additions, net +604 lines** across 120 files. The dedicated rip-first
-range `1c7cc837..2e0a8180` removed **5,506 lines**, added 184 structural/fixture/documentation lines,
-and is net **-5,322 lines** across 64 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..139868d3`:
+**11,610 deletions / 10,456 additions, net -1,154 lines** across 131 files. The dedicated rip-first
+range `1c7cc837..139868d3` removed **7,372 lines**, added 292 structural/fixture/documentation lines,
+and is net **-7,080 lines** across 77 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
