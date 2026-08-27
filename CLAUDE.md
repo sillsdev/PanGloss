@@ -106,7 +106,7 @@ record so a "why is this slower than I expected" question is answerable from the
   building, nextest and libtest fan out test processes at their own default of one per logical
   core — 20 here, since this repo has no `nextest.toml`. So a capped build was followed straight
   away by an uncapped 20-wide test run, and that is the heavier half: these suites spawn real
-  processes (`pangloss.exe`, `worker_test_child.exe`, and a full C **and** C++ toolchain for
+  processes (`pangloss.exe` and a full C **and** C++ toolchain for
   `pg-ffi::header_abi`), and corpus/foma cases can each reach many GB of RSS. Twenty at once is a
   memory storm as much as a CPU one, and memory pressure freezes a remote session faster than CPU
   load. `pg.ps1` now passes `--test-threads` (nextest) / `-- --test-threads` (libtest) from the

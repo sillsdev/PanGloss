@@ -15,7 +15,7 @@
 #
 # nextest terminates via a Windows job object, which kills the test process AND ALL ITS
 # DESCENDANTS. That matters more than usual in this workspace: tests here spawn real child
-# processes (`pangloss.exe`, `worker_test_child.exe`, and a full C and C++ toolchain for
+# processes (`pangloss.exe` and a full C and C++ toolchain for
 # `pg-ffi::header_abi`), and a plain timeout that killed only the direct child would orphan those --
 # exactly the stray-compiler mess CLAUDE.md's gc sweeps had to be written to clean up.
 #
