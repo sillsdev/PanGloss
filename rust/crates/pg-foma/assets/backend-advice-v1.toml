@@ -187,23 +187,6 @@ contraindications = ["the operation crosses slot boundaries"]
 equivalence_caveat = "Slot localization can change cross-slot interactions."
 
 [[entry]]
-shape_key = "tuned-surface-closure-budget"
-backend_id = "foma"
-route = "surface-composite-closure"
-failed_predicate = "TunedSurface composite closure exceeds the managed closure-work budget"
-evidence_refs = ["backend:foma", "route:surface-composite-closure", "predicate:complete-closure", "metric:composite-rule-pair-count"]
-equivalence_caveat = "Don't make any change that would make your language invalid!"
-
-[[entry.remedy]]
-rank = 30
-remedy_key = "order-or-slot-localize-rules"
-description = "Ordering the affected rules or placing mutually exclusive choices in affix slots would make this backend work for your language if that structure is valid for the language."
-effort = "hard"
-prerequisites = ["the ordering or slot locality is linguistically proven"]
-contraindications = ["the grammar intentionally permits the other order or cross-slot interaction"]
-equivalence_caveat = "Don't make any change that would make your language invalid!"
-
-[[entry]]
 shape_key = "unordered-interactions"
 backend_id = "foma"
 route = "rule-ordering"

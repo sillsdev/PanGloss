@@ -23,9 +23,6 @@ pub const BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY: &str = "backend-build-unavailable
 /// Stable shape key for required plan subtrees the PlanComposed materializer cannot build.
 pub const PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY: &str = "plan-composed-missing-subtrees";
 
-/// Stable shape key for the TunedSurface structural-closure budget characterization.
-pub const TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY: &str = "tuned-surface-closure-budget";
-
 /// A complete validated catalog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdviceCatalog {
