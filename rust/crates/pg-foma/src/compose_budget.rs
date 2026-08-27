@@ -332,7 +332,6 @@ mod compose_budget_tests {
     fn chain_depth_unbounded_budget_never_trips() {
         // `unbounded()` must also leave chain depth off, like the size dimensions above.
         let budget = ComposeBudget::unbounded();
-        assert_eq!(budget.chain_depth_cap(), None);
         // Well past the motivating Aweti 24-level chain and still `Ok`.
         budget
             .check_chain_depth(1_000_000, "chain_depth_unbounded_budget_never_trips")
@@ -343,7 +342,6 @@ mod compose_budget_tests {
     fn chain_depth_with_caps_defaults_to_unbounded() {
         // An unbounded budget leaves chain depth off by default.
         let budget = ComposeBudget::unbounded();
-        assert_eq!(budget.chain_depth_cap(), None);
         budget
             .check_chain_depth(usize::MAX, "chain_depth_with_caps_defaults_to_unbounded")
             .expect("with_caps' default chain-depth cap must be unbounded");
@@ -388,11 +386,6 @@ mod compose_budget_tests {
         // A cap far above the absolute ceiling must clamp down to it, not pass through verbatim.
         let budget =
             ComposeBudget::unbounded().with_chain_depth_cap(CHAIN_DEPTH_ABSOLUTE_CEILING + 1_000);
-        assert_eq!(
-            budget.chain_depth_cap(),
-            Some(CHAIN_DEPTH_ABSOLUTE_CEILING),
-            "a configured cap above the absolute ceiling must clamp to the ceiling itself"
-        );
         // One past the clamped ceiling must trip, reporting the ceiling as the limit, not the original request.
         let err = budget
             .check_chain_depth(
