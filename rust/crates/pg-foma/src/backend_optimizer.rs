@@ -3,7 +3,7 @@
 //! module owns search policy, budget enforcement, certification boundaries, Pareto ranking, and
 //! replay semantics.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -413,7 +413,6 @@ pub struct SearchResult {
     pub generated: u64,
     pub expanded: u64,
     pub pruned: u64,
-    pub parameters: BTreeMap<String, String>,
 }
 
 pub trait SearchStrategy: Send + Sync {
@@ -432,7 +431,6 @@ fn empty_result(strategy: Strategy) -> SearchResult {
         generated: 0,
         expanded: 0,
         pruned: 0,
-        parameters: BTreeMap::new(),
     }
 }
 
@@ -488,7 +486,6 @@ impl SearchStrategy for Exhaustive {
             generated: candidates.len() as u64,
             expanded: cap as u64,
             pruned: 0,
-            parameters: BTreeMap::from([("candidate-cap".to_owned(), cap.to_string())]),
         }
     }
 }
@@ -560,7 +557,6 @@ impl SearchStrategy for DiverseBeam {
             generated: candidates.len() as u64,
             expanded: cap as u64,
             pruned: 0,
-            parameters: BTreeMap::from([("beam-width".to_owned(), self.width.to_string())]),
         }
     }
 }
@@ -627,10 +623,6 @@ impl SearchStrategy for BranchAndBound {
             } else {
                 Termination::BudgetExhausted
             },
-            parameters: BTreeMap::from([
-                ("candidate-cap".to_owned(), cap.to_string()),
-                ("bound".to_owned(), "admissible-lower-bound".to_owned()),
-            ]),
         }
     }
 }
