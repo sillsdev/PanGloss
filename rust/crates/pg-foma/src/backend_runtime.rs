@@ -446,10 +446,6 @@ impl RunEvaluationCache {
         )
     }
 
-    pub fn emission_report_calls(&self) -> usize {
-        0
-    }
-
     fn select(&self, words: &[String]) -> PreparedSelection {
         self.corpus.select(words)
     }
