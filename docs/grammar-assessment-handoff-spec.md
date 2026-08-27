@@ -300,6 +300,7 @@ Top-level fields:
     "analysisIdentityProfile": "..."
   },
   "execution": {
+    "pipeline": "foma-confirm",
     "resourceEnvelope": {},
     "options": {},
     "startedAt": "...",

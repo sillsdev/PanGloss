@@ -276,8 +276,7 @@ harness accepts the same three grammar-path shapes the production CLI does. The 
 flattens two different warning representations to prose at the one place they meet:
 `report.warnings`/`snapshot.validate()` are `pg_snapshot::Warning` (coded), while
 `pg_grammar::compile_project`'s warnings are still plain `String`. This harness only prints
-warnings, so nothing is lost by flattening; a caller that needs the codes should take
-`load_grammar_coded` instead of widening this function.
+warnings, so nothing is lost by flattening.
 
 The syn-feature inventory printed up front is the static half of "what syn_fs features can the
 grammar carry at all" — the dynamic half (what confirmed analyses actually carry) is measured later

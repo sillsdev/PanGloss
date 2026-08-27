@@ -26,7 +26,7 @@ impl fmt::Display for Warning {
     }
 }
 
-/// Lets every existing `&str`-shaped call keep working unchanged against `message`; against the API guidelines' usual advice on purpose, since the coercion's one risk (silently losing `code`) never reaches the one path that diffs by code, `load_grammar_coded`.
+/// Lets existing `&str`-shaped callers keep working against `message`.
 impl Deref for Warning {
     type Target = str;
 

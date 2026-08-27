@@ -179,45 +179,6 @@ event. It was not. The same event — **a capability predicate widened from `Ref
 with the comments, test names, cited evidence and rationale strings left behind** — appears at least
 four times, and in one place it has hollowed out a regression gate.
 
-### `Disposition::FailClosed` is returned by nothing, and its gate cannot fail — **OPEN, highest priority**
-
-`grep '=> Disposition::FailClosed'` in `pg-foma/capability.rs`: **zero matches.** `Compounding`,
-`UnorderedMorphRuleApplication` and `MprGroupOverwrite` were each promoted to `ConfigPredicate` (this
-file's own "Adjudicated" table records the promotion) and nothing replaced them.
-
-`coverage_ledger.rs` has a grading path reachable *only* from a `FailClosed` row: `build_ledger`'s G8
-branch (`:1022`), `EvidenceRequirement::RefusalWitness` (`:726-728`), and
-`ContainmentEvidenceKind::RefusalWitness` (`:294`). With no such row, none of it is exercised.
-
-And `fail_closed_row_is_covered_via_refusal_witness_regardless_of_passing_set` (`:1043`), the test that
-looks like it pins that path, contradicts its own name and doc three ways:
-
-| Name / doc says | Body asserts |
-|---|---|
-| a **`FailClosed`** row | `row.disposition == Disposition::ConfigPredicate` (`:1048`) |
-| covered via its **`RefusalWitness`** | `containment.kind == ContainmentEvidenceKind::Dedicated` (`:1057`) |
-| *"EVEN with a completely empty passing-fixture set"* | passes `fully_covered_constructs()` (`:1044`) — every construct id of every kind (`:789-797`) |
-
-The third is fatal. The G8 bug it names is *"a `FailClosed` row showing `Covered` only because a
-sibling's passing fixture tagged the same shared `constructs.txt` id."* Supplying a set in which
-**everything** passes is exactly the condition that produces that contamination, so the test cannot
-distinguish the bug from the fix — **it would pass with its own fix reverted.** The sibling test at
-`:1019` also `continue`s past `FailClosed` rows and defers to this one by name, so if such a row ever
-returns, nothing grades it.
-
-Decide: retire the `FailClosed`/`RefusalWitness` machinery as dead, or restore a genuine `FailClosed`
-characteristic and make the gate assert what its name claims (empty passing set, `RefusalWitness`
-evidence). Either way the test's name and doc must stop describing behavior it does not check.
-
-### `coverage_ledger.rs:421` ships a false rationale — **OPEN**
-
-*"FailClosed: containment is not the applicable property here -- this witness proves compose_envelope
-genuinely Refuses whenever `MprGroupOutput::Overwrite` is observed."* The cited witness,
-`cover_mpr_groups.rs::overwrite_group_composes_to_confirm_only` (`:392`), asserts
-`CompileDecision::ConfirmOnly`; the disposition is `ConfigPredicate`. A **production string literal**
-making a false claim in the file that is the authority on containment evidence — the second layer of
-the four-layer table, not the comment layer.
-
 ### Dead test citations — **fixed**
 
 Three comments cited tests that exist nowhere, each asserting the opposite of the citing prose:
@@ -323,31 +284,6 @@ marker of each of the five categories exits 1 and names all five; the lowercase
 `stage 1`/`stage 2`/`phase a` line does not trip it. One caught wrinkle worth keeping — the first
 version of the explanatory comment used a literal task number as its example and the checker flagged
 its own documentation.
-
-### The blind spot that matters more than the comments — **OPEN**
-
-The checker scans **comment lines only**, and that is the right default: a plan path inside a string
-literal is often a real file the code opens. But it means the sweep could not see, and did not touch,
-**18 plan references sitting in production string literals** — `capability.rs` (5),
-`coverage_ledger.rs` (5), `plan_interaction_coverage.rs` (2), and one each in `make_report.rs`,
-`analyzer.rs`, `compose_budget.rs`, `conformance_coverage.rs`, `morphotactics.rs`,
-`recipe_registry.rs`. Production code only — `tests/`, `examples/`, and `cfg(test)` excluded.
-
-These are **not** paths the code opens. They are diagnostic and error text, e.g.:
-
-- `analyzer.rs:98` — *"(openspec/changes/cover-unordered-morph-rules) rather than silently truncated."*
-- `capability.rs:3393` — *"...operator, openspec/changes/build-unbounded-quantifier-support.)"*
-- `capability.rs:3781` — *"{kind:?} is FailClosed by default disposition (design.md D1)..."*
-
-So a user running `pangloss` can be shown a message citing an internal openspec change folder they
-have no access to. That is strictly worse than the same reference in a comment: a stale comment
-misleads a maintainer, a stale diagnostic misleads an end user and cannot be checked by any gate that
-reads comments. Same failure mode as the rest of this ledger — a pointer to project state, true when
-written — one layer further out.
-
-Fix is a judgement call per message, not a sweep: say what the reader should *do*, and keep the
-construct name. Worth adding a companion check for plan patterns in string literals, scoped to
-production code so fixture XML and real paths do not trip it.
 
 ### A test that asserts project state, while claiming to assert a property — **OPEN**
 
