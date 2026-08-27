@@ -122,13 +122,6 @@ const REPORT_DEVELOPER_HELP: &str =
 #[cfg(not(feature = "developer-tools"))]
 const REPORT_DEVELOPER_HELP: &str = "";
 
-#[cfg(feature = "developer-tools")]
-const DEVELOPER_HELP: &str =
-    "Developer-only FST controls: --allow-unproven overrides correctness refusal for an unproven\
-     development run.\n                 ";
-#[cfg(not(feature = "developer-tools"))]
-const DEVELOPER_HELP: &str = "";
-
 fn main() -> ExitCode {
     // The analysis cascade recurses to the depth of a word's unapplication chain, which on heavy corpus words exceeds the default 8 MiB main-thread stack, so the whole batch runs on a worker thread with a generous stack.
     std::thread::Builder::new()
@@ -276,8 +269,7 @@ fn run() -> ExitCode {
                  guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
                  `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.",
                 env!("CARGO_PKG_VERSION"),
-                REPORT_DEVELOPER_HELP,
-                DEVELOPER_HELP
+                REPORT_DEVELOPER_HELP
             );
             ExitCode::FAILURE
         }
