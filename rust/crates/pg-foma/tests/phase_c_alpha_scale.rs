@@ -91,7 +91,7 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
         &ro,
         &mut skipped,
         &mut tuple_reports,
-    )
+    );
     assert!(
         skipped.is_empty(),
         "neither alpha rule should be skipped: {skipped:?}"

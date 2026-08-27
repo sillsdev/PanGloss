@@ -167,7 +167,7 @@ fn sim_trivial_lone_subrule_now_compiles() {
         &ro,
         &mut skipped,
         &mut tuple_reports,
-    )
+    );
 
     assert!(
         skipped.is_empty(),
@@ -439,7 +439,7 @@ fn sim_overlap_env_stays_honest_unsupported() {
         &ro,
         &mut skipped,
         &mut tuple_reports,
-    )
+    );
 
     assert_eq!(
         skipped,

@@ -72,7 +72,7 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
         &ro,
         &mut skipped,
         &mut tuple_reports,
-    )
+    );
 
     // The quantifier-bearing rule is no longer skipped at all -- it compiles to a real network, alpha-free (a trivial 1-entry tuple report).
     assert!(
@@ -401,7 +401,7 @@ fn quantifier_unbounded_environment_compiles_and_matches_oracle() {
         &[&g.prules[0]],
         &mut skipped,
         &mut tuple_reports,
-    )
+    );
 
     assert!(
         skipped.is_empty(),

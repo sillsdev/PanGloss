@@ -1,5 +1,14 @@
 # Worker process-tree containment implementation plan
 
+> **Status: LANDED, with one item still open.** The Windows job-object and Linux cgroup-v2
+> containment destination exists and `docs/simplification-rip-list.md` carries it as stage 2
+> (C1). The unticked boxes below were never updated as the work landed.
+>
+> **Still open:** the hosted-Linux aggregate-containment rerun. The rip list records it as
+> deliberately deferred -- "the hosted Linux correction exists in `032e0076`/`1c7cc837`; rerun
+> it only after the minimal explicit route is assembled" -- so it waits on the replacement
+> stage, not on this plan.
+
 Design: `docs/superpowers/specs/2026-08-26-worker-process-tree-containment-design.md`
 
 ## Task 1: Red contract tests and fixture behavior

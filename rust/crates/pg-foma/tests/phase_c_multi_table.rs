@@ -112,7 +112,7 @@ fn multi_table_rewrite_compiles_correctly_against_its_owning_table() {
         &[devoice_rule],
         &mut skipped,
         &mut tuple_reports,
-    )
+    );
     // The fix changes WHICH table natural classes resolve against, not whether the rule compiles at all.
     assert!(
         skipped.is_empty(),

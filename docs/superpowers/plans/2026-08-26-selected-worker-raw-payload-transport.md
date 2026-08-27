@@ -1,5 +1,12 @@
 # Selected Worker Raw-Payload Transport Implementation Plan
 
+> **Status: COMPLETE.** `docs/simplification-rip-list.md` records this work as A8,
+> **VERIFIED**: protocol v9 carries an independently bounded raw frame, the filesystem
+> transport and the legacy parser/capture residue are deleted, and prefix-before-allocation,
+> clean exit, malformed streams, and supervisor-limit authority are all proven by subprocess
+> tests. The unticked boxes below were never updated as the work landed; the rip list, not
+> this checklist, is the authority. Retained as the design record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Delete selected-build filesystem transport and carry a selected FST through one strictly bounded raw worker-output frame.

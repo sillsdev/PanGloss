@@ -779,7 +779,7 @@ fn metathesis_anchor_pattern_compiles_as_confirm_only_swap_superset() {
         &[&g.prules[0]],
         &mut skipped,
         &mut tuple_reports,
-    )
+    );
 
     let net = composed.expect("a final-anchor metathesis pattern must compile");
     assert!(
