@@ -276,16 +276,6 @@ impl ComposeBudget {
         self
     }
 
-    /// This budget's currently configured chain-depth cap, if any (`None` = unbounded/off).
-    ///
-    /// `#[allow(dead_code)]`: `Self::check_chain_depth` reads the `chain_depth_cap` field
-    /// directly rather than through this accessor; only this module's own tests call it (a plain
-    /// `--lib` build never does).
-    #[allow(dead_code)]
-    pub(crate) fn chain_depth_cap(&self) -> Option<usize> {
-        self.chain_depth_cap
-    }
-
     /// Checked chain-depth dimension (this module's "Chain-depth dimension" section):
     /// a caller reports its current cumulative derivation/unapplication step count for one word,
     /// and this returns `ComposeError::ChainDepthExceeded` once `depth` exceeds
