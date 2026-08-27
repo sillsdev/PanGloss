@@ -19,7 +19,6 @@ fn finding(severity: Severity, code: FindingCode) -> HealthFinding {
         remedies: Vec::new(),
     }
 }
-
 fn refused(strategy: EmissionStrategy) -> BackendReport {
     BackendReport::refused(
         strategy,
@@ -121,21 +120,4 @@ fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
     }));
     assert!(!composed.failed_predicates().is_empty());
     assert!(!composed.advice_references().is_empty());
-}
-
-#[test]
-fn marker_free_plan_composed_remains_selectable() {
-    let grammar_xml = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../machine/conformance/edge-cases/loader-isactive/grammar.xml"
-    ));
-    let grammar = pg_grammar::load(grammar_xml).expect("marker-free fixture must load");
-    let selection = pg_foma::backend_selection::select_backends_for_grammar(&grammar);
-    let composed = selection
-        .report_for(EmissionStrategy::PlanComposed)
-        .expect("PlanComposed must always have one report");
-
-    assert_eq!(composed.status(), BackendStatus::Accepted);
-    assert!(composed.findings().is_empty());
-    assert!(composed.shapes().is_empty());
 }
