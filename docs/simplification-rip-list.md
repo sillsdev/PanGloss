@@ -4,6 +4,27 @@ Living implementation plan. Git history is the recovery mechanism; PanGloss is p
 external compatibility obligation. Old behavior must not be restored merely because a test expects
 it. Update or delete that test first when it pins a contract explicitly rejected below.
 
+## Rip-first execution order (2026-08-27)
+
+No one depends on the current pre-alpha implementation. Finish demolition before building its
+replacement. Temporary compile holes are expected evidence that an old route was actually removed;
+they are recorded, not repaired, during this phase.
+
+1. Freeze destination wiring, adapters, replacement APIs, positive replacement tests, and compile
+   repairs.
+2. For one rejected contract at a time, delete or rewrite the tests that require it.
+3. Delete that contract's source route, data plumbing, flags, advice, fixtures, and documentation.
+4. Stage and commit the narrow deletion tranche; record its exact additions/deletions and any
+   intentional compile holes.
+5. Repeat until a fresh symbol/call-site audit finds no authorized removal inventory.
+6. Only then define the smallest coherent explicit-backend/completed-artifact surface, repair the
+   remaining compile holes, and add tests for that final surface.
+
+During steps 1-5, do not run Cargo or interpret compilation as an acceptance gate. Use structural
+checks, protected-file hashes, diff inspection, and residue searches. A test failure cannot justify
+restoring rejected behavior. Safety-sensitive hunks remain deferred until their explicitly recorded
+approval is obtained; that deferral does not block unrelated demolition.
+
 ## Ratified marching orders (2026-08-25)
 
 These decisions are authoritative. The detailed rip list is subordinate to them.
