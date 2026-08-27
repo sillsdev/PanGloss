@@ -243,9 +243,6 @@ impl BackendOptimizationReport {
     pub fn canonical_json(&self) -> String {
         serde_json::to_string(&self.canonical()).expect("report is serializable")
     }
-    pub fn from_json(s: &str) -> serde_json::Result<Self> {
-        serde_json::from_str(s)
-    }
     pub fn markdown(&self) -> String {
         let r = self.canonical();
         let winner = r.winner.as_deref().unwrap_or("none");
