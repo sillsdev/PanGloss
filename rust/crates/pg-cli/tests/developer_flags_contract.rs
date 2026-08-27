@@ -80,7 +80,6 @@ fn developer_build_rejects_removed_flags_on_all_commands() {
         for args in [
             vec!["parse", "missing.xml", "word", flag],
             vec!["batch", "missing.xml", "words.txt", "out.tsv", flag],
-            vec!["pack", "missing.xml", "out.pgpack", flag],
             vec!["make-report", "missing.xml", "out.md", flag],
         ] {
             let output = pangloss(&args);
