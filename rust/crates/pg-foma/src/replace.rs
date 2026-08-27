@@ -909,7 +909,6 @@ fn compile_rtl_branch_net(
 pub fn compile_rewrite_rule(
     opts: &FomaOptions,
     g: &Grammar,
-    alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
 ) -> Option<(Fsm, Vec<TupleReport>)> {
     compile_rewrite_rule_subset(opts, g, rule, &|_| true)
@@ -967,7 +966,7 @@ pub fn compile_rewrite_rule_subset(
     // `owning_table_id` shares `owning_table`'s own stratum lookup, so it is guaranteed `Some` here too.
     let table_id = owning_table_id(g, rule)
         .expect("owning_table_id shares owning_table's own lookup, which just resolved Some");
-    // Built once per rule rather than threaded from the outer cascade functions, so callers outside this file need no signature change.
+    // Built once per rule rather than threaded from the outer cascade functions.
     let alias_map = RepresentationAliasMap::build(g);
     let render_alphabet = SegAlphabet::with_table_id(table, table_id, &alias_map);
     let mut net: Option<Fsm> = None;
