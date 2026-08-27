@@ -576,12 +576,9 @@ fn build_node(
 /// supplies the real per-node verdicts (mirroring the same algorithm, see its own doc). Every label
 /// is derived from each node's own payload plus `g` — see this module's top-doc.
 ///
-/// Shares ONE
-/// `crate::grammar_semantics::GrammarSemantics` for the whole document, rather than running
-/// **three** independent `crate::capability::characterize` walks for one diagram — one in its own
-/// `plan_and_profile` call, a second in the `plan_and_profile` call inside
-/// `build_plan_document_for_plan` (whose `Plan` half would then be discarded), and a third inside
-/// `crate::capability::compose_envelope`.
+/// Shares ONE `crate::grammar_semantics::GrammarSemantics` for the whole document:
+/// `build_plan_document` derives it once, then `build_plan_document_with_semantics` passes it to
+/// `plan_for_semantics` and `build_plan_document_for_plan_with_semantics`.
 pub fn build_plan_document(g: &Grammar) -> PlanDocument {
     build_plan_document_with_semantics(&GrammarSemantics::derive(g))
 }
@@ -592,13 +589,8 @@ pub fn build_plan_document_with_semantics(semantics: &GrammarSemantics<'_>) -> P
     build_plan_document_for_plan_with_semantics(semantics, &plan)
 }
 
-/// Projects an already materialized backend plan using the same capability evidence and labels as
-/// the default grammar-derived plan. Backend optimization uses this for baseline/winner artifacts.
-pub fn build_plan_document_for_plan(g: &Grammar, plan: &Plan) -> PlanDocument {
-    build_plan_document_for_plan_with_semantics(&GrammarSemantics::derive(g), plan)
-}
-
-/// `build_plan_document_for_plan` over an already-derived `GrammarSemantics`.
+/// Projects an already materialized backend plan over an already-derived `GrammarSemantics`, using
+/// the same capability evidence and labels as the default grammar-derived plan.
 pub fn build_plan_document_for_plan_with_semantics(
     semantics: &GrammarSemantics<'_>,
     plan: &Plan,
