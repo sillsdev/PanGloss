@@ -164,12 +164,6 @@ mod tests {
             },
             fst_health: HealthReport::new(vec![]),
             backend_assessments: vec![],
-            fst_completeness: Some(FstCompletenessCertificate {
-                backend: "tuned-surface-probed".to_string(),
-                uncovered_constructs: 0,
-                pending_successors: 0,
-                compiled_payload_present: true,
-            }),
             license: None,
             created_by: "synthetic-test-builder".to_string(),
             created_at: "2026-07-24T00:00:00Z".to_string(),

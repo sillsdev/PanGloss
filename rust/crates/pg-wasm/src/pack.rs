@@ -199,12 +199,6 @@ mod tests {
             required_runtime_features,
             fst_health: HealthReport::new(Vec::new()),
             backend_assessments: vec![],
-            fst_completeness: Some(pg_pack::FstCompletenessCertificate {
-                backend: "synthetic".to_string(),
-                uncovered_constructs: 0,
-                pending_successors: 0,
-                compiled_payload_present: true,
-            }),
             license: None::<LicenseDeclaration>,
             created_by: "synthetic-test-builder".to_string(),
             created_at: "2026-07-25T00:00:00Z".to_string(),
