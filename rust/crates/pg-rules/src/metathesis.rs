@@ -613,12 +613,6 @@ pub fn analyze_traced(
     result
 }
 
-/// The `MetaCache`-aware sibling of `analyze_traced`, called from
-/// `crate::stratum::StratumAnalyzer::analyze` (this section's doc). `MetaCache`'s own
-/// `pub(crate)` visibility rules out the "export it `pub`" dodge `pg_rules::rewrite::
-/// analyze_cached_traced` uses for the identical situation, so `dead_code` is silenced explicitly
-/// here instead; also exercised directly by this module's own unit tests.
-#[allow(dead_code)]
 pub(crate) fn analyze_cached_traced(
     pid: PRuleId,
     rule: &MetathesisRuleDef,
