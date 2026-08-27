@@ -9,7 +9,6 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
-use foma::types::Fsm;
 
 use pg_foma::replace::{compile_and_compose_rules, is_fully_supported_shape, SegAlphabet};
 use pg_foma::tags;
@@ -353,7 +352,3 @@ fn run() {
 
     println!("\n=== done ===");
 }
-
-// silence "unused" for Fsm import used only via method calls on returned values
-#[allow(dead_code)]
-fn _touch(_: &Fsm) {}

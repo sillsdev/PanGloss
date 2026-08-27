@@ -34,8 +34,6 @@ enum Role {
     Infix,
     Reduplication,
     CircumfixPrefix,
-    #[allow(dead_code)]
-    CircumfixSuffix,
     Process,
 }
 
