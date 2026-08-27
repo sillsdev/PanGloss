@@ -278,8 +278,6 @@ pub struct NetDedupSavings {
     pub confirmation_calls_avoided: u64,
     /// Full-HC confirmation STEPS skipped — the unit `Score::key` ranks on.
     pub confirmation_steps_avoided: u64,
-    /// Raw proposer paths not traversed, summed from each donor's own measured count.
-    pub raw_paths_avoided: u64,
 }
 
 /// All prepared, reusable evaluation inputs for one optimizer run.
@@ -319,11 +317,6 @@ impl RunEvaluationCache {
 
     pub fn net_dedup_enabled(&self) -> bool {
         self.net_measurements.is_some()
-    }
-
-    /// The deterministic work net-level dedup saved on this run. All zero when dedup is disabled.
-    pub fn net_dedup_savings(&self) -> NetDedupSavings {
-        self.savings
     }
 
     pub fn nets_deduped(&self) -> usize {
@@ -381,10 +374,6 @@ impl RunEvaluationCache {
             .savings
             .confirmation_steps_avoided
             .saturating_add(donor.confirmation_steps);
-        self.savings.raw_paths_avoided = self
-            .savings
-            .raw_paths_avoided
-            .saturating_add(donor.raw_paths);
     }
 
     pub fn oracle_calls(&self) -> usize {
