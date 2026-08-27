@@ -4,12 +4,9 @@
 use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
-use std::time::Instant;
 
-use pg_foma::analyzer::FomaProposer;
 use pg_foma::backend_selection::select_backends;
 use pg_foma::capability::CompileDecision;
-use pg_foma::composite::FomaAnalyzer;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::health::HealthReport;
 use pg_foma::plan_diagram::{
@@ -20,7 +17,6 @@ use pg_foma::readiness_verdict::{
     certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
     CoverageAssessment, LatencyMeasurement, Measurements, ReadinessReport, Tier, TrustStatus,
 };
-use pg_grammar::model::Grammar;
 use sha2::{Digest, Sha256};
 
 #[cfg(feature = "developer-tools")]
@@ -88,120 +84,6 @@ fn submodule_revision(rel_path: &str) -> String {
         }
         _ => format!("unknown ({rel_path}: no such submodule at the repo toplevel {top})"),
     }
-}
-
-/// Calibrates this process's real `Instant` tick granularity; mirrors `typology_speedup.rs`'s own helper by restatement, since that harness's types are test-only and not importable.
-fn measure_timer_floor_ns() -> u64 {
-    let mut floor = u64::MAX;
-    let mut prev = Instant::now();
-    for _ in 0..16 {
-        loop {
-            let now = Instant::now();
-            if now > prev {
-                floor = floor.min((now - prev).as_nanos() as u64);
-                prev = now;
-                break;
-            }
-        }
-    }
-    floor.max(1)
-}
-
-/// Never `Millis(0.0)`: renders as `BelowFloor` once the raw value sits at or under the calibrated floor.
-fn latency_measurement(value_ns: u64, floor_ns: u64) -> LatencyMeasurement {
-    if value_ns < floor_ns {
-        LatencyMeasurement::BelowFloor {
-            floor_ms: floor_ns as f64 / 1_000_000.0,
-        }
-    } else {
-        LatencyMeasurement::Millis(value_ns as f64 / 1_000_000.0)
-    }
-}
-
-fn render_latency_measurement(m: &LatencyMeasurement) -> String {
-    match m {
-        LatencyMeasurement::Millis(ms) => format!("{ms:.3} ms"),
-        LatencyMeasurement::BelowFloor { floor_ms } => {
-            format!("<{floor_ms:.6} ms (below timer floor)")
-        }
-    }
-}
-
-/// Nearest-rank percentile over an already-sorted ascending slice, `p` in `0.0..=100.0`; empty input returns 0, since `run_make_report` hard-errors before an empty word list reaches here.
-fn percentile_ns(sorted_asc: &[u64], p: f64) -> u64 {
-    if sorted_asc.is_empty() {
-        return 0;
-    }
-    let n = sorted_asc.len();
-    let idx = ((p / 100.0) * n as f64).ceil() as usize;
-    let idx = idx.clamp(1, n);
-    sorted_asc[idx - 1]
-}
-
-/// Every distinct, non-empty root-allomorph surface form in `g`'s lexicon: the fallback word list used when the caller supplies no `--words` file, disclosed in the report as a fallback rather than a representative sample.
-fn default_word_list(g: &Grammar) -> Vec<String> {
-    let mut words: Vec<String> = Vec::new();
-    for entry in &g.entries {
-        for allomorph in &entry.allomorphs {
-            let text = allomorph.shape.text.clone();
-            if !text.is_empty() && !words.contains(&text) {
-                words.push(text);
-            }
-        }
-    }
-    words
-}
-
-/// Times every word: one discarded warmup, then `repeats` samples, keeping the median; returns raw (p50, p90, p99) nanoseconds over the sorted medians — below-floor rendering happens at the caller, not here.
-fn measure_latency_percentiles_ns(
-    analyzer: &mut FomaAnalyzer,
-    words: &[String],
-    repeats: u32,
-) -> (u64, u64, u64) {
-    let mut per_word_medians_ns: Vec<u64> = Vec::with_capacity(words.len());
-    for word in words {
-        let _ = analyzer.analyze_word(word); // discarded warmup
-        let mut samples: Vec<u64> = Vec::with_capacity(repeats as usize);
-        for _ in 0..repeats {
-            let start = Instant::now();
-            let _ = analyzer.analyze_word(word);
-            samples.push(start.elapsed().as_nanos() as u64);
-        }
-        samples.sort_unstable();
-        per_word_medians_ns.push(samples[samples.len() / 2]);
-    }
-    per_word_medians_ns.sort_unstable();
-    (
-        percentile_ns(&per_word_medians_ns, 50.0),
-        percentile_ns(&per_word_medians_ns, 90.0),
-        percentile_ns(&per_word_medians_ns, 99.0),
-    )
-}
-
-/// Token-level analysis rate over `corpus_text`: every whitespace-separated token counts in the denominator, even a segmentation-rejected one; `Err` only on zero tokens, rather than a fabricated `0.0`.
-fn measure_coverage_rate(
-    analyzer: &mut FomaAnalyzer,
-    g: &Grammar,
-    corpus_text: &str,
-) -> Result<f64, String> {
-    let tokens: Vec<&str> = corpus_text.split_whitespace().collect();
-    if tokens.is_empty() {
-        return Err(
-            "--corpus file contains no whitespace-separated tokens -- cannot compute an honest \
-             analysis rate over zero tokens"
-                .to_string(),
-        );
-    }
-    let mut hit = 0usize;
-    for token in &tokens {
-        if crate::foma_invalid_shape(g, token) {
-            continue; // a miss, not an exclusion -- still counted in `tokens.len()` below.
-        }
-        if analyzer.analyze_word(token).confirmed > 0 {
-            hit += 1;
-        }
-    }
-    Ok(hit as f64 / tokens.len() as f64)
 }
 
 // Markdown rendering.
@@ -438,29 +320,6 @@ fn render_backend_assessments(
         writeln!(out).unwrap();
     }
     Some(out)
-}
-
-fn build_report_analyzer<'g>(
-    grammar: &'g Grammar,
-    unproven: bool,
-) -> Result<FomaAnalyzer<'g>, String> {
-    let (result, _profile) = if unproven {
-        #[cfg(feature = "developer-tools")]
-        {
-            FomaProposer::new_unproven_with_profile(grammar)
-        }
-        #[cfg(not(feature = "developer-tools"))]
-        {
-            return Err(
-                "unproven report measurement requires the developer-tools feature".to_string(),
-            );
-        }
-    } else {
-        FomaProposer::new_with_profile(grammar)
-    };
-    result
-        .map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer))
-        .map_err(|error| format!("foma compile failed for report measurement: {error}"))
 }
 
 fn capability_override_engaged(decision: &CompileDecision, allow_unproven: bool) -> bool {
@@ -742,39 +601,16 @@ fn render_markdown_with_assessments(
 pub fn run_make_report(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut pack_path: Option<String> = None;
-    let mut words_path: Option<String> = None;
-    let mut corpus_path: Option<String> = None;
-    let mut attestor: Option<String> = None;
-    let mut attested_on: Option<String> = None;
     let mut policy_path: Option<String> = None;
     let mut allow_unproven = false;
     let mut authorized_by: Option<String> = None;
     let mut reason: Option<String> = None;
-    let mut repeats: u32 = 7;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--pack" => pack_path = Some(it.next().ok_or("--pack requires a value")?.clone()),
             s if s.starts_with("--pack=") => pack_path = Some(s["--pack=".len()..].to_string()),
-            "--words" => words_path = Some(it.next().ok_or("--words requires a value")?.clone()),
-            s if s.starts_with("--words=") => words_path = Some(s["--words=".len()..].to_string()),
-            "--corpus" => corpus_path = Some(it.next().ok_or("--corpus requires a value")?.clone()),
-            s if s.starts_with("--corpus=") => {
-                corpus_path = Some(s["--corpus=".len()..].to_string())
-            }
-            "--attestor" => {
-                attestor = Some(it.next().ok_or("--attestor requires a value")?.clone())
-            }
-            s if s.starts_with("--attestor=") => {
-                attestor = Some(s["--attestor=".len()..].to_string())
-            }
-            "--attested-on" => {
-                attested_on = Some(it.next().ok_or("--attested-on requires a value")?.clone())
-            }
-            s if s.starts_with("--attested-on=") => {
-                attested_on = Some(s["--attested-on=".len()..].to_string())
-            }
             "--policy" => policy_path = Some(it.next().ok_or("--policy requires a value")?.clone()),
             s if s.starts_with("--policy=") => {
                 policy_path = Some(s["--policy=".len()..].to_string())
@@ -791,43 +627,19 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             }
             "--reason" => reason = Some(it.next().ok_or("--reason requires a value")?.clone()),
             s if s.starts_with("--reason=") => reason = Some(s["--reason=".len()..].to_string()),
-            "--repeats" => {
-                let v = it.next().ok_or("--repeats requires a value")?;
-                repeats = v.parse().map_err(|_| format!("invalid --repeats: {v}"))?;
-            }
-            s if s.starts_with("--repeats=") => {
-                let v = &s["--repeats=".len()..];
-                repeats = v.parse().map_err(|_| format!("invalid --repeats: {v}"))?;
-            }
             s => {
                 crate::reject_unknown_option(s)?;
                 positional.push(s);
             }
         }
     }
-    if repeats == 0 {
-        return Err("--repeats must be >= 1".to_string());
-    }
     let [grammar_path, out_path] = positional[..] else {
         return Err(format!(
-            "usage: make-report <grammar> <out.md> [--pack=<path>] [--words=<path>] \
-             [--corpus=<path> --attestor=<name> --attested-on=<date>] [--policy=<path>]{} \
-             [--authorized-by=<name>] [--reason=<text>] [--repeats=N]",
+            "usage: make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{} \
+             [--authorized-by=<name>] [--reason=<text>]",
             crate::REPORT_DEVELOPER_HELP
         ));
     };
-
-    let coverage_flags =
-        corpus_path.is_some() as u8 + attestor.is_some() as u8 + attested_on.is_some() as u8;
-    if coverage_flags != 0 && coverage_flags != 3 {
-        return Err(
-            "--corpus, --attestor, and --attested-on must all be given together -- a held-out \
-             coverage attestation needs a corpus, a named attestor, AND a date; a partial \
-             attestation is not honest (spec.md: coverage status is either a full attestation or \
-             not-assessed, never a half-measure)"
-                .to_string(),
-        );
-    }
 
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     crate::print_grammar_warnings(&warnings);
@@ -848,16 +660,6 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             ThresholdPolicy::from_json(&text).map_err(|e| format!("parse --policy {p}: {e}"))?
         }
         None => policy_v1(),
-    };
-
-    let corpus_data: Option<(String, String)> = match &corpus_path {
-        Some(p) => {
-            let bytes = fs::read(p).map_err(|e| format!("read --corpus {p}: {e}"))?;
-            let sha = sha256_hex(&bytes);
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            Some((text, sha))
-        }
-        None => None,
     };
 
     // One derivation, shared by every place this command needs the capability verdict, rather than three independent characterize walks over the same grammar.
@@ -921,7 +723,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 .to_string();
     } else {
         // ---- artifact size and health: from a REAL artifact, never caller-supplied parameters ----
-        let (artifact_size, pack_pin_line, health, assessments): (
+        let (_artifact_size, pack_pin_line, health, assessments): (
             u64,
             String,
             HealthReport,
@@ -955,122 +757,22 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
         fst_health = Some(health);
         backend_assessments = Some(assessments);
 
-        // The compiled propose+confirm analyzer these build-time/latency numbers are about: a separate compile from whatever produced the pack above.
-        let t_build = Instant::now();
-        let mut analyzer = build_report_analyzer(&grammar, capability_overridden)?;
-        let build_ns = t_build.elapsed().as_nanos() as u64;
-        let floor_ns = measure_timer_floor_ns();
-        let rendered_build_time =
-            render_latency_measurement(&latency_measurement(build_ns, floor_ns));
-        build_time_line = if trust.is_unproven() {
-            format!(
-                "{rendered_build_time} (unproven grounding evidence, not accuracy evidence; \
-                 compiling the propose+confirm analyzer this report's latency numbers were \
-                 measured against; informational only -- no threshold in the declared policy \
-                 gates this figure)."
-            )
-        } else {
-            format!(
-                "{rendered_build_time} (compiling the propose+confirm analyzer this report's \
-                 latency numbers were measured against; informational only -- no threshold in \
-                 the declared policy gates this figure)."
-            )
-        };
-
-        // ---- latency word list: --words if given, else this grammar's own lexical roots ----
-        let (words, words_source): (Vec<String>, String) = match &words_path {
-            Some(p) => {
-                let text = fs::read_to_string(p).map_err(|e| format!("read --words {p}: {e}"))?;
-                let ws: Vec<String> = text
-                    .lines()
-                    .map(|l| l.trim().to_string())
-                    .filter(|l| !l.is_empty())
-                    .collect();
-                (ws, format!("`--words {p}`"))
-            }
-            None => {
-                not_tested.push(
-                    "latency word source: no --words file was supplied; this report's \
-                     percentiles were measured against this grammar's own lexical root surface \
-                     forms as a fallback sample, which may not be representative of real running \
-                     text."
-                        .to_string(),
-                );
-                (
-                    default_word_list(&grammar),
-                    "this grammar's own lexical root surface forms (fallback; no --words given)"
-                        .to_string(),
-                )
-            }
-        };
-        if words.is_empty() {
-            return Err(
-                "cannot measure latency: no --words file was supplied and this grammar has no \
-                 lexical entries to fall back to"
-                    .to_string(),
-            );
-        }
-        let (p50_ns, p90_ns, p99_ns) =
-            measure_latency_percentiles_ns(&mut analyzer, &words, repeats);
-        let latency_p50 = latency_measurement(p50_ns, floor_ns);
-        let latency_p90 = latency_measurement(p90_ns, floor_ns);
-        let latency_p99 = latency_measurement(p99_ns, floor_ns);
-        latency_methodology_line = format!(
-            "Measured in-process via nanosecond `Instant`/`Duration` timing over a real \
-             `FomaAnalyzer` (never `pangloss batch`'s integer-millisecond TSV column, so a \
-             sub-millisecond result never silently renders as `0`): {} word(s), {repeats} timed \
-             samples/word after 1 discarded warmup call, this run's calibrated timer floor is \
-             {floor_ns}ns. Word source: {words_source}. p50/p90/p99 are the nearest-rank \
-             percentile over each word's own median duration.",
-            words.len()
+        // Nothing is measured here: this command no longer compiles anything of its own.
+        build_time_line =
+            "not measured -- make-report no longer compiles a grammar; build time belongs to"
+                .to_string()
+                + " whatever produced the artifact.";
+        latency_methodology_line =
+            "not measured -- make-report no longer compiles an analyzer to time.".to_string();
+        coverage_attestation_line =
+            "not assessed -- make-report no longer runs a corpus.".to_string();
+        not_tested.push(
+            "build time, latency, and coverage: NOT MEASURED -- make-report reports on an"
+                .to_string()
+                + " artifact it is given and no longer compiles one itself, so it has nothing"
+                + " of its own to time or to run a corpus against.",
         );
-
-        // ---- coverage: attestation if given, otherwise honestly not-assessed ----
-        let coverage = match (&corpus_path, &corpus_data, &attestor, &attested_on) {
-            (Some(cp), Some((text, sha)), Some(at), Some(on)) => {
-                let rate = measure_coverage_rate(&mut analyzer, &grammar, text)?;
-                coverage_attestation_line = format!(
-                    "ATTESTED -- attestor=`{at}`, attested_on=`{on}`, corpus=`{cp}` \
-                     (sha256=`{sha}`), analysis_rate={rate:.4}. UNVERIFIED beyond the named \
-                     attestor's own claim (nothing in the artifact records what its author read \
-                     while authoring, and PanGloss does not train)."
-                );
-                CoverageAssessment::Attested {
-                    attestor: at.clone(),
-                    attested_on: on.clone(),
-                    analysis_rate: rate,
-                }
-            }
-            _ => {
-                not_tested.push(
-                    "coverage: NOT ASSESSED -- no --corpus/--attestor/--attested-on were \
-                     supplied together; not-assessed is never presented as a passing check."
-                        .to_string(),
-                );
-                coverage_attestation_line =
-                    "not assessed -- no --corpus/--attestor/--attested-on supplied together."
-                        .to_string();
-                CoverageAssessment::NotAssessed
-            }
-        };
-
-        measurements = Some(Measurements {
-            pack_size_bytes: artifact_size,
-            lexicon_entries: grammar.entries.len() as u64,
-            coverage,
-            latency_p50,
-            latency_p90,
-            latency_p99,
-        });
-        if trust.is_unproven() {
-            not_tested.push(
-                "build time, artifact size, lexicon scale, latency, and coverage: retained as
-                 unproven grounding evidence only, never accuracy evidence; capability trust
-                 remains unproven, so every readiness check is blocked and certification is
-                 impossible."
-                    .to_string(),
-            );
-        }
+        measurements = None;
     }
 
     let verdict = certify_with_semantics(&semantics, &trust, measurements.as_ref(), &policy);
@@ -1081,10 +783,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     let mermaid_summary_line = render_mermaid_summary_line(&render);
 
     // ---- pinned revisions ----
-    let corpus_pin = match (&corpus_path, &corpus_data) {
-        (Some(p), Some((_, sha))) => format!("`{p}` (sha256=`{sha}`)"),
-        _ => "not supplied".to_string(),
-    };
+    let corpus_pin = "not supplied -- make-report no longer runs a corpus".to_string();
     let submodule_pin = submodule_revision("machine");
     let repo_head = repo_head_revision();
 
