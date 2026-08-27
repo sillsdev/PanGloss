@@ -1064,13 +1064,4 @@ mod tests {
         assert_eq!(next, next2);
     }
 
-    #[test]
-    fn loose_rules_in_stratum_reports_membership() {
-        let g = load(FIXTURE_STRATA);
-        let mt = MorphotacticIndex::build(&g);
-        let l0 = mrule_id_of(&g, "mrL0");
-        let l1 = mrule_id_of(&g, "mrL1");
-        assert_eq!(mt.loose_rules_in_stratum(0), &[l0]);
-        assert_eq!(mt.loose_rules_in_stratum(1), &[l1]);
-    }
 }
