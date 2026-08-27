@@ -30,7 +30,7 @@ when every required stage is explicitly bound and covered by the certificate.
 
 Stop Amharic TunedSurface exploration as a production-route candidate at the observed
 >3-million-pair boundary. Its production route is the Templated route with the required runtime
-stages. TunedSurface may still be measured in contained developer stress mode. Do not add generic
+stages. TunedSurface may still be measured as contained local diagnostic evidence. Do not add generic
 capability, peeler, advice, or PlanComposed work without a frozen failing case. Mbugwe remains
 deferred from this production slice and active in the separate stress loop.
 
@@ -181,8 +181,9 @@ for Amharic/Aweti morphology coverage and route certification.
   the sibling change's Indonesian tasks 3.1–3.3 and artifact gate 4.1–5.4, 6.1.
 - **Indonesian needs complete closure and exact artifact binding.** `8997cdac` made incomplete
   composite closure refuse, and `87320bff` recorded the fail-closed artifact boundary, while the
-  114-case retry was only static admission. Retain empty worklists, completeness certificates,
-  corpus/grammar identity, envelope, and network fingerprint; reject depth-based success or static
+  114-case comparison was only static admission. Retain empty worklists, completeness certificates,
+  corpus/grammar identity, finite `ExecutionLimits` evidence, and network fingerprint; reject
+  depth-based success or static
   admission standing in for a built artifact. Consumed by the sibling change's closure tasks
   2.1–2.4, Indonesian tasks 3.1–3.3, and artifact tasks 4.1–5.4, 6.1.
 - **Amharic successes remain bounded.** Interdigitation and 20-variable alpha tuples (312
@@ -227,7 +228,8 @@ for Amharic/Aweti morphology coverage and route certification.
   morphology change's tasks 3.6 and 4.6.
 - **Selected and realized routes must be the same artifact.** Keep-old-paths and the Aweti cascade
   experiment showed that a smaller network can still lose recall. Retain `preferred == selected ==
-  realized`, immutable envelope metadata, and a fingerprint for the measured network; reject
+  realized` for any selected route, immutable artifact-identity metadata, and a fingerprint for the
+  measured network; reject
   language-ID switches, stale profiles, and un-fingerprinted substitutions. Consumed by the sibling
   artifact tasks 4.1–5.4 and 6.1; the morphology route check remains in its tasks 6.1 and 7.1.
 - **Completion evidence is backend-specific.** Candidate admission answers which routes are

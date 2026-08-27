@@ -7,12 +7,15 @@ call site; the site names the function/type so this doc can be found from either
 > **Current product policy (2026-08-23).** The implementation details below describe the legacy
 > capability-gate behavior, not the production flag surface. `--allow-unproven` is a
 > developer-build-only capability override: it may lose valid parses and its output is never
-> eligible for certification or production publication. `--no-enforce-capability` is a legacy
-> developer-only escape and must be absent/rejected in production. The removed
+> eligible for certification or production publication. `--no-enforce-capability` is removed and
+> rejected in every build. The removed
 > `--remove-size-limits` spelling is a rejection tombstone, not a live control; finite external
 > limits, exact completion and external watchdog/RSS containment, bounded I/O, and the absolute
 > ceiling remain mandatory. `Error` may be complete/accurate stress evidence but is
 > production-unready; `Critical` is a correctness gap.
+
+The implementation details below are historical legacy-CLI behavior, retained for reachability
+provenance and not as a current flag or production-policy contract.
 
 ## `GateResult`/`capability_gate`: the enforce/override contract
 
@@ -25,9 +28,10 @@ itself is engine-agnostic — it only implements the enforce/override boolean co
 engines actually pass `enforce == true` is a policy decision made by the caller: default-enforcing
 on the `--engine=foma` path (the FST proposer is what a `Refuse` verdict is about), never enforced
 on `--engine=default` (the HC-oracle path never builds or relies on the FST proposer, so there is
-nothing for this gate to refuse on its behalf). In the legacy developer CLI,
+nothing for this gate to refuse on its behalf). In the historical developer CLI,
 `--no-enforce-capability` escaped the foma-path default and `--allow-unproven` only mattered with
-enforcement; neither is a production capability, and production must reject both.
+enforcement; the former is now removed/rejected, while the latter remains local developer/testing
+generation only.
 
 With `enforce == false` (advisory-only, and what every `--engine=default` invocation gets),
 `Admit`/`ConfirmOnly`/`Refuse` are all reported as a preview only; a `Refuse` here never blocks.
@@ -60,4 +64,4 @@ production has no bypass. On `Engine::Default` (the full-search HC-oracle path, 
 faithful, never builds or relies on the FST proposer): never enforced, unconditionally — only the
 FST/foma compile path is gated, and the oracle path is not this gate's concern at all. An explicit
 `--enforce-capability` here is advisory-only and gets its own stderr note so it is never silently
-swallowed; `--no-enforce-capability` is a silent no-op.
+swallowed; the historical `--no-enforce-capability` behavior was a silent no-op.

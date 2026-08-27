@@ -1,5 +1,10 @@
 # Five-Grammar Stress Loop Implementation Plan
 
+> **Status: superseded/historical.** This plan is retained as a record of the five-grammar
+> comparison intent. Its normal-envelope and developer-stress-mode routes are not current marching
+> orders; any future measurement must use finite `ExecutionLimits`, exact completion, and the
+> current worker/containment boundary.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Attempt complete contained FST construction and record backend-specific evidence for Indonesian, Amharic, Aweti, Sena, and Mbugwe.
@@ -22,24 +27,7 @@ identity, compile size mode, completion terminal, payload digest, readiness, and
 - [ ] Run: `& rust/tools/pg.ps1 -Mode corpus-test -Package pg-foma -TestTarget five_grammar_stress_gate -TestThreads 1`; expected FAIL on missing evidence fields/cases.
 - [ ] Commit: `test(foma): freeze five stress grammars`.
 
-### Task 2: Select Error for stress without publishing it
-
-**Files:**
-- Modify: `rust/crates/pg-foma/src/backend_selection.rs`
-- Modify: `rust/crates/pg-foma/src/completed_build.rs`
-- Modify: `rust/crates/pg-foma/src/worker.rs`
-- Test: `rust/crates/pg-foma/tests/five_grammar_stress_gate.rs`
-
-- [ ] Add a typed `SelectionPurpose::{Production, DeveloperStress}` parameter. Production admits
-only correctness-admitted readiness `<= Warning`; stress may try correctness-admitted Error.
-- [ ] Require both purposes to reject Critical, missing payload, live frontier, uncovered/skipped
-material, backend mismatch, and parity failure.
-- [ ] Preserve every backend report and rank stress candidates by worst severity, finding count,
-remedy effort, then committed backend order.
-- [ ] Run `backend_selection_contract`, `trusted_selected_build_gate`, and the stress gate; expected PASS.
-- [ ] Commit: `feat(foma): select contained stress builds`.
-
-### Task 3: Run and classify all five grammars
+### Task 2: Run and classify all five grammars under finite limits
 
 **Files:**
 - Modify: `rust/crates/pg-foma/tests/five_grammar_stress_gate.rs`
@@ -47,8 +35,9 @@ remedy effort, then committed backend order.
 
 - [ ] Before the build, run `pg.ps1 -Mode doctor` and record available memory, CPU/process trees,
 and whether one 19 GB managed slot is safe.
-- [ ] Run each case single-threaded under the normal envelope, then use developer stress mode only
-for correctness-admitted Error. Never use `--allow-unproven` as accuracy evidence.
+- [ ] Run each case single-threaded under finite `ExecutionLimits`, retaining exact completion and
+ containment evidence. Never use `--allow-unproven` as accuracy evidence; it remains local
+ developer/testing generation only and never publishes.
 - [ ] Record exact terminal state, states/arcs/work/probes, payload digest, parity denominator,
 warnings/errors, dominant contributors, and ranked remedies for every backend.
 - [ ] Treat external ceiling, timeout, live frontier, missing payload, or parity gap as typed failure;
@@ -71,7 +60,7 @@ focused stress/worker/selection gates.
 
 ### Task 5: Authoritative integration
 
-- [ ] Run the focused developer-control, worker, completion, selection, and five-grammar targets.
+- [ ] Run the focused worker, completion, selection, and five-grammar targets.
 - [ ] Run the single authoritative `pg-foma` package test through `pg.ps1` after all focused gates pass.
 - [ ] Regenerate backend cards only if their static capability catalog changed; do not insert
 language measurements into cards.

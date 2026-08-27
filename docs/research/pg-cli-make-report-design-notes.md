@@ -14,7 +14,7 @@ not test.
 > completion, external watchdog/RSS containment, bounded I/O, and the absolute ceiling remain
 > mandatory. A complete/accurate stress result may retain `Error` evidence, but `Error` is
 > production-unready and `Critical` is a correctness gap. The legacy `--no-enforce-capability`
-> escape is developer-only.
+> escape is removed and rejected in every build.
 
 ## What this module measures itself, versus what it only composes
 

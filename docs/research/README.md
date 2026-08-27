@@ -31,7 +31,7 @@ prose.**
 > tombstone, not a live control; finite external limits, exact completion, external watchdog/RSS
 > containment, bounded I/O, and the absolute ceiling remain mandatory. `Error` can be
 > complete/accurate stress evidence but is production-unready; `Critical` is a correctness gap.
-> The legacy `--no-enforce-capability` escape is developer-only.
+> The legacy `--no-enforce-capability` escape is removed and rejected in every build.
 
 ## The one orientation fact
 
