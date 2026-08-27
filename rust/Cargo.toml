@@ -103,8 +103,7 @@ pg-stats = { path = "crates/pg-stats" }
 pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
 pg-grammar-gen = { path = "crates/pg-grammar-gen" }
 # `.pgpack` container (R2A / `make-wasm-analysis-only`): ADR 0004 required-runtime-feature
-# containment + ADR 0005 capability-trust stamp, consumed by `pg-wasm`'s load path (see that
-# crate's `src/pack.rs`).
+# containment, consumed by `pg-wasm`'s load path (see that crate's `src/pack.rs`).
 pg-pack = { path = "crates/pg-pack" }
 # Windows Job Object process-tree containment. The dependency is target-scoped in the crate so
 # analysis-only and Linux builds do not acquire Windows APIs.

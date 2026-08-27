@@ -8,9 +8,9 @@ call site; the site names the function/type so this doc can be found from either
 > capability-gate behavior, not the production flag surface. `--allow-unproven` is a
 > developer-build-only capability override: it may lose valid parses and its output is never
 > eligible for certification or production publication. `--no-enforce-capability` is a legacy
-> developer-only escape and must be absent/rejected in production. The separate
-> `--remove-size-limits` developer stress control removes internal deterministic size/work caps
-> only; exact completion and external watchdog/RSS containment, bounded I/O, and the absolute
+> developer-only escape and must be absent/rejected in production. The removed
+> `--remove-size-limits` spelling is a rejection tombstone, not a live control; finite external
+> limits, exact completion and external watchdog/RSS containment, bounded I/O, and the absolute
 > ceiling remain mandatory. `Error` may be complete/accurate stress evidence but is
 > production-unready; `Critical` is a correctness gap.
 

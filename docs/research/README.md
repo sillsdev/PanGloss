@@ -25,10 +25,11 @@ prose.**
 
 > **Current FST policy (2026-08-23).** The research index may link historical override behavior,
 > but the product contract is now three-axis: capability correctness, resource/size containment,
-> and readiness health. `--allow-unproven` and `--remove-size-limits` are developer-build-only,
-> absent and rejected in production. The former may lose valid parses and may write local developer
-> evidence, but never production-publishes or certifies; the latter removes internal caps only, while exact completion, external
-> watchdog/RSS containment, bounded I/O, and the absolute ceiling remain mandatory. `Error` can be
+> and readiness health. `--allow-unproven` is developer-build-only, absent and rejected in
+> production. The former may lose valid parses and may write local developer evidence, but never
+> production-publishes or certifies. The removed `--remove-size-limits` spelling is a rejection
+> tombstone, not a live control; finite external limits, exact completion, external watchdog/RSS
+> containment, bounded I/O, and the absolute ceiling remain mandatory. `Error` can be
 > complete/accurate stress evidence but is production-unready; `Critical` is a correctness gap.
 > The legacy `--no-enforce-capability` escape is developer-only.
 

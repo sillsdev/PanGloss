@@ -49,8 +49,8 @@ that Indonesian, Amharic, or Aweti has a complete, identity-bound, trusted FST; 
 three-language certification still requires the active changes' artifact and semantic gates.
 
 **Downstream — PARTIAL.** Landed: `.pgpack` container + pack manifest (`pg-pack`: ADR 0004 feature
-set, ADR 0005 trust stamp, health admission, non-gating Ed25519, validate-before-allocate); WASM
-load-compat reworked to `required ⊆ provided` + trust stamp (`pg-wasm/src/pack.rs`); the
+set, health admission, non-gating Ed25519, validate-before-allocate); WASM load-compat reworked to
+`required ⊆ provided` (`pg-wasm/src/pack.rs`); the
 `pangloss diagnose` build/assessment reports reusing the signature + health units. **Explicitly NOT
 done** (each change's own `tasks.md` is precise — **except where audited and found false, below**):
 
@@ -166,9 +166,9 @@ This spine was reorganized on 2026-07-24 to reflect the honest-capability archit
 - **Multi-topology is the compilation model, not an optimizer** (ADR 0002): nothing ships until it
   exists, so the compile step is refactored to the plan-reified model *as the model*, and capability
   is grown one construct at a time. There is no ad-hoc selection to preserve.
-- **The capability override** (ADR 0005) is a hidden developer-only correctness switch for
-  grounding refused grammars behind an indelible degraded-trust runtime signal; it may omit valid
-  parses and cannot publish or certify. It never disables compile execution limits.
+- **Capability refusal is not a publication route:** refused grammars remain hard-fail boundaries;
+  local stress evidence, where supported, cannot publish or certify and never disables compile
+  execution limits.
 - **Packaging/WASM/compat are downstream**: with nothing shipping yet, they trail the compilation
   spine.
 
@@ -196,10 +196,10 @@ publication policy, or diagnostic UI.
 Grammar and stems are source. Compilation is gated by the characteristics check and creates an
 immutable build report with capability disposition and FST-health diagnostics; a caller-supplied
 word run creates a separate immutable assessment report. Compilation may remain in memory for
-iterative tests. Release optionally writes one data-only `.pgpack` PanGloss Language Pack; packages
-contain no executable extensions and carry a capability-trust status (proven, or overridden/unproven
-per ADR 0005). The C# Machine utility is maintained as source-only conformance/investigation tooling,
-not shipped product.
+iterative tests. The shared `.pgpack` format is data-only and contains no executable extensions;
+the former release capability-trust status/override record is superseded, and no current publication
+route is implied. The C# Machine utility is maintained as source-only conformance/investigation
+tooling, not shipped product.
 
 ---
 
@@ -211,8 +211,7 @@ not shipped product.
 data into a characteristics profile, composes the capability envelope from per-stage/interaction
 predicates, and **hard-fails** any not-proven-faithful configuration with a typed diagnostic. Owns:
 the profile/envelope/predicate types, the default-deny characterizer (no catch-all — adding a
-`model.rs` variant breaks the build), the **capability override + unproven-trust runtime signal**
-(ADR 0005), and the **conformance-coverage CI gate** (supported ⟺ a passing in-repo
+`model.rs` variant breaks the build), and the **conformance-coverage CI gate** (supported ⟺ a passing in-repo
 `machine/conformance/` fixture, else the build breaks). Its first act marks every unproven
 configuration — including `MorphRuleDef::Compounding`, `MorphRuleOrder::Unordered`, and `MprGroup` —
 behind an explicit predicate or confirm-only boundary. Everything else sequences behind this.
@@ -236,9 +235,9 @@ budget types.
 `recipe-scoped-fst-health` (successor; `define-fst-compilation-health` archived 2026-08-08 with its
 schema shipped and its six open tasks carried over). Rust-owned finding schema, stable codes,
 severity/readiness semantics, size bands, and the boundary between compilation health (cost axis)
-and linguistic grammar quality. Distinct from the capability-trust axis (ADR 0005): health Error
-is production-unready but may be stress-attempted when complete; correctness Critical remains a
-trusted-output refusal. The open half is scoping a finding to the backend that produced it,
+and linguistic grammar quality. Health Error is production-unready but may be stress-attempted when
+complete; correctness refusal remains a trusted-output refusal. The open half is scoping a finding
+to the backend that produced it,
 populating remedies, and recalibrating the size bands — which are a stated target, not a measurement.
 
 ### 0E. Reference oracle harness — pulled early
@@ -417,11 +416,10 @@ inferred-from-presence label would make the picture lie more persuasively than p
 
 **The honesty rules here are load-bearing and specified as requirements, not aspirations.** A
 certificate is a green light, and green lights get cited — the same reasoning that gated the
-conformance-gate flip. So: a `trust=unproven` pack (ADR 0005 override) can **never** certify, or the
-override becomes the shortest path to a stamp and the stamp becomes decorative; "held out of authoring"
-is recorded as an **attestation with an attestor**, because nothing in the artifact can verify it and a
-check that cannot fail is not a check; coverage is worded as a **token-level analysis rate**, never as
-accuracy, since a token can receive a wrong analysis and still count; and an unassessed check must
+conformance-gate flip. A refused grammar cannot produce a certificate; "held out of authoring" is
+recorded as an **attestation with an attestor**, because nothing in the artifact can verify it and a
+check that cannot fail is not a check; coverage is worded as a **token-level analysis rate**, never
+as accuracy, since a token can receive a wrong analysis and still count; and an unassessed check must
 never render as a passed one.
 
 **Expected first result, stated up front so it is not mistaken for a bug:** per
@@ -435,8 +433,8 @@ These assume shippable packs and trail the compilation spine:
 
 - `make-wasm-analysis-only` — **reworked** to ADR 0004's `required ⊆ provided` append-only runtime
   compatibility (replacing the monolithic engine-compatibility-identifier equality check), adding the
-  manifest required-runtime-feature-set field and the ADR 0005 capability-trust stamp. Reconcile the
-  manifest's FST-health admission field with `add-fst-compilation-health-audit`.
+  manifest required-runtime-feature-set field. Reconcile the manifest's FST-health admission field
+  with `add-fst-compilation-health-audit`.
 - `.pgpack` packaging/release path.
 - `add-grammar-diagnostics` — **fix** the apply-path containment to ADR 0003's in-process cooperative
   magnitude budgets, separate from compile execution limits.

@@ -19,8 +19,8 @@
 //!
 //! # Two distinct axes, again (see `crate::health`'s own doc first)
 //! Every `HealthFinding` this module builds carries `severity` on the cost/health axis only
-//! (never the capability-trust axis). Capability trust is recorded separately at pack-manifest
-//! level; this evaluator only reads compiler measurements. `HealthReport::admission`
+//! (never a capability admission decision). This evaluator only reads compiler measurements.
+//! `HealthReport::admission`
 //! (unmodified, called as-is — never re-derived here) is what turns this report's findings into
 //! the "FST admission result".
 //!

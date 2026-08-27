@@ -616,10 +616,8 @@ pub fn certify(
     certify_with_semantics(&GrammarSemantics::derive(g), trust, measurements, policy)
 }
 
-/// `certify` over an already-derived `GrammarSemantics`. `pangloss make-report` evaluates the
-/// capability gate three times in one process — here, in its own preamble, and inside
-/// `pack::build_pack` — and each of those used to be a full independent
-/// `crate::capability::characterize` walk.
+/// `certify` over an already-derived `GrammarSemantics`; the semantics value is pure deterministic
+/// input, while this function still computes the `CompileDecision` itself.
 ///
 /// This does NOT weaken the rule that certification never accepts a caller-supplied capability
 /// verdict: a `GrammarSemantics` is a pure, deterministic function of the grammar, not a verdict,
