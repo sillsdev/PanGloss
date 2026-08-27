@@ -483,7 +483,7 @@ mod tests {
         assert_eq!(
             stale_json.len(),
             current_json_len,
-            "schema v5 and v6 fixtures must retain the same framed manifest length"
+            "schema v5 and v7 fixtures must retain the same framed manifest length"
         );
 
         bytes[HEADER_LEN..HEADER_LEN + stale_json.len()].copy_from_slice(stale_json.as_bytes());
@@ -502,12 +502,12 @@ mod tests {
         manifest.fst_health.schema_version = 5;
 
         let error = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD)
-            .expect_err("manifest v6 with stale embedded health schema v5 must not be written");
+            .expect_err("manifest v7 with stale embedded health schema v5 must not be written");
         assert_eq!(error, PgPackError::UnsupportedHealthSchema { found: 5 });
     }
 
     #[test]
-    fn read_pack_rejects_manifest_v6_with_stale_embedded_health_schema_v5() {
+    fn read_pack_rejects_manifest_v7_with_stale_embedded_health_schema_v5() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
         let mut bytes =
             write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
@@ -530,7 +530,7 @@ mod tests {
         bytes[digest_offset..].copy_from_slice(&digest);
 
         let error = read_pack(&bytes)
-            .expect_err("manifest v6 with stale embedded health schema v5 must not be read");
+            .expect_err("manifest v7 with stale embedded health schema v5 must not be read");
         assert_eq!(error, PgPackError::UnsupportedHealthSchema { found: 5 });
     }
 

@@ -60,6 +60,6 @@ pub use format::{
 pub use license::{LicenseClass, LicenseDeclaration};
 pub use manifest::{
     BackendAdviceReference, BackendAssessment, BackendCostEvidence, PackManifest,
-    MANIFEST_FORMAT_TAG, MANIFEST_SCHEMA_VERSION,
+    MANIFEST_SCHEMA_VERSION,
 };
 pub use signature::{sign, verify, SignatureBlock, SignatureState};

@@ -17,15 +17,12 @@ use crate::signature::SignatureBlock;
 use pg_foma::advice_catalog::RemedyEffort;
 use pg_foma::health::{HealthFinding, HealthReport, Metric, MetricValue, ValueProvenance};
 
-/// The `"format"` tag every pack manifest carries (mirrors `pg_snapshot::FORMAT_TAG`'s own
-/// envelope-tag convention).
-pub const MANIFEST_FORMAT_TAG: &str = "pangloss-pack-manifest";
 /// This manifest schema's own version. Bump only on a wire-incompatible change to
 /// `PackManifest`'s shape — independent of `crate::format::CONTAINER_VERSION` (the container
 /// framing) and of `crate::compat::RequiredRuntimeFeatures::payload_format_version` (the
 /// runtime-payload format), which each version separately.
-/// Bumped to 6 because the embedded FST-health report moved to health schema v6.
-pub const MANIFEST_SCHEMA_VERSION: u32 = 6;
+/// Bumped to 7 because the write-only manifest format tag was removed.
+pub const MANIFEST_SCHEMA_VERSION: u32 = 7;
 
 /// One catalog remedy linked to the grammar shape it addresses for one backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,8 +61,6 @@ pub struct BackendAssessment {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackManifest {
-    /// `MANIFEST_FORMAT_TAG`, always.
-    pub format: String,
     /// `MANIFEST_SCHEMA_VERSION` at the time this manifest was produced.
     pub manifest_schema_version: u32,
     /// A stable identifier for the grammar this pack was compiled from (package/grammar identity;
