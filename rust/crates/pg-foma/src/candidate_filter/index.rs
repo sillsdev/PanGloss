@@ -59,7 +59,6 @@ pub enum SiteVerdict {
 /// What the index knows about one `(template, slot)` site.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SlotFacts {
-    site: (u16, u8),
     /// `None` when no stratum, or more than one, declares the owning template.
     stratum: Option<TraceStratumId>,
     /// The rules the site lists, sorted so a lookup is a binary search and a report is stable.
@@ -121,7 +120,6 @@ impl FilterIndex {
                 rules.dedup();
                 sites.insert(site, TraceSlotId(slots.len() as u32));
                 slots.push(SlotFacts {
-                    site,
                     stratum,
                     rules,
                 });
@@ -153,11 +151,6 @@ impl FilterIndex {
     /// The contract slot identity of one grammar site, which is how a producer names it.
     pub fn slot_id(&self, template: u16, slot: u8) -> Option<TraceSlotId> {
         self.sites.get(&(template, slot)).copied()
-    }
-
-    /// The grammar site one contract slot identity means.
-    pub fn slot_site(&self, slot: TraceSlotId) -> Option<(u16, u8)> {
-        self.facts(slot).map(|facts| facts.site)
     }
 
     /// The contract stratum identity of one grammar stratum.
