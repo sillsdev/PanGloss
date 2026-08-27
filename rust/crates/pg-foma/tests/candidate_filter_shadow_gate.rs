@@ -432,7 +432,6 @@ fn every_confirmation_entry_point_agrees_under_shadow() {
     let unfiltered = pg_parse::result_signature(&analyzer.analyze_word(&word).analyses);
     assert!(!unfiltered.is_empty());
     let settings = shadow_settings(&g, vec![kept]);
-    let expected_passes = settings.pass_ids();
     analyzer.set_candidate_filter(settings);
 
     let plain = pg_parse::result_signature(&analyzer.analyze_word(&word).analyses);
