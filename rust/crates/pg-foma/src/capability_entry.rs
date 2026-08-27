@@ -24,15 +24,14 @@
 //! # One verdict, three compilers
 //! The scalar `CompileDecision` this module returns is a DERIVED fact: the primary judgement is
 //! per-`crate::enumerate::EmissionStrategy`, and the whole-grammar answer is the best any of them
-//! offers (`crate::capability::StrategyEnvelope::global`). A caller that DECIDES anything wants `crate::backend_selection::select_backends`; one that
-//! needs per-backend detail wants `evaluate_capability_across_strategies`. A non-`Refuse` here says
+//! offers (`crate::capability::StrategyEnvelope::global`). A caller that DECIDES anything wants
+//! `crate::backend_selection::select_backends`. A non-`Refuse` here says
 //! nothing about the backend the caller was actually about to run.
 
 use pg_grammar::model::Grammar;
 
 use crate::capability::{
-    compose_envelope_across_strategies, compose_envelope_with_semantics, default_registry,
-    CompileDecision, StrategyEnvelope,
+    compose_envelope_with_semantics, default_registry, CompileDecision,
 };
 use crate::enumerate::enumerate_default;
 use crate::grammar_semantics::GrammarSemantics;
@@ -47,8 +46,7 @@ use crate::junctions::PhonologyProbe;
 /// decision: a non-`Refuse` here says nothing about the backend a caller is about to run, so
 /// gating on it lets a grammar past that the selected backend cannot compile, which then fails
 /// deep in the compiler with an internal message instead of at the gate with a named construct.
-/// Enforcement wants `crate::backend_selection::select_backends`; a caller needing per-backend
-/// detail wants [`evaluate_capability_across_strategies`].
+/// Enforcement wants `crate::backend_selection::select_backends`.
 pub fn best_case_across_backends(semantics: &GrammarSemantics<'_>) -> CompileDecision {
     let g = semantics.grammar();
     let phon = PhonologyProbe::new_with_semantics(semantics);
@@ -68,14 +66,6 @@ pub fn best_case_across_backends(semantics: &GrammarSemantics<'_>) -> CompileDec
 /// decides something.
 pub fn best_case_across_backends_for_grammar(g: &Grammar) -> CompileDecision {
     best_case_across_backends(&GrammarSemantics::derive(g))
-}
-
-pub fn evaluate_capability_across_strategies(g: &Grammar) -> StrategyEnvelope {
-    let semantics = GrammarSemantics::derive(g);
-    let phon = PhonologyProbe::new_with_semantics(&semantics);
-
-    let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
-    compose_envelope_across_strategies(&semantics, &plan, &default_registry())
 }
 
 #[cfg(test)]
