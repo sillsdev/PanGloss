@@ -549,7 +549,7 @@ impl FomaProposer {
     /// (`foma::io::fsm_write_binary` — the same gzip'd format `fsm_read_binary_mem` reads):
     /// foma's tested binary-memory representation is reused
     /// inside a PanGloss envelope rather than inventing another network encoding. This is the
-    /// REAL foma payload `pg-cli`'s `pack.rs` writes into a `.pgpack` container — no second network
+    /// REAL foma payload a `.pgpack` container carries (nothing writes one today) — no second network
     /// format, no fabricated bytes.
     ///
     /// `self.handle.last_net` is always `Some` here: `apply_init` (called by every constructor

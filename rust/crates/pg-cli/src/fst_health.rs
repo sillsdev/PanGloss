@@ -1,6 +1,8 @@
 //! `pangloss fst-health <grammar> [<out.json>]` runs the grammar-only characterization pass and
-//! writes one canonical `HealthReport`. It never compiles a backend or evaluates a corpus;
-//! proposal, confirmation, and duplicate-analysis measurements belong to a separate post-build
+//! writes one canonical `HealthReport`. It compiles no backend artifact and evaluates no
+//! corpus, though characterization does construct `foma` networks for the
+//! simultaneous-overlap predicate (`pg_foma::capability::LoweredSpan`). Proposal,
+//! confirmation, and duplicate-analysis measurements belong to a separate post-build
 //! corpus operation over an explicitly completed artifact.
 
 use std::fs;
