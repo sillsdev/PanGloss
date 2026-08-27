@@ -2469,7 +2469,7 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 /// # Deep/nested reduplication chains stay a SEPARATE, cost (not capability), concern
 /// `crate::peel::ReduplicationPeeler`'s nested-reduplication recursion (its own module doc, "Chain
 /// depth and nested reduplication") is bounded by the
-/// `crate::compose_budget::ComposeBudget::chain_depth_cap` dimension, not by this predicate: a
+/// configured `chain_depth_cap` dimension, not by this predicate: a
 /// deep chain that exceeds a CONFIGURED cap is a per-word, cost-uncertain runtime refusal
 /// (`crate::compose_budget::ComposeError::ChainDepthExceeded`), never a compile-time
 /// supported/unsupported capability verdict — capability is proven a-priori and hard-fails; cost is

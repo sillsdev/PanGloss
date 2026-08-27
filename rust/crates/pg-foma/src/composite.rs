@@ -166,7 +166,7 @@ pub struct FomaOutcome {
     /// `Some` iff `crate::peel::ReduplicationPeeler::peel_candidates` returned
     /// `crate::compose_budget::ComposeError::ChainDepthExceeded` for this word (see
     /// `crate::peel`'s own module doc) — a genuinely deep nested-reduplication chain exceeded the
-    /// configured `crate::compose_budget::ComposeBudget::chain_depth_cap`. This word's
+    /// configured `chain_depth_cap` field. This word's
     /// `analyses`/`structured`/`candidates_generated` still reflect whatever `propose` (the FST
     /// proposer alone, unaffected) found on its own; the peel's own contribution for this word was
     /// refused rather than silently dropped, and this field is the typed, honest record of that —
