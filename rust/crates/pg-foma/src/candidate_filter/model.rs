@@ -204,13 +204,6 @@ impl<T> TraceFact<T> {
         }
     }
 
-    pub fn deferred_reason(&self) -> Option<DeferredFactReason> {
-        match self {
-            Self::Known(_) => None,
-            Self::Deferred(reason) => Some(*reason),
-        }
-    }
-
     pub fn is_deferred(&self) -> bool {
         matches!(self, Self::Deferred(_))
     }

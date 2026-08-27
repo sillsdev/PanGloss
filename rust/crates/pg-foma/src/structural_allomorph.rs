@@ -1451,14 +1451,6 @@ impl CompiledMorphologyRelation {
         Self::from_classified(inputs)
     }
 
-    pub fn from_classified_rewrites<I, T>(inputs: I) -> Result<Self, MorphologyRelationError>
-    where
-        I: IntoIterator<Item = T>,
-        T: IntoClassifiedMorphologyInput,
-    {
-        Self::from_classified(inputs)
-    }
-
     pub fn marker_binding_for(&self, allomorph: AllomorphId) -> Option<MarkerBinding> {
         let indices = self.by_allomorph.get(&allomorph)?;
         if indices.len() != 1 {
