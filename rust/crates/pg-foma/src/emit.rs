@@ -6643,7 +6643,6 @@ mod aweti_enum_census {
     use super::*;
     use crate::morphotactics::{
         EnumerationBudget, ExploreMode, MorphotacticIndex, DEFAULT_ENTRY_BUDGET,
-        DEFAULT_PROBE_BUDGET,
     };
     use pg_conformance_fixtures::corpus;
     use pg_grammar::model::Grammar;
@@ -6675,36 +6674,6 @@ mod aweti_enum_census {
         let (g, _warnings) = pg_grammar::compile_project(&snapshot)
             .unwrap_or_else(|e| panic!("compile aweti project: {e}"));
         Some(g)
-    }
-
-    /// Reproduces today's production refusal at the DEFAULT caps and prints the latch point the refusal message shows.
-    #[test]
-    #[ignore = "measurement-only: needs private corpus data (PANGLOSS_CORPUS_ROOT); run via -Mode corpus-test"]
-    fn aweti_enum_census_default_cap_trip_point() {
-        on_big_stack(|| {
-            let Some(g) = load_aweti() else { return };
-            let budget = EnumerationBudget::with_caps(DEFAULT_ENTRY_BUDGET, DEFAULT_PROBE_BUDGET);
-            let t0 = Instant::now();
-            let result = emit_with_budget(&g, PrecisionConfig::Strip, &budget);
-            println!("[census] default-cap emit returned in {:?}", t0.elapsed());
-            match budget.trip_reason() {
-                Some((measure, value, limit)) => println!(
-                    "[census] tripped: measure={} value={value} limit={limit} (overshoot {})",
-                    measure.label(),
-                    value.saturating_sub(limit)
-                ),
-                None => println!("[census] default caps did NOT trip"),
-            }
-            let c = &result.report.counts;
-            println!(
-                "[census] counts at refusal: fusion={} interdigitation={} structural={} pairs_probed={}",
-                c.composite_fusion_entries,
-                c.composite_interdigitation_entries,
-                c.composite_structural_entries,
-                c.composite_pairs_probed
-            );
-            corpus::record_cases("aweti-enum-census-default-cap", 1);
-        });
     }
 
     /// Runs both composite builders to completion unbounded (builders only -- no lexc/foma/apply_up hazards) and attributes the entry count.

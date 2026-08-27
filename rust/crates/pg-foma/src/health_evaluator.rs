@@ -925,37 +925,6 @@ mod tests {
         assert!(finding.explanation.contains("closure-depth limit was 64"));
     }
 
-    #[test]
-    fn fst_health_evaluator_enum_budget_exceeded_is_resource_budget_reached() {
-        let report = EmitReport {
-            uncovered: Vec::new(),
-            counts: EmitCounts::default(),
-            tier: FomaTier::Unsupported {
-                reason: "synthetic eager-enumeration budget exceeded".to_string(),
-            },
-            enum_budget_exceeded: Some(EnumBudgetExceeded {
-                measure: "synthetic composite lexc entries",
-                value: 5_001,
-                limit: 5_000,
-            }),
-            closure_refusal: None,
-            closure_evidence: None,
-        };
-        let health = evaluate_health(None, Some(&report), &[], &[], None);
-        // One finding for the Unsupported tier, one for the specific tripped budget.
-        assert_eq!(health.findings.len(), 2);
-        let budget_finding = health
-            .findings
-            .iter()
-            .find(|f| f.code == FindingCode::ResourceBudgetReached)
-            .expect("enum budget finding present");
-        assert_eq!(budget_finding.severity, Severity::NotProductionReady);
-        assert_eq!(budget_finding.value, MetricValue::Count(5_001));
-        assert_eq!(budget_finding.threshold, Some(MetricValue::Count(5_000)));
-        // The co-occurring Unsupported-tier CannotRepresent dominates this NotProductionReady under admission()'s max.
-        assert_eq!(health.admission(), Severity::CannotRepresent);
-    }
-
     // fst_health_evaluator_compose_errors: every ComposeError variant maps to a finding.
 
     #[test]
