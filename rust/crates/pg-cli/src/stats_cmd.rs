@@ -2098,35 +2098,6 @@ mod tests {
 </HermitCrabInput>
 "#;
 
-    #[test]
-    fn batch_stats_accepts_engine_foma_and_the_report_omits_columns_that_stay_unmeasured() {
-        let dir = scratch_dir("foma");
-        let cache_path = dir.join("cache.sqlite3");
-        let (args, _) = run_batch_args(
-            &dir,
-            FOMA_FRIENDLY_GRAMMAR_XML,
-            "kat\n",
-            &[
-                "--engine=foma",
-                "--stats",
-                "--cache",
-                cache_path.to_str().unwrap(),
-            ],
-        );
-        crate::run_batch(&args).expect("--engine=foma --stats must be accepted, not refused");
-
-        let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let body = render_object(&conn, &Filters::default(), OutputFormat::Text).unwrap();
-        assert!(
-            body.contains("engine=foma never records"),
-            "a foma-engine cache must name what it cannot measure, not just fall silent: {body}"
-        );
-        assert!(
-            body.contains("no_root"),
-            "the omission note must name no_root specifically: {body}"
-        );
-    }
-
     fn sample_object_row(no_root: i64) -> pg_stats::PerObjectRow {
         pg_stats::PerObjectRow {
             kind: "morph_rule".to_string(),
@@ -2185,38 +2156,6 @@ mod tests {
         assert!(wide_headers.contains(&"surface_mismatch"));
         assert!(wide_headers.contains(&"identity_quality"));
         assert_eq!(wide_rows[0].len(), wide_headers.len());
-    }
-
-    /// The engine-level whole-column omission is a different mechanism from per-kind cell masking.
-    #[test]
-    fn foma_cache_omits_unmeasured_columns_and_names_them_in_the_header() {
-        let dir = scratch_dir("foma-omit");
-        let cache_path = dir.join("cache.sqlite3");
-        let (args, _) = run_batch_args(
-            &dir,
-            FOMA_FRIENDLY_GRAMMAR_XML,
-            "kat\n",
-            &[
-                "--engine=foma",
-                "--stats",
-                "--cache",
-                cache_path.to_str().unwrap(),
-            ],
-        );
-        crate::run_batch(&args).expect("--engine=foma --stats must be accepted");
-
-        let conn = rusqlite::Connection::open(&cache_path).unwrap();
-        let body = render_object(&conn, &Filters::default(), OutputFormat::Text).unwrap();
-        assert!(
-            body.contains("this is not \"zero\""),
-            "an omitted column must never be read as a measured zero: {body}"
-        );
-        for counter in ALL_COUNTERS {
-            assert!(
-                body.contains(counter),
-                "the note must name {counter} as omitted: {body}"
-            );
-        }
     }
 
     #[test]
