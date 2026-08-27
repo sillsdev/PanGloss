@@ -252,9 +252,6 @@ fn hash_exclusion_ledger(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum Certification {
-    StaticRejected {
-        reason: String,
-    },
     EstimateOnly,
     CapabilityRejected {
         reason: String,
