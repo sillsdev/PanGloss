@@ -670,18 +670,6 @@ impl CharacteristicsProfile {
             .any(|o| o.disposition == disposition)
     }
 
-    /// Every distinct `CharacteristicKind` observed with `disposition`.
-    pub fn kinds_with_disposition(&self, disposition: Disposition) -> Vec<CharacteristicKind> {
-        let mut out: Vec<CharacteristicKind> = self
-            .observations
-            .iter()
-            .filter(|o| o.disposition == disposition)
-            .map(|o| o.kind)
-            .collect();
-        out.dedup();
-        out
-    }
-
     /// The `SimultaneousRewriteDetail` for phonological rule `rule`, if `rule` was observed as a
     /// `Simultaneous`-mode rewrite rule (`SimultaneousSubruleOverlapPredicate`'s own lookup).
     pub fn simultaneous_detail(&self, rule: PRuleId) -> Option<&SimultaneousRewriteDetail> {
