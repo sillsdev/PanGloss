@@ -512,25 +512,6 @@ impl ClassificationGuide {
     }
 }
 
-impl SuppliedLexiconRuntime {
-    /// Convenience that still uses the authoritative add path, so stale matrix selections are
-    /// revalidated against the runtime's current catalog and revision.
-    pub fn add_classification_selection(
-        &self,
-        stem: String,
-        gloss: String,
-        selection: GuideSelection,
-        expected_revision: Option<crate::Revision>,
-    ) -> Result<crate::MutationResult<SuppliedEntry>, StructuredError> {
-        self.add(AddRequest {
-            stem,
-            gloss,
-            signatures: selection.signatures,
-            expected_revision,
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
