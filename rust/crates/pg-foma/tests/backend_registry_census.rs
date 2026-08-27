@@ -3,7 +3,6 @@
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 
 #[test]
 fn some_staged_fixture_separates_more_than_three_registry_transforms() {
@@ -26,7 +25,6 @@ fn some_staged_fixture_separates_more_than_three_registry_transforms() {
         if grammar.char_tables.is_empty() {
             continue;
         }
-        let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
         let prules = grammar
             .strata
             .iter()
@@ -34,7 +32,7 @@ fn some_staged_fixture_separates_more_than_three_registry_transforms() {
             .map(|id| &grammar.prules[id.0 as usize])
             .collect::<Vec<_>>();
         let phonology = PhonologyProbe::new(&grammar);
-        let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+        let baseline = enumerate_default(&grammar, &prules, phonology.as_ref());
         let candidates = Registry::seeded()
             .materialize_distinct(&MaterializerContext {
                 grammar: &grammar,

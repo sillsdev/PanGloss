@@ -128,7 +128,7 @@ fn select_plan_characterizes_the_grammar_once_not_once_per_candidate() {
         usize::MAX, usize::MAX);
     let registry = default_registry();
 
-    let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+    let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
     assert_eq!(
         candidates.len(),
         2,

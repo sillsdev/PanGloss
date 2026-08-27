@@ -10,7 +10,6 @@ use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions, WordAnalysis};
 
@@ -119,8 +118,7 @@ fn fixture_is_chain_depth_bounded_and_confirm_only() {
         .map(|&id| &g.prules[id.0 as usize])
         .collect();
     let phon = PhonologyProbe::new(&g);
-    let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+    let plan = enumerate_default(&g, &ro, phon.as_ref());
     let registry = default_registry();
 
     assert_eq!(

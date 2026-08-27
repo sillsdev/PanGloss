@@ -18,7 +18,6 @@ fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
 }
 
 fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::LoweredCandidate> {
-    let alphabet = pg_foma::replace::SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -27,7 +26,7 @@ fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::Lowere
         .collect::<Vec<_>>();
     let phonology = pg_foma::junctions::PhonologyProbe::new(grammar);
     let baseline =
-        pg_foma::enumerate::enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+        pg_foma::enumerate::enumerate_default(grammar, &prules, phonology.as_ref());
     pg_foma::backend_registry::Registry::seeded()
         .materialize_distinct(&pg_foma::backend_registry::MaterializerContext {
             grammar,

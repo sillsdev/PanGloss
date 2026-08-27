@@ -12,7 +12,6 @@ use pg_foma::compose_budget::{
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::lowering_adapter::LoweringAdapter;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 /// The two fixtures the process used to die on -- byte-identical grammars but for `<Name>`.
@@ -21,21 +20,12 @@ const REFUSING_FIXTURES: [&str; 2] = ["deep-optional-affix-nesting", "backend-te
 /// A fixture that must not be refused at the default envelope -- the negative control against a gate that refuses everything.
 const CONTROL_FIXTURE: &str = "compounding-non-recursive";
 
-fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
-    let stratum = grammar
-        .strata
-        .last()
-        .expect("a loaded grammar always has at least one stratum");
-    &grammar.char_tables[stratum.table.0 as usize]
-}
-
 fn baseline_only(grammar: &Grammar) -> Vec<LoweredCandidate> {
-    let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = pg_foma::enumerate::prules_in_order(grammar);
     let phonology = PhonologyProbe::new(grammar);
     vec![LoweredCandidate {
         label: "apply-path-refusal-gate-baseline",
-        plan: enumerate_default(grammar, &alphabet, &prules, phonology.as_ref()),
+        plan: enumerate_default(grammar, &prules, phonology.as_ref()),
         adapter: LoweringAdapter::ControllablePlanCompose,
         role: CandidateRole::Baseline,
     }]

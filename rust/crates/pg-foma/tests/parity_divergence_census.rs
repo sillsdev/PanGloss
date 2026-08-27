@@ -8,7 +8,6 @@ use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::parity::IdentityDivergence;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 /// A word subset is fine here since each corpus row is an independent observation; a proposal-set subset would fabricate a recall failure instead.
@@ -21,20 +20,10 @@ const REGISTRY_CENSUS_FIXTURES: [&str; 3] = [
     "backend-gated-generic",
 ];
 
-/// Replicates the pub(crate) `pg_foma::emit::surface_table`: the surface table is the last stratum's, not `char_tables[0]`.
-fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
-    let surface_stratum = grammar
-        .strata
-        .last()
-        .expect("a loaded grammar always has at least one stratum");
-    &grammar.char_tables[surface_stratum.table.0 as usize]
-}
-
 fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
-    let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = pg_foma::enumerate::prules_in_order(grammar);
     let phonology = PhonologyProbe::new(grammar);
-    enumerate_default(grammar, &alphabet, &prules, phonology.as_ref())
+    enumerate_default(grammar, &prules, phonology.as_ref())
 }
 
 fn baseline_only(grammar: &Grammar) -> Vec<LoweredCandidate> {

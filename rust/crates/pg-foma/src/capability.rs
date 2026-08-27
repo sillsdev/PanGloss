@@ -3894,7 +3894,6 @@ mod tests {
     use crate::enumerate::enumerate_default;
     use crate::junctions::PhonologyProbe;
     use crate::plan::{FragmentSpec, PlanNodeKind, Provenance};
-    use crate::replace::SegAlphabet;
 
     fn load(xml: &str) -> Grammar {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
@@ -3911,10 +3910,9 @@ mod tests {
 
     /// Builds `g`'s `Plan` via the real `enumerate_default` seam, so these tests exercise the full pipeline end to end, not a hand-built `Plan`.
     fn enumerated_plan(g: &Grammar) -> Plan {
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(g);
         let phon = PhonologyProbe::new(g);
-        enumerate_default(g, &alphabet, &ro, phon.as_ref())
+        enumerate_default(g, &ro, phon.as_ref())
     }
 
     // ---- characterize(): ConfigPredicate triggers ----
@@ -7640,9 +7638,8 @@ mod tests {
     // Returns the whole-grammar verdict so a caller can tally which of the three the corpus reached.
     fn assert_per_strategy_derivation_is_identical(label: &str, g: &Grammar) -> CompileDecision {
         let semantics = GrammarSemantics::derive(g);
-        let alphabet = SegAlphabet::new(crate::emit::surface_table(g));
         let phon = PhonologyProbe::new_with_semantics(&semantics);
-        let plan = enumerate_default(g, &alphabet, semantics.prules_in_order(), phon.as_ref());
+        let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
         let registry = default_registry();
 
         let blind = compiler_blind_reference(&semantics, &plan, &registry);

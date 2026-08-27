@@ -1419,11 +1419,10 @@ mod tests {
     #[test]
     fn permuted_gate_groups_is_a_genuinely_different_plan() {
         let g = load(oracle_gated_two_group_fixture_xml());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let plan_a = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan_a = enumerate_default(&g, &ro, phon.as_ref());
         let plan_b = permute_gate_groups(&plan_a);
 
         assert_ne!(
@@ -1444,7 +1443,7 @@ mod tests {
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
 
-        let plan_a = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan_a = enumerate_default(&g, &ro, phon.as_ref());
         let plan_b = permute_gate_groups(&plan_a);
 
         let result = differential_oracle(
@@ -1487,7 +1486,7 @@ mod tests {
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
 
-        let plan_correct = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan_correct = enumerate_default(&g, &ro, phon.as_ref());
         let plan_wrong = drop_last_gate_group(&plan_correct);
         assert_ne!(
             plan_correct.root(),
@@ -1600,10 +1599,9 @@ mod tests {
     #[test]
     fn enumerate_default_on_union_fixture_has_a_union_root_with_two_children() {
         let g = load(oracle_union_root_fixture_xml());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         let root = plan.root().expect("root must be set");
         match plan.get(root).unwrap() {
@@ -1624,11 +1622,10 @@ mod tests {
     #[test]
     fn permute_union_children_is_a_genuinely_different_plan() {
         let g = load(oracle_union_root_fixture_xml());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let plan_a = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan_a = enumerate_default(&g, &ro, phon.as_ref());
         let plan_b = permute_union_children(&plan_a);
 
         assert_ne!(
@@ -1648,7 +1645,7 @@ mod tests {
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
 
-        let plan_a = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan_a = enumerate_default(&g, &ro, phon.as_ref());
         let plan_b = permute_union_children(&plan_a);
 
         let result = differential_oracle(
@@ -1691,7 +1688,7 @@ mod tests {
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
 
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
         let swapped = swap_compose_children(&plan);
 
         // build_controllable enforces the Compose children positionally, so swapping them must panic before any apply_up comparison.
@@ -1708,7 +1705,7 @@ mod tests {
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
 
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
         let reversed = reverse_replace_cascade(&plan);
 
         // validate_replace_cascade cross-checks cascade.rules against prules_in_order positionally, so a reversed cascade must panic.
@@ -1729,11 +1726,10 @@ mod tests {
     #[test]
     fn refine_gate_partition_bisect_and_fan_out_are_each_genuinely_different_plans() {
         let g = load(oracle_three_entry_ungated_fixture_xml());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let baseline = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let baseline = enumerate_default(&g, &ro, phon.as_ref());
         let bisected = refine_gate_partition(&baseline, PartitionGranularity::Bisect);
         let fanned_out = refine_gate_partition(&baseline, PartitionGranularity::FanOut);
 
@@ -1782,7 +1778,7 @@ mod tests {
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
 
-        let baseline = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let baseline = enumerate_default(&g, &ro, phon.as_ref());
         for (label, granularity) in [
             ("partition-bisect", PartitionGranularity::Bisect),
             ("partition-fan-out", PartitionGranularity::FanOut),
@@ -1822,11 +1818,10 @@ mod tests {
     #[test]
     fn refine_gate_partition_is_a_no_op_when_no_group_has_two_or_more_entries() {
         let g = load(oracle_union_root_fixture_xml());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let baseline = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let baseline = enumerate_default(&g, &ro, phon.as_ref());
         let bisected = refine_gate_partition(&baseline, PartitionGranularity::Bisect);
         let fanned_out = refine_gate_partition(&baseline, PartitionGranularity::FanOut);
 
@@ -1848,10 +1843,9 @@ mod tests {
     #[test]
     fn mutate_plan_seeded_is_deterministic_for_the_same_seed() {
         let g = load(oracle_gated_two_group_fixture_xml());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         let outcome_1 = mutate_plan_seeded(&plan, 42);
         let outcome_2 = mutate_plan_seeded(&plan, 42);
@@ -1870,10 +1864,9 @@ mod tests {
     #[test]
     fn different_seeds_produce_different_topologies() {
         let g = load(oracle_gated_two_group_fixture_xml());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         let roots: std::collections::BTreeSet<Option<NodeId>> = (0u64..30)
             .map(|seed| mutate_plan_seeded(&plan, seed).plan.root())
@@ -1897,7 +1890,7 @@ mod tests {
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // This fixture has 2 eligible targets (its Gate and the root Union); scan seeds for one that draws the Gate.
         let mut exercised = false;
@@ -1945,7 +1938,7 @@ mod tests {
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // This fixture's only eligible target is the root Union; scan seeds for one that draws the non-identity permutation.
         let mut exercised = false;
@@ -1997,7 +1990,7 @@ mod tests {
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // Every step here is sound, so the full chain must Agree; minimize_disagreement must refuse to "minimise" a non-disagreement.
         let steps = vec![MutationStep::from_seed(1), MutationStep::from_seed(2)];
@@ -2022,7 +2015,7 @@ mod tests {
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
         let budget = ComposeBudget::unbounded();
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // Four sound, harmless steps with one real bug spliced into the middle; minimisation must discard every sound step and converge on that one.
         let steps = vec![

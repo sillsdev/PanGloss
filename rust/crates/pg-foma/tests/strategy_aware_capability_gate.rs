@@ -127,10 +127,9 @@ fn load(xml: &str) -> Grammar {
 }
 
 fn enumerated_plan(g: &Grammar) -> Plan {
-    let alphabet = SegAlphabet::new(&g.char_tables[0]);
     let ro = prules_in_order(g);
     let phon = PhonologyProbe::new(g);
-    enumerate_default(g, &alphabet, &ro, phon.as_ref())
+    enumerate_default(g, &ro, phon.as_ref())
 }
 
 /// Two candidates with the identical plan differing only in `EmissionStrategy`; `PlanComposed` first so a filter that silently did nothing would leave it chosen (the roots tie, so no tie-break can rescue the assertion).

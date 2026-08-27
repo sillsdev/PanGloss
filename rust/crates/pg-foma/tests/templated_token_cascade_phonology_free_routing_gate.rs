@@ -7,7 +7,6 @@ use pg_foma::backend_registry::{BackendInstance, MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 
 const FAMILY: &str = "token-cascade-morphology";
@@ -22,7 +21,6 @@ fn load(name: &str) -> Grammar {
 }
 
 fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -30,7 +28,7 @@ fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(grammar);
-    enumerate_default(grammar, &alphabet, &prules, phonology.as_ref())
+    enumerate_default(grammar, &prules, phonology.as_ref())
 }
 
 fn token_cascade_candidate(

@@ -6,24 +6,13 @@ use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{finished_net_digests, RuntimeBudget};
 use pg_foma::enumerate::{enumerate_default, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 use std::collections::BTreeSet;
 
-/// `pg_foma::emit::surface_table`, which is `pub(crate)`: the surface char-def table is the LAST stratum's, not `char_tables[0]`, and on a multi-stratum grammar those differ. Replicated so the census builds over the same alphabet the evaluator does.
-fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
-    let surface_stratum = grammar
-        .strata
-        .last()
-        .expect("a loaded grammar always has at least one stratum");
-    &grammar.char_tables[surface_stratum.table.0 as usize]
-}
-
 fn registry_plans(grammar: &Grammar) -> Vec<LoweredCandidate> {
-    let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = pg_foma::enumerate::prules_in_order(grammar);
     let phonology = PhonologyProbe::new(grammar);
-    let baseline = enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(grammar, &prules, phonology.as_ref());
     Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar,

@@ -7,7 +7,6 @@ use pg_foma::backend_runtime::{
     evaluate_plans, evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget,
 };
 use pg_foma::enumerate::EmissionStrategy;
-use pg_foma::replace::SegAlphabet;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
@@ -26,7 +25,6 @@ fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
 }
 
 fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::LoweredCandidate> {
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -34,7 +32,7 @@ fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::Lowere
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(grammar);
-    let baseline = enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(grammar, &prules, phonology.as_ref());
     Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar,

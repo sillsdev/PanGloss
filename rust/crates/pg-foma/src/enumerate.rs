@@ -657,7 +657,6 @@ mod tests {
     #[test]
     fn ungated_fixture_collapses_to_single_group_gate_matching_real_seam() {
         let g = load(&ungated_no_composite_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
@@ -671,7 +670,7 @@ mod tests {
         let real_groups = partition_entries(&g, &gated, &ro);
         assert_eq!(real_groups.len(), 1, "ungated grammar collapses to 1 group");
 
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
         let (_, partition) = gate_of(&plan);
         assert_eq!(
             partition.groups.len(),
@@ -701,7 +700,6 @@ mod tests {
     #[test]
     fn composite_subtree_present_iff_should_run() {
         let g = load(&should_run_ordinary_phonology_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
@@ -713,7 +711,7 @@ mod tests {
             "fixture's rule has a real LHS, not epenthesis/metathesis"
         );
 
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
         let composite_leaves = leaves_matching(&plan, |f| {
             matches!(f, FragmentSpec::CompositeEmissionMarker)
         });
@@ -739,7 +737,6 @@ mod tests {
     #[test]
     fn gated_two_group_fixture_matches_real_partition_and_gives_distinct_per_group_replace_nodes() {
         let g = load(&gated_two_group_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
@@ -752,7 +749,7 @@ mod tests {
             "fixture's 2 entries realize both gate-key values"
         );
 
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
         let (gate_id, partition) = gate_of(&plan);
         assert_eq!(
             partition.groups.len(),
@@ -817,12 +814,11 @@ mod tests {
     #[test]
     fn identically_gated_groups_across_independent_plans_share_the_same_replace_node_id() {
         let g = load(&gated_two_group_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let plan_1 = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
-        let plan_2 = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan_1 = enumerate_default(&g, &ro, phon.as_ref());
+        let plan_2 = enumerate_default(&g, &ro, phon.as_ref());
 
         fn replace_ids_by_key(plan: &Plan) -> std::collections::BTreeMap<Vec<bool>, NodeId> {
             let (gate_id, partition) = gate_of(plan);
@@ -865,7 +861,6 @@ mod tests {
     #[test]
     fn rewrite_rule_leaves_carry_the_correct_prule_id() {
         let g = load(&should_run_ordinary_phonology_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         assert_eq!(ro.len(), 1, "fixture declares exactly 1 phonological rule");
         let phon = PhonologyProbe::new(&g);
@@ -877,7 +872,7 @@ mod tests {
             .map(|i| PRuleId(i as u32))
             .unwrap();
 
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
         let rule_leaves = leaves_matching(&plan, |f| matches!(f, FragmentSpec::RewriteRule { .. }));
         assert_eq!(rule_leaves.len(), 1);
         let PlanNodeKind::Leaf {
@@ -895,10 +890,9 @@ mod tests {
     #[test]
     fn root_is_union_when_composite_marker_and_gate_both_present() {
         let g = load(&should_run_ordinary_phonology_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         let root = plan.root().expect("root must be set");
         match plan.get(root).unwrap() {
@@ -913,10 +907,9 @@ mod tests {
     #[test]
     fn root_is_gate_directly_when_no_composite_markers_present() {
         let g = load(&ungated_no_composite_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         let root = plan.root().expect("root must be set");
         assert_eq!(
@@ -930,12 +923,11 @@ mod tests {
     #[test]
     fn enumerate_default_is_deterministic_across_independent_calls() {
         let g = load(&gated_two_group_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let plan_a = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
-        let plan_b = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan_a = enumerate_default(&g, &ro, phon.as_ref());
+        let plan_b = enumerate_default(&g, &ro, phon.as_ref());
 
         assert_eq!(plan_a.root(), plan_b.root());
         assert_eq!(plan_a.len(), plan_b.len());
@@ -947,11 +939,10 @@ mod tests {
     #[test]
     fn enumerate_candidates_yields_two_distinct_candidates_for_a_multi_group_gated_fixture() {
         let g = load(&gated_two_group_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
         assert_eq!(
             candidates.len(),
             2,
@@ -970,11 +961,10 @@ mod tests {
     #[test]
     fn enumerate_candidates_yields_one_candidate_for_an_ungated_fixture() {
         let g = load(&ungated_no_composite_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
         assert_eq!(
             candidates.len(),
             1,
@@ -988,12 +978,11 @@ mod tests {
     #[test]
     fn enumerate_candidates_is_deterministic_across_independent_calls() {
         let g = load(&gated_two_group_fixture());
-        let alphabet = SegAlphabet::new(&g.char_tables[0]);
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
 
-        let candidates_a = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
-        let candidates_b = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        let candidates_a = enumerate_candidates(&g, &ro, phon.as_ref());
+        let candidates_b = enumerate_candidates(&g, &ro, phon.as_ref());
 
         let roots_a: Vec<_> = candidates_a
             .iter()

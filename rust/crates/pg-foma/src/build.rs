@@ -977,7 +977,7 @@ mod equivalence_tests {
             .expect("direct compile must produce a non-empty net");
 
         // (b) the plan-walk this module ships.
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
         let built = build_controllable(&plan, &opts, &g, &alphabet, &ro, &budget)
             .expect("plan-walk build must succeed");
         let built_net = built
@@ -1039,7 +1039,7 @@ mod equivalence_tests {
         let phon = PhonologyProbe::new(&g);
         let budget = ComposeBudget::unbounded();
 
-        let plan = enumerate_default(&g, &alphabet, &ro, phon.as_ref());
+        let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // (a) node purity: the two gate groups must reference DISTINCT Replace NodeIds now.
         let gate_id = find_gate_node(&plan);

@@ -12,7 +12,6 @@ use pg_foma::enumerate::enumerate_default;
 use pg_foma::enumerate::CandidateRole;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 use std::time::Instant;
 
 /// Returns each candidate's evaluation paired with the strategy that produced it and its declared `CandidateRole`; the baseline is identified by `LoweredCandidate::role`, never by position.
@@ -26,7 +25,6 @@ fn materialize_and_evaluate(
     pg_foma::backend_runtime::RuntimeEvaluation,
 )> {
     let started = Instant::now();
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -34,7 +32,7 @@ fn materialize_and_evaluate(
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(grammar);
-    let baseline = enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(grammar, &prules, phonology.as_ref());
     eprintln!(
         "runtime-net phase: enumerated baseline in {:?}",
         started.elapsed()
@@ -107,7 +105,6 @@ fn corpus_indonesian_registry_candidates_are_named_before_build() {
     let grammar_path = corpus::require("indonesian-hc.xml");
     let grammar = pg_grammar::load(&std::fs::read_to_string(&grammar_path).expect("read grammar"))
         .expect("indonesian grammar must load");
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -115,7 +112,7 @@ fn corpus_indonesian_registry_candidates_are_named_before_build() {
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(&grammar);
-    let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(&grammar, &prules, phonology.as_ref());
     let semantics = GrammarSemantics::derive(&grammar);
     let envelope = compose_envelope_across_strategies(&semantics, &baseline, &default_registry());
     for verdict in envelope.verdicts() {
@@ -171,7 +168,6 @@ fn corpus_indonesian_plan_composed_baseline_completes() {
         .find(|word| !word.is_empty())
         .expect("Indonesian corpus has a word")
         .to_owned();
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -179,7 +175,7 @@ fn corpus_indonesian_plan_composed_baseline_completes() {
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(&grammar);
-    let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(&grammar, &prules, phonology.as_ref());
     let candidates = Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar: &grammar,
@@ -304,7 +300,6 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
         let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
             continue;
         };
-        let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
         let prules = grammar
             .strata
             .iter()
@@ -312,7 +307,7 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
             .map(|id| &grammar.prules[id.0 as usize])
             .collect::<Vec<_>>();
         let phonology = PhonologyProbe::new(&grammar);
-        let plan = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+        let plan = enumerate_default(&grammar, &prules, phonology.as_ref());
         let markers = unbuildable_markers(&plan);
         if markers.is_empty() {
             continue;

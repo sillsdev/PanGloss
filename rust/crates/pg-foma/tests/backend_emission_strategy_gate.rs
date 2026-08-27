@@ -3,7 +3,6 @@
 use pg_foma::backend_registry::{MaterializerContext, Registry, FAMILY_TOKEN_CASCADE_MORPHOLOGY};
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::Grammar;
 
 /// Carries phonological rules (so the strategy applies) and declares no boundary characters (so it also covers the boundary-free compile path below).
@@ -21,7 +20,6 @@ fn load(name: &str) -> Grammar {
 }
 
 fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -29,7 +27,7 @@ fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(grammar);
-    enumerate_default(grammar, &alphabet, &prules, phonology.as_ref())
+    enumerate_default(grammar, &prules, phonology.as_ref())
 }
 
 #[test]

@@ -41,7 +41,6 @@ fn load() -> (Grammar, Vec<String>) {
 #[test]
 fn the_scope_of_this_gate_is_stated_not_assumed() {
     let (grammar, _) = load();
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -49,7 +48,7 @@ fn the_scope_of_this_gate_is_stated_not_assumed() {
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(&grammar);
-    let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(&grammar, &prules, phonology.as_ref());
     let markers = pg_foma::build::unbuildable_markers(&baseline);
     assert_eq!(
         markers.len(),
@@ -70,7 +69,7 @@ fn the_registry_offers_more_than_three_distinct_plans_and_every_extra_one_is_equ
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(&grammar);
-    let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(&grammar, &prules, phonology.as_ref());
     let baseline_root = baseline.root().expect("baseline plan has a root");
 
     let candidates = Registry::seeded()

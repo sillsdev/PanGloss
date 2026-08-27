@@ -211,7 +211,7 @@ fn finished_production_net(grammar: &Grammar) -> Fsm {
     let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = prules_in_order(grammar);
     let phonology = PhonologyProbe::new(grammar);
-    let plan = enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    let plan = enumerate_default(grammar, &prules, phonology.as_ref());
     let opts = FomaOptions::default();
     let budget = never_trips();
     let mut built =

@@ -10,19 +10,10 @@ use pg_foma::backend_runtime::{
 };
 use pg_foma::enumerate::{enumerate_default, EmissionStrategy, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 /// The fixture the fire-count is pinned on. Named, not searched for, so a test cannot pass vacuously by scanning for "some fixture where dedup fires" -- see `docs/research/pg-foma-net-dedup-sizing-census.md` for why this one was chosen and what happened when the wrong one was tried first.
 const FIRING_FIXTURE: &str = "guesser-pattern-root-fallback";
-
-fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
-    let surface_stratum = grammar
-        .strata
-        .last()
-        .expect("a loaded grammar always has at least one stratum");
-    &grammar.char_tables[surface_stratum.table.0 as usize]
-}
 
 fn load(name: &str) -> (Grammar, Vec<String>) {
     let fixture = discover()
@@ -40,10 +31,9 @@ fn load(name: &str) -> (Grammar, Vec<String>) {
 }
 
 fn registry_plans(grammar: &Grammar) -> Vec<LoweredCandidate> {
-    let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = pg_foma::enumerate::prules_in_order(grammar);
     let phonology = PhonologyProbe::new(grammar);
-    let baseline = enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(grammar, &prules, phonology.as_ref());
     Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar,

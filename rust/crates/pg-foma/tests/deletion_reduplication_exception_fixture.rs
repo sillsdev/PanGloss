@@ -3,7 +3,6 @@ use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::replace::SegAlphabet;
 
 fn fixture() -> pg_conformance_fixtures::FixtureRef {
     discover()
@@ -46,7 +45,6 @@ fn every_distinct_plan_fully_confirms_or_refuses_markers_explicitly() {
     let f = fixture();
     let g = pg_grammar::load(&f.load_grammar_xml()).expect("fixture grammar must load");
     let yaml = f.load_words_yaml();
-    let alphabet = SegAlphabet::new(&g.char_tables[0]);
     let rules = g
         .strata
         .iter()
@@ -54,7 +52,7 @@ fn every_distinct_plan_fully_confirms_or_refuses_markers_explicitly() {
         .map(|id| &g.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phon = PhonologyProbe::new(&g);
-    let baseline = enumerate_default(&g, &alphabet, &rules, phon.as_ref());
+    let baseline = enumerate_default(&g, &rules, phon.as_ref());
     let registry = Registry::seeded();
     let candidates = registry
         .materialize_distinct(&MaterializerContext {

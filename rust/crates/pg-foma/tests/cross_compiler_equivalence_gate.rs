@@ -14,7 +14,6 @@ use pg_foma::backend_runtime::{
 };
 use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::lowering_adapter::LoweringAdapter;
-use pg_foma::replace::SegAlphabet;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 
 const FIXTURE: &str = "template-category-sharing";
@@ -78,7 +77,6 @@ fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
 fn selected_plans(
     grammar: &pg_grammar::model::Grammar,
 ) -> Vec<pg_foma::enumerate::LoweredCandidate> {
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -91,7 +89,6 @@ fn selected_plans(
         .collect::<Vec<_>>();
     let baseline = enumerate_default(
         grammar,
-        &alphabet,
         &prules,
         PhonologyProbe::new(grammar).as_ref(),
     );
@@ -457,7 +454,6 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
         "the known-bad route words must come from the pinned fixture: {pinned_words:?}"
     );
 
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -470,7 +466,6 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
         .collect::<Vec<_>>();
     let baseline = enumerate_default(
         &grammar,
-        &alphabet,
         &prules,
         PhonologyProbe::new(&grammar).as_ref(),
     );
@@ -576,7 +571,6 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
     );
     let words = vec![word];
 
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -589,7 +583,6 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
         .collect::<Vec<_>>();
     let baseline_plan = enumerate_default(
         &grammar,
-        &alphabet,
         &prules,
         PhonologyProbe::new(&grammar).as_ref(),
     );
@@ -667,7 +660,6 @@ fn plan_composed_distinguishes_headedness_ambiguity_red2() {
     );
     let words = vec![word];
 
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -680,7 +672,6 @@ fn plan_composed_distinguishes_headedness_ambiguity_red2() {
         .collect::<Vec<_>>();
     let baseline_plan = enumerate_default(
         &grammar,
-        &alphabet,
         &prules,
         PhonologyProbe::new(&grammar).as_ref(),
     );

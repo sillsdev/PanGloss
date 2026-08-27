@@ -558,8 +558,8 @@ mod tests {
         let budget = ComposeBudget::unbounded();
         let registry = default_registry();
 
-        let candidates_1 = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
-        let candidates_2 = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        let candidates_1 = enumerate_candidates(&g, &ro, phon.as_ref());
+        let candidates_2 = enumerate_candidates(&g, &ro, phon.as_ref());
         assert_eq!(candidates_1.len(), 2, "fixture must yield 2 candidates");
 
         let outcome_1 = select_plan(&candidates_1, &g, &registry, &opts, &alphabet, &ro, &budget);
@@ -586,7 +586,7 @@ mod tests {
         let budget = ComposeBudget::unbounded();
         let registry = default_registry();
 
-        let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
         let outcome = select_plan(&candidates, &g, &registry, &opts, &alphabet, &ro, &budget);
 
         assert_eq!(outcome.considered.len(), candidates.len());
@@ -619,7 +619,7 @@ mod tests {
         let budget = ComposeBudget::unbounded();
         let registry = default_registry();
 
-        let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+        let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
         assert_eq!(candidates.len(), 2);
 
         let outcome = select_plan(&candidates, &g, &registry, &opts, &alphabet, &ro, &budget);
@@ -675,7 +675,7 @@ mod tests {
             let ro = prules_in_order(&g);
             let phon = PhonologyProbe::new(&g);
 
-            let candidates = enumerate_candidates(&g, &alphabet, &ro, phon.as_ref());
+            let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
             let outcome = select_plan(&candidates, &g, &registry, &opts, &alphabet, &ro, &budget);
 
             let admissible_idxs: Vec<usize> = outcome

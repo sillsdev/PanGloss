@@ -10,19 +10,9 @@ use pg_foma::backend_runtime::{
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::lowering_adapter::LoweringAdapter;
-use pg_foma::replace::SegAlphabet;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 const FIXTURE: &str = "backend-gated-generic";
-
-/// See `tests/parity_divergence_census.rs` for why this is replicated rather than imported.
-fn surface_table(grammar: &Grammar) -> &pg_grammar::chardef::CharDefTable {
-    let surface_stratum = grammar
-        .strata
-        .last()
-        .expect("a loaded grammar always has at least one stratum");
-    &grammar.char_tables[surface_stratum.table.0 as usize]
-}
 
 fn fixture(name: &str) -> (Grammar, Vec<String>) {
     let fixture = discover()
@@ -40,10 +30,9 @@ fn fixture(name: &str) -> (Grammar, Vec<String>) {
 }
 
 fn baseline_plan(grammar: &Grammar) -> pg_foma::plan::Plan {
-    let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = pg_foma::enumerate::prules_in_order(grammar);
     let phonology = PhonologyProbe::new(grammar);
-    enumerate_default(grammar, &alphabet, &prules, phonology.as_ref())
+    enumerate_default(grammar, &prules, phonology.as_ref())
 }
 
 fn registry_plans(grammar: &Grammar) -> Vec<LoweredCandidate> {

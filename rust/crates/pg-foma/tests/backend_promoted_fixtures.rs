@@ -51,7 +51,7 @@ fn promoted_backend_fixtures_replay_and_offer_distinct_plans_or_elimination_evid
             .map(|id| &grammar.prules[id.0 as usize])
             .collect::<Vec<_>>();
         let phonology = PhonologyProbe::new(&grammar);
-        let baseline = enumerate_default(&grammar, &alphabet, &prules, phonology.as_ref());
+        let baseline = enumerate_default(&grammar, &prules, phonology.as_ref());
         let candidates = Registry::seeded()
             .materialize_distinct(&MaterializerContext {
                 grammar: &grammar,

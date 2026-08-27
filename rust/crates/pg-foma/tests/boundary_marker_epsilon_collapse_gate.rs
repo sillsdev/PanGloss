@@ -89,7 +89,6 @@ fn materialize_and_evaluate(
     grammar: &Grammar,
     words: &[String],
 ) -> Vec<pg_foma::backend_runtime::RuntimeEvaluation> {
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules = grammar
         .strata
         .iter()
@@ -97,7 +96,7 @@ fn materialize_and_evaluate(
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = PhonologyProbe::new(grammar);
-    let baseline = enumerate_default(grammar, &alphabet, &prules, phonology.as_ref());
+    let baseline = enumerate_default(grammar, &prules, phonology.as_ref());
     let candidates = Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar,

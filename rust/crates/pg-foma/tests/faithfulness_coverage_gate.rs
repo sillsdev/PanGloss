@@ -109,7 +109,6 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
     use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
     use pg_foma::junctions::PhonologyProbe;
     use pg_foma::lowering_adapter::LoweringAdapter;
-    use pg_foma::replace::SegAlphabet;
 
     const FIXTURE: &str = "template-category-sharing";
     const STRATEGIES: [EmissionStrategy; 3] = [
@@ -134,7 +133,6 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
         "the falsification needs the fixture's known-positive word"
     );
 
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
     let prules: Vec<&pg_grammar::model::PhonRuleDef> = grammar
         .strata
         .iter()
@@ -147,7 +145,6 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
         .collect();
     let baseline_plan = enumerate_default(
         &grammar,
-        &alphabet,
         &prules,
         PhonologyProbe::new(&grammar).as_ref(),
     );
