@@ -912,7 +912,7 @@ pub fn compile_rewrite_rule(
     alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
 ) -> Option<(Fsm, Vec<TupleReport>)> {
-    compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true)
+    compile_rewrite_rule_subset(opts, g, rule, &|_| true)
 }
 
 /// Identical to `compile_rewrite_rule`, but SKIPS any subrule for which `allowed(subrule_index)`
@@ -951,22 +951,9 @@ pub fn compile_rewrite_rule(
 /// these three changes alters any existing grammar's compiled output -- verified by
 /// `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count regression guard and
 /// `tests/f3_parity.rs`'s multiset parity gates staying green.
-///
-/// # `_alphabet` is unused
-/// Every existing caller (this file's own `compile_and_compose_rules` variants, every
-/// `tests/phase_c_*`/example driver) passes a single, grammar-wide `&SegAlphabet` built once
-/// (typically `SegAlphabet::new(surface_table(g))`, the LAST stratum's table) and reused across
-/// EVERY rule in the cascade, regardless of which table that rule actually owns. Since
-/// `owning_table`/`owning_table_id` already resolve THIS rule's own correct table below, this
-/// function now builds its OWN `SegAlphabet::with_table_id` (`render_alphabet`) for every render
-/// call instead of trusting the caller's possibly-unrelated one — so the parameter is kept
-/// (removing it would ripple through every one of those call sites, most outside this file's own
-/// single-owner boundary) but no longer read. Renamed rather than silently unused to make that
-/// explicit.
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
     g: &Grammar,
-    _alphabet: &SegAlphabet,
     rule: &RewriteRuleDef,
     allowed: &dyn Fn(usize) -> bool,
 ) -> Option<(Fsm, Vec<TupleReport>)> {
@@ -1138,7 +1125,7 @@ fn compile_and_compose_rules_internal(
             }
         };
         // `is_fully_supported_shape` detects an unsupported RightToLeft/Simultaneous shape and reports it `skipped`, never a silent mis-map.
-        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &|_| true) {
+        match compile_rewrite_rule_subset(opts, g, rule, &|_| true) {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 let net = if optional_every_rule {
@@ -1196,7 +1183,7 @@ pub fn compile_and_compose_rules_gated(
         };
         // Mode/dir detection lives in `compile_rewrite_rule_subset` (`is_fully_supported_shape`), so an unsupported shape is reported `skipped`, never silently mis-compiled.
         let allowed = |sub_idx: usize| subrule_ok(rule_pos, sub_idx);
-        match compile_rewrite_rule_subset(opts, g, alphabet, rule, &allowed) {
+        match compile_rewrite_rule_subset(opts, g, rule, &allowed) {
             Some((net, reports)) => {
                 tuple_reports.push((rule.xml_id.clone(), reports));
                 composed = Some(match composed {
