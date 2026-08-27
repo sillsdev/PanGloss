@@ -2,9 +2,8 @@
 //! compile-time **profile** type — per-stage timings, per-group emitted-line counts, and the final
 //! compiled network's own state/arc counts — collected from the PRODUCTION surface-prebaked
 //! `crate::emit::emit_with_budget` -> `foma::lexcread::fsm_lexc_parse_string` path
-//! (`crate::analyzer::FomaProposer::new_with_budget`). Measurements come from the admission walker,
-//! budget tracker, and compile profile once; the health evaluator consumes them without
-//! recomputation.
+//! (`crate::analyzer::FomaProposer::new_with_budget`). Measurements come from the production
+//! emitter/analyzer once; this profile stores them without recomputation.
 //!
 //! # Scope: the production path only
 //! This module profiles ONLY the production emitter/probe/lexc stages;
@@ -13,7 +12,7 @@
 //! state/arc curve) needs that cascade wired into
 //! the production constructor first — merely having experimental `crate::replace`/`crate::gate`
 //! functions is insufficient. Every profile this module's production constructor
-//! (`CompileProfileBuilder::production`) builds is labeled `ProfileLabel::Production`.
+//! (`CompileProfileBuilder::production`) builds.
 //!
 //! # No observer-induced minimization
 //! Every measurement here is a value the production path already computes for its own purposes:
@@ -69,9 +68,7 @@
 //! 1. **`CompileProfile` is JSON-serializable** (mirrors `crate::health`'s own canonical-JSON
 //!    convention) with `Duration` fields stored as `u64` millis rather than `std::time::Duration`
 //!    directly — `serde` has no built-in `Duration` support and this crate does not depend on
-//!    `serde_with`; millis matches `crate::health::MetricValue::Millis`'s own unit exactly, so a
-//!    profile-sourced `crate::health::HealthFinding`'s `value`/`threshold` need no unit
-//!    conversion.
+//!    `serde_with`; millis matches `crate::health::MetricValue::Millis`'s own unit exactly.
 //! 2. **`final_state_count`/`final_arc_count` are `Option<i64>`, not `Option<u32>`**: mirrors
 //!    `foma::types::Fsm`'s own `statecount`/`arccount: i32` fields exactly (widened to `i64` only to
 //!    give callers a single non-negative-friendly integer type without a second `try_into`), and
@@ -84,8 +81,8 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-/// This profile's own pipeline fingerprint string for `ProfileLabel::Production`: every compile
-/// profile names and fingerprints the constructor/network it measures. Named after the exact
+/// This profile's own pipeline fingerprint string: every compile profile names and fingerprints
+/// the constructor/network it measures. Named after the exact
 /// production call chain
 /// (`crate::analyzer::FomaProposer::new_with_budget` -> `crate::emit::emit_with_budget_profiled` ->
 /// `foma::lexcread::fsm_lexc_parse_string`) so a report reader can locate the real code path this
@@ -93,17 +90,6 @@ use serde::{Deserialize, Serialize};
 pub const PRODUCTION_PIPELINE: &str =
     "pg_foma::analyzer::FomaProposer::new_with_budget (crate::emit::emit_with_budget_profiled -> \
      foma::lexcread::fsm_lexc_parse_string)";
-
-/// Which pipeline a `CompileProfile` measures.
-/// See this module's doc "Scope: the production path only" section: profiles produced by this
-/// module use the production pipeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProfileLabel {
-    /// The surface-prebaked `crate::emit::emit_with_budget` -> `fsm_lexc_parse_string` path that is
-    /// the ACTUAL network `crate::analyzer::FomaProposer::propose` looks up against today.
-    Production,
-}
 
 /// The real, sequential stage boundaries this module instruments (see module doc "Stage
 /// boundaries"). Closed on purpose, same discipline `crate::health`'s own enums document: a new
@@ -170,13 +156,8 @@ pub struct GroupLineCount {
 /// minimization" section.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompileProfile {
-    /// Which pipeline this profile measures. Always `ProfileLabel::Production` for every profile
-    /// this crate's own
-    /// production code path builds.
-    pub label: ProfileLabel,
-    /// This profile's pipeline fingerprint (`PRODUCTION_PIPELINE` for
-    /// `ProfileLabel::Production`) — an owned `String` (not `&'static str`) so this type derives
-    /// `Deserialize` without a lifetime parameter.
+    /// This profile's pipeline fingerprint (`PRODUCTION_PIPELINE`) — an owned `String` (not
+    /// `&'static str`) so this type derives `Deserialize` without a lifetime parameter.
     pub pipeline: String,
     /// D3: total grammar-to-ready-network wall time, in milliseconds — spans this crate's own
     /// emission work AND the vendored `foma` crate's lexc-parse call.
@@ -209,7 +190,6 @@ pub struct CompileProfile {
 /// part of this module's public surface — callers outside this crate only ever see the finished
 /// `CompileProfile`.
 pub(crate) struct CompileProfileBuilder {
-    label: ProfileLabel,
     pipeline: &'static str,
     start: Instant,
     stages: Vec<StageTiming>,
@@ -218,13 +198,12 @@ pub(crate) struct CompileProfileBuilder {
 }
 
 impl CompileProfileBuilder {
-    /// Starts a new production-labeled profile's wall-clock timer NOW — callers must construct this
+    /// Starts a production profile's wall-clock timer NOW — callers must construct this
     /// at the very top of the production entry point (`crate::analyzer::FomaProposer::
     /// new_with_budget`), before any emission work runs, so `Self::finish`'s
     /// `total_elapsed_millis` is genuinely D3's "grammar-to-ready-network" span.
     pub(crate) fn production() -> Self {
         CompileProfileBuilder {
-            label: ProfileLabel::Production,
             pipeline: PRODUCTION_PIPELINE,
             start: Instant::now(),
             stages: Vec::new(),
@@ -271,7 +250,6 @@ impl CompileProfileBuilder {
         final_arc_count: Option<i32>,
     ) -> CompileProfile {
         CompileProfile {
-            label: self.label,
             pipeline: self.pipeline.to_string(),
             total_elapsed_millis: self.start.elapsed().as_millis() as u64,
             stages: self.stages,
@@ -311,7 +289,6 @@ mod tests {
         builder.set_total_lexc_lines(1234);
         let profile = builder.finish(Some(100), Some(250));
 
-        assert_eq!(profile.label, ProfileLabel::Production);
         assert_eq!(profile.pipeline, PRODUCTION_PIPELINE);
         assert_eq!(profile.stages.len(), 2);
         assert_eq!(profile.stages[0].stage, CompileStage::SurfaceSetup);

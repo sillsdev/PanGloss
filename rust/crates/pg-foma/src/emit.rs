@@ -6092,10 +6092,6 @@ mod structural_and_pattern_tests {
             "the explicit default strategy must preserve the complete emission report"
         );
         assert_eq!(
-            explicit_profile.label, wrapper_profile.label,
-            "profile label"
-        );
-        assert_eq!(
             explicit_profile.pipeline, wrapper_profile.pipeline,
             "profile pipeline"
         );

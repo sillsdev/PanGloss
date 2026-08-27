@@ -277,7 +277,7 @@ pub mod precision;
 pub(crate) mod preexpand;
 /// The compile-time
 /// **profile** type -- `profile::CompileProfile`/`profile::CompileStage`/[`profile::
-/// GroupLineCount`]/`profile::ProfileLabel` -- collected from the PRODUCTION
+/// GroupLineCount`] -- collected from the PRODUCTION
 /// `emit::emit_with_budget_profiled` -> `foma::lexcread::fsm_lexc_parse_string` path
 /// (`analyzer::FomaProposer::new_with_budget`). See that module's
 /// own doc for the more expensive profiling this stays clear of.

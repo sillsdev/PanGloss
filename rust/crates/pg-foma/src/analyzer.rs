@@ -880,7 +880,7 @@ mod profile_tests {
     //! Profiled construction must populate a real `CompileProfile` on success, match the non-profiled entry points byte-for-byte, and still produce a profile on a typed build failure.
 
     use super::*;
-    use crate::profile::{CompileStage, ProfileLabel};
+    use crate::profile::CompileStage;
 
     /// Same minimal single-root fixture shape as `apply_budget_tests::FIXTURE`.
     const FIXTURE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -925,7 +925,6 @@ mod profile_tests {
         let (result, profile) = FomaProposer::new_with_profile(&g);
         assert!(result.is_ok(), "the tiny fixture must build successfully");
 
-        assert_eq!(profile.label, ProfileLabel::Production);
         assert_eq!(profile.pipeline, crate::profile::PRODUCTION_PIPELINE);
         assert!(
             profile
