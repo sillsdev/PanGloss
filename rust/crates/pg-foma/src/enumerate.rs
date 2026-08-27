@@ -105,7 +105,6 @@ use crate::plan::{
     ComposeStrategy, FragmentSpec, GateGroupSpec, GatePartitionSpec, GatedSubruleRef, NodeId, Plan,
     PlanNodeKind, Provenance, ReplaceCascadeSpec,
 };
-use crate::replace::SegAlphabet;
 use crate::{emit, preexpand};
 
 /// `g`'s phonological rules in stratum-cascade (authored) order, as literal borrows of `g.prules` —
@@ -132,19 +131,10 @@ pub fn prules_in_order(g: &Grammar) -> Vec<&PhonRuleDef> {
 
 /// Builds today's compilation topology for `g` as a single reified `Plan`.
 ///
-/// Takes exactly the inputs the real compile seams take: `alphabet`/`prules_in_order` (the shape
-/// `crate::gate::compile_gated_grammar_with_budget` and `crate::replace`'s cascade builders take)
-/// plus `phon` (what `crate::preexpand::should_run` and `crate::emit::emit_with_budget` take).
-///
-/// `alphabet` is accepted, not read: this is data-only (module doc — no live `Fsm` is built
-/// here), and none of today's three topology seams this mirrors ( `should_run`,
-/// `probe_would_refuse`/`structural_candidate_rules`, `partition_entries`) consult the segment
-/// alphabet to decide topology — only a real FST builder will need it. Kept as a parameter
-/// anyway so this function's signature already matches what such a builder will need to thread
-/// through, rather than growing a new parameter later.
+/// Takes the grammar, authored-order phonological rules, and optional phonology probe used by
+/// today's topology seams.
 pub fn enumerate_default(
     g: &Grammar,
-    _alphabet: &SegAlphabet<'_>,
     prules_in_order: &[&PhonRuleDef],
     phon: Option<&PhonologyProbe<'_>>,
 ) -> Plan {
@@ -430,11 +420,10 @@ impl EmissionStrategy {
 ///   is left unexplored rather than emitted unsoundly.
 pub fn enumerate_candidates(
     g: &Grammar,
-    alphabet: &SegAlphabet<'_>,
     prules_in_order: &[&PhonRuleDef],
     phon: Option<&PhonologyProbe<'_>>,
 ) -> Vec<LoweredCandidate> {
-    let default_plan = enumerate_default(g, alphabet, prules_in_order, phon);
+    let default_plan = enumerate_default(g, prules_in_order, phon);
     let mut candidates = vec![LoweredCandidate {
         label: "default",
         plan: default_plan,
