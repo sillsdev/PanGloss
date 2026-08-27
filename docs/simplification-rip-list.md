@@ -278,7 +278,7 @@ path with three externally enforced, configurable execution limits. Verified old
 | F5 | `#[allow(dead_code)]` where `#[cfg(test)]` lets the compiler enforce the claim | `preexpand.rs`, `unordered.rs` | **LANDED UNVERIFIED** |
 | F6 | Duplicate adjacent assertions left by `acd313c6` | `health.rs`, `pack.rs` | **LANDED UNVERIFIED** |
 | F7 | Two unlinked copies of the 100 MB threshold | `health.rs`, `readiness_policy.rs` | **LANDED UNVERIFIED** |
-| F8 | `Certification::StaticRejected` may now be unreachable | `backend_runtime.rs` | **VERIFY** |
+| F8 | `Certification::StaticRejected` was unreachable | `backend_runtime.rs`, `backend_optimizer.rs` | **LANDED UNVERIFIED** — `476d5f5e` removed its tests first, `516821e0` removed both producers and their helper, and `50848d3c` removed the enum variant; current source has no residue |
 | F9 | Stale `FailClosed` / `RefusalWitness` docs/tests — source machinery is already absent | `capability.rs` and ledgers/docs | **PARTIAL — RIPPED FIRST** — `1e835455`, `1fbda466`, and `5cfa5ecf` removed active ledger/conformance/staging claims and corrected the four-witness and WASM boundaries. Archived historical records remain history; do not recreate source behavior |
 | F10 | Dead-weight tests: 2,493 tests, some pinning behaviour being deliberately removed, some vacuous | whole suite | **OPEN** — the second-pass review's main target |
 
