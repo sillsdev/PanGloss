@@ -4,11 +4,6 @@
 //! `print_realize_lines`) but for a whole run of text at once, tokenized here rather than one
 //! word at a time on a command line.
 //!
-//! `PanGlossGrammar::new` also builds a `pg_foma::composite::FomaAnalyzer`
-//! for the grammar; `analyze_text` routes each word through it when present. A grammar whose
-//! emitted lexc source fails to foma-compile falls back automatically to the full engine (logged,
-//! see `log_foma_fallback`) — see `FomaState`'s doc for why the compiled proposer is stored as
-//! its own owned pieces rather than as a `FomaAnalyzer<'g>` field.
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
@@ -100,87 +95,7 @@ struct AnalyzeTextResult {
     new_cache_entries: HashMap<String, CachedWord>,
 }
 
-/// The owned (non-borrowing) pieces of a compiled `pg_foma::composite::FomaAnalyzer` for one grammar, stored separately because `PanGlossGrammar` owns the `Grammar` a `FomaAnalyzer<'g>` field would need to borrow from, which Rust cannot express as a self-referential struct; `FomaCheckout` reconstructs a short-lived `FomaAnalyzer` and its `Drop` returns the unchanged compiled pieces on every return path.
-struct FomaState {
-    proposer: pg_foma::analyzer::FomaProposer,
-    peeler: pg_foma::peel::ReduplicationPeeler,
-    owners: Vec<Option<pg_foma::confirm::MorphemeOwner>>,
-    /// Carried across every checkout rather than rebuilt, so nothing silently resets it.
-    filter: pg_foma::candidate_filter::CandidateFilterSettings,
-}
-
-struct FomaCheckout<'slot, 'grammar> {
-    slot: &'slot mut Option<FomaState>,
-    analyzer: Option<pg_foma::composite::FomaAnalyzer<'grammar>>,
-}
-
-impl<'slot, 'grammar> FomaCheckout<'slot, 'grammar> {
-    fn new(slot: &'slot mut Option<FomaState>, grammar: &'grammar Grammar) -> Self {
-        let analyzer = slot.take().map(|state| {
-            pg_foma::composite::FomaAnalyzer::from_cached(
-                grammar,
-                state.proposer,
-                state.peeler,
-                state.owners,
-                state.filter,
-            )
-        });
-        Self { slot, analyzer }
-    }
-
-    fn analyzer_mut(&mut self) -> Option<&mut pg_foma::composite::FomaAnalyzer<'grammar>> {
-        self.analyzer.as_mut()
-    }
-}
-
-impl Drop for FomaCheckout<'_, '_> {
-    fn drop(&mut self) {
-        if let Some(analyzer) = self.analyzer.take() {
-            let (proposer, peeler, owners, filter) = analyzer.into_parts();
-            *self.slot = Some(FomaState {
-                proposer,
-                peeler,
-                owners,
-                filter,
-            });
-        }
-    }
-}
-
-/// Emit + foma-compile `grammar`'s propose→confirm pieces; `Err` carries a human-readable compiler-gap diagnostic, not a grammar-content problem the caller can fix by editing their text.
-fn build_foma_state(grammar: &Grammar) -> Result<FomaState, String> {
-    let proposer = pg_foma::analyzer::FomaProposer::new(grammar).map_err(|e| e.to_string())?;
-    Ok(FomaState {
-        peeler: pg_foma::peel::ReduplicationPeeler::new(grammar),
-        owners: pg_foma::confirm::build_morpheme_owners(grammar),
-        proposer,
-        filter: pg_foma::candidate_filter::CandidateFilterSettings::off(),
-    })
-}
-
-/// Attempt to build `FomaState` for `grammar`; on failure, log the fallback and return the diagnostic message alongside `None` so `PanGlossGrammar::engine_diagnostic` can surface it to JS.
-fn init_foma(grammar: &Grammar) -> (Option<FomaState>, Option<String>) {
-    match build_foma_state(grammar) {
-        Ok(state) => (Some(state), None),
-        Err(msg) => {
-            log_foma_fallback(&msg);
-            (None, Some(msg))
-        }
-    }
-}
-
-/// `console.error` in a browser (wasm32) build, `eprintln!` natively; deliberately independent of `console_error_panic_hook`, which only intercepts Rust panics, since this is an ordinary `Err` return.
-fn log_foma_fallback(msg: &str) {
-    let full = format!(
-        "pg-wasm: foma proposer compile failed, falling back to the full engine for this grammar: {msg}"
-    );
-    #[cfg(target_arch = "wasm32")]
-    web_sys::console::error_1(&JsValue::from_str(&full));
-    #[cfg(not(target_arch = "wasm32"))]
-    eprintln!("{full}");
-}
-
-/// Build one `CachedWord` from a (possibly foma- or full-engine-sourced) list of confirmed analyses plus the diagnostic fields both engine paths carry under different names, so the gloss/leipzig/realize construction is written once.
+/// Build one `CachedWord` from a list of confirmed analyses plus the diagnostic fields carried by the runtime, so the gloss/leipzig/realize construction is written once.
 struct CacheAnalysis {
     structured: Vec<WordAnalysis>,
     capped: bool,
@@ -243,10 +158,6 @@ pub struct PanGlossGrammar {
     runtime: pg_lexicon::SuppliedLexiconRuntime,
     realize_map: RealizeMap,
     realizer: TableRealizer,
-    /// `Some` iff this grammar's foma propose→confirm proposer compiled successfully; `None` means every word routes through the full engine (see `foma_diagnostic`). A transient checkout is protected by `FomaCheckout`, whose destructor restores this slot even while unwinding.
-    foma: Option<FomaState>,
-    /// `Some` iff construction failed to build `foma`, surfaced to JS via `PanGlossGrammar::engine_diagnostic`; `None` once foma is active.
-    foma_diagnostic: Option<String>,
 }
 
 /// Every affix-morpheme `<Gloss>` string in `grammar` (`AffixProcess`/`Realizational` rules' own morpheme gloss, never lexical-entry root glosses); this is the vocabulary `pg_realize::infer_english` matches its English alias table against, where a root gloss like "house" would only ever add noise.
@@ -290,7 +201,6 @@ impl PanGlossGrammar {
         let realizer =
             TableRealizer::new().map_err(|e| js_err("load embedded English table", &e))?;
         let realize_map = build_realize_map(&grammar, realize_toml.as_deref())?;
-        let (foma, foma_diagnostic) = init_foma(&grammar);
         let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), xml)
             .map_err(|e| js_err("initialize supplied lexicon", &e))?;
         Ok(PanGlossGrammar {
@@ -298,34 +208,7 @@ impl PanGlossGrammar {
             runtime,
             realize_map,
             realizer,
-            foma,
-            foma_diagnostic,
         })
-    }
-
-    /// `"foma"` when this grammar's compiled propose→confirm proposer is active (plan P4's
-    /// mainline), `"engine"` when it isn't — either the emitted lexc source failed to foma-compile
-    /// at construction/reload time (`engineDiagnostic()` carries the reason) or this grammar has
-    /// never had one built. This reports the GRAMMAR-level engine `PanGlossGrammar` was built
-    /// with; it does NOT reflect the separate per-word guess-root retry `analyzeText` performs
-    /// through the full engine when the foma path itself confirms nothing for a given word (see
-    /// that method's doc) — that retry is a per-word display fallback, not a change of which
-    /// engine this instance is on.
-    #[wasm_bindgen(js_name = engineKind)]
-    pub fn engine_kind(&self) -> String {
-        if self.foma_diagnostic.is_none() {
-            "foma"
-        } else {
-            "engine"
-        }
-        .to_string()
-    }
-
-    /// `Some` iff the most recent attempt to compile this grammar's foma proposer failed — the
-    /// reason `PanGlossGrammar::engine_kind` reports `"engine"`. `None` once foma is active.
-    #[wasm_bindgen(js_name = engineDiagnostic)]
-    pub fn engine_diagnostic(&self) -> Option<String> {
-        self.foma_diagnostic.clone()
     }
 
     /// Tokenizes `text` and runs every word token through the full analyze -> gloss -> realize
@@ -342,11 +225,6 @@ impl PanGlossGrammar {
     /// construction (it's only ever passed to the same `PanGlossGrammar` instance the caller got
     /// it from), so callers don't need to namespace it themselves.
     ///
-    /// Routes each new word through `self.foma` (plan P4) when this grammar has one; a word that
-    /// engine confirms nothing for still gets the full engine's own `guess_root` retry (below),
-    /// exactly as it always did on the full-engine-only path — `FomaAnalyzer` deliberately never
-    /// sets `guess_root` itself (`pg_foma::composite`'s own doc), so unrecognized-word display
-    /// (part of what this demo is for, not a fallback to hide) still needs this one call.
     #[wasm_bindgen(js_name = analyzeText)]
     pub fn analyze_text(&mut self, text: &str, cache: JsValue) -> Result<JsValue, JsValue> {
         let cache: HashMap<String, CachedWord> = if cache.is_undefined() || cache.is_null() {
@@ -355,12 +233,7 @@ impl PanGlossGrammar {
             serde_wasm_bindgen::from_value(cache).map_err(|e| JsValue::from_str(&e.to_string()))?
         };
 
-        // Never stored as a field, same "build fresh per call from an owned `&Grammar`" shape as `FomaState`'s rehydrated `FomaAnalyzer` below.
         let mut new_cache_entries: HashMap<String, CachedWord> = HashMap::new();
-        self.ensure_foma();
-
-        // Rehydrate a `FomaAnalyzer` borrowing `&self.grammar`; the checkout guard restores the compiled pieces on every exit path, including panic unwinding.
-        let mut foma = FomaCheckout::new(&mut self.foma, &self.grammar);
 
         let mut tokens: Vec<TokenOut> = Vec::new();
         for piece in tokenize(text) {
@@ -388,16 +261,8 @@ impl PanGlossGrammar {
                         (hit.clone(), true, 0.0)
                     } else {
                         let start = Instant::now();
-                        let official = foma.analyzer_mut().map(|analyzer| {
-                            let outcome = analyzer.analyze_word(&lexical);
-                            pg_lexicon::OfficialOutcome {
-                                analyses: outcome.analyses,
-                                structured: outcome.structured,
-                                candidates_generated: outcome.candidates_generated,
-                            }
-                        });
-                        // `guess_fallback: true`, explicit and load-bearing: unlike the FFI wire format (which can't mark a guessed analysis), this demo always presents a guess as a guess, so the retry stays on here.
-                        let outcome = self.runtime.analyze_word_opts(&lexical, official, true);
+                        // `guess_fallback: true`, explicit and load-bearing: unlike the FFI wire format (which can't mark a guessed analysis), this demo always presents a guess as a guess.
+                        let outcome = self.runtime.analyze_word_opts(&lexical, None, true);
                         let structured = outcome.structured;
                         let capped = outcome.capped;
                         let invalid_shape = outcome.invalid_shape;
@@ -564,31 +429,9 @@ impl PanGlossGrammar {
 }
 
 impl PanGlossGrammar {
-    fn ensure_foma(&mut self) {
-        if self.foma.is_none() && self.foma_diagnostic.is_none() {
-            match build_foma_state(&self.grammar) {
-                Ok(state) => self.foma = Some(state),
-                Err(message) => {
-                    log_foma_fallback(&message);
-                    self.foma_diagnostic = Some(message);
-                }
-            }
-        }
-    }
-
-    /// `guess_fallback: true`, same rationale as the twin call site in `analyze_text`: every guess this crate returns reaches JS carrying `UnifiedAnalysisOut`'s own `guessed` flag.
+    /// `guess_fallback: true` keeps every guess this crate returns marked in `UnifiedAnalysisOut`.
     fn analyze_unified(&mut self, word: &str) -> pg_lexicon::UnifiedAnalysis {
-        self.ensure_foma();
-        let mut foma = FomaCheckout::new(&mut self.foma, &self.grammar);
-        let official = foma.analyzer_mut().map(|analyzer| {
-            let outcome = analyzer.analyze_word(word);
-            pg_lexicon::OfficialOutcome {
-                analyses: outcome.analyses,
-                structured: outcome.structured,
-                candidates_generated: outcome.candidates_generated,
-            }
-        });
-        self.runtime.analyze_word_opts(word, official, true)
+        self.runtime.analyze_word_opts(word, None, true)
     }
 }
 

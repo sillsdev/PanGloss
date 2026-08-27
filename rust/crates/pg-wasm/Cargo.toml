@@ -14,11 +14,6 @@ pg-grammar.workspace = true
 pg-parse.workspace = true
 pg-realize.workspace = true
 pg-lexicon.workspace = true
-# P4 (docs/fst-plan/foma-fst-plan.md): `pg_foma::composite::FomaAnalyzer`, compiled at
-# `PanGlossGrammar::new`/`apply_user_lexicon` time and routed through by `analyze_text`. Already
-# proven wasm32-safe on its own (`pg-foma`'s own `cargo check --target wasm32-unknown-unknown`
-# gate, F0/F1/F2) and its `pg-parse` dependency is nothing new here -- this crate already links
-# `pg-parse` directly.
 # `.pgpack` load-time compatibility (ADR 0004 required ⊆ provided containment) + the ADR 0005
 # capability-trust stamp (`openspec/changes/make-wasm-analysis-only`) -- see `src/pack.rs`. Reuses
 # `pg-pack`'s manifest/compat/trust types verbatim; this crate never redefines them.
@@ -32,12 +27,6 @@ serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1"
 # std::time::Instant panics on wasm32-unknown-unknown -- same fix as pg-fst/pg-rules.
 web-time.workspace = true
-# Only the `console` feature -- `PanGlossGrammar`'s automatic foma-compile-failure fallback (P4)
-# logs via `console.error` in a browser build; natively (this crate's own `cargo test`) the same
-# call site uses `eprintln!` instead (see `log_foma_fallback`'s `cfg(target_arch = "wasm32")` split).
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["console"] }
-
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true
