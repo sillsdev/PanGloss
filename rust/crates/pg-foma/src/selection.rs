@@ -178,7 +178,7 @@ pub fn select_plan(
             let measure = if matches!(decision, CompileDecision::Refuse(_)) {
                 None
             } else {
-                build_controllable(&candidate.plan, opts, g, alphabet, prules_in_order, budget)
+                build_controllable(&candidate.plan, opts, g, alphabet, prules_in_order)
                     .ok()
                     .and_then(|built| {
                         built.net.as_ref().map(|net| PlanMeasure {

@@ -274,8 +274,8 @@ pub fn differential_oracle(
 ) -> Result<OracleResult, ComposeError> {
     let (label_a, label_b) = labels;
 
-    let built_a = build_controllable(plan_a, opts, g, alphabet, prules_in_order, budget)?;
-    let built_b = build_controllable(plan_b, opts, g, alphabet, prules_in_order, budget)?;
+    let built_a = build_controllable(plan_a, opts, g, alphabet, prules_in_order)?;
+    let built_b = build_controllable(plan_b, opts, g, alphabet, prules_in_order)?;
 
     let per_word: Vec<(String, HashSet<String>, HashSet<String>)> = words
         .iter()
@@ -1686,13 +1686,12 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
 
         let plan = enumerate_default(&g, &ro, phon.as_ref());
         let swapped = swap_compose_children(&plan);
 
         // build_controllable enforces the Compose children positionally, so swapping them must panic before any apply_up comparison.
-        let _ = build_controllable(&swapped, &opts, &g, &alphabet, &ro, &budget);
+        let _ = build_controllable(&swapped, &opts, &g, &alphabet, &ro);
     }
 
     #[test]
@@ -1703,13 +1702,12 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
 
         let plan = enumerate_default(&g, &ro, phon.as_ref());
         let reversed = reverse_replace_cascade(&plan);
 
         // validate_replace_cascade cross-checks cascade.rules against prules_in_order positionally, so a reversed cascade must panic.
-        let _ = build_controllable(&reversed, &opts, &g, &alphabet, &ro, &budget);
+        let _ = build_controllable(&reversed, &opts, &g, &alphabet, &ro);
     }
 
     // Partition refinement, proven by the same two bars as the module's other generators: apply-based agreement with baseline, and a root NodeId that actually differs.

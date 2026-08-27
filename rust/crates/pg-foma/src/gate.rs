@@ -147,9 +147,9 @@ use foma::types::Fsm;
 
 use pg_grammar::model::{Grammar, LexEntryId, MprGroupMatchType, PhonRuleDef, RewriteSubruleDef};
 
-use crate::compose_budget::{ComposeBudget, ComposeError};
+use crate::compose_budget::ComposeError;
 use crate::replace::{compile_and_compose_rules_gated, SegAlphabet, TupleReport};
-use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
+use crate::uflexc::{emit_underlying_filtered, UEmitReport};
 
 /// One (rule position in `prules_in_order`, subrule index within that rule) pair whose
 /// `RewriteSubruleDef` declares a nontrivial `required_pos`/`required_mpr`/`excluded_mpr` (module
@@ -273,23 +273,7 @@ pub struct GatedCompileResult {
 /// lexc+rules network PER GROUP, union them. `prules_in_order` is the same stratum-cascade-order
 /// slice every other `replace`/`uflexc` entry point takes.
 ///
-/// Builds a production `ComposeBudget` from `HC_COMPOSE_*` env vars exactly once (mirrors
-/// `crate::emit::emit_with_precision`'s own convention). Tests should call
-/// `compile_gated_grammar_with_budget` directly instead.
-pub fn compile_gated_grammar(
-    opts: &FomaOptions,
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    prules_in_order: &[&PhonRuleDef],
-) -> Result<GatedCompileResult, ComposeError> {
-    let budget = ComposeBudget::from_env();
-    compile_gated_grammar_with_budget(opts, g, alphabet, prules_in_order, &budget)
-}
-
-/// `compile_gated_grammar`'s core, with the `ComposeBudget` threaded in explicitly rather than
-/// read from env -- what tests call directly (design doc §6).
-///
-/// `budget` is shared with the underlying emitter, whose compound-chain work can genuinely fail.
+/// Fallible only where the underlying emitter is: its compound-chain work can refuse a grammar.
 /// The ordinary foma compose/union/minimize operations themselves are infallible.
 /// This function also performs its own FINAL minimize on the fully unioned
 ///   network -- `compile_gated_grammar` takes ownership of its own FINAL minimize instead of leaving
@@ -298,12 +282,11 @@ pub fn compile_gated_grammar(
 ///   invariant at this layer. Callers that further compose this result (every example/test driver
 ///   does, with a boundary-cleanup net) still need their OWN final minimize afterward -- minimizing
 ///   here does not make a LATER compose's result minimal.
-pub fn compile_gated_grammar_with_budget(
+pub fn compile_gated_grammar(
     opts: &FomaOptions,
     g: &Grammar,
     alphabet: &SegAlphabet,
     prules_in_order: &[&PhonRuleDef],
-    budget: &ComposeBudget,
 ) -> Result<GatedCompileResult, ComposeError> {
     let gated = find_gated_subrules(g, prules_in_order);
     let groups = partition_entries(g, &gated, prules_in_order);
@@ -322,7 +305,7 @@ pub fn compile_gated_grammar_with_budget(
             prefix_entries,
             suffix_entries,
             ..
-        } = emit_underlying_filtered_with_budget(g, alphabet, Some(&group.entries), budget)?;
+        } = emit_underlying_filtered(g, alphabet, Some(&group.entries))?;
         skipped_allomorphs.extend(uskipped);
         group_reports.push((
             group.key.clone(),

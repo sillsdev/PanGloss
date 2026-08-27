@@ -1034,7 +1034,7 @@ pub fn build_candidate(
          the one it names. Dispatch on `candidate.adapter` instead.",
         candidate.adapter
     );
-    build_controllable(&candidate.plan, opts, grammar, alphabet, prules, budget)
+    build_controllable(&candidate.plan, opts, grammar, alphabet, prules)
 }
 
 #[derive(Debug, Clone, Copy, Default)]

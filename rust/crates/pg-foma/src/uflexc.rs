@@ -126,7 +126,7 @@ use std::collections::HashSet;
 
 use pg_grammar::model::{Grammar, LexEntryId, MorphRuleDef, OutputAction, SegmentedText};
 
-use crate::compose_budget::{ComposeBudget, ComposeError};
+use crate::compose_budget::ComposeError;
 use crate::emit::{
     build_compound_chain, classify_affix, compound_extra_levels_checked, compound_license,
     write_bare, write_lexicon_header, EmitCounts, Role,
@@ -233,27 +233,12 @@ pub fn emit_underlying(g: &Grammar, alphabet: &SegAlphabet) -> Result<UEmitRepor
 /// in this prototype's scope is root-only (`crate::gate`'s module doc), so every group shares the
 /// identical affix lexicons.
 ///
-/// Builds a production `ComposeBudget` from `HC_COMPOSE_*` env vars exactly once (mirrors
-/// `crate::emit::emit_with_precision`'s own convention). Tests should call
-/// `emit_underlying_filtered_with_budget` directly instead.
+/// Fallible only for the reasons `ComposeError` names: the compound-chain construction below can
+/// refuse a grammar whose chain is too deep, before any lexc line is emitted.
 pub fn emit_underlying_filtered(
     g: &Grammar,
     alphabet: &SegAlphabet,
     allowed_entries: Option<&HashSet<LexEntryId>>,
-) -> Result<UEmitReport, ComposeError> {
-    let budget = ComposeBudget::from_env();
-    emit_underlying_filtered_with_budget(g, alphabet, allowed_entries, &budget)
-}
-
-/// `emit_underlying_filtered`'s core, with the `ComposeBudget` threaded in explicitly rather
-/// than read from env -- what `crate::gate::compile_gated_grammar_with_budget` and tests call
-/// directly, so a whole gated-grammar compile shares ONE budget across every group's emission.
-///
-pub fn emit_underlying_filtered_with_budget(
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    allowed_entries: Option<&HashSet<LexEntryId>>,
-    budget: &ComposeBudget,
 ) -> Result<UEmitReport, ComposeError> {
     let width = tags::tag_width(g.morphemes.len());
     let mut skipped = Vec::new();
@@ -557,67 +542,5 @@ fn role_label(r: Role) -> &'static str {
         Role::CircumfixPrefix => "circumfix-prefix",
         Role::CircumfixSuffix => "circumfix-suffix",
         Role::Process => "process",
-    }
-}
-
-#[cfg(test)]
-mod emit_budget_tests {
-    use std::fmt::Write as _;
-
-    use super::*;
-    use crate::compose_budget::ComposeBudget;
-    use crate::replace::SegAlphabet;
-
-    fn twenty_entries_fixture() -> Grammar {
-        let mut entries = String::new();
-        for i in 0..20u32 {
-            write!(
-                entries,
-                r#"
-          <LexicalEntry id="entry{i}" partOfSpeech="posV">
-            <Allomorphs><Allomorph id="allo{i}"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-            <Gloss>e{i}</Gloss>
-          </LexicalEntry>"#
-            )
-            .unwrap();
-        }
-        let xml = format!(
-            r#"<?xml version="1.0" encoding="utf-8"?>
-<HermitCrabInput>
-  <Language>
-    <Name>EmitLineBudgetFixture</Name>
-    <PartsOfSpeech>
-      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-    </PartsOfSpeech>
-    <CharacterDefinitionTable id="t1">
-      <Name>Main</Name>
-      <SegmentDefinitions>
-        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-      </SegmentDefinitions>
-    </CharacterDefinitionTable>
-    <Strata>
-      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
-        <Name>S</Name>
-        <LexicalEntries>{entries}
-        </LexicalEntries>
-      </Stratum>
-    </Strata>
-  </Language>
-</HermitCrabInput>
-"#
-        );
-        pg_grammar::load(&xml)
-            .unwrap_or_else(|e| panic!("failed to load 20-entry fixture: {e}\n{xml}"))
-    }
-
-    #[test]
-    fn unbounded_budget_never_trips_on_twenty_entries() {
-        let g = twenty_entries_fixture();
-        let table = &g.char_tables[0];
-        let alphabet = SegAlphabet::new(table);
-        let budget = ComposeBudget::unbounded();
-        let report = emit_underlying_filtered_with_budget(&g, &alphabet, None, &budget)
-            .expect("unbounded budget must never trip");
-        assert_eq!(report.root_entries, 20);
     }
 }

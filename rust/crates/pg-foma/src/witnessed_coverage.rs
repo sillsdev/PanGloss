@@ -43,7 +43,6 @@ use pg_grammar::model::Grammar;
 use crate::analyzer::FomaProposer;
 use crate::backend_selection::select_backends;
 use crate::capability::CharacteristicKind;
-use crate::compose_budget::ComposeBudget;
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
@@ -140,14 +139,12 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
         phonology.as_ref(),
     );
     let opts = FomaOptions::default();
-    let budget = ComposeBudget::from_env();
     let mut built = crate::build::build_controllable(
         &plan,
         &opts,
         g,
         &alphabet,
         semantics.prules_in_order(),
-        &budget,
     )
     .map_err(|e| format!("plan-composed build failed: {e:?}"))?;
     let net = built

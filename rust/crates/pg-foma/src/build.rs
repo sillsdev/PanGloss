@@ -94,12 +94,12 @@ use foma::types::Fsm;
 
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 
-use crate::compose_budget::ComposeBudget;
+use crate::compose_budget::ComposeError;
 use crate::enumerate::rule_id_of;
 use crate::gate::GatedCompileResult;
 use crate::plan::{FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, ReplaceCascadeSpec};
 use crate::replace::{compile_and_compose_rules_gated, SegAlphabet, TupleReport};
-use crate::uflexc::{emit_underlying_filtered_with_budget, UEmitReport};
+use crate::uflexc::{emit_underlying_filtered, UEmitReport};
 
 /// The two marker fragments `crate::enumerate::enumerate_default` places alongside the `Gate` node
 /// when a grammar's recall depends on the composite-emission / structural-composite subtrees --
@@ -356,21 +356,16 @@ pub fn finish_controllable_net(
 /// panic on a caller-supplied slice not borrowed from `g.prules`).
 ///
 /// # Errors
-/// Only for the same reasons `crate::gate::compile_gated_grammar_with_budget` itself returns
-/// `Err` -- a `ComposeBudget` cap tripping on the emit/compose/union/minimize primitives this
-/// function calls (no NEW budget vector is introduced here; the group-count budget check (V6) that
-/// `compile_gated_grammar_with_budget` runs BEFORE any per-group work is not re-run here, since
-/// `plan.partition.groups.len()` was already checked at `enumerate_default` build time by that same
-/// mechanism if the caller built `plan` through the production path -- `build_controllable` trusts the
-/// plan it is handed, per this function's own doc above, rather than re-deriving facts already baked
-/// into it).
+/// Only for the same reasons `crate::gate::compile_gated_grammar` itself returns `Err` -- the
+/// underlying emitter's compound-chain construction can refuse a grammar. No new failure vector is
+/// introduced here: `build_controllable` trusts the plan it is handed, per this function's own doc
+/// above, rather than re-deriving facts already baked into it.
 pub fn build_controllable(
     plan: &Plan,
     opts: &FomaOptions,
     g: &Grammar,
     alphabet: &SegAlphabet,
     prules_in_order: &[&PhonRuleDef],
-    budget: &ComposeBudget,
 ) -> Result<GatedCompileResult, ComposeError> {
     let gate_id = find_gate_node(plan);
     let PlanNodeKind::Gate {
@@ -419,7 +414,7 @@ pub fn build_controllable(
             prefix_entries,
             suffix_entries,
             ..
-        } = emit_underlying_filtered_with_budget(g, alphabet, Some(&entries_set), budget)?;
+        } = emit_underlying_filtered(g, alphabet, Some(&entries_set))?;
         // `uskipped` also carries whole-rule entries the network structurally cannot represent, not only per-allomorph misses; pooled here with no separate channel.
         skipped_allomorphs.extend(uskipped);
         group_reports.push((
@@ -878,9 +873,8 @@ mod equivalence_tests {
     use pg_grammar::model::{Grammar, PhonRuleDef};
 
     use super::*;
-    use crate::compose_budget::ComposeBudget;
     use crate::enumerate::enumerate_default;
-    use crate::gate::compile_gated_grammar_with_budget;
+    use crate::gate::compile_gated_grammar;
     use crate::junctions::PhonologyProbe;
 
     fn load(xml: &str) -> Grammar {
@@ -966,10 +960,9 @@ mod equivalence_tests {
         let opts = FomaOptions::default();
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
-        let budget = ComposeBudget::unbounded();
 
         // (a) today's direct-compile path, unmodified.
-        let direct = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
+        let direct = compile_gated_grammar(&opts, &g, &alphabet, &ro)
             .expect("direct compile must succeed");
         let direct_net = direct
             .net
@@ -978,7 +971,7 @@ mod equivalence_tests {
 
         // (b) the plan-walk this module ships.
         let plan = enumerate_default(&g, &ro, phon.as_ref());
-        let built = build_controllable(&plan, &opts, &g, &alphabet, &ro, &budget)
+        let built = build_controllable(&plan, &opts, &g, &alphabet, &ro)
             .expect("plan-walk build must succeed");
         let built_net = built
             .net
@@ -1037,7 +1030,6 @@ mod equivalence_tests {
         let opts = FomaOptions::default();
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
-        let budget = ComposeBudget::unbounded();
 
         let plan = enumerate_default(&g, &ro, phon.as_ref());
 
@@ -1059,13 +1051,13 @@ mod equivalence_tests {
         );
 
         // (b) that distinctness must not change the compiled relation.
-        let direct = compile_gated_grammar_with_budget(&opts, &g, &alphabet, &ro, &budget)
+        let direct = compile_gated_grammar(&opts, &g, &alphabet, &ro)
             .expect("direct compile must succeed");
         let direct_net = direct
             .net
             .clone()
             .expect("direct compile must produce a non-empty net");
-        let built = build_controllable(&plan, &opts, &g, &alphabet, &ro, &budget)
+        let built = build_controllable(&plan, &opts, &g, &alphabet, &ro)
             .expect("plan-walk build must succeed");
         let built_net = built
             .net
