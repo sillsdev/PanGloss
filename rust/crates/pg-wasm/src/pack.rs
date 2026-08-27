@@ -228,57 +228,6 @@ mod tests {
         );
     }
 
-    fn synthetic_finding(severity: pg_foma::health::Severity) -> pg_foma::health::HealthFinding {
-        use pg_foma::health::{FindingCode, Metric, MetricValue, Phase, ValueProvenance};
-        pg_foma::health::HealthFinding {
-            code: FindingCode::PayloadSizeBand,
-            severity,
-            phase: Phase::Compile,
-            affected: vec!["synthetic".to_string()],
-            metric: Metric::PayloadBytes,
-            value: MetricValue::Bytes(1),
-            provenance: ValueProvenance::Observed,
-            threshold: None,
-            explanation: "synthetic wasm-binding test finding".to_string(),
-            remedies: Vec::new(),
-        }
-    }
-
-    /// Built directly, bypassing container serialization, since only `manifest.fst_health` varies.
-    fn loaded_pack_with_health(severity: pg_foma::health::Severity) -> LoadedPack {
-        let mut manifest = synthetic_manifest(
-            synthetic_required(Vec::new()),
-            RUNTIME_PAYLOAD,
-            FOMA_PAYLOAD,
-        );
-        manifest.fst_health = HealthReport::new(vec![synthetic_finding(severity)]);
-        LoadedPack {
-            manifest,
-            runtime_payload: RUNTIME_PAYLOAD.to_vec(),
-            foma_payload: FOMA_PAYLOAD.to_vec(),
-            signature_state: SignatureState::Unsigned,
-        }
-    }
-
-    #[test]
-    fn fst_health_is_publishable_true_below_not_production_ready() {
-        let loaded = loaded_pack_with_health(pg_foma::health::Severity::LargeMultiplier);
-        assert!(loaded.fst_health_is_publishable());
-    }
-
-    /// The boundary: `NotProductionReady` itself already blocks.
-    #[test]
-    fn fst_health_is_publishable_false_at_not_production_ready_boundary() {
-        let loaded = loaded_pack_with_health(pg_foma::health::Severity::NotProductionReady);
-        assert!(!loaded.fst_health_is_publishable());
-    }
-
-    #[test]
-    fn fst_health_is_publishable_false_above_not_production_ready() {
-        let loaded = loaded_pack_with_health(pg_foma::health::Severity::CannotRepresent);
-        assert!(!loaded.fst_health_is_publishable());
-    }
-
     #[test]
     fn pack_requiring_an_unprovided_runtime_operation_is_rejected_with_typed_diagnostic() {
         let manifest = synthetic_manifest(

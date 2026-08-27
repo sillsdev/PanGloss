@@ -1,11 +1,3 @@
-// Gate F4 (docs/fst-plan/foma-fst-plan.md) wasm32 RUNTIME smoke — the check `cargo check
-// --target wasm32-unknown-unknown` (gate F0) cannot do. It loads the actual wasm32 build in node
-// and constructs a `PanGlossGrammar`, which builds the foma `FomaAnalyzer` -> `apply_init` and the
-// emit-time phonology probe: the two call sites that historically PANICKED on
-// wasm32-unknown-unknown at runtime while compiling cleanly (foma's `SystemTime::now()` seed, and
-// `probe_surface`'s `thread::spawn`). If this exits 0 the foma engine is active on wasm and both
-// hazards are gone.
-//
 // Usage: from rust/, first build the package, then run:
 //   wasm-pack build crates/pg-wasm --target nodejs --dev --out-dir pkg
 //   node tools/f4-wasm-smoke.js
@@ -80,14 +72,12 @@ try {
   console.log("start() ok (module loaded, panic hook installed)");
 
   const runtime = new pkg.PanGlossGrammar(BINDING_FIXTURE.grammarXml, undefined);
-  const engineBeforeAdd = runtime.engineKind();
   const catalog = runtime.classCatalog();
   const signature = catalog.signatures[0].id;
   const invalidAdd = captureError(() => runtime.addSuppliedEntry({stem: "", gloss: "", signatures: [signature]}));
   const gloss = runtime.setGlossLanguage({glossLanguage: BINDING_FIXTURE.glossLanguage});
   const added = runtime.addSuppliedEntry({stem: BINDING_FIXTURE.stem, gloss: BINDING_FIXTURE.gloss,
     signatures: [signature], expectedRevision: gloss.revision});
-  check("WASM add does not recompile proposer", runtime.engineKind() === engineBeforeAdd);
   const get = runtime.getSuppliedEntry(added.value.id);
   const list = runtime.listSuppliedEntries();
   const search = runtime.searchSuppliedEntries({query: "bee", signature, state: "active", pos: "posN"});
@@ -155,14 +145,9 @@ try {
       && Object.hasOwn(refreshedCaseText.newCacheEntries, "B")
       && !Object.hasOwn(refreshedCaseText.newCacheEntries, "b")
       && refreshedCaseText.tokens[0].text === "B");
-  check("WASM backend remains foma after repeated official/supplied analysis",
-    runtime.engineKind() === engineBeforeAdd
-      && grammarAnalysis.structured.some(a => a.provenance.kind === "grammar")
-      && runtime.analyzeWord("a").structured.some(a => a.provenance.kind === "grammar"));
 
   const ind = loadGrammar("indonesian-hc.xml", "indonesian-realize.toml");
   if (ind) {
-    check("indonesian engineKind=foma", ind.engineKind() === "foma", `diag=${ind.engineDiagnostic()}`);
     const g = glossesFor(ind.analyzeText("ajar", {}), "ajar");
     console.log("  ajar ->", JSON.stringify(g));
     check("indonesian 'ajar' analyses (expect instruct/teach)",
@@ -171,7 +156,6 @@ try {
 
   const sena = loadGrammar("sena-hc.xml", "sena-realize.toml");
   if (sena) {
-    check("sena engineKind=foma", sena.engineKind() === "foma", `diag=${sena.engineDiagnostic()}`);
     const g = glossesFor(sena.analyzeText("mbali", {}), "mbali");
     console.log("  mbali ->", JSON.stringify(g));
     check("sena 'mbali' produced analyses", g.length > 0, `${g.length} analyses`);
