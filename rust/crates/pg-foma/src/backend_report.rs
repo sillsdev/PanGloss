@@ -334,10 +334,9 @@ mod tests {
                 expanded: 1,
                 explored: 1,
                 unexplored: 0,
-                pruned: 0,
                 unexplored_method: "none".into(),
-                overflowed: false,
                 declared_not_searched: 0,
+                ..SearchAccounting::default()
             },
             termination: Termination::Complete,
             baseline: Some("b".into()),

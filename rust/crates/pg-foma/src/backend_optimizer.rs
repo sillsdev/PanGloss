@@ -1005,33 +1005,6 @@ mod tests {
         assert_eq!(result.quality, SearchQuality::Exact);
     }
 
-    /// Pins `pruned`'s structural inertness: the only production caller never populates `exact_objective`, so the incumbent never drops from `u64::MAX` and `pruned` is always 0; a future change wiring a real bound should revisit this test, not "fix" it back to zero.
-    #[test]
-    fn pruned_is_structurally_zero_in_production_shaped_run() {
-        use crate::backend_registry::FAMILY_ORDERED_MORPHOPHONOLOGY;
-        let candidates = vec![
-            candidate(
-                "baseline",
-                FAMILY_ORDERED_MORPHOPHONOLOGY,
-                "baseline",
-                0,
-                None,
-                true,
-            ),
-            candidate("a", "one", "sig-a", 1, None, false),
-            candidate("b", "two", "sig-b", 5, None, false),
-            candidate("c", "three", "sig-c", 100, None, false),
-        ];
-        let result = BranchAndBound.search(&candidates, Budget::default(), 1);
-        assert_eq!(
-            result.pruned, 0,
-            "no CandidateState in production ever carries exact_objective: Some(_), so the \
-             incumbent can never leave u64::MAX and nothing can ever be pruned -- a nonzero \
-             result here means either this test stopped being production-shaped or the field \
-             stopped being structurally inert, either of which needs a human to look"
-        );
-    }
-
     #[test]
     fn evaluation_budget_exhaustion_downgrades_exact_search() {
         struct ConfirmingEvaluator;

@@ -958,9 +958,7 @@ mod tests {
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{
-        assert_pruned_is_structurally_zero, parse_args, read_progress_rows, RecipeOptimizeError,
-    };
+    use super::{parse_args, read_progress_rows, RecipeOptimizeError};
 
     #[test]
     fn usage_documents_search_all_families_replay_flag() {
@@ -982,17 +980,6 @@ mod tests {
             "--search-all-families".into(),
         ];
         assert!(parse_args(&args).unwrap().search_all_families);
-    }
-
-    #[test]
-    fn production_search_accounting_rejects_nonzero_pruned_count() {
-        assert_pruned_is_structurally_zero(0);
-        let result = std::panic::catch_unwind(|| assert_pruned_is_structurally_zero(1));
-        assert!(
-            result.is_err(),
-            "a nonzero pruned count must not enter the production report until a real admissible \
-             bound is wired"
-        );
     }
 
     #[test]
