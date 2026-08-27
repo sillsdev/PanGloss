@@ -289,13 +289,9 @@ pub fn compile_gated_grammar(
 /// `compile_gated_grammar`'s core, with the `ComposeBudget` threaded in explicitly rather than
 /// read from env -- what tests call directly (design doc §6).
 ///
-/// `budget` is checked at three points (design doc §4):
-/// - **V6**, immediately after `partition_entries` returns, BEFORE any per-group compile work
-///   runs (`GroupBudgetExceeded` if the group count exceeds `ComposeBudget::group_cap` -- the
-///   single highest-leverage check here, since it gates every downstream V1/V4 cost below).
-/// - **V1**, via `compose_checked`/`union_checked`, on the per-group `lexc .o. rules` compose
-///   and the per-group union fold.
-/// - **V2**, via `minimize_checked`, as this function's own FINAL step on the fully unioned
+/// `budget` is checked via `compose_checked`/`union_checked` on the per-group `lexc .o. rules`
+/// compose and the per-group union fold.
+/// It is also checked via `minimize_checked`, as this function's own FINAL step on the fully unioned
 ///   network -- design doc §4: "`compile_gated_grammar` takes ownership of their own FINAL
 ///   `minimize_checked` instead of leaving it to example drivers", turning a convention (every
 ///   example driver already minimizes its own further-composed network) into an enforced
@@ -311,15 +307,6 @@ pub fn compile_gated_grammar_with_budget(
 ) -> Result<GatedCompileResult, ComposeError> {
     let gated = find_gated_subrules(g, prules_in_order);
     let groups = partition_entries(g, &gated, prules_in_order);
-
-    // Checked before any per-group compile work runs, with no graceful fallback: merging/dropping groups would be unsound, so a breach here always means "use another engine", never a partial group set.
-    if groups.len() > budget.group_cap() {
-        return Err(ComposeError::GroupBudgetExceeded {
-            groups: groups.len(),
-            limit: budget.group_cap(),
-            gated_subrules: gated.len(),
-        });
-    }
 
     let mut final_net: Option<Fsm> = None;
     let mut skipped_rules: Vec<String> = Vec::new();

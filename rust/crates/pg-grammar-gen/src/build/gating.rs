@@ -1,5 +1,4 @@
-//! Partition-k / MPR-POS subrule gating builder. Generalizes `pg-foma/src/gate.rs`'s own
-//! `sixteen_group_fixture_xml` (the working, hand-authored precedent) into a
+//! Partition-k / MPR-POS subrule gating builder. Generalizes the hand-authored gating shape into a
 //! parameterized-over-`k` builder: `k` INDEPENDENT gated `<PhonologicalRule>`s (each with exactly
 //! one `<PhonologicalSubrule requiredMPRFeatures="mprJ">`), plus `2^k` lexical entries realizing
 //! EVERY possible gating-key combination (entry `i`'s own `ruleFeatures` is exactly the subset of
@@ -7,10 +6,9 @@
 //! therefore find exactly `2^k` distinct groups, one per entry.
 //!
 //! ## Why each gated rule targets its OWN dedicated marker segment, not a shared one
-//! Unlike `sixteen_group_fixture_xml` (whose own test only ever checks PARTITION COUNTS, never
-//! compiles a real recall-checkable net), this builder's own gate
-//! (`pg-foma/tests/phase_c_partition_k.rs`) needs the COMPILED net's actual per-entry OUTPUT to be
-//! independently verifiable. Giving each gated rule `j` its own private "off_j -> on_j" segment
+//! This builder's own gate (`pg-foma/tests/phase_c_partition_k.rs`) needs the COMPILED net's
+//! actual per-entry OUTPUT to be independently verifiable. Giving each gated rule `j` its own private
+//! "off_j -> on_j" segment
 //! pair (never reused by any other rule, never reused by any other entry's non-marker material)
 //! means rule `j`'s LHS can only ever match at entry `i`'s own marker-`j` position -- no cross-rule
 //! interference, no dependence on rule/entry ordering, and the expected surface form for entry `i`

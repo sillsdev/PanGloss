@@ -1,5 +1,4 @@
 //! Alpha-variable scale builder. Exercises `pg_foma::replace::resolve_alpha_tuples`'s
-//! own tuple-expansion budget (`AlphaTupleBudgetExceeded`, `pg-foma/src/compose_budget.rs`)
 //! parameterized over `alpha_var_count` × `alpha_class_size`.
 //!
 //! ## Design choice: a same-var LHS/RHS IDENTITY rule, not a copy-from-environment rule

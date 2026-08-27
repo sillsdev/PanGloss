@@ -34,43 +34,7 @@ pub(crate) const DEFAULT_STATE_BUDGET: usize = 2_000_000;
 
 pub(crate) const DEFAULT_ARC_BUDGET: usize = 20_000_000;
 
-/// `HC_COMPOSE_TUPLE_BUDGET`: ceiling on the number of alpha-tuple assignments
-/// (`crate::replace::resolve_alpha_tuples`'s `surviving` count) a single subrule may expand to
-/// before `compile_rewrite_rule_subset` starts folding them -- checked BEFORE
-/// the expensive per-tuple compile loop, the same "check the search result before the expensive
-/// part" shape `EnumerationBudget`'s own doc uses. Default 5,000: Amharic's real worst case (the
-/// 20-alpha-variable CV-merger) is `nc15=59 x nc16=6 <= 354` surviving tuples -- comfortably under
-/// this cap by ~14x.
-pub(crate) const DEFAULT_TUPLE_BUDGET: usize = 5_000;
-
-/// `HC_COMPOSE_GROUP_BUDGET`: ceiling on `crate::gate::partition_entries`'s own group count, checked
-/// BEFORE any per-group compile work runs -- the single highest-leverage check
-/// in this module, since it gates all downstream work for every group. Default 64:
-/// Indonesian (this prototype's only real gated grammar today) needs exactly 2 groups; a grammar
-/// with `k` gated subrules is bounded by `2^k` DISTINCT gating vectors in the worst case, so 64
-/// covers up to 6 simultaneously-gated subrules with every combination realized -- comfortably
-/// above every reference grammar's real gated-subrule count (Indonesian: 1; Amharic: 3) while still
-/// catching a pathological grammar before any group's lexc/rule compile even starts. **No graceful
-/// fallback by design**: merging/dropping groups is unsound (over/under-firing
-/// gated rules), so a breach here always means "fall back to another engine for this grammar", never
-/// a partial group set.
-pub(crate) const DEFAULT_GROUP_BUDGET: usize = 64;
-
 pub(crate) const DEFAULT_LINE_BUDGET: usize = 1_000_000;
-
-pub(crate) fn tuple_budget_from_env() -> usize {
-    std::env::var("HC_COMPOSE_TUPLE_BUDGET")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_TUPLE_BUDGET)
-}
-
-pub(crate) fn group_budget_from_env() -> usize {
-    std::env::var("HC_COMPOSE_GROUP_BUDGET")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_GROUP_BUDGET)
-}
 
 // Chain-depth dimension: closes stack overflow from a deep derivation/unapplication chain, but only where wired (`check_chain_depth`'s
 // callers) and off by default. See docs/research/pg-foma-compose-budget-design-notes.md for scope and why the default is off.
@@ -108,8 +72,7 @@ pub(crate) fn chain_depth_cap_from_env() -> Option<usize> {
 
 /// The clamp `chain_depth_cap_from_env` and `ComposeBudget::with_chain_depth_cap` both apply:
 /// pulled into its own pure function so this module's tests can exercise the clamp arithmetic
-/// directly without touching process-global env state (this module's own "explicit-caps
-/// constructors, never env vars" test convention, `ComposeBudget::with_caps`'s doc).
+/// directly without touching process-global env state.
 pub(crate) fn clamp_chain_depth_cap(configured: usize) -> usize {
     configured.min(CHAIN_DEPTH_ABSOLUTE_CEILING)
 }
@@ -262,18 +225,6 @@ impl ApplyBudget {
 /// Every way a `ComposeBudget`-checked call can fail.
 #[derive(Debug, Clone)]
 pub enum ComposeError {
-    /// `resolve_alpha_tuples` produced more surviving assignments than `tuple_cap`, checked before the per-tuple compile loop runs.
-    AlphaTupleBudgetExceeded {
-        surviving: usize,
-        limit: usize,
-        rule_xml_id: String,
-    },
-    /// `partition_entries` produced more groups than `group_cap`, checked before any per-group compile work runs.
-    GroupBudgetExceeded {
-        groups: usize,
-        limit: usize,
-        gated_subrules: usize,
-    },
     /// `check_chain_depth` found a cumulative derivation/unapplication step count exceeding `chain_depth_cap`.
     ChainDepthExceeded {
         depth: usize,
@@ -291,28 +242,6 @@ pub enum ComposeError {
 impl fmt::Display for ComposeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ComposeError::AlphaTupleBudgetExceeded {
-                surviving,
-                limit,
-                rule_xml_id,
-            } => write!(
-                f,
-                "alpha-tuple budget exceeded for rule {rule_xml_id:?}: {surviving} surviving tuple \
-                 assignments (limit {limit}). Raise HC_COMPOSE_TUPLE_BUDGET only if you understand \
-                 why this rule's alpha-variable joint-agreement constraint admits this many tuples."
-            ),
-            ComposeError::GroupBudgetExceeded {
-                groups,
-                limit,
-                gated_subrules,
-            } => write!(
-                f,
-                "gating group budget exceeded: {groups} distinct gating groups from {gated_subrules} \
-                 gated subrule(s) (limit {limit}). Merging or dropping groups is unsound (it would \
-                 over- or under-fire a gated rule), so this is always a fall-back-engine signal, \
-                 never a partial result; raise HC_COMPOSE_GROUP_BUDGET only if you understand why \
-                 this grammar realizes this many distinct gating vectors."
-            ),
             ComposeError::ChainDepthExceeded { depth, limit, site } => write!(
                 f,
                 "chain-depth budget exceeded at {site:?}: {depth} nested derivation/unapplication \
@@ -344,10 +273,8 @@ impl std::error::Error for ComposeError {}
 
 #[derive(Debug, Clone, Copy)]
 pub struct ComposeBudget {
-    pub(crate) tuple_cap: usize,
-    pub(crate) group_cap: usize,
     /// This crate's chain-depth dimension (this module's "Chain-depth dimension" section). `None`
-    /// (the default everywhere -- `Self::from_env`, `Self::with_caps`, `Self::unbounded`)
+    /// (the default everywhere -- `Self::from_env` and `Self::unbounded`)
     /// means unbounded/off, at any depth -- pinned by `chain_depth_unbounded_budget_never_trips`
     /// -- so no existing caller's behavior changes. `Some(limit)` is already clamped to
     /// `CHAIN_DEPTH_ABSOLUTE_CEILING` by whichever constructor set it.
@@ -367,8 +294,8 @@ pub struct ComposeBudget {
     /// `Some(DEFAULT_ORDERING_MULTIPLICITY_BUDGET)` -- a real, if conservative, calibrated default
     /// ships with THIS change (mirroring the default-ON convention), since
     /// promoting `unordered-application.chain-depth-bounded` off `Refuse` needs a concrete
-    /// bound to promote AGAINST, not an uncalibrated placeholder. `Self::with_caps`/
-    /// `Self::unbounded` leave it `None` (mirrors `Self::chain_depth_cap`'s own "tests opt in
+    /// bound to promote AGAINST, not an uncalibrated placeholder. `Self::unbounded` leaves it
+    /// `None` (mirrors `Self::chain_depth_cap`'s own "tests opt in
     /// via an explicit builder" convention) -- use `Self::with_ordering_multiplicity_cap`.
     pub(crate) ordering_multiplicity_cap: Option<usize>,
 }
@@ -376,54 +303,26 @@ pub struct ComposeBudget {
 impl ComposeBudget {
     /// Production entry point: every cap from its own `HC_COMPOSE_*` env var (module doc), or the
     /// documented default when unset/unparsable. Mirrors `EnumerationBudget::from_env`'s own
-    /// "read env exactly once, in the production entry point" convention -- tests should use
-    /// `Self::with_caps` instead, so parallel test processes never race process-global env state.
+    /// "read env exactly once, in the production entry point" convention.
     pub fn from_env() -> Self {
         ComposeBudget {
-            tuple_cap: tuple_budget_from_env(),
-            group_cap: group_budget_from_env(),
             chain_depth_cap: chain_depth_cap_from_env(),
             ordering_multiplicity_cap: Some(ordering_multiplicity_budget_from_env()),
         }
     }
 
-    /// Explicit-caps constructor -- what tests use ("explicit-caps constructors,
-    /// never env vars"), and what `Self::from_env` builds internally.
-    ///
-    /// Does not take a chain-depth cap: `chain_depth_cap` is always `None` (unbounded) here; use
-    /// `Self::with_chain_depth_cap` to opt a test into an explicit cap.
-    pub fn with_caps(tuple_cap: usize, group_cap: usize) -> Self {
-        ComposeBudget {
-            tuple_cap,
-            group_cap,
-            chain_depth_cap: None,
-            ordering_multiplicity_cap: None,
-        }
-    }
-
-    /// A budget that can never trip (`usize::MAX` on every count cap, no wall-clock deadline) --
+    /// A budget with no configured chain/order cap --
     /// for callers/tests that need a `&ComposeBudget` to satisfy a function signature but aren't
     /// exercising this mechanism (mirrors `EnumerationBudget::unbounded`'s own doc/shape).
     #[cfg(test)]
     pub(crate) fn unbounded() -> Self {
         ComposeBudget {
-            tuple_cap: usize::MAX,
-            group_cap: usize::MAX,
             chain_depth_cap: None,
             ordering_multiplicity_cap: None,
         }
     }
 
-    pub(crate) fn tuple_cap(&self) -> usize {
-        self.tuple_cap
-    }
-
-    pub(crate) fn group_cap(&self) -> usize {
-        self.group_cap
-    }
-
-    /// Explicit-caps builder for the chain-depth dimension (mirrors `Self::with_caps`'s own
-    /// "explicit-caps constructors, never env vars" convention for tests): returns `self` with an
+    /// Explicit-caps builder for the chain-depth dimension: returns `self` with an
     /// explicit chain-depth cap, clamped to `CHAIN_DEPTH_ABSOLUTE_CEILING` the same way
     /// `chain_depth_cap_from_env` clamps a configured env value. Promoted from a `#[cfg(test)]`
     /// `pub(crate)` helper to plain `pub` by `cover-template-truncation-reduplication`: that
@@ -492,7 +391,7 @@ impl ComposeBudget {
     }
 
     /// This budget's currently configured ordering-multiplicity cap, if any (`None` = unbounded/
-    /// off -- only `Self::with_caps`/`Self::unbounded`, never `Self::from_env`, which always
+    /// off -- only `Self::unbounded`, never `Self::from_env`, which always
     /// configures a real default; see this module's "Ordering-multiplicity dimension" section).
     ///
     /// `#[allow(dead_code)]`: `Self::check_ordering_multiplicity` reads the
@@ -599,11 +498,8 @@ mod compose_budget_tests {
 
     #[test]
     fn chain_depth_with_caps_defaults_to_unbounded() {
-        // `with_caps` has no chain-depth parameter; prove it still leaves chain depth off by default.
-        let budget = ComposeBudget::with_caps(
-            usize::MAX,
-            usize::MAX,
-        );
+        // An unbounded budget leaves chain depth off by default.
+        let budget = ComposeBudget::unbounded();
         assert_eq!(budget.chain_depth_cap(), None);
         budget
             .check_chain_depth(usize::MAX, "chain_depth_with_caps_defaults_to_unbounded")
@@ -713,11 +609,8 @@ mod compose_budget_tests {
 
     #[test]
     fn ordering_multiplicity_with_caps_defaults_to_unbounded() {
-        // `with_caps` has no ordering-multiplicity parameter; prove it still leaves this dimension off by default.
-        let budget = ComposeBudget::with_caps(
-            usize::MAX,
-            usize::MAX,
-        );
+        // An unbounded budget leaves ordering multiplicity off by default.
+        let budget = ComposeBudget::unbounded();
         assert_eq!(budget.ordering_multiplicity_cap(), None);
         budget
             .check_ordering_multiplicity(

@@ -226,12 +226,10 @@
 //! quantifier with alpha variables ELSEWHERE in the same subrule (never inside the quantifier's own
 //! children — disallowed, see `Slot::Repeat`'s own doc) multiplies this bound by
 //! `resolve_alpha_tuples`'s own `surviving` tuple count, exactly the same two-independent-axes
-//! shape [`ComposeBudget::tuple_cap`](crate::compose_budget::ComposeBudget::tuple_cap)'s own V3
-//! check already guards on the alpha axis; the quantifier axis gets its OWN eager, cheaper-than-any-
+//! shape; the quantifier axis gets its OWN eager, cheaper-than-any-
 //! `Fsm` characterization (`MAX_QUANTIFIER_BOUND`, checked in `pattern_slots` before any regex is even
 //! rendered, let alone parsed — the same "check the search result before the expensive part"
-//! principle [`ComposeBudget::tuple_cap`](crate::compose_budget::ComposeBudget::tuple_cap) already
-//! uses for alpha tuples),
+//! principle),
 //! rather than a new `crate::compose_budget::ComposeBudget` dimension: `pattern_slots` is a pure
 //! structural walk with no `ComposeBudget` threaded through it (every existing caller — this file's
 //! own compile path, `crate::lower::lower_span`, `crate::capability`'s structural probes — calls it
@@ -919,9 +917,7 @@ fn compile_rtl_branch_net(
 /// Thin wrapper over `compile_rewrite_rule_subset` that includes every subrule (the pre-gating
 /// behavior, unchanged for every existing caller). Builds a production `ComposeBudget` from
 /// `HC_COMPOSE_*` env vars exactly once (mirrors `crate::emit::emit_with_precision`'s own
-/// "read env in the production entry point only" convention) -- tests that need a deterministic,
-/// tiny budget should call `compile_rewrite_rule_subset` directly with an explicit
-/// `ComposeBudget::with_caps` instead.
+/// "read env in the production entry point only" convention).
 pub fn compile_rewrite_rule(
     opts: &FomaOptions,
     g: &Grammar,
@@ -946,11 +942,8 @@ pub fn compile_rewrite_rule(
 /// supported-but-gated subrule reports the WHOLE rule uncovered for every group, matching
 /// `compile_rewrite_rule`'s own pre-existing all-or-nothing `?` short-circuit — not a regression).
 ///
-/// `budget`: checked at two points -- V3 immediately after `resolve_alpha_tuples` returns,
-/// BEFORE the (potentially expensive) per-tuple compile loop runs (`AlphaTupleBudgetExceeded` if
-/// `report.surviving` exceeds `ComposeBudget::tuple_cap`'s value, the same cheapest-possible-
-/// predictor principle `EnumerationBudget` already uses); and V1, via `compose_checked`, on every
-/// fold step of the per-alpha-tuple union-by-composition below.
+/// `budget`: checked via `compose_checked` on every fold step of the per-alpha-tuple
+/// union-by-composition below.
 ///
 /// **Mode/dir detection:**
 /// `rule.mode`/`rule.dir` are checked FIRST, via `is_fully_supported_shape` -- a rule outside
@@ -1050,14 +1043,6 @@ pub fn compile_rewrite_rule_subset(
                 right_slots.as_slice(),
             ],
         );
-        // Checked before the per-tuple compile loop: the cheapest-possible predictor.
-        if report.surviving > budget.tuple_cap() {
-            return Err(ComposeError::AlphaTupleBudgetExceeded {
-                surviving: report.surviving,
-                limit: budget.tuple_cap(),
-                rule_xml_id: rule.xml_id.clone(),
-            });
-        }
         reports.push(report);
 
         for asg in &assignments {
@@ -1467,16 +1452,6 @@ fn compile_metathesis_swap_net(
         }
     }
 
-    // Checked before any regex is rendered or `Fsm` is built.
-    let total: usize = candidates.iter().map(Vec::len).product();
-    if total > budget.tuple_cap() {
-        return Err(ComposeError::AlphaTupleBudgetExceeded {
-            surviving: total,
-            limit: budget.tuple_cap(),
-            rule_xml_id: rule_xml_id.to_string(),
-        });
-    }
-
     // No joint-agreement filter: metathesis has no shared-VarId constraint between positions.
     let mut assignments: Vec<Vec<CharDefId>> = vec![Vec::with_capacity(effective_slots.len())];
     for members in &candidates {
@@ -1772,35 +1747,6 @@ mod compose_budget_tests {
             }
         }
         panic!("prule_alpha not found in synthetic fixture");
-    }
-
-    /// `resolve_alpha_tuples` surfaces exactly 6 surviving assignments; a `tuple_cap` below that must trip `AlphaTupleBudgetExceeded` before any per-tuple compile work.
-    #[test]
-    fn alpha_tuple_budget_trips_on_synthetic_rule() {
-        let g = synth_alpha_grammar();
-        let table = &g.char_tables[0];
-        let alphabet = SegAlphabet::new(table);
-        let opts = FomaOptions::default();
-        let rule = synth_alpha_rule(&g);
-
-        let budget = ComposeBudget::with_caps(3, usize::MAX);
-        let err = compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true, &budget)
-            .expect_err("6 surviving tuples must exceed a tuple_cap of 3");
-        match err {
-            ComposeError::AlphaTupleBudgetExceeded {
-                surviving,
-                limit,
-                rule_xml_id,
-            } => {
-                assert_eq!(
-                    surviving, 6,
-                    "synthetic fixture's ncBig class must have exactly 6 members"
-                );
-                assert_eq!(limit, 3);
-                assert_eq!(rule_xml_id, "prule_alpha");
-            }
-            other => panic!("expected AlphaTupleBudgetExceeded, got {other:?}"),
-        }
     }
 
     /// Proves the checked wrappers are pure passthrough when every cap is `usize::MAX`.

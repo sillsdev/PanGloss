@@ -215,10 +215,6 @@ pub enum Metric {
     IntermediateStateCount,
     /// An intermediate product's arc count (`Fsm::arccount`).
     IntermediateArcCount,
-    /// Alpha-tuple assignment count for a rewrite-rule subset before per-tuple compilation.
-    AlphaTupleCount,
-    /// Gated-partition group count.
-    GateGroupCount,
     /// Emitted lexc line count.
     EmittedLineCount,
     /// Wall-clock or logical elapsed compile time, in milliseconds.
@@ -241,7 +237,7 @@ pub enum Metric {
     ApplyAllocationBytes,
     /// A construct whose cost cannot be bounded ahead of time; paired with `MetricValue::Unbounded` and `ValueProvenance::Predicted`.
     UnknownUnboundedWork,
-    /// An `Unordered` stratum's own loose-rule count; kept distinct from `AlphaTupleCount`/`GateGroupCount` so neither variant's stored meaning becomes ambiguous in canonical JSON.
+    /// An `Unordered` stratum's own loose-rule count.
     OrderingRuleCount,
     /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s license.
     CompoundRootPairCount,

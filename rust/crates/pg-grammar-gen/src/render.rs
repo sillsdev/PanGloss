@@ -1,8 +1,6 @@
 //! Assembles a full `<HermitCrabInput>` XML document from a `crate::recipe::Recipe`.
-//! Generalizes the working precedent: `pg-foma/src/gate.rs`'s `sixteen_group_fixture_xml`
-//! (a string-built XML fixture `pg_grammar::load` accepts) and `pg-foma/src/morphotactics.rs`'s
-//! `FIXTURE_SLOTS`/`FIXTURE_STRATA` -- same hand-verified element shapes, parameterized over a
-//! `Recipe` instead of hardcoded.
+//! Generalizes the hand-verified element shapes in `pg-foma/src/morphotactics.rs`'s
+//! `FIXTURE_SLOTS`/`FIXTURE_STRATA`, parameterized over a `Recipe` instead of hardcoded.
 //!
 //! Determinism: `render`/`render_indexed` are pure functions of `recipe`'s own
 //! fields -- `IdMinter` assigns ids purely by CALL ORDER (fixed for a given recipe, never by

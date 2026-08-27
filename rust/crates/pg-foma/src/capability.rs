@@ -449,11 +449,6 @@ pub struct MetathesisDetail {
     /// this crate has authored) -- refused regardless of `Dir` by `crate::replace`'s own
     /// `slot_candidates`, so this stays an honest, reachable (not vacuous) scope line for either
     /// direction.
-    ///
-    /// Does NOT check the cross-product tuple-budget dimension (`ComposeBudget::tuple_cap`) -- the
-    /// same convention `RightToLeftRewriteDetail`/`QuantifierPatternDetail` already use: a
-    /// runtime resource concern the characteristics profile does not model, not a structural fact
-    /// about the rule itself.
     pub swap_construction_attempted: bool,
 }
 
@@ -3092,9 +3087,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 /// model a runtime-resource dimension: `crate::emit::build_structural_composites`'s closure-depth
 /// resource envelope and the shared
 /// `crate::morphotactics::EnumerationBudget` are calibrated resource limits the profile does
-/// not represent, not a structural fact about any one epenthesis rule — the same "a runtime
-/// resource concern the profile does not model, not a structural fact about the rule itself"
-/// convention `MetathesisDetail`'s own doc already draws for `ComposeBudget::tuple_cap`.
+/// not represent, not a structural fact about any one epenthesis rule.
 ///
 /// # Node applicability
 /// `CharacteristicKind::Epenthesis`'s own `ModelLocation` is a `PhonRuleDef::Rewrite` rule, which

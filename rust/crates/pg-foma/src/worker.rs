@@ -244,10 +244,6 @@ pub struct CompileWorkerRequest {
     pub protocol_version: u32,
     pub grammar_path: String,
     pub grammar_format: GrammarFormat,
-    /// `ComposeBudget::tuple_cap`.
-    pub tuple_cap: usize,
-    /// `ComposeBudget::group_cap`.
-    pub group_cap: usize,
     /// `ComposeBudget::chain_depth_cap` -- `None` (unbounded) by default, mirroring that field's
     /// own uncalibrated-default convention (`compose_budget.rs`'s "Chain-depth dimension" doc).
     pub chain_depth_cap: Option<usize>,
@@ -259,18 +255,12 @@ pub struct CompileWorkerRequest {
 }
 
 impl CompileWorkerRequest {
-    /// A request for `grammar_path`/`grammar_format` under this crate's own documented
-    /// compose-budget caps, explicit rather than reading env itself: the request is the single
-    /// source of truth for what budget the CHILD process runs under, so a caller who wants
-    /// different limits should build them explicitly (mirrors `ComposeBudget::with_caps`'s own
-    /// "explicit-caps constructors, never env vars" convention one layer down).
+    /// A request for `grammar_path`/`grammar_format` and the remaining compile-time safety caps.
     pub fn new(grammar_path: impl Into<String>, grammar_format: GrammarFormat) -> Self {
         CompileWorkerRequest {
             protocol_version: WORKER_PROTOCOL_VERSION,
             grammar_path: grammar_path.into(),
             grammar_format,
-            tuple_cap: crate::compose_budget::DEFAULT_TUPLE_BUDGET,
-            group_cap: crate::compose_budget::DEFAULT_GROUP_BUDGET,
             chain_depth_cap: None,
             ordering_multiplicity_cap: Some(
                 crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET,
@@ -280,7 +270,10 @@ impl CompileWorkerRequest {
     }
 
     pub fn compose_budget(&self) -> ComposeBudget {
-        let mut budget = ComposeBudget::with_caps(self.tuple_cap, self.group_cap);
+        let mut budget = ComposeBudget {
+            chain_depth_cap: None,
+            ordering_multiplicity_cap: None,
+        };
         if let Some(cap) = self.chain_depth_cap {
             budget = budget.with_chain_depth_cap(cap);
         }

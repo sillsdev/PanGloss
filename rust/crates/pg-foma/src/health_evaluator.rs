@@ -55,10 +55,9 @@
 //!
 //! # Judgment calls flagged for review
 //! 1. **`crate::compose_budget::ComposeError` variants split into two [`crate::health::
-//!    FindingCode`]s by *when* the check runs, not by variant name alone**: `AlphaTupleBudgetExceeded`/
-//!    `GroupBudgetExceeded`/`OrderingMultiplicityExceeded` are checked BEFORE the expensive
-//!    operation they would gate even starts (`compose_budget.rs`'s own doc, verbatim, for all
-//!    three: "checked BEFORE..."), on an exact, already-known count — a proven work bound — so
+//!    FindingCode`]s by *when* the check runs, not by variant name alone**:
+//!    `OrderingMultiplicityExceeded` is checked BEFORE the expensive operation it would gate even
+//!    starts, on an exact, already-known count — a proven work bound — so
 //!    they map to `FindingCode::ProvenBoundExceedsBudget` with
 //!    `ValueProvenance::ProvenBound`. `ChainDepthExceeded` is only detected AFTER the checked
 //!    operation (an actual recursion) already executed and produced/consumed a measured value, so
@@ -445,44 +444,6 @@ fn emit_report_findings(report: &EmitReport) -> Vec<HealthFinding> {
 /// Every `crate::compose_budget::ComposeError` variant, exhaustively.
 fn compose_error_finding(err: &ComposeError) -> HealthFinding {
     match err {
-        ComposeError::AlphaTupleBudgetExceeded {
-            surviving,
-            limit,
-            rule_xml_id,
-        } => HealthFinding {
-            code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Compile,
-            affected: vec![rule_xml_id.clone()],
-            metric: Metric::AlphaTupleCount,
-            value: MetricValue::Count(*surviving as u64),
-            provenance: ValueProvenance::ProvenBound,
-            threshold: Some(MetricValue::Count(*limit as u64)),
-            explanation: format!(
-                "Rule {rule_xml_id:?}'s alpha-variable joint-agreement constraint admits \
-                 {surviving} surviving tuple assignments (limit {limit}), an exact count proven \
-                 to exceed the remaining budget before the per-tuple compile loop began."
-            ),
-        },
-        ComposeError::GroupBudgetExceeded {
-            groups,
-            limit,
-            gated_subrules,
-        } => HealthFinding {
-            code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Compile,
-            affected: Vec::new(),
-            metric: Metric::GateGroupCount,
-            value: MetricValue::Count(*groups as u64),
-            provenance: ValueProvenance::ProvenBound,
-            threshold: Some(MetricValue::Count(*limit as u64)),
-            explanation: format!(
-                "Partitioning {gated_subrules} gated subrule(s) produced {groups} distinct gating \
-                 groups (limit {limit}), an exact count proven to exceed the remaining budget \
-                 before any per-group compile work began."
-            ),
-        },
         ComposeError::ChainDepthExceeded { depth, limit, site } => HealthFinding {
             code: FindingCode::ResourceBudgetReached,
             severity: Severity::NotProductionReady,
@@ -729,16 +690,6 @@ mod tests {
     #[test]
     fn fst_health_evaluator_backend_local_budget_failures_are_errors() {
         let compose_errors = vec![
-            ComposeError::AlphaTupleBudgetExceeded {
-                surviving: 2,
-                limit: 1,
-                rule_xml_id: "mr1".to_string(),
-            },
-            ComposeError::GroupBudgetExceeded {
-                groups: 2,
-                limit: 1,
-                gated_subrules: 1,
-            },
             ComposeError::ChainDepthExceeded {
                 depth: 2,
                 limit: 1,
@@ -1057,35 +1008,6 @@ mod tests {
     }
 
     // fst_health_evaluator_compose_errors: every ComposeError variant maps to a finding.
-
-    #[test]
-    fn fst_health_evaluator_alpha_tuple_exceeded_is_proven_bound() {
-        let err = ComposeError::AlphaTupleBudgetExceeded {
-            surviving: 6_000,
-            limit: 5_000,
-            rule_xml_id: "synthetic-mrule-0099".to_string(),
-        };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
-        let finding = &health.findings[0];
-        assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
-        assert_eq!(finding.metric, Metric::AlphaTupleCount);
-        assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
-        assert_eq!(finding.affected, vec!["synthetic-mrule-0099".to_string()]);
-    }
-
-    #[test]
-    fn fst_health_evaluator_group_budget_exceeded_is_proven_bound() {
-        let err = ComposeError::GroupBudgetExceeded {
-            groups: 100,
-            limit: 64,
-            gated_subrules: 7,
-        };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
-        let finding = &health.findings[0];
-        assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
-        assert_eq!(finding.metric, Metric::GateGroupCount);
-        assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
-    }
 
     #[test]
     fn fst_health_evaluator_chain_depth_exceeded_is_apply_phase() {
