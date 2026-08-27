@@ -337,8 +337,8 @@ overclaim rather than prevented one:
   `constructs.txt`'s own header explains how that went unnoticed: an unknown tag is "a soft
   warning… never a hard error."
 - `structural_witness_gate.rs` — four row ids are each mapped by TWO characteristics, so the finer one
-  could report `Covered` on the coarser sibling's evidence. Three now have a mechanized grammar-shape
-  witness; the fourth pair is excluded by derivation. Reasoning:
+  could report `Covered` on the coarser sibling's evidence. All four now have mechanized grammar-shape
+  witnesses, including the `MprGroupOverwrite` overwrite-group witness. Reasoning:
   `docs/conformance/shared-construct-id-analysis.md`.
 
 **The governing rule that came out of it:** *a green build-breaking gate that can silently start lying

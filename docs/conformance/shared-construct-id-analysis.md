@@ -61,7 +61,7 @@ the aggregate count:
 ## Why that was not sufficient to flip
 
 Flipping makes CI assert "zero coverage gaps" on every build. The assertion is true today. The
-problem is that for three of the four rows the assertion is **not mechanically checkable**, so it can
+problem is that for the four rows the assertion is **not mechanically checkable**, so it can
 become false *silently*:
 
 - delete the unordered strata from `polysynthetic-stratal-derivation-chain`, and
@@ -69,6 +69,8 @@ become false *silently*:
   evidence;
 - let `suffixing-vowel-harmony`'s epenthesis word start failing, and `Epenthesis` keeps reporting
   `Covered` off `IterativeRewrite`'s;
+- let the overwrite-shaped grammar disappear from the covering fixture, and
+  `MprGroupOverwrite` must stop reporting `Covered` off `MprGroupAppend`'s shared id;
 - and the circumfix case is the one where this is most likely to bite, because
   `docs/conformance/circumfix-structural-composite-census.md` already documents three real
   candidate-selection gaps in circumfix handling (C1/C3/C2). A green build-breaking gate sitting
@@ -81,12 +83,13 @@ string (or a count) that silently resolves to nothing is worse than a failing as
 
 ## The prerequisite, and the decision
 
-**Decision: mechanize the three still-live witnesses first, then flip.**
+**Decision: mechanize the four structural witnesses first, then flip.**
 
 The gate cross-checks *grammar shape* against *tag*: for each shared id, assert that some **passing**
 fixture whose grammar structurally exhibits the finer construct is among those tagging it —
 unordered rule order for `UnorderedMorphRuleApplication`, an empty-LHS rewrite rule for
-`Epenthesis`, a `Role::CircumfixPrefix`-classified allomorph RHS for `CircumfixOutputAction`. The
+`Epenthesis`, a `Role::CircumfixPrefix`-classified allomorph RHS for `CircumfixOutputAction`, and an
+overwrite MPR group for `MprGroupOverwrite`. The
 circumfix predicate must use the compiler's own `emit::classify_affix` so the gate and the compiler
 cannot drift, and must scan every allomorph (the census records that `rule_role` reads only allomorph
 0, and that the `Reduplication` and `Infix` tests preempt the circumfix test).

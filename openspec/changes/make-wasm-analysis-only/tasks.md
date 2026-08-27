@@ -1,10 +1,11 @@
 **Status note:** the `.pgpack` container + manifest (section 1) and the WASM *loading* side of section
-3 are real and landed in `pg-pack`/`pg-wasm`. The part of this change's own name — removing the
-compiler from WASM (3.2/3.3 and everything downstream in section 4) — is confirmed **not done**:
-`pg-wasm/Cargo.toml` still depends on `pg-foma` directly and `pg-wasm/src/lib.rs` still constructs
-`pg_foma::composite::FomaAnalyzer` at runtime (e.g. `PanGlossGrammar::new`/`apply_user_lexicon`).
-Native artifact production (section 2) is only exercised over synthetic byte payloads, not real
-compiled foma/HC artifacts, so it is not yet "native artifact production" in the sense this task means.
+3 are real and landed in `pg-pack`/`pg-wasm`. The runtime `FomaAnalyzer`/FST compilation path is
+gone. `PanGlossGrammar::new` still accepts grammar XML and initializes
+`pg_lexicon::SuppliedLexiconRuntime`; `pg-wasm` still depends directly on `pg-foma` for runtime and
+health data. The remaining 3.2/3.3/4.2 work is the artifact/data-only boundary, compiler-only
+dependency cleanup, and a build/export reachability audit. Native artifact production (section 2) is
+only exercised over synthetic byte payloads, not real compiled foma/HC artifacts, so it is not yet
+"native artifact production" in the sense this task means.
 
 ## 1. Pin the artifact contract
 
@@ -48,22 +49,22 @@ compiled foma/HC artifacts, so it is not yet "native artifact production" in the
 
 - [x] 3.1 Load and validate the complete one-file package before creating either engine state
       (`pg-wasm/src/pack.rs::load_pack`)
-- [ ] 3.2 Replace grammar-XML construction and lexicon-triggered recompilation APIs with artifact/data
-      loading operations
-      (not done — `pg-wasm/src/lib.rs` still builds `pg_foma::composite::FomaAnalyzer` at
-      `PanGlossGrammar::new`/`apply_user_lexicon` time)
-- [ ] 3.3 Remove compiler construction code and dependencies from the WASM target
-      (**not done** — confirmed: `pg-wasm/Cargo.toml` still depends on `pg-foma` directly; this is the
-      change's own stated NOT-done item per `STAGING.md`)
+- [ ] 3.2 Replace grammar-XML construction with artifact/data loading operations
+      (**open** — `PanGlossGrammar::new` still accepts grammar XML and initializes
+      `pg_lexicon::SuppliedLexiconRuntime`; runtime `FomaAnalyzer`/FST compilation is already gone)
+- [ ] 3.3 Remove compiler-only construction/dependency surface from the WASM target
+      (**open** — `pg-wasm/Cargo.toml` still depends directly on `pg-foma` for runtime/health data;
+      no compiler-reachability audit has established the final boundary)
 - [x] 3.6 Expose a versioned native-C/WASM capability query; omit compiler exports from WASM and
       return typed `unsupported_capability` for operations absent from a build
-      (`pg-wasm/src/pack.rs::is_unproven`/trust-status match; the "omit compiler exports from WASM"
-      half is not true yet per 3.3)
+      (`pg-wasm/src/pack.rs::is_unproven`/trust-status match; no compiler export is currently exposed,
+      while dependency cleanup remains open in 3.3)
 
 ## 4. Boundary verification
 
 - [ ] 4.2 Add a build/export audit that fails if a compiler constructor or compile API reaches WASM
-      (not done — and would currently fail, since `pg-foma`'s compiler IS reachable from WASM today)
+      (**open** — runtime `FomaAnalyzer`/FST compilation is gone, but no audit proves that compiler
+      reachability remains absent)
 
 
 ## Descoped 2026-08-06
@@ -73,10 +74,11 @@ package building (2.x), signing and licensing behaviour, isolated model handles,
 agreement, and artifact-failure cases. Bundling them is why this sat at 10 of 29 rather than finishing
 the one thing that blocks a release.
 
-What remains is the release blocker and nothing else: take the compiler out of the browser, and make
-it impossible to put back. Task 4.2 is the load-bearing one — an audit that fails if a compiler
-constructor or compile API reaches the browser build means nobody has to remember this before
-shipping, because the build refuses. Write it first: it fails immediately, which converts a thing
-someone must remember into a thing someone must fix.
+What remains is the release blocker and nothing else: complete artifact/data-only loading, separate any
+compiler-only dependency surface from the browser runtime, and make compiler reachability impossible
+to reintroduce. Task 4.2 is the load-bearing one — an audit that fails if a compiler constructor or
+compile API reaches the browser build means nobody has to remember this before shipping, because the
+build refuses. Write it first: it fails immediately, which converts a thing someone must remember into
+a thing someone must fix.
 
 The descoped items are recorded in `docs/open-questions.md` under G12 rather than lost.
