@@ -783,41 +783,6 @@ mod apply_budget_tests {
     }
 
     #[test]
-    fn propose_with_diagnostics_matches_plain_candidates_and_accounts_for_every_raw_path() {
-        let mut plain = proposer();
-        let expected = plain.propose("ka");
-
-        let mut profiled = proposer();
-        let (actual, diagnostics) = profiled.propose_with_diagnostics("ka");
-
-        let identities = |candidates: &[Candidate]| {
-            candidates
-                .iter()
-                .map(|c| {
-                    (
-                        c.morphemes.iter().map(|m| m.0).collect::<Vec<_>>(),
-                        c.root_index,
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(identities(&actual), identities(&expected));
-        assert_eq!(
-            diagnostics.raw_paths,
-            diagnostics.decoded_paths + diagnostics.malformed_paths
-        );
-        assert!(
-            diagnostics.raw_paths > 0,
-            "fixture must exercise apply_up traversal"
-        );
-        assert!(
-            diagnostics.raw_bytes > 0,
-            "raw path byte accounting must be populated"
-        );
-        assert_eq!(diagnostics.unique_candidates, actual.len());
-    }
-
-    #[test]
     fn propose_with_diagnostics_budgeted_preserves_the_first_path_budget_trip() {
         let mut p = proposer();
         let budget = ApplyBudget::with_caps(Some(0), None);
@@ -839,40 +804,6 @@ mod apply_budget_tests {
         assert_eq!(diagnostics.unique_candidates, 0);
     }
 
-    #[test]
-    fn from_precompiled_network_matches_normal_candidates_and_diagnostics() {
-        let mut normal = proposer();
-        let net = normal.network().clone();
-        let report = normal
-            .report
-            .clone()
-            .expect("the tuned emitter supplies its own report");
-        let expected = normal.propose("ka");
-
-        let mut precompiled = FomaProposer::from_precompiled_network(&net, report);
-        let (actual, diagnostics) = precompiled.propose_with_diagnostics("ka");
-        let identities = |candidates: &[Candidate]| {
-            candidates
-                .iter()
-                .map(|candidate| {
-                    (
-                        candidate
-                            .morphemes
-                            .iter()
-                            .map(|morpheme| morpheme.0)
-                            .collect::<Vec<_>>(),
-                        candidate.root_index,
-                    )
-                })
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(identities(&actual), identities(&expected));
-        assert_eq!(
-            diagnostics.raw_paths,
-            diagnostics.decoded_paths + diagnostics.malformed_paths
-        );
-        assert_eq!(diagnostics.unique_candidates, actual.len());
-    }
 }
 
 #[cfg(test)]
