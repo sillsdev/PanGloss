@@ -77,7 +77,6 @@ use std::io::{BufWriter, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
@@ -118,18 +117,6 @@ fn reject_unknown_option(arg: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "developer-tools")]
-const PARSE_DEVELOPER_HELP: &str =
-    " [--enforce-capability] [--allow-unproven]";
-#[cfg(not(feature = "developer-tools"))]
-const PARSE_DEVELOPER_HELP: &str = "";
-
-#[cfg(feature = "developer-tools")]
-const BATCH_DEVELOPER_HELP: &str =
-    " [--enforce-capability] [--allow-unproven]";
-#[cfg(not(feature = "developer-tools"))]
-const BATCH_DEVELOPER_HELP: &str = "";
-
-#[cfg(feature = "developer-tools")]
 const REPORT_DEVELOPER_HELP: &str =
     " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
@@ -141,39 +128,6 @@ const DEVELOPER_HELP: &str =
      development run.\n                 ";
 #[cfg(not(feature = "developer-tools"))]
 const DEVELOPER_HELP: &str = "";
-
-#[cfg(feature = "developer-tools")]
-const CAPABILITY_REFUSAL_REMEDIATION: &str =
-    "pass --allow-unproven to force-compile anyway, see ADR 0005";
-#[cfg(not(feature = "developer-tools"))]
-const CAPABILITY_REFUSAL_REMEDIATION: &str =
-    "consult the saved capability/readiness report or use a developer-tools build for an explicitly authorized override workflow";
-
-/// Which proposer/verifier path a `batch`/`parse` invocation drives: `Default` is the full-search `pg_parse::Morpher` engine, `Foma` proposes via the compiled foma network and confirms via the same `Morpher` machinery; output shape is identical between engines by construction.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Engine {
-    Default,
-    Foma,
-}
-
-impl Engine {
-    fn parse(v: &str) -> Result<Self, String> {
-        match v {
-            "default" | "full" | "hc" => Ok(Engine::Default),
-            "foma" => Ok(Engine::Foma),
-            other => Err(format!("invalid --engine: {other} (expected default|foma)")),
-        }
-    }
-}
-
-/// Mirrors `Morpher::parse_word_core_selected`'s own shape-validity early return, since `FomaAnalyzer` has no equivalent check of its own, so the `--engine=foma` batch/parse paths call this directly to keep the ok-vs-SKIPPED status column identical to the default engine's.
-fn foma_invalid_shape(g: &Grammar, word: &str) -> bool {
-    let Some(last) = g.strata.last() else {
-        return false;
-    };
-    let surface_table = &g.char_tables[last.table.0 as usize];
-    pg_grammar::segment::segment(surface_table, word).is_err()
-}
 
 fn main() -> ExitCode {
     // The analysis cascade recurses to the depth of a word's unapplication chain, which on heavy corpus words exceeds the default 8 MiB main-thread stack, so the whole batch runs on a worker thread with a generous stack.
@@ -294,9 +248,9 @@ fn run() -> ExitCode {
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
-                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]{} [--guess] [--stats] [--cache <path>]\n\
+                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>]\n\
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]{} [--guess]\n\
+                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
                  usage: pangloss diagnose <grammar> <words.txt> <out-dir>\n\
                  usage: pangloss assess <grammar> (--suite <suite.json> | --words <words.txt>) [--pipeline foma-confirm|hermitcrab] [--budget-paths N] [--budget-candidates N] [--report <path>]\n\
@@ -314,11 +268,7 @@ fn run() -> ExitCode {
                  pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
                  FieldWorks project file (.fwdata, imported in-memory and compiled on the fly).\n\
                  \n\
-                 Capability gate (ADR 0001/0005): --engine=foma is DEFAULT-ENFORCING -- a Refuse\n\
-                 verdict fails hard under the production policy. --engine=default (the\n\
-                 HC-oracle path) is never enforced, regardless of any flag.\n\
-                 \n\
-                 {}--guess (`batch`/`parse`, --engine=default only; HC-rust port gap G3,\n\
+                 --guess (`batch`/`parse`, HC-rust port gap G3,\n\
                  docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
                  to the pre-existing behavior. When passed, an out-of-lexicon word whose normal\n\
                  analysis is empty is retried via the lexical-pattern guesser (P11,\n\
@@ -326,8 +276,6 @@ fn run() -> ExitCode {
                  guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
                  `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.",
                 env!("CARGO_PKG_VERSION"),
-                BATCH_DEVELOPER_HELP,
-                PARSE_DEVELOPER_HELP,
                 REPORT_DEVELOPER_HELP,
                 DEVELOPER_HELP
             );
@@ -477,212 +425,7 @@ pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     }
 }
 
-fn build_foma_analyzer<'g>(
-    grammar: &'g Grammar,
-    capability_overridden: bool,
-) -> Result<FomaAnalyzer<'g>, pg_foma::analyzer::FomaError> {
-    #[cfg(feature = "developer-tools")]
-    {
-        let (proposer, _profile) = if capability_overridden {
-            pg_foma::analyzer::FomaProposer::new_unproven_with_profile(grammar)
-        } else {
-            pg_foma::analyzer::FomaProposer::new_with_profile(grammar)
-        };
-        return proposer.map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer));
-    }
-
-    #[cfg(not(feature = "developer-tools"))]
-    {
-        let _ = capability_overridden;
-        let (proposer, _profile) = pg_foma::analyzer::FomaProposer::new_with_profile(grammar);
-        proposer.map(|proposer| FomaAnalyzer::from_precompiled_proposer(grammar, proposer))
-    }
-}
-
-/// Decides what `run_batch`/`run_parse` should do about the gated backend's `CompileDecision` for `g` (`gated_backend_decision` over `pg_foma::backend_selection::select_backends_for_grammar`'s report), given the resolved `enforce`/`allow_unproven` booleans, and what to print to stderr about it.
-/// See `docs/research/pg-cli-main-design-notes.md` for the full enforce/override contract and why the override marker is session-level, not a persistent stamp.
-struct GateResult {
-    /// `false` only for `enforce == true, Refuse, !allow_unproven`; every other combination proceeds.
-    proceed: bool,
-    /// Lines for the caller to `eprintln!`, in order — stderr-only by construction.
-    stderr_lines: Vec<String>,
-    /// `true` iff this call force-compiled a `Refuse` via `allow_unproven`, exposed as a plain bool so a test can key off the degraded-trust fact directly rather than string-matching stderr.
-    overridden: bool,
-}
-
-/// Resolves the effective `enforce` boolean `capability_gate` takes, from the parsed `--engine` and the user's explicit enforce-capability choice.
-/// See `docs/research/pg-cli-main-design-notes.md` for the hard scoping rule: only `--engine=foma` is ever gated.
-fn resolve_capability_enforcement(engine: Engine, enforce_flag: Option<bool>) -> bool {
-    if engine == Engine::Default {
-        if enforce_flag == Some(true) {
-            eprintln!(
-                "capability: --enforce-capability has no effect with --engine=default -- the \
-                 HC-oracle path always builds the exact HermitCrab-faithful analyzer and never \
-                 relies on the FST proposer, so it is never gated; enforcement is scoped to \
-                 --engine=foma only, see ADR 0001/0005."
-            );
-        }
-        return false;
-    }
-    enforce_flag.unwrap_or(true)
-}
-
-/// The backend a `--engine=foma` run actually compiles with, and therefore the only one whose
-/// compatibility report licenses that run.
-pub(crate) const GATED_BACKEND: pg_foma::enumerate::EmissionStrategy =
-    pg_foma::analyzer::FomaProposer::EMISSION_STRATEGY;
-
-/// `GATED_BACKEND`'s own verdict out of `selection`, fail-closed: a backend the selector never
-/// reported on is a refusal, never a silent pass, since "I could not look" must not read as "the
-/// gate is satisfied".
-pub(crate) fn gated_backend_decision(
-    selection: &pg_foma::backend_selection::BackendSelection,
-) -> pg_foma::capability::CompileDecision {
-    use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
-    match selection.report_for(GATED_BACKEND) {
-        Some(report) => report.decision().clone(),
-        None => CompileDecision::Refuse(vec![CapabilityDiagnostic {
-            predicate: "capability-gate.backend-not-reported",
-            construct: GATED_BACKEND.label().to_string(),
-            witness: "the selector composed no compatibility report for the backend this run \
-                      would compile with, so nothing licenses the run"
-                .to_string(),
-        }]),
-    }
-}
-
-/// The label naming which backend a gate line is about, so a refusal says WHICH compiler declined.
-fn gated_backend_tag() -> String {
-    format!("backend={}", GATED_BACKEND.label())
-}
-
-fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResult {
-    use pg_foma::capability::CompileDecision;
-    let selection = pg_foma::backend_selection::select_backends_for_grammar(g);
-    let decision = gated_backend_decision(&selection);
-    let backend = gated_backend_tag();
-
-    if !enforce {
-        // Unchanged: the exact pre-existing advisory-only report, regardless of `allow_unproven`.
-        let stderr_lines = match &decision {
-            CompileDecision::Admit => vec![format!(
-                "capability: Admit [{backend}; advisory/preview -- gate not yet enforced, see ADR \
-                 0001]"
-            )],
-            CompileDecision::ConfirmOnly => vec![format!(
-                "capability: ConfirmOnly [{backend}; advisory/preview -- gate not yet enforced, \
-                 see ADR 0001]"
-            )],
-            CompileDecision::Refuse(diags) => {
-                let mut lines = vec![format!(
-                    "capability: Refuse ({} diagnostic(s)) [{backend} declined; \
-                     advisory/preview -- gate not yet enforced; compilation/analysis proceeds \
-                     unchanged, see ADR 0001]",
-                    diags.len()
-                )];
-                for d in diags {
-                    lines.push(format!(
-                        "  capability-refuse: predicate={} construct={} witness={}",
-                        d.predicate, d.construct, d.witness
-                    ));
-                }
-                lines
-            }
-        };
-        return GateResult {
-            proceed: true,
-            stderr_lines,
-            overridden: false,
-        };
-    }
-
-    match decision {
-        CompileDecision::Admit => GateResult {
-            proceed: true,
-            stderr_lines: vec![format!(
-                "capability: Admit [{backend}; enforcing: gate satisfied, proceeding]"
-            )],
-            overridden: false,
-        },
-        CompileDecision::ConfirmOnly => GateResult {
-            proceed: true,
-            stderr_lines: vec![format!(
-                "capability: ConfirmOnly [{backend}; enforcing: proceeding -- ConfirmOnly is a \
-                 valid non-failure verdict per ADR 0001, recall-preserving via confirm]"
-            )],
-            overridden: false,
-        },
-        CompileDecision::Refuse(diags) => {
-            if !allow_unproven {
-                let mut lines = vec![format!(
-                    "capability: Refuse ({} diagnostic(s)) [{backend} declined; enforcing: \
-                     REFUSING -- no analysis will be performed, see ADR 0001; {CAPABILITY_REFUSAL_REMEDIATION}]",
-                    diags.len()
-                )];
-                for d in &diags {
-                    lines.push(format!(
-                        "  capability-refuse: predicate={} construct={} witness={}",
-                        d.predicate, d.construct, d.witness
-                    ));
-                }
-                return GateResult {
-                    proceed: false,
-                    stderr_lines: lines,
-                    overridden: false,
-                };
-            }
-
-            // The override: force-compile behind an unmissable degraded-trust marker, repeating the machine-readable trust=unproven token at both the top and bottom of the block so a long diagnostic list can never let it scroll out of view.
-            let mut lines = vec![format!(
-                "CAPABILITY-OVERRIDE trust=unproven: --allow-unproven force-compiled {} construct(s) \
-                 {backend} declined (ADR 0005) -- THIS RUN'S OUTPUT IS RECALL-UNSAFE, NOT a clean \
-                 result. This is a SESSION/REPORT-LEVEL marker only for this invocation -- \
-                 `batch`/`parse` write no persistent artifact of their own, so there is nothing \
-                 for a pack-manifest stamp to attach to here.",
-                diags.len()
-            )];
-            for d in &diags {
-                lines.push(format!(
-                    "  capability-override: predicate={} construct={} witness={}",
-                    d.predicate, d.construct, d.witness
-                ));
-            }
-            lines.push(format!(
-                "CAPABILITY-OVERRIDE trust=unproven: end of override record -- {} config(s) \
-                 force-compiled, this run's results are NOT recall-proven",
-                diags.len()
-            ));
-            GateResult {
-                proceed: true,
-                stderr_lines: lines,
-                overridden: true,
-            }
-        }
-    }
-}
-
-/// Runs `capability_gate` over `g`, prints its `stderr_lines`, and returns `Err` on a gate refusal; called before any output file is created or analysis line printed, so a hard refusal truly produces no analysis output.
-fn run_capability_gate(
-    g: &Grammar,
-    enforce: bool,
-    allow_unproven: bool,
-) -> Result<GateResult, String> {
-    let gate = capability_gate(g, enforce, allow_unproven);
-    for line in &gate.stderr_lines {
-        eprintln!("{line}");
-    }
-    if gate.proceed {
-        Ok(gate)
-    } else {
-        Err(format!(
-            "capability gate refused this grammar under capability enforcement (diagnostics \
-             printed above; ADR 0001); no analysis was performed. --engine=foma enforces by \
-             default -- {CAPABILITY_REFUSAL_REMEDIATION}."
-        ))
-    }
-}
-
-/// `parse <grammar> <word> [flags...]`: traces, glosses, and/or realizes exactly one word's analyses. Flag semantics are detailed in the top-level usage banner; `--gloss`/`--natural-gloss` never touch the `word\tsignature` parity line, `--guess`/`--trace` only apply to `--engine=default`, and a missing default-resolved realize-map sidecar degrades to empty while an explicitly named one failing is a hard error.
+/// `parse <grammar> <word> [flags...]`: traces, glosses, and/or realizes exactly one word's analyses. Flag semantics are detailed in the top-level usage banner; `--gloss`/`--natural-gloss` never touch the `word\tsignature` parity line, and a missing default-resolved realize-map sidecar degrades to empty while an explicitly named one failing is a hard error.
 fn run_parse(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut trace_dest: Option<Option<String>> = None; // None = --trace not given; Some(None) = stdout; Some(Some(path)) = file
@@ -690,10 +433,6 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut gloss = false;
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
-    let mut engine = Engine::Default;
-    // None unless the user explicitly passed --enforce-capability; resolved once engine is final.
-    let mut enforce_capability_flag: Option<bool> = None;
-    let mut allow_unproven = false;
     let mut guess = false;
 
     let mut it = args.iter();
@@ -725,18 +464,6 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--realize-map=") => {
                 realize_map_arg = Some(s["--realize-map=".len()..].to_string());
             }
-            "--engine" => {
-                let v = it.next().ok_or("--engine requires a value")?;
-                engine = Engine::parse(v)?;
-            }
-            s if s.starts_with("--engine=") => {
-                engine = Engine::parse(&s["--engine=".len()..])?;
-            }
-            "--enforce-capability" => enforce_capability_flag = Some(true),
-            "--allow-unproven" => {
-                accept_developer_flag(a)?;
-                allow_unproven = true;
-            }
             "--guess" => guess = true,
             s => {
                 reject_unknown_option(s)?;
@@ -744,25 +471,10 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             }
         }
     }
-    let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
             "invalid --trace-format: {trace_format} (expected text|json)"
         ));
-    }
-    if engine == Engine::Foma && trace_dest.is_some() {
-        return Err(
-            "--trace is not supported with --engine=foma (the foma path has no trace \
-                     sink of its own; use the default engine for tracing)"
-                .into(),
-        );
-    }
-    if engine == Engine::Foma && guess {
-        return Err(
-            "--guess is not supported with --engine=foma (the foma path proposes only from the \
-             real lexicon; use the default engine for the lexical-pattern guesser)"
-                .into(),
-        );
     }
     if let Some(v) = &natural_gloss {
         if v != "eng" {
@@ -772,13 +484,11 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err(format!("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--engine=default|foma]{} [--guess]", PARSE_DEVELOPER_HELP));
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]".into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
-    let gate = run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
-
     // --natural-gloss=eng setup built once up front, since neither the embedded table nor the sidecar map depends on the word being parsed.
     let natural: Option<(pg_realize::TableRealizer, pg_realize::RealizeMap)> = match &natural_gloss
     {
@@ -790,21 +500,6 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             Some((realizer, map))
         }
     };
-
-    if engine == Engine::Foma {
-        // --trace was already rejected above, so this routes through FomaAnalyzer::analyze_word instead of Morpher::parse_word, with output shape identical to the default engine's.
-        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden)
-            .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?;
-        let (analyses, structured) = if foma_invalid_shape(&grammar, word) {
-            (Vec::new(), Vec::new())
-        } else {
-            let outcome = analyzer.analyze_word(word);
-            (outcome.analyses, outcome.structured)
-        };
-        println!("{}\t{}", word, pg_parse::result_signature(&analyses));
-        print_realize_lines(&grammar, &structured, word, gloss, natural.as_ref());
-        return Ok(());
-    }
 
     let morpher = Morpher::new(&grammar, usize::MAX);
     // --guess omitted is exactly ParseOptions::default(), so every call below is byte-identical to the unconditional-default-options behavior.
@@ -845,7 +540,7 @@ fn print_guessed_line(guess_requested: bool, guessed: bool) {
     }
 }
 
-/// For each analysis, optionally prints a `gloss:` line then an `eng:` line, interleaved per analysis (not two separate passes) so a reader can tell which `eng:` line goes with which `gloss:` line; reads `.structured`, not `.analyses`, since `gloss_bundle` needs numeric morpheme ordinals. Shared by both engines' `parse` output, so the lines are byte-for-byte identical in shape regardless of which engine produced them.
+/// For each analysis, optionally prints a `gloss:` line then an `eng:` line, interleaved per analysis (not two separate passes) so a reader can tell which `eng:` line goes with which `gloss:` line; reads `.structured`, not `.analyses`, since `gloss_bundle` needs numeric morpheme ordinals.
 fn print_realize_lines(
     grammar: &Grammar,
     structured: &[WordAnalysis],
@@ -968,12 +663,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         .unwrap_or(1);
     // 0-based resume index: skip the first N words (already-completed rows from a prior crashed/killed run) and append rather than truncate out.tsv, so a watchdog wrapper can kill+relaunch a stalled word and continue where it left off.
     let mut start_idx: usize = 0;
-    // --engine=foma routes the whole batch through FomaAnalyzer instead of Morpher.
-    let mut engine = Engine::Default;
-    // None unless the user explicitly passed --enforce-capability; resolved once engine is final.
-    let mut enforce_capability_flag: Option<bool> = None;
-    let mut allow_unproven = false;
-    // Same shared --guess contract as run_parse: default-off, guessed rows always marked, --engine=default only.
+    // --guess is default-off; guessed rows are always marked.
     let mut guess = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
@@ -1031,18 +721,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 let v = &s["--start=".len()..];
                 start_idx = v.parse().map_err(|_| format!("invalid --start: {v}"))?;
             }
-            "--engine" => {
-                let v = it.next().ok_or("--engine requires a value")?;
-                engine = Engine::parse(v)?;
-            }
-            s if s.starts_with("--engine=") => {
-                engine = Engine::parse(&s["--engine=".len()..])?;
-            }
-            "--enforce-capability" => enforce_capability_flag = Some(true),
-            "--allow-unproven" => {
-                accept_developer_flag(a)?;
-                allow_unproven = true;
-            }
             "--guess" => guess = true,
             "--stats" => stats_requested = true,
             "--cache" => {
@@ -1058,32 +736,21 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             }
         }
     }
-    let enforce_capability = resolve_capability_enforcement(engine, enforce_capability_flag);
     if threads == 0 {
         return Err("--threads must be >= 1".into());
     }
-    if engine == Engine::Foma && guess {
-        return Err(
-            "--guess is not supported with --engine=foma (the foma path proposes only from the \
-             real lexicon; use the default engine for the lexical-pattern guesser)"
-                .into(),
-        );
-    }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            format!("usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--engine=default|foma]{} [--guess] [--stats] [--cache <path>]", BATCH_DEVELOPER_HELP)
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>]"
                 .into(),
         );
     };
 
-    // One-time cost instrumentation comparing grammar load against load+foma-compile; LOADTIME always prints unconditionally, since one line per invocation costs nothing.
+    // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
     let t_load = Instant::now();
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
-    // Computed after grammar_load_ms so the gate's own cost never perturbs the LOADTIME diagnostic, and before out_path is created, so a foma-path refusal truly produces no analysis output.
-    let gate = run_capability_gate(&grammar, enforce_capability, allow_unproven)?;
-
     let words: Vec<String> = fs::read_to_string(words_path)
         .map_err(|e| format!("read {words_path}: {e}"))?
         .lines()
@@ -1107,111 +774,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut skipped = 0u64;
     let mut capped_words = 0u64;
     let mut timed_out_words = 0u64;
-
-    if engine == Engine::Foma {
-        // The foma path: one FomaAnalyzer built once and reused across every word. --step-cap/--memo are silently ignored (the internal verifier Morpher is always uncapped), --word-timeout-ms applies via with_word_timeout, and threads > 1 routes through analyze_words (confirm parallelized, propose sequential since the single ApplyHandle can't be split across threads) with results buffered and written once, no per-word crash-resume.
-        let t_compile = Instant::now();
-        let mut analyzer = build_foma_analyzer(&grammar, gate.overridden)
-            .map_err(|e| format!("foma compile failed for {grammar_path}: {e}"))?
-            .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
-        let compile_ms = t_compile.elapsed().as_secs_f64() * 1e3;
-        eprintln!(
-            "LOADTIME\tengine=foma\tgrammar_load_ms={grammar_load_ms:.3}\tanalyzer_build_ms={compile_ms:.3}\ttotal_ms={:.3}",
-            grammar_load_ms + compile_ms
-        );
-        // Candidate-count/confirm distributions, gated behind an env var since it is one line per word, too much for a default-on diagnostic on a large corpus.
-        let stats_on = std::env::var("HC_FOMA_STATS").is_ok();
-
-        // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
-        let t_parse = Instant::now();
-        if threads == 1 {
-            for (i, word) in words.iter().enumerate() {
-                if i < start_idx {
-                    continue;
-                }
-                writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
-                w.flush().map_err(|e| e.to_string())?;
-                let start = Instant::now();
-                let (status, signature) = if foma_invalid_shape(&grammar, word) {
-                    skipped += 1;
-                    ("SKIPPED", "-".to_string())
-                } else {
-                    let outcome = analyzer.analyze_word(word);
-                    parsed += 1;
-                    if stats_on {
-                        eprintln!(
-                            "CANDSTATS\t{i}\t{word}\tcandidates_generated={}\tconfirmed={}",
-                            outcome.candidates_generated, outcome.confirmed
-                        );
-                    }
-                    ("ok", pg_parse::result_signature(&outcome.analyses))
-                };
-                let elapsed_ms = start.elapsed().as_millis();
-                writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
-                    .map_err(|e| e.to_string())?;
-                w.flush().map_err(|e| e.to_string())?;
-            }
-        } else {
-            // Parallel path: skip foma_invalid_shape words up front, since analyze_words has no shape check of its own.
-            let remaining = &words[start_idx..];
-            let mut valid_idx: Vec<usize> = Vec::new();
-            let mut valid_words: Vec<String> = Vec::new();
-            for (j, word) in remaining.iter().enumerate() {
-                if foma_invalid_shape(&grammar, word) {
-                    skipped += 1;
-                } else {
-                    valid_idx.push(j);
-                    valid_words.push(word.clone());
-                }
-            }
-            let results = analyzer.analyze_words(&valid_words);
-            let mut rows: Vec<Option<(u128, &'static str, String)>> =
-                (0..remaining.len()).map(|_| None).collect();
-            for (k, &j) in valid_idx.iter().enumerate() {
-                let (outcome, elapsed) = &results[k];
-                parsed += 1;
-                if stats_on {
-                    eprintln!(
-                        "CANDSTATS\t{}\t{}\tcandidates_generated={}\tconfirmed={}",
-                        start_idx + j,
-                        remaining[j],
-                        outcome.candidates_generated,
-                        outcome.confirmed
-                    );
-                }
-                rows[j] = Some((
-                    elapsed.as_millis(),
-                    "ok",
-                    pg_parse::result_signature(&outcome.analyses),
-                ));
-            }
-            for (j, word) in remaining.iter().enumerate() {
-                let i = start_idx + j;
-                let (elapsed_ms, status, signature) =
-                    rows[j].take().unwrap_or((0, "SKIPPED", "-".to_string()));
-                writeln!(w, "{i}\t{word}\t{elapsed_ms}\t{status}\t{signature}")
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-        let parse_elapsed_ms = t_parse.elapsed().as_secs_f64() * 1e3;
-        w.flush().map_err(|e| e.to_string())?;
-        eprintln!("PARSEELAPSED\tengine=foma\telapsed_ms={parse_elapsed_ms:.3}");
-        eprintln!(
-            "batch complete: {} words parsed ({} skipped) [engine=foma, threads={}]",
-            parsed, skipped, threads,
-        );
-        if stats_requested {
-            stats_cmd::run_batch_stats_foma(
-                &grammar,
-                grammar_path,
-                &mut analyzer,
-                &words,
-                word_timeout_ms,
-                cache_path_arg.as_deref(),
-            )?;
-        }
-        return Ok(());
-    }
 
     let t_morpher = Instant::now();
     let morpher = Morpher::new(&grammar, step_cap)
