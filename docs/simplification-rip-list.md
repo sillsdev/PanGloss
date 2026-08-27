@@ -491,6 +491,39 @@ additions** across the tests and CLI producer surface. The grammar/corpus `asses
 rejection of removed flags, is deferred until the post-demolition replacement/repair phase. Old
 producer-coupled tests must not be restored.
 
+### 2026-08-27 direct make-report compile route deletion
+
+`make-report` built a `FomaProposer` in the CLI process to time itself compiling, time per-word
+analysis, and run a corpus — a compile with no memory or time ceiling, and one of the five
+uncontained paths the inventory below records. Removed with the user's explicit approval,
+test-first (`a862d7b3`), source-second (`b8685a0c`), prose-last (`e00474da`):
+**352 deletions / 23 additions, net -329 lines**.
+
+Deleted because nothing else called them: `build_report_analyzer`, `measure_timer_floor_ns`,
+`latency_measurement`, `render_latency_measurement`, `percentile_ns`, `default_word_list`,
+`measure_latency_percentiles_ns`, and `measure_coverage_rate` — the last of which also called the
+already-deleted `crate::foma_invalid_shape`, closing one forward compile hole. The flags whose only
+consumer was that route went with it: `--words`, `--corpus`, `--attestor`, `--attested-on`,
+`--repeats`, plus the corpus read, the all-three-together validation, and both usage strings.
+
+`make-report` now reports on the artifact it is given. `measurements` is `None`, and build time,
+latency, and coverage say they were not measured rather than reporting a number the command has no
+honest way to produce. The verdict path is unchanged: `certify_with_semantics` already accepts a
+`None` measurements — that is exactly what the refused-grammar branch has always passed it.
+`Measurements`/`LatencyMeasurement`/`CoverageAssessment` stay in `pg-foma::readiness_verdict`, and
+the golden-render tests that build one by hand still exercise the renderer.
+
+Two pre-existing holes in `run_make_report` were neither repaired nor widened: the `pack_path`
+match has no `None` arm, and `trust` is never assigned on the `else` branch. Both belong to the
+producer deletion that preceded this one, and both are for the replacement phase — which will have
+to decide whether `make-report` requires an explicitly named artifact, the direction the ratified
+Package contract points.
+
+Status: **LANDED UNVERIFIED.** Structural acceptance only: caller counts for every deleted helper,
+a residue sweep for each removed flag across both `make_report.rs` and `main.rs`, an unused-import
+check, `git diff --check`, per-commit `--numstat`, and full diff inspection. No Cargo was run.
+
+
 ### 2026-08-27 REP_VARIANT_CAP containment inventory — verdict: still NO-GO
 
 The read-only production-call inventory the handoff required, run against `86fb56fb`. It asks
@@ -505,7 +538,7 @@ pre-expansion, so the question reduces to which entry points compile a proposer.
 | Entry point | Contained? |
 |---|---|
 | `pg-foma::worker.rs:313` (`new_with_budget_and_profile`) | **yes** — this is the supervised worker |
-| `pg-cli::make_report.rs:450,459` (`new_unproven_with_profile` / `new_with_profile`) | no — in-process in the CLI; this is the direct make-report route awaiting its own decision |
+| `pg-cli::make_report.rs` (`new_unproven_with_profile` / `new_with_profile`) | **removed** — `a862d7b3`/`b8685a0c`/`e00474da` deleted this route outright; four in-process paths remain, so the verdict below is unchanged |
 | `pg-ffi::grammar.rs:59` (`new`) | no — in-process inside an embedding host application |
 | `pg-foma::backend_runtime.rs:1415,2014` (`new`) | no — in-process on the evaluate/assess corpus paths |
 | `pg-foma::composite.rs:611` (`new`) | no — in-process on the runtime analyzer path `parse`/`batch` use |
@@ -692,10 +725,10 @@ or compatibility machinery already removed.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..86fb56fb`:
-**20,908 deletions / 10,953 additions, net -9,955 lines** across 242 files. The dedicated rip-first
-range `1c7cc837..86fb56fb` removed **17,846 lines**, added 1,965 structural/fixture/documentation
-lines, and is net **-15,881 lines** across 200 files. 306 of those rip-first additions are the
+Committed rebased branch range `1225f25a..e00474da`:
+**21,294 deletions / 11,029 additions, net -10,265 lines** across 242 files. The dedicated rip-first
+range `1c7cc837..e00474da` removed **18,237 lines**, added 2,046 structural/fixture/documentation
+lines, and is net **-16,191 lines** across 200 files. 306 of those rip-first additions are the
 2026-08-27 continuation handoff plan itself (`24c8171a`); it is process scaffolding, not a removal
 win. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
