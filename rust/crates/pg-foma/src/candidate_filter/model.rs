@@ -77,12 +77,6 @@ impl<T> NonEmpty<T> {
         std::iter::once(&self.head).chain(self.tail.iter())
     }
 
-    pub fn into_vec(self) -> Vec<T> {
-        let mut out = Vec::with_capacity(1 + self.tail.len());
-        out.push(self.head);
-        out.extend(self.tail);
-        out
-    }
 }
 
 impl<T> Index<usize> for NonEmpty<T> {
