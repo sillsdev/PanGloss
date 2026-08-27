@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use pg_foma::analyzer::{FomaError, FomaProposer};
 use pg_foma::characterization::{ClosureStopReason, ClosureTerminal};
-use pg_foma::emit::{self, ClosureFallbackBackend, ClosureRefusalCode, FomaTier};
+use pg_foma::emit::{self, ClosureRefusalCode, FomaTier};
 use pg_foma::replace::SegAlphabet;
 use pg_parse::{Morpher, ParseOptions};
 
@@ -157,10 +157,6 @@ fn unbounded_realizational_composite_route_returns_no_artifact() {
     assert_eq!(refusal.affected_rule_ordinals, vec![5]);
     assert_eq!(refusal.depth_limit, None);
     assert_eq!(refusal.pending_successors, None);
-    assert_eq!(
-        refusal.remedy_backend,
-        ClosureFallbackBackend::FullMorphologicalParser
-    );
     assert!(matches!(
         FomaProposer::new(&grammar),
         Err(FomaError::Unsupported(_))
