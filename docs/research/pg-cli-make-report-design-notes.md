@@ -7,10 +7,10 @@ verdict. It reimplements none of those; it measures what feeds them and states p
 not test.
 
 > **Current product policy (2026-08-23).** `make-report` may expose unsafe overrides only in a
-> developer/test build; production must hide and reject `--allow-unproven` and
-> `--remove-size-limits`. `--allow-unproven` may lose valid parses and may write local developer
-> evidence, but never production-publishes or certifies. `--remove-size-limits` removes internal
-> deterministic size/work caps only; exact
+> developer/test build; production must hide and reject `--allow-unproven` and the removed
+> `--remove-size-limits` spelling. `--allow-unproven` may lose valid parses and may write local
+> developer evidence, but never production-publishes or certifies. The removed spelling is a
+> rejection tombstone; finite external limits remain mandatory. Exact
 > completion, external watchdog/RSS containment, bounded I/O, and the absolute ceiling remain
 > mandatory. A complete/accurate stress result may retain `Error` evidence, but `Error` is
 > production-unready and `Critical` is a correctness gap. The legacy `--no-enforce-capability`

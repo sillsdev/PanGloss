@@ -25,10 +25,9 @@ Execution order and exclusive ownership are governed by `openspec/changes/STAGIN
 - The loader checks magic, version, integer overflow, each section limit, and total package limit
   before allocating or hashing payload storage. Trailing or truncated bytes fail closed.
 - The pack manifest carries package/grammar identity, payload format versions, the required-
-  runtime-feature set (ADR 0004), the ADR 0005 capability-trust stamp (proven, or
-  overridden/unproven, plus the override record when applicable), an FST-health
-  admission/findings/override field reconciled with `add-fst-compilation-health-audit`'s finding
-  schema and severity bands, creation metadata, and a versioned licensing/authenticity section. ("Pack
+  runtime-feature set (ADR 0004), an FST-health admission/findings field reconciled with
+  `add-fst-compilation-health-audit`'s finding schema and severity bands, creation metadata, and a
+  versioned licensing/authenticity section. ("Pack
   manifest" — the per-`.pgpack` blob — is distinct from the source-controlled capability registry of
   ADR 0001; bare unqualified "manifest" is avoided throughout this design.) SHA-256 supplies structural
   integrity, not license authorization.
@@ -60,7 +59,6 @@ depends on `harden-foma-resource-safety`. Work touching `pg-wasm` is serialized 
 stem-input work.
 
 This change is reworked to `docs/adr/0004-runtime-feature-compatibility.md`'s load-time compatibility
-model and carries the `docs/adr/0005-capability-override-unproven-grammars.md` capability-trust stamp
-in the pack manifest. The pack manifest's FST-health admission/findings field is reconciled with
+model. The pack manifest's FST-health admission/findings field is reconciled with
 `add-fst-compilation-health-audit`'s finding schema, stable codes, and severity bands rather than
 defining its own; that change is the schema owner, this change is a consumer/carrier.

@@ -19,13 +19,6 @@ only exercised over synthetic byte payloads, not real compiled foma/HC artifacts
       compatibility-identifier equality check
       (`pg-pack/src/compat.rs`: `RequiredRuntimeFeatures`/`ProvidedRuntimeFeatures`; consumed by
       `pg-wasm/src/pack.rs`)
-- [x] 1.1f Add the pack manifest's ADR 0005 capability-trust stamp (proven, or overridden/unproven
-      plus override record) and reconcile its FST-health admission/findings field with
-      `add-fst-compilation-health-audit`'s schema rather than defining a parallel one
-      (`pg-pack/src/trust.rs`: `CapabilityTrust`/`CapabilityOverrideRecord`;
-      `pg-wasm/src/pack.rs::is_unproven`. Note: `add-fst-compilation-health-audit`'s own admission
-      wiring is not itself done yet — see that change's tasks.md — so "reconcile" is aspirational
-      until that side exists too)
 - [x] 1.2 Specify typed failures for unknown version, incompatible engine, mismatched grammar/data,
       corrupt network bytes, and absent confirmation data
       (`PackLoadError`/`PgPackError` enums)
@@ -57,7 +50,7 @@ only exercised over synthetic byte payloads, not real compiled foma/HC artifacts
       no compiler-reachability audit has established the final boundary)
 - [x] 3.6 Expose a versioned native-C/WASM capability query; omit compiler exports from WASM and
       return typed `unsupported_capability` for operations absent from a build
-      (`pg-wasm/src/pack.rs::is_unproven`/trust-status match; no compiler export is currently exposed,
+      (`pg-wasm/src/pack.rs` capability/loading surface; no compiler export is currently exposed,
       while dependency cleanup remains open in 3.3)
 
 ## 4. Boundary verification

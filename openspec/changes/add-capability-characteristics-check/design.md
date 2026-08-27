@@ -64,7 +64,7 @@ pub trait CapabilityPredicate {
 pub enum PredicateVerdict {
     Admit,                        // proven faithful; admission-filtering allowed
     ConfirmOnly,                  // propose the superset; no no-false-negative proof (ADR 0001)
-    Refuse(CapabilityDiagnostic), // hard compile-time fail (overridable per ADR 0005)
+    Refuse(CapabilityDiagnostic), // hard compile-time fail
 }
 ```
 
@@ -105,12 +105,11 @@ evaluate(rule):
   automata); `Behavioral` on the black-box foma path (automata unobservable → oracle witnesses).
 - **Oracle obligation:** pinned by conformance witnesses — a synthetic grammar with two
   non-overlapping simultaneous subrules (must `Admit`, must match the oracle) and one with
-  overlapping subrules (must `Refuse`; its force-compiled override must exhibit the recall divergence
-  the refusal predicted).
+  overlapping subrules (must `Refuse`).
 
 This is the template for every predicate: cheap disjointness/orthogonality early-out first, then a
 conservative automaton-level test rounding toward refusal, then a `ConfirmOnly` landing if a safe
-*filter* can't be proven, then a `Refuse` (overridable) if even confirm-only recall can't be
+*filter* can't be proven, then a `Refuse` if even confirm-only recall can't be
 guaranteed.
 
 ### D4. Envelope composition is bottom-up over the plan DAG; orthogonality = parallel-independence
@@ -132,17 +131,10 @@ disjointness**: each rule's output alphabet/domain never overlaps the other's tr
 converts "proving a set of constructs orthogonal retires whole swaths of the combination space"
 (ADR 0001) from a slogan into a finite, bounded (pairwise over constructs actually present) checklist.
 
-### D5. Default-deny characterizer, override + trust signal, conformance-coverage CI gate
+### D5. Default-deny characterizer and conformance-coverage CI gate
 
 - **Default-deny characterizer** (task 2): exhaustive over `model.rs`, no catch-all; first act marks
   `Compounding`, `Unordered`, `MprGroup`, and every unproven config fail-closed.
-- **Capability override** (ADR 0005, task 4): a hidden developer-build-only override force-compiles
-  a refused grammar for grounding, writing an indelible unproven/recall-unsafe stamp into the
-  **pack manifest** override record (who/when/why/which configs) and broadcasting a pack-level
-  `unproven` load signal + per-analysis degraded-trust flag. It may omit valid parses, is rejected
-  in production/publication/certification, and never passes conformance; only genuine proof + clean
-  recompile clears it. It does not remove resource limits and is distinct from developer-only
-  stress execution that removes internal size/work caps while preserving external containment.
 - **Conformance-coverage CI gate** (task 5): CI cross-checks the **capability registry** (the
   source-controlled supported/unsupported contract) against `machine/conformance/` coverage
   (`constructs.txt` / per-word `exercises:` / `rules.csv`); marking anything supported without a
@@ -154,8 +146,8 @@ converts "proving a set of constructs orthogonal retires whole swaths of the com
 Co-designed with `reify-compilation-plans` (the `Plan`/`PlanNode` type lands first; this envelope
 composes over it). `lower-fst-pattern-environments` (Stage 1B) supplies the `Fsm` lowering the
 overlap/orthogonality predicates use. `define-grammar-coverage-contract` (demoted) feeds evidence
-into the gate. Consumes the ADR 0005 pack-manifest override field and the ADR 0003 chain-depth
-dimension. Contract owner of the characteristics gate + capability registry; construct changes
+into the gate. Consumes the ADR 0003 chain-depth dimension. Contract owner of the characteristics gate
+and capability registry; construct changes
 contribute registered predicates and conformance fixtures.
 
 ## Novelty / risk (flagged, per research)

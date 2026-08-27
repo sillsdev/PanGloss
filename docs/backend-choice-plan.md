@@ -7,13 +7,13 @@ to the worktree root `.claude/worktrees/cleanup-and-recipe-parity/`.
 
 > **SUPERSEDED for current product policy (2026-08-23).** This planning survey predates the
 > current route work and is retained for its measurements and design questions only. Do not infer
-> a production flag surface from its hypothetical switches. Production uses named closed resource
-> envelopes and fail-closed capability/readiness decisions. `--allow-unproven` and
-> `--remove-size-limits` are developer-build-only, absent and rejected in production;
+> a production flag surface from its hypothetical switches. Production uses finite external
+> `ExecutionLimits` and fail-closed capability/readiness decisions. `--allow-unproven` is
+> developer-build-only, absent and rejected in production; the removed `--remove-size-limits`
+> spelling is a rejection tombstone, not a live control;
 > `--allow-unproven` may lose valid parses and may write local developer evidence, but never
-> production-publishes or certifies, while
-> `--remove-size-limits` removes internal caps only under exact-completion and mandatory external
-> containment. `Error` can be complete/accurate stress evidence but is production-unready;
+> production-publishes or certifies. `Error` can be complete/accurate stress evidence but is
+> production-unready;
 > `Critical` is a correctness gap. The legacy `--no-enforce-capability` escape is developer-only.
 
 ## 0. The decision, framed honestly
@@ -117,8 +117,9 @@ the driving construct (nested circumfixing):
   literal path (`rust/crates/pg-foma/src/structural_allomorph.rs:1-7`); `preexpand.rs:209` notes
   `CircumfixPrefix`/`CircumfixSuffix` are not exercised by the ordinary composite mechanism.
 - **PlanComposed cannot build the material at all**: composite/structural subtrees are
-  unbuildable markers for `build_controllable`, so the candidate is refused before partial
-  network measurement (`rust/crates/pg-foma/src/backend_runtime.rs:1847-1892`).
+  unbuildable markers for `build_controllable`, so `unbuildable_marker_reason` rejects the
+  candidate before partial network measurement. The guard is called by the plan evaluators and
+  accuracy realization path in `backend_runtime.rs`.
 
 The heuristic therefore names a missing point in the backend design space — emit each side of the
 stem as an independent local automaton (prefix ordering/transformation and suffix

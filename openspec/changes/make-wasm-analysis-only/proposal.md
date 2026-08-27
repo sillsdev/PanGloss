@@ -16,9 +16,6 @@ compiler code in WASM would preserve an unsafe, unsupported second compilation e
 - Replace engine-compatibility-identifier equality with ADR 0004's load-time `required ⊆ provided`
   append-only runtime-feature compatibility: the pack manifest stamps the required-runtime-feature set
   it was built against, and the loader admits it iff the Runtime's provided set is a superset.
-- Carry the ADR 0005 capability-trust stamp (proven, or overridden/unproven) in the pack manifest, and
-  reconcile the pack manifest's FST-health admission field with `add-fst-compilation-health-audit`'s
-  finding schema rather than defining a parallel one.
 - Remove WASM grammar/FST construction, recompilation exports, and compiler dependencies.
 - Preserve bounded analysis and permit separately supplied stem data without engine mutation.
 - Provide optional package license declarations and publisher signatures as non-enforcing WASM
