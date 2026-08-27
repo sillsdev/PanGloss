@@ -49,10 +49,6 @@ const TUNED_CONTRIBUTORS: &[&str] = &[
     "N = reachable composite states",
     "Rule ordering changes probe reuse and the number of distinct junctions",
     "Null realizations and deletion increase reachable zero-width and truncated branches",
-    "Closure work is measured as static cost evidence against the managed internal budget",
-];
-const TUNED_REMEDIES: &[&str] = &[
-    "order-or-slot-localize-rules",
 ];
 const TUNED_SOURCES: &[&str] = &["src/emit.rs", "src/junctions.rs", "src/preexpand.rs"];
 const TUNED_ENVELOPES: &[Envelope] = &[Envelope {
@@ -71,7 +67,7 @@ const TUNED_ENVELOPES: &[Envelope] = &[Envelope {
         ],
     },
     contributors: TUNED_CONTRIBUTORS,
-    remedy_ids: TUNED_REMEDIES,
+    remedy_ids: &[],
     source_refs: TUNED_SOURCES,
 }];
 
@@ -216,16 +212,18 @@ pub fn render_markdown(card: &BackendCard) -> String {
         for contributor in envelope.contributors {
             writeln!(output, "  - {}", contributor).unwrap();
         }
-        writeln!(output, "- Remedies:").unwrap();
-        for remedy_id in envelope.remedy_ids {
-            writeln!(output, "  - `{}`", remedy_id).unwrap();
+        if !envelope.remedy_ids.is_empty() {
+            writeln!(output, "- Remedies:").unwrap();
+            for remedy_id in envelope.remedy_ids {
+                writeln!(output, "  - `{}`", remedy_id).unwrap();
+            }
+            writeln!(
+                output,
+                "- Advice: [authoritative remedy text and shape-specific effort]({}). A remedy would make this backend work for your language only when its stated prerequisites hold.",
+                ADVICE_CATALOG_LINK
+            )
+            .unwrap();
         }
-        writeln!(
-            output,
-            "- Advice: [authoritative remedy text and shape-specific effort]({}). A remedy would make this backend work for your language only when its stated prerequisites hold.",
-            ADVICE_CATALOG_LINK
-        )
-        .unwrap();
         writeln!(
             output,
             "- Source references: {}.",
