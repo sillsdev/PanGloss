@@ -284,6 +284,7 @@ apply/candidate budgets remain separate.
 | G3 | `panic!` if `compounding_max_depth` misses a `Compounding` id, in the production walk | `capability.rs` ~1348 | **OPEN** |
 | G4 | Two diagnostics surfaced by `eprintln!` because `Certification` has no field to carry them | `backend_runtime.rs` | **OPEN** |
 | G5 | One pre-existing test failure, proven pre-existing at `acd313c6` | `morphotactics_boundary_cleanup_slice::templated_query_accepts_a_surface_with_an_explicit_boundary` | **OPEN** |
+| G6 | Four `pg-cli` optimizer tests fail, proven pre-existing at `ff29935b` | `four_grammar_recipe_evidence` (feasible count 2, expects 5); `recipe_optimize_continuation` x3 (resource-bound abandonment) | **OPEN** — surfaced by the first suite run to get past the compile holes. Three of the four assert candidate abandonment by a resource bound, which is the envelope machinery this cleanup deleted, so they are almost certainly obsolete contracts rather than regressions; the feasible-count one needs its own diagnosis. Rewrite or delete the contract first, per this file's own rule — a failing old test never authorizes restoring rejected behavior |
 
 ---
 
