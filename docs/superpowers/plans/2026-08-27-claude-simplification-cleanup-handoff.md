@@ -2,6 +2,55 @@
 
 Date: 2026-08-27
 
+## Status: EXECUTED 2026-08-27
+
+This plan was worked to the end of what demolition can do. Everything below is preserved as the
+brief it was; this section says what actually happened, so no reader re-does finished work.
+
+**Landed** (19 commits, `24c8171a..2763509b`, net `-806/+363`):
+
+| Section of this plan | Outcome |
+|---|---|
+| Current tranche: finite quantifier ceiling | **Accepted.** All four documentation blockers corrected in `07d46165`, plus a fifth this plan did not name: `STAGING.md` cited `evaluate_capability`, which is no longer a function anywhere. `benchmark-matrix.md`'s task 4.1 was stale on the same evidence as the 4.5 it named, and was corrected with it. |
+| Next authorized removal: dead ComposeBudget forwarding | **Done**, `318c9f7d`/`11fff5e4`/`77226079`, net `-202`. Its own follow-on — the three higher-level parameters left unread — landed as `b3c8d14d`/`7eb17a3b`/`86fb56fb`, net `-61`, closing four of the six `with_caps` compile holes. |
+| Queue item 1: direct make-report compile route | **Deleted** with the user's explicit approval, `a862d7b3`/`b8685a0c`/`e00474da`, net `-329`. |
+| Queue item 2: publication severity gate | **Deleted** with the user's explicit approval, `0e3240c2`. The consequence turned out narrower than the name: the gate never blocked publication, because nothing writes a pack. Its one caller read one. |
+| Queue item 3: `REP_VARIANT_CAP` | **Refused on evidence, not deferred.** The required inventory ran and returns NO-GO. |
+| Queue item 4: cross-backend ranking residue | **Audited, D2 residue gate passes.** No production `BACKEND_PREFERENCE`, `preferred`, `select_up_to`, rank key, fallback, retry, placeholder payload, or chooser-derived route survives. |
+| Queue item 6: small stale-doc residue | **Done**, `6bd31ba2` — all three claims this plan named. |
+| Queue item 5: F10 dead-test sweep | **Not done, and not for want of trying.** See below. |
+
+**Two corrections to this plan's own premises**, found while executing it:
+
+1. `ComposeBudget::with_caps` is not merely missing — the tests that call it were not all
+   equivalent. Four were budget-only plumbing and closed for free once the parameter went; two are
+   `peel_candidates` callers whose budget carries a live chain-depth contract. This plan treated
+   them as one class.
+2. The uncommitted `emit.rs` patch does not build, independently of containment: six call sites in
+   `precision.rs`/`preexpand.rs` still consume the `(Vec<String>, bool)` tuple it removes. And
+   `precision.rs` *decides* on the overflow flag rather than carrying it, so removing the flag is a
+   silent precision regression, not plumbing simplification. This plan authorized the tranche "in
+   principle"; it should not be.
+
+**Not finished, and why.** `docs/simplification-rip-list.md`'s closing "Completion gate: NOT met"
+section is the authority. In short: no `AUTHORIZED` row remains, but what is left is not deletion
+work. `G1`-`G5` are correctness defects this cleanup forbids mixing into a mechanical slice;
+`H2`/`H3` are refactors; `D1`/`H4` need a measurement or a decision; `D5`/`D8` are consolidation.
+`F10` is the one real removal surface left and it is unmeasured: two mechanical probes over the
+test tree found nothing (no test imports a name that no longer exists; none calls an associated
+function defined nowhere in the workspace), so the dead weight there is semantic and needs
+per-test judgment. Do not issue it as one task.
+
+**Verification owed.** Per this plan's own discipline no Cargo ran. Every acceptance above is
+structural: residue searches, symbol-existence checks, XML well-formedness, `git diff --check`,
+per-commit `--numstat`, protected-file hashes, and full diff inspection. The suite gate belongs to
+the replacement stage.
+
+**The honest next step is the replacement stage, not another rip.** Define the smallest coherent
+explicit-backend/completed-artifact surface, repair the intentional compile holes against it, add
+tests for that surface only, then run authoritative verification through `rust/tools/pg.ps1`. `F10`
+is best done after that, when a passing suite makes "this test pins nothing" checkable.
+
 ## Objective
 
 Continue the pre-alpha PanGloss cleanup as **remove old cruft**. Finish the authorized demolition
@@ -9,11 +58,12 @@ before designing or wiring replacement functionality. Do not restore rejected be
 because compilation or an old test expects it. Delete or rewrite the obsolete test contract first,
 delete its source second, and remove stale prose last.
 
-The cleanup is substantial but not nearly complete end to end. The committed rip-first range is
-currently **17,506 deletions / 1,520 additions, net -15,986 lines across 196 files**. The broader
-cleanup range, which includes prerequisite containment infrastructure, is **20,568 deletions /
-10,508 additions, net -10,060 lines**. Do not count the three protected uncommitted files in either
-total.
+The cleanup is substantial but not complete end to end. When this plan was written the committed
+rip-first range was **17,506 deletions / 1,520 additions, net -15,986 lines across 196 files**, and
+the broader cleanup range **20,568 deletions / 10,508 additions, net -10,060 lines**. Executing it
+took the rip-first range to **18,241 deletions / 2,118 additions, net -16,123 lines across 201
+files**. `docs/simplification-rip-list.md`'s Tally is the current figure; this one is
+the starting line. Do not count the remaining protected uncommitted file in either total.
 
 The authoritative decision ledger and marching orders are in `docs/simplification-rip-list.md`.
 This handoff summarizes the live state; update that ledger as reviewed slices land.
@@ -24,25 +74,25 @@ This handoff summarizes the live state; update that ledger as reviewed slices la
 - Integration worktree:
   `C:\Users\johnm\Documents\repos\PanGloss\.claude\worktrees\cleanup-worker-contract-acceptance`
 - Branch: `cleanup/worker-contract-acceptance`
-- Current HEAD: `78e0d319c04e42d8cdba2ec938011fc30efebd44`
+- HEAD when this plan was written: `78e0d319c04e42d8cdba2ec938011fc30efebd44`
+- HEAD after executing it: `2763509b`
 - Local `main`: `4d4db3f86afe8810c5e2a30bcec3e8edc295aab4`
 - Merge base with `main`: `4d4db3f86afe8810c5e2a30bcec3e8edc295aab4`
 
-After this handoff itself is committed, the pre-task worktree baseline must contain only these three
-pre-existing dirty files. Every authorized continuation edit must be committed before moving to the
-next task, returning status to this same three-file baseline; do not revert an authorized committed
-docs/source change merely to make status resemble the baseline:
+Three files were protected and uncommitted when this plan was written. Two are now resolved by
+user decision and committed; the baseline is **one** dirty file, and the same rule still applies to
+it — every authorized continuation edit is committed before moving on, returning status to that
+single-file baseline. Do not revert an authorized committed change merely to make status match.
 
-| Protected file | Required SHA-256 |
-|---|---|
-| `rust/crates/pg-cli/src/make_report.rs` | `A5EB00E386230510B018CD4B012538F657C11A6B50B08A2A0D57E06CF11B88D2` |
-| `rust/crates/pg-cli/src/pack.rs` | `5EB5406BA49EE1B628D77A951618BC328374349D02CD92BB16306B7AF7F04036` |
-| `rust/crates/pg-foma/src/emit.rs` | `19C177E874D3F83D7DD4B84AE3F13EC738F43FF132E70AEAE1AA32D573BF0825` |
+| Protected file | SHA-256 when this plan was written | Now |
+|---|---|---|
+| `rust/crates/pg-cli/src/make_report.rs` | `A5EB00E3…F11B88D2` | **resolved** — publication-gate call site committed in `0e3240c2`, producer route in `b8685a0c` |
+| `rust/crates/pg-cli/src/pack.rs` | `5EB5406B…7F04036` | **resolved** — committed in `0e3240c2` |
+| `rust/crates/pg-foma/src/emit.rs` | `19C177E8…73BF0825` | **still dirty, still NO-GO** — unchanged; hash re-verified after every write this session |
 
-Do not reset, restore, overwrite, format, or casually stage these files. Recheck the hashes before
-and after every delegated write. The `make_report.rs`/`pack.rs` diff contains a protected
-publication-gate deletion discussed below. The `emit.rs` diff crosses a containment boundary and is
-not approved for staging.
+Do not reset, restore, overwrite, format, or casually stage `emit.rs`. Recheck its hash before and
+after every write. It crosses a containment boundary, the inventory that was required before
+staging it has now run, and the answer was no.
 
 The main checkout has unrelated user work. During the last docs correction a Luna writer briefly
 patched four main-checkout paths, then inverse-patched only its own textual hunks. Two paths are
@@ -125,6 +175,10 @@ boundary-fusion correctness.
 
 ## Current tranche: finite quantifier ceiling
 
+> **DONE — accepted `07d46165`, ledger entry `bf6b6203`.** The three Important blockers and
+> the Minor one below were all corrected, along with two this section did not name. Read for
+> the account, not as a task.
+
 The arbitrary `MAX_QUANTIFIER_BOUND = 512` policy was removed in this order:
 
 - `8b8277bf`: removed the stale finite-cap fixture/test first (`+5/-33`);
@@ -154,6 +208,10 @@ reference to the unbounded-quantifier gap.
 
 ### Immediate next action
 
+> **DONE.** No Luna session survived and none was dispatched: the corrections, the diff
+> inspection, and the residue searches were done by the primary agent directly. Recorded so
+> the review provenance is not overstated.
+
 If the current native-agent sessions survive, use implementation writer
 `/root/luna_rip_quantifier_cap` and spec reviewer `/root/luna_quantifier_spec_review`. If they do not,
 dispatch replacements with the exact findings and scope in this section; continuity of requirements
@@ -173,6 +231,13 @@ four items. Do not touch Rust source or the three protected files. Then:
 No Cargo/build/test/format command belongs in this demolition review.
 
 ## Next authorized removal: dead ComposeBudget forwarding
+
+> **DONE — `318c9f7d`/`11fff5e4`/`77226079` (net `-202`), plus the follow-on slice
+> `b3c8d14d`/`7eb17a3b`/`86fb56fb` (net `-61`) that removed the three higher-level
+> parameters this section deliberately left standing. Ledger entries `3665b68d`/`a0e58f0b`.**
+> One correction to the brief: the surviving `with_caps` call sites are not one class. Four
+> were budget-only plumbing and closed for free; two are `peel_candidates` callers whose
+> budget carries a live chain-depth contract and still need a repair decision.
 
 A read-only Luna/xhigh audit found that the next smallest coherent source deletion is the no-op
 budget-parameter chain:
@@ -212,6 +277,11 @@ do not delete protected F6/termination tests merely to hide the hole. Never add 
 make an intermediate test compile.
 
 ## Remaining removal and decision queue
+
+> **Items 1, 2, 3, 4 and 6 are resolved** — see the Status table at the top of this file for
+> which commit closed each, and `docs/simplification-rip-list.md` for the detail. Item 5
+> (`F10`) and item 7 (`D5`/`D8`) remain, and the rip list's closing section explains why
+> neither is a rip.
 
 Keep every item staged independently and tracked in the rip list.
 
@@ -289,6 +359,11 @@ holes, add only tests for the ratified final contracts, and then perform authori
   checked, the protected diffs are resolved intentionally, and the final worktree is clean.
 
 ## Suggested continuation sequence
+
+> **Steps 1-8 are done or resolved.** Step 6 went back to the user and both decisions were
+> made; step 7 ran the inventory and the answer was NO-GO. Step 9 — the minimum replacement
+> surface and managed authoritative verification — is the whole of what remains, and it is
+> where the next session should start.
 
 1. Correct and fully review the remaining finite-quantifier docs residue.
 2. Update the rip-list ledger with the accepted quantifier tranche and current line totals.
