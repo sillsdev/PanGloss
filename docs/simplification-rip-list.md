@@ -241,7 +241,7 @@ path with three externally enforced, configurable execution limits. Verified old
 
 | # | Item | Evidence | Est. lines | Status |
 |---|---|---|---|---|
-| E1 | `ProposalVolume`, `ConfirmationWork`, `DuplicateAnalysisOverlap` computed during the build | `fst_health.rs` | 200–400 | **AUTHORIZED** — move exclusively to the explicit post-build corpus-test step |
+| E1 | `ProposalVolume`, `ConfirmationWork`, `DuplicateAnalysisOverlap` computed during the build | `fst_health.rs` | 200–400 | **PARTIAL — RIPPED FIRST** — `070de6c6`/`3fd3afdf` removed the word-corpus tests, compiler/apply path, findings, and CLI word argument; `fst-health` is grammar characterization only. A replacement post-build corpus operation is intentionally deferred until all ripping is exhausted |
 | E2 | The discarded double traversal: the pre-check runs or reproduces the production emitter's closure walk, then the real compile runs it again | `characterization.rs` + `preexpand.rs` + `backend_runtime.rs` | 100–200 | **AUTHORIZED** — delete automatic and explicit dry-run closure traversal. Keep cheap grammar analysis and the build's one required pre-expansion traversal |
 
 ---
@@ -283,7 +283,7 @@ path with three externally enforced, configurable execution limits. Verified old
 | H2 | `capability.rs` — 3,942 non-test lines, 15 predicates, one file | | **OPEN** — split, do not rip |
 | H3 | Adding a backend is a shotgun edit: 162 references across 15 files | | **OPEN** — simplify after D2 removes chooser/ranking coupling |
 | H4 | `PlanComposed` / `uflexc` is the weakest backend with known whole-construct holes | `strategy_coverage.rs` 142 | **VERIFY** — it may remain an explicitly selectable backend if capability analysis reports those holes honestly; it gets no fallback/preference role |
-| H5 | Old uncalibrated constants | 3,000 / 100 MB / 100 | **AUTHORIZED** — delete. Replacement execution defaults are 1 GB payload / 10 GB committed RAM / 10 minutes and are configurable, finite, and non-semantic |
+| H5 | Old uncalibrated constants | 3,000 / 100 MB / 100 | **PARTIAL — RIPPED FIRST** — delete non-semantic truncation/refusal constants. `1749195f` removed `MAX_RENDER_VARIANTS` and its silent finite-variant truncation. Replacement execution defaults are 1 GB payload / 10 GB committed RAM / 10 minutes and are configurable, finite, and non-semantic. Closure/iteration/chain caps with live termination roles remain protected or deferred |
 | H6 | Concurrent "kill the right one" scheduler | | **REJECTED** — explicitly selected builds run sequentially, so no cross-build resource arbitration machinery is needed |
 
 ---
@@ -550,10 +550,10 @@ or compatibility machinery already removed.
 
 ## Tally
 
-Committed rebased branch range `1225f25a..ff2d9ae6`:
-**13,753 deletions / 10,752 additions, net -3,001 lines** across 153 files. The dedicated rip-first
-range `1c7cc837..ff2d9ae6` removed **9,550 lines**, added 623 structural/fixture/documentation lines,
-and is net **-8,927 lines** across 99 files. This is a branch-wide mechanical line tally, not a claim that every commit is
+Committed rebased branch range `1225f25a..3fd3afdf`:
+**14,073 deletions / 10,799 additions, net -3,274 lines** across 153 files. The dedicated rip-first
+range `1c7cc837..3fd3afdf` removed **9,872 lines**, added 672 structural/fixture/documentation lines,
+and is net **-9,200 lines** across 99 files. This is a branch-wide mechanical line tally, not a claim that every commit is
 cleanup: it includes the ratified charter, designs/plans, replacement tests, and the typed contract
 needed before the old containment loop can be removed. The completed raw-transport range removed
 432 and added 426 lines in `worker.rs` plus `worker_contract.rs` (net −6 production lines), while
@@ -589,6 +589,14 @@ The health-publication readiness test deletion (`0e001bdc`) is committed, but it
 deletion is not included in these totals: `make_report.rs` and `pack.rs` remain an isolated dirty
 diff pending explicit acceptance of the publication-readiness consequence. Uncommitted work is
 never counted until its exact staged snapshot is inspected and committed.
+
+The remaining-cap audit classified `PATTERN_ITER_CAP`, compound/absolute chain-depth limits, the
+structural closure depth, and apply path/candidate limits as live termination or safety boundaries;
+they are not deletion authority. `STRUCTURAL_FS_REACHABILITY_STATE_CAP` fails open and needs a
+separate termination design. `REP_VARIANT_CAP` is a larger recall-losing overflow-plumbing tranche
+authorized in principle but must be staged separately. Historical documents that show the removed
+`fst-health <grammar> <words>` workflow remain queued for the final stale-contract documentation
+sweep; they do not authorize restoring that command path.
 Remaining deletion opportunity is tracked by the stages above; estimates below are directional
 only:
 
