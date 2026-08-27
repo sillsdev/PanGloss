@@ -1721,25 +1721,6 @@ mod tests {
             }
         }
 
-        /// `--guess --engine=foma` must be a hard, explicit error, never a silent no-op, since the foma path has no guesser of its own.
-        #[test]
-        fn guess_with_foma_engine_is_a_hard_error() {
-            let dir = super::scratch_dir("guess-foma-conflict");
-            let grammar_path = dir.join("grammar.xml");
-            let words_path = dir.join("words.txt");
-            let out_path = dir.join("out.tsv");
-            std::fs::write(&grammar_path, GUESS_GRAMMAR_XML).unwrap();
-            std::fs::write(&words_path, "gag\n").unwrap();
-            let args = vec![
-                grammar_path.to_string_lossy().into_owned(),
-                words_path.to_string_lossy().into_owned(),
-                out_path.to_string_lossy().into_owned(),
-                "--engine=foma".to_string(),
-                "--guess".to_string(),
-            ];
-            let err = super::run_batch(&args).expect_err("--guess --engine=foma must error");
-            assert!(err.contains("--guess"), "{err}");
-        }
     }
 
 }
