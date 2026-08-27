@@ -674,7 +674,6 @@ impl DerivationProjection {
 /// The classifier-owned decisions and coupled physical-slot projections used by production.
 #[derive(Debug, Clone)]
 pub struct MorphologyRelationPlan {
-    active_pipeline_table: TableId,
     decisions: HashMap<AllomorphId, MorphologyRewrite>,
     relation: CompiledMorphologyRelation,
     slot_projections: Vec<SlotProjection>,
@@ -897,16 +896,11 @@ impl MorphologyRelationPlan {
         }
         let relation = CompiledMorphologyRelation::from_classified(classified)?;
         Ok(Self {
-            active_pipeline_table,
             decisions,
             relation,
             slot_projections,
             derivation_projections,
         })
-    }
-
-    pub fn active_pipeline_table(&self) -> TableId {
-        self.active_pipeline_table
     }
 
     pub fn decision(&self, allomorph: AllomorphId) -> Option<&MorphologyRewrite> {

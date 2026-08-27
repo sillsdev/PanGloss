@@ -147,18 +147,6 @@ pub fn build(k: usize, pos_xml_id: &str, table: &TableSpec, ids: &mut IdMinter) 
     }
 }
 
-/// The UNGATED (pre-rule) spelling every entry carries in its own `<PhoneticShape>` before any
-/// gated rule fires: `{base}{off_0}{off_1}...{off_{k-1}}` -- shared by a gate that wants to assert
-/// against the entry's OWN declared spelling, not just the post-synthesis oracle word.
-pub fn base_shape(table: &TableSpec, k: usize) -> String {
-    let mut s = String::new();
-    s.push(table.segments[0].ch);
-    for j in 0..k {
-        s.push(table.segments[1 + 2 * j].ch);
-    }
-    s
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

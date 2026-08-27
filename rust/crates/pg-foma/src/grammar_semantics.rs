@@ -125,7 +125,6 @@ pub struct GrammarSemantics<'g> {
     ordering_dependencies: u64,
     prule_ids_in_order: Vec<PRuleId>,
     template_ids: Vec<TemplateId>,
-    char_table_count: usize,
     primary_table: Option<TableId>,
     primary_table_boundary_symbols: Vec<String>,
     entry_partition: OnceLock<Vec<SemanticEntryGroup>>,
@@ -242,7 +241,6 @@ impl<'g> GrammarSemantics<'g> {
             ordering_dependencies,
             prule_ids_in_order,
             template_ids,
-            char_table_count: grammar.char_tables.len(),
             primary_table,
             primary_table_boundary_symbols,
             entry_partition: OnceLock::new(),
@@ -388,11 +386,6 @@ impl<'g> GrammarSemantics<'g> {
     /// Every declared affix template, in authored order.
     pub fn template_ids(&self) -> &[TemplateId] {
         &self.template_ids
-    }
-
-    /// How many character-definition tables the grammar declares.
-    pub fn char_table_count(&self) -> usize {
-        self.char_table_count
     }
 
     /// The grammar's first character-definition table, or `None` if it declares none.
