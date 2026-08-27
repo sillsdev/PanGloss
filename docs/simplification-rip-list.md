@@ -211,7 +211,7 @@ carrying cost, and deleting it now costs nothing.
 |---|---|---|---|---|
 | B1 | `#[serde(alias)]` on every `Severity` variant for pre-schema-3 spellings, plus the test pinning them | `health.rs` | 60–120 | **LANDED UNVERIFIED** — aliases and the compatibility test removed; full completion gate is not recorded here |
 | B2 | `health::OverrideRecord`, kept solely to deserialize already-written reports | `health.rs` | 80–150 | **LANDED UNVERIFIED** — type, field, fixtures, projection, and override-only tests removed; full completion gate is not recorded here |
-| B3 | Persistent capability-override records in pack manifests/WASM consumers | `pg_pack::trust`, `readiness_verdict.rs` | — | **AUTHORIZED** — delete from publishable artifacts. Local unproven status survives only in build metadata, which pack rejects |
+| B3 | Persistent capability-override records in pack manifests/WASM consumers | `pg_pack::trust`, `readiness_verdict.rs` | — | **LANDED UNVERIFIED** — `67c661cc`/`05ba71b8` removed publication acceptance and persistent override/trust data; `1cad7f2c` removed the stale make-report pack-trust projection. Local unproven status remains only as build metadata, and publication rejects it |
 | B4 | `Certification::MultiplicityMismatch` — doc says "no longer produced, kept for deserializing old reports" | `backend_optimizer.rs` | 20–40 | **LANDED UNVERIFIED** — variant and compatibility fixture removed; full completion gate is not recorded here |
 | B5 | `Truncated { corpus: Option<..> }` carries live oracle evidence | `backend_optimizer.rs`, `backend_runtime.rs`, `backend_report.rs` | — | **PROTECTED** — audited and retained; live producers and consumers |
 | B6 | `HEALTH_SCHEMA_VERSION` stamps and validates stored health artifacts | `health.rs`, `fst_health.rs` | — | **LANDED UNVERIFIED** — strict current v7 validation and stale-version rejection are recorded in `49163cb8`/`3d1750f1`/`12d3d2bb`; current optional fields are retained as live schema fields, not compatibility defaults |
@@ -263,7 +263,7 @@ path with three externally enforced, configurable execution limits. Verified old
 | # | Item | Evidence | Est. lines | Status |
 |---|---|---|---|---|
 | E1 | `ProposalVolume`, `ConfirmationWork`, `DuplicateAnalysisOverlap` computed during the build | `fst_health.rs` | 200–400 | **PARTIAL — RIPPED FIRST** — `070de6c6`/`3fd3afdf` removed the word-corpus tests, compiler/apply path, findings, and CLI word argument; `fst-health` is grammar characterization only. A replacement post-build corpus operation is intentionally deferred until all ripping is exhausted |
-| E2 | The discarded double traversal: the pre-check runs or reproduces the production emitter's closure walk, then the real compile runs it again | `characterization.rs` + `preexpand.rs` + `backend_runtime.rs` | 100–200 | **AUTHORIZED** — delete automatic and explicit dry-run closure traversal. Keep cheap grammar analysis and the build's one required pre-expansion traversal |
+| E2 | The discarded double traversal: the pre-check runs or reproduces the production emitter's closure walk, then the real compile runs it again | `characterization.rs` + `preexpand.rs` + `backend_runtime.rs` | 100–200 | **LANDED UNVERIFIED** — `ab0ed0ed`/`516821e0` plus follow-up wrapper deletions `c744cc4f`/`2ab00e08` removed dry-run tests, duplicate walkers, runtime/selection prechecks, and dead wrappers. Cheap grammar analysis, production trace/evidence, and the one required real build traversal remain |
 
 ---
 
@@ -315,7 +315,7 @@ path with three externally enforced, configurable execution limits. Verified old
 |---|---|---|
 | I1 | Historical large dirty-tree churn | **RETAINED DISCIPLINE** — every slice is separately committed; final snapshot must be clean |
 | I2 | Baseline worktree at `.claude/worktrees/baseline-verify` | **VERIFIED** — path is absent |
-| I3 | Mismatch ledger accuracy | **AUTHORIZED** — B3 persistence still contradicts the charter; B6 strict versioning is landed and tracked above |
+| I3 | Mismatch ledger accuracy | **LANDED UNVERIFIED** — B3 publication-override persistence is resolved by `67c661cc`/`05ba71b8`/`1cad7f2c`; B6 strict versioning remains tracked above |
 | I4 | `2026-08-23-developer-fst-controls.md` drifts both ways; obsolete once C1 lands | **AUTHORIZED** — replace or delete with C1 |
 | I5 | Docs referencing envelope retry, automatic selection, build-time corpus work, or compatibility guarantees | **AUTHORIZED** — update in the same slice that removes each behavior |
 
@@ -408,9 +408,11 @@ already rejected behavior.
    closure characterization walkers from `characterization`, `preexpand`, `emit`, runtime, and
    selection. Gate: analysis performs no production compile/traversal; a selected build performs its
    required pre-expansion exactly once. Protected: cheap grammar facts and real build traversal.
-   Status: **RIPPED FIRST.** `ab0ed0ed` deleted dry-run tests and `516821e0` deleted the two
-   hand-written walkers, emitter-and-discard wrappers, and selection/runtime prechecks: 978 deleted,
-   4 structural lines added. Production trace/evidence and the real pre-expansion remain.
+   Status: **LANDED UNVERIFIED.** `ab0ed0ed`/`516821e0` plus `c744cc4f`/`2ab00e08` removed dry-run tests,
+   duplicate walkers, emitter-and-discard wrappers, selection/runtime prechecks, and dead wrappers:
+   1,017 deleted, 4 structural lines added. Production trace/evidence and the one required real build
+   traversal remain. The callerless closure-advice residue was removed test-first in `e4e35359` and
+   source-second in `5528ae4f`; no replacement advice path was added.
 6. **Build the smaller explicit path and separate Analyze, Test, and Package (E1/A2/A3).** Only after
    authorized ripping is complete, move proposal/confirmation/duplicate metrics
    to a post-build corpus operation. `pack` consumes one explicitly named completed artifact and
