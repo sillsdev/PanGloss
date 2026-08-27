@@ -8,21 +8,10 @@
 //!   `std::panic::catch_unwind` as best-effort panic containment only.
 //!
 //! # Typed outcomes -> existing health/error vocabulary (do not invent a parallel one)
-//! `CompileWorkerOutcome` (what the CHILD reports) reuses `crate::compose_budget::ComposeError`
-//! verbatim for a real enumeration budget trip --
-//! `crate::analyzer::FomaProposer::new_with_budget_and_profile` is the one production call site
-//! that can return `Err` from an actual `crate::compose_budget::ComposeError`-carrying
-//! `crate::analyzer::FomaError` variant before ever handing lexc to the foma compiler) and feeds
-//! every measurement into `crate::health_evaluator::evaluate_health` to build a real
-//! `crate::health::HealthReport` -- never a second, parallel report shape. `WorkerOutcome`
-//! (what the PARENT reports for outcomes the child never got to write -- a wall-timeout kill, a
-//! crash, or a malformed protocol message) maps each into the SAME
-//! `crate::health::HealthReport`/`crate::health::HealthFinding` vocabulary via
-//! `WorkerOutcome::health_report`. A proven external-monitor abort (wall-timeout or
-//! OS-reported memory limit) uses `crate::health::FindingCode::HostContainmentFired`; an
-//! unproven child crash and spawn/protocol faults are instead build-process faults and use
-//! `crate::health::FindingCode::BuildProcessFailed` (see
-//! `WorkerOutcome::health_report`'s own doc for the reasoning). The health vocabulary remains
+//! `CompileWorkerOutcome` is the typed result the CHILD reports. Successful ordinary compiles
+//! carry the real `crate::health::HealthReport` produced by
+//! `crate::health_evaluator::evaluate_health`; child-level failures retain their detail and
+//! protocol violations remain distinct from grammar-content failures. The health vocabulary is
 //! shared with the rest of the crate; this module does not add a parallel report shape.
 //!
 //! # Documented gap: grammar-format dispatch duplicates `pg-cli::load_grammar`
@@ -35,7 +24,6 @@
 
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -56,9 +44,7 @@ use crate::health::{
 /// wire-incompatible change to either type.
 pub const WORKER_PROTOCOL_VERSION: u32 = crate::worker_contract::PROTOCOL_VERSION;
 
-pub use pg_worker_containment::{
-    ExecutionLimitError, ExecutionLimits, DEFAULT_EXECUTION_LIMITS,
-};
+use pg_worker_containment::ExecutionLimits;
 
 /// Versioned, hard-coded ceilings for this protocol (design discipline shared with
 /// `pg_pack::format::VersionLimits`). These bound the WIRE MESSAGES themselves (request/result JSON
@@ -81,15 +67,6 @@ pub const WORKER_PROTOCOL_LIMITS: WorkerProtocolLimits = WorkerProtocolLimits {
     max_result_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_result_bytes,
 };
 
-/// Looks up the versioned limits for a protocol version. `None` for any version this build
-/// doesn't understand.
-pub const fn limits_for_version(version: u32) -> Option<WorkerProtocolLimits> {
-    match version {
-        WORKER_PROTOCOL_VERSION => Some(WORKER_PROTOCOL_LIMITS),
-        _ => None,
-    }
-}
-
 // Length-prefixed framing: validate-before-allocate, mirroring `pg_pack::format::read_pack`.
 
 /// Every way reading one length-prefixed frame can fail. Never a panic -- a malformed/oversized
@@ -98,15 +75,11 @@ pub const fn limits_for_version(version: u32) -> Option<WorkerProtocolLimits> {
 #[derive(Debug)]
 pub enum FrameError {
     Io(io::Error),
-    /// A selected payload frame declared no payload bytes.
-    ZeroLength,
     /// The declared frame length exceeds this protocol version's limit, returned before any buffer of that size is allocated.
     LengthExceedsLimit {
         declared: u64,
         limit: u64,
     },
-    /// The selected payload frame disagrees with the preceding result metadata.
-    LengthMismatch { declared: u64, expected: u64 },
     /// The declared frame length cannot be represented by this process's `usize`.
     LengthNotAddressable { declared: u64 },
     /// The process could not reserve the declared frame body without panicking.
@@ -119,15 +92,10 @@ impl std::fmt::Display for FrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FrameError::Io(e) => write!(f, "I/O error reading frame: {e}"),
-            FrameError::ZeroLength => write!(f, "declared frame length must not be zero"),
             FrameError::LengthExceedsLimit { declared, limit } => write!(
                 f,
                 "declared frame length {declared} exceeds this protocol version's limit of {limit} \
                  byte(s)"
-            ),
-            FrameError::LengthMismatch { declared, expected } => write!(
-                f,
-                "declared frame length mismatch: result declares {expected} byte(s), frame declares {declared}"
             ),
             FrameError::LengthNotAddressable { declared } => write!(
                 f,
@@ -155,25 +123,6 @@ fn write_frame<W: Write>(w: &mut W, bytes: &[u8]) -> io::Result<()> {
 fn read_frame<R: Read>(r: &mut R, max_len: u64) -> Result<Vec<u8>, FrameError> {
     let len = read_frame_length(r)?;
     let len_usize = validate_frame_length(len, max_len)?;
-    read_frame_body(r, len, len_usize)
-}
-
-fn read_selected_payload_frame<R: Read>(
-    r: &mut R,
-    expected_len: u64,
-    max_len: u64,
-) -> Result<Vec<u8>, FrameError> {
-    let len = read_frame_length(r)?;
-    if len == 0 {
-        return Err(FrameError::ZeroLength);
-    }
-    let len_usize = validate_frame_length(len, max_len)?;
-    if len != expected_len {
-        return Err(FrameError::LengthMismatch {
-            declared: len,
-            expected: expected_len,
-        });
-    }
     read_frame_body(r, len, len_usize)
 }
 
@@ -280,8 +229,8 @@ pub struct CompileWorkerResult {
     pub outcome: CompileWorkerOutcome,
 }
 
-/// Every terminal outcome the CHILD itself can observe and report (see `WorkerOutcome` for the
-/// outcomes only the PARENT can observe -- a kill, a crash, or malformed output).
+/// Every terminal outcome the CHILD itself can observe and report. External process containment
+/// remains the caller's responsibility for failures that prevent a child result from being sent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompileWorkerOutcome {
     /// The compile completed under budget, carrying the final state/arc counts and the real `HealthReport` from `crate::health_evaluator::evaluate_health`.
@@ -372,8 +321,8 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
         Err(_) => {
             let detail = "the compile call panicked inside the worker process (caught here by \
                 catch_unwind; this does not protect against stack overflow or allocator OOM, \
-                which abort the process outright -- the supervisor's wall-timeout/exit-status \
-                checks are what catch those, reported as WorkerOutcome::ChildCrashed)"
+                which abort the process outright and must be observed by an external process \
+                boundary)"
                 .to_string();
             return CompileWorkerOutcome::CompileFailed {
                 health: build_process_failure_health(detail.clone()),
@@ -533,9 +482,8 @@ fn compile_selected_from_request(
 ///
 /// Generic over `Read`/`Write` so this same function is both the real production child (`io::
 /// stdin()`/`io::stdout()`, wired by `pg-cli`'s hidden subcommand) and directly unit-testable
-/// in-process against an in-memory buffer (no subprocess needed to test the protocol/compile-outcome
-/// mapping logic; only the supervisor's own kill/timeout behavior needs a real spawned process,
-/// exercised by this crate's `tests/worker_execution_limits_contract.rs`).
+/// in-process against an in-memory buffer (no subprocess needed to test the protocol and
+/// compile-outcome mapping logic).
 pub fn run_worker_child<R: Read, W: Write>(mut input: R, mut output: W) -> io::Result<()> {
     let limits = WORKER_PROTOCOL_LIMITS;
 
@@ -653,177 +601,6 @@ fn write_child_output<W: Write>(
     Ok(())
 }
 
-// Supervisor (parent side).
-
-/// Canonical native evidence shared by the worker outcome and the containment adapter. The
-/// adapter owns its construction; this crate remains responsible only for outcome mapping.
-pub use pg_worker_containment::MemoryLimitEvidence;
-
-/// Every terminal outcome the SUPERVISOR (parent) itself observes -- as opposed to
-/// `CompileWorkerOutcome`, which the child observes and reports about itself. A
-/// `WorkerOutcome::Completed` wraps a real `CompileWorkerOutcome`; every other variant is an
-/// outcome the child never got to report because the supervisor killed it or it never produced a
-/// valid result frame at all.
-#[derive(Debug, Clone)]
-pub enum WorkerOutcome {
-    /// The child ran to completion and reported its own typed outcome.
-    Completed(CompileWorkerOutcome),
-    /// The child reported a selected success and the parent validated its raw payload frame.
-    SelectedCompleted {
-        build: CompletedBackendBuildWire,
-        payload: Vec<u8>,
-    },
-    /// The child was killed after `elapsed` exceeded `limit` -- an external execution limit, not a grammar-health verdict.
-    WallTimeoutKilled { elapsed: Duration, limit: Duration },
-    /// The OS containment boundary reported that the aggregate worker-tree memory charge reached
-    /// its configured limit. This outcome requires platform evidence; an abnormal exit alone is
-    /// only `ChildCrashed`.
-    MemoryLimitKilled {
-        limit_bytes: u64,
-        evidence: MemoryLimitEvidence,
-    },
-    /// Required process-tree containment is not available on this host, so no unmanaged worker
-    /// may be started.
-    ContainmentUnavailable { detail: String },
-    /// An established containment mechanism failed while supervising or cleaning up the worker
-    /// tree. Any parsed payload is unusable.
-    ContainmentFailed { detail: String },
-    /// The child exited abnormally (panic-as-abort, stack overflow, allocator OOM, or an external
-    /// kill) without producing a valid result frame; `detail` names the observed status and why
-    /// parsing failed.
-    ChildCrashed { detail: String },
-    SpawnFailed { detail: String },
-    /// The request could not even be serialized/sized within `WorkerProtocolLimits::max_request_bytes`, so no child was spawned at all.
-    ProtocolViolation { detail: String },
-}
-
-impl WorkerOutcome {
-    /// Maps this outcome into the existing `HealthReport`/`HealthFinding` vocabulary (the
-    /// fast-failure-primacy contract: the report must carry the effective limit, the reached
-    /// metric, and partial measurements where available) -- never a second, parallel report shape.
-    /// `WorkerOutcome::Completed` returns
-    /// the child's own real report unchanged; every other variant builds ONE synthetic finding
-    /// describing the parent-observed supervisor event.
-    ///
-    /// **Proven containment events stay distinct from process faults.** `WallTimeoutKilled` and
-    /// `MemoryLimitKilled` use `FindingCode::HostContainmentFired`
-    /// at `Severity::MachineLimit`. A bare `ChildCrashed` does not prove which OS boundary fired,
-    /// so it remains a process fault. `ContainmentUnavailable`, `ContainmentFailed`, `SpawnFailed`,
-    /// and `ProtocolViolation` also use `FindingCode::BuildProcessFailed`
-    /// (`FindingClass::Process`) at `Severity::NotProductionReady`, matching
-    /// `crate::backend_selection`'s own use of the same code for an operational build fault rather
-    /// than `Severity::MachineLimit`, which would misname a tooling fault as host containment.
-    pub fn health_report(&self) -> HealthReport {
-        match self {
-            WorkerOutcome::Completed(outcome) => match outcome {
-                CompileWorkerOutcome::Success { health, .. }
-                | CompileWorkerOutcome::CompileFailed { health, .. }
-                    if !health.findings.is_empty() =>
-                {
-                    health.clone()
-                }
-                CompileWorkerOutcome::CompileFailed { detail, .. }
-                | CompileWorkerOutcome::GrammarLoadFailed { detail }
-                | CompileWorkerOutcome::ProtocolViolation { detail }
-                | CompileWorkerOutcome::SelectedCompileFailed { detail } => {
-                    build_process_failure_health(detail.clone())
-                }
-                CompileWorkerOutcome::SelectedExecutionLimitExceeded {
-                    actual_bytes,
-                    limit_bytes,
-                } => HealthReport::new(vec![HealthFinding {
-                    code: FindingCode::ResourceBudgetReached,
-                    severity: Severity::NotProductionReady,
-                    phase: Phase::Compile,
-                    affected: Vec::new(),
-                    metric: Metric::PayloadBytes,
-                    value: MetricValue::Bytes(*actual_bytes),
-                    provenance: ValueProvenance::Observed,
-                    threshold: Some(MetricValue::Bytes(*limit_bytes)),
-                    explanation: format!(
-                        "The selected compile produced a serialized FST of {actual_bytes} byte(s), \
-                         exceeding the configured {limit_bytes}-byte execution limit. No artifact \
-                         was published."
-                    ),
-                    remedies: Vec::new(),
-                }]),
-                CompileWorkerOutcome::SelectedSuccess { .. } => HealthReport::new(Vec::new()),
-            },
-            WorkerOutcome::SelectedCompleted { .. } => HealthReport::new(Vec::new()),
-            WorkerOutcome::WallTimeoutKilled { elapsed, limit } => {
-                HealthReport::new(vec![HealthFinding {
-                    code: FindingCode::HostContainmentFired,
-                    severity: Severity::MachineLimit,
-                    phase: Phase::Compile,
-                    affected: Vec::new(),
-                    metric: Metric::ElapsedMillis,
-                    value: MetricValue::Millis(elapsed.as_millis() as u64),
-                    provenance: ValueProvenance::Observed,
-                    threshold: Some(MetricValue::Millis(limit.as_millis() as u64)),
-                    explanation: format!(
-                        "The compile worker process was killed after {elapsed:?}, exceeding its \
-                         configured wall-time limit of {limit:?}. This is an execution-limit \
-                         outcome, not a grammar-capability verdict."
-                    ),
-                    remedies: Vec::new(),
-                }])
-            }
-            WorkerOutcome::MemoryLimitKilled {
-                limit_bytes,
-                evidence,
-            } => HealthReport::new(vec![HealthFinding {
-                code: FindingCode::HostContainmentFired,
-                severity: Severity::MachineLimit,
-                phase: Phase::Compile,
-                affected: Vec::new(),
-                metric: Metric::WorkerTreePeakMemoryChargeBytes,
-                value: MetricValue::Bytes(evidence.peak_memory_charge_bytes()),
-                provenance: ValueProvenance::Observed,
-                threshold: Some(MetricValue::Bytes(*limit_bytes)),
-                explanation: format!(
-                    "The OS-enforced worker-tree memory boundary fired after a peak aggregate \
-                     memory charge of {} byte(s), against the configured {}-byte limit. Exact \
-                     platform-native limit-event evidence remains on the typed WorkerOutcome. \
-                     This is not a grammar-capability verdict.",
-                    evidence.peak_memory_charge_bytes(),
-                    limit_bytes
-                ),
-                remedies: Vec::new(),
-            }]),
-            WorkerOutcome::ContainmentFailed { detail } => {
-                build_process_failure_health(format!(
-                    "Worker process-tree containment failed while supervising or cleaning up the \
-                     build: {detail}"
-                ))
-            }
-            WorkerOutcome::ChildCrashed { detail } => build_process_failure_health(format!(
-                "The compile worker process terminated abnormally without OS containment \
-                 evidence and without producing a valid result frame: {detail}"
-            )),
-            WorkerOutcome::ContainmentUnavailable { detail } => {
-                build_process_failure_health(format!(
-                    "Required worker process-tree containment is unavailable; no unmanaged build \
-                     was started: {detail}"
-                ))
-            }
-            WorkerOutcome::SpawnFailed { detail } | WorkerOutcome::ProtocolViolation { detail } => {
-                HealthReport::new(vec![HealthFinding {
-                    code: FindingCode::BuildProcessFailed,
-                    severity: Severity::NotProductionReady,
-                    phase: Phase::Compile,
-                    affected: Vec::new(),
-                    metric: Metric::UnknownUnboundedWork,
-                    value: MetricValue::Unbounded,
-                    provenance: ValueProvenance::Observed,
-                    threshold: None,
-                    explanation: detail.clone(),
-                    remedies: Vec::new(),
-                }])
-            }
-        }
-    }
-}
-
 fn build_process_failure_health(detail: String) -> HealthReport {
     HealthReport::new(vec![HealthFinding {
         code: FindingCode::BuildProcessFailed,
@@ -837,83 +614,6 @@ fn build_process_failure_health(detail: String) -> HealthReport {
         explanation: detail,
         remedies: Vec::new(),
     }])
-}
-
-#[derive(Debug)]
-enum ParsedWorkerOutput {
-    Completed(CompileWorkerOutcome),
-    SelectedCompleted {
-        build: CompletedBackendBuildWire,
-        payload: Vec<u8>,
-    },
-}
-
-/// Reads the result stream with independent metadata and selected-payload limits.
-fn read_worker_output<R: Read>(
-    mut reader: R,
-    selected_payload_limit: Option<u64>,
-) -> Result<ParsedWorkerOutput, String> {
-    let result_bytes = read_frame(&mut reader, WORKER_PROTOCOL_LIMITS.max_result_bytes)
-        .map_err(|error| format!("invalid worker result frame: {error}"))?;
-    let result: CompileWorkerResult = decode_frame_body(&result_bytes)
-        .map_err(|error| format!("invalid worker result JSON: {error}"))?;
-    if result.protocol_version != WORKER_PROTOCOL_VERSION {
-        return Err(format!(
-            "unsupported result protocol version {}; expected {}",
-            result.protocol_version, WORKER_PROTOCOL_VERSION
-        ));
-    }
-
-    match result.outcome {
-        CompileWorkerOutcome::SelectedSuccess {
-            build,
-            payload_byte_len,
-            payload_sha256,
-        } => {
-            let limit = selected_payload_limit.ok_or_else(|| {
-                "selected success received for a non-selected request".to_string()
-            })?;
-            let payload = read_selected_payload_frame(&mut reader, payload_byte_len, limit)
-                .map_err(|error| format!("invalid selected payload frame: {error}"))?;
-            let actual_digest = sha256_hex(&payload);
-            if payload_sha256 != actual_digest {
-                return Err(format!(
-                    "selected payload digest mismatch: result declares {payload_sha256}, frame is {actual_digest}"
-                ));
-            }
-            if build.payload_fingerprint != actual_digest {
-                return Err(format!(
-                    "selected payload fingerprint mismatch: build declares {}, frame is {actual_digest}",
-                    build.payload_fingerprint
-                ));
-            }
-            ensure_worker_output_eof(&mut reader)?;
-            Ok(ParsedWorkerOutput::SelectedCompleted { build, payload })
-        }
-        outcome => {
-            ensure_worker_output_eof(&mut reader)?;
-            Ok(ParsedWorkerOutput::Completed(outcome))
-        }
-    }
-}
-
-fn ensure_worker_output_eof<R: Read>(reader: &mut R) -> Result<(), String> {
-    let mut extra = [0u8; 1];
-    match reader.read(&mut extra) {
-        Ok(0) => Ok(()),
-        Ok(_) => Err("trailing bytes after worker result".to_string()),
-        Err(error) => Err(format!("I/O error checking worker output EOF: {error}")),
-    }
-}
-
-fn spawn_worker_output_reader<R: Read + Send + 'static>(
-    reader: R,
-    selected_payload_limit: Option<u64>,
-    sender: std::sync::mpsc::Sender<Result<ParsedWorkerOutput, String>>,
-) -> std::thread::JoinHandle<()> {
-    std::thread::spawn(move || {
-        let _ = sender.send(read_worker_output(reader, selected_payload_limit));
-    })
 }
 
 #[cfg(test)]

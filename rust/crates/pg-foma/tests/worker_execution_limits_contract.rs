@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use pg_foma::worker::{
     run_worker_child, CompileWorkerOutcome, CompileWorkerRequest, GrammarFormat,
-    WORKER_PROTOCOL_VERSION,
 };
 use pg_worker_containment::{ExecutionLimitError, ExecutionLimits, DEFAULT_EXECUTION_LIMITS};
 
