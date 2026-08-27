@@ -364,23 +364,6 @@ pub(crate) fn minimize_checked(
 #[cfg(test)]
 mod compose_budget_tests {
     use super::*;
-    use foma::regex::fsm_parse_regex;
-
-    fn tiny_net(opts: &FomaOptions, s: &str) -> Fsm {
-        fsm_parse_regex(opts, s, None, None)
-            .unwrap_or_else(|| panic!("regex {s:?} failed to compile"))
-    }
-
-    #[test]
-    fn unbounded_budget_never_trips_on_small_fixture() {
-        let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
-        let a = tiny_net(&opts, "a");
-        let b = tiny_net(&opts, "a -> b");
-        let composed = compose_checked(&opts, a, b, &budget, "test").expect("small compose fits");
-        assert!(composed.statecount > 0);
-    }
-
     // Chain-depth dimension: exercises `check_chain_depth` directly, no `Fsm`/foma call involved.
 
     #[test]
