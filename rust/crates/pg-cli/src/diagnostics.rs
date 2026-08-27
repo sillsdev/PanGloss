@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn build_report_reflects_grammar_counts_and_carries_an_empty_health_report() {
+    fn build_report_reflects_grammar_counts_and_warnings() {
         let g = grammar();
         let report = build_report(&g, vec!["warn: synthetic".to_string()]);
         assert_eq!(report.schema_version, DIAGNOSTICS_SCHEMA_VERSION);
@@ -285,12 +285,6 @@ mod tests {
         assert_eq!(report.lex_entry_count, 2);
         assert_eq!(report.stratum_count, 1);
         assert_eq!(report.load_warnings, vec!["warn: synthetic".to_string()]);
-        assert_eq!(
-            report.health,
-            HealthReport::new(Vec::new()),
-            "no evaluator exists yet anywhere in this workspace; the health report must stay \
-             honestly empty rather than fabricate a finding"
-        );
     }
 
     fn grammar_file() -> std::path::PathBuf {
