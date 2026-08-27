@@ -170,12 +170,12 @@ of the completion gate, not evidence for restoring a rejected contract.
 | A1 | `ResourceBudgetReached` / `ProvenBoundExceedsBudget` classed as machine-health, so they exclude a backend | `health.rs:468-487`, `backend_selection.rs:227-252` | **AUTHORIZED** — live contradiction found; make them measurements/labels, never cross-backend selection input |
 | A2 | Pack write gate refuses on a severity number | `pack.rs:202-232` | **AUTHORIZED** — live contradiction found; publication follows capability proof, not size/readiness severity |
 | A3 | Apply-phase + severity used as a proxy for category | `pack.rs:202-232`, oversized-pack test | **AUTHORIZED** — rewrite the stale test before deleting the gate |
-| A4 | `evaluate_via_tuned_emit_mode` rejects on mere *presence* of a finding, before construction | `backend_runtime.rs:1428-1458` | **AUTHORIZED** — live pre-refusal remains |
-| A5 | `realize_accuracy_proposer` / `tuned_surface_resource_refusal` repeats the pre-refusal | `backend_runtime.rs:1428-1458,2082-2113` | **AUTHORIZED** — helper and callers remain |
+| A4 | `evaluate_via_tuned_emit_mode` rejected on mere *presence* of a finding, before construction | historical `backend_runtime.rs` | **LANDED UNVERIFIED** — removed by `516821e0`; the live function now builds directly |
+| A5 | `realize_accuracy_proposer` / `tuned_surface_resource_refusal` repeated the pre-refusal | historical `backend_runtime.rs` | **LANDED UNVERIFIED** — removed by `516821e0`; the live function now realizes directly |
 | A6 | Marker-bearing candidates banked `Unsupported` with zero work measured | `backend_runtime.rs` | **LANDED UNVERIFIED** — re-audit after A4/A5 deletion |
 | A7 | `--watchdog` structurally cannot produce a real artifact | `pack.rs:267-325,479-489,562-565,624-642` | **AUTHORIZED** — live watchdog/placeholder production path remains |
 | A8 | 16 MiB result metadata frame must not cap the selected payload | `worker_contract.rs`, `worker.rs` | **VERIFIED** — protocol v9 uses an independently bounded raw frame; filesystem transport and legacy parser/capture residue are deleted; prefix-before-allocation, clean exit, malformed streams, and supervisor-limit authority are proven |
-| A9 | `finished_net_digests` — same marker pre-refusal, third site | `backend_runtime.rs` ~1750 | **OPEN** — diagnostic-only, but same false premise |
+| A9 | `finished_net_digests` marker rejection | `backend_runtime.rs` `unbuildable_marker_reason` | **RETAINED** — audited as semantic representability: the selected plan-composed adapter does not implement those marked subtrees; this is not a resource estimate |
 | A10 | Internal construction caps in `compose_budget.rs` can still stop a representable build | 1,334-line file, 165 refs / 27 files | **AUTHORIZED** — retain useful measurements; delete internal representability/size refusals. The supervised worker's three configured execution limits are the only resource stops |
 
 ---
