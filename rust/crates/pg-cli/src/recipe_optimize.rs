@@ -237,7 +237,6 @@ impl Evaluator<'_> {
                 backend_id: candidate.signature.clone(),
                 certification: certification.clone(),
                 score: Some(score),
-                pruning_reason: None,
             },
             realized_strategy: realized_strategy.to_owned(),
         };
@@ -310,15 +309,6 @@ fn hash_inputs(grammar: &str, words: &str) -> Result<String, RecipeOptimizeError
     );
     h.update(fs::read(words).map_err(|e| RecipeOptimizeError::Io(format!("read {words}: {e}")))?);
     Ok(format!("{:x}", h.finalize()))
-}
-
-/// `BranchAndBound` has no production incumbent today: every `CandidateState` sets `exact_objective: None`, so `pruned` can never increment; keeps the inert field honest at the report boundary.
-fn assert_pruned_is_structurally_zero(pruned: u64) {
-    assert_eq!(
-        pruned, 0,
-        "SearchAccounting.pruned must remain zero until production supplies an admissible exact \
-         objective to branch-and-bound"
-    );
 }
 
 pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
@@ -618,7 +608,6 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     if let Some(error) = evaluator.progress_error.take() {
         return Err(RecipeOptimizeError::Io(error));
     }
-    assert_pruned_is_structurally_zero(outcome.search.pruned);
     outcome.usage.elapsed = outcome.usage.elapsed.saturating_add(presearch_elapsed);
     outcome.usage.build = outcome.usage.build.saturating_add(pilot_build);
     outcome.usage.confirmation = outcome
@@ -634,7 +623,6 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             backend_id: e.candidate.signature.clone(),
             certification: e.evidence.certification.clone(),
             score: e.evidence.score,
-            pruning_reason: None,
         })
         .collect::<Vec<_>>();
     let baseline_id = states.iter().find(|s| s.baseline).map(|s| s.id.clone());
@@ -784,10 +772,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             generated: outcome.search.generated,
             expanded: outcome.search.expanded,
             explored: outcome.search.explored,
-            pruned: outcome.search.pruned,
             unexplored: outcome.search.unexplored,
             unexplored_method: "search accounting".into(),
-            overflowed: false,
             declared_not_searched,
         },
         termination: outcome.search.termination,
@@ -1007,7 +993,6 @@ mod tests {
                 "confirmation_steps": 1,
                 "raw_paths": 1
             },
-            "pruning_reason": null,
             "realized_strategy": "plan-composed"
         });
         fs::write(

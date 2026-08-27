@@ -4,11 +4,10 @@ use crate::backend_optimizer::{
     Termination,
 };
 
-/// Bumped 1 -> 2 when `BackendOptimizationReport::corpus` and the oracle-configuration fields on
-/// `CorpusCompletenessEvidence` became part of the artifact. A version-1 report states a
-/// certification without stating the corpus it certified or the bounds it was derived under, so it
-/// is not comparable with a version-2 one and must not silently deserialize as if it were.
-pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 2;
+/// Bumped 2 -> 3 when inert optimizer-report counters and the unused candidate pruning reason
+/// were removed from the artifact. Reports from the prior schema are not comparable and must not
+/// silently deserialize as if they were current.
+pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 3;
 pub const DETERMINISTIC_SCORE_SCHEMA_VERSION: u32 = 2;
 use crate::backend_space::FeasibleCount;
 use crate::backend_space::PilotSummary;
@@ -25,7 +24,6 @@ pub struct CandidateReport {
     pub backend_id: String,
     pub certification: Certification,
     pub score: Option<Score>,
-    pub pruning_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -71,20 +69,8 @@ pub struct SearchAccounting {
     pub generated: u64,
     pub expanded: u64,
     pub explored: u64,
-    /// Candidates rejected by `backend_optimizer`'s branch-and-bound because their `lower_bound`
-    /// exceeded the running incumbent. This is **structurally always
-    /// zero in production today**: both call sites that build a `BranchAndBoundCandidate` in
-    /// `pg-cli/src/backend_optimize.rs` set `exact_objective: None`, so `incumbent` (initialized to
-    /// `u64::MAX`) never drops and no candidate's `lower_bound` can ever exceed it. Do not read
-    /// this field as a live "the search pruned N candidates" signal until a real admissible bound
-    /// is wired (`exact_objective` populated from an actual completed-evaluation cost) — an open
-    /// question, deferred pending a cost model. See
-    /// `backend_optimizer::tests::pruned_is_structurally_zero_in_production_shaped_run` for the
-    /// pinning test.
-    pub pruned: u64,
     pub unexplored: u64,
     pub unexplored_method: String,
-    pub overflowed: bool,
     #[serde(default)]
     pub declared_not_searched: u64,
 }
@@ -553,7 +539,6 @@ mod tests {
             backend_id: format!("backend-{id}"),
             certification: Certification::EstimateOnly,
             score: None,
-            pruning_reason: None,
         }
     }
 
@@ -575,7 +560,6 @@ mod tests {
                 confirmation_steps: work,
                 raw_paths: work,
             }),
-            pruning_reason: None,
         }
     }
 
