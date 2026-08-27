@@ -279,7 +279,7 @@ path with three externally enforced, configurable execution limits. Verified old
 | F6 | Duplicate adjacent assertions left by `acd313c6` | `health.rs`, `pack.rs` | **LANDED UNVERIFIED** |
 | F7 | Two unlinked copies of the 100 MB threshold | `health.rs`, `readiness_policy.rs` | **LANDED UNVERIFIED** |
 | F8 | `Certification::StaticRejected` may now be unreachable | `backend_runtime.rs` | **VERIFY** |
-| F9 | Stale `FailClosed` / `RefusalWitness` docs/tests — source machinery is already absent | `capability.rs` and ledgers/docs | **AUTHORIZED** — sweep stale references; do not recreate source behavior |
+| F9 | Stale `FailClosed` / `RefusalWitness` docs/tests — source machinery is already absent | `capability.rs` and ledgers/docs | **PARTIAL — RIPPED FIRST** — `1e835455`, `1fbda466`, and `5cfa5ecf` removed active ledger/conformance/staging claims and corrected the four-witness and WASM boundaries. Archived historical records remain history; do not recreate source behavior |
 | F10 | Dead-weight tests: 2,493 tests, some pinning behaviour being deliberately removed, some vacuous | whole suite | **OPEN** — the second-pass review's main target |
 
 ---
