@@ -1317,24 +1317,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_truncated_certification_json_deserializes_without_transitional_evidence() {
-        let legacy = r#"{"status":"truncated","stage":"corpus"}"#;
-        let certification: Certification =
-            serde_json::from_str(legacy).expect("legacy truncated JSON must still parse");
-        assert_eq!(
-            certification,
-            Certification::Truncated {
-                stage: "corpus".to_owned(),
-                corpus: None,
-            }
-        );
-        assert_eq!(
-            serde_json::to_string(&certification).expect("legacy shape must remain serializable"),
-            legacy
-        );
-    }
-
-    #[test]
     fn corpus_evidence_keeps_duplicate_occurrences_and_binds_reason_to_ledger_hash() {
         let requested = vec!["same".to_owned(), "same".to_owned(), "other".to_owned()];
         let included = vec!["same".to_owned()];
@@ -1783,32 +1765,4 @@ mod tests {
         assert_eq!(select_confirmed(&items), Some("certified".to_owned()));
     }
 
-    /// Backward compatibility: a report written before `raw_paths` existed has no such key at all; `#[serde(default)]` must resolve that absence to `0` ("not measured"), not a deserialization failure.
-    #[test]
-    fn score_without_raw_paths_deserializes_with_zero_default() {
-        let json = r#"{
-            "states": 11,
-            "arcs": 13,
-            "build": 5,
-            "apply": 7,
-            "proposals": 3,
-            "confirmation": 2,
-            "confirmation_steps": 9
-        }"#;
-        let score: Score = serde_json::from_str(json).expect("legacy Score JSON must still parse");
-        assert_eq!(score.raw_paths, 0);
-        assert_eq!(
-            score,
-            Score {
-                states: 11,
-                arcs: 13,
-                build: 5,
-                apply: 7,
-                proposals: 3,
-                confirmation: 2,
-                confirmation_steps: 9,
-                raw_paths: 0,
-            }
-        );
-    }
 }

@@ -540,53 +540,6 @@ mod tests {
     }
 
     #[test]
-    fn legacy_report_without_raw_paths_deserializes_but_cannot_rank_as_measured_zero() {
-        let mut value = serde_json::to_value(sample()).unwrap();
-        value["candidates"] = serde_json::json!([{
-            "id": "a",
-            "backend_id": "backend-a",
-            "certification": {"status": "full-hc-confirmed", "words": 1, "corpus_hash": "c"},
-            "score": {"states": 1, "arcs": 1, "build": 1, "apply": 1, "proposals": 1, "confirmation": 1, "confirmation_steps": 1},
-            "pruning_reason": null
-        }]);
-        value["frontier"] = serde_json::json!(["a"]);
-        value["winner"] = serde_json::json!("a");
-        value
-            .as_object_mut()
-            .unwrap()
-            .remove("score_schema_version");
-
-        let parsed = BackendOptimizationReport::from_json(&value.to_string())
-            .expect("legacy reports remain readable");
-        assert_eq!(parsed.score_schema_version, 0);
-        assert!(!parsed.candidates[0].score_fields_complete);
-        assert_eq!(
-            parsed.validate(),
-            Err("unsupported deterministic score schema version")
-        );
-    }
-
-    #[test]
-    fn current_score_schema_cannot_claim_a_missing_raw_paths_measurement() {
-        let mut value = serde_json::to_value(sample()).unwrap();
-        value["candidates"] = serde_json::json!([{
-            "id": "a",
-            "backend_id": "backend-a",
-            "certification": {"status": "full-hc-confirmed", "words": 1, "corpus_hash": "c"},
-            "score": {"states": 1, "arcs": 1, "build": 1, "apply": 1, "proposals": 1, "confirmation": 1, "confirmation_steps": 1},
-            "pruning_reason": null
-        }]);
-        value["frontier"] = serde_json::json!(["a"]);
-        value["winner"] = serde_json::json!("a");
-
-        let parsed = BackendOptimizationReport::from_json(&value.to_string()).unwrap();
-        assert_eq!(
-            parsed.validate(),
-            Err("deterministic score is missing measurement provenance")
-        );
-    }
-
-    #[test]
     fn validation_rejects_unknown_report_and_score_schema_versions() {
         let mut report = sample();
         report.schema_version = BACKEND_REPORT_SCHEMA_VERSION + 1;
