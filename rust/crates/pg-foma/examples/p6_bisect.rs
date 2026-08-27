@@ -103,7 +103,7 @@ fn main() {
     let PhonRuleDef::Rewrite(r5) = prule5 else {
         unreachable!()
     };
-    let (net5, reports5) = compile_rewrite_rule(&opts, &g, &alphabet, r5)
+    let (net5, reports5) = compile_rewrite_rule(&opts, &g, r5)
         .expect("prule5 compiles");
     println!("\nprule5 alone: reports={reports5:?}");
     let mut h5 = apply_init(&net5);
@@ -127,7 +127,7 @@ fn main() {
 
     // ---- prule5 ALONE but with a leading 'm' (matching net4's actual output length/shape) ----
     {
-        let (net5_solo2, _) = compile_rewrite_rule(&opts, &g, &alphabet, r5)
+        let (net5_solo2, _) = compile_rewrite_rule(&opts, &g, r5)
             .expect("prule5 compiles");
         let mut h5b = apply_init(&net5_solo2);
         let m0 = table.lookup_nfd("m").unwrap();
@@ -159,15 +159,15 @@ fn main() {
     let PhonRuleDef::Rewrite(r4) = prule4 else {
         unreachable!()
     };
-    let (net4, _) = compile_rewrite_rule(&opts, &g, &alphabet, r4)
+    let (net4, _) = compile_rewrite_rule(&opts, &g, r4)
         .expect("prule4 compiles");
-    let (net5b, _) = compile_rewrite_rule(&opts, &g, &alphabet, r5)
+    let (net5b, _) = compile_rewrite_rule(&opts, &g, r5)
         .expect("prule5 compiles");
     let m = table.lookup_nfd("m").unwrap();
     let placeholder = table.lookup_nfd("\u{207f}").unwrap();
     // prule4 ALONE on the exact same input, to compare byte-for-byte against the composed result.
     {
-        let (net4_solo, _) = compile_rewrite_rule(&opts, &g, &alphabet, r4)
+        let (net4_solo, _) = compile_rewrite_rule(&opts, &g, r4)
             .expect("prule4 compiles");
         let mut h4 = apply_init(&net4_solo);
         let mut u4 = String::new();
@@ -205,9 +205,9 @@ fn main() {
     }
 
     // Try REVERSED composition order too (sanity-check the tape-direction assumption).
-    let (net4c, _) = compile_rewrite_rule(&opts, &g, &alphabet, r4)
+    let (net4c, _) = compile_rewrite_rule(&opts, &g, r4)
         .expect("prule4 compiles");
-    let (net5c, _) = compile_rewrite_rule(&opts, &g, &alphabet, r5)
+    let (net5c, _) = compile_rewrite_rule(&opts, &g, r5)
         .expect("prule5 compiles");
     let composed54 = foma::constructions::fsm_compose(&opts, net5c, net4c);
     let mut h54 = apply_init(&composed54);

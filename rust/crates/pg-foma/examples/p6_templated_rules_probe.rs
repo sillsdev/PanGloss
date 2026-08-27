@@ -80,7 +80,7 @@ fn run() {
         };
         let t0 = Instant::now();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            compile_rewrite_rule(&opts, &g, &alphabet, r)
+            compile_rewrite_rule(&opts, &g, r)
         }));
         let elapsed = t0.elapsed();
         match result {

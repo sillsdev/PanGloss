@@ -59,7 +59,7 @@ fn run() {
             continue;
         };
         let t0 = Instant::now();
-        let result = compile_rewrite_rule(&opts, &g, &alphabet, r);
+        let result = compile_rewrite_rule(&opts, &g, r);
         let elapsed = t0.elapsed();
         match result {
             Some((net, reports)) => {
