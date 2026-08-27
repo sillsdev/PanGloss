@@ -575,7 +575,6 @@ pub struct HealthReport {
     pub schema_version: u32,
     /// Every finding for this compilation, in producer order (not sorted or deduplicated by this
     /// type).
-    #[serde(default)]
     pub findings: Vec<HealthFinding>,
 }
 
