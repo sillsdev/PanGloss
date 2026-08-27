@@ -26,12 +26,6 @@ use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 use foma::types::Fsm;
 
-pub(crate) const DEFAULT_STATE_BUDGET: usize = 2_000_000;
-
-pub(crate) const DEFAULT_ARC_BUDGET: usize = 20_000_000;
-
-pub(crate) const DEFAULT_LINE_BUDGET: usize = 1_000_000;
-
 // Chain-depth dimension: closes stack overflow from a deep derivation/unapplication chain, but only where wired (`check_chain_depth`'s
 // callers) and off by default. See docs/research/pg-foma-compose-budget-design-notes.md for scope and why the default is off.
 
