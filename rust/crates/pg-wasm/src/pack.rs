@@ -130,13 +130,6 @@ impl LoadedPack {
     pub fn fst_health_admission(&self) -> pg_foma::health::Severity {
         self.manifest.fst_health.admission()
     }
-
-    /// Whether `fst_health_admission` is below the tier that blocks publication
-    /// (`Severity::NotProductionReady` or worse). Stable across a `Severity` rename or a new
-    /// variant added below that tier, unlike a caller matching `fst_health_admission`'s spelling.
-    pub fn fst_health_is_publishable(&self) -> bool {
-        self.fst_health_admission() < pg_foma::health::Severity::NotProductionReady
-    }
 }
 
 /// Loads and validates one `.pgpack` container against this Runtime build's own provided

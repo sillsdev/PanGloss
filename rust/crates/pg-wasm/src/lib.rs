@@ -586,15 +586,6 @@ impl PgPack {
         .to_string()
     }
 
-    /// The stable boolean publication gate: `false` iff `fstHealthAdmission` has reached the
-    /// tier that blocks publication (`NotProductionReady` or worse), `true` otherwise. Add this
-    /// where `fstHealthAdmission`'s exact string is not needed -- its meaning cannot rot the way
-    /// a string-equality check against `fstHealthAdmission` can across a schema rename.
-    #[wasm_bindgen(js_name = fstHealthIsPublishable)]
-    pub fn fst_health_is_publishable(&self) -> bool {
-        self.loaded.fst_health_is_publishable()
-    }
-
     /// The complete FST-health report (`pg_foma::health::HealthReport`, reused verbatim) as its
     /// own canonical JSON shape -- every finding, not just the aggregated admission severity.
     #[wasm_bindgen(js_name = fstHealthReport)]
