@@ -52,9 +52,6 @@ impl ProposedWord {
         &self.candidates
     }
 
-    pub fn candidate_filter(&self) -> &CandidateFilterSettings {
-        &self.filter
-    }
 }
 
 type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;
