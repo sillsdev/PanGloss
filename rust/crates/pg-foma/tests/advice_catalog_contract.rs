@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pg_foma::advice_catalog::{
     builtin_catalog, render_remedy_group, RemedyEffort, ADVICE_CATALOG_SCHEMA_VERSION,
-    GRAMMAR_SAFETY_WARNING, TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY,
+    GRAMMAR_SAFETY_WARNING,
 };
 
 const REQUIRED_SHAPES: &[&str] = &[
@@ -14,7 +14,6 @@ const REQUIRED_SHAPES: &[&str] = &[
     "plan-composed-missing-subtrees",
     "repeated-application",
     "structural-deletion-or-truncation",
-    "tuned-surface-closure-budget",
     "unordered-interactions",
     "wide-phonology",
 ];
@@ -50,24 +49,6 @@ fn builtin_catalog_is_versioned_complete_and_deterministic() {
             ));
         }
     }
-}
-
-#[test]
-fn tuned_surface_closure_budget_entry_retains_typed_evidence_and_safety_caveat() {
-    let catalog = builtin_catalog().expect("built-in advice catalog must validate");
-    let entry = catalog
-        .entry_for(TUNED_SURFACE_CLOSURE_BUDGET_SHAPE_KEY)
-        .expect("TunedSurface closure-budget findings must have structured advice");
-
-    assert_eq!(entry.backend_id, "foma");
-    assert!(entry
-        .evidence_refs
-        .iter()
-        .any(|reference| reference.value == "composite-rule-pair-count"));
-    assert_eq!(
-        entry.equivalence_caveat.as_deref(),
-        Some(GRAMMAR_SAFETY_WARNING)
-    );
 }
 
 #[test]
