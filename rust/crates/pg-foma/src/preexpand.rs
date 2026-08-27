@@ -369,9 +369,6 @@ pub(crate) fn reachable_via_ordinary_emission(
     false
 }
 
-/// Cap on `render_all_variants`'s Cartesian product; kept deliberately small since the fallback branch it bounds fires on ~30% of probed segments on Amharic and a generous cap blows up emitted lexc size: docs/research/pg-foma-preexpand-design-notes.md.
-const MAX_RENDER_VARIANTS: usize = 4;
-
 /// Every literal spelling a probed segment node can honestly mean; fast path returns just the node's own concrete representations, falling back to a full lane-unifiable table search when identity was cleared or invalidated: docs/research/pg-foma-preexpand-design-notes.md.
 fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
     if char_def != NO_CHAR_DEF {
@@ -420,7 +417,6 @@ fn render_all_variants(table: &CharDefTable, segs: &[ProbeSeg]) -> Vec<String> {
                 next.push(format!("{v}{r}"));
             }
         }
-        next.truncate(MAX_RENDER_VARIANTS);
         variants = next;
     }
     variants
