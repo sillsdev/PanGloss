@@ -50,9 +50,8 @@
 //!   `LargeMultiplier`, never `CannotRepresent` on its own (unknown cost is not itself a
 //!   CannotRepresent verdict when construction is recall-preserving) — an actual budget trip during the real compile is a completely
 //!   different, already-handled code path: `crate::health_evaluator::compose_error_finding`'s
-//!   `crate::health::FindingCode::ResourceBudgetReached`/
-//!   `crate::health::FindingCode::ProvenBoundExceedsBudget` arms, which this module's own
-//!   findings never construct.
+//!   `crate::health::FindingCode::ResourceBudgetReached` arm, which this module's own findings
+//!   never constructs.
 //!
 //! # Bounded products
 //! `rule_interaction_product_finding` computes bounded products for alternatives, templates, and

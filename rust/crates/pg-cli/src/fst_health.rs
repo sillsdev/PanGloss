@@ -128,16 +128,11 @@ mod tests {
         let g = grammar(CLEAN_GRAMMAR_XML);
         let report = build_health_report(&g);
         assert!(
-            !report.findings.iter().any(|f| {
-                matches!(
-                    f.code,
-                    pg_foma::health::FindingCode::ProposalVolume
-                        | pg_foma::health::FindingCode::ConfirmationWork
-                        | pg_foma::health::FindingCode::DuplicateAnalysisOverlap
-                )
-            }),
-            "a characterization-only report must never contain a proposal/confirmation/duplicate-analysis \
-             finding: {:?}",
+            report
+                .findings
+                .iter()
+                .all(|finding| finding.phase == pg_foma::health::Phase::Characterization),
+            "a characterization-only report must not contain non-characterization findings: {:?}",
             report.findings
         );
     }

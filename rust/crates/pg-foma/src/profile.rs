@@ -68,7 +68,7 @@
 //! 1. **`CompileProfile` is JSON-serializable** (mirrors `crate::health`'s own canonical-JSON
 //!    convention) with `Duration` fields stored as `u64` millis rather than `std::time::Duration`
 //!    directly — `serde` has no built-in `Duration` support and this crate does not depend on
-//!    `serde_with`; millis matches `crate::health::MetricValue::Millis`'s own unit exactly.
+//!    `serde_with`; millis is a stable `u64` unit for this profile.
 //! 2. **`final_state_count`/`final_arc_count` are `Option<i64>`, not `Option<u32>`**: mirrors
 //!    `foma::types::Fsm`'s own `statecount`/`arccount: i32` fields exactly (widened to `i64` only to
 //!    give callers a single non-negative-friendly integer type without a second `try_into`), and

@@ -191,7 +191,7 @@ pub mod gate;
 pub mod grammar_semantics;
 /// The FST
 /// compilation-health finding schema -- `health::Severity`/`health::severity_for_size_bytes`
-/// (the single decimal-byte size threshold), the immutable `health::FindingCode` `PGFdddd` registry,
+/// (the single decimal-byte size threshold), the current `health::FindingCode` `PGFdddd` registry,
 /// `health::HealthFinding`/`health::HealthReport`, and canonical JSON. Health is REPORTED
 /// about a compile, never consulted during one; `health_evaluator` produces the findings.
 pub mod health;
@@ -200,8 +200,7 @@ pub mod health;
 /// size, `emit::EmitReport`, `compose_budget::ComposeError`, per-word
 /// `health_evaluator::ApplyBudgetTrip`s) into `health::HealthFinding`s + a [`health::
 /// HealthReport`], consuming `health`'s schema without recomputing any measurement itself. See
-/// that module's own doc for the exact input -> finding mapping and which finding kinds stay
-/// unpopulated pending real compile-profile instrumentation.
+/// that module's own doc for the exact input -> finding mapping.
 pub mod health_evaluator;
 pub mod junctions;
 /// The shared

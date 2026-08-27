@@ -16,21 +16,6 @@
 //!   `ApplyBudgetTrip` (this module's own lightweight distillation of a per-word
 //!   `crate::compose_budget::ApplyOutcome::Incomplete` — see that type's own doc for why it exists
 //!   instead of taking `ApplyOutcome<T>` generically).
-//! Not populated here (observed audit fields populate only as their owning profile/budget
-//! instrumentation exists, and are never independently remeasured):
-//! `crate::health::FindingCode::ApplicationTimeWork`'s
-//! `crate::health::Metric::ElapsedMillis`/`crate::health::Metric::ApplyAllocationBytes`
-//! dimensions (no per-word wall-clock/allocation instrumentation exists yet, only the two
-//! magnitude caps `ApplyBudgetTrip` already covers — `profile-fst-compilation` is a COMPILE-time
-//! profile, this dimension is per-word APPLY-time, a different measurement surface entirely);
-//! `crate::health::FindingCode::DuplicateAnalysisOverlap` (needs `crate::confirm`'s pre-dedup
-//! counts, not produced anywhere yet); and `crate::health::FindingCode::ProposalVolume`/
-//! `crate::health::FindingCode::ConfirmationWork` for *large-but-not-tripped* candidate/
-//! confirmation volume (only the tripped case, via `ApplyBudgetTrip`, is evaluated here — see
-//! this module's "Judgment calls" section, item 6; also apply-time, not compile-time). Every one of
-//! these finding kinds is fully *producible* by this evaluator's own shape (the `match` arms below
-//! are exhaustive over `crate::compose_budget::ComposeError`/`crate::emit::FomaTier`) but stays
-//! unpopulated until its owning profile/budget change lands real values to read.
 //!
 //! # Two distinct axes, again (see `crate::health`'s own doc first)
 //! Every `HealthFinding` this module builds carries `severity` on the cost/health axis only

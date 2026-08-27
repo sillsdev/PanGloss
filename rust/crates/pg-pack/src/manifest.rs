@@ -21,8 +21,8 @@ use pg_foma::health::{HealthFinding, HealthReport, Metric, MetricValue, ValuePro
 /// `PackManifest`'s shape — independent of `crate::format::CONTAINER_VERSION` (the container
 /// framing) and of `crate::compat::RequiredRuntimeFeatures::payload_format_version` (the
 /// runtime-payload format), which each version separately.
-/// Bumped to 7 because the write-only manifest format tag was removed.
-pub const MANIFEST_SCHEMA_VERSION: u32 = 7;
+/// Bumped to 8 because the embedded FST-health report moved to health schema v7.
+pub const MANIFEST_SCHEMA_VERSION: u32 = 8;
 
 /// One catalog remedy linked to the grammar shape it addresses for one backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

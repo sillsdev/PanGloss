@@ -33,8 +33,8 @@
 //! `size_never_reports_an_analysis_verdict`.
 //! The readiness failure a crossed threshold raises is wanted; the exact edge is provisional —
 //! read `IDEAL_MAX_BYTES` before citing it as evidence. Size is one dimension among several — see
-//! `Metric` for the others (compile work, intermediate nets, candidates, paths, application time,
-//! unknown/unbounded constructs) — and `HealthReport::admission` aggregates across all of them,
+//! `Metric` for the others (candidates, paths, chain depth, unknown/unbounded constructs, and
+//! backend coverage gaps) — and `HealthReport::admission` aggregates across all of them,
 //! not size alone.
 //!
 //! # Admission and trust boundaries
@@ -60,8 +60,8 @@
 //! becomes load-bearing.
 //!
 //! # Finding codes
-//! `FindingCode` is the immutable `PGFdddd` registry: codes never renumber after publication,
-//! so a stored report or external reference to a code stays valid forever.
+//! `FindingCode` is the current `PGFdddd` registry: each published code keeps its meaning within
+//! a schema version, while pre-1.0 schema revisions may remove producerless codes.
 //! `FindingCode::ALL` plus `FindingCode::code`/`FindingCode::meaning`
 //! are the registry; `FindingCode::from_code` is the reverse lookup used by
 //! `Deserialize`. Every `match` over `FindingCode`/`Severity`/`Phase`/`Metric`/
@@ -77,15 +77,10 @@
 //! default, unmodified), mirroring `pg-snapshot`'s own determinism convention.
 //!
 //! # Design notes
-//! - `FindingCode` covers every dimension this crate currently measures (payload size,
-//!   intermediate networks, compile work, proposal volume, confirmation work, duplicate-analysis
-//!   overlap, unknown/unbounded cost, an internal self-imposed budget reached, a proven-bound
-//!   rejection, apply-time work, an external host-containment abort, and a large-but-bounded
-//!   rule-interaction product) without inventing per-construct codes no instrumentation exists to
-//!   emit yet. Growing this list is additive (new codes only ever append; no code is ever
-//!   renumbered or removed). `ResourceBudgetReached` (internal caps) and `HostContainmentFired`
-//!   (the external watchdog) look similar but answer different questions -- see each variant's
-//!   own doc.
+//! - `FindingCode` covers the dimensions this crate currently measures (payload size,
+//!   unknown/unbounded cost, internal budget stops, proven-bound rejection, backend/process
+//!   failures, coverage gaps, and bounded rule-interaction products). New measured dimensions
+//!   require a real producer and a versioned schema update.
 //! - `Phase` has three values (`Characterization`, `Compile`, `Apply`) rather than a simpler
 //!   "characterization/observed" split: `Compile` and `Apply` are the two production phases (compile-time
 //!   construction vs. per-word application), and `Characterization` is the characteristics-profile-style
@@ -98,8 +93,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
 ///
-/// Bumped to 6 when the dead intermediate-network and compile-work health labels were removed.
-pub const HEALTH_SCHEMA_VERSION: u32 = 6;
+/// Bumped to 7 when producerless health labels and value variants were removed.
+pub const HEALTH_SCHEMA_VERSION: u32 = 7;
 
 // Severity + payload-size threshold
 
@@ -211,37 +206,19 @@ pub enum Phase {
 pub enum Metric {
     /// Final FST payload size, in bytes (decimal, matching `severity_for_size_bytes`).
     PayloadBytes,
-    /// Wall-clock or logical elapsed compile time, in milliseconds.
-    ElapsedMillis,
     /// FST-propose candidate count for one word or one compilation-wide sample.
     ProposalCandidateCount,
     /// FST-propose path count.
     ProposalPathCount,
-    /// HermitCrab confirmation attempt count.
-    ConfirmationCount,
-    /// Rejection share: confirmed / proposed, reported as a `MetricValue::Ratio`.
-    RejectionShare,
-    /// Pre-dedup duplicate analysis count (e.g. many copies of the same structured analysis).
-    DuplicateAnalysisCount,
-    /// Pre-dedup duplicate analysis ratio, reported as a `MetricValue::Ratio`.
-    DuplicateAnalysisRatio,
     /// Apply-time derivation/unapplication chain depth — an unbounded chain risks stack overflow.
     ApplyChainDepth,
-    /// Apply-time reserved allocation/logical-memory budget, in bytes — an unbounded budget risks OOM.
-    ApplyAllocationBytes,
     /// A construct whose cost cannot be bounded ahead of time; paired with `MetricValue::Unbounded` and `ValueProvenance::Predicted`.
     UnknownUnboundedWork,
-    /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s license.
-    CompoundRootPairCount,
     /// Reachable root/chain-state x morphological-rule applications that a composite-emitting
     /// backend must synthesize while proving finite closure.
     CompositeRulePairCount,
     /// Required grammar constructs or plan subtrees the named backend cannot represent completely.
     BackendCoverageGapCount,
-    /// Peak aggregate OS-accounted memory charge for the contained worker process tree, in bytes.
-    /// Platform-native evidence remains on the typed worker outcome because Windows Job Object
-    /// and Linux cgroup-v2 accounting are not byte-for-byte identical.
-    WorkerTreePeakMemoryChargeBytes,
 }
 
 /// Whether a `HealthFinding`'s `MetricValue` is a heuristic estimate, a trustworthy proof, or
@@ -263,57 +240,38 @@ pub enum ValueProvenance {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum MetricValue {
-    /// A plain count (candidates, paths, confirmations, duplicates, states, arcs, ...).
+    /// A plain count (candidates, paths, states, arcs, ...).
     Count(u64),
     /// A byte quantity (payload size, reserved allocation, ...).
     Bytes(u64),
-    /// A millisecond duration.
-    Millis(u64),
-    /// A dimensionless ratio, `0.0..=1.0` by convention but not enforced by this type.
-    Ratio(f64),
     /// Cost uncertainty: no bound is available at all (paired with `ValueProvenance::Predicted`).
     Unbounded,
 }
 
 // FindingCode registry
 
-/// The immutable `PGFdddd` finding-code registry: codes use `PGF` plus four decimal digits and
-/// never change meaning after publication, so a stored report or external reference to a code
-/// stays valid forever. Closed on purpose — see this module's doc "Design notes" section for what
+/// The current `PGFdddd` finding-code registry: codes use `PGF` plus four decimal digits and
+/// retain their meaning within a schema version. Pre-1.0 schema revisions may remove
+/// producerless codes. Closed on purpose — see this module's doc "Design notes" section for what
 /// each code covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FindingCode {
     /// Final FST payload size crossed the size threshold (`severity_for_size_bytes`).
     PayloadSizeBand,
-    /// FST-propose candidate or path volume is large, independent of final correctness or size.
-    ProposalVolume,
-    /// HermitCrab confirmation count, rejection share, or confirmation work is large.
-    ConfirmationWork,
-    /// Pre-dedup duplicate analysis count/ratio with rule or proposal-path provenance, when available.
-    DuplicateAnalysisOverlap,
     /// A recall-preserving construct's cost cannot be bounded ahead of time; not itself a MachineLimit.
     UnknownUnboundedConstruct,
     /// An INTERNAL, self-imposed compile/apply-time budget (net size, emit lines, compose
     /// timeout, chain depth, apply-time proposal/path volume) was reached and stopped this
-    /// attempt. Distinct from [`FindingCode::HostContainmentFired`], which is the external host
-    /// watchdog protecting the machine rather than an artificial cap this compiler set itself.
+    /// attempt.
     ResourceBudgetReached,
     /// An exact value or proven lower bound shows an operation cannot fit the remaining budget.
     ProvenBoundExceedsBudget,
-    /// Per-word apply-time work (chain depth, allocation, elapsed time) is elevated. Reserved:
-    /// no producer emits this code today (`crate::health_evaluator`'s own module doc lists the
-    /// dimensions this would need before it can be populated).
-    ApplicationTimeWork,
     /// A backend failed while compiling its emitted representation and produced no usable artifact.
     BackendCompilationFailed,
     /// Invalid build input, worker protocol failure, or a worker-process failure prevented a build.
     BuildProcessFailed,
     /// A backend is known to omit or reject one or more required grammar constructs.
     BackendCoverageIncomplete,
-    /// An external host-containment mechanism (wall-clock kill, output-pipe cap, or OS-proven
-    /// memory enforcement) aborted this attempt to protect the host machine. Never a
-    /// verdict about the grammar -- see [`Severity::MachineLimit`]'s own doc.
-    HostContainmentFired,
     /// An exact, already-computed morphological x phonological rule-count product is large.
     /// Distinct from [`FindingCode::UnknownUnboundedConstruct`]: this cost IS bounded ahead of
     /// time, just large.
@@ -344,36 +302,26 @@ impl FindingCode {
     /// (uniqueness, format, round trip) iterates.
     pub const ALL: &'static [FindingCode] = &[
         FindingCode::PayloadSizeBand,
-        FindingCode::ProposalVolume,
-        FindingCode::ConfirmationWork,
-        FindingCode::DuplicateAnalysisOverlap,
         FindingCode::UnknownUnboundedConstruct,
         FindingCode::ResourceBudgetReached,
         FindingCode::ProvenBoundExceedsBudget,
-        FindingCode::ApplicationTimeWork,
         FindingCode::BackendCompilationFailed,
         FindingCode::BuildProcessFailed,
         FindingCode::BackendCoverageIncomplete,
-        FindingCode::HostContainmentFired,
         FindingCode::RuleInteractionProduct,
     ];
 
-    /// The immutable `PGFdddd` wire code. Exhaustive match, no catch-all arm — adding a variant
+    /// The current `PGFdddd` wire code. Exhaustive match, no catch-all arm — adding a variant
     /// breaks this build until it is given a code here.
     pub const fn code(self) -> &'static str {
         match self {
             FindingCode::PayloadSizeBand => "PGF0001",
-            FindingCode::ProposalVolume => "PGF0004",
-            FindingCode::ConfirmationWork => "PGF0005",
-            FindingCode::DuplicateAnalysisOverlap => "PGF0006",
             FindingCode::UnknownUnboundedConstruct => "PGF0007",
             FindingCode::ResourceBudgetReached => "PGF0008",
             FindingCode::ProvenBoundExceedsBudget => "PGF0009",
-            FindingCode::ApplicationTimeWork => "PGF0010",
             FindingCode::BackendCompilationFailed => "PGF0011",
             FindingCode::BuildProcessFailed => "PGF0012",
             FindingCode::BackendCoverageIncomplete => "PGF0013",
-            FindingCode::HostContainmentFired => "PGF0014",
             FindingCode::RuleInteractionProduct => "PGF0015",
         }
     }
@@ -384,17 +332,6 @@ impl FindingCode {
             FindingCode::PayloadSizeBand => {
                 "Final FST payload size crossed the size threshold (R6 decimal-byte threshold)."
             }
-            FindingCode::ProposalVolume => {
-                "FST-propose candidate or path volume is large, independent of final correctness \
-                 or size."
-            }
-            FindingCode::ConfirmationWork => {
-                "HermitCrab confirmation count, rejection share, or confirmation work is large."
-            }
-            FindingCode::DuplicateAnalysisOverlap => {
-                "Pre-dedup duplicate analysis count/ratio with rule or proposal-path provenance, \
-                 when available."
-            }
             FindingCode::UnknownUnboundedConstruct => {
                 "A recall-preserving construct's cost cannot be bounded ahead of time (cost \
                  uncertainty, not itself a MachineLimit)."
@@ -402,15 +339,11 @@ impl FindingCode {
             FindingCode::ResourceBudgetReached => {
                 "An internal, self-imposed compile/apply-time budget (net size, emit lines, \
                  compose timeout, chain depth, or apply-time proposal/path volume) was reached \
-                 and stopped this attempt; never an external host-protection verdict (see \
-                 HostContainmentFired)."
+                 and stopped this attempt."
             }
             FindingCode::ProvenBoundExceedsBudget => {
                 "An exact value or proven conservative lower bound shows an operation cannot fit \
                  in the remaining budget; compilation stopped before it."
-            }
-            FindingCode::ApplicationTimeWork => {
-                "Per-word apply-time work (chain depth, allocation, elapsed time) is elevated."
             }
             FindingCode::BackendCompilationFailed => {
                 "A backend failed to compile its emitted representation into a usable artifact."
@@ -421,11 +354,6 @@ impl FindingCode {
             FindingCode::BackendCoverageIncomplete => {
                 "A backend is known to omit or reject required grammar constructs and therefore \
                  cannot produce a complete artifact."
-            }
-            FindingCode::HostContainmentFired => {
-                "An external host-containment mechanism aborted this attempt to protect the host \
-                 machine (wall-clock kill, output-pipe cap, or OS-proven memory enforcement); \
-                 never a verdict about the grammar."
             }
             FindingCode::RuleInteractionProduct => {
                 "An exact morphological x phonological rule-count product is large; this cost is \
@@ -447,16 +375,11 @@ impl FindingCode {
         match self {
             FindingCode::BackendCoverageIncomplete => FindingClass::Representability,
             FindingCode::PayloadSizeBand => FindingClass::Readiness,
-            FindingCode::ProposalVolume => FindingClass::Readiness,
-            FindingCode::ConfirmationWork => FindingClass::Readiness,
-            FindingCode::DuplicateAnalysisOverlap => FindingClass::Readiness,
-            FindingCode::ApplicationTimeWork => FindingClass::Readiness,
             FindingCode::UnknownUnboundedConstruct => FindingClass::Readiness,
             FindingCode::ResourceBudgetReached => FindingClass::Containment,
             FindingCode::ProvenBoundExceedsBudget => FindingClass::Containment,
             FindingCode::BackendCompilationFailed => FindingClass::Process,
             FindingCode::BuildProcessFailed => FindingClass::Process,
-            FindingCode::HostContainmentFired => FindingClass::Containment,
             FindingCode::RuleInteractionProduct => FindingClass::Readiness,
         }
     }
@@ -508,7 +431,7 @@ pub struct Remedy {
 /// or more ranked remedies.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HealthFinding {
-    /// The immutable `PGFdddd` code (`FindingCode`).
+    /// The current `PGFdddd` code (`FindingCode`).
     pub code: FindingCode,
     /// This finding's severity on the cost/health axis (never the capability-trust axis).
     pub severity: Severity,
