@@ -5,11 +5,10 @@
 `docs/conformance/representative-typology-basis.md` S1.2.2 identifies additional in-scope
 `RightToLeftRewrite` pattern shapes as a genuine gap: the 3 already-covered RTL fixtures
 (`rtl_plain_rule`/`rtl_feature_environment_swap`/`rtl_deletion`, per design.md's own citation) never
-exercise a `PatternNode::Quantifier` node anywhere in the rule's own LHS/RHS/environment -- one of
-several excluded shapes `crate::replace::pattern_slots` does not support for ANY rewrite rule, RTL or
-not. This fixture pins the `Quantifier`-in-environment case specifically (directional stress/harmony
-rule scanning with a bounded lookahead window, per the metrical-stress-typology citations in the
-research doc):
+exercise a `PatternNode::Quantifier` node anywhere in the rule's own LHS/RHS/environment. This
+fixture pins the `Quantifier`-in-environment case specifically (directional stress/harmony rule
+scanning with a bounded lookahead window, per the metrical-stress-typology citations in the research
+doc):
 
 1. **The structural characterization.** `pg-foma::capability::rtl_reversal_construction_attempted`
    re-runs `crate::replace::pattern_slots` over this rule's own LHS/RHS/environment. Contrary to
@@ -26,25 +25,12 @@ research doc):
 
 ## A correction to the research doc's own premise
 
-`docs/conformance/representative-typology-basis.md` S1.2.2 groups a `Quantifier` node together with
-`Segments`/`Anchor`/disagreeing-polarity alpha-variables as shapes `crate::replace::pattern_slots`
-excludes for ANY rewrite rule, RTL or not -- and proposes this fixture (`right-to-left-bounded-
-quantifier-rewrite`) as one of three currently-`Refuse`d RTL constructs this task pins honestly.
-**Empirically, while authoring this fixture, that premise turned out not to hold for a genuinely
-BOUNDED quantifier in the rule's own environment**: `pattern_slots` accepts it (per
-`compile-bounded-fst-quantifiers`'s own `Slot::Repeat` construction, which evidently extends to RTL
-rules' own environments too), so this fixture's `evaluate_capability` verdict is `ConfirmOnly`, not
-`Refuse`. The premise DOES hold for an UNBOUNDED quantifier (`rust/crates/pg-foma/src/capability.rs`'s
-own `right_to_left_predicate_refuses_quantifier_shaped_rule` unit test, `min=1 max=-1` in the rule's
-own LHS, still `Refuse`s) -- so the gap the research doc's S1.2.2 point 2 describes is real for the
-unbounded case, just not for the specific bounded-in-environment shape this fixture's own name
-promises. Rather than silently renaming the fixture or quietly forcing a `Refuse` expectation the
-grammar does not actually produce, this is flagged here explicitly: **this fixture is NOT one of the
-three honestly-refused shapes** the other three fixtures in this task pin. Its value is instead a
-genuine, useful conformance-coverage addition in its own right -- pinning that the ALREADY-CORRECT
-propose-and-confirm pipeline for a bounded RTL quantifier stays correct going forward -- and a
-concrete, reproducible correction to the research doc's own S1.2.2 for whoever next works on the
-genuinely-open unbounded-quantifier-in-RTL gap.
+The earlier research premise grouped `Quantifier` with other RTL gaps, but the
+current lowering accepts both bounded and genuinely unbounded alpha-free quantifiers in RTL
+patterns. This fixture's bounded-in-environment shape therefore has the expected `ConfirmOnly`
+verdict, not `Refuse`, and is a useful conformance witness that the already-correct RTL
+propose-and-confirm pipeline handles quantifier environments. The quantifier case is closed; any
+remaining RTL pattern-shape gaps are separate from this fixture.
 
 ## What it pins
 

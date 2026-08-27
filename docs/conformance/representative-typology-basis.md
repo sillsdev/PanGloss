@@ -248,21 +248,19 @@ by name and design; no fixture anywhere exercises genuine self-feeding compoundi
    rule-ordering (see the general directionality-in-phonology literature, e.g. "Directional Effects
    in Phonological Theory": https://www.academia.edu/2131712/Directional_Effects_in_Phonological_Theory_Dissertation_Chapter_4_).
 2. **Structural shape.** The existing `RightToLeftRewriteFaithfulReversalPredicate`/
-   `compile_rtl_branch_net` construction is already faithful for in-scope pattern shapes; the open
-   gap is specifically pattern shapes it currently excludes: a `Quantifier` (bounded optional-group)
-   node in the rule's environment, a bare `Segments` (rather than `FeatureNaturalClass`) LHS/RHS, an
-   `Anchor` (word-edge) constraint combined with `Dir::RightToLeft`, or a disagreeing-polarity
-   alpha-variable. Each needs its own rule with an RTL-scanned environment built from exactly one of
-   those excluded shapes, layered onto the same reversal-plus-safety-net-union construction the
-   closed case already uses.
-3. **What makes it a good FST stress case.** Right-to-left scanning combined with a bounded
-   quantifier or an anchor is exactly where a reversal-based compilation strategy (reverse the tape,
+   `compile_rtl_branch_net` construction is already faithful for in-scope pattern shapes. The
+   remaining open gaps are specifically pattern shapes it still excludes: a bare `Segments` (rather
+   than `FeatureNaturalClass`) LHS/RHS, an `Anchor` (word-edge) constraint combined with
+   `Dir::RightToLeft`, or a disagreeing-polarity alpha-variable. The bounded and genuinely
+   unbounded `Quantifier` shapes are now covered by their own fixtures, including
+   `right-to-left-bounded-quantifier-rewrite`.
+3. **What makes it a good FST stress case.** Right-to-left scanning combined with a quantifier or an anchor is exactly where a reversal-based compilation strategy (reverse the tape,
    apply an LTR-equivalent rule, reverse back) can silently mis-handle an edge condition that only
    makes sense relative to the *original* (non-reversed) string edges, or a quantifier whose bound
    must be re-derived post-reversal. It is a direct, per-shape stress test of whether the "safety-net
    union" argument that makes the reversal recall-preserving still holds once anchors/quantifiers/
    alpha-polarity enter the picture.
-4. **Proposed fixture name:** `right-to-left-bounded-quantifier-rewrite` (for the `Quantifier` shape;
+4. **Fixture name:** `right-to-left-bounded-quantifier-rewrite` (for the `Quantifier` shape;
    name subsequent per-shape fixtures analogously, e.g. `right-to-left-anchored-rewrite`,
    `right-to-left-segment-literal-rewrite`, `right-to-left-alpha-disagreement-rewrite` — one
    `edge-cases/` fixture per newly-supported shape, per design.md's own fixture-enumeration rule D4).
@@ -270,9 +268,10 @@ by name and design; no fixture anywhere exercises genuine self-feeding compoundi
    https://wals.info/chapter/15;
    https://www.academia.edu/2131712/Directional_Effects_in_Phonological_Theory_Dissertation_Chapter_4_.
 
-**Covered already? No** for these specific excluded shapes — 3 named fixtures already cover the
-in-scope RTL cases (`rtl_plain_rule...`, `rtl_feature_environment_swap...`, `rtl_deletion...`, per
-design.md's own citation), so do not duplicate those; only the excluded shapes above are open.
+**Covered already?** The quantifier shape is closed by `right-to-left-bounded-quantifier-rewrite`;
+the 3 named fixtures already cover the original in-scope RTL cases
+(`rtl_plain_rule...`, `rtl_feature_environment_swap...`, `rtl_deletion...`, per design.md's own
+citation). The remaining excluded shapes above are still open.
 
 #### 1.2.3 Left-to-right / right-to-left rewrite directionality as its own tagged phenomenon
 
@@ -383,20 +382,16 @@ explicit prioritization" per that document.
 3. **What makes it a good FST stress case.** This is this project's most direct real-world analogue of
    "true Kleene star vs. a finite cutoff that must never masquerade as unbounded" — foma's own
    pattern language is a regular language, so a genuinely unbounded quantifier is representable
-   natively (Kleene star), but the open question design.md itself flags as unresolved is whether
-   *this compiler's* surrounding machinery (`lower.rs`'s span intersection, `MultiTable`'s per-table
-   windowing) can host a truly unbounded repetition without secretly needing a bound somewhere else
-   in the pipeline. A representative fixture is the concrete artifact that would let that question be
-   answered empirically rather than left as an open judgment call.
+   natively (Kleene star), and the surrounding lowering machinery now hosts truly unbounded
+   repetition without substituting a finite bound elsewhere in the pipeline. The representative
+   fixture is the concrete artifact that closed this question empirically.
 4. **Proposed fixture name:** `unbounded-iterative-quantifier-expansion`.
 5. **Citations:** https://apics-online.info/parameters/26.chapter.html;
    http://linguistics.berkeley.edu/~inkelas/Papers/4.Reduplication_Inkelas.pdf.
 
-**Covered already? No.** design.md marks this **NEEDS-DECISION** (sub-split (a): is truly-unbounded
-quantifier compilation structurally infeasible for an as-yet-undocumented reason, or simply
-unattempted?) — this document supplies the pattern basis; a fixture cannot be authored responsibly
-until that decision is made, since an `edge-cases/expect_fail`-shaped fixture and a
-`ConfirmOnly`-shaped fixture would look very different depending on the answer.
+**Covered already? Yes.** `unbounded-iterative-quantifier-expansion` closes the former
+**NEEDS-DECISION** sub-split: genuinely unbounded quantifier lowering is supported and covered by a
+`ConfirmOnly`-shaped fixture.
 
 #### 1.2.7 Subrule-level phonological gating (`SubruleGating`) — its own tagged phenomenon
 
@@ -537,7 +532,7 @@ Each is included here only so a future reader does not mistake "not discussed ab
 | CompoundingRule constraints | — | Capped compound-of-compounds | Yes |
 | Ordinary/realizational rule constraints | — | Rule-level application constraints | Yes |
 | **Compounding — recursive/self-feeding** | `recursive-endocentric-compounding` | Unbounded compound-of-compounds recursion | **No** |
-| **RightToLeftRewrite — excluded shapes** | `right-to-left-bounded-quantifier-rewrite` (+ per-shape siblings) | Directional stress/harmony rule scanning, quantifier/anchor/alpha-var edge cases | **No** |
+| **RightToLeftRewrite — remaining excluded shapes** | per-shape siblings | Directional stress/harmony rule scanning, anchor/segment/alpha-var edge cases | **No** |
 | LeftToRightRewrite (as its own tagged phenomenon) | — (upstream `constructs.txt` row only) | Directionality independent of iterativity | Latent yes / tagged no |
 | **Metathesis — right-to-left** | `right-to-left-metathesis-reversal` | Rotuman-style right-anchored transposition | **No** |
 | **MultiTable — shared representation** | `bistratal-overlapping-segment-representation` | Native/loan (stratal) phonology sharing a spelling | **No** |
@@ -563,8 +558,9 @@ than rewritten, so the pattern research that motivated each fixture stays tracea
 3. `SubruleGating` — **CLOSED**. Fixture `subrule-morphosyntactic-gating`; and its `exercises:` tag had
    to be corrected from a characteristic name to the real `constructs.txt` row id, without which it was
    silently crediting nothing.
-4. `RightToLeftRewrite` — excluded pattern shapes — **PARTIALLY CLOSED**. The bounded-quantifier shape
-   landed (`right-to-left-bounded-quantifier-rewrite`), and building it exposed a real recall bug:
+4. `RightToLeftRewrite` — excluded pattern shapes — **PARTIALLY CLOSED**. Bounded and genuinely
+   unbounded quantifier shapes are supported; the bounded shape landed
+   (`right-to-left-bounded-quantifier-rewrite`) and exposed a real recall bug:
    `reversed_slots` was a shallow reverse that left a repetition group's contents in document order, so
    the mirror was not the reverse of the original. Remaining shapes are tasks.md 4.2.
 5. `Metathesis` — right-to-left — **CLOSED 2026-07-26** (4.6). Fixture

@@ -116,7 +116,7 @@ every gap it identified has a tracked outcome (§2, "The real gap list"):
 | Compounding, recursive/self-feeding | **Closed 2026-07-26** — `recursive-endocentric-compounding` |
 | Multi-table, shared representation across tables | **Closed 2026-07-26** — `two-table-shared-representation-recall` |
 | `SubruleGating` as its own tagged phenomenon | **Closed** — `subrule-morphosyntactic-gating` |
-| Right-to-left rewrite — quantifier/anchor/alpha-polarity excluded shapes | **Partially closed** — bounded-quantifier shape landed and *found a real recall bug* (`reversed_slots` did a shallow reverse that left a repetition group in document order); anchor/segment-literal/alpha-disagreement siblings remain open |
+| Right-to-left rewrite — anchor/segment/alpha-polarity excluded shapes | **Partially closed** — bounded and genuinely-unbounded quantifier shapes landed (the bounded shape *found a real recall bug* in `reversed_slots`, which was corrected); anchor/segment-literal/alpha-disagreement siblings remain open |
 | Metathesis, right-to-left | **Closed 2026-07-26** — `right-to-left-metathesis-reversal` |
 | `QuantifierPattern`, genuinely unbounded (Kleene, not finite) | **Closed 2026-07-26** — `unbounded-iterative-quantifier-expansion`; the doc flags this mattered more than expected: it was blocking a reference grammar on the compiled path, not just a coverage row |
 | `CircumfixOutputAction`, missing structural-composite shapes | **Census done, all three closed** — the census found the mechanism was already allomorph-complete; every gap was in candidate *selection* |

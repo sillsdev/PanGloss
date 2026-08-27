@@ -43,10 +43,9 @@ words:
     note: >-
       ROOT3's correctly-rewritten surface form: underlying "accccct", the sole "a" is followed by 5
       consonants ("ccccc") then the trigger "t" -- the load-bearing GENUINE-unboundedness witness:
-      no finite bound (`compile-bounded-fst-quantifiers`'s own `MAX_QUANTIFIER_BOUND` ceiling, or any
-      other silently-clamped cutoff) would need to reach this high for an ordinary bounded fixture,
-      so a compile that secretly capped this rule's own repetition count at some small number would
-      fail exactly here, not at the min/min+1 boundary alone. Models the scalar/iconic-copying
+      a compile that used a finite cutoff in place of the unbounded semantics would secretly cap this
+      rule's own repetition count at some small number and fail exactly here, not at the min/min+1
+      boundary alone. Models the scalar/iconic-copying
       typological pattern this fixture's own S1.2.6 citation describes: degree of copying is not
       fixed at one extra repetition.
     provenance: "docs/conformance/representative-typology-basis.md S1.2.6"

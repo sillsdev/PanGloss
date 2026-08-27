@@ -32,10 +32,11 @@ construct, per the research doc's own §1.2.6 "Proposed fixture name."
   intervening consonants respectively -- the `min="1"` boundary is genuinely reachable, and one past
   it also matches (distinguishing "1 or more" from an accidental "exactly 1" compile).
 - `eccccct`: ROOT3's correctly-rewritten surface form, exercising 5 intervening consonants -- the
-  load-bearing GENUINE-unboundedness witness. A compile that silently capped the repetition count
-  at some small finite bound (the exact ADR 0001 violation `build-unbounded-quantifier-support`'s own
-  design forbids, `rust/crates/pg-foma/src/lower.rs`'s `MAX_QUANTIFIER_BOUND` doc) would fail here,
-  not merely at the min/min+1 boundary the other two words alone would catch.
+  load-bearing GENUINE-unboundedness witness. Finite and unbounded quantifiers use their native
+  lowering paths; a compile that silently replaced this unbounded repetition with a small finite
+  cutoff would fail here, not merely at the min/min+1 boundary the other two words alone would catch.
+  Semantic malformed cases (inverted bounds, empty children, and alpha-nested quantifiers) remain
+  unsupported.
 - `at`: ROOT4's own surface form, UNCHANGED from its own underlying shape -- ZERO intervening
   consonants, below the quantifier's own `min="1"`, so the environment genuinely fails to match and
   the obligatory rule correctly does not fire. The load-bearing negative witness that the lower
