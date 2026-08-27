@@ -277,7 +277,7 @@ impl FomaProposer {
     ///
     /// Thin, env-driven wrapper over `Self::new_with_budget` -- same convention
     /// `crate::emit::emit_with_precision` uses for the same reason (its own doc): reads
-    /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`/`HC_COMPOSE_ORDERING_MULTIPLICITY_BUDGET`
+    /// `HC_ENUM_ENTRY_BUDGET`/`HC_ENUM_PROBE_BUDGET`
     /// exactly once, here, in the production entry point, so parallel test processes never race
     /// process-global env state.
     // FomaError is deliberately a small, flat enum (see its own doc above); boxing

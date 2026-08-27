@@ -9,7 +9,7 @@
 //!
 //! # Typed outcomes -> existing health/error vocabulary (do not invent a parallel one)
 //! `CompileWorkerOutcome` (what the CHILD reports) reuses `crate::compose_budget::ComposeError`
-//! verbatim for a real budget trip (today, the ordering-multiplicity dimension --
+//! verbatim for a real enumeration budget trip --
 //! `crate::analyzer::FomaProposer::new_with_budget_and_profile` is the one production call site
 //! that can return `Err` from an actual `crate::compose_budget::ComposeError`-carrying
 //! `crate::analyzer::FomaError` variant before ever handing lexc to the foma compiler) and feeds

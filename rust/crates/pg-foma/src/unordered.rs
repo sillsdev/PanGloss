@@ -70,16 +70,11 @@
 
 use pg_grammar::model::{Grammar, MorphRuleOrder, StratumId};
 
-/// One `Unordered` stratum's own cardinality facts (the chain-depth-bounded cardinality
-/// check) -- shared by `check_unordered_strata_bound` (the compile-time gate) and
-/// `crate::capability`'s `crate::capability::UnorderedStratumDetail` (the STATIC characterization,
-/// computed independently over the same cardinality facts so diagnostics can report the grammar's
-/// actual shape without changing its semantics.
+/// One `Unordered` stratum's own cardinality facts, retained for structural diagnostics.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct UnorderedStratumMetrics {
     pub stratum: StratumId,
     pub rule_count: usize,
-    pub within_bound: bool,
 }
 
 /// One stratum's own `UnorderedStratumMetrics`, computed directly from its rule list. Called for
@@ -93,7 +88,6 @@ pub(crate) fn stratum_metrics(
     UnorderedStratumMetrics {
         stratum,
         rule_count,
-        within_bound: true,
     }
 }
 
@@ -186,7 +180,7 @@ mod tests {
     }
 
     #[test]
-    fn unordered_stratum_within_bound_reports_within_bound_and_passes_the_gate() {
+    fn unordered_stratum_reports_exact_rule_count() {
         let g = load(&stratum_xml("unordered", 3));
         let metrics = unordered_stratum_metrics(&g);
         assert_eq!(metrics.len(), 1);
@@ -194,28 +188,11 @@ mod tests {
     }
 
     #[test]
-    fn zero_rule_unordered_stratum_is_trivially_within_bound() {
+    fn zero_rule_unordered_stratum_reports_zero_rules() {
         let g = load(&stratum_xml("unordered", 0));
         let metrics = unordered_stratum_metrics(&g);
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0].rule_count, 0);
-        assert!(metrics[0].within_bound);
-    }
-
-    #[test]
-    fn production_default_within_bound_matches_the_calibrated_constant() {
-        // Must agree with the calibrated constant exactly at the boundary: the default itself is within bound, one past it is not.
-        let at_default = load(&stratum_xml(
-            "unordered",
-            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32,
-        ));
-        assert!(unordered_stratum_metrics(&at_default)[0].within_bound);
-
-        let one_past = load(&stratum_xml(
-            "unordered",
-            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
-        ));
-        assert!(!unordered_stratum_metrics(&one_past)[0].within_bound);
     }
 
 }

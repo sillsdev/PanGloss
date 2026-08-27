@@ -503,7 +503,7 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
 /// - `emit_report`: `crate::emit::emit`/`emit_with_budget`'s own `EmitReport`, if this
 ///   compilation went through that path.
 /// - `compose_errors`: every `ComposeError` this compilation's checked compose/union/minimize/
-///   chain-depth/ordering-multiplicity calls raised (typically zero or one per grammar, but a
+///   chain-depth calls raised (typically zero or one per grammar, but a
 ///   caller collecting evidence across a batch or a diagnostic sweep may pass more than one).
 /// - `apply_budget_trips`: every per-word `ApplyBudgetTrip` this compilation's callers observed.
 /// - `compile_profile`: this crate's own `CompileProfile`, if this

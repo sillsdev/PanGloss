@@ -13,8 +13,8 @@
 //!   `crate::capability::CharacteristicsProfile::cardinality`
 //!   (`crate::capability::GrammarCardinality`) and per-observation detail structs
 //!   (`crate::capability::QuantifierPatternDetail::all_bounded`,
-//!   `crate::capability::UnorderedStratumDetail::rule_count`/`within_bound`) feed this module's
-//!   cardinality/bounded-product findings verbatim — never re-walked from the grammar.
+//!   `crate::capability::UnorderedStratumDetail::rule_count`) feed this module's
+//!   cardinality findings verbatim — never re-walked from the grammar.
 //! - `crate::capability_entry::best_case_across_backends` — an ADVISORY-ONLY, whole-grammar join
 //!   over every backend's compatibility report (see that function's own doc), composing
 //!   `characterize` with the predicate registry (`crate::capability::compose_envelope`/
@@ -55,23 +55,6 @@
 //!   findings never construct.
 //!
 //! # Bounded products
-//! `unordered_stratum_findings` reuses [`crate::capability::CharacteristicsProfile::
-//! unordered_stratum_details`]'s ALREADY-COMPUTED `rule_count`/`within_bound` against the SAME
-//! `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET` the real compile-time check
-//! (`crate::unordered::check_unordered_strata_bound`, surfaced post-hoc by
-//! `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm) trips
-//! against — the exact count is already known before foma ever runs, so this finding's
-//! `crate::health::ValueProvenance` is `ProvenBound`, not a heuristic guess. Its severity is
-//! `NotProductionReady`, matching `compose_error_finding`'s own `OrderingMultiplicityExceeded` arm: this is a
-//! combinatorial work cap, not a representability gap, so a different backend may still admit the
-//! grammar (see this module's own `characterization_raises_ordering_rule_count_finding_on_shaped_unordered_grammar`
-//! test, which asserts `best_case_across_backends` still resolves to `ConfirmOnly` here). This
-//! deliberately duplicates part of what `semantic_uncertainty_finding`'s `Refuse` case already
-//! names in a less specific way (a grammar-wide `Refuse` diagnostic list) with a MORE specific,
-//! metric-tagged finding for this one construct — both are kept, since
-//! `crate::health::Metric::OrderingRuleCount` carries information (the exact rule count vs. the
-//! budget) the generic diagnostic-list finding does not.
-//!
 //! `rule_interaction_product_finding` computes bounded products for alternatives, templates, and
 //! slots: `crate::capability::GrammarCardinality::mrule_count` times `prule_count` is a cheap,
 //! generic proxy for how much morphological x phonological rule-interaction surface a grammar
@@ -107,7 +90,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
 use crate::capability_entry::best_case_across_backends;
-use crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance};
 
@@ -324,7 +306,6 @@ pub fn characterization_findings_with_semantics(
     findings.extend(semantic_uncertainty_finding(&decision));
     findings.extend(cost_uncertainty_finding(&decision));
     findings.extend(unbounded_quantifier_findings(profile));
-    findings.extend(unordered_stratum_findings(profile));
     findings.extend(rule_interaction_product_finding(profile));
     findings
 }
@@ -421,31 +402,6 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
         .collect()
 }
 
-/// Bounded-product case for `MorphRuleOrder::Unordered` strata: `within_bound == false` means the exact rule count is already proven to exceed `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, so this is `ProvenBound`/`NotProductionReady` (a containment cap, not a representability gap; matches `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm).
-fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
-    profile
-        .unordered_stratum_details()
-        .filter(|d| !d.within_bound)
-        .map(|d| HealthFinding {
-            code: FindingCode::ProvenBoundExceedsBudget,
-            severity: Severity::NotProductionReady,
-            phase: Phase::Characterization,
-            affected: vec![format!("{:?}", d.stratum)],
-            metric: Metric::OrderingRuleCount,
-            value: MetricValue::Count(d.rule_count as u64),
-            provenance: ValueProvenance::ProvenBound,
-            threshold: Some(MetricValue::Count(DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u64)),
-            explanation: format!(
-                "Unordered stratum {:?} has {} loose rules (limit {}), an exact count already known \
-                 from this grammar's own shape before any foma compile begins, proven to exceed this \
-                 grammar's ordering-multiplicity budget.",
-                d.stratum, d.rule_count, DEFAULT_ORDERING_MULTIPLICITY_BUDGET,
-            ),
-            remedies: Vec::new(),
-        })
-        .collect()
-}
-
 /// The grammar-wide bounded-product case (module doc, "Bounded products"); `None` at or below `RULE_PRODUCT_WARNING_THRESHOLD`.
 fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<HealthFinding> {
     let mrule_count = profile.cardinality.mrule_count as u64;
@@ -488,109 +444,6 @@ mod tests {
             .unwrap_or_else(|error| panic!("{}: {error}", full.display()));
         pg_grammar::load(&xml)
             .unwrap_or_else(|error| panic!("{} failed to load: {error}", full.display()))
-    }
-
-    /// A synthetic `Unordered` stratum with more loose rules than `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, to check `characterization_findings` raises `ProvenBoundExceedsBudget`/`OrderingRuleCount` before any foma compile.
-    fn unordered_overflow_grammar_xml(rule_count: u32) -> String {
-        let mut rules = String::new();
-        let mut segs = String::new();
-        for i in 0..rule_count {
-            segs.push_str(&format!(
-                r#"<SegmentDefinition id="cx{i}"><Representations><Representation>x{i}</Representation></Representations></SegmentDefinition>"#
-            ));
-            rules.push_str(&format!(
-                r#"<MorphologicalRule id="mr{i}" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-                     <Name>r{i}</Name>
-                     <MorphologicalSubrules>
-                       <MorphologicalSubrule id="sub{i}">
-                         <MorphologicalInput><PhoneticSequence id="stem{i}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-                         <MorphologicalOutput><InsertSegments><PhoneticShape>x{i}</PhoneticShape></InsertSegments><CopyFromInput index="stem{i}" /></MorphologicalOutput>
-                       </MorphologicalSubrule>
-                     </MorphologicalSubrules>
-                     <MorphemeId>R{i}</MorphemeId>
-                   </MorphologicalRule>"#
-            ));
-        }
-        let rule_ids: Vec<String> = (0..rule_count).map(|i| format!("mr{i}")).collect();
-        format!(
-            r#"<HermitCrabInput><Language><Name>CharacterizationUnorderedFixture</Name>
-              <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
-              <CharacterDefinitionTable id="t1"><Name>Main</Name>
-                <SegmentDefinitions>
-                  <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
-                  {segs}
-                </SegmentDefinitions>
-              </CharacterDefinitionTable>
-              <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
-              <Strata>
-                <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="{ids}">
-                  <Name>S</Name>
-                  <MorphologicalRuleDefinitions>{rules}</MorphologicalRuleDefinitions>
-                  <LexicalEntries>
-                    <LexicalEntry id="eK" partOfSpeech="posV">
-                      <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
-                      <MorphemeId>K</MorphemeId>
-                    </LexicalEntry>
-                  </LexicalEntries>
-                </Stratum>
-              </Strata>
-            </Language></HermitCrabInput>"#,
-            ids = rule_ids.join(" "),
-        )
-    }
-
-    #[test]
-    fn characterization_raises_ordering_rule_count_finding_on_shaped_unordered_grammar() {
-        let rule_count = DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1;
-        let xml = unordered_overflow_grammar_xml(rule_count);
-        let grammar = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
-        let findings = characterization_findings(&grammar);
-
-        let finding = findings
-            .iter()
-            .find(|f| f.code == FindingCode::ProvenBoundExceedsBudget)
-            .unwrap_or_else(|| {
-                panic!("expected a ProvenBoundExceedsBudget characterization finding, got {findings:?}")
-            });
-        assert_eq!(finding.metric, Metric::OrderingRuleCount);
-        assert_eq!(finding.severity, Severity::NotProductionReady);
-        assert_eq!(finding.phase, Phase::Characterization);
-        assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
-        assert_eq!(finding.value, MetricValue::Count(rule_count as u64));
-        assert_eq!(
-            finding.threshold,
-            Some(MetricValue::Count(
-                DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u64
-            ))
-        );
-
-        // The ordering finding rests on the profile's own rule count, so it survives the JOIN no longer refusing.
-        assert_eq!(
-            best_case_across_backends(&GrammarSemantics::derive(&grammar)),
-            CompileDecision::ConfirmOnly,
-            "one compiler can still handle this grammar, so the join must not refuse it"
-        );
-        assert!(
-            !findings.iter().any(|f| f.severity == Severity::MachineLimit
-                && f.code == FindingCode::UnknownUnboundedConstruct),
-            "the semantic-uncertainty finding is Refuse-derived, so it must be absent here: \
-             {findings:?}"
-        );
-    }
-
-    /// A comfortably-within-budget unordered stratum must raise no `OrderingRuleCount` finding, proving the check above is real gating.
-    #[test]
-    fn characterization_raises_no_ordering_finding_when_within_budget() {
-        let xml = unordered_overflow_grammar_xml(3);
-        let grammar = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
-        let findings = characterization_findings(&grammar);
-        assert!(
-            !findings
-                .iter()
-                .any(|f| f.metric == Metric::OrderingRuleCount),
-            "a within-budget unordered stratum must not raise an OrderingRuleCount finding: \
-             {findings:?}"
-        );
     }
 
     /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no characterization finding at all.

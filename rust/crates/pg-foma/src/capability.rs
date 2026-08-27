@@ -239,7 +239,7 @@ impl CharacteristicKind {
             // Faithful, depth-budgeted proposal exists but no admission-filter proof; see `CompoundingRecursionSafePredicate`'s own doc.
             CharacteristicKind::Compounding => Disposition::ConfigPredicate,
             CharacteristicKind::OrderedMorphRuleApplication => Disposition::Proven,
-            // Already an ordering-union proposal but unproven; see `UnorderedOrderingUnionPredicate`'s own doc for the chain-depth-bounded/unbounded split.
+            // Already an ordering-union proposal but unproven; see `UnorderedOrderingUnionPredicate`'s own doc.
             CharacteristicKind::UnorderedMorphRuleApplication => Disposition::ConfigPredicate,
             CharacteristicKind::MprGroupAppend => Disposition::ConfirmOnly,
             CharacteristicKind::MprGroupOverwrite => Disposition::ConfigPredicate,
@@ -579,12 +579,8 @@ pub struct CompoundingDetail {
 
 /// `ObservationDetail::UnorderedStratum`'s payload: the one cardinality fact
 /// `UnorderedOrderingUnionPredicate` needs about a `StratumDef` declaring
-/// `MorphRuleOrder::Unordered` — its own loose-rule count against the calibrated
-/// `unordered-application.chain-depth-bounded` / `unordered-application.unbounded` split
-/// (`crate::unordered::unordered_stratum_metrics`'s own doc; computed there, not re-derived here,
-/// so the STATIC characterization and the REAL compile-time
-/// `crate::compose_budget::ComposeBudget::check_ordering_multiplicity` refusal share one source
-/// of truth and can never silently drift apart).
+/// `MorphRuleOrder::Unordered` — its own loose-rule count, computed in
+/// `crate::unordered::stratum_metrics` rather than re-derived here.
 #[derive(Debug, Clone, Copy)]
 pub struct UnorderedStratumDetail {
     pub stratum: StratumId,
@@ -593,12 +589,6 @@ pub struct UnorderedStratumDetail {
     /// predicts this construction's compiled-network cost (`crate::unordered`'s own module doc,
     /// "Big-O").
     pub rule_count: usize,
-    /// `true` iff `rule_count` is within `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`
-    /// — `unordered-application.chain-depth-bounded` (target `ConfirmOnly`). `false` means
-    /// `unordered-application.unbounded` (`Refuse`; an explicit, indelibly-stamped override is its
-    /// on-ramp) — two distinct configuration predicates, independently registered and
-    /// independently promotable.
-    pub within_bound: bool,
 }
 
 /// Extra structured data an observation needs beyond `kind`/`disposition`/`location`, for the
@@ -1388,7 +1378,6 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                     UnorderedStratumDetail {
                         stratum: m.stratum,
                         rule_count: m.rule_count,
-                        within_bound: m.within_bound,
                     }
                 }),
             )),
@@ -1653,8 +1642,8 @@ pub const CASCADE_COMPOSING_STRATEGIES: &[EmissionStrategy] = &[
     EmissionStrategy::TemplatedUnderlyingTokens,
 ];
 
-/// The compilers built on `crate::emit`'s derivation layers, and so the only ones the
-/// ordering-multiplicity budget can constrain. See docs/research/pg-foma-capability-design-notes.md.
+/// The compilers built on `crate::emit`'s derivation layers. See
+/// docs/research/pg-foma-capability-design-notes.md.
 pub const DERIVATION_LAYER_STRATEGIES: &[EmissionStrategy] = &[
     EmissionStrategy::TunedSurfaceProbed,
     EmissionStrategy::TemplatedUnderlyingTokens,
@@ -2596,13 +2585,11 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 /// `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` refuses an individual PATHOLOGICALLY
 /// deep grammar at COMPILE TIME with a typed, honest `FomaTier::Unsupported` outcome — this is a
 /// COST/resource-ceiling refusal, not a capability-layer one, exactly mirroring how
-/// `unordered-application.chain-depth-bounded` stays `ConfirmOnly` (this file's own
-/// `UnorderedOrderingUnionPredicate`) even though `DEFAULT_ORDERING_MULTIPLICITY_BUDGET` can
-/// separately refuse an oversized stratum. Unlike THAT predicate (whose own `unordered-application.
-/// unbounded` split is a PERMANENT cost carve-out this file does not attempt to close),
+/// `UnorderedOrderingUnionPredicate` stays `ConfirmOnly`. Unlike a capability predicate that
+/// closes a construction gap,
 /// `Compounding` was provable precisely because its classifying signal (`detail.recursive`) was a
 /// CONSTRUCTION gap, not a cost one — so once the construction exists, nothing about `Compounding`
-/// licenses a capability-layer cost carve-out the way `UnorderedMorphRuleApplication`'s does. The
+/// licenses a capability-layer cost carve-out. The
 /// capability override remains available for any grammar this predicate's own `ConfirmOnly` verdict
 /// does not by itself unblock (e.g. a grammar tripping `crate::emit`'s own compile-time budget).
 ///
@@ -2650,19 +2637,15 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
 
 // ---- UnorderedMorphRuleApplication: the config-predicate `cover-unordered-morph-rules` registers ----
 
-/// The capability predicate for `UnorderedMorphRuleApplication`:
-/// splits it at CONFIGURATION-PREDICATE
-/// granularity (never a blanket `Unordered` verdict) into `unordered-application.chain-depth-bounded` and
-/// `unordered-application.unbounded`, keyed by `UnorderedStratumDetail::within_bound`
-/// (`crate::unordered::unordered_stratum_metrics`'s own cardinality check, mirrored here over the
-/// SAME `stratum.mrules.len()` / `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`
-/// facts so the two can never silently disagree).
+/// The capability predicate for `UnorderedMorphRuleApplication`: an observed unordered stratum
+/// uses the existing order-union proposal and remains `ConfirmOnly`; no rule-count threshold
+/// changes that semantic verdict.
 ///
 /// # Disposition
 /// - **Not observed at all** (no `Unordered` stratum in the grammar): vacuously `Admit` — nothing
 ///   for this predicate to say (mirrors `CompoundingRecursionSafePredicate`'s own convention).
-/// - **`unordered-application.chain-depth-bounded`** (every observed `Unordered` stratum has
-///   `detail.within_bound == true`): `PredicateVerdict::ConfirmOnly` — `crate::emit::
+/// - **`unordered-application.chain-depth-bounded`** (an observed `Unordered` stratum):
+///   `PredicateVerdict::ConfirmOnly` — `crate::emit::
 ///   build_deriv_chain`'s existing derivation-layer construction (`crate::unordered`'s own module
 ///   doc: "the ordering-union proposal IS an existing mechanism") is a
 ///   genuinely faithful, over-approximating FST proposal for this case, oracle-contained against
@@ -2670,16 +2653,6 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
 ///   no-false-negative admission-filter argument exists, so the
 ///   resting disposition is the same `ConfigPredicate` landing spot every other construct
 ///   in this file uses.
-/// - **`unordered-application.unbounded`** (at least one observed `Unordered` stratum has
-///   `detail.within_bound == false` — its own loose-rule count exceeds
-///   `crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET`):
-///   `PredicateVerdict::Refuse` — the landing for the
-///   uncalibrated-bound case; the capability override remains this stratum's on-ramp to
-///   force-compile it. Mirrors `crate::analyzer::FomaProposer::new_with_budget`'s own,
-///   INDEPENDENTLY-derived refusal (`crate::compose_budget::ComposeError::
-///   OrderingMultiplicityExceeded`) — this predicate is the CHECK-ONLY declaration of the same
-///   verdict the real compile path already enforces, not a second, competing source of truth (both
-///   read the SAME calibrated constant).
 ///
 /// # Node applicability
 /// Like `ReduplicationPeelSupportedPredicate`/`CompoundingRecursionSafePredicate`:
@@ -2692,11 +2665,9 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
 /// verdict).
 ///
 /// # Provenance
-/// `EvidenceProvenance::Structural`: `within_bound` reads directly-inspectable `model.rs`/
-/// `Grammar` structure (a plain `Vec::len()` comparison) — no oracle witness is needed to derive
-/// the verdict itself (the oracle witnesses this change ships separately prove the ordering-union
-/// PROPOSAL is a correct over-approximation, which is a different claim from what this predicate
-/// decides).
+/// `EvidenceProvenance::Structural`: the predicate reads directly-inspectable `model.rs`/`Grammar`
+/// structure; the oracle witnesses prove the ordering-union proposal is a correct
+/// over-approximation, which is a different claim from what this predicate decides.
 pub struct UnorderedOrderingUnionPredicate;
 
 impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
@@ -2722,28 +2693,7 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
-        let mut any_observed = false;
-        for detail in profile.unordered_stratum_details() {
-            any_observed = true;
-            if !detail.within_bound {
-                return PredicateVerdict::Refuse(CapabilityDiagnostic {
-                    predicate: self.id(),
-                    construct: format!(
-                        "stratum {} (Unordered, {} loose rules)",
-                        detail.stratum.0, detail.rule_count
-                    ),
-                    witness:
-                        "unordered-application.unbounded: this stratum's own loose-rule count \
-                              exceeds crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET, \
-                              the calibrated joint bound design.md/spec.md require before \
-                              unordered-application.chain-depth-bounded's ConfirmOnly proposal \
-                              applies. Refused; an explicit capability override is the on-ramp \
-                              to force-compile it."
-                            .to_string(),
-                });
-            }
-        }
-        if any_observed {
+        if profile.unordered_stratum_details().next().is_some() {
             PredicateVerdict::ConfirmOnly
         } else {
             PredicateVerdict::Admit
@@ -4427,7 +4377,8 @@ mod tests {
         }
     }
 
-    /// `MorphRuleOrder::Unordered` characterizes `ConfigPredicate`; this zero-rule stratum is trivially `within_bound`, so its resolved verdict is `ConfirmOnly`, not `Refuse`.
+    /// `MorphRuleOrder::Unordered` characterizes `ConfigPredicate`; its resolved verdict is
+    /// `ConfirmOnly`, not `Refuse`.
     #[test]
     fn characterize_marks_unordered_morph_rule_order_config_predicate() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4455,10 +4406,6 @@ mod tests {
         let details: Vec<_> = profile.unordered_stratum_details().collect();
         assert_eq!(details.len(), 1);
         assert_eq!(details[0].rule_count, 0);
-        assert!(
-            details[0].within_bound,
-            "a zero-rule stratum must be within bound"
-        );
     }
 
     /// `MprGroupOutput::Append` -> ConfirmOnly, `MprGroupOutput::Overwrite` -> ConfigPredicate.
@@ -7139,7 +7086,7 @@ mod tests {
 
     /// A chain-depth-bounded, zero-rule `Unordered` grammar must compose to `ConfirmOnly`, never `Refuse`.
     #[test]
-    fn compose_envelope_confirm_only_for_unordered_within_bound() {
+    fn compose_envelope_confirm_only_for_unordered_stratum() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -7209,34 +7156,6 @@ mod tests {
             </Language></HermitCrabInput>"#,
             rule_ids = rule_ids.join(" "),
         )
-    }
-
-    /// A grammar whose `Unordered` stratum's loose-rule count exceeds the calibrated budget refuses the compiler whose derivation layers the budget bounds, and names the stratum when it does.
-    #[test]
-    fn compose_envelope_refuses_unordered_morph_rule_order_grammar_for_the_tuned_compiler() {
-        let xml = unordered_stratum_xml(
-            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
-        );
-        let g = load(&xml);
-        let semantics = GrammarSemantics::derive(&g);
-        let plan = enumerated_plan(&g);
-        let registry = default_registry();
-
-        let tuned = compose_envelope_for_strategy(
-            &semantics,
-            &plan,
-            EmissionStrategy::TunedSurfaceProbed,
-            &registry,
-        );
-        match tuned {
-            CompileDecision::Refuse(diags) => {
-                assert!(
-                    diags.iter().any(|d| d.construct.contains("Unordered")),
-                    "expected a diagnostic naming the Unordered stratum: {diags:?}"
-                );
-            }
-            other => panic!("expected Refuse from the tuned compiler, got {other:?}"),
-        }
     }
 
     /// A grammar with an `MprGroupOutput::Append` group and nothing worse must compose to `ConfirmOnly`, not `Admit` or `Refuse`.
@@ -7876,10 +7795,8 @@ mod tests {
             ("ordinary", ORDINARY_XML.to_string()),
             ("realizational", REALIZATIONAL_XML.to_string()),
             (
-                "unordered-unbounded",
-                unordered_stratum_xml(
-                    crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
-                ),
+                "unordered",
+                unordered_stratum_xml(3),
             ),
             ("reduplication-on-realizational-rule", refusing_xml),
         ] {
@@ -7956,45 +7873,6 @@ mod tests {
             narrowed_kinds > 0,
             "no predicate is narrowed, so this property is vacuous -- it must be re-pointed at \
              whatever replaced the narrowing rather than left passing on an empty set"
-        );
-    }
-
-    /// An over-budget `Unordered` stratum is a limit of `emit::build_deriv_chain`; `uflexc` builds no such layers, so `PlanComposed` must not be refused for it.
-    #[test]
-    fn an_over_budget_unordered_stratum_is_refused_only_by_the_derivation_layer_compilers() {
-        let xml = unordered_stratum_xml(
-            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
-        );
-        let g = load(&xml);
-        let semantics = GrammarSemantics::derive(&g);
-        let plan = enumerated_plan(&g);
-        let registry = default_registry();
-        let envelope = compose_envelope_across_strategies(&semantics, &plan, &registry);
-
-        for &strategy in DERIVATION_LAYER_STRATEGIES {
-            match envelope.decision_for(strategy) {
-                Some(CompileDecision::Refuse(diags)) => assert!(
-                    diags.iter().any(|d| d.construct.contains("Unordered")),
-                    "{strategy:?} must refuse naming the Unordered stratum: {diags:?}"
-                ),
-                other => panic!("{strategy:?} builds the derivation layers the budget bounds, so it must refuse; got {other:?}"),
-            }
-        }
-
-        let plan_composed = envelope
-            .decision_for(EmissionStrategy::PlanComposed)
-            .expect("PlanComposed must have a row");
-        assert_eq!(
-            plan_composed,
-            &CompileDecision::ConfirmOnly,
-            "uflexc's self-looping prefix/suffix chains admit every order of a stratum's loose \
-             rules by construction, so the ordering-multiplicity budget is not its limit"
-        );
-        assert_eq!(
-            compose_envelope(&g, &plan, &registry),
-            CompileDecision::ConfirmOnly,
-            "the whole-grammar verdict is a JOIN -- one compiler that can handle the grammar is \
-             enough, and refusing here is exactly the defect StrategyEnvelope::global exists to fix"
         );
     }
 

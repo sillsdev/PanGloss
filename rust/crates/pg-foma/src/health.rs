@@ -237,8 +237,6 @@ pub enum Metric {
     ApplyAllocationBytes,
     /// A construct whose cost cannot be bounded ahead of time; paired with `MetricValue::Unbounded` and `ValueProvenance::Predicted`.
     UnknownUnboundedWork,
-    /// An `Unordered` stratum's own loose-rule count.
-    OrderingRuleCount,
     /// The compound HEAD x NON-HEAD root-allomorph cross product a grammar's `CompoundingRuleDef`s license.
     CompoundRootPairCount,
     /// Reachable root/chain-state x morphological-rule applications that a composite-emitting
