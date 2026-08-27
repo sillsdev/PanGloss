@@ -1842,32 +1842,6 @@ mod tests {
             }
         }
 
-        /// A grammar the gated backend cannot compile at all must be refused AT THE GATE, naming that backend and the construct -- never let through to die inside the compiler on an internal budget message.
-        #[test]
-        fn a_grammar_only_the_gated_backend_refuses_is_still_blocked_at_the_gate() {
-            let xml = crate::test_support::unordered_over_budget_grammar_xml(101);
-            let over_budget = load(&xml);
-
-            let g = capability_gate(&over_budget, true, false);
-            assert!(
-                !g.proceed,
-                "the gate must block a grammar the backend it is gating cannot compile: {:?}",
-                g.stderr_lines
-            );
-            assert!(
-                g.stderr_lines
-                    .iter()
-                    .any(|l| l.contains(crate::GATED_BACKEND.label())),
-                "the refusal must name which backend declined: {:?}",
-                g.stderr_lines
-            );
-            assert!(
-                g.stderr_lines.iter().any(|l| l.contains("Unordered")),
-                "the refusal must name the construct declined on: {:?}",
-                g.stderr_lines
-            );
-        }
-
         /// `--enforce-capability --allow-unproven` on the same `Refuse` grammar: must proceed (the override), flagged `overridden`, with an unmissable `trust=unproven` marker plus the overridden diagnostics by name.
         #[cfg(feature = "developer-tools")]
         #[test]

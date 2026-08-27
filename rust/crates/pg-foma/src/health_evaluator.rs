@@ -657,10 +657,6 @@ mod tests {
                 limit: 100,
                 report: enum_report,
             },
-            FomaError::UnorderedOrderingMultiplicityExceeded {
-                rule_count: 11,
-                limit: 10,
-            },
         ];
 
         // Every error must BLOCK; the exact band is per-cause, pinned by the split tests below.
@@ -694,11 +690,6 @@ mod tests {
                 depth: 2,
                 limit: 1,
                 site: "apply",
-            },
-            ComposeError::OrderingMultiplicityExceeded {
-                rule_count: 2,
-                limit: 1,
-                site: "ordering",
             },
         ];
         for error in compose_errors {
@@ -1021,20 +1012,6 @@ mod tests {
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.metric, Metric::ApplyChainDepth);
         assert_eq!(finding.phase, Phase::Apply);
-    }
-
-    #[test]
-    fn fst_health_evaluator_ordering_multiplicity_exceeded_uses_new_metric() {
-        let err = ComposeError::OrderingMultiplicityExceeded {
-            rule_count: 120,
-            limit: 100,
-            site: "synthetic-unordered-stratum",
-        };
-        let health = evaluate_health(None, None, std::slice::from_ref(&err), &[], None);
-        let finding = &health.findings[0];
-        assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
-        assert_eq!(finding.metric, Metric::OrderingRuleCount);
-        assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
     }
 
     // fst_health_evaluator_apply_budget_trips

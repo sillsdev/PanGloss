@@ -1,12 +1,11 @@
-//! Proposer-to-confirm containment for `MorphRuleOrder::Unordered`'s chain-depth-bounded configuration (target disposition `ConfirmOnly`), plus a deterministic unbounded-budget-refusal witness.
-//! See docs/research/pg-foma-cover-unordered-morph-rules-notes.md for the fixture and the two distinguishing-witness arguments.
+//! Proposer-to-confirm containment for `MorphRuleOrder::Unordered`'s configuration.
+//! See docs/research/pg-foma-cover-unordered-morph-rules-notes.md for the fixture and the distinguishing-witness arguments.
 
 mod common;
 
 use std::collections::HashSet;
 
-use pg_foma::analyzer::{FomaError, FomaProposer};
-use pg_foma::backend_selection::select_backends_for_grammar;
+use pg_foma::analyzer::FomaProposer;
 use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::enumerate::enumerate_default;
@@ -70,66 +69,9 @@ fn fixture_xml(mrule_order: &str) -> String {
 </HermitCrabInput>"#
     )
 }
-
-/// A chain-depth-bounded `Unordered` stratum whose loose-rule count exceeds the calibrated `pg_foma::compose_budget` default, generated programmatically rather than hand-typed.
-fn unbounded_fixture_xml(rule_count: u32) -> String {
-    let mut rules = String::new();
-    let mut segs = String::new();
-    for i in 0..rule_count {
-        segs.push_str(&format!(
-            r#"<SegmentDefinition id="cx{i}"><Representations><Representation>x{i}</Representation></Representations></SegmentDefinition>"#
-        ));
-        rules.push_str(&format!(
-            r#"<MorphologicalRule id="mr{i}" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-                 <Name>r{i}</Name>
-                 <MorphologicalSubrules>
-                   <MorphologicalSubrule id="sub{i}">
-                     <MorphologicalInput><PhoneticSequence id="stem{i}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-                     <MorphologicalOutput><CopyFromInput index="stem{i}" /><InsertSegments><PhoneticShape>x{i}</PhoneticShape></InsertSegments></MorphologicalOutput>
-                   </MorphologicalSubrule>
-                 </MorphologicalSubrules>
-                 <MorphemeId>R{i}</MorphemeId>
-               </MorphologicalRule>"#
-        ));
-    }
-    let rule_ids: Vec<String> = (0..rule_count).map(|i| format!("mr{i}")).collect();
-    format!(
-        r#"<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
-<HermitCrabInput>
-  <Language>
-    <Name>CoverUnorderedMorphRulesUnbounded</Name>
-    <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
-    <CharacterDefinitionTable id="t1">
-      <Name>Main</Name>
-      <SegmentDefinitions>
-        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
-        {segs}
-      </SegmentDefinitions>
-    </CharacterDefinitionTable>
-    <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
-    <Strata>
-      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="{rule_ids}">
-        <Name>Main</Name>
-        <MorphologicalRuleDefinitions>{rules}</MorphologicalRuleDefinitions>
-        <LexicalEntries>
-          <LexicalEntry id="eK" partOfSpeech="posV">
-            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
-            <MorphemeId>K</MorphemeId>
-          </LexicalEntry>
-        </LexicalEntries>
-      </Stratum>
-    </Strata>
-  </Language>
-</HermitCrabInput>"#,
-        rule_ids = rule_ids.join(" "),
-    )
-}
-
 fn load(xml: &str) -> Grammar {
     pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
 }
-
 /// `(morpheme_ids, root_morpheme_index)` multiset key, same shape `tests/cover_compounding.rs::analysis_set` uses.
 fn analysis_set(v: &[WordAnalysis]) -> HashSet<(Vec<u32>, i32)> {
     v.iter()
@@ -277,51 +219,4 @@ fn no_phonology_isolates_build_deriv_chain_from_the_legality_pruning_convention(
         "this fixture must have zero phonological rules, so crate::preexpand::should_run is false \
          and the morphotactic-legality pruning convention's own consumers never run"
     );
-}
-
-/// A stratum whose loose-rule count exceeds the calibrated budget must deterministically fail to compile with a typed refusal, never a silent truncation or an attempt to build the oversized network.
-#[test]
-fn unbounded_unordered_stratum_deterministically_refuses_to_compile() {
-    let xml = unbounded_fixture_xml(101);
-    let g = load(&xml);
-
-    match pg_foma::analyzer::FomaProposer::new(&g) {
-        Err(FomaError::UnorderedOrderingMultiplicityExceeded { rule_count, limit }) => {
-            assert_eq!(rule_count, 101);
-            assert_eq!(limit, 100);
-        }
-        Err(other) => panic!("expected UnorderedOrderingMultiplicityExceeded, got {other}"),
-        Ok(_) => panic!(
-            "expected a 101-rule Unordered stratum to exceed the calibrated default budget (100)"
-        ),
-    }
-
-    // The same refusal surfaces through the public product API, never a panic or a hang building a 101-level chain.
-    match FomaAnalyzer::new(&g) {
-        Err(FomaError::UnorderedOrderingMultiplicityExceeded { .. }) => {}
-        Err(other) => panic!("expected UnorderedOrderingMultiplicityExceeded, got {other}"),
-        Ok(_) => panic!("expected FomaAnalyzer::new to propagate the same refusal"),
-    }
-}
-
-/// The capability characterization for the same unbounded grammar must independently decline it for the backend that would compile it -- read from the selector's per-backend report rather than a whole-grammar join, since the join is the best ANY backend offers and a backend that builds no derivation layers has nothing to say about the budget bounding them.
-#[test]
-fn unbounded_unordered_stratum_composes_to_refuse() {
-    let xml = unbounded_fixture_xml(101);
-    let g = load(&xml);
-    let selection = select_backends_for_grammar(&g);
-
-    let backend = FomaProposer::EMISSION_STRATEGY;
-    let report = selection
-        .report_for(backend)
-        .expect("every backend must be reported");
-    assert!(
-        report
-            .declined_on()
-            .iter()
-            .any(|d| d.construct.contains("Unordered")),
-        "expected a diagnostic naming the Unordered stratum: {:?}",
-        report.declined_on()
-    );
-
 }

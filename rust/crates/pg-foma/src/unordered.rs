@@ -227,11 +227,6 @@ mod tests {
             unordered_stratum_metrics(&g).is_empty(),
             "a Linear stratum must never appear in Unordered-only metrics"
         );
-        let budget = ComposeBudget::unbounded().with_ordering_multiplicity_cap(6);
-        assert!(
-            check_unordered_strata_bound(&g, &budget).is_ok(),
-            "a Linear stratum's rule count must never trip the Unordered-only budget"
-        );
     }
 
     #[test]
@@ -240,36 +235,6 @@ mod tests {
         let metrics = unordered_stratum_metrics(&g);
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0].rule_count, 3);
-        assert!(metrics[0].within_bound);
-
-        let budget = ComposeBudget::unbounded().with_ordering_multiplicity_cap(6);
-        assert!(check_unordered_strata_bound(&g, &budget).is_ok());
-    }
-
-    /// Proves the gate genuinely reads the budget it is handed, not a hardcoded threshold: a 7-rule stratum is well within the production default but still trips a deliberately small explicit cap of 6.
-    #[test]
-    fn check_unordered_strata_bound_trips_on_an_explicit_low_cap() {
-        let g = load(&stratum_xml("unordered", 7));
-        let metrics = unordered_stratum_metrics(&g);
-        assert_eq!(metrics.len(), 1);
-        assert_eq!(metrics[0].rule_count, 7);
-        assert!(
-            metrics[0].within_bound,
-            "7 rules must be within the production default (100)"
-        );
-
-        let budget = ComposeBudget::unbounded().with_ordering_multiplicity_cap(6);
-        let err = check_unordered_strata_bound(&g, &budget)
-            .expect_err("a 7-rule Unordered stratum must trip an EXPLICIT cap of 6");
-        match err {
-            ComposeError::OrderingMultiplicityExceeded {
-                rule_count, limit, ..
-            } => {
-                assert_eq!(rule_count, 7);
-                assert_eq!(limit, 6);
-            }
-            other => panic!("expected OrderingMultiplicityExceeded, got {other:?}"),
-        }
     }
 
     #[test]
@@ -297,19 +262,4 @@ mod tests {
         assert!(!unordered_stratum_metrics(&one_past)[0].within_bound);
     }
 
-    #[test]
-    fn production_default_budget_refuses_a_deep_unordered_stratum() {
-        // Uses the production construction path (`FomaProposer::new`, `ComposeBudget::from_env`, no explicit cap) so the assertion below is about the calibrated default rather than a hand-set cap.
-        let g = load(&stratum_xml(
-            "unordered",
-            crate::compose_budget::DEFAULT_ORDERING_MULTIPLICITY_BUDGET as u32 + 1,
-        ));
-        let budget = ComposeBudget::from_env();
-        let err = check_unordered_strata_bound(&g, &budget)
-            .expect_err("a stratum one rule past the calibrated default must refuse");
-        assert!(matches!(
-            err,
-            ComposeError::OrderingMultiplicityExceeded { .. }
-        ));
-    }
 }

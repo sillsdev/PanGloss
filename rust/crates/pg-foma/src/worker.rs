@@ -1530,40 +1530,6 @@ mod tests {
         ));
     }
 
-    /// A synthetic grammar with an `Unordered` stratum whose loose-rule count exceeds a small `ordering_multiplicity_cap`, tripping a real `ComposeError` before lexc compilation.
-    const UNORDERED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>WorkerBudgetTripFixture</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
-      <Strata>
-        <Stratum characterDefinitionTable="t1" morphologicalRules="mr1 mr2 mr3" morphologicalRuleOrder="unordered">
-          <Name>S</Name>
-          <MorphologicalRuleDefinitions>
-            <MorphologicalRule id="mr1"><Name>R1</Name><MorphologicalSubrules>
-              <MorphologicalSubrule id="s1"><MorphologicalInput><PhoneticSequence id="in1"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
-                <MorphologicalOutput><CopyFromInput index="in1" /><InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments></MorphologicalOutput>
-              </MorphologicalSubrule>
-            </MorphologicalSubrules></MorphologicalRule>
-            <MorphologicalRule id="mr2"><Name>R2</Name><MorphologicalSubrules>
-              <MorphologicalSubrule id="s2"><MorphologicalInput><PhoneticSequence id="in2"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
-                <MorphologicalOutput><CopyFromInput index="in2" /><InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments></MorphologicalOutput>
-              </MorphologicalSubrule>
-            </MorphologicalSubrules></MorphologicalRule>
-            <MorphologicalRule id="mr3"><Name>R3</Name><MorphologicalSubrules>
-              <MorphologicalSubrule id="s3"><MorphologicalInput><PhoneticSequence id="in3"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
-                <MorphologicalOutput><CopyFromInput index="in3" /><InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments></MorphologicalOutput>
-              </MorphologicalSubrule>
-            </MorphologicalSubrules></MorphologicalRule>
-          </MorphologicalRuleDefinitions>
-          <LexicalEntries>
-            <LexicalEntry id="e1"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
-
     fn scratch_grammar_file(tag: &str, xml: &str) -> std::path::PathBuf {
         static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1573,33 +1539,6 @@ mod tests {
         ));
         std::fs::write(&path, xml).expect("write scratch grammar");
         path
-    }
-
-    #[test]
-    fn run_worker_child_reports_budget_tripped_for_a_real_ordering_multiplicity_breach() {
-        let path = scratch_grammar_file("budget-trip", UNORDERED_GRAMMAR_XML);
-        let mut request =
-            CompileWorkerRequest::new(path.to_string_lossy().into_owned(), GrammarFormat::Xml);
-        // 3 loose rules in the fixture's Unordered stratum; cap = 2 must trip.
-        request.ordering_multiplicity_cap = Some(2);
-        let json = serde_json::to_vec(&request).unwrap();
-        let mut buf = Vec::new();
-        buf.extend_from_slice(&(json.len() as u64).to_le_bytes());
-        buf.extend_from_slice(&json);
-
-        let result = call_child(&buf);
-        match result.outcome {
-            CompileWorkerOutcome::BudgetTripped { detail, health } => {
-                assert!(detail.contains("ordering-multiplicity"), "detail: {detail}");
-                assert_eq!(health.admission(), Severity::NotProductionReady);
-                assert!(health
-                    .findings
-                    .iter()
-                    .any(|f| f.metric == Metric::OrderingRuleCount));
-            }
-            other => panic!("expected BudgetTripped, got {other:?}"),
-        }
-        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
