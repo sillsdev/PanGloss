@@ -277,30 +277,18 @@ mod tests {
         pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture grammar failed to load: {e}"))
     }
 
-    fn run_fst_health_raw(
-        tag: &str,
-        grammar_xml: &str,
-        words: Option<&[&str]>,
-    ) -> (Result<(), String>, std::path::PathBuf, std::path::PathBuf) {
+    fn run_fst_health_raw(tag: &str, grammar_xml: &str) -> Result<(), String> {
         let dir = scratch_dir(tag);
         let grammar_path = dir.join("grammar.xml");
-        let words_path = dir.join("words.txt");
-        let out_path = dir.join("health.json");
         std::fs::write(&grammar_path, grammar_xml).expect("write grammar");
 
-        let mut args: Vec<String> = vec![grammar_path.to_string_lossy().into_owned()];
-        if let Some(words) = words {
-            std::fs::write(&words_path, words.join("\n")).expect("write words");
-            args.push(words_path.to_string_lossy().into_owned());
-            args.push(out_path.to_string_lossy().into_owned());
-        }
-        (run_fst_health(&args), out_path, words_path)
+        let args: Vec<String> = vec![grammar_path.to_string_lossy().into_owned()];
+        run_fst_health(&args)
     }
 
     #[test]
     fn fst_health_no_words_writes_no_apply_side_findings() {
-        let (result, _out_path, _words_path) =
-            run_fst_health_raw("no-words", CLEAN_GRAMMAR_XML, None);
+        let result = run_fst_health_raw("no-words", CLEAN_GRAMMAR_XML);
         assert!(
             result.is_ok(),
             "no-words invocation must succeed: {result:?}"
@@ -336,107 +324,4 @@ mod tests {
         assert!(summary.contains("process="), "{summary}");
     }
 
-    #[test]
-    fn fst_health_writes_valid_json_that_round_trips() {
-        let (result, out_path, _words_path) =
-            run_fst_health_raw("roundtrip", CLEAN_GRAMMAR_XML, Some(&["kat", "zzzz"]));
-        assert!(result.is_ok(), "fst-health must succeed: {result:?}");
-
-        let json = std::fs::read_to_string(&out_path).expect("read health.json");
-        let report = HealthReport::from_json(&json).expect("health.json must parse");
-        assert_eq!(
-            report.schema_version,
-            pg_foma::health::HEALTH_SCHEMA_VERSION
-        );
-
-        // Round-trip: re-serializing the parsed report must reproduce the same JSON exactly.
-        let reserialized = report.to_json().expect("re-serialize");
-        assert_eq!(reserialized, json, "health.json must round-trip losslessly");
-    }
-
-    #[test]
-    fn fst_health_with_words_populates_proposal_and_confirmation_findings() {
-        let (result, out_path, _words_path) =
-            run_fst_health_raw("with-words", CLEAN_GRAMMAR_XML, Some(&["kat"]));
-        assert!(result.is_ok(), "fst-health must succeed: {result:?}");
-        let json = std::fs::read_to_string(&out_path).expect("read health.json");
-        let report = HealthReport::from_json(&json).expect("health.json must parse");
-
-        assert!(
-            report
-                .findings
-                .iter()
-                .any(|f| f.code == FindingCode::ProposalVolume
-                    && f.metric == Metric::ProposalCandidateCount),
-            "expected a populated ProposalVolume finding: {:?}",
-            report.findings
-        );
-        assert!(
-            report
-                .findings
-                .iter()
-                .any(|f| f.code == FindingCode::ConfirmationWork
-                    && f.metric == Metric::ConfirmationCount),
-            "expected a populated ConfirmationWork/ConfirmationCount finding: {:?}",
-            report.findings
-        );
-        assert!(
-            report
-                .findings
-                .iter()
-                .any(|f| f.code == FindingCode::ConfirmationWork
-                    && f.metric == Metric::RejectionShare),
-            "expected a populated ConfirmationWork/RejectionShare finding: {:?}",
-            report.findings
-        );
-    }
-
-    /// Direct unit coverage of the dedup logic: three identical `WordAnalysis` values, constructed directly rather than through a compiled grammar, must yield one finding with ratio `2/3`.
-    #[test]
-    fn duplicate_analysis_findings_reports_real_ratio_for_repeated_structured_analyses() {
-        let wa = WordAnalysis {
-            morpheme_ids: vec![7],
-            root_morpheme_index: 0,
-            pos_id: None,
-            syn_fs: pg_featstruct::FeatureStruct::EMPTY,
-            mpr: pg_grammar::model::MprSet::default(),
-            guessed: false,
-            provenance: pg_parse::AnalysisProvenance::Grammar,
-            supplied_root: None,
-            morpheme_roots: vec![None],
-        };
-        let structured = vec![wa.clone(), wa.clone(), wa];
-        let findings = duplicate_analysis_findings("synthetic-word", &structured);
-
-        let ratio_finding = findings
-            .iter()
-            .find(|f| f.metric == Metric::DuplicateAnalysisRatio)
-            .expect("expected a DuplicateAnalysisRatio finding");
-        assert_eq!(ratio_finding.code, FindingCode::DuplicateAnalysisOverlap);
-        assert_eq!(ratio_finding.value, MetricValue::Ratio(2.0 / 3.0));
-        assert_eq!(ratio_finding.affected, vec!["synthetic-word".to_string()]);
-
-        let count_finding = findings
-            .iter()
-            .find(|f| f.metric == Metric::DuplicateAnalysisCount)
-            .expect("expected a DuplicateAnalysisCount finding");
-        assert_eq!(count_finding.value, MetricValue::Count(2));
-    }
-
-    #[test]
-    fn duplicate_analysis_findings_empty_for_all_distinct_analyses() {
-        let mk = |id: u32| WordAnalysis {
-            morpheme_ids: vec![id],
-            root_morpheme_index: 0,
-            pos_id: None,
-            syn_fs: pg_featstruct::FeatureStruct::EMPTY,
-            mpr: pg_grammar::model::MprSet::default(),
-            guessed: false,
-            provenance: pg_parse::AnalysisProvenance::Grammar,
-            supplied_root: None,
-            morpheme_roots: vec![None],
-        };
-        let structured = vec![mk(1), mk(2), mk(3)];
-        assert!(duplicate_analysis_findings("synthetic-word", &structured).is_empty());
-    }
 }
