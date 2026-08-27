@@ -21,17 +21,6 @@
 //! thereafter read-only, so `pangloss batch --threads=N` shares one `&RuleCache` across every worker
 //! with zero contention and no thread-count sensitivity.
 //!
-//! **The engine's own uncached entry points are unchanged**: `rewrite::synthesize`/
-//! `synthesize_with_mpr`/`analyze`, `morph::synthesize`/`analyze`, and `validity::allomorphs_valid`/
-//! `environments_ok` still recompile on every call, exactly as before this milestone. This is
-//! deliberate, not a missed spot: a large fraction of the test suite builds a standalone
-//! `RewriteRuleDef`/`EnvironmentDef`/allomorph fixture that is never grammar-resident (never lives at
-//! a stable index inside some `Grammar`'s `prules`/`mrules`/`allomorph_owners`), so there is no index
-//! to cache against, and pointer-identity caching was rejected (a `HashMap` behind a lock in the hot
-//! path is exactly the contention pattern the design brief asked to avoid). Only the real per-word
-//! pipeline (`pg-parse::Morpher`, threaded through `crate::stratum`) uses the `_cached` siblings this
-//! module and its per-file counterparts (`rewrite::synthesize_with_mpr_cached`/`analyze_cached`,
-//! `morph::synthesize_cached`/`analyze_cached`, `validity::allomorphs_valid_cached`) add.
 
 use pg_fst::Fst;
 use pg_grammar::model::{

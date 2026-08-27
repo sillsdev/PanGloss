@@ -88,12 +88,6 @@ const TABLE: TableId = TableId(0);
 /// equivalent of C#'s `morph.Range.Start.Prev` (right-to-left anchored-to-start) and
 /// `morph.Range.End.Next` (left-to-right anchored-to-end) matchers.
 ///
-/// Recompiles every environment's matcher on every call — kept as-is (not cached) because this
-/// function is also called directly, in tests, against standalone `EnvironmentDef`s that are never
-/// grammar-resident (no stable `AllomorphId` to cache against). The real per-word pipeline
-/// (`pg-parse::Morpher::is_word_valid`) calls `allomorphs_valid_cached` instead, which reads each
-/// environment's matcher from `crate::cache::RuleCache` via `environments_ok_cached`. See
-/// `crate::cache`'s module doc for the full rationale.
 pub fn environments_ok(
     g: &Grammar,
     envs: &[EnvironmentDef],
@@ -411,27 +405,11 @@ fn allomorph_co_occurrence_ok(
 /// before this runs — see `morph.rs::synth_compound_subrule`'s `attribute_morphs` call) passes its
 /// own `Allomorph.IsWordValid`.
 ///
-/// Recompiles every checked allomorph's environment matchers on every call — see
-/// `environments_ok`'s doc for why (standalone test fixtures). The real per-word pipeline
-/// (`pg-parse::Morpher::is_word_valid`) calls `allomorphs_valid_cached` instead.
 pub fn allomorphs_valid(g: &Grammar, w: &Word) -> bool {
     let sink = NoopSink;
     allomorphs_valid_impl(g, w, EnvCheck::Fresh, &sink, TraceHandle::DUMMY)
 }
 
-/// The `RuleCache`-aware sibling of `allomorphs_valid`, used by the real per-word pipeline
-/// (`pg-parse::Morpher::is_word_valid`): every environment matcher is read from
-/// `cache.allomorph(id).envs` instead of being recompiled.
-pub fn allomorphs_valid_cached(g: &Grammar, w: &Word, cache: &RuleCache) -> bool {
-    let sink = NoopSink;
-    allomorphs_valid_impl(g, w, EnvCheck::Cached(cache), &sink, TraceHandle::DUMMY)
-}
-
-/// P12 chunk 3: `allomorphs_valid_cached`'s traced sibling -- the single source of truth both
-/// share (`allomorphs_valid_cached` calls this with a `NoopSink`). Closes the gap chunk 2 left
-/// open: `pg-parse::Morpher::is_word_valid_traced`'s final gate now reports exactly which of the 11
-/// `FailureReason`s in this function's cross-reference table rejected the
-/// word, at the first morph occurrence that fails.
 pub fn allomorphs_valid_cached_traced(
     g: &Grammar,
     w: &Word,
