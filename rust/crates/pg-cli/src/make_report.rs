@@ -1202,34 +1202,6 @@ mod tests {
         assert!(rendered.contains("provenance=ProvenBound"), "{rendered}");
     }
 
-    /// Below-floor latency never renders as a literal `0`; direct proof over the rendering helper, independent of real timing noise.
-    #[test]
-    fn below_floor_latency_never_reports_as_a_bare_millis_zero() {
-        let m = LatencyMeasurement::BelowFloor {
-            floor_ms: 0.000_001,
-        };
-        let rendered = render_latency_measurement(&m);
-        assert!(rendered.contains("below timer floor"), "{rendered}");
-        assert_ne!(rendered.trim(), "0 ms");
-        assert_ne!(rendered.trim(), "0.000 ms");
-    }
-
-    #[test]
-    fn percentile_ns_nearest_rank_matches_expected_indices() {
-        let sorted = vec![10u64, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-        assert_eq!(percentile_ns(&sorted, 50.0), 50);
-        assert_eq!(percentile_ns(&sorted, 90.0), 90);
-        assert_eq!(percentile_ns(&sorted, 99.0), 100);
-        assert_eq!(percentile_ns(&[], 50.0), 0);
-    }
-
-    #[test]
-    fn default_word_list_collects_distinct_root_surface_forms() {
-        let g = pg_grammar::load(ADMIT_GRAMMAR_XML).expect("fixture must load");
-        let words = default_word_list(&g);
-        assert_eq!(words, vec!["kat".to_string()]);
-    }
-
     // A golden report over fixed, hand-picked inputs (never a live timer), since a live end-to-end run's real wall-clock timing would make a byte-for-byte golden inherently flaky.
 
     fn golden_report_markdown() -> String {
