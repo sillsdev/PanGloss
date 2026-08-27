@@ -9,18 +9,6 @@
 //! this", which is no licence for the backend actually in hand. Nothing in this workspace turned
 //! the envelope into a choice, so callers reached for the join and inherited that ambiguity.
 //!
-//! # Correctness and buildability select; readiness labels
-//! A backend is a normal-generation candidate when its own report is correctness-admitted (`Admit`
-//! or `ConfirmOnly` — `ConfirmOnly` is a recall-preserving mode, not a defect) AND none of its
-//! findings show it cannot produce a usable artifact: a `crate::health::FindingClass::
-//! Representability` finding (the feature cannot be faithfully proposed) or a `FindingClass::
-//! Containment` finding (this attempt was itself stopped, internally or by the host watchdog,
-//! before finishing) both mean there is nothing built to select. A `FindingClass::Readiness`
-//! finding — including `Severity::NotProductionReady`, e.g. an oversized compiled payload — is a
-//! label on an artifact that DID get built, so it never excludes a backend here; see
-//! `BackendReport::is_normal_candidate` for the exact predicate. Refusals and every excluded
-//! report remains visible, never silently dropped.
-//!
 use pg_grammar::model::Grammar;
 
 use crate::advice_catalog::{
@@ -33,10 +21,7 @@ use crate::capability::{
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
-use crate::health::{
-    FindingClass, FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity,
-    ValueProvenance,
-};
+use crate::health::{FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance};
 use crate::junctions::PhonologyProbe;
 use crate::plan::FragmentSpec;
 use crate::replace::SegAlphabet;
@@ -54,15 +39,6 @@ pub enum BackendStatus {
     Missing,
     /// The backend was admitted, but its construction attempt failed.
     Failed,
-}
-
-/// One measured or predicted cost datum carried beside a backend's stable findings.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CostEvidence {
-    pub metric: Metric,
-    pub value: MetricValue,
-    pub threshold: Option<MetricValue>,
-    pub provenance: ValueProvenance,
 }
 
 /// A typed link from a backend finding to one cataloged remedy for one observed shape.
@@ -97,37 +73,6 @@ fn dedup_advice_references(mut references: Vec<AdviceReference>) -> Vec<AdviceRe
     references
 }
 
-fn remedy_set_key(set: &[AdviceReference]) -> (usize, usize, usize, Vec<AdviceReference>) {
-    let set = dedup_advice_references(set.to_vec());
-    let mut hard = 0;
-    let mut medium = 0;
-    let mut easy = 0;
-    for reference in &set {
-        match reference.effort {
-            RemedyEffort::Hard => hard += 1,
-            RemedyEffort::Medium => medium += 1,
-            RemedyEffort::Easy => easy += 1,
-        }
-    }
-    (hard, medium, easy, set)
-}
-
-/// Deterministically orders alternative blocking remedy sets by hard, medium, and easy effort.
-///
-/// Correctness admission is decided before this ordering is consulted. This function only helps
-/// explain which cataloged remedy set would be least work for a backend that is currently blocked.
-pub fn sort_blocking_remedy_sets(sets: Vec<Vec<AdviceReference>>) -> Vec<Vec<AdviceReference>> {
-    let mut keyed: Vec<_> = sets.into_iter().map(|set| remedy_set_key(&set)).collect();
-    keyed.sort_by(|left, right| {
-        left.0
-            .cmp(&right.0)
-            .then_with(|| left.1.cmp(&right.1))
-            .then_with(|| left.2.cmp(&right.2))
-            .then_with(|| left.3.cmp(&right.3))
-    });
-    keyed.into_iter().map(|(_, _, _, set)| set).collect()
-}
-
 /// One backend's place in the selection: its own compatibility report, plus whether that report
 /// admits it as a path for this grammar.
 #[derive(Debug, Clone, PartialEq)]
@@ -138,7 +83,6 @@ pub struct BackendReport {
     findings: Vec<HealthFinding>,
     failed_predicates: Vec<String>,
     shapes: Vec<String>,
-    cost_evidence: Vec<CostEvidence>,
     advice_references: Vec<AdviceReference>,
     status_detail: Option<String>,
 }
@@ -173,10 +117,6 @@ impl BackendReport {
         &self.shapes
     }
 
-    pub fn cost_evidence(&self) -> &[CostEvidence] {
-        &self.cost_evidence
-    }
-
     pub fn advice_references(&self) -> &[AdviceReference] {
         &self.advice_references
     }
@@ -185,42 +125,13 @@ impl BackendReport {
         self.status_detail.as_deref()
     }
 
-    /// The worst health finding for this backend. Overrides are intentionally retained in this
-    /// aggregate: an explicit development override does not silently turn a
-    /// NotProductionReady/MachineLimit/CannotRepresent backend into a normal-generation candidate.
+    /// The worst health finding for this backend.
     pub fn worst_severity(&self) -> Severity {
         self.findings
             .iter()
             .map(|finding| finding.severity)
             .max()
             .unwrap_or(Severity::WithinLimits)
-    }
-
-    /// A backend is a normal-generation candidate when correctness admits it AND no finding shows
-    /// it cannot produce a usable artifact. That second test asks "which question failed", never
-    /// "how high on the severity scale" — a `FindingClass::Representability` finding means the
-    /// feature cannot be faithfully proposed, a `FindingClass::Containment` finding means this
-    /// attempt itself was stopped (self-imposed budget or the external host watchdog) before
-    /// producing one, and a `FindingClass::Process` finding means the attempt failed for a reason
-    /// unrelated to the grammar (bad input, worker/protocol failure); all three leave nothing to
-    /// build. The `status == Accepted` check already makes the `Process` exclusion redundant for
-    /// every producer that exists today (`BackendReport::missing`/`failed` both attach a Process
-    /// finding and also set a non-`Accepted` status), pinned by
-    /// `a_process_finding_excludes_even_if_status_were_accepted`; listing it here too makes the
-    /// predicate correct on its own terms rather than by that coincidence. A `FindingClass::
-    /// Readiness` finding — including one at `Severity::NotProductionReady`, e.g. an oversized
-    /// payload — labels an artifact that DID get built, so it never excludes here; publication
-    /// gating for it lives in `pg_cli::pack::validate_health_readiness`, a separate gate this
-    /// predicate does not reach.
-    pub fn is_normal_candidate(&self) -> bool {
-        self.status == BackendStatus::Accepted
-            && !matches!(self.decision, CompileDecision::Refuse(_))
-            && !self.findings.iter().any(|finding| {
-                matches!(
-                    finding.code.class(),
-                    FindingClass::Representability | FindingClass::Containment | FindingClass::Process
-                )
-            })
     }
 
     fn base(strategy: EmissionStrategy, decision: CompileDecision, status: BackendStatus) -> Self {
@@ -231,7 +142,6 @@ impl BackendReport {
             findings: Vec::new(),
             failed_predicates: Vec::new(),
             shapes: Vec::new(),
-            cost_evidence: Vec::new(),
             advice_references: Vec::new(),
             status_detail: None,
         }
@@ -294,20 +204,6 @@ impl BackendReport {
         // A compile attempt ran and failed, matching BackendCompilationFailed's own doc.
         attach_operational_failure(&mut report, FindingCode::BackendCompilationFailed);
         report
-    }
-
-    pub fn with_diagnostics(
-        mut self,
-        failed_predicates: Vec<String>,
-        shapes: Vec<String>,
-        cost_evidence: Vec<CostEvidence>,
-        advice_references: Vec<AdviceReference>,
-    ) -> Self {
-        self.failed_predicates = failed_predicates;
-        self.shapes = shapes;
-        self.cost_evidence = cost_evidence;
-        self.advice_references = dedup_advice_references(advice_references);
-        self
     }
 
     pub fn declined_on(&self) -> &[CapabilityDiagnostic] {
