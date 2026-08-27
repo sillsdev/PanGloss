@@ -1642,11 +1642,9 @@ mod owning_table_tests {
     fn resolve_alpha_tuples_surviving_count_reflects_the_owning_table_not_table_zero() {
         let g = two_table_alpha_grammar();
         let rule = rewrite_rule_by_xml_id(&g, "prule_alpha_t1");
-        let table = owning_table(&g, rule).expect("prule_alpha_t1 has an owning stratum");
-        let alphabet = SegAlphabet::new(table);
         let opts = FomaOptions::default();
         let (net, reports) =
-            compile_rewrite_rule_subset(&opts, &g, &alphabet, rule, &|_| true)
+            compile_rewrite_rule_subset(&opts, &g, rule, &|_| true)
                 .expect("prule_alpha_t1 must compile");
         assert!(net.statecount > 0);
         assert_eq!(reports.len(), 1, "exactly one alpha-bearing subrule");
