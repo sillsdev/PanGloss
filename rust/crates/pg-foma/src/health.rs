@@ -820,16 +820,8 @@ mod tests {
     }
 
     #[test]
-    fn dead_compile_work_labels_bump_health_schema_version() {
-        assert_eq!(HEALTH_SCHEMA_VERSION, 6);
-    }
-
-    #[test]
-    fn worker_tree_peak_memory_metric_has_stable_wire_spelling() {
-        assert_eq!(
-            serde_json::to_string(&Metric::WorkerTreePeakMemoryChargeBytes).unwrap(),
-            "\"worker_tree_peak_memory_charge_bytes\""
-        );
+    fn dead_health_labels_bump_health_schema_version() {
+        assert_eq!(HEALTH_SCHEMA_VERSION, 7);
     }
 
     /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
@@ -880,7 +872,7 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 6,
+  "schema_version": 7,
   "findings": [
     {
       "code": "PGF0001",
@@ -934,11 +926,11 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_schema_rejects_stale_v5_reports() {
-        let stale = GOLDEN_JSON.replacen("\"schema_version\": 6", "\"schema_version\": 5", 1);
-        let error = HealthReport::from_json(&stale).expect_err("schema v5 must be rejected");
-        assert!(error.to_string().contains("schema version 5"));
-        assert!(error.to_string().contains("expected 6"));
+    fn fst_health_schema_rejects_stale_v6_reports() {
+        let stale = GOLDEN_JSON.replacen("\"schema_version\": 7", "\"schema_version\": 6", 1);
+        let error = HealthReport::from_json(&stale).expect_err("schema v6 must be rejected");
+        assert!(error.to_string().contains("schema version 6"));
+        assert!(error.to_string().contains("expected 7"));
     }
 
     // fst_health_finding_class: FindingCode -> FindingClass, the four-question vocabulary.
@@ -977,20 +969,7 @@ mod tests {
             .collect();
         assert_eq!(
             containment,
-            vec![
-                FindingCode::ResourceBudgetReached,
-                FindingCode::ProvenBoundExceedsBudget,
-                FindingCode::HostContainmentFired,
-            ]
-        );
-    }
-
-    /// A reserved, unemitted code must stay forever deserializable.
-    #[test]
-    fn reserved_codes_still_deserialize() {
-        assert_eq!(
-            FindingCode::from_code("PGF0010"),
-            Some(FindingCode::ApplicationTimeWork)
+            vec![FindingCode::ResourceBudgetReached]
         );
     }
 
@@ -1089,8 +1068,6 @@ mod tests {
             ]),
             HealthReport::new(vec![
                 class_finding(FindingCode::BackendCompilationFailed, Severity::MachineLimit),
-                class_finding(FindingCode::ProposalVolume, Severity::Elevated),
-                class_finding(FindingCode::ProvenBoundExceedsBudget, Severity::LargeMultiplier),
             ]),
         ];
 

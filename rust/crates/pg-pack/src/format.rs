@@ -483,7 +483,7 @@ mod tests {
         assert_eq!(
             stale_json.len(),
             current_json_len,
-            "schema v5 and v7 fixtures must retain the same framed manifest length"
+            "schema v5 and v8 fixtures must retain the same framed manifest length"
         );
 
         bytes[HEADER_LEN..HEADER_LEN + stale_json.len()].copy_from_slice(stale_json.as_bytes());
@@ -499,29 +499,29 @@ mod tests {
     fn write_pack_rejects_stale_embedded_health_schema() {
         let mut manifest =
             synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
-        manifest.fst_health.schema_version = 5;
+        manifest.fst_health.schema_version = 6;
 
         let error = write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD)
-            .expect_err("manifest v7 with stale embedded health schema v5 must not be written");
-        assert_eq!(error, PgPackError::UnsupportedHealthSchema { found: 5 });
+            .expect_err("manifest v8 with stale embedded health schema v6 must not be written");
+        assert_eq!(error, PgPackError::UnsupportedHealthSchema { found: 6 });
     }
 
     #[test]
-    fn read_pack_rejects_manifest_v7_with_stale_embedded_health_schema_v5() {
+    fn read_pack_rejects_manifest_v8_with_stale_embedded_health_schema_v6() {
         let manifest = synthetic_manifest_for(SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD);
         let mut bytes =
             write_pack(&manifest, SYNTHETIC_RUNTIME_PAYLOAD, SYNTHETIC_FOMA_PAYLOAD).unwrap();
 
         let mut stale_value: serde_json::Value =
             serde_json::from_str(&manifest.to_canonical_json()).expect("valid manifest JSON");
-        stale_value["fst_health"]["schema_version"] = serde_json::json!(5);
+        stale_value["fst_health"]["schema_version"] = serde_json::json!(6);
         let stale_json = serde_json::to_string_pretty(&stale_value)
             .expect("stale health JSON serialization must succeed");
         let current_json_len = manifest.to_canonical_json().len();
         assert_eq!(
             stale_json.len(),
             current_json_len,
-            "health schema v5 and v6 fixtures must retain the same framed manifest length"
+            "health schema v6 and v7 fixtures must retain the same framed manifest length"
         );
 
         bytes[HEADER_LEN..HEADER_LEN + stale_json.len()].copy_from_slice(stale_json.as_bytes());
@@ -530,8 +530,8 @@ mod tests {
         bytes[digest_offset..].copy_from_slice(&digest);
 
         let error = read_pack(&bytes)
-            .expect_err("manifest v7 with stale embedded health schema v5 must not be read");
-        assert_eq!(error, PgPackError::UnsupportedHealthSchema { found: 5 });
+            .expect_err("manifest v8 with stale embedded health schema v6 must not be read");
+        assert_eq!(error, PgPackError::UnsupportedHealthSchema { found: 6 });
     }
 
     // --- Real foma binary-memory bytes (not just the plain-ASCII synthetic fixtures above) ---
