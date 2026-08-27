@@ -378,8 +378,8 @@ pub struct MultiTableDetail {
 /// projection, same reasoning `LoweredSpan`'s own doc gives) by re-running the SAME structural
 /// pattern-shape check `crate::replace::compile_rewrite_rule_subset` itself gates on: every
 /// LHS/RHS/environment pattern must avoid a disagree-polarity alpha var and a malformed `Quantifier`
-/// (non-inverted if finitely bounded, at or under `MAX_QUANTIFIER_BOUND` if finite, alpha-free in
-/// its own children; a genuinely UNBOUNDED quantifier, `max=-1`, is no longer by itself
+/// (non-inverted and non-empty, alpha-free in its own children; a genuinely UNBOUNDED quantifier,
+/// `max=-1`, is no longer by itself
 /// disqualifying), and `Segments`/`Anchor` no longer disqualify EITHER, provided any `Segments`
 /// node shares the rule's own owning table (`crate::lower::PatternLowerScope::RewriteRuleCompile`'s
 /// own doc has the full, current exclusion list) — via `crate::replace::pattern_slots`/
@@ -2032,7 +2032,7 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 ///   admission-filter argument exists — so this is confirm-only-by-default, never `Admit`.
 /// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — the REMAINING
 ///   reasons are: the rule's own LHS/RHS/environment needs a disagree-polarity alpha var, contains
-///   a malformed `Quantifier` (inverted, over-budget-finite, alpha-nested -- a genuinely UNBOUNDED
+///   a malformed `Quantifier` (inverted, alpha-nested, or empty-children -- a genuinely UNBOUNDED
 ///   quantifier is no longer out of scope), or has no resolvable owning table. Same-table or
 ///   table-qualified cross-table `Segments` and any `Anchor` no longer trigger `Refuse` at all
 ///   (`crate::lower::PatternLowerScope::RewriteRuleCompile`)):
@@ -2886,7 +2886,7 @@ impl CapabilityPredicate for MprGroupOverwritePredicate {
 ///   unbounded quantifier, refusing it here too would just be a SECOND, redundant conservative
 ///   check the real compiler's own `compile_attempted` fact already supersedes.
 /// - **The rule's pattern shape does not compile at all** (`!compile_attempted` — an inverted or
-///   over-budget-finite or alpha-nested quantifier, or some OTHER unsupported construct,
+///   alpha-nested or empty-children quantifier, or some OTHER unsupported construct,
 ///   `Segments`/`Anchor`/disagree-polarity alpha var, elsewhere in the rule's own patterns, or an
 ///   unresolvable owning table): `PredicateVerdict::Refuse` — this predicate never claims more
 ///   than the real compiler actually attempts.
@@ -2942,8 +2942,8 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
                 construct: format!("prule {} (Quantifier/OptionalSegmentSequence)", rule.0),
                 witness: "some LHS/RHS/environment construct this rule's own patterns use -- \
                           Segments/Anchor/disagree-polarity alpha var, an inverted (min > max, \
-                          both concrete) or over-budget-finite (max > MAX_QUANTIFIER_BOUND) or \
-                          alpha-nested quantifier, or an unresolvable owning character-definition \
+                          both concrete), alpha-nested, or empty-children quantifier, or an \
+                          unresolvable owning character-definition \
                           table -- blocks crate::replace::pattern_slots from accepting this rule's \
                           whole pattern shape at all. (A GENUINELY unbounded quantifier, max=-1, is \
                           NOT by itself such a construct: crate::replace::Slot::Repeat's \

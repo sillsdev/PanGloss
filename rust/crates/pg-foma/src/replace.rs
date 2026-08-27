@@ -44,11 +44,10 @@
 //!
 //! ## What this module does NOT attempt
 //! - `pg_grammar::model::PatternNode::Quantifier` (`OptionalSegmentSequence`) that is inverted (`min > max`, `max`
-//!   concrete), pathologically large (a concrete `max` past `MAX_QUANTIFIER_BOUND`), or carries
-//!   an alpha-bound occurrence anywhere in its own children — `pattern_slots` still returns
-//!   `None`/bails for exactly these configurations (a rule whose pattern needs one is reported
-//!   uncovered, not silently mis-rendered). A FINITELY bounded, alpha-free quantifier (`min`/`max`
-//!   both concrete, `min <= max <= MAX_QUANTIFIER_BOUND`) compiles via `Slot::Repeat`,
+//!   concrete), empty, or carries an alpha-bound occurrence anywhere in its own children —
+//!   `pattern_slots` still returns `None`/bails for exactly these configurations (a rule whose
+//!   pattern needs one is reported uncovered, not silently mis-rendered). A FINITELY bounded,
+//!   alpha-free quantifier (`min`/`max` both concrete, `min <= max`) compiles via `Slot::Repeat`,
 //!   and a genuinely UNBOUNDED, alpha-free quantifier (`max ==
 //!   None`, the DTD's `max="-1"` sentinel) now ALSO compiles, via that SAME `Slot::Repeat`
 //!   (`max: Option<u32>`), rendered with foma's native `E*`/`E^>N` operator instead of `E^{min,max}`
@@ -172,8 +171,8 @@
 //! ## Bounded quantifiers
 //! `pg_grammar::model::PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) used to be `pattern_slots`'
 //! unconditional bail (module doc, "What this module does NOT attempt") regardless of `min`/`max`.
-//! Now a FINITELY bounded, alpha-free quantifier — `max == Some(_)`, `min <= max <=
-//! [MAX_QUANTIFIER_BOUND]`, no `Slot::Alpha` occurrence anywhere in its own (possibly nested)
+//! Now a FINITELY bounded, alpha-free quantifier — `max == Some(_)`, `min <= max`, no `Slot::Alpha`
+//! occurrence anywhere in its own (possibly nested)
 //! children — compiles to a new `Slot::Repeat`, rendered as foma's OWN native bounded-repetition
 //! xre operator, `A^{min,max}` (`nfst-xre = "0.1.0"`'s `RepeatNToK`, confirmed by reading that
 //! vendored crate's own `src/lexer.rs`/`src/parser.rs`: `^{N,K}`/`^N,K` lexes to `CatenateNToK`, a
@@ -183,9 +182,9 @@
 //! `min` mandatory concatenated copies of the child net, then `max - min` further copies each
 //! wrapped in `fsm_optionality` — i.e. **exactly** the "bounded concatenation/optionality"
 //! construction this change's own proposal names, not an approximation of it) for free. Inverted
-//! (`min > max`, `max` concrete, no sound finite construction), over-`MAX_QUANTIFIER_BOUND`
-//! (`max` concrete), or alpha-nested quantifiers are UNCHANGED: still `None`, still honestly
-//! reported uncovered by every existing caller.
+//! (`min > max`, `max` concrete, no sound finite construction), empty-children, or alpha-nested
+//! quantifiers are UNCHANGED: still `None`, still honestly reported uncovered by every existing
+//! caller.
 //!
 //! ## Unbounded quantifiers
 //! A genuinely UNBOUNDED, alpha-free quantifier — `max == None`, the DTD's `max="-1"` Kleene
@@ -201,17 +200,12 @@
 //! (`nfst-xre`'s `CatenateNPlus`/`RepeatNPlus`, `foma-0.4.2/src/regex.rs:258-268`'s own
 //! `concat(concat_n(net, N), kleene_plus(net))` — **`E^>N` means MORE THAN `N`, i.e. `N+1` or more,
 //! not `N` or more**, the off-by-one `crate::lower::render_slots` is careful to get right by
-//! rendering `min-1`, never `min`). `MAX_QUANTIFIER_BOUND` is never checked for this case
-//! (`crate::lower`'s own doc on that constant): a Kleene star/plus's own compiled net size does not
-//! depend on any repetition count at all, so "the bound is above the ceiling" is not even a
-//! meaningful question to ask of `max: None` — this is a DIFFERENT native construction, not a
-//! finite one that happens to be very large, and `max: None` is never coerced to a concrete number
-//! anywhere in this path (a finite cutoff must never masquerade as unbounded semantics —
-//! this is the SAME rule the original refusal existed to enforce, now honored by actually building
-//! the unbounded construction instead of refusing every quantifier that might need it). Inverted/
-//! over-`MAX_QUANTIFIER_BOUND`/alpha-nested quantifiers stay `None` exactly as before — those
-//! checks are about a FINITE `max`'s own value and do not apply when there is no finite value to
-//! check (`crate::lower::slots_from_nodes`'s own Quantifier arm skips them entirely for `max: None`).
+//! rendering `min-1`, never `min`). A Kleene star/plus's own compiled net size does not depend on
+//! any repetition count at all, and `max: None` is never coerced to a concrete number anywhere in
+//! this path (a finite cutoff must never masquerade as unbounded semantics — this is the SAME rule
+//! the original refusal existed to enforce, now honored by actually building the unbounded
+//! construction instead of refusing every quantifier that might need it). Inverted-,
+//! empty-children, and alpha-nested quantifiers stay `None` exactly as before.
 //!
 //! **Big-O.** `E*`/`E^>N`'s compiled size is `fsm_kleene_star`/`fsm_kleene_plus`'s own native
 //! construction over the child automaton `E` (a small, constant number of extra states/arcs beyond
@@ -227,10 +221,7 @@
 //! children — disallowed, see `Slot::Repeat`'s own doc) multiplies this bound by
 //! `resolve_alpha_tuples`'s own `surviving` tuple count, exactly the same two-independent-axes
 //! shape; the quantifier axis gets its OWN eager, cheaper-than-any-
-//! `Fsm` characterization (`MAX_QUANTIFIER_BOUND`, checked in `pattern_slots` before any regex is even
-//! rendered, let alone parsed — the same "check the search result before the expensive part"
-//! principle),
-//! rather than a new composition-budget dimension: `pattern_slots` is a pure
+//! `Fsm` characterization rather than a new composition-budget dimension: `pattern_slots` is a pure
 //! structural walk with no `ComposeBudget` threaded through it (every existing caller — this file's
 //! own compile path, `crate::lower::lower_span`, `crate::capability`'s structural probes — calls it
 //! with only a `&Grammar`/`&CharDefTable`), and widening that signature crate-wide for one

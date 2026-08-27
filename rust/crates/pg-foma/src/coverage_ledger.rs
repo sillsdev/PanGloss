@@ -509,8 +509,8 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
              genuinely-unbounded case)",
             &[EmissionStrategy::PlanComposed],
             "Bounded- AND unbounded-quantifier containment against the real oracle, both at \
-             min-boundary occurrence counts; an inverted/over-budget-finite/alpha-nested \
-             quantifier stays honestly unsupported.",
+             min-boundary occurrence counts; an inverted/alpha-nested/empty-children quantifier \
+             stays honestly unsupported.",
         ),
         // `RootAllomorphDef::stem_name`, not `MorphRuleDef::required_stem_name` (folded into Affixation/RealizationalMorphology to avoid double-counting the same ModelLocation::MorphRule occurrence).
         StemName => ev(

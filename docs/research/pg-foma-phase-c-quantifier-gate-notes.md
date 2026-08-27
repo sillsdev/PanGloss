@@ -4,7 +4,7 @@ Pins the loader/compiler's ACTUAL disposition per quantifier shape, so a regress
 out-of-scope shape silently mis-compiling, or a now-supported shape silently regressing back to a
 bail) is caught. `pg_foma::replace::pattern_slots` returns `None` on any out-of-scope
 `PatternNode::Quantifier` it meets in a rewrite rule's LHS/RHS/environment (inverted-finite,
-over-budget-finite, alpha-nested), which surfaces as `skipped.push(rule.xml_id.clone())`.
+alpha-nested, or empty-children), which surfaces as `skipped.push(rule.xml_id.clone())`.
 
 ## Bounded quantifiers now compile
 
@@ -19,9 +19,9 @@ quantifier inside a rule's right environment, checked against `pg_parse::Morpher
 The construct's original, unbounded (`max="-1"`) shape used to be this file's honest-skip witness.
 `Slot::Repeat`'s `max: Option<u32>` widening now compiles this shape too (foma's native
 `*`/`^>N` unbounded-repetition operator), so both witnesses are renamed and flipped to prove the
-new disposition. `MAX_QUANTIFIER_BOUND` and the inverted-bound check still apply only to a finite
-`max` — an inverted-finite, over-budget-finite, or alpha-nested quantifier stays exactly as
-unsupported as before.
+new disposition. The former finite-max ceiling is removed; large finite bounds now flow through
+native lowering. An inverted-finite, alpha-nested, or empty-children quantifier stays unsupported
+as before.
 
 ## Why the environment, not the LHS/RHS focus
 

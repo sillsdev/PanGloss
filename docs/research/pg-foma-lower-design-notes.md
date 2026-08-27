@@ -11,11 +11,8 @@ unbounded sentinel and its default (an absent `max` attribute defaults to `-1`),
 the DTD's default shape, not an exotic corner. The backend has a native, exact, finite-size
 construction for the unbounded case too — foma's xre parses `E^>N`/`E*`, building them with no
 cutoff — so refusing an unbounded quantifier would be a scope restriction, not a genuine
-feasibility limit. `MAX_QUANTIFIER_BOUND` applies only when `max` is `Some(_)`: an unbounded
-quantifier's own compiled net size does not depend on any repetition count, so there is nothing for
-that ceiling to bound, and `max: None` is never coerced to `Some(_)` to force the check to run
-(that would round an honest refusal toward false acceptance, the direction this crate's
-under-approximation rule forbids).
+feasibility limit. An unbounded quantifier's own compiled net size does not depend on any
+repetition count, and `max: None` is never coerced to `Some(_)`.
 
 Rendered (`render_slots`) as foma's own native repetition xre operator, never a hand-rolled
 expansion: `[<children text>]^{min,max}` for the finite case, `[<children text>]*`/

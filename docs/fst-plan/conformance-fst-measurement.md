@@ -183,8 +183,8 @@ not a phonological construct.)
      entire lexicon is disjoint from every other's (an ordinary disjoint-language union, a *third*,
      independent safety argument from the RTL/metathesis case).
    - Quantifiers: `PatternNode::Quantifier` lowers to `Slot::Repeat{min, max}`. Finite case renders
-     via foma's native `A^{min,max}` (`fsm_concat_m_n`) — `O(max·|A|)` states, linear, capped at
-     `MAX_QUANTIFIER_BOUND=512`. Genuinely unbounded (`max=-1`, the DTD's Kleene sentinel) renders via
+     via foma's native `A^{min,max}` (`fsm_concat_m_n`) — `O(max·|A|)` states, linear. Genuinely
+     unbounded (`max=-1`, the DTD's Kleene sentinel) renders via
      native `*`/`^>N` (`fsm_kleene_star`/`fsm_kleene_plus`) — a real Kleene-star construction whose
      own compiled size is independent of any repetition count, not enumeration up to a cap.
 
@@ -785,7 +785,7 @@ the `replace.rs`/`gate.rs` prototype, per §1).
 | `CoOccurrenceConstraint` | ConfirmOnly | Unconditional; **no predicate is even registered** (`default_registry` intentionally omits one) | Neither — no FST construction exists for any adjacency mode (§7) |
 | `NaturalClassDefinition` | Proven | Representational only, no capability implication | n/a |
 | `MultiTable` | ConfigPredicate | `MultiTableFaithfulThreadingPredicate`: `Admit` only if ≤1 table observed, **unconditional `ConfirmOnly` otherwise** (shared or disjoint representations alike) — the doc-comment summary this report started from was itself stale on this exact point, corrected in §8 | `replace.rs`'s `RepresentationAliasMap` (prototype) discharges the *shared-representation* risk this predicate is about; the shipped mainline path's own multi-table correctness rests entirely on `pg-rules`'s independent, unrelated table-resolution fix (§8) |
-| `QuantifierPattern` | ConfigPredicate | `QuantifierBoundedExpansionPredicate`: `ConfirmOnly` for both bounded and genuinely unbounded shapes (`build-unbounded-quantifier-support` widened this), `Refuse` only when `pattern_slots` can't even attempt the rule (inverted/over-budget-finite/alpha-nested quantifier, or another unsupported construct in the same rule) | `replace.rs` (prototype, §3) for the *characterization*; §9 Q3 confirms the **mainline** `emit.rs` path independently achieves correct recall for the one fixture tested, by a different mechanism entirely (oracle-probed root/affix text, not compiled quantifier automata) |
+| `QuantifierPattern` | ConfigPredicate | `QuantifierBoundedExpansionPredicate`: `ConfirmOnly` for both bounded and genuinely unbounded shapes (`build-unbounded-quantifier-support` widened this), `Refuse` only when `pattern_slots` can't even attempt the rule (inverted/alpha-nested/empty-children quantifier, or another unsupported construct in the same rule) | `replace.rs` (prototype, §3) for the *characterization*; §9 Q3 confirms the **mainline** `emit.rs` path independently achieves correct recall for the one fixture tested, by a different mechanism entirely (oracle-probed root/affix text, not compiled quantifier automata) |
 
 **Summary of the taxonomy-level finding**: of the 19 characteristics, roughly half (`RightToLeftRewrite`,
 `Metathesis`, `SimultaneousRewrite`, `QuantifierPattern`, `MultiTable`, and `SubruleGating`'s

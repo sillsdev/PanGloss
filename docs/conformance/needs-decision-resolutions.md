@@ -29,13 +29,12 @@ cutoff) structurally infeasible for some reason not yet written down, or simply 
    `fsm_kleene_star(fsm_minimize(net))` (`regex.rs:302`) respectively. Both are finite-size nets over a
    genuinely infinite regular language — there is no cutoff anywhere in either construction. So
    `min = N, max = -1` lowers exactly: `[inner]*` when `N == 0`, `[inner]^>{N-1}` when `N >= 1`.
-2. **`lower.rs`'s refusal is a scope line, not a feasibility finding.** `slots_from_nodes`'s
-   `PatternNode::Quantifier` arm (`rust/crates/pg-foma/src/lower.rs:303-309`) returns `None` for
-   `max == None` with the comment "ADR 0001: a finite cutoff must never masquerade as unbounded
-   semantics." That reasoning is sound *against clamping* — it rules out silently rewriting `max=-1`
-   as `max=512`. It says nothing against emitting an actually-unbounded net, which is precisely what
-   ADR 0001 would prefer. The refusal came out of `compile-bounded-fst-quantifiers`, a change whose own
-   title scoped it to the bounded case; unbounded was never evaluated on its merits.
+2. **The earlier `lower.rs` refusal was a scope line, not a feasibility finding.** The previous
+   `slots_from_nodes` implementation treated `max == None` as unsupported with the comment "ADR 0001:
+   a finite cutoff must never masquerade as unbounded semantics." That reasoning is sound *against
+   clamping*, but says nothing against emitting an actually-unbounded net, which is precisely what
+   ADR 0001 would prefer. The refusal came out of `compile-bounded-fst-quantifiers`, a change whose
+   own title scoped it to the bounded case; unbounded was never evaluated on its merits.
 3. **Unbounded is the DTD's DEFAULT, not an exotic configuration.** `XmlLanguageLoader.cs:1408-1409`
    reads `max` as `-1` when the attribute is *absent*
    (`int max = string.IsNullOrEmpty(maxStr) ? -1 : int.Parse(maxStr);`), and
@@ -52,9 +51,9 @@ cutoff) structurally infeasible for some reason not yet written down, or simply 
 
 - `Slot::Repeat`'s `max: u32` becomes `max: Option<u32>` (`None` = unbounded), and `render_slots`
   (`lower.rs:555-570`) renders `None` as `[inner]*` / `[inner]^>{min-1}` instead of `^{min,max}`.
-- `MAX_QUANTIFIER_BOUND` (`lower.rs:232`) keeps applying to *finite* bounds only. An unbounded
-  quantifier is not "a bound above the ceiling"; it does not need the ceiling at all, because the
-  native star's net size is independent of any repetition count. This is the whole point.
+- Finite and unbounded quantifiers both use their native lowering paths; an unbounded quantifier's
+  native star net size is independent of any repetition count. Inverted, alpha-nested, and
+  empty-children quantifiers remain unsupported.
 - `slot_candidates` (used by the metathesis path, `replace.rs:1117-1122`) enumerates concrete
   candidates and so still cannot accept a `Slot::Repeat` — that stays `None`, unchanged and honest.
 - Everything that currently reads a `Slot::Repeat`'s `max` for finite size characterization must be audited

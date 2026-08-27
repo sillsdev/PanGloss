@@ -148,8 +148,8 @@
       oracle-blocked (5.2), unswept. The two builds become 4.5 and 4.6 below.
 - [x] 4.5 **DONE 2026-07-26** — `QuantifierPattern` unbounded (`max == -1`): `Slot::Repeat.max` → `Option<u32>`; `render_slots`
       emits `[inner]*` (min 0) / `[inner]^>{min-1}` (min ≥ 1) instead of `^{min,max}`;
-      `MAX_QUANTIFIER_BOUND` applies to finite bounds only; audit every finite-max reader for a
-      no-finite-max path (never a defaulted number). `slot_candidates` still refuses `Slot::Repeat`
+      finite and unbounded bounds use their respective native paths; audit every finite-max reader
+      for a no-finite-max path (never a defaulted number). `slot_candidates` still refuses `Slot::Repeat`
       (unchanged, honest). Fixture: `unbounded-iterative-quantifier-expansion`
       Landed in `8fbad70` (an ancestor of current `HEAD`); its dedicated OpenSpec checklist is fully
       checked. Re-verified 2026-07-27 by `phase_c_quantifier` (3/3) and the filtered pg-foma
