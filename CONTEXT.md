@@ -138,7 +138,10 @@ A semantic variant that is detected and reported before compilation rather than 
 _Avoid_: Done, harmless skip
 
 **Compile execution limits**:
-The ratified configurable limits on serialized model size, committed process-tree memory, and build time. They are not named envelopes and do not affect artifact identity. Wall time is enforced; serialized-size and committed-memory enforcement are the next cleanup prerequisite.
+The ratified finite `ExecutionLimits`: 1 GiB serialized payload, 10 GiB committed process-tree
+memory, and 10 minutes of construction plus serialization wall time. They are not named envelopes
+and do not affect artifact identity. The worker/containment substrate enforces all three; production
+spawn wiring remains deferred, so this does not claim that every production compile is contained.
 _Avoid_: Resource envelope, watchdog, sampled RSS
 
 **Logical work budgets**:

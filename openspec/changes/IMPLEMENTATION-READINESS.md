@@ -31,10 +31,10 @@ model-shape extension is outside this assumption and must explicitly reopen the 
 
 Windows and Linux are equal, first-class native production targets. The ratified contract uses one
 compiler worker, one versioned request/result protocol, bounded communication, and parent-enforced
-execution limits for serialized model size, committed process-tree memory, and
-construction-plus-serialization wall time. Limits are configurable, cannot be disabled, and default
-to 1 GB, 10 GB, and 10 minutes. Wall time is enforced today; serialized-size and committed-memory
-enforcement remain the prerequisite for deleting legacy compile-time refusals. WASM is analysis-only
+execution limits for a 1 GiB serialized payload, 10 GiB committed process-tree memory, and
+10 minutes of construction plus serialization wall time. Limits are configurable and cannot be
+disabled. The worker/containment substrate enforces all three; production spawn wiring remains
+deferred, so this does not claim that every production compile is contained. WASM is analysis-only
 and does not compile.
 
 ### R2A. Precompiled WASM artifact container — resolved
@@ -100,12 +100,12 @@ or backends to build. Selected builds run sequentially and independently, retain
 artifacts when another selected build fails. There is no preferred backend, fallback, retry, or
 larger named envelope.
 
-Hidden developer-only `--allow-unproven` permits local testing only; publication always rejects an
-unproven artifact. It never disables execution limits. Compile construction is governed by the
-configurable, non-disableable serialized-size, committed process-tree memory, and wall-time limits
-defined in R2. Exceeding a limit produces structured diagnostics, removes intermediates, and emits
-no artifact. The current transition enforces wall time; serialized-size and committed-memory
-enforcement must land before the legacy compile-time logical refusals are deleted.
+Hidden developer-only `--allow-unproven` permits local testing and generation only; it may omit valid
+parses and retain local build evidence, but never publishes and creates no persistent pack trust or
+override field. It never disables the finite execution limits defined in R2. The worker/containment
+substrate enforces those limits; production spawn wiring remains deferred, so this does not claim
+that every production compile is contained. Exceeding a limit produces structured diagnostics,
+removes intermediates, and emits no artifact.
 
 Compiler diagnostics may recommend reordering, constraining, or decomposing grammar rules, but do not
 apply those source changes. Automatic internal transformations require an owned correctness argument

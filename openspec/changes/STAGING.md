@@ -16,8 +16,9 @@ granular record; this is the spine-level view.
 **Stage 0 — LANDED.** Characteristics profile + exhaustive default-deny characterizer + predicate
 registry + capability composition (`pg-foma/src/capability.rs`, `capability_entry.rs`); the gate runs on
 real grammars and is **default-enforcing on the FST/foma path**. Hidden `--allow-unproven` is for
-local testing only, may omit valid parses, and is rejected by publication. The legacy
-`--no-enforce-capability` escape is slated for deletion. Conformance-coverage cross-check
+local testing and generation only, may omit valid parses, and may retain local build evidence; it
+never publishes and creates no persistent pack trust or override field. The legacy
+`--no-enforce-capability` escape is removed and rejected. Conformance-coverage cross-check
 (advisory;
 build-breaking flip deferred). Chain-depth budget dimension (ADR 0003) + apply-path `ApplyBudget`.
 FST-health schema + evaluator (`health.rs`, `health_evaluator.rs`). Gloss-signature unit

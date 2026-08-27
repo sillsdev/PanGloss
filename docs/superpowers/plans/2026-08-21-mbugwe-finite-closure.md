@@ -5,14 +5,13 @@
 > **Deferred future work.** This plan is not part of the current Indonesian/Amharic/Aweti release
 > slice and its Mbugwe scale-acceptance task is not a current shipping gate.
 
-> **Current policy note (2026-08-23).** The closure work must preserve exact completion and the
-> certificate boundary. `--allow-unproven` and `--remove-size-limits` are developer-build-only,
-> absent and rejected in production. The former may lose valid parses and may write local
-> developer evidence, but never production-publishes or certifies; the latter removes internal
-> deterministic size/work caps only, while external
-> watchdog/RSS containment, bounded I/O, the absolute ceiling, and exact completion remain
-> mandatory. `Error` can describe complete/accurate stress evidence but is production-unready;
-> `Critical` is a correctness gap. `--no-enforce-capability` is legacy developer-only.
+> **Historical policy note (2026-08-27).** This deferred plan must preserve exact completion and the
+> certificate boundary. `--allow-unproven` remains a local developer/testing generation path; it may
+> omit valid parses and retain local build evidence, but never publishes and creates no persistent
+> pack trust or override field. The removed `--remove-size-limits` and legacy
+> `--no-enforce-capability` spellings are rejected. Current routes use finite `ExecutionLimits` and
+> containment; `Error` can describe complete/accurate stress evidence but is production-unready,
+> while `Critical` is a correctness gap.
 
 **Goal:** Replace the unsound three-extra-rule structural enumeration limit with deterministic, grammar-bounded closure, refuse incomplete construction, and certify every trusted Foma artifact.
 
@@ -83,7 +82,7 @@ Expected: the existing success assertion fails because the construction is now e
 
 1. Remove `MAX_EXTRA_RULES` and `STRUCT_MAX_EXTRA_RULES` as success boundaries.
 2. Use a `BTreeSet`/ordered queue worklist keyed by the complete `ChainState` plus the generated structural state. Maintain separate `queued` and `completed` sets.
-3. Continue until the worklist is empty or a named resource-envelope limit is reached. Maximum observed depth is a metric only.
+3. Continue until the worklist is empty or a finite `ExecutionLimits` bound is reached. Maximum observed depth is a metric only.
 4. Replace rule-identity deduplication with the per-rule count checks from Task 2.
 5. Aggregate deterministic evidence: explored/completed states, pending states, applications per rule, maximum observed depth, entries, probes, and termination reason.
 6. Run the late-anchor test; expected GREEN with `fedcbag` present and zero pending states.
@@ -113,7 +112,7 @@ Expected: the existing success assertion fails because the construction is now e
 1. Define `FstCompletenessCertificate` with schema version, grammar/backend/route identity, component classifications, authored bounds, cycle classification, zero-surface-cycle evidence, closure counters, resource measurements, over-approximations, and pending worklist count.
 2. Make `is_valid()` require a matching identity, only certified component classifications, and `pending_states == 0`.
 3. Attach the certificate to successful `EmitResult`; incomplete/unsupported emission returns a typed error and no trusted artifact.
-4. Require the certificate in `FomaProposer::new`, readiness certification, workers, and pack trust. The developer-only `--allow-unproven` override may retain an unproven artifact, but never a valid certificate or production-publishable pack.
+4. Require the certificate in `FomaProposer::new`, readiness certification, and workers. No persistent pack trust or override field exists. The developer-only `--allow-unproven` path may retain local evidence, but never a valid certificate or production-publishable artifact.
 5. Add RED/GREEN tests proving that empty `uncovered` without a certificate is insufficient and that a nonempty worklist cannot be overridden into a proven pack.
 6. Run:
 
@@ -138,7 +137,7 @@ Expected: the existing success assertion fails because the construction is now e
 
 1. Add tests showing `RepresentsWithKnownGap` cannot become `ConfirmOnly` when the gap can omit analyses.
 2. Map those rows to typed refusal unless the route supplies an explicit proposer-superset proof.
-3. Report a correctness-admitted construction stopped by its resource envelope as Error; report an
+3. Report a correctness-admitted construction stopped by finite `ExecutionLimits` as Error; report an
    unsupported representation or inability to prove eventual completeness as Critical. Neither may
    be normally selected.
 4. Run both test targets through `pg.ps1` and commit: `fix(foma): reject known underproposal routes`.

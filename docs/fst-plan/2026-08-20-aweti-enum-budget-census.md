@@ -4,14 +4,13 @@ Date: 2026-08-20. Worktree `fst/aweti-enum-budget` (base `main` @ `27091d1c`). C
 `docs/fst-plan/2026-08-19-five-language-measurement-sweep.md` (which reported the refusal) and
 `docs/fst-plan/morphotactic-composite-pruning.md` (which built the machinery that refuses).
 
-> **Current policy note (2026-08-23).** The uncapped builder census below is historical
-> developer/test evidence, not a production run. The developer-build-only
-> `--remove-size-limits` control may remove internal caps for similar stress work, but exact
-> completion, external watchdog/RSS containment, bounded I/O, and the absolute ceiling remain
-> mandatory. `--allow-unproven` is a separate developer-only capability override that may lose
-> valid parses and may write local developer evidence, but never production-publishes or certifies;
-> `Error` can be complete/accurate stress evidence,
-> while `Critical` is a correctness gap. Measurements and conclusions below are unchanged.
+> **Current policy note (2026-08-27).** The uncapped builder census below is historical
+> developer/test evidence, not a production run. `--allow-unproven` remains a local developer/testing
+> generation path; it may omit valid parses and retain local build evidence, but never publishes and
+> creates no persistent pack trust or override field. The removed `--remove-size-limits` and legacy
+> `--no-enforce-capability` spellings are rejected. Current routes retain finite `ExecutionLimits`,
+> exact completion, external containment, and the `Error`/`Critical` distinction. Measurements and
+> conclusions below are unchanged.
 
 ## 1. The question as posed
 
