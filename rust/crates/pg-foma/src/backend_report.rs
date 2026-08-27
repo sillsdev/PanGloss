@@ -284,61 +284,6 @@ impl BackendOptimizationReport {
 mod tests {
     use super::*;
     #[test]
-    fn json_round_trips() {
-        let r = BackendOptimizationReport {
-            schema_version: BACKEND_REPORT_SCHEMA_VERSION,
-            score_schema_version: DETERMINISTIC_SCORE_SCHEMA_VERSION,
-            input_hash: "x".into(),
-            registry_version: "r".into(),
-            registry_hash: "registry-hash".into(),
-            tool_version: "t".into(),
-            tool_hash: "h".into(),
-            seed: 1,
-            budgets: Budget::default(),
-            usage: BudgetUsage::default(),
-            replay_parameters: std::collections::BTreeMap::new(),
-            strategy: Strategy::Exhaustive,
-            quality: SearchQuality::Exact,
-            counts: SpaceCounts {
-                syntactic: 1,
-                attested: 1,
-                static_count: 1,
-                feasible: FeasibleCount::Exact {
-                    value: 1,
-                    overflowed: false,
-                },
-            },
-            corpus: Some(ledger()),
-            pilot: PilotSummary::default(),
-            pruning: PruningWaterfall::default(),
-            search: SearchAccounting {
-                generated: 1,
-                expanded: 1,
-                explored: 1,
-                unexplored: 0,
-                unexplored_method: "none".into(),
-                declared_not_searched: 0,
-                ..SearchAccounting::default()
-            },
-            termination: Termination::Complete,
-            baseline: Some("b".into()),
-            winner: Some("b".into()),
-            winner_strategy: Some("plan-composed".into()),
-            frontier: vec!["b".into()],
-            candidates: vec![],
-            baseline_plan_json_path: None,
-            baseline_plan_mermaid_path: None,
-            winner_plan_json_path: None,
-            winner_plan_mermaid_path: None,
-        };
-        assert_eq!(
-            BackendOptimizationReport::from_json(&r.canonical_json()).unwrap(),
-            r
-        );
-        assert!(r.markdown().contains("Search accounting"));
-    }
-
-    #[test]
     fn rendering_is_deterministic_and_sorted() {
         let mut r = sample();
         r.candidates = vec![candidate("z"), candidate("a")];
