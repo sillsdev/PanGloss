@@ -11,13 +11,12 @@ use quick_xml::reader::Reader;
 use crate::node::Node;
 use crate::ImportError;
 
-/// One retained `<rt>` record; `ownerguid` is unread by the extractor (ownership comes from walking the owner's named field instead) but cheap to carry for future diagnostics.
+/// One retained `<rt>` record. Ownership comes from walking the owner's named field rather than
+/// from the optional `ownerguid` XML attribute.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct Record {
     pub class: String,
     pub guid: String,
-    pub ownerguid: Option<String>,
     pub node: Node,
 }
 
@@ -142,7 +141,6 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
             Event::Start(e) if e.local_name().as_ref() == b"rt" => {
                 let class = get_attr(&e, "class")?.unwrap_or_default();
                 let guid = get_attr(&e, "guid")?.unwrap_or_default();
-                let ownerguid = get_attr(&e, "ownerguid")?;
                 saw_any_rt = true;
                 if class_allowed(&class) {
                     let node = parse_rt_body(&mut reader)?;
@@ -154,7 +152,6 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
                         Record {
                             class,
                             guid,
-                            ownerguid,
                             node,
                         },
                     );
@@ -169,7 +166,6 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
                 // A self-closed `<rt .../>` with no body is still a valid record, with an empty node.
                 let class = get_attr(&e, "class")?.unwrap_or_default();
                 let guid = get_attr(&e, "guid")?.unwrap_or_default();
-                let ownerguid = get_attr(&e, "ownerguid")?;
                 saw_any_rt = true;
                 if class_allowed(&class) {
                     if class == "LexEntry" {
@@ -180,7 +176,6 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
                         Record {
                             class,
                             guid,
-                            ownerguid,
                             node: Node::empty(),
                         },
                     );
