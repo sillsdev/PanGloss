@@ -458,8 +458,11 @@ already rejected behavior.
 
 ### Open boundaries—no deletion authority until resolved
 
-- Whether batch, parse, diagnose, assessment, and library convenience constructors are production
-  build routes that must consume supervised completed artifacts, or explicitly runtime-only APIs.
+- **Resolved 2026-08-27:** `parse` and `batch` remain full-engine runtime operations, with their
+  direct Foma branches deleted. `diagnose` is deleted. The grammar/corpus `assess` producer and
+  `investigate --grammar` rerun attribution are deleted; `compare`, `golden-diff`, and report-only
+  `investigate` remain as artifact consumers. No replacement completed-artifact route is added
+  during demolition.
 - Whether a completed artifact must include a HermitCrab runtime payload immediately, or whether a
   completed Foma payload is the only current serializable artifact.
 - Whether `backend_runtime`'s PlanComposed-to-tuned path is deferred within-backend tuning or a
