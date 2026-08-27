@@ -156,7 +156,7 @@ use foma::options::FomaOptions;
 use pg_grammar::model::{Grammar, PRuleId};
 
 use crate::capability::{CharacteristicKind, CharacteristicsProfile, Disposition, ModelLocation};
-use crate::compose_budget::{ComposeBudget, ComposeError};
+use crate::compose_budget::ComposeError;
 use crate::emit::surface_table;
 use crate::enumerate::enumerate_default;
 use crate::grammar_semantics::GrammarSemantics;
@@ -583,9 +583,6 @@ pub fn fuzz_gate_group_reordering_for_grammar(
     let permuted = permute_gate_groups(&plan);
 
     let opts = FomaOptions::default();
-    let budget = ComposeBudget {
-        chain_depth_cap: None,
-    };
     let result = differential_oracle(
         &plan,
         &permuted,
@@ -594,7 +591,6 @@ pub fn fuzz_gate_group_reordering_for_grammar(
         g,
         &alphabet,
         semantics.prules_in_order(),
-        &budget,
         words,
     )?;
     Ok((groups, result))

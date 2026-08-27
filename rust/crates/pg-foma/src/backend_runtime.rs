@@ -1025,7 +1025,6 @@ pub fn build_candidate(
     grammar: &Grammar,
     alphabet: &SegAlphabet<'_>,
     prules: &[&PhonRuleDef],
-    budget: &ComposeBudget,
 ) -> Result<crate::gate::GatedCompileResult, ComposeError> {
     assert!(
         candidate.adapter.interprets_plan(),
@@ -1609,10 +1608,9 @@ fn realize_plan_composed(
     opts: &FomaOptions,
     alphabet: &SegAlphabet<'_>,
     prules: &[&PhonRuleDef],
-    compose: &ComposeBudget,
 ) -> RealizedPlanComposed {
     let t = Instant::now();
-    let built = build_candidate(candidate, opts, grammar, alphabet, prules, compose);
+    let built = build_candidate(candidate, opts, grammar, alphabet, prules);
     let build = elapsed_ns(t).max(1);
     let Ok(mut built) = built else {
         return RealizedPlanComposed::Failed {
@@ -1670,7 +1668,6 @@ pub fn finished_net_digests(
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
     let opts = FomaOptions::default();
-    let compose = ComposeBudget::from_env();
     plans
         .iter()
         .map(|candidate| {
@@ -1683,7 +1680,7 @@ pub fn finished_net_digests(
             if let Some(reason) = unbuildable_marker_reason(candidate) {
                 return Err(reason);
             }
-            match realize_plan_composed(candidate, grammar, &opts, &alphabet, &prules, &compose) {
+            match realize_plan_composed(candidate, grammar, &opts, &alphabet, &prules) {
                 RealizedPlanComposed::Ready { net_digest, .. } => Ok(net_digest),
                 RealizedPlanComposed::Failed { certification, .. } => {
                     Err(format!("{certification:?}"))
@@ -1703,7 +1700,6 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
     let opts = FomaOptions::default();
-    let compose = ComposeBudget::from_env();
     let selection = cache.select(words);
     let comparable = selection.comparable;
     let expected = selection.expected;
@@ -1779,7 +1775,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                 }
             }
             let (proposer, score0, build, net_digest) = match realize_plan_composed(
-                candidate, grammar, &opts, &alphabet, &prules, &compose,
+                candidate, grammar, &opts, &alphabet, &prules,
             ) {
                 RealizedPlanComposed::Ready {
                     proposer,
@@ -1934,7 +1930,6 @@ pub fn assess_accuracy_with_cache(
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
     let opts = FomaOptions::default();
-    let compose = ComposeBudget::from_env();
     let selection = cache.select(words);
     if !selection.exclusions.is_empty() {
         let stage = if selection.capped {
@@ -1972,7 +1967,6 @@ pub fn assess_accuracy_with_cache(
                 &opts,
                 &alphabet,
                 &prules,
-                &compose,
                 cache,
             );
             let (realized_strategy, proposer) = match realized {
@@ -2008,7 +2002,6 @@ fn realize_accuracy_proposer(
     opts: &FomaOptions,
     alphabet: &SegAlphabet<'_>,
     prules: &[&PhonRuleDef],
-    compose: &ComposeBudget,
     _cache: &mut RunEvaluationCache,
 ) -> Result<(EmissionStrategy, FomaProposer), (EmissionStrategy, String)> {
     if candidate.adapter.interprets_plan() {
@@ -2038,7 +2031,7 @@ fn realize_accuracy_proposer(
                 })
         }
         LoweringAdapter::ControllablePlanCompose => {
-            match realize_plan_composed(candidate, grammar, opts, alphabet, prules, compose) {
+            match realize_plan_composed(candidate, grammar, opts, alphabet, prules) {
                 RealizedPlanComposed::Ready { proposer, .. } => {
                     Ok((EmissionStrategy::PlanComposed, proposer))
                 }

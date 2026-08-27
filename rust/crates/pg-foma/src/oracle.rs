@@ -184,7 +184,7 @@ use foma::types::Fsm;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef};
 
 use crate::build::build_controllable;
-use crate::compose_budget::{ComposeBudget, ComposeError};
+use crate::compose_budget::ComposeError;
 use crate::plan::{
     ComposeStrategy, FragmentSpec, GateGroupSpec, GatePartitionSpec, NodeId, Plan, PlanNodeKind,
     Provenance,
@@ -269,7 +269,6 @@ pub fn differential_oracle(
     g: &Grammar,
     alphabet: &SegAlphabet,
     prules_in_order: &[&PhonRuleDef],
-    budget: &ComposeBudget,
     words: &[&str],
 ) -> Result<OracleResult, ComposeError> {
     let (label_a, label_b) = labels;
@@ -893,7 +892,6 @@ pub fn minimize_disagreement(
     g: &Grammar,
     alphabet: &SegAlphabet,
     prules_in_order: &[&PhonRuleDef],
-    budget: &ComposeBudget,
     words: &[&str],
 ) -> Result<MinimizedRecipe, ComposeError> {
     assert!(
@@ -910,7 +908,6 @@ pub fn minimize_disagreement(
         g,
         alphabet,
         prules_in_order,
-        budget,
         words,
     )? {
         OracleResult::Agree => panic!(
@@ -939,7 +936,6 @@ pub fn minimize_disagreement(
                 g,
                 alphabet,
                 prules_in_order,
-                budget,
                 words,
             )?;
             match verdict {
@@ -967,7 +963,6 @@ pub fn minimize_disagreement(
         g,
         alphabet,
         prules_in_order,
-        budget,
         words,
     )?;
     let (word, only_in_a, only_in_b) = match verdict {
@@ -1441,7 +1436,6 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
 
         let plan_a = enumerate_default(&g, &ro, phon.as_ref());
         let plan_b = permute_gate_groups(&plan_a);
@@ -1454,7 +1448,6 @@ mod tests {
             &g,
             &alphabet,
             &ro,
-            &budget,
             &["p", "q"],
         )
         .expect("both plans must build successfully on this fixture");
@@ -1484,7 +1477,6 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
 
         let plan_correct = enumerate_default(&g, &ro, phon.as_ref());
         let plan_wrong = drop_last_gate_group(&plan_correct);
@@ -1505,7 +1497,6 @@ mod tests {
             &g,
             &alphabet,
             &ro,
-            &budget,
             &["p", "q"],
         )
         .expect(
@@ -1643,7 +1634,6 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
 
         let plan_a = enumerate_default(&g, &ro, phon.as_ref());
         let plan_b = permute_union_children(&plan_a);
@@ -1656,7 +1646,6 @@ mod tests {
             &g,
             &alphabet,
             &ro,
-            &budget,
             &["p"],
         )
         .expect("both plans must build successfully on this fixture");
@@ -1774,7 +1763,6 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
 
         let baseline = enumerate_default(&g, &ro, phon.as_ref());
         for (label, granularity) in [
@@ -1790,7 +1778,6 @@ mod tests {
                 &g,
                 &alphabet,
                 &ro,
-                &budget,
                 &["p", "t", "k"],
             )
             .unwrap_or_else(|e| {
@@ -1887,7 +1874,6 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
         let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // This fixture has 2 eligible targets (its Gate and the root Union); scan seeds for one that draws the Gate.
@@ -1908,7 +1894,6 @@ mod tests {
                     &g,
                     &alphabet,
                     &ro,
-                    &budget,
                     &["p", "q"],
                 )
                 .expect("both plans must build successfully on this fixture");
@@ -1935,7 +1920,6 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
         let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // This fixture's only eligible target is the root Union; scan seeds for one that draws the non-identity permutation.
@@ -1957,7 +1941,6 @@ mod tests {
                     &g,
                     &alphabet,
                     &ro,
-                    &budget,
                     &["p"],
                 )
                 .expect("both plans must build successfully on this fixture");
@@ -1987,7 +1970,6 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
         let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // Every step here is sound, so the full chain must Agree; minimize_disagreement must refuse to "minimise" a non-disagreement.
@@ -2000,7 +1982,6 @@ mod tests {
             &g,
             &alphabet,
             &ro,
-            &budget,
             &["p", "q"],
         );
     }
@@ -2012,7 +1993,6 @@ mod tests {
         let ro = prules_in_order(&g);
         let phon = PhonologyProbe::new(&g);
         let opts = FomaOptions::default();
-        let budget = ComposeBudget::unbounded();
         let plan = enumerate_default(&g, &ro, phon.as_ref());
 
         // Four sound, harmless steps with one real bug spliced into the middle; minimisation must discard every sound step and converge on that one.
@@ -2031,7 +2011,6 @@ mod tests {
             &g,
             &alphabet,
             &ro,
-            &budget,
             &["p", "q"],
         )
         .expect("both plans must build successfully on this fixture");
@@ -2064,7 +2043,6 @@ mod tests {
             &g,
             &alphabet,
             &ro,
-            &budget,
             &["p", "q"],
         )
         .expect("both plans must build successfully on this fixture");
