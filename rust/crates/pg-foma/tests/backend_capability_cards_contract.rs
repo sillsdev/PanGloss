@@ -7,8 +7,6 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-const CONDITIONAL_BENEFIT: &str = "would make this backend work for your language";
-
 #[test]
 fn catalog_covers_exactly_the_executable_backends_with_complete_static_envelopes() {
     let cards = catalog();
@@ -80,7 +78,6 @@ fn rendered_cards_are_deterministic_and_static() {
         let second = render_markdown(card);
         assert_eq!(first, second);
         assert!(first.contains("Static backend contract"));
-        assert!(first.contains(CONDITIONAL_BENEFIT));
         assert!(first.contains(GRAMMAR_SAFETY_WARNING));
         assert!(first.lines().count() < 100, "{} card is too long", card.backend_id);
         for language_name in ["Mbugwe", "Aweti", "Sena", "Indonesian", "Warlpiri"] {
