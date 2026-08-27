@@ -513,6 +513,23 @@ in scope. The 2,717-line registry/mechanism substrate is explicitly excluded.
 - Run focused tests, relevant full suites, and `git diff --check` on the exact staged snapshot.
 - Record additions, deletions, and net lines from the committed diff—not from the dirty worktree.
 
+### Deferred closure-cap removal checkpoint (2026-08-26)
+
+Do not delete the TunedSurface closure work/depth caps in the current pure-removal pass. A
+read-only independent safety review found that the existing semantic preflight rejects only an
+active `RealizationalRule` with empty `real_fs`. Two active realizational rules with conflicting
+non-empty values for the same feature can overwrite and unblock one another indefinitely, while
+`MorphRuleDef::max_apps` supplies each a practical-no-op `u16::MAX` bound. The current 3,000-work/
+64-depth closure boundary is therefore still a termination barrier for that case, not merely a
+machine-size policy.
+
+Resume this removal only after a separately reviewed semantic cycle guard covers reachable
+cross-realizational overwrite cycles. That follow-up must preserve actual pre-expansion,
+`ClosureTrace`/evidence, semantic `UnboundedTransition`, external `ExecutionLimits`, apply/candidate
+budgets, `HC_COMPOSE_CHAIN_DEPTH_BUDGET`, and the independently staged compound-chain decision.
+Do not interpret this defer as approval to restore any enumeration, ordering, chooser, envelope,
+or compatibility machinery already removed.
+
 ---
 
 ## Tally
