@@ -64,15 +64,13 @@ pub use pg_worker_containment::{
 
 /// Versioned, hard-coded ceilings for this protocol (design discipline shared with
 /// `pg_pack::format::VersionLimits`). These bound the WIRE MESSAGES themselves (request/result JSON
-/// frames and captured stderr), not compile execution policy.
+/// frames), not compile execution policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorkerProtocolLimits {
     /// Ceiling on one serialized `CompileWorkerRequest` frame's byte length.
     pub max_request_bytes: u64,
     /// Ceiling on one serialized `CompileWorkerResult` frame's byte length.
     pub max_result_bytes: u64,
-    /// Ceiling on total captured stderr bytes the supervisor retains from the child.
-    pub max_captured_stderr_bytes: u64,
 }
 
 /// The current protocol's limits. Deliberately generous relative to this protocol's own content (a
@@ -83,7 +81,6 @@ pub struct WorkerProtocolLimits {
 pub const WORKER_PROTOCOL_LIMITS: WorkerProtocolLimits = WorkerProtocolLimits {
     max_request_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_request_bytes,
     max_result_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_result_bytes,
-    max_captured_stderr_bytes: crate::worker_contract::PROTOCOL_LIMITS.max_captured_stderr_bytes,
 };
 
 /// Looks up the versioned limits for a protocol version. `None` for any version this build
