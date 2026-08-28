@@ -92,8 +92,7 @@ pub(crate) fn assert_rendered_text_eq(actual: &str, expected: &str) {
     }
 }
 
-/// Synthetic: true reduplication (one input part copied twice) on a `RealizationalRule`, which the peel cannot propose, so the gated backend declines it while the emitter still compiles a network -- a refusal an `--allow-unproven` run can still produce output under.
-/// Pinned by `capability_gate_enforce_refuses_permanently_refused_without_override`.
+/// Synthetic: true reduplication on a `RealizationalRule`, which the peel cannot propose, so the gated backend declines it while the emitter still compiles a network.
 pub(crate) const BACKEND_REFUSED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>BackendRefusedFixture</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
