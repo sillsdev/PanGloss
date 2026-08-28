@@ -156,9 +156,9 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let mpr = run_fixture("edge-cases/mpr-gated-exception", &root);
     assert_eq!(mpr["termination"], "complete");
     assert_eq!(mpr["counts"]["feasible"]["kind"], "exact");
-    // 4, not 3: the compiler-varying token-cascade-morphology candidate compiles a genuinely smaller network (25/32 states/arcs vs. baseline 27/38) and confirms, so it wins on size, not a tie-break.
-    assert_eq!(mpr["counts"]["feasible"]["value"], 5);
-    assert_eq!(mpr["pruning"]["confirmed"], 5);
+    // 2 of the 5 evaluated: this fixture's baseline plan is marker-bearing, so its three plan-composed candidates are refused by `unbuildable_marker_reason` rather than under-generating, leaving the two whole-grammar compilers.
+    assert_eq!(mpr["counts"]["feasible"]["value"], 2);
+    assert_eq!(mpr["pruning"]["confirmed"], 2);
     assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
     assert_eq!(mpr["replay_parameters"]["beam_width"], "16");
     assert_eq!(mpr["replay_parameters"]["pilot_candidate_cap"], "8");
