@@ -868,10 +868,55 @@ the only non-grammar entry in the book.
 |---|---|---|
 | `coverage_citation_liveness` | **Obsolete citation.** The ledger cited `unbounded_unordered_stratum_deterministically_refuses_to_compile`, a test the unordered-hard-stop removal deliberately deleted. | Citation dropped. This FOLLOWS a rejected-behavior deletion; it does not restore anything. |
 | `coverage_ledger_golden_json` | **Stale artifact, no behavior involved.** The committed golden carried a trailing newline `to_json()` never emits, so it did not match what its own `regenerate_coverage_ledger_golden_json` helper produces. Its sibling `readiness_verdict_golden.json` also ends without one. | Regenerated through that helper. |
-| `morphotactics_boundary_cleanup_slice::templated_query_accepts_a_surface_with_an_explicit_boundary` | **UNCLASSIFIED -- needs a decision, deliberately untouched.** Its fixture `backend-ordered-generic` genuinely contains `mrInfixUm`, `mrRedupCV` and `mrRedupFull`, so the templated backend correctly reports them as not representable and `compile_templated_morphotactics` rejects the resulting `Partial` tier. The test expects that compile to SUCCEED on a grammar the backend cannot fully represent. Whether a `Partial` network is acceptable for this slice is a semantics question, not residue. | None. Left failing, and named here so it is not mistaken for cruft. |
+| `morphotactics_boundary_cleanup_slice::templated_query_accepts_a_surface_with_an_explicit_boundary` | **Classified: the test bypasses the capability envelope.** Its fixture `backend-ordered-generic` genuinely contains `mrInfixUm`, `mrRedupCV` and `mrRedupFull`, which `TemplatedUnderlyingTokens` cannot represent, so the emitter returns `Partial` and `compile_templated_morphotactics` rejects it. Refusing is CORRECT under the overgeneration invariant below. The defect is that the test calls `compile_templated_morphotactics(&grammar)` DIRECTLY, so it never reaches the envelope that should have refused this pairing up front. | Route the assertion through backend selection, or point the slice at a fixture this backend can represent. The slice is about BOUNDARY handling; the infix/reduplication content is incidental to what it means to test. |
 
 **Nothing in this file's failure accounting should be trusted from a run that stopped early.** Use
 `--no-fail-fast`.
+
+
+## The overgeneration invariant (backend support) -- this is ADR-0001, not a new rule
+
+**An FST may only ever overgenerate.** A backend may propose candidates that turn out to be wrong;
+confirmation filters those. It may never MISS one. So a backend that can fail to generate a
+candidate a grammar licenses -- no infixing, no reduplication, whatever the construct -- must **fail
+hard at the capability-envelope step with a clear explanation naming the construct**, never accept
+the grammar and quietly emit a network that under-generates.
+
+**This is already ratified.** `docs/adr/0001-honest-capability-boundary.md` decides exactly this: a
+grammar is matched against the composed capability envelope and either compiles or is "**hard-failed
+at compile time** with a typed diagnostic naming what cannot be done faithfully", where faithful
+means "recall-preserving (the propose-and-confirm invariant: never omit a valid HermitCrab
+analysis)", and "silent overapproximation-that-loses is never acceptable". It is restated here
+because a failure was very nearly misread as a semantics question open for decision, when it is a
+violation of a decision this repository already made.
+
+ADR-0001 also gives the reason a partial network is not a lesser good: it is indistinguishable from
+a complete one at query time, since both return analyses and the incomplete one merely returns
+fewer. Silent under-generation therefore surfaces as a recall problem in the LANGUAGE rather than a
+declined capability in the COMPILER -- the most expensive place for the error to appear, with a
+linguist debugging their grammar for a gap PanGloss already knew about.
+
+Two consequences, both load-bearing:
+
+- **The refusal belongs to the envelope, not the emitter.** An emitter that returns `Partial` and a
+  caller that rejects it does produce the right outcome, but it produces it too late and in the
+  wrong vocabulary: the diagnosis arrives as a compile artifact rather than as a typed capability
+  refusal a selector can read and a report can explain. Any construct a backend cannot represent
+  should be a capability predicate.
+- **Anything that reaches a compiler directly bypasses the guarantee.** A test (or a caller) that
+  invokes a backend's compile entry point without going through selection has stepped around the
+  envelope, and can therefore observe a failure the envelope exists to have prevented. That is what
+  the last remaining `pg-foma` failure actually is -- see the classification table above.
+
+### Queued: infix support for `TemplatedUnderlyingTokens`
+
+Not a bug, a gap. `TemplatedUnderlyingTokens` classifies a standalone rule whose primary allomorph
+is `Role::Infix` (and likewise `Role::Reduplication`) as "not representable (v1)" in
+`emit.rs`. Under the invariant above that is a legitimate state for a backend to be in, provided it
+is declared at the envelope. Implementing it is separate, optional work: it widens what the backend
+covers rather than fixing anything that is currently wrong. It should be picked up only as a
+deliberate capability decision, and it must land with fixtures that prove recall parity against the
+oracle, not merely a compile that stops refusing.
 
 
 ## Completion gate: NOT met as of 2026-08-28
