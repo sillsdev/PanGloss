@@ -8,7 +8,11 @@ it has to reach and the evidence already gathered, so the session starts from fa
 re-derivation.
 
 Run each with the `grilling` skill. Candidates 1-3 were **Strong** and are already implemented;
-these two are **Worth exploring**, which is a different claim.
+these two were **Worth exploring**, which is a different claim.
+
+**Outcome, 2026-08-28.** Grill 1 was grilled and implemented. Grill 2 was grilled and
+**rejected** — the interrogation established the change is not worth making. Both results are
+recorded below; a grilling that talks you out of a change has done its job.
 
 ---
 
@@ -62,7 +66,56 @@ value comes from, not about which file holds the code.
 
 ---
 
-## Grill 2 — Who owns the peel budget?
+## Grill 2 — Who owns the peel budget? — REJECTED
+
+**Grilled 2026-08-28. Outcome: do not do this.** The interrogation established the change is not
+worth making, which is a legitimate result for a session whose job is to decide rather than to
+build. Recorded so a future review does not re-propose it.
+
+### What the measurements showed
+
+- **Production never varies the budget.** Every source is `ComposeBudget::from_env()`:
+  `composite.rs:618`, `composite.rs:1176`, `backend_runtime.rs:1959`. Only tests vary it, via
+  `with_chain_depth_cap(3)`/`(64)`/`(1)` and `unbounded()`.
+- **`ReduplicationPeeler` has a budget-free half.** `has_redup_rules()` is a pure grammar query,
+  and four sites construct a peeler only to ask it — two `peel.rs` tests, a `capability.rs` doc
+  example, and `pg-ffi`, which builds one and hands it to `FomaAnalyzer` without ever peeling.
+- **The prize is three parameters in one file.** That is the whole of what removing the threading
+  buys.
+- **Buying it costs an FFI-visible shape change.** `ReduplicationPeeler` is stored or passed in six
+  places, including `pg-ffi`'s struct field and the public `into_parts` / `into_parts_with_morpher`
+  / `from_parts` tuples. Storing the budget beside the peeler changes all of them.
+- **And it would repeat the mistake Grill 1 just fixed.** `backend_runtime`'s `confirm_pieces` is
+  documented as "each is a pure function of `grammar`" — a lazily-built cache of grammar-static
+  pieces. A budget is policy, not a function of the grammar; storing it there puts policy inside a
+  grammar cache, one module away from where that exact error was just removed.
+
+The alternative that avoided the ripple — a borrowed budget-carrying wrapper at the call site —
+does not remove the threading either, so it buys a type for no material gain.
+
+### Why the queue was wrong about this
+
+The entry below sold it as "the last stretch of the same road" as the `ComposeBudget` deletion. It
+is not the same road. That deletion removed a value **nothing read**, −263 lines across two
+tranches. `peel_budget` **is** read, by `ComposeBudget::check_chain_depth`. Relocating a live value
+is a different change from deleting a dead one, and the queue's own trap warning said so without
+following the warning to its conclusion.
+
+**Contrast with Grill 1, which was worth doing:** that had a concrete defect — compiled `Fsm`s
+inside a structure documented as a self-contained projection, discarded unread by the predicate's
+own early-outs. Grill 2 has a stylistic inconsistency between two modules and no demonstrated harm.
+
+### If this is ever reopened
+
+It needs a new reason, not this one. A measurement showing the triplicated `from_env()` reads
+actually diverge, or an ADR-0003 revision that makes the chain-depth cap vary within a run, would
+each be a real motivation. Tidiness alone is not.
+
+---
+
+## Original brief (retained)
+
+
 
 **Candidate 5.** `backend_runtime.rs`, `composite.rs`, `peel.rs`.
 
@@ -108,9 +161,13 @@ it may start from.
 
 ---
 
-## Why these two are not simply implemented
+## Why these two were not simply implemented
 
-Both are cheap to *write* and expensive to get wrong, which is the signature of a decision rather
-than a task. Candidates 1-3 each had an observed failure behind them — a missed struct field, two
-call sites that grew the same derivation, nineteen places stating one fact. These two have a design
-tension instead, and the review's evidence narrows the options without choosing between them.
+Both were cheap to write and expensive to get wrong, which is the signature of a decision
+rather than a task. Candidates 1-3 each had an observed failure behind them — a missed struct
+field, two call sites that grew the same derivation, nineteen places stating one fact. These
+two had a design tension instead.
+
+The tension resolved differently in each case, which is the point. Grill 1 had a real defect
+underneath and the grilling found the shape to fix it. Grill 2 had only an inconsistency, and
+the grilling found that out by measuring rather than by arguing.
