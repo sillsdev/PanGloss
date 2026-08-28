@@ -204,9 +204,7 @@ use pg_shape::{EffectiveCdSet, NodeKind, Shape};
 use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::enumerate::enumerate_default;
 use crate::junctions::PhonologyProbe;
-use crate::morphotactics::{
-    ChainState, ExploreMode, MorphotacticIndex, ProbeBudget,
-};
+use crate::morphotactics::{ChainState, ExploreMode, MorphotacticIndex, ProbeBudget};
 use crate::plan::{FragmentSpec, Plan, PlanNodeKind};
 use crate::precision::{ConstraintCatalog, PrecisionConfig, PrecisionEmit};
 use crate::profile::{CompileProfileBuilder, CompileStage};
@@ -1176,11 +1174,11 @@ fn atomic_template_carriers(
             "atomic template carrier has no active pipeline character table",
         ));
     };
-    let plan = crate::structural_allomorph::MorphologyRelationPlan::build(
-        g,
-        TableId(table_index as u16),
-    )
-    .map_err(|error| atomic_carrier_refusal(uncovered.clone(), counts.clone(), &error.to_string()))?;
+    let plan =
+        crate::structural_allomorph::MorphologyRelationPlan::build(g, TableId(table_index as u16))
+            .map_err(|error| {
+                atomic_carrier_refusal(uncovered.clone(), counts.clone(), &error.to_string())
+            })?;
     let mut carriers: HashMap<(usize, usize), AtomicCarrier> = HashMap::new();
     let mut mixed_templates: HashMap<usize, usize> = HashMap::new();
     for projection in plan.slot_projections() {
@@ -1299,18 +1297,9 @@ fn atomic_template_carriers(
                 alternative: None,
                 prefix_variants: Vec::new(),
                 suffix_variants: Vec::new(),
-                prefix_name: format!(
-                    "AtomicT{}S{}ASkipPfx",
-                    key.template_index, key.slot_index
-                ),
-                roots_name: format!(
-                    "AtomicT{}S{}ASkipRoots",
-                    key.template_index, key.slot_index
-                ),
-                post_name: format!(
-                    "AtomicT{}S{}ASkipPost",
-                    key.template_index, key.slot_index
-                ),
+                prefix_name: format!("AtomicT{}S{}ASkipPfx", key.template_index, key.slot_index),
+                roots_name: format!("AtomicT{}S{}ASkipRoots", key.template_index, key.slot_index),
+                post_name: format!("AtomicT{}S{}ASkipPost", key.template_index, key.slot_index),
                 root_post_name: format!(
                     "AtomicT{}S{}ASkipRootPost",
                     key.template_index, key.slot_index
@@ -1348,7 +1337,15 @@ fn emit_atomic_projection_alternative(
                 MarkerZone::Suffix => suffix_variants,
             };
             for variant in variants {
-                write_tag_entry(out, &tag, variant, continuation, counts, pk, Some(alternative.allomorph()));
+                write_tag_entry(
+                    out,
+                    &tag,
+                    variant,
+                    continuation,
+                    counts,
+                    pk,
+                    Some(alternative.allomorph()),
+                );
             }
         }
         crate::structural_allomorph::MorphologyRewrite::DirectWholeRootWrapper { .. } => {
@@ -1357,7 +1354,15 @@ fn emit_atomic_projection_alternative(
                 MarkerZone::Suffix => suffix_variants,
             };
             for variant in variants {
-                write_tag_entry(out, &tag, variant, continuation, counts, pk, Some(alternative.allomorph()));
+                write_tag_entry(
+                    out,
+                    &tag,
+                    variant,
+                    continuation,
+                    counts,
+                    pk,
+                    Some(alternative.allomorph()),
+                );
             }
         }
         crate::structural_allomorph::MorphologyRewrite::MarkedStructural { .. } => {
@@ -1366,14 +1371,26 @@ fn emit_atomic_projection_alternative(
                 MarkerZone::Suffix => alternative.suffix_binding(),
             };
             if let Some(binding) = binding {
-                write_tag_entry(out, &tag, &binding.symbol.to_string(), continuation, counts, pk, Some(alternative.allomorph()));
+                write_tag_entry(
+                    out,
+                    &tag,
+                    &binding.symbol.to_string(),
+                    continuation,
+                    counts,
+                    pk,
+                    Some(alternative.allomorph()),
+                );
             }
         }
         crate::structural_allomorph::MorphologyRewrite::Unsupported { .. } => {}
     }
 }
 
-fn atomic_category_allowed(g: &Grammar, category: FsId, alternative: &crate::structural_allomorph::SlotProjectionAlternative) -> bool {
+fn atomic_category_allowed(
+    g: &Grammar,
+    category: FsId,
+    alternative: &crate::structural_allomorph::SlotProjectionAlternative,
+) -> bool {
     let required = required_category(g, alternative.rule());
     g.fs_interner.get(required).is_empty()
         || is_unifiable(g.fs_interner.get(category), g.fs_interner.get(required))
@@ -1557,8 +1574,20 @@ fn build_atomic_prefix_chain(
                 continue;
             }
             emit_rule_allomorphs(
-                out, g, table, mid, Role::Prefix, width, &next, None, uncovered, counts, phon,
-                None, pk, mode,
+                out,
+                g,
+                table,
+                mid,
+                Role::Prefix,
+                width,
+                &next,
+                None,
+                uncovered,
+                counts,
+                phon,
+                None,
+                pk,
+                mode,
             );
         }
     }
@@ -2026,15 +2055,9 @@ fn compound_chain_depth_and_budget_check(
     chain_depth_cap: Option<usize>,
 ) -> Result<usize, EmitResult> {
     let compound_depth_bound = compound_depth_bound(g);
-    let (depth, limit) = match compound_extra_levels_checked_with_cap(
-        g,
-        chain_depth_cap,
-    ) {
+    let (depth, limit) = match compound_extra_levels_checked_with_cap(g, chain_depth_cap) {
         Ok(levels) => return Ok(levels),
         Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
-        Err(other) => unreachable!(
-            "compound_extra_levels_checked only ever fails with ChainDepthExceeded: {other}"
-        ),
     };
     {
         let reason = format!(
@@ -2093,18 +2116,15 @@ fn compound_extra_levels_checked_with_cap(
 ) -> Result<usize, ComposeError> {
     let compound_extra_levels = compound_depth_bound(g).saturating_sub(1).max(1);
     let budget = match chain_depth_cap {
-        Some(cap) => {
-            ComposeBudget {
-                chain_depth_cap: Some(crate::compose_budget::clamp_chain_depth_cap(cap)),
-            }
-        }
+        Some(cap) => ComposeBudget {
+            chain_depth_cap: Some(crate::compose_budget::clamp_chain_depth_cap(cap)),
+        },
         None => ComposeBudget::from_env().with_chain_depth_cap(compound_chain_depth_budget()),
     };
-    budget
-        .check_chain_depth(
-            compound_extra_levels,
-            "compound loop (extra non-head root levels)",
-        )?;
+    budget.check_chain_depth(
+        compound_extra_levels,
+        "compound loop (extra non-head root levels)",
+    )?;
     Ok(compound_extra_levels)
 }
 
@@ -3297,7 +3317,9 @@ fn struct_extend(
         }
         let depth_limit = ctx
             .closure_trace
-            .map_or(DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET, |trace| trace.depth_cap());
+            .map_or(DEFAULT_STRUCTURAL_CLOSURE_DEPTH_BUDGET, |trace| {
+                trace.depth_cap()
+            });
         if depth >= depth_limit {
             if !synthesized.is_empty() {
                 acc.pending_rule_ordinals.insert(mid.0);
@@ -3717,10 +3739,7 @@ pub fn emit_with_precision(g: &Grammar, precision: PrecisionConfig) -> EmitResul
 /// `tests::fst_profile_emitted_artifact_is_byte_identical_with_profiling_on_or_off`
 /// in this file's own test module below): every existing caller of this function is completely
 /// unaffected by the profiling machinery's existence.
-pub(crate) fn emit_with_budget(
-    g: &Grammar,
-    precision: PrecisionConfig,
-) -> EmitResult {
+pub(crate) fn emit_with_budget(g: &Grammar, precision: PrecisionConfig) -> EmitResult {
     emit_with_budget_profiled(g, precision, None)
 }
 
@@ -3769,12 +3788,7 @@ pub(crate) fn emit_with_budget_profiled(
     precision: PrecisionConfig,
     profile: Option<&mut CompileProfileBuilder>,
 ) -> EmitResult {
-    emit_with_budget_profiled_with_strategy(
-        g,
-        precision,
-        profile,
-        SurfaceEmitStrategy::default(),
-    )
+    emit_with_budget_profiled_with_strategy(g, precision, profile, SurfaceEmitStrategy::default())
 }
 
 /// `emit_with_budget_profiled` with an explicit surface strategy; the wrapper above supplies the default.
@@ -3784,24 +3798,16 @@ fn emit_with_budget_profiled_with_strategy(
     profile: Option<&mut CompileProfileBuilder>,
     strategy: SurfaceEmitStrategy,
 ) -> EmitResult {
-    emit_with_budget_profiled_with_strategy_and_trace(
-        g,
-        precision,
-        profile,
-        strategy,
-        None,
-        true,
-    )
+    emit_with_budget_profiled_with_strategy_and_trace(g, precision, profile, strategy, None, true)
 }
 
 /// Runs the ordinary TunedSurface emitter with its finite internal caps.
 pub fn emit_tuned_surface(g: &Grammar) -> EmitResult {
-    let trace = crate::characterization::ClosureTrace::new(
-        crate::characterization::ClosureTestLimits {
+    let trace =
+        crate::characterization::ClosureTrace::new(crate::characterization::ClosureTestLimits {
             work_cap: crate::characterization::DEFAULT_TUNED_CLOSURE_WORK_LIMIT,
             depth_cap: crate::characterization::DEFAULT_TUNED_CLOSURE_DEPTH_LIMIT,
-        },
-    );
+        });
     emit_with_budget_profiled_with_strategy_and_trace(
         g,
         PrecisionConfig::Strip,
@@ -3909,7 +3915,11 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::SurfaceSetup, stage_start.elapsed());
     }
-    trace_emit_stage(CompileStage::SurfaceSetup, stage_start.elapsed(), allow_env_trace);
+    trace_emit_stage(
+        CompileStage::SurfaceSetup,
+        stage_start.elapsed(),
+        allow_env_trace,
+    );
     stage_start = Instant::now();
 
     let allowed_entries = match strategy.root_scope {
@@ -3928,7 +3938,11 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::RootCollection, stage_start.elapsed());
     }
-    trace_emit_stage(CompileStage::RootCollection, stage_start.elapsed(), allow_env_trace);
+    trace_emit_stage(
+        CompileStage::RootCollection,
+        stage_start.elapsed(),
+        allow_env_trace,
+    );
     stage_start = Instant::now();
 
     // Built once and shared by both composite builders below, so they prune against the identical automaton instead of each reading the env vars for their own.
@@ -4019,7 +4033,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     if let Some(trace) = closure_trace {
         let evidence = trace.result();
-        if !matches!(evidence.terminal, crate::characterization::ClosureTerminal::Complete) {
+        if !matches!(
+            evidence.terminal,
+            crate::characterization::ClosureTerminal::Complete
+        ) {
             let reason = format!(
                 "tuned surface closure is incomplete at the requested resource boundary: {:?}",
                 evidence.terminal
@@ -4255,7 +4272,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     } else {
         None
     };
-    if let Some(license) = &compound_license {
+    if compound_license.is_some() {
         compound_extra_levels = match compound_chain_depth_and_budget_check(
             g,
             &uncovered,
@@ -4919,11 +4936,11 @@ pub fn emit_underlying_templated(
         }
     }
 
-    let atomic_carriers = match atomic_template_carriers(g, alphabet, counts.clone(), uncovered.clone())
-    {
-        Ok(carriers) => carriers,
-        Err(refusal) => return refusal,
-    };
+    let atomic_carriers =
+        match atomic_template_carriers(g, alphabet, counts.clone(), uncovered.clone()) {
+            Ok(carriers) => carriers,
+            Err(refusal) => return refusal,
+        };
     if !atomic_carriers.is_empty() && has_compounding_rules {
         return atomic_carrier_refusal(
             uncovered,
@@ -5021,15 +5038,11 @@ pub fn emit_underlying_templated(
     let mut compound_extra_levels: usize = 1;
     if compound_license.is_some() {
         // Shares compound_chain_depth_and_budget_check with emit_with_budget_profiled.
-        compound_extra_levels = match compound_chain_depth_and_budget_check(
-            g,
-            &uncovered,
-            &counts,
-            None,
-        ) {
-            Ok(levels) => levels,
-            Err(early_return) => return early_return,
-        };
+        compound_extra_levels =
+            match compound_chain_depth_and_budget_check(g, &uncovered, &counts, None) {
+                Ok(levels) => levels,
+                Err(early_return) => return early_return,
+            };
     }
     // Exists only to satisfy build_compound_chain's shared signature; phon is always None on this templated path, so build_compound_chain never actually invokes it.
     let write_stripped_root_entries_noop =
@@ -5210,11 +5223,12 @@ pub fn emit_underlying_templated(
         for &ti in &group_templates[gi] {
             let template = &g.templates[ti];
             let (_, suffix_slots) = classify_template(g, template, &mut uncovered);
-            let mixed_slot = atomic_carriers
-                .iter()
-                .find_map(|(&(template_index, slot_index), carrier)| {
-                    (template_index == ti).then_some((slot_index, carrier))
-                });
+            let mixed_slot =
+                atomic_carriers
+                    .iter()
+                    .find_map(|(&(template_index, slot_index), carrier)| {
+                        (template_index == ti).then_some((slot_index, carrier))
+                    });
             let suffix_slots: Vec<&SlotDef> = suffix_slots
                 .into_iter()
                 .filter(|slot| {
@@ -5355,11 +5369,12 @@ pub fn emit_underlying_templated(
 
         for &ti in &group_templates[gi] {
             let template = &g.templates[ti];
-            let mixed = atomic_carriers
-                .iter()
-                .find_map(|(&(template_index, slot_index), carrier)| {
-                    (template_index == ti).then_some((slot_index, carrier))
-                });
+            let mixed =
+                atomic_carriers
+                    .iter()
+                    .find_map(|(&(template_index, slot_index), carrier)| {
+                        (template_index == ti).then_some((slot_index, carrier))
+                    });
             let (prefix_slots, suffix_slots) = classify_template(g, template, &mut Vec::new());
             if let Some((mixed_slot_index, carrier)) = mixed {
                 let mut lane_prefix_slots: Vec<&SlotDef> = template
@@ -5367,7 +5382,9 @@ pub fn emit_underlying_templated(
                     .iter()
                     .filter(|slot| {
                         slot_index_matches(g, *slot, mixed_slot_index, ti)
-                            || prefix_slots.iter().any(|prefix| std::ptr::eq(*prefix, *slot))
+                            || prefix_slots
+                                .iter()
+                                .any(|prefix| std::ptr::eq(*prefix, *slot))
                     })
                     .collect();
                 lane_prefix_slots.reverse();
@@ -5451,10 +5468,8 @@ pub fn emit_underlying_templated(
                         &mut pk,
                     );
                     let before_entry = if before_slots.is_empty() {
-                        let name = format!(
-                            "AtomicT{}S{}A{}Before0",
-                            ti, mixed_slot_index, choice_index
-                        );
+                        let name =
+                            format!("AtomicT{}S{}A{}Before0", ti, mixed_slot_index, choice_index);
                         write_lexicon_header(&mut out, &name);
                         write_bare(&mut out, &choice.post_name, &mut counts);
                         name
@@ -5463,10 +5478,7 @@ pub fn emit_underlying_templated(
                             &mut out,
                             g,
                             table,
-                            &format!(
-                                "AtomicT{}S{}A{}Before",
-                                ti, mixed_slot_index, choice_index
-                            ),
+                            &format!("AtomicT{}S{}A{}Before", ti, mixed_slot_index, choice_index),
                             &before_slots,
                             Role::Suffix,
                             template.required_syn_fs,
@@ -5545,7 +5557,6 @@ pub fn emit_underlying_templated(
                 );
             }
         }
-
     }
 
     // Run before the final dedup/tier computation, so any new findings fold in like every other uncovered source.
@@ -6066,11 +6077,8 @@ mod structural_and_pattern_tests {
     fn explicit_default_surface_strategy_matches_profiled_wrapper() {
         let g = load("languages/suffixing-extension-slot-ordering/grammar.xml");
         let mut wrapper_builder = crate::profile::CompileProfileBuilder::production();
-        let through_wrapper = emit_with_budget_profiled(
-            &g,
-            PrecisionConfig::Strip,
-            Some(&mut wrapper_builder),
-        );
+        let through_wrapper =
+            emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut wrapper_builder));
         let wrapper_profile = wrapper_builder.finish(None, None);
 
         let mut explicit_builder = crate::profile::CompileProfileBuilder::production();
@@ -6130,8 +6138,7 @@ mod structural_and_pattern_tests {
     fn fst_profile_collects_per_stage_data_on_a_synthetic_grammar() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
         let mut builder = crate::profile::CompileProfileBuilder::production();
-        let result =
-            emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
+        let result = emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
         assert!(
             !matches!(result.report.tier, FomaTier::Unsupported { .. }),
             "sanity: this fixture must emit a usable network, got {:?}",
@@ -6164,7 +6171,8 @@ mod structural_and_pattern_tests {
         let without_profile = emit_with_budget_profiled(&g, PrecisionConfig::Strip, None);
 
         let mut builder = crate::profile::CompileProfileBuilder::production();
-        let with_profile = emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
+        let with_profile =
+            emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
 
         assert_eq!(
             without_profile.lexc_source, with_profile.lexc_source,
@@ -6248,8 +6256,7 @@ mod structural_and_pattern_tests {
     fn fst_profile_group_line_counts_are_real_and_bounded_by_the_total() {
         let g = load("languages/suffixing-vowel-harmony/grammar.xml");
         let mut builder = crate::profile::CompileProfileBuilder::production();
-        let _ =
-            emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
+        let _ = emit_with_budget_profiled(&g, PrecisionConfig::Strip, Some(&mut builder));
         let profile = builder.finish(None, None);
 
         assert!(

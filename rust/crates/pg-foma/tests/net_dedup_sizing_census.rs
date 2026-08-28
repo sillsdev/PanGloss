@@ -3,7 +3,7 @@
 
 use pg_conformance_fixtures::{discover, FixtureRef};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
-use pg_foma::backend_runtime::{finished_net_digests, RuntimeBudget};
+use pg_foma::backend_runtime::finished_net_digests;
 use pg_foma::enumerate::{enumerate_default, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
 use pg_grammar::model::{Grammar, PhonRuleDef};
@@ -54,7 +54,7 @@ fn measure_one_fixture(fixture: &FixtureRef) -> Result<Sizing, String> {
     if plans.is_empty() {
         return Err(format!("{}: no candidate materialized", fixture.label()));
     }
-    let outcomes = finished_net_digests(&grammar, &plans, RuntimeBudget::default());
+    let outcomes = finished_net_digests(&grammar, &plans);
     let mut digests = BTreeSet::new();
     let mut digested = 0usize;
     let mut unrealized = Vec::new();

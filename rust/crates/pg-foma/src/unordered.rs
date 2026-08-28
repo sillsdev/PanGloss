@@ -68,7 +68,10 @@
 //! declaring anything, rather than inventing a placeholder
 //! constant with nothing to name.
 
-use pg_grammar::model::{Grammar, MorphRuleOrder, StratumId};
+use pg_grammar::model::StratumId;
+// Used only by `unordered_stratum_metrics`, which is itself `#[cfg(test)]`.
+#[cfg(test)]
+use pg_grammar::model::{Grammar, MorphRuleOrder};
 
 /// One `Unordered` stratum's own cardinality facts, retained for structural diagnostics.
 #[derive(Debug, Clone, Copy)]
@@ -194,5 +197,4 @@ mod tests {
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0].rule_count, 0);
     }
-
 }

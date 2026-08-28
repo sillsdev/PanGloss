@@ -1630,7 +1630,8 @@ fn realize_plan_composed(
         };
     };
     // Mandatory finish step, not an optimization: without it the net still carries the inter-morph boundary tokens uflexc emits, which a surface query never contains, so apply_up returns nothing and recall reads as zero.
-    let mut net = crate::build::finish_controllable_net(opts, net, surface_table(grammar), alphabet);
+    let mut net =
+        crate::build::finish_controllable_net(opts, net, surface_table(grammar), alphabet);
     // Closes an asymmetry: `FomaProposer::new` calls `prepare_network_for_apply`, but `from_precompiled_network` (every plan-composed candidate's constructor) deliberately did not, so above ARC_SORT_MIN_ARCS the hand-spun baseline got foma's binary-search arc traversal and its plan-composed comparison point did not.
     // See `docs/research/pg-foma-recipe-runtime-design-notes.md` for why this is worth keeping despite measuring inert on every current fixture.
     crate::analyzer::prepare_network_for_apply(&mut net);
@@ -1663,7 +1664,6 @@ fn realize_plan_composed(
 pub fn finished_net_digests(
     grammar: &Grammar,
     plans: &[LoweredCandidate],
-    budget: RuntimeBudget,
 ) -> Vec<Result<String, String>> {
     let alphabet = SegAlphabet::new(surface_table(grammar));
     let prules: Vec<&PhonRuleDef> = crate::enumerate::prules_in_order(grammar);
@@ -1774,28 +1774,27 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                     }
                 }
             }
-            let (proposer, score0, build, net_digest) = match realize_plan_composed(
-                candidate, grammar, &opts, &alphabet, &prules,
-            ) {
-                RealizedPlanComposed::Ready {
-                    proposer,
-                    states,
-                    arcs,
-                    build,
-                    net_digest,
-                } => (proposer, (states, arcs), build, net_digest),
-                RealizedPlanComposed::Failed {
-                    certification,
-                    build,
-                } => {
-                    return failed_evaluated_over(
-                        EmissionStrategy::PlanComposed,
+            let (proposer, score0, build, net_digest) =
+                match realize_plan_composed(candidate, grammar, &opts, &alphabet, &prules) {
+                    RealizedPlanComposed::Ready {
+                        proposer,
+                        states,
+                        arcs,
+                        build,
+                        net_digest,
+                    } => (proposer, (states, arcs), build, net_digest),
+                    RealizedPlanComposed::Failed {
                         certification,
                         build,
-                        expected.len() as u64,
-                    )
-                }
-            };
+                    } => {
+                        return failed_evaluated_over(
+                            EmissionStrategy::PlanComposed,
+                            certification,
+                            build,
+                            expected.len() as u64,
+                        )
+                    }
+                };
             // Net-level dedup: an earlier candidate's measurement is served verbatim except `build` (this candidate's own) and `apply` (reported as 0, never the donor's), with the breach ladder re-run over the reconstructed score rather than copied.
             // See `docs/research/pg-foma-recipe-runtime-design-notes.md` for why each of those three exclusions is load-bearing rather than incidental.
             let reuse_key = (cache.net_dedup_enabled() && budget.apply.is_none()).then(|| {
@@ -1961,14 +1960,8 @@ pub fn assess_accuracy_with_cache(
     plans
         .iter()
         .map(|candidate| {
-            let realized = realize_accuracy_proposer(
-                candidate,
-                grammar,
-                &opts,
-                &alphabet,
-                &prules,
-                cache,
-            );
+            let realized =
+                realize_accuracy_proposer(candidate, grammar, &opts, &alphabet, &prules, cache);
             let (realized_strategy, proposer) = match realized {
                 Ok(ready) => ready,
                 Err((realized_strategy, reason)) => {
@@ -2010,16 +2003,14 @@ fn realize_accuracy_proposer(
         }
     }
     match candidate.adapter {
-        LoweringAdapter::TunedSurfaceEmit => {
-            FomaProposer::new(grammar)
-                .map(|proposer| (EmissionStrategy::TunedSurfaceProbed, proposer))
-                .map_err(|e| {
-                    (
-                        EmissionStrategy::TunedSurfaceProbed,
-                        format!("tuned emit path failed to build: {e}"),
-                    )
-                })
-        }
+        LoweringAdapter::TunedSurfaceEmit => FomaProposer::new(grammar)
+            .map(|proposer| (EmissionStrategy::TunedSurfaceProbed, proposer))
+            .map_err(|e| {
+                (
+                    EmissionStrategy::TunedSurfaceProbed,
+                    format!("tuned emit path failed to build: {e}"),
+                )
+            }),
         LoweringAdapter::TemplatedUnderlyingEmit => {
             crate::templated_compile::compile_templated_morphotactics(grammar)
                 .map(|output| (EmissionStrategy::TemplatedUnderlyingTokens, output.proposer))
