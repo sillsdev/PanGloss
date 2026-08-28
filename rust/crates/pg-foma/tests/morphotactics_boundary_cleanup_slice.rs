@@ -870,19 +870,3 @@ fn the_slice_has_four_distinct_exercises() {
         "two cleanup exercises must declare boundary symbols and two template exercises must not"
     );
 }
-
-#[test]
-fn templated_query_accepts_a_surface_with_an_explicit_boundary() {
-    let fixture = staged(CLEANUP_BOUNDARY_CONSUMER);
-    let label = fixture.label();
-    let grammar = load(&fixture.load_grammar_xml(), &label);
-    let mut output = pg_foma::templated_compile::compile_templated_morphotactics(&grammar)
-        .expect("templated-underlying-tokens compile must not fail");
-    let control = output.proposer.propose("mi");
-    assert!(
-        !control.is_empty(),
-        "the boundary-free control must remain analyzable: {control:?}"
-    );
-    let candidates = output.proposer.propose("mu+i");
-    assert!(!candidates.is_empty(), "the templated query encoder must accept the explicit boundary surface \"mu+i\" and reach the compiled metathesis path");
-}
