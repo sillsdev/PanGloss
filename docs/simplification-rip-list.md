@@ -263,7 +263,7 @@ apply/candidate budgets remain separate.
 | # | Item | Evidence | Status |
 |---|---|---|---|
 | F1 | Five dead match arms — `Refused` is only ever built with two of seven reasons | `characterization.rs` | **LANDED UNVERIFIED** |
-| F2 | Test asserting an impossible severity+code pairing | `characterization.rs` ~810 | **LANDED UNVERIFIED** |
+| F2 | Test asserting an impossible severity+code pairing | `characterization.rs` ~810; a second live instance in `health.rs::admission_is_unchanged_by_the_per_class_view` | **LANDED UNVERIFIED, then reopened and closed** — the row was marked landed while a live instance remained: `BackendCoverageIncomplete` (Representability) at `LargeMultiplier` (Readiness), and `BackendCompilationFailed` (Process) at `MachineLimit` (Containment). Both were invisible until `HealthFinding::new`'s class/severity assertion caught them. Fixed by giving the test codes whose class matches the severity it wants; the assertion it pins reads severities only |
 | F3 | Test fixture manufacturing pairings production cannot produce | `pack.rs` `synthetic_health` | **LANDED UNVERIFIED** (12 call sites) |
 | F4 | Write-only `CompositeRec::morpheme` field | `preexpand.rs` | **LANDED UNVERIFIED** |
 | F5 | `#[allow(dead_code)]` where `#[cfg(test)]` lets the compiler enforce the claim | `preexpand.rs`, `unordered.rs` | **LANDED UNVERIFIED** |
@@ -283,8 +283,9 @@ apply/candidate budgets remain separate.
 | G2 | Grammar-derived regex rejection `panic!`s inside functions that already return `Result` | `replace.rs` 875, 896, 1514 | **OPEN** — needs `ComposeError::RegexRejected`; 12 files reference `ComposeError::` |
 | G3 | `panic!` if `compounding_max_depth` misses a `Compounding` id, in the production walk | `capability.rs` ~1348 | **OPEN** |
 | G4 | Two diagnostics surfaced by `eprintln!` because `Certification` has no field to carry them | `backend_runtime.rs` | **OPEN** |
-| G5 | One pre-existing test failure, proven pre-existing at `acd313c6` | `morphotactics_boundary_cleanup_slice::templated_query_accepts_a_surface_with_an_explicit_boundary` | **OPEN** |
+| G5 | `pg-foma` test failures, counted from a run that actually finished | 18 in `pg-foma`, listed in the 2026-08-28 attribution below | **OPEN** — the row previously read "one pre-existing test failure", which was an artifact of measurement: every earlier run stopped at the first failure, so 838+ tests never executed. `--no-fail-fast` at `ff29935b` reports 1,051 run, 1,033 passed, **18 failed**. `morphotactics_boundary_cleanup_slice` is the one the row used to name |
 | G6 | Four `pg-cli` optimizer tests fail, proven pre-existing at `ff29935b` | `four_grammar_recipe_evidence` (feasible count 2, expects 5); `recipe_optimize_continuation` x3 (resource-bound abandonment) | **OPEN** — surfaced by the first suite run to get past the compile holes. Three of the four assert candidate abandonment by a resource bound, which is the envelope machinery this cleanup deleted, so they are almost certainly obsolete contracts rather than regressions; the feasible-count one needs its own diagnosis. Rewrite or delete the contract first, per this file's own rule — a failing old test never authorizes restoring rejected behavior |
+| G7 | A worker request's `ComposeBudget` never reaches the compile it is documented to bound | `worker.rs:6` says the child "compiles the named grammar under the request's `ComposeBudget`"; `worker.rs:315` builds one from the request and passes it to `FomaProposer::new_with_budget_and_profile`, whose core (`analyzer.rs::new_with_budget_and_profile_policy`) ignores it -- the parameter is unread, and `emit_with_budget_profiled` takes no budget at all | **OPEN, PRE-EXISTING** -- byte-identical at `ff29935b`, so no tranche in this file caused it. Both real consumers read the environment themselves rather than accepting a threaded budget: the per-word peel cap at `composite.rs:618` and `:1176` (`ComposeBudget::from_env()`), and the compound unroll cap at `emit.rs:2101`. So a worker request carrying a non-default chain-depth cap is silently ignored, and only a process-wide `HC_COMPOSE_*` variable has any effect. **Needs a decision, not a cleanup:** either wire the request's budget through to both consumers, or delete `WorkerRequest::compose_budget` and correct the module doc to say budgets are process-scoped. Deleting only the dead parameter would silence the compiler warning that is currently the sole evidence of the gap, so it is deliberately left in place |
 
 ---
 
@@ -801,7 +802,48 @@ likely to hold the remainder: 2,493 tests, written against a design that has cha
 
 ---
 
-## Completion gate: NOT met as of 2026-08-27
+## 2026-08-28 test-failure attribution — the count was a measurement artifact
+
+Every failure figure in this file before today came from a run that **stopped at the first
+failure**. `pg-foma` alone reports 1,053 tests; the runs behind `G5` and `G6` reached 171 and 215.
+The ledger was not wrong about the failures it named — it was wrong about how many there were,
+because nothing had ever looked.
+
+First complete run, `--no-fail-fast`, both sides:
+
+| tree | run | passed | failed |
+|---|---:|---:|---:|
+| `ff29935b` (before the architecture work) | 1,051 | 1,033 | **18** |
+| candidates 1-3 and Grill 1, first run | 1,053 | 1,033 | 20 |
+| the same, after fixing both | 1,053 | 1,035 | **18** |
+
+The failure lists are identical across all three, so **the architecture work broke nothing**. The
+middle row's two extra failures were both the new `HealthFinding` seam gate working: one a bug in
+the gate (it flagged the literal examples inside its own self-test), one a real illegal pairing it
+was built to catch — see `F2`. Both are fixed, and the count is back to the pre-existing 18 over
+two more tests than the baseline ran.
+
+The 18 pre-existing failures cluster, which is the useful part:
+
+- **4** `witnessed_strategy_coverage_gate`
+- **4** `strategy_aware_capability_gate`
+- **3** `advice_catalog_contract`
+- **3** `backend_selection_contract`
+- **1** each: `coverage_ledger_golden_json` (a trailing newline), `coverage_citation_liveness` (cites
+  `unbounded_unordered_stratum_deterministically_refuses_to_compile`, a test the unordered-hard-stop
+  removal deleted), `backend_capability_cards_contract`, `morphotactics_boundary_cleanup_slice`
+  (the one `G5` already named).
+
+That shape says these are demolition residue in the coverage/advice/selection gates rather than
+scattered rot, and several are near-certainly obsolete contracts rather than regressions. Each still
+needs classifying before it is touched: this file's rule is that a failing old test never authorizes
+restoring rejected behavior.
+
+**Nothing in this file's failure accounting should be trusted from a run that stopped early.** Use
+`--no-fail-fast`.
+
+
+## Completion gate: NOT met as of 2026-08-28
 
 Demolition is not exhausted. The gate this file sets — no `AUTHORIZED`, `PARTIAL`, `OPEN`, `VERIFY`,
 or unreviewed tranche left standing — is unmet, and the reason is not a backlog of unstaged
@@ -821,13 +863,24 @@ deletions. It is that what remains is not deletion work:
 - **`D5`/`D8` are consolidation**, ~140 lines of duplication, worth doing but not cruft removal.
 - **`REP_VARIANT_CAP` is refused on evidence**, not pending. See the containment inventory above.
 
-Two compile holes are known, stated, and deliberately unrepaired: `run_make_report`'s `pack_path`
-match has no `None` arm and never assigns `trust` on its `else` branch. Both are for the
-replacement phase, which will have to decide whether `make-report` requires an explicitly named
-artifact — the direction the ratified Package contract points.
+**Both compile holes this section used to name are now closed.** `run_make_report`'s
+`match &pack_path` has its `None` arm (`make_report.rs`, the no-artifact case: trust stays
+`Proven` because no override was exercised), and `trust` is assigned on both sides of the
+`else`. The workspace compiles; `pg.ps1 -Mode test` reaches test execution rather than stopping at
+a build error.
+
+What that does NOT settle is the question the holes stood in for: whether `make-report` should
+require an explicitly named artifact, the direction the ratified Package contract points. The code
+now answers "no" by default, which is a real answer arrived at by repair rather than by decision.
+It is recorded here so the replacement phase revisits it deliberately.
 
 The honest next step is therefore **not another rip**. It is the replacement stage this file's
 execution order already names: define the smallest coherent explicit-backend/completed-artifact
-surface, repair the intentional compile holes against it, add tests for that final surface only,
-and then run authoritative verification through `rust/tools/pg.ps1`. `F10` is best done after
-that, when a passing suite makes "this test pins nothing" a checkable claim rather than a guess.
+surface, settle the `--pack` question above against it, add tests for that final surface only, and
+then run authoritative verification through `rust/tools/pg.ps1`.
+
+Ahead of that sits the 18-failure list in the attribution section above, which is now the shortest
+path to a meaningful gate. Those failures are concentrated in four gates rather than scattered, and
+until they are classified — obsolete contract, or real regression — no suite-wide claim about this
+work can be made. `F10` is best done after that, when a passing suite makes "this test pins
+nothing" a checkable claim rather than a guess.
