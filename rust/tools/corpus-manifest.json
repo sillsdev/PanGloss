@@ -47,7 +47,6 @@
         "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_registry_candidates_are_named_before_build",
         "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_plan_composed_baseline_completes",
         "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_confirms_after_the_finish_step",
-        "pg-foma --test indonesian_worker_selected_payload_gate indonesian_120_uses_exact_preferred_worker_payload_with_complete_analysis_sets",
         "pg-foma --test five_language_backend_reports_gate indonesian_backend_reports_are_complete"
       ]
     },

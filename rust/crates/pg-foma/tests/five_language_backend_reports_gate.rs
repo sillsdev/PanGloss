@@ -39,7 +39,24 @@ fn characterize(name: &str, grammar: &Grammar) -> BackendSelection {
     selection
 }
 
+/// Fails when a backend is added without extending the per-grammar verdicts below to cover it.
+fn assert_every_backend_reported(name: &str, selection: &BackendSelection) {
+    assert_eq!(
+        selection.reports().len(),
+        ALL_STRATEGIES.len(),
+        "{name}: a backend produced no compatibility report; an absent one reads as a pass it did \
+         not earn, and the per-backend assertions below would silently stop covering it"
+    );
+    for &strategy in ALL_STRATEGIES {
+        let report = selection
+            .report_for(strategy)
+            .unwrap_or_else(|| panic!("{name}: no report for {strategy:?}"));
+        assert_ne!(report.status(), BackendStatus::Missing, "{name}: {strategy:?}");
+    }
+}
+
 fn assert_backend(
+    name: &str,
     selection: &BackendSelection,
     strategy: EmissionStrategy,
     status: BackendStatus,
@@ -49,22 +66,58 @@ fn assert_backend(
 ) {
     let report = selection
         .report_for(strategy)
-        .unwrap_or_else(|| panic!("missing {strategy:?} report"));
-    assert_eq!(report.status(), status, "{strategy:?} status: {report:?}");
+        .unwrap_or_else(|| panic!("{name}: missing {strategy:?} report"));
+    assert_eq!(
+        report.status(),
+        status,
+        "{name}: {strategy:?} status: {report:?}"
+    );
     assert_eq!(
         report.worst_severity(),
         severity,
-        "{strategy:?} severity: {report:?}"
+        "{name}: {strategy:?} severity: {report:?}"
     );
     assert_eq!(
         report.findings().first().map(|item| item.code),
         finding,
-        "{strategy:?} finding: {report:?}"
+        "{name}: {strategy:?} finding: {report:?}"
     );
     assert_eq!(
         report.shapes().first().map(String::as_str),
         shape,
-        "{strategy:?} shape: {report:?}"
+        "{name}: {strategy:?} shape: {report:?}"
+    );
+}
+
+/// The verdict every reference grammar but Sena measures to: the surface-probed backend is the only path.
+fn assert_only_tuned_surface_accepts(name: &str, selection: &BackendSelection) {
+    assert_every_backend_reported(name, selection);
+    assert_backend(
+        name,
+        selection,
+        EmissionStrategy::TunedSurfaceProbed,
+        BackendStatus::Accepted,
+        Severity::WithinLimits,
+        None,
+        None,
+    );
+    assert_backend(
+        name,
+        selection,
+        EmissionStrategy::TemplatedUnderlyingTokens,
+        BackendStatus::Refused,
+        Severity::CannotRepresent,
+        Some(FindingCode::BackendCoverageIncomplete),
+        Some("nonregular-process-morphology"),
+    );
+    assert_backend(
+        name,
+        selection,
+        EmissionStrategy::PlanComposed,
+        BackendStatus::Refused,
+        Severity::CannotRepresent,
+        Some(FindingCode::BackendCoverageIncomplete),
+        Some("plan-composed-missing-subtrees"),
     );
 }
 
@@ -72,7 +125,9 @@ fn assert_backend(
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn sena_backend_reports_are_complete() {
     let selection = characterize("sena", &load("sena"));
+    assert_every_backend_reported("sena", &selection);
     assert_backend(
+        "sena",
         &selection,
         EmissionStrategy::TunedSurfaceProbed,
         BackendStatus::Accepted,
@@ -81,6 +136,7 @@ fn sena_backend_reports_are_complete() {
         None,
     );
     assert_backend(
+        "sena",
         &selection,
         EmissionStrategy::TemplatedUnderlyingTokens,
         BackendStatus::Refused,
@@ -89,6 +145,7 @@ fn sena_backend_reports_are_complete() {
         Some("nonregular-process-morphology"),
     );
     assert_backend(
+        "sena",
         &selection,
         EmissionStrategy::PlanComposed,
         BackendStatus::Accepted,
@@ -98,22 +155,47 @@ fn sena_backend_reports_are_complete() {
     );
 }
 
-/// Every backend reports on every reference grammar; exact verdicts await a measured run.
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
-fn every_reference_grammar_reports_on_every_backend() {
-    for name in ["indonesian", "amharic", "aweti", "mbugwe"] {
+fn indonesian_backend_reports_are_complete() {
+    let selection = characterize("indonesian", &load("indonesian"));
+    assert_only_tuned_surface_accepts("indonesian", &selection);
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn amharic_backend_reports_are_complete() {
+    let selection = characterize("amharic", &load("amharic"));
+    assert_only_tuned_surface_accepts("amharic", &selection);
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn aweti_backend_reports_are_complete() {
+    let selection = characterize("aweti", &load("aweti"));
+    assert_only_tuned_surface_accepts("aweti", &selection);
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn mbugwe_backend_reports_are_complete() {
+    let selection = characterize("mbugwe", &load("mbugwe"));
+    assert_only_tuned_surface_accepts("mbugwe", &selection);
+}
+
+/// Every reference grammar has at least one accepted backend; four had none under the deleted envelope.
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn every_reference_grammar_has_an_accepted_backend() {
+    for name in ["sena", "indonesian", "amharic", "aweti", "mbugwe"] {
         let selection = characterize(name, &load(name));
-        for &strategy in ALL_STRATEGIES {
-            let report = selection
-                .report_for(strategy)
-                .unwrap_or_else(|| panic!("{name}: no report for {strategy:?}"));
-            assert_ne!(
-                report.status(),
-                BackendStatus::Missing,
-                "{name}: {strategy:?} reported Missing; every committed backend must produce a \
-                 real compatibility report, since an absent one reads as a pass it did not earn"
-            );
-        }
+        assert!(
+            selection
+                .reports()
+                .iter()
+                .any(|report| report.status() == BackendStatus::Accepted),
+            "{name}: no backend accepts this grammar, so selection has no path and would write no \
+             trusted FST"
+        );
     }
 }
