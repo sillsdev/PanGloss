@@ -908,6 +908,18 @@ fewer. Silent under-generation therefore surfaces as a recall problem in the LAN
 declined capability in the COMPILER -- the most expensive place for the error to appear, with a
 linguist debugging their grammar for a gap PanGloss already knew about.
 
+**Measured, not hypothetical -- four live violations.** `faithfulness_coverage_gate` sweeps all 61
+fixtures against the full-HC oracle and prints 19 (construct, backend) containment failures, every
+one `proposal set offered 0`: the backend missed an analysis the oracle found. They reduce to four
+(fixture, word) causes -- `morphotactic-attribute-breadth`/`kuldede`,
+`feature-system-breadth`/`isk`, `loader-isactive-breadth`/`mo+kul`,
+`mpr-overwrite-order-dependence`/`daboyuxa` -- and `plan-composed` is clean on all four. The gate
+asserts non-vacuity only by design, so these are reported and not enforced; its own doc names the
+condition for tightening. Full inventory and the two neighbouring findings (a staged fixture no
+backend can compile while `fst-health` calls it representable, and a `BuildFailed` reason that
+drops the construct name `EmitReport.uncovered` already carries) are in
+`docs/research/conformance-containment-inventory.md`.
+
 Two consequences, both load-bearing:
 
 - **The refusal belongs to the envelope, not the emitter.** An emitter that returns `Partial` and a
