@@ -28,9 +28,9 @@
 //!
 //! # A worked example
 //! `SimultaneousSubruleOverlapPredicate` implements the `simultaneous.subrule-overlap` predicate
-//! via the REAL automaton intersection `crate::lower` provides — see that type's own
-//! doc for how the intersection runs and `LoweredSpan`'s doc for where the lowering itself
-//! happens (`characterize`, not `evaluate`).
+//! via the REAL automaton intersection `crate::lower` provides — see that module's own
+//! doc for how the intersection runs. Lowering happens inside `evaluate`, on demand, for the
+//! subrule pairs that survive the gate early-outs.
 //!
 //! # `PlanNode` vs. `PlanNodeKind`
 //! This module's trait takes `&PlanNodeKind`, not `&PlanNode`: `crate::plan` has no type literally
@@ -301,48 +301,18 @@ pub enum ModelLocation {
     RootAllomorph(AllomorphId),
 }
 
-/// A subrule's `span(s) = left_env · lhs_focus · right_env`, pre-lowered at `characterize`
-/// time via `crate::lower::lower_span` into the
-/// `(left_language, focus_right_language)` pair `crate::lower::spans_overlap` intersects.
+/// Per-subrule gate/opacity facts one simultaneous rule carries, and the whole of what
+/// `SimultaneousSubruleOverlapPredicate` reads from the profile.
 ///
-/// Lowered HERE (inside `characterize`, which walks the `&Grammar` directly) rather than lazily
-/// inside `SimultaneousSubruleOverlapPredicate::evaluate` itself: [`CapabilityPredicate::
-/// evaluate`]'s signature takes only `&CharacteristicsProfile`/
-/// `&PlanNodeKind` — no `&Grammar`/`SegAlphabet`/`FomaOptions`, everything `lower_span` needs to
-/// run. Pre-lowering into the profile (a self-contained
-/// projection, per the trait's own doc) keeps that generic trait signature untouched rather than
-/// widening it crate-wide for one predicate's sake. Flagged as a judgment call for review (the
-/// same kind `crate::lower`'s own doc names for its `PlanNode`/`PlanNodeKind` naming gap), not
-/// silently reconciled: a cleaner long-term shape might carry `&Grammar`/an alphabet through
-/// `CapabilityPredicate::evaluate` itself once more predicates need this kind of lowering, but
-/// that is a wider trait change than this one takes.
-#[derive(Debug, Clone)]
-pub enum LoweredSpan {
-    /// Lowered successfully to `(left_language, focus_right_language)` — boxed (clippy
-    /// `large_enum_variant`): two owned `foma::types::Fsm`s make this variant far larger than
-    /// `Self::Unsupported`'s `String`, and every `SubruleGateInfo` carries one of these per
-    /// subrule.
-    Ok(Box<(foma::types::Fsm, foma::types::Fsm)>),
-    /// `crate::lower::lower_span` hit a pattern node kind (or a grammar with no character table
-    /// at all — see `lower_subrule_span`) it cannot represent; the message names the cause.
-    Unsupported(String),
-}
-
-/// Per-subrule gate/opacity facts a [`RewriteRuleDef`](pg_grammar::model::RewriteRuleDef)'s
-/// `ObservationDetail::SimultaneousRewrite` carries — exactly what
-/// `SimultaneousSubruleOverlapPredicate` needs, without re-walking the `Grammar` at
-/// evaluate-time (the profile is meant to be a self-contained projection).
-///
-/// No longer `Copy` (dropped from the derive by this step): `LoweredSpan::Ok` carries owned
-/// `foma::types::Fsm` values, which are `Clone` but not `Copy` upstream.
-#[derive(Debug, Clone)]
+/// Gate flags are facts about the grammar and belong in a characteristics projection. A
+/// lowered span is a compiled artifact and does not: the predicate lowers what it needs, when
+/// it needs it, from the grammar it is now handed. See `CONTEXT.md`, Artifact and Lowering.
+#[derive(Debug, Clone, Copy)]
 pub struct SubruleGateInfo {
     pub index: usize,
     pub required_mpr: MprSet,
     pub excluded_mpr: MprSet,
     pub self_opaquing: bool,
-    /// This subrule's pre-lowered span.
-    pub span: LoweredSpan,
 }
 
 /// `ObservationDetail::SimultaneousRewrite`'s payload: one rule's full subrule-gate table.
@@ -354,8 +324,8 @@ pub struct SimultaneousRewriteDetail {
 
 /// `ObservationDetail::MultiTable`'s payload: the structural fact
 /// `MultiTableFaithfulThreadingPredicate` needs, computed once here rather than re-derived at
-/// `evaluate` time (this profile is meant to be a self-contained projection — same
-/// reasoning `LoweredSpan`'s own doc gives for pre-lowering its spans).
+/// `evaluate` time: this profile is a self-contained projection of grammar FACTS
+/// (`CONTEXT.md`, Lowering — a lowered span is an artifact and does not belong here).
 #[derive(Debug, Clone)]
 pub struct MultiTableDetail {
     /// `g.char_tables.len()`.
@@ -374,8 +344,8 @@ pub struct MultiTableDetail {
 
 /// `ObservationDetail::RightToLeftRewrite`'s payload: whether
 /// `crate::replace::compile_rtl_branch_net`'s reversal construction can even be
-/// ATTEMPTED for this specific `Dir::RightToLeft` rule — computed once here (self-contained
-/// projection, same reasoning `LoweredSpan`'s own doc gives) by re-running the SAME structural
+/// ATTEMPTED for this specific `Dir::RightToLeft` rule — computed once here, a grammar fact in a
+/// self-contained projection, by re-running the SAME structural
 /// pattern-shape check `crate::replace::compile_rewrite_rule_subset` itself gates on: every
 /// LHS/RHS/environment pattern must avoid a disagree-polarity alpha var and a malformed `Quantifier`
 /// (non-inverted and non-empty, alpha-free in its own children; a genuinely UNBOUNDED quantifier,
@@ -418,8 +388,8 @@ pub struct RightToLeftRewriteDetail {
 /// `PatternNode::Quantifier` somewhere in its own LHS/RHS/environment patterns.
 /// `ObservationDetail::Metathesis`'s payload: the
 /// one structural fact `MetathesisFaithfulSwapPredicate` needs about a `PhonRuleDef::Metathesis`
-/// rule, computed once here (self-contained projection, same reasoning `LoweredSpan`'s own doc
-/// gives) rather than re-derived at `evaluate` time.
+/// rule, computed once here as a grammar fact in a self-contained projection rather than
+/// re-derived at `evaluate` time.
 #[derive(Debug, Clone, Copy)]
 pub struct MetathesisDetail {
     pub rule: PRuleId,
@@ -486,8 +456,8 @@ pub struct QuantifierPatternDetail {
 /// `CircumfixStructuralCompositePredicate` needs about an `AffixAllomorphDef` whose RHS drops
 /// real LHS material (`allomorph_drops_lhs_material`'s own trigger — circumfix wrapping, a
 /// null-role subtractive input, or any other "real subtracted/discontinuous material" shape that
-/// function's own doc names), computed once here (self-contained projection, same reasoning
-/// `LoweredSpan`'s own doc gives) rather than re-derived at `evaluate` time.
+/// function's own doc names), computed once here as a grammar fact in a self-contained
+/// projection rather than re-derived at `evaluate` time.
 #[derive(Debug, Clone, Copy)]
 pub struct CircumfixOutputActionDetail {
     pub rule: MRuleId,
@@ -1039,19 +1009,19 @@ fn lower_subrule_span(
     g: &Grammar,
     rule: &pg_grammar::model::RewriteRuleDef,
     sr: &pg_grammar::model::RewriteSubruleDef,
-) -> LoweredSpan {
+) -> Result<(foma::types::Fsm, foma::types::Fsm), String> {
     let table = match crate::replace::owning_table(g, rule) {
         Some(t) => t,
         None => match g.char_tables.len() {
             0 => {
-                return LoweredSpan::Unsupported(
+                return Err(
                     "grammar has no CharacterDefinitionTable at all; cannot lower any span"
                         .to_string(),
                 );
             }
             1 => &g.char_tables[0],
             n => {
-                return LoweredSpan::Unsupported(format!(
+                return Err(format!(
                     "rule {:?} has no owning stratum (owning_table returned None) and the \
                      grammar declares {n} CharacterDefinitionTables -- cannot safely assume \
                      which table's alphabet resolves this rule's natural classes/alpha \
@@ -1065,17 +1035,15 @@ fn lower_subrule_span(
     };
     let alphabet = crate::replace::SegAlphabet::new(table);
     let opts = foma::options::FomaOptions::default();
-    match crate::lower::lower_span(
+    crate::lower::lower_span(
         &opts,
         g,
         &alphabet,
         sr.left_env.as_ref(),
         &rule.lhs,
         sr.right_env.as_ref(),
-    ) {
-        Ok((left, focus_right)) => LoweredSpan::Ok(Box::new((left, focus_right))),
-        Err(reason) => LoweredSpan::Unsupported(reason.to_string()),
-    }
+    )
+    .map_err(|reason| reason.to_string())
 }
 
 fn characterize_allomorph(
@@ -1413,7 +1381,6 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
                                 required_mpr: sr.required_mpr,
                                 excluded_mpr: sr.excluded_mpr,
                                 self_opaquing: sr.self_opaquing,
-                                span: lower_subrule_span(g, r, sr),
                             })
                             .collect();
                         observations.push(CharacteristicObservation::new(
@@ -1657,6 +1624,7 @@ pub trait CapabilityPredicate {
     /// `&PlanNode` — `crate::plan` has no type by that name).
     fn evaluate(
         &self,
+        grammar: &Grammar,
         profile: &CharacteristicsProfile,
         plan_node: &PlanNodeKind,
     ) -> PredicateVerdict;
@@ -1699,10 +1667,10 @@ fn mpr_gates_disjoint(a: &SubruleGateInfo, b: &SubruleGateInfo) -> bool {
 /// The precise test is `intersect(span(s_i), span(s_j))` where `span(s) = left_env · lhs_focus ·
 /// right_env`, lowered to an `Fsm` via `crate::lower::lower_span`. Every pair that survives the
 /// `self_opaquing`/`mpr_gates_disjoint` early-outs is decided by
-/// `crate::lower::spans_overlap` over each subrule's `SubruleGateInfo::span` (pre-lowered by
-/// `characterize` — see `LoweredSpan`'s own doc for why lowering happens THERE, not in this
-/// `evaluate` call). `Refuse` only when the intersection is genuinely NON-EMPTY (a real witness
-/// overlap), or when either span's `LoweredSpan` is `LoweredSpan::Unsupported` (a pattern node
+/// `crate::lower::spans_overlap` over each subrule's span, lowered here on demand for the pairs
+/// that survive the gate early-outs and remembered for the length of one call.
+/// `Refuse` only when the intersection is genuinely NON-EMPTY (a real witness
+/// overlap), or when a span will not lower at all (a pattern node
 /// kind `lower_span` cannot yet represent — any approximation rounds toward `Refuse`, which still
 /// applies to THAT residual gap). This `Admit`s strictly more pairs than an unconditional-`Refuse`
 /// fallback would (never fewer — over-refusal only ever narrows as proof machinery improves); see
@@ -1736,6 +1704,7 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
 
     fn evaluate(
         &self,
+        grammar: &Grammar,
         profile: &CharacteristicsProfile,
         plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -1747,7 +1716,10 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
             return PredicateVerdict::Admit;
         };
 
-        match subrules_pairwise_verdict(&detail.subrules) {
+        let PhonRuleDef::Rewrite(rule_def) = &grammar.prules[rule.0 as usize] else {
+            return PredicateVerdict::Admit;
+        };
+        match subrules_pairwise_verdict(grammar, rule_def, &detail.subrules) {
             Ok(()) => PredicateVerdict::Admit,
             Err((i, j, witness)) => PredicateVerdict::Refuse(CapabilityDiagnostic {
                 predicate: self.id(),
@@ -1758,12 +1730,19 @@ impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
     }
 }
 
-/// The per-pair decision, factored out so the gate and the real compiler share the identical algorithm and can never disagree on what counts as an overlap witness.
-fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize, usize, String)> {
+/// The per-pair decision, shared by the gate and the compiler so the two cannot disagree.
+/// Spans lower on demand, one memo slot each -- docs/research/pg-foma-capability-design-notes.md
+fn subrules_pairwise_verdict(
+    g: &Grammar,
+    rule: &pg_grammar::model::RewriteRuleDef,
+    subrules: &[SubruleGateInfo],
+) -> Result<(), (usize, usize, String)> {
+    let mut lowered: Vec<Option<Result<(foma::types::Fsm, foma::types::Fsm), String>>> =
+        (0..subrules.len()).map(|_| None).collect();
     for i in 0..subrules.len() {
         for j in (i + 1)..subrules.len() {
-            let a = &subrules[i];
-            let b = &subrules[j];
+            let a = subrules[i];
+            let b = subrules[j];
 
             // If either subrule is self_opaquing, do not attempt Admit; checked before the mpr-gate early-out.
             if a.self_opaquing || b.self_opaquing {
@@ -1778,14 +1757,22 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
                 ));
             }
 
-            if mpr_gates_disjoint(a, b) {
+            if mpr_gates_disjoint(&a, &b) {
                 continue;
             }
 
-            // Either span being Unsupported rounds to Refuse, naming the construct, never silently admitting.
+            // This pair survived both early-outs, so it genuinely needs both spans.
+            for slot in [i, j] {
+                if lowered[slot].is_none() {
+                    let sr = &rule.subrules[subrules[slot].index];
+                    lowered[slot] = Some(lower_subrule_span(g, rule, sr));
+                }
+            }
+            // A span that will not lower rounds to Refuse, naming the construct, never silently admitting.
             let opts = foma::options::FomaOptions::default();
-            match (&a.span, &b.span) {
-                (LoweredSpan::Ok(span_a), LoweredSpan::Ok(span_b)) => {
+            let (span_of_a, span_of_b) = (&lowered[i], &lowered[j]);
+            match (span_of_a.as_ref(), span_of_b.as_ref()) {
+                (Some(Ok(span_a)), Some(Ok(span_b))) => {
                     let overlaps = crate::lower::spans_overlap(&opts, span_a, span_b);
                     if overlaps {
                         return Err((
@@ -1803,7 +1790,7 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
                     }
                     // Proven non-overlapping: fall through to the next pair.
                 }
-                (LoweredSpan::Unsupported(reason), _) | (_, LoweredSpan::Unsupported(reason)) => {
+                (Some(Err(reason)), _) | (_, Some(Err(reason))) => {
                     return Err((
                         a.index,
                         b.index,
@@ -1815,6 +1802,8 @@ fn subrules_pairwise_verdict(subrules: &[SubruleGateInfo]) -> Result<(), (usize,
                         ),
                     ));
                 }
+                // Both slots were just filled, so neither can still be empty.
+                (None, _) | (_, None) => unreachable!("both spans are lowered above"),
             }
         }
     }
@@ -1887,11 +1876,10 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
             required_mpr: sr.required_mpr,
             excluded_mpr: sr.excluded_mpr,
             self_opaquing: sr.self_opaquing,
-            span: lower_subrule_span(g, rule, sr),
         })
         .collect();
 
-    subrules_pairwise_verdict(&subrules)
+    subrules_pairwise_verdict(g, rule, &subrules)
         .map_err(|(i, j, witness)| format!("subrules {i} and {j}: {witness}"))
 }
 
@@ -1998,6 +1986,7 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2075,6 +2064,7 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2199,6 +2189,7 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2387,6 +2378,7 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2496,6 +2488,7 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2612,6 +2605,7 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2678,6 +2672,7 @@ impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2781,6 +2776,7 @@ impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2835,6 +2831,7 @@ impl CapabilityPredicate for MprGroupOverwritePredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -2925,6 +2922,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -3068,6 +3066,7 @@ impl CapabilityPredicate for EpenthesisStructuralRoutePredicate {
 
     fn evaluate(
         &self,
+        _grammar: &Grammar,
         profile: &CharacteristicsProfile,
         _plan_node: &PlanNodeKind,
     ) -> PredicateVerdict {
@@ -3234,6 +3233,7 @@ fn disposition_floor(disposition: Disposition) -> CompileDecision {
 /// Computes `node_id`'s bottom-up `CompileDecision`, memoized by `NodeId` so shared DAG nodes are evaluated exactly once.
 /// See docs/research/pg-foma-capability-design-notes.md.
 fn node_decision(
+    grammar: &Grammar,
     plan: &Plan,
     profile: &CharacteristicsProfile,
     predicates: &[&dyn CapabilityPredicate],
@@ -3253,7 +3253,15 @@ fn node_decision(
     for &child in kind.children() {
         decision = meet(
             decision,
-            node_decision(plan, profile, predicates, relevant_kinds, child, cache),
+            node_decision(
+                grammar,
+                plan,
+                profile,
+                predicates,
+                relevant_kinds,
+                child,
+                cache,
+            ),
         );
     }
     for predicate in predicates {
@@ -3264,7 +3272,7 @@ fn node_decision(
         {
             decision = meet(
                 decision,
-                verdict_to_decision(predicate.evaluate(profile, kind)),
+                verdict_to_decision(predicate.evaluate(grammar, profile, kind)),
             );
         }
     }
@@ -3381,7 +3389,15 @@ fn compose_over_predicates(
 
     let mut cache = HashMap::new();
     let mut decision = match plan.root() {
-        Some(root) => node_decision(plan, profile, predicates, &relevant_kinds, root, &mut cache),
+        Some(root) => node_decision(
+            semantics.grammar(),
+            plan,
+            profile,
+            predicates,
+            &relevant_kinds,
+            root,
+            &mut cache,
+        ),
         None => CompileDecision::Admit,
     };
 
@@ -3484,8 +3500,9 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
         None => diagnostics.push(CapabilityDiagnostic {
             predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
             construct: "grammar (missing final active pipeline table)".to_string(),
-            witness: "no faithful templated emission path: grammar has no final active pipeline table"
-                .to_string(),
+            witness:
+                "no faithful templated emission path: grammar has no final active pipeline table"
+                    .to_string(),
         }),
         Some(active_table) if grammar.char_tables.get(active_table.0 as usize).is_none() => {
             diagnostics.push(CapabilityDiagnostic {
@@ -3554,8 +3571,7 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
     }
 
     let is_loose_rule = |rule_id: &MRuleId| {
-        let Some(allomorphs) = grammar.mrules[rule_id.0 as usize].affix_allomorphs()
-        else {
+        let Some(allomorphs) = grammar.mrules[rule_id.0 as usize].affix_allomorphs() else {
             return false;
         };
         !allomorphs.is_empty()
@@ -4363,8 +4379,7 @@ mod tests {
         }
     }
 
-    /// `MorphRuleOrder::Unordered` characterizes `ConfigPredicate`; its resolved verdict is
-    /// `ConfirmOnly`, not `Refuse`.
+    /// `MorphRuleOrder::Unordered` resolves to `ConfirmOnly`, never `Refuse`.
     #[test]
     fn characterize_marks_unordered_morph_rule_order_config_predicate() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
@@ -4611,7 +4626,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = MultiTableFaithfulThreadingPredicate;
         // Node-agnostic (module doc) -- any PlanNodeKind works; reuse `leaf_for` for convenience.
-        let verdict = predicate.evaluate(&profile, &leaf_for(PRuleId(0)));
+        let verdict = predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0)));
         assert_eq!(
             verdict,
             PredicateVerdict::ConfirmOnly,
@@ -4637,7 +4652,7 @@ mod tests {
 
         let predicate = MultiTableFaithfulThreadingPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "overlapping-representation tables must ConfirmOnly, never Refuse, after the \
              cross-table aliasing fix"
@@ -4665,7 +4680,7 @@ mod tests {
         );
         let predicate = MultiTableFaithfulThreadingPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit
         );
     }
@@ -4730,7 +4745,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "an in-shape RTL rule must be ConfirmOnly, never Refuse or Admit"
         );
@@ -4775,7 +4790,7 @@ mod tests {
         );
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit
         );
     }
@@ -4825,7 +4840,7 @@ mod tests {
 
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "an unbounded Quantifier-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
         );
@@ -4890,7 +4905,7 @@ mod tests {
 
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "an Anchor-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
         );
@@ -4950,7 +4965,7 @@ mod tests {
 
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "a same-table-Segments-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
         );
@@ -5011,7 +5026,7 @@ mod tests {
 
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "cross-table Segments must be recall-safe candidate generation, never Refuse or Admit"
         );
@@ -5078,7 +5093,7 @@ mod tests {
         );
 
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+        match predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))) {
             PredicateVerdict::Refuse(diag) => {
                 assert_eq!(
                     diag.predicate,
@@ -5163,7 +5178,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = MetathesisFaithfulSwapPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "an in-shape metathesis rule must be ConfirmOnly, never Refuse or Admit"
         );
@@ -5183,7 +5198,7 @@ mod tests {
         );
         let predicate = MetathesisFaithfulSwapPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit
         );
     }
@@ -5237,7 +5252,7 @@ mod tests {
 
         let predicate = MetathesisFaithfulSwapPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "a Dir::RightToLeft metathesis rule with an otherwise-supported pattern shape must be \
              ConfirmOnly, never Refuse or Admit"
@@ -5286,7 +5301,7 @@ mod tests {
 
         let predicate = MetathesisFaithfulSwapPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly
         );
     }
@@ -5667,7 +5682,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = CircumfixStructuralCompositePredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "an in-scope structural circumfix/null-role drop must be ConfirmOnly, never Refuse \
              or Admit"
@@ -5681,7 +5696,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = CircumfixStructuralCompositePredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly
         );
     }
@@ -5709,7 +5724,7 @@ mod tests {
 
         let predicate = CircumfixStructuralCompositePredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "an Infix-with-drop allomorph must be ConfirmOnly, never Refuse, now that \
              is_structural_rule admits it"
@@ -5738,7 +5753,7 @@ mod tests {
 
         let predicate = CircumfixStructuralCompositePredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly
         );
     }
@@ -5778,7 +5793,7 @@ mod tests {
 
         let predicate = CircumfixStructuralCompositePredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "the later dropping Prefix-shaped allomorph must be ConfirmOnly, never Refuse, now \
              that is_structural_rule checks every allomorph rather than only the first"
@@ -5800,7 +5815,7 @@ mod tests {
         );
         let predicate = CircumfixStructuralCompositePredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::Admit
         );
     }
@@ -5942,7 +5957,7 @@ mod tests {
         assert!(!detail.peel_attempted);
         assert!(detail.structural_composite_attempted);
         assert_eq!(
-            ReduplicationPeelSupportedPredicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            ReduplicationPeelSupportedPredicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly
         );
     }
@@ -5965,7 +5980,7 @@ mod tests {
         assert!(!detail.peel_attempted);
         assert!(detail.structural_composite_attempted);
         assert_eq!(
-            ReduplicationPeelSupportedPredicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            ReduplicationPeelSupportedPredicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly
         );
 
@@ -5988,7 +6003,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = ReduplicationPeelSupportedPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "an in-scope, peel-eligible true reduplication must be ConfirmOnly, never Refuse or \
              Admit"
@@ -6001,7 +6016,7 @@ mod tests {
         let g = load(REDUP_REALIZATIONAL_XML);
         let profile = characterize(&g);
         let predicate = ReduplicationPeelSupportedPredicate;
-        match predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))) {
+        match predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))) {
             PredicateVerdict::Refuse(diag) => {
                 assert_eq!(diag.predicate, "reduplication.peel-eligible-rule-kind");
             }
@@ -6026,7 +6041,7 @@ mod tests {
         );
         let predicate = ReduplicationPeelSupportedPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &mrule_leaf(MRuleId(0))),
+            predicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::Admit
         );
     }
@@ -6126,7 +6141,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = QuantifierBoundedExpansionPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "a bounded, compile-attempted quantifier rule must be ConfirmOnly, never Admit or Refuse"
         );
@@ -6161,7 +6176,7 @@ mod tests {
         );
         let predicate = QuantifierBoundedExpansionPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::ConfirmOnly,
             "an unbounded, compile-attempted quantifier rule must be ConfirmOnly, never Admit or \
              Refuse"
@@ -6182,7 +6197,7 @@ mod tests {
         );
         let predicate = QuantifierBoundedExpansionPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit
         );
     }
@@ -6382,7 +6397,7 @@ mod tests {
 
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
-        let verdict = predicate.evaluate(&profile, &leaf_for(PRuleId(0)));
+        let verdict = predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0)));
         assert_eq!(
             verdict,
             PredicateVerdict::Admit,
@@ -6402,7 +6417,7 @@ mod tests {
 
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
-        let verdict = predicate.evaluate(&profile, &leaf_for(PRuleId(1)));
+        let verdict = predicate.evaluate(&g, &profile, &leaf_for(PRuleId(1)));
         match verdict {
             PredicateVerdict::Refuse(diag) => {
                 assert_eq!(diag.predicate, "simultaneous.subrule-overlap");
@@ -6426,7 +6441,7 @@ mod tests {
 
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
-        let verdict = predicate.evaluate(&profile, &leaf_for(PRuleId(2)));
+        let verdict = predicate.evaluate(&g, &profile, &leaf_for(PRuleId(2)));
         match verdict {
             PredicateVerdict::Refuse(diag) => {
                 assert!(diag.witness.contains("self_opaquing"));
@@ -6460,7 +6475,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit
         );
     }
@@ -6514,7 +6529,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit,
             "Front/Back-flanked, non-mpr-disjoint, non-self-opaquing subrules must now Admit \
              via the real lowered-span intersection (previously Refuse under the conservative \
@@ -6563,7 +6578,7 @@ mod tests {
 
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+        match predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))) {
             PredicateVerdict::Refuse(diag) => {
                 assert_eq!(diag.predicate, "simultaneous.subrule-overlap");
                 assert!(
@@ -6629,7 +6644,7 @@ mod tests {
 
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
-        match predicate.evaluate(&profile, &leaf_for(PRuleId(0))) {
+        match predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))) {
             PredicateVerdict::Refuse(diag) => {
                 assert_eq!(diag.predicate, "simultaneous.subrule-overlap");
                 assert!(
@@ -6748,7 +6763,7 @@ mod tests {
         let profile = characterize(&g);
         let predicate = SimultaneousSubruleOverlapPredicate;
         assert_eq!(
-            predicate.evaluate(&profile, &leaf_for(PRuleId(0))),
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
             PredicateVerdict::Admit,
             "the registered predicate must also Admit, using the SAME owning-table-lowered spans \
              `characterize` computed"
@@ -7779,10 +7794,7 @@ mod tests {
         for (label, xml) in [
             ("ordinary", ORDINARY_XML.to_string()),
             ("realizational", REALIZATIONAL_XML.to_string()),
-            (
-                "unordered",
-                unordered_stratum_xml(3),
-            ),
+            ("unordered", unordered_stratum_xml(3)),
             ("reduplication-on-realizational-rule", refusing_xml),
         ] {
             let g = load(&xml);

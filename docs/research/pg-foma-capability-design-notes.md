@@ -368,3 +368,31 @@ refusal) to true reduplication owned by a `RealizationalRule`, which no narrowin
 to `StrategyEnvelope::declining`, so a grammar that only SOME compilers refuse now raises no
 characterization finding at all. Before this change that case could not exist, because every predicate
 constrained every compiler. Surfacing per-compiler refusals in characterization is a separate piece of work.
+
+
+## Where subrule spans are lowered, and why one memo slot per subrule
+
+`SubruleGateInfo` used to carry a `LoweredSpan` — a pair of compiled `Fsm`s built by
+`characterize` and stored in the characteristics profile. That was wrong on two counts. The profile
+is documented as a self-contained projection of grammar FACTS, and a compiled automaton is not a
+fact about the grammar, it is an artifact derived from one (see `CONTEXT.md`, Lowering). And the
+overlap predicate has two early-outs that discard a pair before either span is consulted, so most
+of what `characterize` compiled was thrown away unread.
+
+Lowering now happens inside `subrules_pairwise_verdict`, on demand. The memo is one slot per
+SUBRULE rather than one per pair, which is the only shape that is never worse than the
+alternatives:
+
+- **Eager (the old shape)** builds `n` spans whether or not any pair needs them.
+- **Per pair** rebuilds a shared subrule once for every pair it appears in — for a rule with `n`
+  subrules that is up to `n-1` rebuilds of the same span, worse than eager for a wide rule.
+- **One slot per subrule** builds a span at most once, and only if some surviving pair asks for it.
+  It is bounded above by eager and below by nothing either alternative achieves.
+
+The slot holds `Option<Result<(Fsm, Fsm), String>>`: `None` means not yet needed, `Err` means the
+span will not lower at all. An `Err` rounds the pair to `Refuse` and names the construct, so an
+unlowerable span is never silently admitted — the same round-toward-refusal rule the rest of the
+gate follows.
+
+The predicate needs the `Grammar` to lower against, so `CapabilityPredicate::evaluate` takes one.
+All twelve implementors carry the parameter; only the overlap predicate reads it.

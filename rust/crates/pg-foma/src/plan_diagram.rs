@@ -154,6 +154,7 @@ fn predicate_verdict_to_decision(v: PredicateVerdict) -> CompileDecision {
 
 /// Mirrors `crate::capability`'s private `node_decision` exactly, over only that module's public API, since this module must not modify `capability.rs`; pinned against the real `compose_envelope` by `plan_diagram_root_verdict_matches_compose_envelope`.
 fn node_decision_mirror(
+    grammar: &Grammar,
     plan: &Plan,
     profile: &CharacteristicsProfile,
     registry: &PredicateRegistry,
@@ -173,7 +174,15 @@ fn node_decision_mirror(
     for &child in kind.children() {
         decision = crate::capability::meet(
             decision,
-            node_decision_mirror(plan, profile, registry, relevant_kinds, child, cache),
+            node_decision_mirror(
+                grammar,
+                plan,
+                profile,
+                registry,
+                relevant_kinds,
+                child,
+                cache,
+            ),
         );
     }
     for predicate in registry.predicates() {
@@ -184,7 +193,7 @@ fn node_decision_mirror(
         {
             decision = crate::capability::meet(
                 decision,
-                predicate_verdict_to_decision(predicate.evaluate(profile, kind)),
+                predicate_verdict_to_decision(predicate.evaluate(grammar, profile, kind)),
             );
         }
     }
@@ -195,6 +204,7 @@ fn node_decision_mirror(
 
 /// Every node's own `CompileDecision`, keyed by `NodeId`; `compose_envelope` itself only ever returns the single whole-plan decision at the root.
 fn per_node_verdicts(
+    grammar: &Grammar,
     plan: &Plan,
     profile: &CharacteristicsProfile,
     registry: &PredicateRegistry,
@@ -208,7 +218,15 @@ fn per_node_verdicts(
 
     let mut cache = HashMap::new();
     for (id, _) in plan.iter() {
-        node_decision_mirror(plan, profile, registry, &relevant_kinds, id, &mut cache);
+        node_decision_mirror(
+            grammar,
+            plan,
+            profile,
+            registry,
+            &relevant_kinds,
+            id,
+            &mut cache,
+        );
     }
     cache
 }
@@ -598,7 +616,7 @@ pub fn build_plan_document_for_plan_with_semantics(
     let g = semantics.grammar();
     let profile = semantics.characteristics();
     let registry = default_registry();
-    let verdicts = per_node_verdicts(plan, profile, &registry);
+    let verdicts = per_node_verdicts(g, plan, profile, &registry);
     let overall = compose_envelope_with_semantics(semantics, plan, &registry);
 
     // `plan.iter()` yields deterministic content-address order already, so no additional sort is needed here.

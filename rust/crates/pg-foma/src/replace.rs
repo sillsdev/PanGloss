@@ -710,7 +710,7 @@ mod representation_alias_map_tests {
 /// is an honest `None` a caller can route to its OWN "uncovered"/`Unsupported` handling, never a
 /// silent guess. `compile_rewrite_rule_subset` treats `None` exactly like an unsupported pattern
 /// construct (`None`, reported `skipped` by its own caller); `capability.rs`'s
-/// `lower_subrule_span` rounds it to `crate::capability::LoweredSpan::Unsupported` (any approximation rounds toward
+/// `lower_subrule_span` reports it as a span that will not lower (any approximation rounds toward
 /// `Refuse`).
 pub(crate) fn owning_table<'g>(g: &'g Grammar, rule: &RewriteRuleDef) -> Option<&'g CharDefTable> {
     let idx = g

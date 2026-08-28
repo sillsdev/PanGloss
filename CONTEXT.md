@@ -34,6 +34,20 @@ a verdict — a report, with reasoning a human or an AI can act on.
 **Selector.** Reads every backend's compatibility report and chooses no path, one path, or two. Its
 decision, and the reports behind it, are what the user sees.
 
+**Artifact.** What the Compiler produces for one backend: the compiled analyzer a run actually
+uses. Producing one is the expensive operation, it happens inside the supervised worker under
+finite memory and time limits, and it is what "compile" means without further qualification.
+
+**Lowering.** Translating one grammar construct into the small intermediate form a check can
+compare — a rule-part's match shape, say, so two subrules can be tested for overlap. Cheap,
+in-process, and part of answering a compatibility report, not part of producing an artifact.
+
+Both build `foma` networks, and that is exactly why they need separate words. They are not the
+same operation at different sizes; they answer different questions. A statement like "this command
+never compiles" is ambiguous until it says which — and one that meant artifacts while lowering was
+happening has already shipped and had to be corrected. Say *compiles no artifact* or *performs no
+lowering*; never bare "compile", which the code also uses for building the Rust itself.
+
 ### Three axes that must never merge
 
 **Correctness/representability is binary.** Either this backend can preserve the complete
