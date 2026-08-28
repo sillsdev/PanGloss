@@ -1054,7 +1054,7 @@ mod tests {
 
     #[test]
     fn admission_is_unchanged_by_the_per_class_view() {
-        // Regression pin: adding `admission_by_class` must move `admission()` for no report.
+        // Each code is chosen so its class agrees with the severity beside it; the assertion reads severities only.
         let reports = vec![
             HealthReport::new(Vec::new()),
             HealthReport::new(vec![class_finding(
@@ -1067,12 +1067,12 @@ mod tests {
                     Severity::NotProductionReady,
                 ),
                 class_finding(
-                    FindingCode::BackendCoverageIncomplete,
+                    FindingCode::RuleInteractionProduct,
                     Severity::LargeMultiplier,
                 ),
             ]),
             HealthReport::new(vec![class_finding(
-                FindingCode::BackendCompilationFailed,
+                FindingCode::ResourceBudgetReached,
                 Severity::MachineLimit,
             )]),
         ];

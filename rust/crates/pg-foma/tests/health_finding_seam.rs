@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Where the type itself lives: its own literal inside `new` is the one this gate allows.
-const DEFINING_MODULE: &str = "health.rs";
+/// Exempt: the module defining the type, and this gate, whose self-test holds literal examples.
+const EXEMPT: &[&str] = &["health.rs", "health_finding_seam.rs"];
 
 fn crates_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -60,7 +60,11 @@ fn health_findings_are_built_through_the_constructor() {
 
     let mut offenders = Vec::new();
     for path in &sources {
-        if path.file_name().is_some_and(|name| name == DEFINING_MODULE) {
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| EXEMPT.contains(&name))
+        {
             continue;
         }
         let Ok(source) = fs::read_to_string(path) else {
