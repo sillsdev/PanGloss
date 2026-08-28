@@ -100,6 +100,12 @@ Two consequences, both observed rather than inferred:
   reaching a reader is `Partial { uncovered: 1 }` and the name is dropped on the floor. Several test
   binaries already print `[{kind}] {id} — {reason}`; the production path does not.
 
+**Wider than one fixture.** `faithfulness_coverage_gate` already sweeps all 61 fixtures for exactly
+this and prints 19 containment failures, every one `proposal set offered 0` — a backend missing an
+analysis the oracle found. It asserts non-vacuity only, by design, with its own doc naming the
+condition for tightening. The inventory reduces to four (fixture, word) causes; see
+`conformance-containment-inventory.md`. The sweep existed the whole time and nothing read it, which
+is this log's recurring shape: the check is there, but not at a moment anyone looks.
 ## 6. A test suite red on `main` for a week, misattributed to the branch
 
 Four `pg-cli` recipe-optimizer tests fail. They were carried on the demolition ledger as G6
@@ -155,4 +161,5 @@ test, so without that ad-hoc parse the error would have cost a build.
 
 Cost: one round trip, self-inflicted. Recorded because the manifest is edited by hand often enough
 that a `pg.ps1 -Mode doctor` line reporting "corpus-manifest.json parses" would pay for itself.
+
 
