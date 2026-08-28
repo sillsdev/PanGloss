@@ -18,8 +18,6 @@ pub const ADVICE_CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const GRAMMAR_SAFETY_WARNING: &str =
     "Don't make any change that would make your language invalid!";
 
-pub const BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY: &str = "backend-build-unavailable";
-
 /// Stable shape key for required plan subtrees the PlanComposed materializer cannot build.
 pub const PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY: &str = "plan-composed-missing-subtrees";
 

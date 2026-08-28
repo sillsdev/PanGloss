@@ -6,7 +6,6 @@ use pg_foma::advice_catalog::{
 };
 
 const REQUIRED_SHAPES: &[&str] = &[
-    "backend-build-unavailable",
     "late-structural-reachability",
     "nonregular-process-morphology",
     "null-cycle",

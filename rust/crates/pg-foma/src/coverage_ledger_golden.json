@@ -111,11 +111,11 @@
       "conformance_status": "covered",
       "containment": {
         "kind": "dedicated",
-        "citation": "tests/cover_unordered_morph_rules.rs::non_document_order_analysis_is_proposed_and_confirmed (+ unbounded_unordered_stratum_deterministically_refuses_to_compile for the Refuse split)",
+        "citation": "tests/cover_unordered_morph_rules.rs::non_document_order_analysis_is_proposed_and_confirmed",
         "strategies": [
           "tuned-surface-probed"
         ],
-        "note": "Chain-depth-bounded any-order proposal containment, plus the deterministic over-budget refusal witness."
+        "note": "Chain-depth-bounded any-order proposal containment."
       },
       "strategies_cannot_represent": [],
       "strategies_unwitnessed": [

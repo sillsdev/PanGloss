@@ -264,6 +264,13 @@ _Avoid_: Grammar quality, language quality
 A stable coded compiler diagnostic with severity, phase, affected constructs, measured or predicted values, thresholds, and applicable remedies.
 _Avoid_: AI grammar advice
 
+**Backend advice**:
+Remedies a language owner can apply to their GRAMMAR to make a backend able to represent it. A
+condition no grammar change addresses -- an absent compiler, a crashed build -- is reported as a
+typed finding and carries no advice, because advice is rendered as a change the reader should make.
+See `docs/adr/0007-advice-recommends-grammar-changes-only.md`.
+_Avoid_: Troubleshooting, operational guidance, "how to fix PanGloss"
+
 **FST health severity**:
 The graded computational/readiness finding for one backend attempt: Ideal, Info, Warning, or Error.
 Warning identifies cleanup or cost concerns while a complete route remains available. Error means the

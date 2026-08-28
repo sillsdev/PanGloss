@@ -12,8 +12,7 @@
 use pg_grammar::model::Grammar;
 
 use crate::advice_catalog::{
-    builtin_catalog, RemedyEffort, BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY,
-    PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY,
+    builtin_catalog, RemedyEffort, PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY,
 };
 use crate::capability::{
     compose_envelope_across_strategies, default_registry, meet, CapabilityDiagnostic,
@@ -340,23 +339,7 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
         )
         .affecting(vec![format!("{:?}", report.strategy)]),
     );
-
-    let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
-    let entry = catalog
-        .entry_for(BACKEND_BUILD_UNAVAILABLE_SHAPE_KEY)
-        .expect("backend build failures must have a catalog entry");
-    report.shapes.push(entry.shape_key.clone());
-    report
-        .advice_references
-        .extend(entry.remedies.iter().map(|remedy| {
-            AdviceReference::new(
-                entry.shape_key.clone(),
-                remedy.remedy_key.clone(),
-                remedy.effort,
-            )
-        }));
-    report.advice_references =
-        dedup_advice_references(std::mem::take(&mut report.advice_references));
+    // No advice: the catalog advises grammar changes, and no grammar change starts a compiler.
 }
 
 fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {

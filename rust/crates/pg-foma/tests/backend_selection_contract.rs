@@ -1,22 +1,8 @@
 use pg_foma::backend_selection::{BackendReport, BackendStatus};
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::enumerate::EmissionStrategy;
-use pg_foma::health::{
-    FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
-};
+use pg_foma::health::{FindingCode, Severity};
 
-fn finding(severity: Severity, code: FindingCode) -> HealthFinding {
-    HealthFinding::new(
-        code,
-        severity,
-        Phase::Compile,
-        Metric::UnknownUnboundedWork,
-        MetricValue::Count(1),
-        ValueProvenance::Observed,
-        "synthetic finding".to_string(),
-    )
-    .affecting(vec!["synthetic-rule".to_string()])
-}
 fn refused(strategy: EmissionStrategy) -> BackendReport {
     BackendReport::refused(
         strategy,
@@ -57,7 +43,7 @@ fn capability_refusal_is_a_typed_cannot_represent_with_actionable_advice() {
 }
 
 #[test]
-fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
+fn missing_and_failed_backends_are_typed_errors_carrying_no_grammar_advice() {
     for (report, expected_code) in [
         (
             BackendReport::missing(
@@ -83,8 +69,12 @@ fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
              attempt that ran and failed) must emit BackendCompilationFailed -- each matching its \
              own documented meaning, not the other's"
         );
-        assert_eq!(report.shapes(), &["backend-build-unavailable".to_string()]);
-        assert!(!report.advice_references().is_empty());
+        assert!(
+            report.shapes().is_empty() && report.advice_references().is_empty(),
+            "a backend whose compiler is absent or died is a PanGloss defect, and the advice \
+             catalog advises GRAMMAR changes -- reporting a remedy here would tell a language \
+             owner to edit a grammar that is not what went wrong: {report:?}"
+        );
     }
 }
 

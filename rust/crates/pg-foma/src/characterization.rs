@@ -404,16 +404,6 @@ mod tests {
     use super::*;
     use crate::capability_entry::best_case_across_backends;
 
-    fn load_machine_fixture(path: &str) -> Grammar {
-        let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../machine/conformance")
-            .join(path);
-        let xml = std::fs::read_to_string(&full)
-            .unwrap_or_else(|error| panic!("{}: {error}", full.display()));
-        pg_grammar::load(&xml)
-            .unwrap_or_else(|error| panic!("{} failed to load: {error}", full.display()))
-    }
-
     /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no characterization finding at all.
     #[test]
     fn characterization_raises_nothing_for_a_clean_small_grammar() {

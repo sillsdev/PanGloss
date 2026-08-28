@@ -366,7 +366,6 @@ mod tests {
         ClosureFallbackBackend, ClosureRefusal, ClosureRefusalCode, EmitCounts, UncoveredItem,
     };
     use crate::health::FindingClass;
-    use std::time::Duration;
 
     fn synthetic_full_emit_report() -> EmitReport {
         EmitReport {

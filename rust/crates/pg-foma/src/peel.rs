@@ -554,7 +554,6 @@ mod tests {
                 assert!(depth > limit, "the reported depth must exceed the cap");
                 assert_eq!(site, CHAIN_DEPTH_SITE);
             }
-            other => panic!("expected ChainDepthExceeded, got {other:?}"),
         }
     }
 

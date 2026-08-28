@@ -375,11 +375,9 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
         UnorderedMorphRuleApplication => ev(
             Dedicated,
             "tests/cover_unordered_morph_rules.rs::non_document_order_analysis_is_proposed_and_\
-             confirmed (+ unbounded_unordered_stratum_deterministically_refuses_to_compile for \
-             the Refuse split)",
+             confirmed",
             &[EmissionStrategy::TunedSurfaceProbed],
-            "Chain-depth-bounded any-order proposal containment, plus the deterministic \
-             over-budget refusal witness.",
+            "Chain-depth-bounded any-order proposal containment.",
         ),
         MprGroupAppend => ev(
             Dedicated,

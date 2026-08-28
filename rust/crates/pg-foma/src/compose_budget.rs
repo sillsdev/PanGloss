@@ -370,7 +370,6 @@ mod compose_budget_tests {
                 assert_eq!(limit, 24);
                 assert_eq!(site, "chain_depth_explicit_cap_trips_one_past_limit");
             }
-            other => panic!("expected ChainDepthExceeded, got {other:?}"),
         }
     }
 
@@ -390,7 +389,6 @@ mod compose_budget_tests {
             ComposeError::ChainDepthExceeded { limit, .. } => {
                 assert_eq!(limit, CHAIN_DEPTH_ABSOLUTE_CEILING);
             }
-            other => panic!("expected ChainDepthExceeded, got {other:?}"),
         }
     }
 

@@ -283,7 +283,7 @@ apply/candidate budgets remain separate.
 | G2 | Grammar-derived regex rejection `panic!`s inside functions that already return `Result` | `replace.rs` 875, 896, 1514 | **OPEN** — needs `ComposeError::RegexRejected`; 12 files reference `ComposeError::` |
 | G3 | `panic!` if `compounding_max_depth` misses a `Compounding` id, in the production walk | `capability.rs` ~1348 | **OPEN** |
 | G4 | Two diagnostics surfaced by `eprintln!` because `Certification` has no field to carry them | `backend_runtime.rs` | **OPEN** |
-| G5 | `pg-foma` test failures, counted from a run that actually finished | 18 in `pg-foma`, listed in the 2026-08-28 attribution below | **OPEN** — the row previously read "one pre-existing test failure", which was an artifact of measurement: every earlier run stopped at the first failure, so 838+ tests never executed. `--no-fail-fast` at `ff29935b` reports 1,051 run, 1,033 passed, **18 failed**. `morphotactics_boundary_cleanup_slice` is the one the row used to name |
+| G5 | `pg-foma` test failures, counted from a run that actually finished | was 18; now **1**, classified in the 2026-08-28 attribution below | **OPEN** — the row previously read "one pre-existing test failure", which was an artifact of measurement: every earlier run stopped at the first failure, so 838+ tests never executed. `--no-fail-fast` at `ff29935b` reports 1,051 run, 1,033 passed, **18 failed**. `morphotactics_boundary_cleanup_slice` is the one the row used to name |
 | G6 | Four `pg-cli` optimizer tests fail, proven pre-existing at `ff29935b` | `four_grammar_recipe_evidence` (feasible count 2, expects 5); `recipe_optimize_continuation` x3 (resource-bound abandonment) | **OPEN** — surfaced by the first suite run to get past the compile holes. Three of the four assert candidate abandonment by a resource bound, which is the envelope machinery this cleanup deleted, so they are almost certainly obsolete contracts rather than regressions; the feasible-count one needs its own diagnosis. Rewrite or delete the contract first, per this file's own rule — a failing old test never authorizes restoring rejected behavior |
 | G7 | A worker request's `ComposeBudget` never reaches the compile it is documented to bound | `worker.rs:6` says the child "compiles the named grammar under the request's `ComposeBudget`"; `worker.rs:315` builds one from the request and passes it to `FomaProposer::new_with_budget_and_profile`, whose core (`analyzer.rs::new_with_budget_and_profile_policy`) ignores it -- the parameter is unread, and `emit_with_budget_profiled` takes no budget at all | **OPEN, PRE-EXISTING** -- byte-identical at `ff29935b`, so no tranche in this file caused it. Both real consumers read the environment themselves rather than accepting a threaded budget: the per-word peel cap at `composite.rs:618` and `:1176` (`ComposeBudget::from_env()`), and the compound unroll cap at `emit.rs:2101`. So a worker request carrying a non-default chain-depth cap is silently ignored, and only a process-wide `HC_COMPOSE_*` variable has any effect. **Needs a decision, not a cleanup:** either wire the request's budget through to both consumers, or delete `WorkerRequest::compose_budget` and correct the module doc to say budgets are process-scoped. Deleting only the dead parameter would silence the compiler warning that is currently the sole evidence of the gap, so it is deliberately left in place |
 
@@ -834,10 +834,41 @@ The 18 pre-existing failures cluster, which is the useful part:
   removal deleted), `backend_capability_cards_contract`, `morphotactics_boundary_cleanup_slice`
   (the one `G5` already named).
 
-That shape says these are demolition residue in the coverage/advice/selection gates rather than
-scattered rot, and several are near-certainly obsolete contracts rather than regressions. Each still
-needs classifying before it is touched: this file's rule is that a failing old test never authorizes
-restoring rejected behavior.
+That shape said these were demolition residue rather than scattered rot, and it was right: the
+clustering was the symptom of a SINGLE root cause.
+
+### Classification, and the root cause of 15 of the 18
+
+**15 of the 18 were one missing line.** `12deffdb` ("remove retry backend advice") deleted the
+remedy `retry-backend-build`, which was the ONLY remedy on the advice catalog's
+`backend-build-unavailable` entry. `validate_catalog` requires every entry to carry at least one, so
+`builtin_catalog()` began returning `Err`, and the two `.expect(...)` call sites in
+`backend_selection.rs` turned that into a panic. Everything downstream of backend selection died
+with it: `advice_catalog_contract` (3), `backend_selection_contract` (3),
+`backend_capability_cards_contract` (1), `strategy_aware_capability_gate` (4), and — measured, not
+inferred — four more that a provisional remedy also cleared. One remedy restored the count from 18
+to 3.
+
+**Classified: not a regression in the demolition's intent, but a defect in its execution.** The
+tranche meant to remove retry ADVICE and did; it did not notice it had emptied an entry the schema
+requires to be non-empty.
+
+**Resolved by removing the entry, not by supplying a remedy.** Every remedy that entry could offer —
+retry, "increase the envelope", cross-backend substitution — is on this file's own Rejected list
+below. An entry whose entire remedy space has been refused does not have a gap in it; it does not
+belong. The advice catalog recommends GRAMMAR changes, and no grammar change starts a compiler, so
+a build failure now carries its typed finding and no advice at all. See
+`docs/adr/0007-advice-recommends-grammar-changes-only.md`. The nine remaining entries are all
+grammar constructs, which is the check that this was the right cut: `backend-build-unavailable` was
+the only non-grammar entry in the book.
+
+**The other three, each classified before being touched:**
+
+| test | classification | action |
+|---|---|---|
+| `coverage_citation_liveness` | **Obsolete citation.** The ledger cited `unbounded_unordered_stratum_deterministically_refuses_to_compile`, a test the unordered-hard-stop removal deliberately deleted. | Citation dropped. This FOLLOWS a rejected-behavior deletion; it does not restore anything. |
+| `coverage_ledger_golden_json` | **Stale artifact, no behavior involved.** The committed golden carried a trailing newline `to_json()` never emits, so it did not match what its own `regenerate_coverage_ledger_golden_json` helper produces. Its sibling `readiness_verdict_golden.json` also ends without one. | Regenerated through that helper. |
+| `morphotactics_boundary_cleanup_slice::templated_query_accepts_a_surface_with_an_explicit_boundary` | **UNCLASSIFIED -- needs a decision, deliberately untouched.** Its fixture `backend-ordered-generic` genuinely contains `mrInfixUm`, `mrRedupCV` and `mrRedupFull`, so the templated backend correctly reports them as not representable and `compile_templated_morphotactics` rejects the resulting `Partial` tier. The test expects that compile to SUCCEED on a grammar the backend cannot fully represent. Whether a `Partial` network is acceptable for this slice is a semantics question, not residue. | None. Left failing, and named here so it is not mistaken for cruft. |
 
 **Nothing in this file's failure accounting should be trusted from a run that stopped early.** Use
 `--no-fail-fast`.

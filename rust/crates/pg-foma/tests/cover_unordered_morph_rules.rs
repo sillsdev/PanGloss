@@ -5,7 +5,6 @@ mod common;
 
 use std::collections::HashSet;
 
-use pg_foma::analyzer::FomaProposer;
 use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::enumerate::enumerate_default;

@@ -641,7 +641,7 @@ fn wrapper_classifier_accepts_empty_runs_on_either_side() {
 
 #[test]
 fn every_referenced_lhs_part_must_consume_at_least_one_segment() {
-    let mut empty_builder = ShapeBuilder::new();
+    let empty_builder = ShapeBuilder::new();
     let cases = [
         PatternNode::Anchor(AnchorSide::Left),
         PatternNode::Segments {
