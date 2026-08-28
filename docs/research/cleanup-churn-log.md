@@ -163,3 +163,31 @@ Cost: one round trip, self-inflicted. Recorded because the manifest is edited by
 that a `pg.ps1 -Mode doctor` line reporting "corpus-manifest.json parses" would pay for itself.
 
 
+
+## 10. A batch run that reports success and produces nothing
+
+Found by the last full verification run, not by looking for it.
+`stats_cmd::tests::batch_stats_produces_nonempty_object_report_and_tsv_stays_byte_identical`
+failed once in three full-suite runs:
+
+```
+batch's TSV output must be byte-identical with or without --stats
+left:  "0\tidil\t0\tok\t-\n"
+right: "0\tidil\t3\tok\t-\n"
+```
+
+The `--stats` run found 3 analyses for `idil`; the plain run found 0. In isolation the target passes
+30/30 on three consecutive runs, so it is a concurrency flake rather than a regression — the full
+suite runs 6 test processes at once and `run_batch` fans each word over 8 threads of its own, under
+procgov's 70% CPU ceiling.
+
+What makes it worth an entry rather than a retry: the run that produced nothing **reported that it
+had succeeded**. Its own summary line was `1 words parsed (0 skipped), 0 hit the step cap, 0 timed
+out [memo=on, threads=8]`. Parsed, not skipped, no cap, no timeout, zero analyses. Whatever gave up
+did not account for itself, so the only reason anyone saw it is that a sibling test happened to hold
+the correct answer to compare against.
+
+The scratch directories are keyed by pid and a per-process counter, so this is not two tests sharing
+a path; the nondeterminism is inside the batch run. Not chased further — reproducing a one-in-three
+concurrency flake is its own project — but it is the same silent-absence shape this repository
+already refuses elsewhere, and it sits on the word-level path that every corpus measurement uses.
