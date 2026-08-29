@@ -535,9 +535,84 @@ uncovered-item report, which does not see this class of loss), making the compil
 these two grammars -- without also refusing the 7 fixtures above where the SAME heuristic is wrong --
 needs the same real, targeted fact this section's blocker calls for. Recorded, not implemented.
 
+### Follow-on: the six-fixture blocker above was resolved by deletion, not narrowing
+
+The "genuine blocker" framing above assumed the fix had to be a NARROWER version of the loose-rule
+check -- some condition precise enough to keep refusing `strrep-identity` while admitting the other
+six. That assumption was wrong, and the actual fix is simpler: `templated_shape_floor`'s "Unordered
+stratum, N loose rules" block was never a narrowing problem, it was a **duplicate** of a question
+`CharacteristicKind::UnorderedMorphRuleApplication`'s own registered predicate
+(`UnorderedOrderingUnionPredicate`) already answers correctly, upstream, for every fixture including
+`strrep-identity` -- the predicate's verdict is `ConfirmOnly`, folded into
+`compose_envelope_across_strategies`'s decision via `compose_over_predicates` BEFORE
+`with_strategy_coverage` ever calls `templated_shape_floor`. Deleting the block (not replacing it with
+anything) therefore does exactly the right thing for all seven fixtures at once: the six false
+positives lose their only refusal reason and become `Admit`/`ConfirmOnly`, while `strrep-identity`
+keeps its OWN, separate, already-present classifier diagnostics (`DirectWholeRootWrapper` on its
+`rulePfx`/`ruleObj` allomorphs) and stays exactly as refused as before -- `templated_shape_floor` never
+needed to "know" strrep-identity was different, because the check that made it different was never the
+one being deleted.
+
+Confirmed via `envelope_agrees_with_compiler_gate`, own runs, before and after this specific deletion:
+**168/9/6 -> 174/3/6** (agree/too-strict/too-lax; too-lax unchanged). All six named fixtures
+(`diacritic-segments`, `disjunctive-recheck`, `mpr-gated-exception`,
+`stem-name-restricted-root-allomorph`, `backend-gated-generic`, `suffixing-evidential-adjacency-chain`)
+moved from too-strict to agree; `loader-isactive-breadth`, `strrep-identity` and
+`truncate-morphotactic` are unchanged (the first is the still-open classifier false positive above;
+the other two are the genuine `(a)` defects, deliberately untouched).
+
+One casualty, fixed in the same commit:
+`strategy_aware_capability_gate.rs::templated_selector_refuses_unordered_and_self_opaquing_fixture_shapes`
+pinned `strrep-identity`'s refusal WORDING as containing "unordered" -- the exact string the deleted
+block produced and nothing else did. `strrep-identity` is still correctly refused (via the classifier
+diagnostics named above), so the test was renamed
+(`templated_selector_refuses_structural_and_self_opaquing_fixture_shapes`) and re-pinned to
+`"morphology relation"`, the phrase every classifier-based refusal witness actually carries -- a
+wording correction forced by a deliberate, authorized deletion, not a weakened assertion.
+
+### The `nonregular-process-morphology` shape key hid this from the reference-grammar gate
+
+`backend_selection::capability_shape_key` maps a `CapabilityDiagnostic`'s predicate to a small,
+human-facing shape vocabulary for advice/reporting. `strategy-coverage.templated-unsupported-shape` --
+the predicate ALL of `templated_shape_floor`'s diagnostics carry, including the now-deleted
+loose-rule ones -- is not one of that match's named arms, so every one of its diagnostics falls
+through to the `_ =>` catch-all, `"nonregular-process-morphology"`, unless the diagnostic's own
+`construct` text happens to contain "truncat"/"delet"/"slot"/"null"/"zero-surface". That means a
+refusal produced by the (now-deleted) unordered-stratum heuristic was reported under the exact same
+label as a genuine process-morphology refusal -- indistinguishable in `five_language_backend_reports_gate.rs`,
+which pins all five private reference grammars (Sena, Indonesian, Amharic, Aweti, Mbugwe) as
+templated-`Refused` with precisely that shape key.
+
+Run to check whether any reference grammar's refusal was actually coming from the deleted heuristic
+(`PANGLOSS_CORPUS_ROOT=<repo>/samples/data`, `pg.ps1 -Mode corpus-test -Package pg-foma -TestTarget
+five_language_backend_reports_gate`, all 6 tests passing both before and after): **none flipped.**
+Reading the real diagnostics (`BackendReport::declined_on()`, not the shape key) for every grammar
+shows zero mentions of "unordered" anywhere, and every refusal is comprehensive and genuinely
+structural:
+
+| grammar | templated verdict | dominant real diagnostic (count, predicate `strategy-coverage.templated-unsupported-shape`) |
+|---|---|---|
+| Sena | Refused (unchanged) | 234x `DirectWholeRootWrapper morphology relation` |
+| Indonesian | Refused (unchanged) | 14x `DirectWholeRootWrapper morphology relation`, 6x `UnlistedTopology morphology relation` |
+| Amharic | Refused (unchanged) | 170x `DirectWholeRootWrapper morphology relation`, 8x `AdjacentInitialDrop`, 6x `Infix`, 2x `ModifyFromInput` |
+| Aweti | Refused (unchanged) | 388x `DirectWholeRootWrapper morphology relation`, 200x `AmharicInteriorInsertion`, 90x `UnlistedTopology`, 86x `AdjacentTerminalDrop`, 8x `CircumfixPrefix` |
+| Mbugwe | Refused (unchanged) | 526x `DirectWholeRootWrapper morphology relation`, 140x `AmharicInteriorInsertion`, 120x `UnlistedTopology`, 24x `Infix`, 12x `AdjacentInitialDrop`, 4x `AdjacentTerminalDrop` |
+
+This is a clean negative result, not an inconclusive one: every reference grammar's templated
+refusal rests on dozens to hundreds of independent, per-allomorph structural-classifier findings
+(the SAME `structural_allomorph::MorphologyRewriteClassifier` mechanism discussed above, run for real
+against real grammars), so the deleted heuristic was never load-bearing for any of the five. The
+shape-key collision is still real and still worth fixing on its own (a future refusal from the
+now-deleted mechanism, or from a genuinely new cause, would be similarly invisible behind the same
+catch-all label), but it is a reporting-fidelity gap, not a capability one -- recorded here rather
+than fixed, since the instruction for this session was to check, not to touch `emit.rs` or
+`capability_shape_key`.
+
 ### Where this leaves the divergence count
 
-Only the two `plan-composed` rows are closed by code in this session, moving from too-strict to agree.
-The 9 templated rows are all triaged (7 **(b)**, 2 **(a)**) with hard oracle evidence, but stay
-too-strict until the blockers above are resolved -- a real narrowing for the 7, a real
-compiler-refuse fact for the 2. See the top-level report for the measured before/after triple.
+Both `plan-composed` rows AND six of the seven `(b)`-verdict templated rows are now closed, moving
+from too-strict to agree in this session: **166/11/6 (session start) -> 174/3/6 (current)**. The
+remaining three too-strict rows are `loader-isactive-breadth` (the classifier false positive,
+narrowing attempted and reverted, blocker recorded above), and `strrep-identity`/
+`truncate-morphotactic` (the two genuine `(a)` compiler defects, deliberately out of scope). See the
+top-level report for the full measured before/after triple and the test-status ledger.
