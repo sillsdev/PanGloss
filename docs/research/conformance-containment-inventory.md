@@ -361,18 +361,34 @@ the env-derived cap still binds and the *caller-supplied* one silently does not.
 (`emit.rs`, `peel.rs` both call `check_chain_depth`), which is what makes this hard to see: the type
 is not dead, only this path's use of it.
 
-Two honest resolutions, and the choice is a design question rather than a cleanup:
+**The design question is settled by a caller that already exists.** `pg-foma`'s compile worker takes
+a `CompileWorkerRequest.chain_depth_cap`, turns it into a `ComposeBudget` in
+`CompileWorkerRequest::compose_budget()`, and hands it to `new_with_budget_and_profile` -- its own
+doc says the compile runs "under `request`'s own `ComposeBudget`". It does not. That field is a
+per-request containment knob with no effect, and no test constructs a request with it set, so
+nothing catches it.
 
-- **Thread it.** The caller's budget reaches the emitter, and `compound_chain_depth_budget()` becomes
-  its default rather than its only source. This is right if a caller should be able to bound a
-  compile more tightly than the environment does.
-- **Delete it.** The compile-time compound cap is deliberately its own dimension (`emit.rs`'s own
-  doc says so, separate from `chain_depth_cap`'s per-word runtime counter), and the apply-path
-  `ApplyBudget` is separate and live. If no caller has a reason to override either, the parameter
-  should go rather than be honoured.
+Note what still works, because it changes the severity: the ENV-configured cap binds. `emit.rs`'s
+compound loop calls `ComposeBudget::from_env()` directly, so `chain_depth_cap_from_env` reaches the
+emitter without going through the analyzer at all. It is only the PROGRAMMATIC budget -- the one an
+in-process caller constructs and passes as an argument -- that is dropped. That is why the gap
+survived: every path anyone measured was env-driven.
 
-What must not stay is the present state, where the signature promises a bound that nothing applies.
-Not fixed here because `analyzer.rs` was being edited concurrently on two other branches.
+So the resolution is to thread it, not delete it:
+
+`new_with_budget_and_profile_policy` passes the caller's budget down to `emit_with_budget_profiled`,
+which currently takes none -- despite the name, its "budget" is `PrecisionConfig` and its internal
+caps, not a `ComposeBudget` -- and on to `compound_extra_levels_checked_with_cap`, which today
+reaches for `ComposeBudget::from_env()` when handed no cap. That env read becomes the DEFAULT rather
+than the only source. Deleting the parameter instead is the wrong half of the choice now that the
+worker is known to depend on it.
+
+The falsifying test is a `CompileWorkerRequest` with `chain_depth_cap: Some(n)` small enough to
+refuse a grammar that compiles unbounded: it passes today for the wrong reason, because the cap is
+ignored and the compile simply succeeds.
+
+Not done in this pass: the change runs through `emit.rs`, which three agents were editing
+concurrently. Nothing about the analysis is outstanding -- only the edit.
 
 ## Where the divergence count actually stands (measured on the integrated tip)
 
