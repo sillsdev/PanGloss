@@ -467,16 +467,16 @@ fn templated_capability_translates_from_owner_to_final_active_table() {
     }));
 }
 
-/// Refuses unordered loose-rule and self-opaquing epenthesis shapes for Templated.
+/// Refuses a morphology-relation-classifier shape and self-opaquing epenthesis shapes for Templated.
 #[test]
-fn templated_selector_refuses_unordered_and_self_opaquing_fixture_shapes() {
+fn templated_selector_refuses_structural_and_self_opaquing_fixture_shapes() {
     let fixtures = [
         (
             Root::Machine,
             "edge-cases",
             "strrep-identity",
             "ndpat",
-            "unordered",
+            "morphology relation",
         ),
         (
             Root::Machine,

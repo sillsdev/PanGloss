@@ -3591,41 +3591,7 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
         }
     }
 
-    let is_loose_rule = |rule_id: &MRuleId| {
-        let Some(allomorphs) = grammar.mrules[rule_id.0 as usize].affix_allomorphs() else {
-            return false;
-        };
-        !allomorphs.is_empty()
-            && allomorphs.iter().all(|allomorph| {
-                allomorph.required_mpr.is_empty()
-                    && allomorph.excluded_mpr.is_empty()
-                    && allomorph.out_mpr.is_empty()
-            })
-    };
-    for (stratum_index, stratum) in grammar.strata.iter().enumerate() {
-        if !matches!(stratum.mrule_order, MorphRuleOrder::Unordered) {
-            continue;
-        }
-        let loose_rule_count = stratum
-            .mrules
-            .iter()
-            .filter(|rule_id| is_loose_rule(rule_id))
-            .count();
-        if loose_rule_count > 1 {
-            diagnostics.push(CapabilityDiagnostic {
-                predicate: TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE,
-                construct: format!(
-                    "stratum {stratum_index} (Unordered, {loose_rule_count} loose rules)"
-                ),
-                witness: format!(
-                    "no faithful templated emission path: unordered stratum has \
-                     {loose_rule_count} loose rules, but the underlying-token proposer fixes one \
-                     authored order instead of preserving their unordered application; this \
-                     grammar shape therefore emits no faithful candidate"
-                ),
-            });
-        }
-    }
+    // UnorderedOrderingUnionPredicate already answers this (ConfirmOnly) upstream; a second ad hoc check here only duplicated and contradicted it.
 
     for (prule_index, prule) in grammar.prules.iter().enumerate() {
         let PhonRuleDef::Rewrite(rule) = prule else {
