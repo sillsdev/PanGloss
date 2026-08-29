@@ -95,7 +95,6 @@ impl Args {
     fn flag(&self, name: &str) -> Option<&str> {
         self.flags.get(name).map(String::as_str)
     }
-
 }
 
 /// Writes to `--report <path>` if given, else stdout; overwrites freely since the caller owns storage.

@@ -314,7 +314,6 @@ impl ComposeBudget {
             Some(limit) => Err(ComposeError::ChainDepthExceeded { depth, limit, site }),
         }
     }
-
 }
 
 #[cfg(test)]

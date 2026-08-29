@@ -45,7 +45,12 @@ fn encoded(value: &OsStr) -> String {
         .join(",")
 }
 
-fn spawn_reader(mut stream: File) -> (std::thread::JoinHandle<()>, std::sync::mpsc::Receiver<Vec<u8>>) {
+fn spawn_reader(
+    mut stream: File,
+) -> (
+    std::thread::JoinHandle<()>,
+    std::sync::mpsc::Receiver<Vec<u8>>,
+) {
     let (sender, receiver) = std::sync::mpsc::channel();
     let handle = std::thread::spawn(move || {
         let mut bytes = Vec::new();
@@ -78,7 +83,12 @@ fn current_process_is_in_job() -> bool {
     let mut in_job = 0;
     // SAFETY: the pseudo-handle is valid and the output pointer is live for this call.
     let ok = unsafe { IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job) };
-    assert_ne!(ok, 0, "IsProcessInJob failed: {}", std::io::Error::last_os_error());
+    assert_ne!(
+        ok,
+        0,
+        "IsProcessInJob failed: {}",
+        std::io::Error::last_os_error()
+    );
     in_job != 0
 }
 
@@ -93,12 +103,10 @@ fn run_child(args: &[OsString], options: &LaunchOptions) -> (ChildTermination, S
     let deadline = Instant::now() + Duration::from_secs(10);
     let exit = process.reap_direct_child(deadline).expect("reap child");
     process.wait_tree_empty(deadline).expect("empty tree");
-    assert!(
-        process
-            .poll_containment(deadline)
-            .expect("final poll")
-            .is_none()
-    );
+    assert!(process
+        .poll_containment(deadline)
+        .expect("final poll")
+        .is_none());
     (
         exit.termination,
         String::from_utf8(finish_reader(stdout_handle, stdout_receiver)).expect("UTF-8 stdout"),
@@ -137,7 +145,10 @@ fn launch_options_preserve_clear_override_remove_and_case_insensitive_environmen
     std::env::set_var(&inherited, "inherited value ✓");
     let args = [OsString::from("environment"), OsString::from(&inherited)];
     let (_, stdout, _) = run_child(&args, &LaunchOptions::default());
-    assert_eq!(stdout.trim(), format!("UTF16:{}", encoded(OsStr::new("inherited value ✓"))));
+    assert_eq!(
+        stdout.trim(),
+        format!("UTF16:{}", encoded(OsStr::new("inherited value ✓")))
+    );
 
     let options = LaunchOptions::new()
         .env(&inherited_lower, "first")
@@ -150,7 +161,10 @@ fn launch_options_preserve_clear_override_remove_and_case_insensitive_environmen
     ];
     let (_, stdout, _) = run_child(&args, &options);
     let lines = stdout.lines().collect::<Vec<_>>();
-    assert_eq!(lines[0], format!("UTF16:{}", encoded(OsStr::new("second value 漢"))));
+    assert_eq!(
+        lines[0],
+        format!("UTF16:{}", encoded(OsStr::new("second value 漢")))
+    );
     assert_eq!(lines[1], "ABSENT");
 
     let options = LaunchOptions::new().env_clear().env("Only", "value");
@@ -160,7 +174,10 @@ fn launch_options_preserve_clear_override_remove_and_case_insensitive_environmen
         OsString::from(&inherited),
     ];
     let (_, stdout, _) = run_child(&args, &options);
-    assert_eq!(stdout.lines().collect::<Vec<_>>(), ["UTF16:0076,0061,006c,0075,0065", "ABSENT"]);
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        ["UTF16:0076,0061,006c,0075,0065", "ABSENT"]
+    );
     std::env::remove_var(&inherited);
 }
 
@@ -173,7 +190,10 @@ fn launch_options_set_child_current_directory_with_spaces_and_unicode() {
     let expected = fs::canonicalize(&directory).expect("canonical test directory");
     assert_eq!(
         stdout.trim(),
-        format!("UTF16:{}", encoded(without_verbatim_prefix(&expected).as_os_str()))
+        format!(
+            "UTF16:{}",
+            encoded(without_verbatim_prefix(&expected).as_os_str())
+        )
     );
     fs::remove_dir(&directory).expect("remove test directory");
 }
@@ -207,12 +227,8 @@ fn direct_child_exit_code_259_is_not_mistaken_for_a_live_process() {
 #[test]
 fn missing_executable_returns_typed_launch_failure_without_fallback() {
     let missing = temporary_directory("missing").join("does-not-exist.exe");
-    let result = ContainedWorkerProcess::spawn(
-        &missing,
-        &[],
-        &LaunchOptions::default(),
-        limits(64 << 20),
-    );
+    let result =
+        ContainedWorkerProcess::spawn(&missing, &[], &LaunchOptions::default(), limits(64 << 20));
     assert!(matches!(result, Err(ContainmentError::Failed { .. })));
     fs::remove_dir(missing.parent().expect("missing parent")).expect("remove test directory");
 }
@@ -245,8 +261,12 @@ fn termination_kills_descendant_tree_and_closes_both_pipes_within_deadline() {
     assert!(ready.exists(), "descendant never became ready");
     let cleanup_deadline = Instant::now() + Duration::from_secs(5);
     process.terminate_tree(cleanup_deadline).expect("tree kill");
-    process.reap_direct_child(cleanup_deadline).expect("direct reap");
-    process.wait_tree_empty(cleanup_deadline).expect("tree empty");
+    process
+        .reap_direct_child(cleanup_deadline)
+        .expect("direct reap");
+    process
+        .wait_tree_empty(cleanup_deadline)
+        .expect("tree empty");
     let stdout = finish_reader(stdout_handle, stdout_receiver);
     let stderr = finish_reader(stderr_handle, stderr_receiver);
     assert!(stdout.windows(6).any(|bytes| bytes == b"holder"));

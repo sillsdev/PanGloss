@@ -29,7 +29,8 @@ fn parses_and_verifies_exact_source_lines_and_hash() {
         2,
     );
     let set = parse_case_set(&json).expect("valid case set");
-    set.verify_source(source.as_bytes()).expect("source matches");
+    set.verify_source(source.as_bytes())
+        .expect("source matches");
 }
 
 #[test]
@@ -55,11 +56,7 @@ fn rejects_duplicate_ids_ordinals_unstable_order_and_wrong_count() {
         Err(CaseSetError::DuplicateSourceLine { .. })
     ));
 
-    let wrong_count = document(
-        source,
-        r#"[{"caseId":"a","sourceLine":1,"input":"a"}]"#,
-        2,
-    );
+    let wrong_count = document(source, r#"[{"caseId":"a","sourceLine":1,"input":"a"}]"#, 2);
     assert!(matches!(
         parse_case_set(&wrong_count),
         Err(CaseSetError::DeclaredCountMismatch { .. })

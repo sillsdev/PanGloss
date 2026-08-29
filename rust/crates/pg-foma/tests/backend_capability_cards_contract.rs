@@ -79,7 +79,11 @@ fn rendered_cards_are_deterministic_and_static() {
         assert_eq!(first, second);
         assert!(first.contains("Static backend contract"));
         assert!(first.contains(GRAMMAR_SAFETY_WARNING));
-        assert!(first.lines().count() < 100, "{} card is too long", card.backend_id);
+        assert!(
+            first.lines().count() < 100,
+            "{} card is too long",
+            card.backend_id
+        );
         for language_name in ["Mbugwe", "Aweti", "Sena", "Indonesian", "Warlpiri"] {
             assert!(!first.contains(language_name));
         }

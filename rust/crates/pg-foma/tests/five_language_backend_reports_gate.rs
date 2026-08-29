@@ -51,7 +51,11 @@ fn assert_every_backend_reported(name: &str, selection: &BackendSelection) {
         let report = selection
             .report_for(strategy)
             .unwrap_or_else(|| panic!("{name}: no report for {strategy:?}"));
-        assert_ne!(report.status(), BackendStatus::Missing, "{name}: {strategy:?}");
+        assert_ne!(
+            report.status(),
+            BackendStatus::Missing,
+            "{name}: {strategy:?}"
+        );
     }
 }
 

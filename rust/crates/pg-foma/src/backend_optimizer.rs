@@ -1706,5 +1706,4 @@ mod tests {
         assert_eq!(pareto_frontier(&items), vec!["certified".to_owned()]);
         assert_eq!(select_confirmed(&items), Some("certified".to_owned()));
     }
-
 }

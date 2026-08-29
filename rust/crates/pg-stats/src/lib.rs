@@ -32,7 +32,7 @@ pub use report::{
     kind_has_any_recorded_object, mixed_settings, never_fires_report, per_allomorph_report,
     per_kind_report, per_morpheme_report, per_object_report, per_word_report,
     word_elapsed_ns_total, MixedSettings, NeverFiresFilter, NeverFiresRow, PerAllomorphFilter,
-    PerAllomorphRow, PerKindFilter, PerKindRow, PerMorphemeFilter, PerMorphemeRow,
-    PerObjectFilter, PerObjectRow, PerWordRow, SortKey, NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
+    PerAllomorphRow, PerKindFilter, PerKindRow, PerMorphemeFilter, PerMorphemeRow, PerObjectFilter,
+    PerObjectRow, PerWordRow, SortKey, NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
 };
 pub use schema::{COUNTER_SEMANTICS_VERSION, SCHEMA_VERSION};

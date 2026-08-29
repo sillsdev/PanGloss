@@ -31,7 +31,10 @@ fn production_help_omits_developer_only_flags() {
         );
     }
     for flag in REMOVED_FLAGS {
-        assert!(!text.contains(flag), "production help must omit removed flag {flag}: {text}");
+        assert!(
+            !text.contains(flag),
+            "production help must omit removed flag {flag}: {text}"
+        );
     }
 }
 
@@ -58,9 +61,12 @@ fn production_commands_reject_developer_flags_as_unknown_options() {
 #[cfg(feature = "developer-tools")]
 #[test]
 fn developer_build_accepts_flags_without_building_a_grammar() {
-    for args in [
-        vec!["make-report", "missing.xml", "out.md", "--allow-unproven"],
-    ] {
+    for args in [vec![
+        "make-report",
+        "missing.xml",
+        "out.md",
+        "--allow-unproven",
+    ]] {
         let output = pangloss(&args);
         let text = combined_output(&output);
         assert!(

@@ -962,8 +962,8 @@ mod equivalence_tests {
         let phon = PhonologyProbe::new(&g);
 
         // (a) today's direct-compile path, unmodified.
-        let direct = compile_gated_grammar(&opts, &g, &alphabet, &ro)
-            .expect("direct compile must succeed");
+        let direct =
+            compile_gated_grammar(&opts, &g, &alphabet, &ro).expect("direct compile must succeed");
         let direct_net = direct
             .net
             .clone()
@@ -1051,8 +1051,8 @@ mod equivalence_tests {
         );
 
         // (b) that distinctness must not change the compiled relation.
-        let direct = compile_gated_grammar(&opts, &g, &alphabet, &ro)
-            .expect("direct compile must succeed");
+        let direct =
+            compile_gated_grammar(&opts, &g, &alphabet, &ro).expect("direct compile must succeed");
         let direct_net = direct
             .net
             .clone()

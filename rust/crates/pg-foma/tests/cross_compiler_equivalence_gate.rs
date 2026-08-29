@@ -87,11 +87,7 @@ fn selected_plans(
                 .map(|id| &grammar.prules[id.0 as usize])
         })
         .collect::<Vec<_>>();
-    let baseline = enumerate_default(
-        grammar,
-        &prules,
-        PhonologyProbe::new(grammar).as_ref(),
-    );
+    let baseline = enumerate_default(grammar, &prules, PhonologyProbe::new(grammar).as_ref());
     let candidates = Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar,
@@ -464,11 +460,7 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
                 .map(|id| &grammar.prules[id.0 as usize])
         })
         .collect::<Vec<_>>();
-    let baseline = enumerate_default(
-        &grammar,
-        &prules,
-        PhonologyProbe::new(&grammar).as_ref(),
-    );
+    let baseline = enumerate_default(&grammar, &prules, PhonologyProbe::new(&grammar).as_ref());
     let plan = Registry::seeded()
         .materialize_distinct(&MaterializerContext {
             grammar: &grammar,
@@ -581,11 +573,8 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
                 .map(|id| &grammar.prules[id.0 as usize])
         })
         .collect::<Vec<_>>();
-    let baseline_plan = enumerate_default(
-        &grammar,
-        &prules,
-        PhonologyProbe::new(&grammar).as_ref(),
-    );
+    let baseline_plan =
+        enumerate_default(&grammar, &prules, PhonologyProbe::new(&grammar).as_ref());
 
     let plans: Vec<LoweredCandidate> = REQUIRED_STRATEGIES
         .iter()
@@ -670,11 +659,8 @@ fn plan_composed_distinguishes_headedness_ambiguity_red2() {
                 .map(|id| &grammar.prules[id.0 as usize])
         })
         .collect::<Vec<_>>();
-    let baseline_plan = enumerate_default(
-        &grammar,
-        &prules,
-        PhonologyProbe::new(&grammar).as_ref(),
-    );
+    let baseline_plan =
+        enumerate_default(&grammar, &prules, PhonologyProbe::new(&grammar).as_ref());
 
     let plans: Vec<LoweredCandidate> = REQUIRED_STRATEGIES
         .iter()

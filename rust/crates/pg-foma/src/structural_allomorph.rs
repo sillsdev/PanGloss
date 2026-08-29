@@ -933,7 +933,6 @@ impl MorphologyRelationPlan {
     pub fn relation(&self) -> &CompiledMorphologyRelation {
         &self.relation
     }
-
 }
 
 fn slot_allomorphs<'a>(

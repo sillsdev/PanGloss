@@ -13,9 +13,7 @@ use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::reverse::fsm_reverse;
 
-use pg_foma::replace::{
-    compile_and_compose_rules, is_fully_supported_shape, SegAlphabet,
-};
+use pg_foma::replace::{compile_and_compose_rules, is_fully_supported_shape, SegAlphabet};
 use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Dir, Grammar, LexEntryId, PatternNode, PhonRuleDef};
@@ -921,8 +919,7 @@ fn rtl_cross_table_segments_environment_matches_oracle() {
         .map(|id| g.entries[id.0 as usize].morpheme.0)
         .collect();
     let entries: HashSet<LexEntryId> = [root1, root2].into_iter().collect();
-    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries))
-        .expect("lexc emission");
+    let uemit = emit_underlying_filtered(&g, &alphabet, Some(&entries)).expect("lexc emission");
     let net = compile_net(&g, &alphabet, &g.prules[0], &uemit.lexc_source);
     let morpher = Morpher::new(&g, usize::MAX);
 

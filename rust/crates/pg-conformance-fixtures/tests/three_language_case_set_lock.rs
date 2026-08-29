@@ -32,16 +32,23 @@ struct CaseLock {
 }
 
 fn lock_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tools/three-language-case-sets.json")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/three-language-case-sets.json")
 }
 
 fn load() -> LockDocument {
     let path = lock_path();
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|error| panic!("read privacy-safe case-set lock {}: {error}", path.display()));
-    serde_json::from_slice(&bytes)
-        .unwrap_or_else(|error| panic!("parse privacy-safe case-set lock {}: {error}", path.display()))
+    let bytes = std::fs::read(&path).unwrap_or_else(|error| {
+        panic!(
+            "read privacy-safe case-set lock {}: {error}",
+            path.display()
+        )
+    });
+    serde_json::from_slice(&bytes).unwrap_or_else(|error| {
+        panic!(
+            "parse privacy-safe case-set lock {}: {error}",
+            path.display()
+        )
+    })
 }
 
 fn expected_amharic_lines() -> Vec<usize> {
@@ -55,13 +62,12 @@ fn expected_amharic_lines() -> Vec<usize> {
 
 fn expected_aweti_lines() -> Vec<usize> {
     vec![
-        1, 2, 3, 5, 6, 7, 8, 9, 10, 12, 15, 18, 19, 22, 23, 24, 30, 31, 32, 33, 35,
-        41, 45, 48, 49, 50, 53, 55, 58, 59, 62, 64, 65, 66, 67, 69, 75, 76, 78, 79,
-        80, 82, 87, 88, 90, 92, 93, 99, 100, 103, 104, 106, 109, 111, 113, 114, 115,
-        116, 117, 118, 119, 122, 124, 126, 133, 135, 137, 139, 140, 144, 145, 146, 148,
-        150, 151, 157, 158, 159, 160, 163, 164, 165, 166, 167, 168, 169, 170, 177, 178,
-        182, 183, 184, 185, 186, 187, 188, 191, 192, 197, 198, 203, 204, 205, 206, 207,
-        208,
+        1, 2, 3, 5, 6, 7, 8, 9, 10, 12, 15, 18, 19, 22, 23, 24, 30, 31, 32, 33, 35, 41, 45, 48, 49,
+        50, 53, 55, 58, 59, 62, 64, 65, 66, 67, 69, 75, 76, 78, 79, 80, 82, 87, 88, 90, 92, 93, 99,
+        100, 103, 104, 106, 109, 111, 113, 114, 115, 116, 117, 118, 119, 122, 124, 126, 133, 135,
+        137, 139, 140, 144, 145, 146, 148, 150, 151, 157, 158, 159, 160, 163, 164, 165, 166, 167,
+        168, 169, 170, 177, 178, 182, 183, 184, 185, 186, 187, 188, 191, 192, 197, 198, 203, 204,
+        205, 206, 207, 208,
     ]
 }
 

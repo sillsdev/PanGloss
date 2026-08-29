@@ -137,9 +137,7 @@ use rayon::prelude::*;
 
 use crate::emit::{is_structural_rule, rule_role, stripped_variants, surface_variants, Role};
 use crate::junctions::PhonologyProbe;
-use crate::morphotactics::{
-    ChainState, ExploreMode, MorphotacticIndex, ProbeBudget,
-};
+use crate::morphotactics::{ChainState, ExploreMode, MorphotacticIndex, ProbeBudget};
 use crate::tags;
 
 /// One rule-application/fusion composite: an extra "root-like" lexc entry whose upper tape carries
@@ -750,15 +748,7 @@ pub(crate) fn build_composites_with_mode(
     mode: ExploreMode,
     probe_budget: Option<ProbeBudget<'_>>,
 ) -> (Vec<CompositeRec>, CompositeReport) {
-    build_composites_with_mode_and_trace(
-        g,
-        width,
-        phon,
-        mt,
-        mode,
-        probe_budget,
-        None,
-    )
+    build_composites_with_mode_and_trace(g, width, phon, mt, mode, probe_budget, None)
 }
 
 pub(crate) fn build_composites_with_mode_and_trace(
@@ -989,22 +979,10 @@ mod pruning_tests {
         let phon = PhonologyProbe::new(&g);
         let mt = MorphotacticIndex::build(&g);
 
-        let (_, flat) = build_composites_with_mode(
-            &g,
-            width,
-            phon.as_ref(),
-            &mt,
-            ExploreMode::Flat,
-            None,
-        );
-        let (_, pruned) = build_composites_with_mode(
-            &g,
-            width,
-            phon.as_ref(),
-            &mt,
-            ExploreMode::Pruned,
-            None,
-        );
+        let (_, flat) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
+        let (_, pruned) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
 
         // Flat (ignores morphotactics) probes both mrA and mrB at depth 0; pruned must skip mrB, blocked by the mandatory non-vacuous slot 0.
         assert_eq!(
@@ -1029,22 +1007,10 @@ mod pruning_tests {
         let phon = PhonologyProbe::new(&g);
         let mt = MorphotacticIndex::build(&g);
 
-        let (_, flat) = build_composites_with_mode(
-            &g,
-            width,
-            phon.as_ref(),
-            &mt,
-            ExploreMode::Flat,
-            None,
-        );
-        let (_, pruned) = build_composites_with_mode(
-            &g,
-            width,
-            phon.as_ref(),
-            &mt,
-            ExploreMode::Pruned,
-            None,
-        );
+        let (_, flat) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
+        let (_, pruned) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
 
         // mrA (vacuous) is `Role::None`, so only mrB is ever attempted at depth 0; the point here is that pruning does not lose that attempt.
         assert_eq!(
@@ -1082,14 +1048,8 @@ mod pruning_tests {
         let phon = PhonologyProbe::new(&g);
         let mt = MorphotacticIndex::build(&g);
 
-        let (_, report) = build_composites_with_mode(
-            &g,
-            width,
-            phon.as_ref(),
-            &mt,
-            ExploreMode::Pruned,
-            None,
-        );
+        let (_, report) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
 
         assert_eq!(report.pending_successors, 0);
         assert!(
@@ -1128,25 +1088,13 @@ mod pruning_tests {
         let mt = MorphotacticIndex::build(&g);
 
         let t_flat = std::time::Instant::now();
-        let (flat_recs, flat_report) = build_composites_with_mode(
-            &g,
-            width,
-            phon.as_ref(),
-            &mt,
-            ExploreMode::Flat,
-            None,
-        );
+        let (flat_recs, flat_report) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Flat, None);
         let flat_elapsed = t_flat.elapsed();
 
         let t_pruned = std::time::Instant::now();
-        let (pruned_recs, pruned_report) = build_composites_with_mode(
-            &g,
-            width,
-            phon.as_ref(),
-            &mt,
-            ExploreMode::Pruned,
-            None,
-        );
+        let (pruned_recs, pruned_report) =
+            build_composites_with_mode(&g, width, phon.as_ref(), &mt, ExploreMode::Pruned, None);
         let pruned_elapsed = t_pruned.elapsed();
 
         let flat_set: rustc_hash::FxHashSet<(String, String)> = flat_recs

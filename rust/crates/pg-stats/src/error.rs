@@ -19,7 +19,9 @@ pub enum StatsError {
     )]
     CounterOverflow { counter: &'static str, value: u64 },
 
-    #[error("stats cache already contains engine `{existing}`, cannot append engine `{requested}`")]
+    #[error(
+        "stats cache already contains engine `{existing}`, cannot append engine `{requested}`"
+    )]
     EngineMismatch { existing: String, requested: String },
 
     #[error("stats cache is for grammar `{existing}`, cannot append grammar `{requested}`")]

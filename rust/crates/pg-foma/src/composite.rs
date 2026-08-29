@@ -51,7 +51,6 @@ impl ProposedWord {
     pub fn candidates(&self) -> &[Candidate] {
         &self.candidates
     }
-
 }
 
 type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;

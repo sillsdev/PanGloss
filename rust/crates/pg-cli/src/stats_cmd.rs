@@ -454,11 +454,7 @@ fn engine_omission_note(engine: &str, omitted: &[&str]) -> Option<String> {
 }
 
 /// The JSONL meta line's `unmeasured` map: per omitted counter, why -- so a GUI need not guess.
-fn unmeasured_json(
-    engine: &str,
-    orientation: &str,
-    omitted: &[&str],
-) -> serde_json::Value {
+fn unmeasured_json(engine: &str, orientation: &str, omitted: &[&str]) -> serde_json::Value {
     let map: serde_json::Map<String, serde_json::Value> = omitted
         .iter()
         .map(|c| {
@@ -884,8 +880,7 @@ impl TotalsSummary {
 
     fn attributed_pct(&self) -> Option<f64> {
         self.total_time_ns.and_then(|total| {
-            (self.run_elapsed_ns > 0)
-                .then_some(total as f64 / self.run_elapsed_ns as f64 * 100.0)
+            (self.run_elapsed_ns > 0).then_some(total as f64 / self.run_elapsed_ns as f64 * 100.0)
         })
     }
 
@@ -897,13 +892,7 @@ impl TotalsSummary {
             [(_, None)] => "-".to_string(),
             many => many
                 .iter()
-                .map(|(kind, n)| {
-                    format!(
-                        "{} {}",
-                        kind.as_deref().unwrap_or("-"),
-                        fmt_opt_i64(*n)
-                    )
-                })
+                .map(|(kind, n)| format!("{} {}", kind.as_deref().unwrap_or("-"), fmt_opt_i64(*n)))
                 .collect::<Vec<_>>()
                 .join("  "),
         }
@@ -1148,7 +1137,8 @@ fn render_rowview_body(
             for kind in kinds_in_row_order(&shown) {
                 let section: Vec<RowView> =
                     shown.iter().filter(|r| r.kind == kind).cloned().collect();
-                let (headers, table_rows) = render_narrow(&section, filters.wide, &denoms, &omitted);
+                let (headers, table_rows) =
+                    render_narrow(&section, filters.wide, &denoms, &omitted);
                 out.push_str(&format!("== {} ==\n", kind.as_deref().unwrap_or("-")));
                 out.push_str(&render_table(&headers, &table_rows));
                 out.push_str(&subtotal_line(&section, &kind, &denoms));
@@ -1404,7 +1394,10 @@ fn render_never_fires(
                     "totals": {"rows": 0, "attempts_by_kind": {}},
                     "unmeasured": {"never_fires": "engine=foma cannot measure it"},
                 });
-                Ok(format!("{}\n", serde_json::to_string(&value).map_err(|e| e.to_string())?))
+                Ok(format!(
+                    "{}\n",
+                    serde_json::to_string(&value).map_err(|e| e.to_string())?
+                ))
             }
         };
     }
@@ -1439,7 +1432,11 @@ fn render_never_fires(
                         r.attempts.to_string(),
                         fmt_pct(
                             Some(r.attempts),
-                            attempts_by_kind.get(&r.kind).copied().map(Some).unwrap_or(None),
+                            attempts_by_kind
+                                .get(&r.kind)
+                                .copied()
+                                .map(Some)
+                                .unwrap_or(None),
                         ),
                     ]
                 })
@@ -1498,11 +1495,7 @@ fn render_default(conn: &rusqlite::Connection, filters: &Filters) -> Result<Stri
             .map_err(|e| e.to_string())?;
     if engine == "foma" || !never_fires_rows.is_empty() {
         out.push('\n');
-        out.push_str(&render_never_fires(
-            conn,
-            filters,
-            OutputFormat::Text,
-        )?);
+        out.push_str(&render_never_fires(conn, filters, OutputFormat::Text)?);
     }
     Ok(out)
 }
@@ -1587,8 +1580,8 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some("never-fires") => Some(ReportGroup::NeverFires),
         Some(other) => {
             return Err(format!(
-                "invalid --group: {other} (expected word|object|allomorph|morpheme|group|never-fires)"
-            ))
+            "invalid --group: {other} (expected word|object|allomorph|morpheme|group|never-fires)"
+        ))
         }
     };
     if let Some(d) = filters.direction.as_deref() {
@@ -2519,7 +2512,10 @@ mod tests {
         }
     }
 
-    fn synthetic_stats_cache(engine: &str, facts: Vec<pg_stats::FactRecord>) -> pg_stats::StatsCache {
+    fn synthetic_stats_cache(
+        engine: &str,
+        facts: Vec<pg_stats::FactRecord>,
+    ) -> pg_stats::StatsCache {
         let dir = scratch_dir("contract");
         let path = dir.join("cache.sqlite3");
         let mut outcome = pg_stats::StatsCache::open(&path, "contract-hash").unwrap();
@@ -2589,22 +2585,14 @@ mod tests {
                 ),
             ],
         );
-        let text = render_allomorph(
-            cache.connection(),
-            &Filters::default(),
-            OutputFormat::Text,
-        )
-        .unwrap();
+        let text =
+            render_allomorph(cache.connection(), &Filters::default(), OutputFormat::Text).unwrap();
         let header = text.lines().find(|line| line.contains("label")).unwrap();
         assert!(header.contains("attempts"), "{text}");
         assert!(header.contains("amp"), "{text}");
 
-        let json = render_allomorph(
-            cache.connection(),
-            &Filters::default(),
-            OutputFormat::Jsonl,
-        )
-        .unwrap();
+        let json =
+            render_allomorph(cache.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
         let named = json
             .lines()
             .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
@@ -2615,8 +2603,7 @@ mod tests {
         assert!(named["uses"].is_null(), "{named}");
         assert!(named["no_root"].is_null(), "{named}");
         assert_eq!(named["outputs"], 2);
-        let meta: serde_json::Value =
-            serde_json::from_str(json.lines().next().unwrap()).unwrap();
+        let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
         assert_eq!(
             meta["unmeasured"]["attempts"],
             "MorphRule named-allomorph rows have rule-level attempts only"
@@ -2650,23 +2637,18 @@ mod tests {
     #[test]
     fn foma_word_report_does_not_claim_unmeasured_attempts() {
         let cache = synthetic_stats_cache("foma", vec![]);
-        let text = render_word(
-            cache.connection(),
-            &Filters::default(),
-            OutputFormat::Text,
-        )
-        .unwrap();
+        let text =
+            render_word(cache.connection(), &Filters::default(), OutputFormat::Text).unwrap();
         let header = text.lines().find(|line| line.contains("form")).unwrap();
         assert!(!header.contains("attempts"), "{text}");
 
-        let json = render_word(
-            cache.connection(),
-            &Filters::default(),
-            OutputFormat::Jsonl,
-        )
-        .unwrap();
+        let json =
+            render_word(cache.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
         let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
-        assert_eq!(meta["unmeasured"]["attempts"], "engine=foma never records it");
+        assert_eq!(
+            meta["unmeasured"]["attempts"],
+            "engine=foma never records it"
+        );
         let row: serde_json::Value = serde_json::from_str(json.lines().nth(1).unwrap()).unwrap();
         assert!(row["attempts"].is_null(), "{row}");
     }
@@ -2742,12 +2724,8 @@ mod tests {
         phon.object_label = "Phon A".to_string();
         phon.outputs = 0;
         let cache = synthetic_stats_cache("hc", vec![morph, phon]);
-        let json = render_never_fires(
-            cache.connection(),
-            &Filters::default(),
-            OutputFormat::Jsonl,
-        )
-        .unwrap();
+        let json = render_never_fires(cache.connection(), &Filters::default(), OutputFormat::Jsonl)
+            .unwrap();
         let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
         assert!(meta["totals"]["attempts"].is_null(), "{meta}");
         assert_eq!(meta["totals"]["attempts_by_kind"]["morph_rule"], 2_000);
@@ -2757,19 +2735,14 @@ mod tests {
     #[test]
     fn foma_never_fires_reports_that_the_measurement_is_unsupported() {
         let cache = synthetic_stats_cache("foma", vec![]);
-        let text = render_never_fires(
-            cache.connection(),
-            &Filters::default(),
-            OutputFormat::Text,
-        )
-        .unwrap();
-        assert!(text.contains("engine=foma cannot measure never-fires"), "{text}");
-        let json = render_never_fires(
-            cache.connection(),
-            &Filters::default(),
-            OutputFormat::Jsonl,
-        )
-        .unwrap();
+        let text = render_never_fires(cache.connection(), &Filters::default(), OutputFormat::Text)
+            .unwrap();
+        assert!(
+            text.contains("engine=foma cannot measure never-fires"),
+            "{text}"
+        );
+        let json = render_never_fires(cache.connection(), &Filters::default(), OutputFormat::Jsonl)
+            .unwrap();
         let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
         assert_eq!(
             meta["unmeasured"]["never_fires"],
@@ -2789,14 +2762,13 @@ mod tests {
         phon.object_label = "Phon A".to_string();
         let cache = synthetic_stats_cache(
             "hc",
-            vec![synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 4), phon],
+            vec![
+                synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 4),
+                phon,
+            ],
         );
-        let text = render_object(
-            cache.connection(),
-            &Filters::default(),
-            OutputFormat::Text,
-        )
-        .unwrap();
+        let text =
+            render_object(cache.connection(), &Filters::default(), OutputFormat::Text).unwrap();
         assert!(text.contains("== morph_rule =="), "{text}");
         assert!(text.contains("== phon_rule =="), "{text}");
     }
@@ -2808,7 +2780,10 @@ mod tests {
         phon.object_label = "Phon A".to_string();
         let cache = synthetic_stats_cache(
             "hc",
-            vec![synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 4), phon],
+            vec![
+                synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 4),
+                phon,
+            ],
         );
         let text = render_default(
             cache.connection(),
@@ -2850,16 +2825,19 @@ mod tests {
         };
         outcome
             .cache
-            .flush(&hc, &[pg_stats::WordRecord {
-                form: "hc-word".to_string(),
-                elapsed_ns: 1,
-                attempts: 1,
-                passes: 1,
-                capped: false,
-                timed_out: false,
-                invalid_shape: false,
-                facts: vec![],
-            }])
+            .flush(
+                &hc,
+                &[pg_stats::WordRecord {
+                    form: "hc-word".to_string(),
+                    elapsed_ns: 1,
+                    attempts: 1,
+                    passes: 1,
+                    capped: false,
+                    timed_out: false,
+                    invalid_shape: false,
+                    facts: vec![],
+                }],
+            )
             .unwrap();
         // Bypass the new write-side guard to model a pre-existing legacy mixed cache.
         outcome
@@ -2914,16 +2892,19 @@ mod tests {
         };
         outcome
             .cache
-            .flush(&run, &[pg_stats::WordRecord {
-                form: "a".to_string(),
-                elapsed_ns: 1,
-                attempts: 1,
-                passes: 1,
-                capped: false,
-                timed_out: false,
-                invalid_shape: false,
-                facts: vec![],
-            }])
+            .flush(
+                &run,
+                &[pg_stats::WordRecord {
+                    form: "a".to_string(),
+                    elapsed_ns: 1,
+                    attempts: 1,
+                    passes: 1,
+                    capped: false,
+                    timed_out: false,
+                    invalid_shape: false,
+                    facts: vec![],
+                }],
+            )
             .unwrap();
         outcome
             .cache

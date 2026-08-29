@@ -1780,9 +1780,7 @@ mod tests {
                 &ro,
                 &["p", "t", "k"],
             )
-            .unwrap_or_else(|e| {
-                panic!("both plans must build for {label}: {e:?}")
-            });
+            .unwrap_or_else(|e| panic!("both plans must build for {label}: {e:?}"));
             match result {
                 OracleResult::Agree => {}
                 OracleResult::Disagree {

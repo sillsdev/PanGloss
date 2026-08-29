@@ -50,19 +50,43 @@ pub struct CaseSetCase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CaseSetError {
     Malformed(String),
-    WrongSchema { found: String },
-    UnsupportedVersion { found: u32 },
-    EmptyField { field: &'static str },
+    WrongSchema {
+        found: String,
+    },
+    UnsupportedVersion {
+        found: u32,
+    },
+    EmptyField {
+        field: &'static str,
+    },
     InvalidSourcePath,
     InvalidDigest,
-    DeclaredCountMismatch { declared: usize, actual: usize },
-    DuplicateCaseId { case_id: String },
-    DuplicateSourceLine { source_line: usize },
-    UnstableCaseOrder { previous: usize, current: usize },
-    ZeroSourceLine { case_id: String },
+    DeclaredCountMismatch {
+        declared: usize,
+        actual: usize,
+    },
+    DuplicateCaseId {
+        case_id: String,
+    },
+    DuplicateSourceLine {
+        source_line: usize,
+    },
+    UnstableCaseOrder {
+        previous: usize,
+        current: usize,
+    },
+    ZeroSourceLine {
+        case_id: String,
+    },
     SourceNotUtf8,
-    SourceHashMismatch { expected: String, actual: String },
-    SourceLineMissing { case_id: String, source_line: usize },
+    SourceHashMismatch {
+        expected: String,
+        actual: String,
+    },
+    SourceLineMissing {
+        case_id: String,
+        source_line: usize,
+    },
     SourceLineTextMismatch {
         case_id: String,
         source_line: usize,

@@ -143,11 +143,8 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
                 .map(|id| &grammar.prules[id.0 as usize])
         })
         .collect();
-    let baseline_plan = enumerate_default(
-        &grammar,
-        &prules,
-        PhonologyProbe::new(&grammar).as_ref(),
-    );
+    let baseline_plan =
+        enumerate_default(&grammar, &prules, PhonologyProbe::new(&grammar).as_ref());
     let plans: Vec<LoweredCandidate> = STRATEGIES
         .iter()
         .map(|&strategy| LoweredCandidate {

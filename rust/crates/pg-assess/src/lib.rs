@@ -11,8 +11,8 @@
 //! produces ordinary `added`/`removed` evidence instead of a comparison failure — and a report
 //! stays readable years later, when neither grammar still compiles.
 
-pub mod delta;
 pub mod certification;
+pub mod delta;
 pub mod digest;
 pub mod golden;
 pub mod handoff;
@@ -24,10 +24,10 @@ pub mod set;
 pub mod suite;
 
 pub use certification::{
-    CaseEvidence, CaseStatus, CertificationLedger, DenominatorError, EvidenceError,
-    LedgerSummary, ThreeLanguageDenominatorGate, ThreeLanguageReconciliation, CANONICAL_LANGUAGES,
-    CERTIFICATION_LEDGER_SCHEMA, CERTIFICATION_LEDGER_SCHEMA_VERSION,
-    THREE_LANGUAGE_REPORT_SCHEMA, THREE_LANGUAGE_REPORT_SCHEMA_VERSION,
+    CaseEvidence, CaseStatus, CertificationLedger, DenominatorError, EvidenceError, LedgerSummary,
+    ThreeLanguageDenominatorGate, ThreeLanguageReconciliation, CANONICAL_LANGUAGES,
+    CERTIFICATION_LEDGER_SCHEMA, CERTIFICATION_LEDGER_SCHEMA_VERSION, THREE_LANGUAGE_REPORT_SCHEMA,
+    THREE_LANGUAGE_REPORT_SCHEMA_VERSION,
 };
 
 pub use delta::{

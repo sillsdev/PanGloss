@@ -1047,5 +1047,4 @@ mod tests {
         let next2 = mt.next_state(&after_b, x, fs, &g.fs_interner).unwrap();
         assert_eq!(next, next2);
     }
-
 }

@@ -30,9 +30,7 @@
 
 use pg_grammar::model::Grammar;
 
-use crate::capability::{
-    compose_envelope_with_semantics, default_registry, CompileDecision,
-};
+use crate::capability::{compose_envelope_with_semantics, default_registry, CompileDecision};
 use crate::enumerate::enumerate_default;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;

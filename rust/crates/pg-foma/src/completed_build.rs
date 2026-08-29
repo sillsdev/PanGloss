@@ -244,7 +244,6 @@ impl CompletedBackendBuild {
         let wire = self.into_wire();
         (wire, self.payload_bytes)
     }
-
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -509,7 +508,9 @@ where
     let build = builds
         .iter()
         .find(|build| build.evidence.realized_strategy == requested_strategy)
-        .ok_or(CompletedBuildError::RequestedRouteMissing(requested_strategy))?;
+        .ok_or(CompletedBuildError::RequestedRouteMissing(
+            requested_strategy,
+        ))?;
     validate_selected_build(build, request, expected_grammar_identity)?;
     Ok(SelectedBackendBuild {
         build: build.clone(),

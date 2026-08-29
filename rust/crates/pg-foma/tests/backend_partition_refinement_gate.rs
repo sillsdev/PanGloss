@@ -104,14 +104,8 @@ fn the_registry_offers_more_than_three_distinct_plans_and_every_extra_one_is_equ
     let word_refs: Vec<&str> = words.iter().map(String::as_str).collect();
 
     // NON-VACUITY: `differential_oracle`'s `Agree` also holds vacuously when both result sets are empty, so first confirm the baseline actually analyzes some of these words before trusting any `Agree` verdict below.
-    let baseline_built = build_controllable(
-        &baseline,
-        &opts,
-        &grammar,
-        &alphabet,
-        &prules
-    )
-    .expect("baseline plan must compile");
+    let baseline_built = build_controllable(&baseline, &opts, &grammar, &alphabet, &prules)
+        .expect("baseline plan must compile");
     let baseline_net = baseline_built
         .net
         .as_ref()

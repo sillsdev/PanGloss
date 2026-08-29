@@ -24,7 +24,13 @@ fn complete(case_id: &str, line: usize, key: &str) -> CaseEvidence {
 
 fn ledger(language: &str, count: usize) -> CertificationLedger {
     let cases = (0..count)
-        .map(|index| complete(&format!("{language}-{index}"), index + 1, &format!("m{index}")))
+        .map(|index| {
+            complete(
+                &format!("{language}-{index}"),
+                index + 1,
+                &format!("m{index}"),
+            )
+        })
         .collect();
     CertificationLedger::new(language, format!("{language}-v1"), cases)
         .expect("synthetic ledger is valid")
@@ -59,7 +65,9 @@ fn complete_empty_is_valid_but_every_noncomplete_status_is_noncertifying() {
             elapsed_us: 10,
             limit_us: 9,
         },
-        CaseStatus::InvalidShape { side: "oracle".into() },
+        CaseStatus::InvalidShape {
+            side: "oracle".into(),
+        },
         CaseStatus::NotAttempted {
             reason: "setup".into(),
         },
@@ -114,22 +122,28 @@ fn canonical_ledger_reconciles_denominator_and_rejects_mismatch() {
         )
         .expect("timeout is a non-complete status"),
     );
-    let ledger = CertificationLedger::new("indonesian", "ind-v1", cases)
-        .expect("ledger shape is valid");
+    let ledger =
+        CertificationLedger::new("indonesian", "ind-v1", cases).expect("ledger shape is valid");
     let summary = ledger.reconcile();
     assert_eq!(summary.declared, 3);
     assert_eq!(summary.complete, 2);
     assert_eq!(summary.timeouts, 1);
     assert_eq!(summary.exact, 2);
     assert!(!ledger.can_certify());
-    assert!(ledger.canonical_json().unwrap().contains("wallClockTimeout"));
+    assert!(ledger
+        .canonical_json()
+        .unwrap()
+        .contains("wallClockTimeout"));
 
     let malformed = CertificationLedger::new(
         "indonesian",
         "ind-v1",
         vec![complete("b", 2, "b"), complete("a", 1, "a")],
     );
-    assert!(matches!(malformed, Err(DenominatorError::UnstableCaseOrder)));
+    assert!(matches!(
+        malformed,
+        Err(DenominatorError::UnstableCaseOrder)
+    ));
 }
 
 #[test]
@@ -176,9 +190,7 @@ fn three_language_gate_requires_exact_declared_denominators_and_all_exact_cases(
 
 #[test]
 fn gate_refuses_any_language_set_other_than_the_three_canonical_languages() {
-    let canonical_expected = || {
-        expected(&[("indonesian", 1), ("amharic", 1), ("aweti", 1)])
-    };
+    let canonical_expected = || expected(&[("indonesian", 1), ("amharic", 1), ("aweti", 1)]);
     for expected_set in [
         expected(&[("indonesian", 1)]),
         expected(&[("indonesian", 1), ("amharic", 1)]),
@@ -196,8 +208,7 @@ fn gate_refuses_any_language_set_other_than_the_three_canonical_languages() {
             ledger("aweti", 1),
         ];
         assert!(
-            ThreeLanguageDenominatorGate::new_with_expected(ledgers.clone(), expected_set)
-                .is_err(),
+            ThreeLanguageDenominatorGate::new_with_expected(ledgers.clone(), expected_set).is_err(),
             "non-canonical expected language sets must be rejected"
         );
     }
@@ -211,11 +222,14 @@ fn gate_refuses_any_language_set_other_than_the_three_canonical_languages() {
             ledger("aweti", 1),
             ledger("spanish", 1),
         ],
-        vec![ledger("spanish", 1), ledger("french", 1), ledger("latin", 1)],
+        vec![
+            ledger("spanish", 1),
+            ledger("french", 1),
+            ledger("latin", 1),
+        ],
     ] {
         assert!(
-            ThreeLanguageDenominatorGate::new_with_expected(ledgers, canonical_expected())
-                .is_err(),
+            ThreeLanguageDenominatorGate::new_with_expected(ledgers, canonical_expected()).is_err(),
             "non-canonical ledger language sets must be rejected"
         );
     }

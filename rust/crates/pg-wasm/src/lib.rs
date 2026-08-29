@@ -865,5 +865,4 @@ mod tests {
         let with_blank = build_realize_map(&g, Some("   \n")).expect("builds with blank sidecar");
         assert_eq!(with_none, with_blank);
     }
-
 }

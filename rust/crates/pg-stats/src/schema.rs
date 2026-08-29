@@ -53,10 +53,7 @@ fn seed_sentinels(conn: &Connection) -> Result<(), StatsError> {
     Ok(())
 }
 
-pub(crate) fn wipe_and_recreate(
-    conn: &Connection,
-    grammar_hash: &str,
-) -> Result<(), StatsError> {
+pub(crate) fn wipe_and_recreate(conn: &Connection, grammar_hash: &str) -> Result<(), StatsError> {
     conn.execute_batch(
         "DROP TABLE IF EXISTS fact;
          DROP TABLE IF EXISTS word;
