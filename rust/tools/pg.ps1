@@ -161,6 +161,9 @@ param(
     [string]$Exe = '',
     # run only: overrides the job's committed-memory ceiling for one run; 0 derives the machine-proportional default.
     [int]$RunMemoryGB = 0,
+
+    # `run` only. Without it the child's stdout goes to the inherited console, where an outer PowerShell `*>` captures NOTHING -- two long censuses lost their entire output that way. Live console output is what you give up by passing it.
+    [string]$RunCaptureStdout = '',
     [switch]$DebugProfile,
     [switch]$NoNextest,
     # Stop at the first failing test. Off by default -- see the header block.
@@ -807,12 +810,19 @@ try {
             Exe = $runPlan.LaunchExe; CmdArgs = $runPlan.LaunchArgs; WorkingDirectory = $rustRoot
             Priority = $Priority; Subject = 'run'
         }
+        if ($RunCaptureStdout) {
+            $invokeArgs['CaptureStdoutPath'] = $RunCaptureStdout
+            Write-Host "[pg] run: stdout -> $RunCaptureStdout (console stays quiet until it exits; tail the file to watch it)" -ForegroundColor Cyan
+        }
         if (-not $IsLinux) {
             $invokeArgs['JobMemoryGB'] = $runMemGB
             $invokeArgs['CpuRatePercent'] = Get-JobCpuRatePercent
         }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-ProcessInJobObject @invokeArgs
+        if ($RunCaptureStdout -and (Test-Path $RunCaptureStdout)) {
+            Write-Host "[pg] run: captured $((Get-Item $RunCaptureStdout).Length) byte(s) to $RunCaptureStdout" -ForegroundColor Cyan
+        }
     } elseif ($Mode -eq 'corpus-test') {
         $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
