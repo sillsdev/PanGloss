@@ -205,7 +205,27 @@ a predicate written against a grammar-only condition will keep over-refusing, an
 gate will keep catching it — all three attempts were measured and reverted within one build cycle
 each, at a cost of 0 shipped regressions.
 
-### The reduplication over-report is fixed, and containment proved it safe
+### The zone mismatch: condition understood, implementation deliberately not attempted
+
+The last genuine surface-probe gap is `circumfix-non-first-allomorph-selection`, one fixture. The
+emitter's condition is in `emit_rule_allomorphs`: for a rule emitted into zone `Z`, an allomorph
+whose `classify_affix` role is neither `Z` nor `Role::None` — and is not the separately handled
+`Role::CircumfixPrefix` — is reported uncovered.
+
+Reproducing it needs the zone membership, which is built in the standalone-derivational loop:
+`Role::Prefix` goes to the prefix zone, `Role::Suffix` to the suffix zone, `Role::None` to both,
+and `any_allomorph_is_circumfix_prefix` then adds a rule to BOTH regardless. That last step is what
+creates the mismatch: `rule_role` reads allomorph 0, so allomorph 0 always matches the zone its own
+role chose — the conflict only exists for a rule pulled into a second zone by a LATER allomorph,
+which is exactly what this fixture's name describes.
+
+Not implemented, as a scope call rather than a blocker. The honest version is an extraction — factor
+zone membership out of that loop so the published fact and the emitter share one computation, the way
+`unbounded_closure_rule_ordinals` does — because reimplementing an emitter condition rather than
+extracting it is what broke three predicate attempts and one emitter suppression in this same work.
+That extraction touches a hot loop that also produces `has_compounding_rules`,
+`category_changing_out` and the uncovered inventory, for a payoff of one fixture. It wants a fresh
+session, not the end of a long one.
 
 The standalone-derivational loop no longer reports a rule the peel claims. The three reduplication
 fixtures now compile on the surface route, taking its divergence list from **8 rows to 5**.
