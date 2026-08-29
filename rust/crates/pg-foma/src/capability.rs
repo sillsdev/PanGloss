@@ -235,6 +235,7 @@ impl CharacteristicKind {
     pub fn default_disposition(self) -> Disposition {
         match self {
             CharacteristicKind::Affixation => Disposition::Proven,
+            // Stays ConfirmOnly even though the surface probe refuses unbounded closure at `crate::backend_selection`'s seam: kind disposition is grammar-global, that refusal is strategy-local, and both are true at once.
             CharacteristicKind::RealizationalMorphology => Disposition::ConfirmOnly,
             // Faithful, depth-budgeted proposal exists but no admission-filter proof; see `CompoundingRecursionSafePredicate`'s own doc.
             CharacteristicKind::Compounding => Disposition::ConfigPredicate,
@@ -3149,6 +3150,26 @@ pub fn undischarged_kinds(registry: &PredicateRegistry) -> Vec<CharacteristicKin
         .copied()
         .filter(|k| k.default_disposition() == Disposition::ConfigPredicate)
         .filter(|k| !registry.discharges(*k))
+        .collect()
+}
+
+/// The converse of [`undischarged_kinds`]: registered predicates that can never be consulted.
+///
+/// `compose_envelope` only evaluates predicates for observations whose disposition is not
+/// `Disposition::Proven`, so a predicate discharging Proven kinds alone is dead on arrival. That is
+/// invisible without this check — such a registration compiles, runs, changes no test and no
+/// behaviour, and the only symptom is that the verdict you expected never appears.
+pub fn inert_predicates(registry: &PredicateRegistry) -> Vec<PredicateId> {
+    registry
+        .predicates
+        .iter()
+        .filter(|predicate| {
+            predicate
+                .discharges()
+                .iter()
+                .all(|kind| kind.default_disposition() == Disposition::Proven)
+        })
+        .map(|predicate| predicate.id())
         .collect()
 }
 
@@ -6846,6 +6867,51 @@ mod tests {
             missing.is_empty(),
             "undischarged ConfigPredicate characteristics: {missing:?}"
         );
+    }
+
+    /// No registered predicate may discharge only `Proven` kinds, which `compose_envelope` never consults.
+    #[test]
+    fn no_registered_predicate_is_inert() {
+        let inert = inert_predicates(&default_registry());
+        assert!(
+            inert.is_empty(),
+            "these predicates discharge only Disposition::Proven kinds, so compose_envelope never \
+             evaluates them -- they compile, run, change no test and no behaviour, and simply do \
+             nothing: {inert:?}"
+        );
+    }
+
+    /// The guard must be able to see its own target, or it passes for every registry and gates nothing.
+    #[test]
+    fn the_inert_guard_detects_an_inert_registration() {
+        struct ProvenOnlyPredicate;
+        impl CapabilityPredicate for ProvenOnlyPredicate {
+            fn id(&self) -> PredicateId {
+                "test.proven-only"
+            }
+            fn discharges(&self) -> &[CharacteristicKind] {
+                &[CharacteristicKind::Affixation]
+            }
+            fn provenance(&self) -> EvidenceProvenance {
+                EvidenceProvenance::Structural
+            }
+            fn evaluate(
+                &self,
+                _grammar: &Grammar,
+                _profile: &CharacteristicsProfile,
+                _plan_node: &PlanNodeKind,
+            ) -> PredicateVerdict {
+                PredicateVerdict::Admit
+            }
+        }
+        assert_eq!(
+            CharacteristicKind::Affixation.default_disposition(),
+            Disposition::Proven,
+            "this guard's own fixture assumes Affixation is Proven"
+        );
+        let mut registry = default_registry();
+        registry.register(Box::new(ProvenOnlyPredicate));
+        assert!(inert_predicates(&registry).contains(&"test.proven-only"));
     }
 
     /// Every `CharacteristicKind` variant has an explicit default disposition, and doubles as a canary that `ALL` hasn't drifted out of sync with the enum.

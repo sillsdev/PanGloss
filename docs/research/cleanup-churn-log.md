@@ -7,6 +7,13 @@ refused, warned, or answered sooner.
 
 Ordered by how much they cost, not chronologically.
 
+**This file is closed history and takes no further entries.** It exists to be harvested, and it has
+been: the durable rules extracted from it live in `CLAUDE.md` (and `AGENTS.md`), the still-open
+capability work lives in `conformance-containment-inventory.md`, and the four under-generating
+constructs live in `under-generation-by-construct.md`. Those three are the live documents; this one
+records only what it cost to learn them. A fact restated in all four is a fact with no owner, which
+is the same defect several entries below describe in code.
+
 ## 1. A green build does not mean the test targets compile
 
 `pg.ps1 -Mode build` compiles libraries and binaries. It does not compile test targets. Twice in
@@ -229,10 +236,10 @@ could have shipped looking correct.
 
 Item 11 covered the first two; a third confirmed the pattern and named it.
 
-A `CapabilityPredicate` receives the grammar, the profile, and one `PlanNodeKind` — never the plan.
-Every refusal in the emitter's too-lax inventory is decided *after* the emitter knows which route
-the plan asked for. So a grammar-only condition is necessarily a superset of the emitter's own, and
-over-refuses:
+The mechanism — a `CapabilityPredicate` sees one `PlanNodeKind`, never the plan, so a grammar-only
+condition is a strict superset of the emitter's plan-conditional refusal — is analysed in
+`conformance-containment-inventory.md` and stated as a rule in `CLAUDE.md` ("Never re-derive a
+decision another module makes"). What belongs here is only the measurement:
 
 | condition | kind | closed | broke |
 |---|---|---|---|
@@ -240,27 +247,25 @@ over-refuses:
 | `rule_role == Reduplication` | `Reduplication` | 4 | 5 |
 | `unbounded_candidate_rules` non-empty | `RealizationalMorphology` | 1 | 9 |
 
-The third is the sharpest, because it used the emitter's *own* helper —
-`crate::preexpand::unbounded_candidate_rules`, literally the set the refusal is computed from — and
-still broke three tests asserting a concatenative realizational rule compiles fine. The helper names
-candidates; the emitter turns them into a refusal only under a plan flag the predicate cannot see.
-
 What made this cheap rather than expensive: each attempt was measured and reverted inside one build
 cycle, because `envelope_agrees_with_compiler_gate` reports both divergence directions. Without it
 the first attempt would have looked like a clean win (4 divergences closed) and the breakage would
 have been attributed to something else. The first attempt in particular changed **nothing at all** —
 no failure, no behaviour difference — and only the before/after divergence numbers showed it was
-inert.
+inert. `capability::inert_predicates` now refuses that registration shape outright, so the next one
+costs a unit test rather than a build cycle.
 
-The conclusion is architectural, not a matter of trying harder: either the predicate gets the plan,
-or the emitter publishes its route decision as a grammar-level fact the envelope can read, the way
-`structural_composite_attempted` already publishes `is_structural_rule`.
+## 13. `stats_cmd` is nondeterministic, and it costs a red workspace run
 
-**Update: three tests, and it is not a load artifact.** Two later full-suite runs failed
-`stats_cmd::tests::never_fires_keeps_attempt_denominators_within_rule_kind` and
-`stats_cmd::tests::named_allomorph_report_does_not_claim_rule_attempts` — a second and third
-distinct test in the same module. The third failed running that module ALONE (30 tests, three
-consecutive runs: 30/30, 30/30, 29/30), so it is not the full suite's 6-way process fan-out.
-`stats_cmd` has nondeterminism of its own, and it intermittently costs a red workspace run that
-looks like whatever change is in flight. Each of the three was proved unrelated by re-running in
-isolation, which is the only reason none of them was attributed to the capability work.
+Not churn about a change — a live defect that repeatedly made someone else's change look red.
+
+Three distinct tests in `pg-cli`'s `stats_cmd::tests` failed across separate full-suite runs, most
+recently `never_fires_keeps_attempt_denominators_within_rule_kind` and
+`named_allomorph_report_does_not_claim_rule_attempts`. The third failed running that module **alone**
+(30 tests, three consecutive runs: 30/30, 30/30, 29/30), so it is not the suite's process fan-out
+and not memory pressure.
+
+Each was proved unrelated by re-running in isolation, which is the only reason none was attributed
+to the capability work — but that is a manual step someone has to think to take, and the default
+reading of a red run is that the change in flight caused it. This is unfixed and owns no other
+document; it wants an investigation of its own.
