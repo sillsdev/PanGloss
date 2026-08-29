@@ -95,8 +95,7 @@ Test-Case 'the sccache daemon is not a busy process, so it can never block -Appl
 }
 
 Test-Case 'gc actually reclaims when driven by the REAL busy-process function' {
-    # The case beside this one passes -BusyProcesses @(), so it never exercised Get-LiveBuildProcesses
-    # and could not have caught a reclaimer that always refused. Judge the control by bytes freed.
+    # The case beside this passes -BusyProcesses @(), so nothing ever drove gc from the real function.
     $live = @(Get-LiveBuildProcesses)
     $compilers = @($live | Where-Object { $_.Name -in @('cargo.exe', 'rustc.exe', 'link.exe') })
     $probe = Join-Path $root 'effect-probe'
