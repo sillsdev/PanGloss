@@ -343,3 +343,57 @@ No fixture has the mix. Marker-free grammars confirm everything; marker-bearing 
 plan-composed candidates, which are exactly the ones that sort last. The property those tests pin is
 currently unexercisable, and repointing them at whichever fixture happens to pass would be fitting
 the test to the tree rather than to the property.
+
+## A budget the surface probe accepts and ignores
+
+Separate from the containment inventory above, found while type-checking: rustc reports
+`unused variable: compose_budget` at `analyzer.rs`'s
+`FomaProposer::new_with_budget_and_profile_policy`. That parameter is threaded through four API
+layers -- `new_with_budget`, `new_with_budget_and_profile`, `new_with_budget_and_profile_policy` --
+and then dropped. The demolition commits `03745a5e` ("remove eager enumeration budget") and
+`69efc9dc` ("remove enumeration budget refusals") took out its only consumer and left the signature.
+
+The consequence is not a dead parameter, it is a false claim. A caller who constructs a
+`ComposeBudget` in code and passes it to `FomaProposer::new_with_budget` gets no budget at all;
+`emit.rs`'s compound loop separately calls `ComposeBudget::from_env().with_chain_depth_cap(...)`, so
+the env-derived cap still binds and the *caller-supplied* one silently does not. A test at
+`analyzer.rs`'s own `mod tests` does exactly this. `ComposeBudget` is genuinely live elsewhere
+(`emit.rs`, `peel.rs` both call `check_chain_depth`), which is what makes this hard to see: the type
+is not dead, only this path's use of it.
+
+Two honest resolutions, and the choice is a design question rather than a cleanup:
+
+- **Thread it.** The caller's budget reaches the emitter, and `compound_chain_depth_budget()` becomes
+  its default rather than its only source. This is right if a caller should be able to bound a
+  compile more tightly than the environment does.
+- **Delete it.** The compile-time compound cap is deliberately its own dimension (`emit.rs`'s own
+  doc says so, separate from `chain_depth_cap`'s per-word runtime counter), and the apply-path
+  `ApplyBudget` is separate and live. If no caller has a reason to override either, the parameter
+  should go rather than be honoured.
+
+What must not stay is the present state, where the signature promises a bound that nothing applies.
+Not fixed here because `analyzer.rs` was being edited concurrently on two other branches.
+
+## Where the divergence count actually stands (measured on the integrated tip)
+
+`envelope_agrees_with_compiler_gate`, all 46 fixtures x 4 strategies:
+
+| | start of track | plain `main` | integrated tip |
+|---|---|---|---|
+| agree | 121 | 161 | **166** |
+| too strict (envelope refuses, compile succeeds) | 47 | 11 | **11** |
+| too lax (envelope admits, compile refuses) | 15 | 11 | **6** |
+
+**Three of the six remaining too-lax rows are one fact already published and deliberately not
+consulted.** `polysynthetic-stratal-derivation-chain`, `backend-strata-generic` and
+`guesser-pattern-root-fallback` all fail identically: `[rep-variant-overflow] ... root shape
+"[Any]*" exceeds 64 representation variants; excess spellings dropped`. That is exactly what
+`emit::eager_route_drops_root_spellings` computes. Wiring it into the surface probe's per-strategy
+seam closes half the remaining backlog in one line -- and refuses Aweti and Mbugwe, leaving both
+with no accepted backend, which is why it has not been wired in. That decision is now the only
+thing standing between this gate and a much smaller number.
+
+The other three are distinct and unrelated to it: a plan-composed build producing no network
+(`loader-pattern-shapes`), an unclaimed standalone Process rule
+(`process-morphology-in-place-mutation`), and a Suffix allomorph on a rule referenced in Prefix
+position (`circumfix-non-first-allomorph-selection`).
