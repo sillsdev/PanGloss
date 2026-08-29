@@ -173,6 +173,60 @@ fn the_published_closure_fact_never_over_claims_a_refusal() {
     );
 }
 
+/// The published unclaimed-standalone-rule fact must never claim a refusal the eager route does not make.
+#[test]
+fn the_published_unclaimed_standalone_rule_fact_never_over_claims_a_refusal() {
+    let mut claimed = 0usize;
+    for fixture in discover() {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        if grammar.char_tables.is_empty() {
+            continue;
+        }
+        if !pg_foma::emit::eager_route_refuses_unclaimed_standalone_rule(&grammar) {
+            continue;
+        }
+        claimed += 1;
+        assert!(
+            FomaProposer::new(&grammar).is_err(),
+            "{}: the unclaimed-standalone-rule fact claims the eager route refuses, but it compiled",
+            fixture.label()
+        );
+    }
+    assert!(
+        claimed > 0,
+        "no fixture exercised the unclaimed-standalone-rule fact, so this gate proves nothing"
+    );
+}
+
+/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make.
+#[test]
+fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
+    let mut claimed = 0usize;
+    for fixture in discover() {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        if grammar.char_tables.is_empty() {
+            continue;
+        }
+        if !pg_foma::emit::eager_route_refuses_mixed_circumfix_zone(&grammar) {
+            continue;
+        }
+        claimed += 1;
+        assert!(
+            FomaProposer::new(&grammar).is_err(),
+            "{}: the mixed-circumfix-zone fact claims the eager route refuses, but it compiled",
+            fixture.label()
+        );
+    }
+    assert!(
+        claimed > 0,
+        "no fixture exercised the mixed-circumfix-zone fact, so this gate proves nothing"
+    );
+}
+
 /// Compiles `grammar` with `strategy`; asserts the attempt never panics, returns whether it compiled.
 fn compiled_without_panicking(grammar: &Grammar, strategy: EmissionStrategy, label: &str) -> bool {
     match panic::catch_unwind(AssertUnwindSafe(|| compile_with_backend(grammar, strategy))) {

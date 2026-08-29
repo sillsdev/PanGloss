@@ -2134,6 +2134,38 @@ fn compound_extra_levels_checked_with_cap(
 
 // --- Affix entry emission (shared by slot chains and derivation layers) ---------------------------
 
+/// What `emit_rule_allomorphs` does with one allomorph once it knows `zone_role`, shared with `eager_route_refuses_mixed_circumfix_zone` so the two cannot drift.
+enum AllomorphZoneOutcome {
+    Routed,
+    Circumfix(Vec<(String, String)>),
+    Uncovered,
+}
+
+/// The zone-fit decision `emit_rule_allomorphs` makes for one allomorph; called by both that function and `eager_route_refuses_mixed_circumfix_zone`.
+fn allomorph_zone_outcome(
+    g: &Grammar,
+    allo: &AffixAllomorphDef,
+    zone_role: Role,
+    mode: TextMode<'_>,
+) -> AllomorphZoneOutcome {
+    let role = classify_affix(&allo.rhs);
+    if role == zone_role || role == Role::None {
+        return AllomorphZoneOutcome::Routed;
+    }
+    if role == Role::CircumfixPrefix && matches!(zone_role, Role::Prefix | Role::Suffix) {
+        let texts = match mode {
+            TextMode::SurfaceProbed => circumfix_surface_texts(g, allo),
+            TextMode::UnderlyingTokens(alphabet) => {
+                crate::structural_allomorph::circumfix_texts(g, alphabet, allo)
+            }
+        };
+        if let Some(texts) = texts {
+            return AllomorphZoneOutcome::Circumfix(texts);
+        }
+    }
+    AllomorphZoneOutcome::Uncovered
+}
+
 /// Emits every emittable allomorph of `mid` as one tagged entry into `next`, requiring role `zone_role` (or `None`, a zero morph legal in either zone). A consuming ordinary Realizational prefix/suffix may target `repeat_target` so the FST represents its intentionally unbounded application count as a regular loop. Empty and structural spellings never loop. When `phon` is `Some`, also unions in `PhonologyProbe::variants`' spellings, and `junction_target` (if given) reroutes deletion-junction hits to a separate lexicon at the root-adjacent final derivation level.
 #[allow(clippy::too_many_arguments)]
 fn emit_rule_allomorphs(
@@ -2166,53 +2198,40 @@ fn emit_rule_allomorphs(
             continue;
         }
         let role = classify_affix(&allo.rhs);
-        if role != zone_role && role != Role::None {
-            // Only the Prefix-zone occurrence carries the tag (the oracle always orders a circumfix's morpheme before the root); the Suffix-zone occurrence is untagged literal text, or the morpheme would be double-counted.
-            if role == Role::CircumfixPrefix {
-                let texts = match mode {
-                    TextMode::SurfaceProbed => circumfix_surface_texts(g, allo),
-                    TextMode::UnderlyingTokens(alphabet) => {
-                        crate::structural_allomorph::circumfix_texts(g, alphabet, allo)
-                    }
-                };
-                if let Some(texts) = texts {
-                    let emitted = texts.len();
-                    match zone_role {
-                        Role::Prefix => {
-                            for (prefix, _) in texts {
-                                write_tag_entry(
-                                    out,
-                                    &tag_lexc,
-                                    &prefix,
-                                    next,
-                                    counts,
-                                    pk,
-                                    Some(allo.id),
-                                );
-                            }
-                            counts.allomorphs_emitted += emitted;
-                            continue;
+        // Only the Prefix-zone occurrence carries the tag (the oracle always orders a circumfix's morpheme before the root); the Suffix-zone occurrence is untagged literal text, or the morpheme would be double-counted.
+        match allomorph_zone_outcome(g, allo, zone_role, mode) {
+            AllomorphZoneOutcome::Routed => {}
+            AllomorphZoneOutcome::Circumfix(texts) => {
+                let emitted = texts.len();
+                match zone_role {
+                    Role::Prefix => {
+                        for (prefix, _) in texts {
+                            write_tag_entry(out, &tag_lexc, &prefix, next, counts, pk, Some(allo.id));
                         }
-                        Role::Suffix => {
-                            for (_, suffix) in texts {
-                                write_untagged_entry(out, &suffix, next, counts);
-                            }
-                            counts.allomorphs_emitted += emitted;
-                            continue;
-                        }
-                        _ => {}
                     }
+                    Role::Suffix => {
+                        for (_, suffix) in texts {
+                            write_untagged_entry(out, &suffix, next, counts);
+                        }
+                    }
+                    _ => unreachable!(
+                        "allomorph_zone_outcome only returns Circumfix for Role::Prefix/Role::Suffix zones"
+                    ),
                 }
+                counts.allomorphs_emitted += emitted;
+                continue;
             }
-            uncovered.push(UncoveredItem {
-                kind: role.label().to_string(),
-                id: label,
-                reason: format!(
-                    "allomorph classifies as {role:?} but its rule is referenced in a {zone_role:?} position"
-                ),
-            });
-            counts.allomorphs_skipped += 1;
-            continue;
+            AllomorphZoneOutcome::Uncovered => {
+                uncovered.push(UncoveredItem {
+                    kind: role.label().to_string(),
+                    id: label,
+                    reason: format!(
+                        "allomorph classifies as {role:?} but its rule is referenced in a {zone_role:?} position"
+                    ),
+                });
+                counts.allomorphs_skipped += 1;
+                continue;
+            }
         }
         let owner = Some(allo.id);
         let can_repeat = repeat_target.is_some()
@@ -3037,31 +3056,66 @@ fn standalone_rule_unclaimed_role(g: &Grammar, mid: MRuleId) -> Option<Role> {
     }
 }
 
-/// Whether the eager route's standalone-rule loop would report at least one `UncoveredItem` for a
-/// role no derivational zone routes (e.g. a `Role::Process` allomorph) — the exact condition that
-/// turns `FomaProposer::new` into `Err(Incomplete)` for
+/// Whether the eager route's standalone-rule loop would report at least one `Role::Process`
+/// `UncoveredItem` — the exact condition that turns `FomaProposer::new` into `Err(Incomplete)` for
 /// `machine:edge-cases/process-morphology-in-place-mutation`. Decided from `g` alone, mirroring
 /// `eager_route_refuses_unbounded_closure`'s shape.
+///
+/// Deliberately narrower than `standalone_rule_unclaimed_role`'s full range: that function's
+/// `Infix`/`Reduplication` outcomes can still be DROPPED from `uncovered` by the later
+/// composite-coverage retain (`emit_with_budget_profiled_with_strategy_and_trace`'s `uncovered.retain`
+/// on `kind == "infix" | "circumfix-prefix" | "reduplication"`, keyed on
+/// `composite_report.covered_infix_rules`/`struct_covered_rules`) — measured to over-claim a refusal
+/// on `languages/suffixing-vowel-harmony`'s infix rule, which compiles. `Role::Process` is the one
+/// outcome that retain step never drops, so it alone is safe to publish as an unconditional refusal.
 pub fn eager_route_refuses_unclaimed_standalone_rule(g: &Grammar) -> bool {
     g.strata
         .iter()
         .flat_map(|sd| sd.mrules.iter())
-        .any(|&mid| standalone_rule_unclaimed_role(g, mid).is_some())
+        .any(|&mid| standalone_rule_unclaimed_role(g, mid) == Some(Role::Process))
 }
 
-/// Whether the circumfix zone-widening (`any_allomorph_is_circumfix_prefix`, which pushes a
-/// standalone rule into BOTH derivational zones regardless of its own `rule_role`) forces a rule
-/// into a zone it also owns a non-`None`/`CircumfixPrefix` allomorph outside of — the shape whose
-/// non-owning zone pass reports that allomorph uncovered
-/// (`emit_rule_allomorphs`'s zone-mismatch branch) even though the same allomorph is fully emitted
-/// in its own zone. Pins `staging:edge-cases/circumfix-non-first-allomorph-selection`'s mixed
-/// suffix+circumfix rule.
+/// The `(in_prefix, in_suffix)` derivational-zone membership the standalone loop assigns one rule, shared with `eager_route_refuses_mixed_circumfix_zone` so the two never drift.
+fn standalone_rule_zones(g: &Grammar, mid: MRuleId) -> (bool, bool) {
+    let (mut in_prefix, mut in_suffix) = match rule_role(g, mid) {
+        Role::Prefix => (true, false),
+        Role::Suffix => (false, true),
+        Role::None => (true, true),
+        _ => (false, false),
+    };
+    if any_allomorph_is_circumfix_prefix(g, mid) {
+        in_prefix = true;
+        in_suffix = true;
+    }
+    (in_prefix, in_suffix)
+}
+
+/// Whether `emit_rule_allomorphs` would report at least one `Role::Prefix`/`Role::Suffix`
+/// allomorph uncovered for a rule zone membership `standalone_rule_zones` assigns it into — the
+/// exact condition behind `staging:edge-cases/circumfix-non-first-allomorph-selection`'s mixed
+/// suffix+circumfix rule. Calls the SAME two decisions the surface route's own standalone loop and
+/// `emit_rule_allomorphs` make (`standalone_rule_zones`, `allomorph_zone_outcome`), rather than
+/// reconstructing an equivalent condition from lower-level primitives.
+///
+/// Deliberately excludes an `Infix`/`Reduplication`/`CircumfixPrefix` "other allomorph": those kinds
+/// can still be dropped from `uncovered` by the later composite-coverage retain (see
+/// `eager_route_refuses_unclaimed_standalone_rule`'s own doc for the measured over-claim this
+/// mirrors). `Prefix`/`Suffix` are never touched by that retain, so restricting to them keeps this
+/// fact one-way-safe without needing the retain's own `struct_covered_rules` set.
 pub fn eager_route_refuses_mixed_circumfix_zone(g: &Grammar) -> bool {
     g.strata.iter().flat_map(|sd| sd.mrules.iter()).any(|&mid| {
-        any_allomorph_is_circumfix_prefix(g, mid)
-            && allomorphs_of(g, mid)
-                .iter()
-                .any(|a| !matches!(classify_affix(&a.rhs), Role::None | Role::CircumfixPrefix))
+        let (in_prefix, in_suffix) = standalone_rule_zones(g, mid);
+        let allomorphs = allomorphs_of(g, mid);
+        let zone_mismatches = |zone_role: Role| {
+            allomorphs.iter().any(|allo| {
+                matches!(classify_affix(&allo.rhs), Role::Prefix | Role::Suffix)
+                    && matches!(
+                        allomorph_zone_outcome(g, allo, zone_role, TextMode::SurfaceProbed),
+                        AllomorphZoneOutcome::Uncovered
+                    )
+            })
+        };
+        (in_prefix && zone_mismatches(Role::Prefix)) || (in_suffix && zone_mismatches(Role::Suffix))
     })
 }
 
@@ -4199,33 +4253,21 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 }
                 MorphRuleDef::Realizational(_) => {}
             }
-            match rule_role(g, mid) {
-                Role::Prefix => deriv_prefix.push(mid),
-                Role::Suffix => deriv_suffix.push(mid),
-                Role::None => {
-                    deriv_prefix.push(mid);
-                    deriv_suffix.push(mid);
-                }
-                Role::CircumfixPrefix => {}
-                _ => {
-                    if let Some(other) = standalone_rule_unclaimed_role(g, mid) {
-                        uncovered.push(UncoveredItem {
-                            kind: other.label().to_string(),
-                            id: format!("mrule{}", mid.0),
-                            reason: format!(
-                                "standalone rule's primary allomorph classifies as {other:?} and no other route claims it (v1)"
-                            ),
-                        });
-                    }
-                }
+            if let Some(other) = standalone_rule_unclaimed_role(g, mid) {
+                uncovered.push(UncoveredItem {
+                    kind: other.label().to_string(),
+                    id: format!("mrule{}", mid.0),
+                    reason: format!(
+                        "standalone rule's primary allomorph classifies as {other:?} and no other route claims it (v1)"
+                    ),
+                });
             }
-            if any_allomorph_is_circumfix_prefix(g, mid) {
-                if !deriv_prefix.contains(&mid) {
-                    deriv_prefix.push(mid);
-                }
-                if !deriv_suffix.contains(&mid) {
-                    deriv_suffix.push(mid);
-                }
+            let (in_prefix, in_suffix) = standalone_rule_zones(g, mid);
+            if in_prefix {
+                deriv_prefix.push(mid);
+            }
+            if in_suffix {
+                deriv_suffix.push(mid);
             }
         }
     }
