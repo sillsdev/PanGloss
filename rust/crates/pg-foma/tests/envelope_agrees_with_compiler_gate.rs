@@ -155,6 +155,38 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
     );
 }
 
+/// The published closure fact must never claim a refusal the eager route does not make.
+///
+/// It exists so a pre-emission caller can reach that decision without emitting. Asserted one way
+/// round deliberately: a caller gates on "this says refuse", so a false positive there refuses a
+/// grammar the route compiles, while the emitter refusing for some other reason is not this fact's
+/// business.
+#[test]
+fn the_published_closure_fact_never_over_claims_a_refusal() {
+    let mut claimed = 0usize;
+    for fixture in discover() {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        if grammar.char_tables.is_empty() {
+            continue;
+        }
+        if !pg_foma::emit::eager_route_refuses_unbounded_closure(&grammar) {
+            continue;
+        }
+        claimed += 1;
+        assert!(
+            FomaProposer::new(&grammar).is_err(),
+            "{}: the closure fact claims the eager route refuses, but it compiled",
+            fixture.label()
+        );
+    }
+    assert!(
+        claimed > 0,
+        "no fixture exercised the closure fact, so this gate proves nothing"
+    );
+}
+
 /// The too-lax inventory: the envelope admitted, the compiler refused. Reported, not yet gated.
 #[test]
 fn report_envelope_compiler_divergence() {

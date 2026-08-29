@@ -143,7 +143,35 @@ Only predicates are gated by disposition, and only `Proven` is skipped (`capabil
 `RealizationalMorphology` **are** consulted, which is why attempt three ran at all where attempt one
 silently did nothing.
 
-So closing the too-lax inventory needs one of two structural changes, not more predicates:
+### The structural change landed for one cause, and it turns the blocker into a decision
+
+`crate::emit::eager_route_refuses_unbounded_closure` now publishes that route's own refusal as a
+grammar-level fact. The topology it depends on is itself grammar-derived
+(`plan_topology_decisions`), so the decision is reachable without emitting; the emitter and the fact
+share one computation (`unbounded_closure_rule_ordinals`) so they cannot drift.
+`the_published_closure_fact_never_over_claims_a_refusal` pins it one way round — the direction a
+caller would gate on.
+
+With the fact in hand, a predicate on `RealizationalMorphology` closes the divergence and the three
+concatenative-realizational tests that the ungated superset broke now pass, confirming the condition
+is right. Seven tests still fail, and they are a different kind of failure — they encode envelope
+contracts rather than compiler behaviour:
+
+| test | what it pins |
+|---|---|
+| `compose_envelope_confirm_only_for_realizational_rule_alone` | a realizational rule alone is `ConfirmOnly`, not `Refuse` |
+| `every_narrowing_excuses_only_a_compiler_that_can_represent_the_construct` | narrowing to one strategy requires the others to represent the construct |
+| `two_strategies_get_their_own_answers_from_one_shared_semantics`, `the_strategy_blind_envelope_cannot_see_the_hole` | strategy-aware verdict shape |
+| `unbounded_realizational_composite_route_returns_no_artifact` | the route returns no artifact — reached differently once the envelope refuses first |
+| `coverage_ledger_golden_json`, `plan_diagram_root_verdict_...` | recorded verdicts |
+
+**So this is a decision, not an implementation gap.** Does an unbounded realizational rule make
+`TunedSurfaceProbed` `CannotRepresent` — the eager route generates no FST at all, so there is
+nothing to confirm against — or does `RealizationalMorphology` stay `ConfirmOnly` as those tests
+assert? The predicate is written and measured either way; what it costs is rewriting the contracts
+above, and that is a call about what the envelope means, not about what the compiler does.
+
+The remaining causes still need one of two structural changes:
 
 - **give the predicate the plan**, so a grammar-and-plan condition can match the emitter's; or
 - **have the emitter publish its route decision as a grammar-level fact** the envelope reads,

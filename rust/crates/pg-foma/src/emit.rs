@@ -2988,6 +2988,45 @@ fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
 /// not build or compose any real FST, just the same handful of `Vec`/`HashMap` grammar-data scans
 /// `should_run`/`structural_candidate_rules`/`find_gated_subrules`/`partition_entries` already
 /// perform on their own.
+/// The realizational rules whose closure the eager route cannot bound, given which subtrees the
+/// plan topology asks for. Shared so the emitter and any pre-emission caller read one computation.
+fn unbounded_closure_rule_ordinals(
+    g: &Grammar,
+    struct_rules: &[MRuleId],
+    (wants_composite_emission, wants_structural_composite): (bool, bool),
+) -> BTreeSet<u32> {
+    let mut rules = BTreeSet::new();
+    if wants_composite_emission {
+        rules.extend(
+            crate::preexpand::unbounded_candidate_rules(g)
+                .into_iter()
+                .map(|mid| mid.0),
+        );
+    }
+    if wants_structural_composite {
+        rules.extend(struct_rules.iter().filter_map(|mid| {
+            (crate::preexpand::loose_rule_is_active(g, *mid)
+                && crate::preexpand::realizational_rule_is_semantically_unbounded(g, *mid))
+            .then_some(mid.0)
+        }));
+    }
+    rules
+}
+
+/// Whether the eager route would refuse `g` outright for unbounded realizational closure -- the
+/// same decision [`emit_with_budget`] makes, reachable without emitting.
+///
+/// The plan topology it depends on is itself derived from the grammar
+/// ([`plan_topology_decisions`]), so this is a grammar-level fact despite the emitter reaching it
+/// mid-emission. A caller that recomputes the rule set WITHOUT that topology gate gets a strict
+/// superset and will refuse grammars this route compiles.
+pub fn eager_route_refuses_unbounded_closure(g: &Grammar) -> bool {
+    let phon = PhonologyProbe::new(g);
+    let decisions = plan_topology_decisions(g, phon.as_ref());
+    let struct_rules = structural_candidate_rules(g);
+    !unbounded_closure_rule_ordinals(g, &struct_rules, decisions).is_empty()
+}
+
 pub(crate) fn plan_topology_decisions(g: &Grammar, phon: Option<&PhonologyProbe>) -> (bool, bool) {
     let prules_in_order: Vec<&PhonRuleDef> = g
         .strata
@@ -3857,21 +3896,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // A Plan leaf is an opaque marker with no rule content, so the candidate rule list is still computed directly; plan_wants_structural_composite, not !struct_rules.is_empty(), is what gates the heavier Morpher/RuleCache machinery below.
     let struct_rules = structural_candidate_rules(g);
-    let mut unbounded_closure_rules = BTreeSet::new();
-    if plan_wants_composite_emission {
-        unbounded_closure_rules.extend(
-            crate::preexpand::unbounded_candidate_rules(g)
-                .into_iter()
-                .map(|mid| mid.0),
-        );
-    }
-    if plan_wants_structural_composite {
-        unbounded_closure_rules.extend(struct_rules.iter().filter_map(|mid| {
-            (crate::preexpand::loose_rule_is_active(g, *mid)
-                && crate::preexpand::realizational_rule_is_semantically_unbounded(g, *mid))
-            .then_some(mid.0)
-        }));
-    }
+    let unbounded_closure_rules = unbounded_closure_rule_ordinals(g, &struct_rules, (
+        plan_wants_composite_emission,
+        plan_wants_structural_composite,
+    ));
     if !unbounded_closure_rules.is_empty() {
         if let Some(trace) = closure_trace {
             trace.refuse(crate::characterization::ClosureStopReason::UnboundedTransition);
