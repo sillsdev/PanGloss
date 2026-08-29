@@ -297,6 +297,14 @@ pub enum FaithfulnessRequirement {
     /// containment comparison actually attempted (held or failed, never only not-attempted), and at
     /// least two distinct backends exercised. Failures are reported, never failed on.
     NonVacuity,
+    /// `Self::NonVacuity` plus a ceiling on the failure inventory: a ratchet, not a target.
+    ///
+    /// `NonVacuity` and `NoFailures` are an all-or-nothing pair, and the inventory has never been
+    /// empty, so the gate has sat at "report everything, fail on nothing" and a NEW under-generating
+    /// backend would have joined the list silently. Holding the line at today's count refuses that
+    /// while still not demanding the backlog be cleared first. Lower it whenever a cause is fixed;
+    /// raising it is a decision, and one this type makes visible rather than automatic.
+    NoMoreThan { failures: usize },
     /// `Self::NonVacuity` plus an empty failure inventory.
     NoFailures,
 }
@@ -372,6 +380,15 @@ impl FaithfulnessReport {
                     .map(|s| s.label())
                     .collect::<Vec<_>>()
             ));
+        }
+        if let FaithfulnessRequirement::NoMoreThan { failures } = requirement {
+            if self.failed.len() > failures {
+                violations.push(format!(
+                    "{} (kind, backend) pair(s) FAILED proposal containment, above the ratchet of \
+                     {failures}; a backend started missing an analysis the oracle finds",
+                    self.failed.len()
+                ));
+            }
         }
         if requirement == FaithfulnessRequirement::NoFailures && !self.failed.is_empty() {
             violations.push(format!(
@@ -735,5 +752,40 @@ mod tests {
         assert!(violations
             .iter()
             .any(|v| v.contains("FAILED proposal containment")));
+    }
+
+    /// The ratchet must admit today's inventory and refuse one more -- a ceiling that cannot detect
+    /// its own target would pass for every count and gate nothing.
+    #[test]
+    fn the_ratchet_admits_its_own_count_and_refuses_one_more() {
+        let report = build_report(
+            "all",
+            1,
+            &[observation(
+                "synthetic",
+                &[CharacteristicKind::Affixation],
+                &[(
+                    EmissionStrategy::PlanComposed,
+                    ContainmentOutcome::Failed {
+                        word: "kolo".to_string(),
+                        detail: "missing identity".to_string(),
+                    },
+                )],
+            )],
+        );
+        // Asserted on the RATCHET's own violation, not on overall success: this synthetic report
+        // exercises one backend, so `check` reports a non-vacuity violation either way.
+        let at_count = report
+            .check(FaithfulnessRequirement::NoMoreThan { failures: 1 })
+            .err()
+            .unwrap_or_default();
+        assert!(
+            !at_count.iter().any(|v| v.contains("above the ratchet")),
+            "a ratchet at the observed count must not fire: {at_count:?}"
+        );
+        let below = report
+            .check(FaithfulnessRequirement::NoMoreThan { failures: 0 })
+            .expect_err("one failure above the ratchet must be refused");
+        assert!(below.iter().any(|v| v.contains("above the ratchet")));
     }
 }

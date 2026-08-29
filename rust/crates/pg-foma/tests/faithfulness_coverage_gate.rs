@@ -10,8 +10,8 @@ use pg_foma::faithfulness_coverage::{
     FixtureContainmentObservation,
 };
 
-/// THE PLACE THIS ACCOUNT BECOMES STRICT: swap to `FaithfulnessRequirement::NoFailures` once the printed failure inventory reaches zero.
-const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NonVacuity;
+/// THE PLACE THIS ACCOUNT BECOMES STRICT: lower the ratchet as causes are fixed, then swap to `FaithfulnessRequirement::NoFailures` at zero.
+const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NoMoreThan { failures: 19 };
 
 /// A fixture that fails to load, is `skip_in_generic_replay`, or panics mid-evaluation contributes an `unobservable_fixture` row rather than aborting the sweep.
 fn collect() -> (usize, Vec<FixtureContainmentObservation>) {
