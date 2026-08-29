@@ -47,6 +47,7 @@ use std::collections::BTreeMap;
 use pg_grammar::model::Grammar;
 use pg_parse::identity::{AnalysisIdentity, IdentityError};
 use pg_parse::{AnalysisProvenance, WordAnalysis};
+use serde::{Deserialize, Serialize};
 
 /// One distinct identity observed within ONE word occurrence, plus the evidence that deduplicating
 /// down to it erased.
@@ -349,6 +350,50 @@ impl IdentityDivergence {
     }
 }
 
+/// Which direction (or both) a `Certification::IdentityMismatch` disagreed in.
+///
+/// `IdentityDivergence` already separates `oracle_only_identities` (a recall miss -- ADR-0001's
+/// "never miss") from `candidate_only_identities` (a surviving over-generation -- a soundness
+/// defect regardless of ADR-0001). Before this type existed, both collapsed into one verdict
+/// recoverable only by parsing `Certification::IdentityMismatch`'s free-text `detail` string, which
+/// is the ambiguity that let two reviews of the same fixtures assign the same verdict to opposite
+/// classes of defect. A caller matching on this enum needs no string parsing to tell them apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum IdentityMismatchDirection {
+    /// The oracle found at least one identity the candidate did not, and the candidate produced
+    /// nothing extra.
+    RecallMiss,
+    /// The candidate produced at least one identity the oracle's set lacks, and found everything
+    /// the oracle found.
+    OverGeneration,
+    /// Both: at least one recall miss AND at least one over-generation on the same occurrence.
+    Both,
+}
+
+impl IdentityMismatchDirection {
+    /// Classifies an occurrence already known to disagree (`!same_identities`).
+    ///
+    /// A divergence with BOTH counts at zero cannot arise from a genuine mismatch -- disagreeing
+    /// identity SETS always leave a witness on at least one side -- so that combination is not a
+    /// distinct variant here; the debug assertion catches a caller applying this to an occurrence
+    /// that never actually mismatched, rather than silently mislabeling it a `RecallMiss`.
+    pub fn from_mismatch_divergence(divergence: &IdentityDivergence) -> Self {
+        debug_assert!(
+            divergence.oracle_only_identities > 0 || divergence.candidate_only_identities > 0,
+            "a direction is only meaningful for a divergence that actually disagreed: {divergence:?}"
+        );
+        match (
+            divergence.oracle_only_identities > 0,
+            divergence.candidate_only_identities > 0,
+        ) {
+            (true, true) => Self::Both,
+            (false, true) => Self::OverGeneration,
+            _ => Self::RecallMiss,
+        }
+    }
+}
+
 /// Which side of a parity comparison a fault was found on.
 ///
 /// Worth distinguishing because the two diagnoses are completely different: an oracle-side fault is
@@ -603,6 +648,41 @@ mod tests {
         total.absorb(blind);
         assert_eq!(total.occurrences_compared, 1);
         assert_eq!(total.occurrences_not_compared, 7);
+    }
+
+    #[test]
+    fn mismatch_direction_distinguishes_recall_miss_from_over_generation() {
+        let g = test_grammar();
+        let one = OccurrenceIdentities::project(&[analysis(1)], &g).unwrap();
+        let one_and_two = OccurrenceIdentities::project(&[analysis(1), analysis(2)], &g).unwrap();
+        let zero_and_one = OccurrenceIdentities::project(&[analysis(0), analysis(1)], &g).unwrap();
+
+        // Candidate is missing `analysis(0)` and offers nothing extra: a pure recall miss.
+        let recall_miss = IdentityDivergence::compare(&zero_and_one, &one);
+        assert_eq!(recall_miss.oracle_only_identities, 1);
+        assert_eq!(recall_miss.candidate_only_identities, 0);
+        assert_eq!(
+            IdentityMismatchDirection::from_mismatch_divergence(&recall_miss),
+            IdentityMismatchDirection::RecallMiss
+        );
+
+        // Candidate finds everything the oracle found, plus `analysis(2)` the oracle never licensed: a pure surviving over-generation.
+        let over_generation = IdentityDivergence::compare(&one, &one_and_two);
+        assert_eq!(over_generation.oracle_only_identities, 0);
+        assert_eq!(over_generation.candidate_only_identities, 1);
+        assert_eq!(
+            IdentityMismatchDirection::from_mismatch_divergence(&over_generation),
+            IdentityMismatchDirection::OverGeneration
+        );
+
+        // Both directions at once must not collapse into either single-direction variant.
+        let both = IdentityDivergence::compare(&zero_and_one, &one_and_two);
+        assert_eq!(both.oracle_only_identities, 1);
+        assert_eq!(both.candidate_only_identities, 1);
+        assert_eq!(
+            IdentityMismatchDirection::from_mismatch_divergence(&both),
+            IdentityMismatchDirection::Both
+        );
     }
 
     #[test]

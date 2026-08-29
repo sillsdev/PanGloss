@@ -83,6 +83,13 @@ pub struct FixtureContainmentObservation {
     pub kinds: Vec<CharacteristicKind>,
     /// One entry per `crate::strategy_coverage::ALL_STRATEGIES` entry, in that constant's order.
     pub outcomes: Vec<(EmissionStrategy, ContainmentOutcome)>,
+    /// One entry per `crate::strategy_coverage::ALL_STRATEGIES` entry: this fixture's
+    /// `crate::parity::IdentityDivergence::candidate_only_identities` for that backend's corpus
+    /// pass, or `None` if nothing was compared (mirrors why `ContainmentOutcome::NotAttempted` is
+    /// its own variant rather than a clean pass -- see `crate::backend_runtime::RuntimeEvaluation`).
+    /// This is the SOUNDNESS half of the account: `Self::outcomes` is containment (recall) only, by
+    /// design (see this module's doc), and never sees an over-generation that survived confirmation.
+    pub soundness: Vec<(EmissionStrategy, Option<u64>)>,
 }
 
 impl FixtureContainmentObservation {
@@ -91,6 +98,16 @@ impl FixtureContainmentObservation {
             .iter()
             .find(|(s, _)| *s == strategy)
             .map(|(_, outcome)| outcome)
+    }
+
+    /// This fixture's candidate-only identity count for `strategy`, or `None` if nothing was
+    /// compared (either because no entry exists for `strategy` at all, or because the comparison
+    /// never ran) -- both collapse to `None` deliberately, since neither supports a claim either way.
+    pub fn soundness_for(&self, strategy: EmissionStrategy) -> Option<u64> {
+        self.soundness
+            .iter()
+            .find(|(s, _)| *s == strategy)
+            .and_then(|(_, count)| *count)
     }
 
     fn not_attempted(label: &str, kinds: Vec<CharacteristicKind>, reason: String) -> Self {
@@ -108,6 +125,7 @@ impl FixtureContainmentObservation {
                     )
                 })
                 .collect(),
+            soundness: ALL_STRATEGIES.iter().map(|&strategy| (strategy, None)).collect(),
         }
     }
 }
@@ -172,10 +190,12 @@ pub fn observe_fixture_containment(
         }
     }
     if selected_strategies.is_empty() {
+        let soundness = not_attempted.iter().map(|(s, _)| (*s, None)).collect();
         return FixtureContainmentObservation {
             label: label.to_string(),
             kinds,
             outcomes: not_attempted,
+            soundness,
         };
     }
 
@@ -211,11 +231,13 @@ pub fn observe_fixture_containment(
                     )
                 })
                 .collect();
-            outcomes.extend(not_attempted);
+            outcomes.extend(not_attempted.iter().cloned());
+            let soundness = outcomes.iter().map(|(s, _)| (*s, None)).collect();
             return FixtureContainmentObservation {
                 label: label.to_string(),
                 kinds,
                 outcomes,
+                soundness,
             };
         }
     };
@@ -228,31 +250,39 @@ pub fn observe_fixture_containment(
         &mut cache,
     );
 
-    let mut outcomes: Vec<(EmissionStrategy, ContainmentOutcome)> = plans
-        .iter()
-        .zip(&observed)
-        .map(|(plan, observation)| {
-            let strategy = plan.strategy();
-            let Some(evidence) = &observation.words else {
-                return (
-                    strategy,
-                    ContainmentOutcome::NotAttempted {
-                        reason: format!(
-                            "evaluation did not reach comparable words: {:?}",
-                            observation.evaluation.certification
-                        ),
-                    },
-                );
-            };
-            (strategy, containment_outcome_for_evidence(evidence))
-        })
-        .collect();
-    outcomes.extend(not_attempted);
+    let mut outcomes: Vec<(EmissionStrategy, ContainmentOutcome)> = Vec::with_capacity(plans.len());
+    // Parallel to `outcomes`, but the SOUNDNESS half of the account: `crate::backend_runtime::word_proposal_containment` (what `outcomes` is built from) checks recall only, by design, and cannot see a candidate-only identity that survived confirmation -- that fact lives on `RuntimeEvaluation::divergence`, which `outcomes`'s own containment check never reads.
+    let mut soundness: Vec<(EmissionStrategy, Option<u64>)> = Vec::with_capacity(plans.len());
+    for (plan, observation) in plans.iter().zip(&observed) {
+        let strategy = plan.strategy();
+        let divergence = observation.evaluation.divergence;
+        soundness.push((
+            strategy,
+            (divergence.occurrences_compared > 0)
+                .then_some(divergence.candidate_only_identities),
+        ));
+        let Some(evidence) = &observation.words else {
+            outcomes.push((
+                strategy,
+                ContainmentOutcome::NotAttempted {
+                    reason: format!(
+                        "evaluation did not reach comparable words: {:?}",
+                        observation.evaluation.certification
+                    ),
+                },
+            ));
+            continue;
+        };
+        outcomes.push((strategy, containment_outcome_for_evidence(evidence)));
+    }
+    outcomes.extend(not_attempted.iter().cloned());
+    soundness.extend(not_attempted.iter().map(|(s, _)| (*s, None)));
 
     FixtureContainmentObservation {
         label: label.to_string(),
         kinds,
         outcomes,
+        soundness,
     }
 }
 
@@ -309,6 +339,26 @@ pub enum FaithfulnessRequirement {
     NoFailures,
 }
 
+/// How strictly `FaithfulnessReport::check_soundness` reads the over-generation inventory.
+///
+/// A separate axis from `FaithfulnessRequirement`, deliberately not folded into it:
+/// `FaithfulnessRequirement`/`Self::held`/`Self::failed` are containment (recall) only, by this
+/// module's own design (see its doc), and cannot see a candidate-only identity that survived
+/// confirmation. `crate::parity::IdentityDivergence` is the one place that count exists, and this
+/// is its gate. See `crate::parity::IdentityDivergence` for why the two directions are counted
+/// separately rather than merged into one number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SoundnessRequirement {
+    /// Ratchet, not a target: holds today's real count as the ceiling so a NEW over-generating
+    /// backend fails the gate while a known backlog stays legible. Mirrors
+    /// `FaithfulnessRequirement::NoMoreThan`.
+    NoMoreThan { over_generations: usize },
+    /// `Self::NoMoreThan { over_generations: 0 }`, named: the measured starting count IS zero (no
+    /// backlog to hold), so there is nothing to ratchet down later -- a regression is the only way
+    /// this fires. Mirrors `FaithfulnessRequirement::NoFailures`.
+    NoOverGeneration,
+}
+
 /// The full account over every discovered fixture, stated alongside the denominator it was
 /// collected over.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -335,6 +385,13 @@ pub struct FaithfulnessReport {
     pub not_attempted: Vec<(CharacteristicKind, EmissionStrategy)>,
     /// One example reason per `Self::not_attempted` entry.
     pub not_attempted_examples: Vec<(CharacteristicKind, EmissionStrategy, String)>,
+    /// Pairs for which at least one exhibiting fixture's corpus pass counted a candidate-only
+    /// identity -- the SOUNDNESS hazard `crate::parity::IdentityDivergence::candidate_only_identities`
+    /// exists to catch. A distinct axis from `Self::failed` (the opposite-direction recall defect):
+    /// a pair can appear in both, neither, or exactly one.
+    pub over_generating: Vec<(CharacteristicKind, EmissionStrategy)>,
+    /// One example per `Self::over_generating` entry: `(kind, strategy, fixture label, candidate-only identity count)`.
+    pub over_generation_examples: Vec<(CharacteristicKind, EmissionStrategy, String, u64)>,
 }
 
 impl FaithfulnessReport {
@@ -403,6 +460,26 @@ impl FaithfulnessReport {
         }
     }
 
+    /// The SOUNDNESS ratchet's verdict, separate from `Self::check`: relies on `Self::check`'s own
+    /// non-vacuity clause (same `observed` pass feeds both accounts) rather than re-asserting it,
+    /// so this checks only the over-generation ceiling itself.
+    pub fn check_soundness(&self, requirement: SoundnessRequirement) -> Result<(), Vec<String>> {
+        let over_generations = match requirement {
+            SoundnessRequirement::NoMoreThan { over_generations } => over_generations,
+            SoundnessRequirement::NoOverGeneration => 0,
+        };
+        if self.over_generating.len() > over_generations {
+            Err(vec![format!(
+                "{} (kind, backend) pair(s) counted a CANDIDATE-ONLY identity (a surviving \
+                 over-generation) above the ratchet of {over_generations}; \
+                 crate::parity::IdentityDivergence found something confirm should have pruned",
+                self.over_generating.len()
+            )])
+        } else {
+            Ok(())
+        }
+    }
+
     /// The human-readable account: denominator first, then totals, then the failure inventory --
     /// mirrors `crate::witnessed_coverage::CompletenessReport::render`'s shape so the two reports
     /// read side by side.
@@ -453,6 +530,10 @@ impl FaithfulnessReport {
                     .count(),
             ));
         }
+        out.push_str(&format!(
+            "soundness (candidate-only identities that survived confirmation): {} (kind, backend) pair(s) OVER-GENERATING\n",
+            self.over_generating.len()
+        ));
 
         out.push_str("=== failure inventory (the headline) ===\n");
         if self.failure_examples.is_empty() {
@@ -461,6 +542,17 @@ impl FaithfulnessReport {
         for (kind, strategy, fixture, detail) in &self.failure_examples {
             out.push_str(&format!(
                 "  FAILED {kind:?} x {} -- e.g. {fixture}: {detail}\n",
+                strategy.label()
+            ));
+        }
+
+        out.push_str("=== over-generation inventory (soundness) ===\n");
+        if self.over_generation_examples.is_empty() {
+            out.push_str("(none)\n");
+        }
+        for (kind, strategy, fixture, count) in &self.over_generation_examples {
+            out.push_str(&format!(
+                "  OVER-GENERATING {kind:?} x {} -- e.g. {fixture}: {count} candidate-only identity(ies) survived confirmation\n",
                 strategy.label()
             ));
         }
@@ -505,6 +597,8 @@ pub fn build_report(
     let mut failure_examples = Vec::new();
     let mut not_attempted = Vec::new();
     let mut not_attempted_examples = Vec::new();
+    let mut over_generating = Vec::new();
+    let mut over_generation_examples = Vec::new();
 
     for &kind in CharacteristicKind::ALL {
         let exhibiting: Vec<&FixtureContainmentObservation> = observations
@@ -518,6 +612,8 @@ pub fn build_report(
             let mut first_failure: Option<(String, String, String)> = None;
             let mut any_held = false;
             let mut reasons: Vec<String> = Vec::new();
+            // Independent of containment classification above: a fixture can be Held/Failed/NotAttempted for RECALL and separately over-generate, since the two are different directions of `crate::parity::IdentityDivergence`.
+            let mut first_over_generation: Option<(String, u64)> = None;
             for observation in &exhibiting {
                 match observation.outcome_for(strategy) {
                     Some(ContainmentOutcome::Failed { word, detail }) => {
@@ -531,6 +627,13 @@ pub fn build_report(
                         reasons.push(format!("{}: {reason}", observation.label))
                     }
                     None => {}
+                }
+                if first_over_generation.is_none() {
+                    if let Some(count) = observation.soundness_for(strategy) {
+                        if count > 0 {
+                            first_over_generation = Some((observation.label.clone(), count));
+                        }
+                    }
                 }
             }
             if let Some((fixture, word, detail)) = first_failure {
@@ -550,6 +653,10 @@ pub fn build_report(
                     strategy,
                     reasons.into_iter().next().unwrap_or_default(),
                 ));
+            }
+            if let Some((fixture, count)) = first_over_generation {
+                over_generating.push((kind, strategy));
+                over_generation_examples.push((kind, strategy, fixture, count));
             }
         }
     }
@@ -572,6 +679,8 @@ pub fn build_report(
         failure_examples,
         not_attempted,
         not_attempted_examples,
+        over_generating,
+        over_generation_examples,
     }
 }
 
@@ -598,15 +707,37 @@ fn strategy_index(strategy: EmissionStrategy) -> usize {
 mod tests {
     use super::*;
 
+    // Every strategy `None`; `observation_with_soundness` is the one that exercises the new axis.
     fn observation(
         label: &str,
         kinds: &[CharacteristicKind],
         outcomes: &[(EmissionStrategy, ContainmentOutcome)],
     ) -> FixtureContainmentObservation {
+        observation_with_soundness(label, kinds, outcomes, &[])
+    }
+
+    fn observation_with_soundness(
+        label: &str,
+        kinds: &[CharacteristicKind],
+        outcomes: &[(EmissionStrategy, ContainmentOutcome)],
+        soundness: &[(EmissionStrategy, u64)],
+    ) -> FixtureContainmentObservation {
         FixtureContainmentObservation {
             label: label.to_string(),
             kinds: kinds.to_vec(),
             outcomes: outcomes.to_vec(),
+            soundness: ALL_STRATEGIES
+                .iter()
+                .map(|&strategy| {
+                    (
+                        strategy,
+                        soundness
+                            .iter()
+                            .find(|(s, _)| *s == strategy)
+                            .map(|(_, count)| *count),
+                    )
+                })
+                .collect(),
         }
     }
 
@@ -785,5 +916,117 @@ mod tests {
             .check(FaithfulnessRequirement::NoMoreThan { failures: 0 })
             .expect_err("one failure above the ratchet must be refused");
         assert!(below.iter().any(|v| v.contains("above the ratchet")));
+    }
+
+    // A HELD (recall) fixture can still be flagged over-generating: the two axes must not conflate.
+    #[test]
+    fn over_generation_is_counted_independently_of_containment() {
+        let report = build_report(
+            "all",
+            1,
+            &[observation_with_soundness(
+                "over-generating-but-held",
+                &[CharacteristicKind::Affixation],
+                &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+                &[(EmissionStrategy::PlanComposed, 3)],
+            )],
+        );
+        assert_eq!(
+            report.held,
+            vec![(
+                CharacteristicKind::Affixation,
+                EmissionStrategy::PlanComposed
+            )],
+            "recall containment must still read HELD"
+        );
+        assert_eq!(
+            report.over_generating,
+            vec![(
+                CharacteristicKind::Affixation,
+                EmissionStrategy::PlanComposed
+            )],
+            "a candidate-only identity must be visible even though recall containment held"
+        );
+        assert_eq!(report.over_generation_examples.len(), 1);
+        assert_eq!(report.over_generation_examples[0].2, "over-generating-but-held");
+        assert_eq!(report.over_generation_examples[0].3, 3);
+    }
+
+    // Neither a zero-count reading nor an uncompared (`None`) one may read as an over-generation.
+    #[test]
+    fn zero_and_not_compared_soundness_readings_never_over_generate() {
+        let report = build_report(
+            "all",
+            1,
+            &[observation_with_soundness(
+                "clean",
+                &[CharacteristicKind::Affixation],
+                &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+                &[(EmissionStrategy::PlanComposed, 0)],
+            )],
+        );
+        assert!(report.over_generating.is_empty());
+
+        // `soundness: &[]` (no entry) makes every strategy `None` via `observation_with_soundness`'s own fill -- "not compared", not "clean".
+        let uncompared = build_report(
+            "all",
+            1,
+            &[observation(
+                "uncompared",
+                &[CharacteristicKind::Affixation],
+                &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+            )],
+        );
+        assert!(uncompared.over_generating.is_empty());
+    }
+
+    // FALSIFICATION: a forced over-generation must trip `check_soundness`; the ratchet at that exact count must not.
+    #[test]
+    fn the_soundness_ratchet_fires_on_a_forced_over_generation_and_admits_its_own_count() {
+        let clean = build_report(
+            "all",
+            1,
+            &[observation_with_soundness(
+                "synthetic",
+                &[CharacteristicKind::Affixation],
+                &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+                &[(EmissionStrategy::PlanComposed, 0)],
+            )],
+        );
+        assert!(
+            clean
+                .check_soundness(SoundnessRequirement::NoMoreThan { over_generations: 0 })
+                .is_ok(),
+            "a clean run must not trip a zero ratchet"
+        );
+        assert!(
+            clean.check_soundness(SoundnessRequirement::NoOverGeneration).is_ok(),
+            "NoOverGeneration must agree with NoMoreThan{{0}} on a clean run"
+        );
+
+        // Forces the trigger the gate exists to catch: a candidate-only identity that survived confirmation.
+        let sabotaged = build_report(
+            "all",
+            1,
+            &[observation_with_soundness(
+                "synthetic",
+                &[CharacteristicKind::Affixation],
+                &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+                &[(EmissionStrategy::PlanComposed, 1)],
+            )],
+        );
+        let violations = sabotaged
+            .check_soundness(SoundnessRequirement::NoMoreThan { over_generations: 0 })
+            .expect_err("a forced over-generation must be caught by the ratchet");
+        assert!(violations.iter().any(|v| v.contains("CANDIDATE-ONLY")));
+        assert!(
+            sabotaged.check_soundness(SoundnessRequirement::NoOverGeneration).is_err(),
+            "NoOverGeneration must also catch the same forced over-generation"
+        );
+
+        // The ratchet set to the observed count must admit it -- a ratchet that never admits its own count gates nothing either.
+        assert!(sabotaged
+            .check_soundness(SoundnessRequirement::NoMoreThan { over_generations: 1 })
+            .is_ok());
     }
 }

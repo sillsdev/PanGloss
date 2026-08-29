@@ -275,6 +275,8 @@ pub enum Certification {
     IdentityMismatch {
         word: String,
         detail: String,
+        /// Which direction(s) the mismatch disagreed in -- see `crate::parity::IdentityMismatchDirection`. A caller matching structurally can tell a recall miss from a surviving over-generation without parsing `detail`.
+        direction: crate::parity::IdentityMismatchDirection,
     },
     FullHcConfirmed {
         words: u64,
@@ -1247,6 +1249,7 @@ mod tests {
             Certification::IdentityMismatch {
                 word: "a".to_owned(),
                 detail: "x".to_owned(),
+                direction: crate::parity::IdentityMismatchDirection::Both,
             },
         ];
         let items: Vec<_> = failures

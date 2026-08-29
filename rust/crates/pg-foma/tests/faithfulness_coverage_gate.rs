@@ -7,11 +7,14 @@ use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::faithfulness_coverage::{
     build_report, containment_outcome_for_evidence, observe_fixture_containment,
     unobservable_fixture, ContainmentOutcome, FaithfulnessReport, FaithfulnessRequirement,
-    FixtureContainmentObservation,
+    FixtureContainmentObservation, SoundnessRequirement,
 };
 
 /// THE PLACE THIS ACCOUNT BECOMES STRICT: lower the ratchet as causes are fixed, then swap to `FaithfulnessRequirement::NoFailures` at zero.
 const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NoMoreThan { failures: 19 };
+
+// The SOUNDNESS gate (candidate-only identities), the direction `REQUIREMENT` cannot see; measured 0 across all 61 fixtures / 3 backends, so this is a strict floor, not a backlog ratchet -- see `docs/research/backend-measurement-instruments.md` defect 3.
+const SOUNDNESS_REQUIREMENT: SoundnessRequirement = SoundnessRequirement::NoOverGeneration;
 
 /// A fixture that fails to load, is `skip_in_generic_replay`, or panics mid-evaluation contributes an `unobservable_fixture` row rather than aborting the sweep.
 fn collect() -> (usize, Vec<FixtureContainmentObservation>) {
@@ -62,6 +65,12 @@ fn report_faithfulness_coverage() {
     if let Err(violations) = report.check(REQUIREMENT) {
         panic!(
             "the faithfulness-coverage collection measured nothing usable ({SCOPE_ENV}={}): {:#?}",
+            report.scope, violations
+        );
+    }
+    if let Err(violations) = report.check_soundness(SOUNDNESS_REQUIREMENT) {
+        panic!(
+            "a backend over-generated something confirm should have pruned ({SCOPE_ENV}={}): {:#?}",
             report.scope, violations
         );
     }

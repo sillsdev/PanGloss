@@ -11,7 +11,10 @@ use crate::composite::{FomaAnalyzer, ProfiledFomaApplyOutcomeWithCandidates};
 use crate::emit::surface_table;
 use crate::enumerate::{EmissionStrategy, LoweredCandidate};
 use crate::lowering_adapter::LoweringAdapter;
-use crate::parity::{certified_occurrence, IdentityDivergence, OccurrenceIdentities, ParitySide};
+use crate::parity::{
+    certified_occurrence, IdentityDivergence, IdentityMismatchDirection, OccurrenceIdentities,
+    ParitySide,
+};
 use crate::replace::SegAlphabet;
 use crate::tags::Candidate;
 use foma::options::FomaOptions;
@@ -759,13 +762,11 @@ pub struct RuntimeEvaluationObservation {
     pub words: Option<Vec<WordEvidence>>,
 }
 
-/// `Clone` so `RunEvaluationCache` can serve one candidate's whole measurement to the next candidate compiling to the identical network; the clone is bounded by the distinct-net count, not the plan count.
+/// `Clone` so `RunEvaluationCache` can serve one candidate's whole measurement to the next candidate compiling to the identical network; the clone is bounded by the distinct-net count, not the plan count. No separate `divergence` field: `RuntimeEvaluation::divergence` is this candidate's divergence, and a second copy here would only invite drift.
 #[derive(Debug, Clone)]
 struct EvaluatedPlan {
     evaluation: RuntimeEvaluation,
     words: Option<Vec<WordEvidence>>,
-    /// Counted parity-set divergence for this candidate's corpus pass, folded into the run cache so a caller reads one run-scoped number instead of reconstructing it from first-failure-only verdicts.
-    divergence: IdentityDivergence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -895,6 +896,7 @@ pub fn certify_word_measured(
         Certification::IdentityMismatch {
             word,
             detail: describe_set_difference(&expected_identities, &actual_identities),
+            direction: IdentityMismatchDirection::from_mismatch_divergence(&divergence),
         },
         divergence,
     )
@@ -1138,6 +1140,18 @@ pub struct RuntimeEvaluation {
     /// measurement -- a report field, diagram caption, or comparison -- must read THIS, not the
     /// declared strategy.
     pub realized_strategy: EmissionStrategy,
+    /// This candidate's counted `crate::parity::IdentityDivergence` over its own corpus pass.
+    ///
+    /// Exposed here -- rather than discarded at the `evaluate_plans_with_cache` /
+    /// `evaluate_plans_observed_with_cache` boundary, as it used to be -- because
+    /// `IdentityDivergence` is the one place in this crate that separates a recall failure
+    /// (`oracle_only_identities`, ADR-0001's "never miss") from a surviving over-generation
+    /// (`candidate_only_identities`, a soundness defect) with typed fields, and every caller of
+    /// those two entry points is exactly who needs to see the split. `IdentityDivergence::not_compared`
+    /// whenever this evaluation short-circuited before any occurrence could be compared (a
+    /// resource breach, an excluded corpus, a per-word apply-budget refusal) -- see that
+    /// constructor's own doc for why "nothing compared" must never read as a clean zero.
+    pub divergence: IdentityDivergence,
 }
 
 /// Runs `words` through `analyzer`, scores, budget-checks, and certifies against `expected` — shared by every evaluation strategy so only the network-acquisition step can differ between them. The ordinary (unobserved) measurement; `words` is always `None` in `EvaluatedPlan`.
@@ -1268,9 +1282,9 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
                             raw_paths: raw_paths.saturating_add(diagnostics.raw_paths as u64),
                         },
                         realized_strategy,
+                        divergence: IdentityDivergence::not_compared(expected.len() as u64),
                     },
                     words: None,
-                    divergence: IdentityDivergence::not_compared(expected.len() as u64),
                 };
             }
         };
@@ -1348,9 +1362,9 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
             certification,
             score,
             realized_strategy,
+            divergence,
         },
         words,
-        divergence,
     }
 }
 
@@ -1359,6 +1373,7 @@ fn failed_evaluation(
     realized_strategy: EmissionStrategy,
     certification: Certification,
     build: u64,
+    divergence: IdentityDivergence,
 ) -> RuntimeEvaluation {
     RuntimeEvaluation {
         realized_strategy,
@@ -1373,6 +1388,7 @@ fn failed_evaluation(
             confirmation_steps: 0,
             raw_paths: 0,
         },
+        divergence,
     }
 }
 
@@ -1383,10 +1399,10 @@ fn failed_evaluated_over(
     build: u64,
     occurrences: u64,
 ) -> EvaluatedPlan {
+    let divergence = IdentityDivergence::not_compared(occurrences);
     EvaluatedPlan {
-        evaluation: failed_evaluation(realized_strategy, certification, build),
+        evaluation: failed_evaluation(realized_strategy, certification, build, divergence),
         words: None,
-        divergence: IdentityDivergence::not_compared(occurrences),
     }
 }
 
@@ -1731,7 +1747,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
             })
             .collect::<Vec<_>>();
         for candidate in &refused {
-            cache.absorb_divergence(candidate.divergence);
+            cache.absorb_divergence(candidate.evaluation.divergence);
         }
         return refused;
     }
@@ -1817,7 +1833,8 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                             value,
                             limit,
                         };
-                        reused.divergence = IdentityDivergence::not_compared(expected.len() as u64);
+                        reused.evaluation.divergence =
+                            IdentityDivergence::not_compared(expected.len() as u64);
                     }
                     cache.count_net_dedup_hit(words.len(), score);
                     reused
@@ -1878,7 +1895,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
         .collect();
     // Folded here, after the closure's mutable borrow of `cache` ends, so every path out of this function contributes its divergence exactly once.
     for candidate in &evaluated {
-        cache.absorb_divergence(candidate.divergence);
+        cache.absorb_divergence(candidate.evaluation.divergence);
     }
     evaluated
 }
@@ -2150,9 +2167,13 @@ mod tests {
     fn genuinely_different_identities_still_disagree() {
         // Widening the equivalence must not make everything equal: different morphemes are different identities.
         let g = fixture();
+        // Neither side's identity is a subset of the other, so the mismatch disagrees in BOTH directions -- not a bare `{ .. }` match, since the whole point of `direction` is that a caller can read it structurally.
         assert!(matches!(
             certify_word(&g, "w", &[wa(0)], &[wa(1)]),
-            Certification::IdentityMismatch { .. }
+            Certification::IdentityMismatch {
+                direction: IdentityMismatchDirection::Both,
+                ..
+            }
         ));
         // ... and so is the same morpheme sequence at a different root position.
         let original = WordAnalysis {
@@ -2167,7 +2188,32 @@ mod tests {
         };
         assert!(matches!(
             certify_word(&g, "w", &[original], &[moved]),
-            Certification::IdentityMismatch { .. }
+            Certification::IdentityMismatch {
+                direction: IdentityMismatchDirection::Both,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn identity_mismatch_direction_separates_recall_miss_from_over_generation_at_the_certify_seam() {
+        // The three sites above are all symmetric (Both) mismatches; this pins the asymmetric cases through the SAME public entry point `faithfulness_coverage`/gates actually call.
+        let g = fixture();
+        // Candidate is missing `wa(0)` and offers nothing extra: a pure recall miss (ADR-0001's "never miss").
+        assert!(matches!(
+            certify_word(&g, "w", &[wa(0), wa(1)], &[wa(1)]),
+            Certification::IdentityMismatch {
+                direction: IdentityMismatchDirection::RecallMiss,
+                ..
+            }
+        ));
+        // Candidate finds everything the oracle found, plus `wa(2)` the oracle never licensed: a pure surviving over-generation -- the soundness hazard this task exists to gate.
+        assert!(matches!(
+            certify_word(&g, "w", &[wa(1)], &[wa(1), wa(2)]),
+            Certification::IdentityMismatch {
+                direction: IdentityMismatchDirection::OverGeneration,
+                ..
+            }
         ));
     }
 
@@ -2199,7 +2245,10 @@ mod tests {
         let changed = vec![("w".into(), vec![wa(0)]), ("w".into(), vec![wa(0)])];
         assert!(matches!(
             certify_corpus(&g, &expected, &changed),
-            Certification::IdentityMismatch { .. }
+            Certification::IdentityMismatch {
+                direction: IdentityMismatchDirection::Both,
+                ..
+            }
         ));
         // Collapsing the two rows into one would also change the row count, which is refused outright rather than certified against a shorter corpus.
         let collapsed = vec![("w".to_string(), vec![wa(0), wa(1)])];
