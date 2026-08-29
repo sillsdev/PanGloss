@@ -54,15 +54,17 @@ impl fmt::Display for FomaError {
             ),
             FomaError::Unsupported(report) => write!(
                 f,
-                "foma backend unsupported for this grammar (emit report: {} uncovered constructs, tier {:?})",
+                "foma backend unsupported for this grammar (emit report: {} uncovered constructs, tier {:?}): {}",
                 report.uncovered.len(),
-                report.tier
+                report.tier,
+                uncovered_constructs(report)
             ),
             FomaError::Incomplete(report) => write!(
                 f,
-                "foma emission is incomplete and cannot be used as a trusted proposer (emit report: {} uncovered constructs, tier {:?})",
+                "foma emission is incomplete and cannot be used as a trusted proposer (emit report: {} uncovered constructs, tier {:?}): {}",
                 report.uncovered.len(),
-                report.tier
+                report.tier,
+                uncovered_constructs(report)
             ),
             FomaError::CapabilityRefused(diagnostics) => write!(
                 f,
@@ -72,6 +74,21 @@ impl fmt::Display for FomaError {
             ),
         }
     }
+}
+
+/// The constructs a report could not cover, in the `[kind] id -- reason` shape ADR-0001 asks a
+/// refusal to name. A tier alone says how bad the outcome was, never what could not be done, and
+/// `EmitReport::uncovered` has carried the answer all along.
+fn uncovered_constructs(report: &EmitReport) -> String {
+    if report.uncovered.is_empty() {
+        return "no construct named; see the tier's own reason".to_owned();
+    }
+    report
+        .uncovered
+        .iter()
+        .map(|item| format!("[{}] {} -- {}", item.kind, item.id, item.reason))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 impl std::error::Error for FomaError {}
