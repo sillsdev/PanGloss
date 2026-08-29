@@ -342,6 +342,24 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
     // No advice: the catalog advises grammar changes, and no grammar change starts a compiler.
 }
 
+/// The surface probe's own structural refusal, in the same shape as the plan-composed marker one.
+///
+/// Not a capability predicate, and deliberately so. A predicate answers a `CharacteristicKind`
+/// question, and "this route cannot bound a realizational rule's closure" is not one — the kinds it
+/// would fall under are `Proven` or carry ratified `ConfirmOnly` verdicts this must not overturn.
+/// The marker refusal beside it is the precedent: a backend-specific structural fact met into one
+/// strategy's decision, leaving `compose_envelope`'s per-kind answers untouched.
+fn tuned_surface_closure_refusal() -> CompileDecision {
+    CompileDecision::Refuse(vec![CapabilityDiagnostic {
+        predicate: "surface-probe.finite-closure-bound",
+        construct: "realizational rule with no authored application bound".to_string(),
+        witness: "EmissionStrategy::TunedSurfaceProbed's eager route cannot prove finite closure \
+                  for this grammar and generates no partial FST, so selecting it would promise a \
+                  proposer the compiler does not produce"
+            .to_string(),
+    }])
+}
+
 fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {
     CompileDecision::Refuse(
         markers
@@ -381,6 +399,7 @@ impl BackendSelection {
     fn from_envelope_with_backend_findings(
         envelope: &StrategyEnvelope,
         plan_composed_markers: &[FragmentSpec],
+        tuned_surface_closure_unbounded: bool,
     ) -> Self {
         let reports = ALL_STRATEGIES
             .iter()
@@ -396,6 +415,10 @@ impl BackendSelection {
                         decision.clone(),
                         plan_composed_marker_refusal(plan_composed_markers),
                     )
+                } else if strategy == EmissionStrategy::TunedSurfaceProbed
+                    && tuned_surface_closure_unbounded
+                {
+                    meet(decision.clone(), tuned_surface_closure_refusal())
                 } else {
                     decision.clone()
                 };
@@ -420,7 +443,11 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
     let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
     let envelope = compose_envelope_across_strategies(semantics, &plan, &default_registry());
     let plan_composed_markers = crate::build::unbuildable_markers(&plan);
-    BackendSelection::from_envelope_with_backend_findings(&envelope, &plan_composed_markers)
+    BackendSelection::from_envelope_with_backend_findings(
+        &envelope,
+        &plan_composed_markers,
+        crate::emit::eager_route_refuses_unbounded_closure(g),
+    )
 }
 
 /// `select_backends` from a bare `&Grammar`, deriving the semantics itself. **Check-only**: nothing
