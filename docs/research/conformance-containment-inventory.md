@@ -120,6 +120,34 @@ So the next attempt needs the emitter's own routing decision surfaced as a gramm
 rather than a condition inferred from the uncovered item's text. Reusing `crate::emit::rule_role`
 was right — it is the same classifier — but the role alone is not the emitter's guard.
 
+### The reduplication third is an emitter over-report, not a capability gap
+
+Measured, for exactly the mrules each refusal names:
+
+| fixture | rules | `peel_attempted` | `structural_composite_attempted` |
+|---|---|---|---|
+| `metathesis-phase-isolation` | mrule4, mrule5 | **true** | false |
+| `backend-ordered-generic` | mrule4, mrule5 | **true** | false |
+| `deletion-reduplication-exception-composite` | mrule3 | **true** | false |
+
+The peel claims every one of them, which is why `ReduplicationPeelSupportedPredicate` admits them
+and is right to: `ReduplicationPeeler` has a proposal route for these analyses. What refuses is the
+eager composite route's standalone-derivational-rule loop, which has no arm for
+`Role::Reduplication` and reports the rule `uncovered`; `FomaProposer::new` then refuses the whole
+emit as `Partial`.
+
+So for this third of the inventory the envelope is **correct to admit** and a capability predicate
+is the wrong instrument — which is exactly why hanging one on `Reduplication` broke
+`prefix_reduplication_confirms` and two of its neighbours. Those fixtures have peel-covered
+reduplication too, and refusing them at the envelope loses working capability.
+
+The fix belongs in the emitter: the standalone loop should not report a rule uncovered when the
+peel covers it. That is a recall-affecting change and must not be made on this reasoning alone — if
+the peel does not in fact propose those analyses at runtime, suppressing the uncovered item creates
+exactly the silent under-generation ADR-0001 forbids. The order is: prove peel recall on these three
+fixtures first, then suppress. Note the instrument for that proof is currently blocked by the
+refusal itself, since the tuned-surface compile never completes for them.
+
 ### Two things landed that need no predicate
 
 **A refusal now names its construct.** `FomaError`'s `Display` stringified only the tier, so a

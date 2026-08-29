@@ -129,6 +129,20 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
                 item.reason
             );
         }
+        // Which route the profile thinks covers each reduplication rule. A rule the peel DOES claim
+        // while the eager route still reports it uncovered is an emitter over-report, not a
+        // capability gap, and the two want opposite fixes.
+        let semantics = GrammarSemantics::derive(&grammar);
+        for detail in semantics.characteristics().reduplication_details() {
+            eprintln!(
+                "{}:   redup mrule {} allo #{}: peel_attempted={} structural_composite_attempted={}",
+                fixture.label(),
+                detail.rule.0,
+                detail.allomorph_index,
+                detail.peel_attempted,
+                detail.structural_composite_attempted
+            );
+        }
     }
     eprintln!("uncovered items named: {named}");
     eprintln!("refusals naming no construct: {}", unnamed.len());
