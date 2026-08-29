@@ -255,3 +255,12 @@ inert.
 The conclusion is architectural, not a matter of trying harder: either the predicate gets the plan,
 or the emitter publishes its route decision as a grammar-level fact the envelope can read, the way
 `structural_composite_attempted` already publishes `is_structural_rule`.
+
+**Update: three tests, and it is not a load artifact.** Two later full-suite runs failed
+`stats_cmd::tests::never_fires_keeps_attempt_denominators_within_rule_kind` and
+`stats_cmd::tests::named_allomorph_report_does_not_claim_rule_attempts` — a second and third
+distinct test in the same module. The third failed running that module ALONE (30 tests, three
+consecutive runs: 30/30, 30/30, 29/30), so it is not the full suite's 6-way process fan-out.
+`stats_cmd` has nondeterminism of its own, and it intermittently costs a red workspace run that
+looks like whatever change is in flight. Each of the three was proved unrelated by re-running in
+isolation, which is the only reason none of them was attributed to the capability work.

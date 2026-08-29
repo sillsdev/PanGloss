@@ -2931,6 +2931,19 @@ pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
 /// structural-composite route's presence, the other half of the seam `probe_would_refuse`
 /// documents; `plan_topology_decisions` then makes `emit_with_budget_profiled`'s own gate match it
 /// by construction rather than by two independently-written call sites happening to agree.
+/// The rules `build_structural_composites` claims, by grammar ordinal.
+///
+/// Published because an uncovered item naming one of these is an emitter OVER-REPORT rather than a
+/// capability gap: the standalone-derivational loop reports a role it cannot route, while structural
+/// synthesis covers that same rule through `pg_rules::morph::synthesize`. Telling the two apart is
+/// what decides whether a refusal belongs in the envelope or the emitter.
+pub fn structurally_routed_rule_ordinals(g: &Grammar) -> Vec<u32> {
+    structural_candidate_rules(g)
+        .into_iter()
+        .map(|mid| mid.0)
+        .collect()
+}
+
 pub(crate) fn structural_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
     let probe_refuses = probe_would_refuse(g);
     let has_structural =

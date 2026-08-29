@@ -129,18 +129,23 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
                 item.reason
             );
         }
-        // Which route the profile thinks covers each reduplication rule. A rule the peel DOES claim
-        // while the eager route still reports it uncovered is an emitter over-report, not a
-        // capability gap, and the two want opposite fixes.
-        let semantics = GrammarSemantics::derive(&grammar);
-        for detail in semantics.characteristics().reduplication_details() {
+        // Whether structural synthesis already claims the rule each uncovered item names. One it
+        // claims is an emitter OVER-REPORT, not a capability gap, and the two want opposite fixes:
+        // an over-report is fixed in the emitter, a gap by refusing at the envelope.
+        let routed = pg_foma::emit::structurally_routed_rule_ordinals(&grammar);
+        for item in &report.uncovered {
+            let Some(ordinal) = item
+                .id
+                .strip_prefix("mrule")
+                .and_then(|rest| rest.parse::<u32>().ok())
+            else {
+                continue;
+            };
             eprintln!(
-                "{}:   redup mrule {} allo #{}: peel_attempted={} structural_composite_attempted={}",
+                "{}:   {} mrule {ordinal}: structurally_routed={}",
                 fixture.label(),
-                detail.rule.0,
-                detail.allomorph_index,
-                detail.peel_attempted,
-                detail.structural_composite_attempted
+                item.kind,
+                routed.contains(&ordinal)
             );
         }
     }

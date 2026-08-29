@@ -205,6 +205,30 @@ a predicate written against a grammar-only condition will keep over-refusing, an
 gate will keep catching it — all three attempts were measured and reverted within one build cycle
 each, at a cost of 0 shipped regressions.
 
+### The whole surface-probe inventory, triaged
+
+`crate::emit::structurally_routed_rule_ordinals` publishes which rules `build_structural_composites`
+claims. An uncovered item naming one of those is the emitter reporting a role its
+standalone-derivational loop cannot route while another mechanism covers the same rule — an
+over-report, fixed in the emitter — as against a genuine gap, refused at the envelope. Measured:
+
+| uncovered item | another route claims it | verdict |
+|---|---|---|
+| `process` / `process-morphology-in-place-mutation` mrule 0 | **structurally routed** | over-report |
+| `reduplication` x5, three fixtures | not structural, but `peel_attempted = true` | over-report |
+| `rep-variant-overflow` x3 | none — a dropped spelling has no second home | **gap** |
+| suffix allomorph in a prefix zone | none; `capability.rs` records it "never reaches `build_structural_composites` either" | **gap** |
+| unbounded realizational closure | none — no artifact is produced at all | **gap, closed** |
+
+So **four of the eight** surface-probe divergences are emitter over-reports, not capability gaps, and
+no predicate or selection refusal should be written for them. The `process` result also confirms the
+documented behaviour that `is_structural_rule` admits `Role::Process` unconditionally.
+
+That leaves exactly two open gaps: the representation-variant drop (implemented and published, held
+back only by the Aweti/Mbugwe question above) and the zone mismatch (one fixture, not implemented —
+reproducing it needs the prefix/suffix zone assignment, which is derived from the same `rule_role`
+pass rather than from a single helper).
+
 ### The reduplication third is an emitter over-report, not a capability gap
 
 Measured, for exactly the mrules each refusal names:
