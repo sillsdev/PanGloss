@@ -3020,6 +3020,25 @@ fn unbounded_closure_rule_ordinals(
 /// ([`plan_topology_decisions`]), so this is a grammar-level fact despite the emitter reaching it
 /// mid-emission. A caller that recomputes the rule set WITHOUT that topology gate gets a strict
 /// superset and will refuse grammars this route compiles.
+/// Whether the surface route would DROP root spellings for `g`: some lexical allomorph's shape
+/// enumerates past [`REP_VARIANT_CAP`], and the excess spellings are then simply absent from the
+/// network. Reachable without emitting, since it is a function of each stratum's own table and the
+/// shapes in it.
+///
+/// Unlike a construct another route might still cover, a dropped spelling has no second home: the
+/// emitter reports it as an uncovered item precisely because nothing else proposes it.
+pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
+    g.strata.iter().any(|sd| {
+        let table = &g.char_tables[sd.table.0 as usize];
+        sd.entries.iter().any(|entry_id| {
+            g.entries[entry_id.0 as usize]
+                .allomorphs
+                .iter()
+                .any(|allo| pattern_variants(table, &allo.shape.shape).1)
+        })
+    })
+}
+
 pub fn eager_route_refuses_unbounded_closure(g: &Grammar) -> bool {
     let phon = PhonologyProbe::new(g);
     let decisions = plan_topology_decisions(g, phon.as_ref());

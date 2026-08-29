@@ -360,6 +360,23 @@ fn tuned_surface_closure_refusal() -> CompileDecision {
     }])
 }
 
+/// Every structural fact that stops the surface probe, met into one refusal; `None` when it has
+/// none. Each is a decision that route makes about this grammar, published so selection can reach
+/// it without emitting.
+fn tuned_surface_structural_refusal(g: &Grammar) -> Option<CompileDecision> {
+    let mut refusals = Vec::new();
+    if crate::emit::eager_route_refuses_unbounded_closure(g) {
+        refusals.push(tuned_surface_closure_refusal());
+    }
+    // `crate::emit::eager_route_drops_root_spellings` is deliberately NOT met in yet. It closes
+    // three fixture divergences, but it also refuses Aweti and Mbugwe, leaving those two reference
+    // grammars with no accepted backend at all. Whether that is a correct refusal of a network that
+    // silently loses spellings, or a capability loss, is not decidable from the fixture set: the
+    // faithfulness sweep does not cover corpus grammars, and nothing has ever compiled those two on
+    // this route to find out. See docs/research/conformance-containment-inventory.md.
+    refusals.into_iter().reduce(meet)
+}
+
 fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {
     CompileDecision::Refuse(
         markers
@@ -399,7 +416,7 @@ impl BackendSelection {
     fn from_envelope_with_backend_findings(
         envelope: &StrategyEnvelope,
         plan_composed_markers: &[FragmentSpec],
-        tuned_surface_closure_unbounded: bool,
+        tuned_surface_refusal: Option<&CompileDecision>,
     ) -> Self {
         let reports = ALL_STRATEGIES
             .iter()
@@ -415,10 +432,10 @@ impl BackendSelection {
                         decision.clone(),
                         plan_composed_marker_refusal(plan_composed_markers),
                     )
-                } else if strategy == EmissionStrategy::TunedSurfaceProbed
-                    && tuned_surface_closure_unbounded
+                } else if let (EmissionStrategy::TunedSurfaceProbed, Some(refusal)) =
+                    (strategy, tuned_surface_refusal)
                 {
-                    meet(decision.clone(), tuned_surface_closure_refusal())
+                    meet(decision.clone(), refusal.clone())
                 } else {
                     decision.clone()
                 };
@@ -446,7 +463,7 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
     BackendSelection::from_envelope_with_backend_findings(
         &envelope,
         &plan_composed_markers,
-        crate::emit::eager_route_refuses_unbounded_closure(g),
+        tuned_surface_structural_refusal(g).as_ref(),
     )
 }
 
@@ -455,3 +472,4 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
 pub fn select_backends_for_grammar(g: &Grammar) -> BackendSelection {
     select_backends(&GrammarSemantics::derive(g))
 }
+

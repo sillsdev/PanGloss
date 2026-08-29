@@ -187,6 +187,38 @@ fn the_published_closure_fact_never_over_claims_a_refusal() {
     );
 }
 
+/// The root-spelling fact must never claim a drop the surface route does not make.
+///
+/// Same one-way contract as the closure fact, and pinned for the same reason: it is published for a
+/// caller that would gate on it, and gating on a false positive refuses a grammar that compiles.
+/// It is not yet met into selection — it refuses two reference grammars, which is a question the
+/// fixture set cannot answer.
+#[test]
+fn the_published_root_spelling_fact_never_over_claims_a_drop() {
+    let mut claimed = 0usize;
+    for fixture in discover() {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        if grammar.char_tables.is_empty() {
+            continue;
+        }
+        if !pg_foma::emit::eager_route_drops_root_spellings(&grammar) {
+            continue;
+        }
+        claimed += 1;
+        assert!(
+            FomaProposer::new(&grammar).is_err(),
+            "{}: the root-spelling fact claims dropped spellings, but the route compiled",
+            fixture.label()
+        );
+    }
+    assert!(
+        claimed > 0,
+        "no fixture exercised the root-spelling fact, so this gate proves nothing"
+    );
+}
+
 /// The too-lax inventory: the envelope admitted, the compiler refused. Reported, not yet gated.
 #[test]
 fn report_envelope_compiler_divergence() {

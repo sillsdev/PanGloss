@@ -143,6 +143,29 @@ Only predicates are gated by disposition, and only `Proven` is skipped (`capabil
 `RealizationalMorphology` **are** consulted, which is why attempt three ran at all where attempt one
 silently did nothing.
 
+### Aweti and Mbugwe drop root spellings — the sharpest open question here
+
+`crate::emit::eager_route_drops_root_spellings` publishes whether the surface route enumerates a
+lexical root's spellings past `REP_VARIANT_CAP` and discards the remainder. Met into selection it
+closes three fixture divergences with **no** growth in the too-strict direction — and it refuses
+**Aweti and Mbugwe**, leaving those two reference grammars with no accepted backend at all.
+
+So it is not met in. The two readings are:
+
+- The refusal is right, and "all five grammars work" has been resting on a network that silently
+  loses spellings for two of them.
+- The dropped spellings are immaterial for those grammars, and refusing costs real capability.
+
+The fixture set cannot decide it: `faithfulness_coverage_gate` covers conformance fixtures, not
+corpus grammars, and **nothing has ever compiled Aweti or Mbugwe on this route** — the five-language
+gate characterizes and stops. That gap is the point. Their `TunedSurfaceProbed Accepted` verdict has
+never been checked against a compile, which is exactly the envelope-versus-compiler divergence this
+whole document is about, now reaching the reference corpus rather than the fixtures.
+
+Settling it needs one measured run: compile Aweti and Mbugwe on the surface route and compare
+proposals against the full-HC oracle for their corpora. Until then the fact is published and pinned
+one way round (`the_published_root_spelling_fact_never_over_claims_a_drop`) but not consulted.
+
 ### The structural change landed for one cause, and it turns the blocker into a decision
 
 `crate::emit::eager_route_refuses_unbounded_closure` now publishes that route's own refusal as a

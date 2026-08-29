@@ -320,13 +320,19 @@ impl FomaProposer {
 
         // Before emitting: a construct this backend cannot represent is knowable from the
         // characterization, and ADR-0001 puts the refusal here rather than in an emit tier.
-        if let Err(diagnostics) =
-            crate::capability_gate::refuse_unless_admitted(g, Self::EMISSION_STRATEGY)
-        {
-            return (
-                Err(FomaError::CapabilityRefused(diagnostics)),
-                profile.finish(None, None),
-            );
+        //
+        // Skipped for the unproven developer path, whose whole purpose is to inspect a result the
+        // envelope refuses. That is not an override of ADR-0001's "never overridable by production
+        // selection": this path publishes nothing and stamps its output unproven.
+        if !allow_incomplete {
+            if let Err(diagnostics) =
+                crate::capability_gate::refuse_unless_admitted(g, Self::EMISSION_STRATEGY)
+            {
+                return (
+                    Err(FomaError::CapabilityRefused(diagnostics)),
+                    profile.finish(None, None),
+                );
+            }
         }
 
         let result = emit::emit_with_budget_profiled(
