@@ -49,7 +49,9 @@ use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
 use crate::lowering_adapter::LoweringAdapter;
 use crate::replace::SegAlphabet;
-use crate::strategy_coverage::{representation_of, StrategyRepresentation, ALL_STRATEGIES};
+use crate::strategy_coverage::{
+    representation_of, unrepresentable_kinds, StrategyRepresentation, ALL_STRATEGIES,
+};
 
 /// What happened when one backend met one grammar. Only `Self::Compiled` can witness anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,6 +134,19 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
         .ok_or_else(|| "grammar has no character table".to_string())?;
     let alphabet = SegAlphabet::new(table);
     let semantics = GrammarSemantics::derive(g);
+    let holes = plan_composed_unrepresentable_constructs(&semantics);
+    if !holes.is_empty() {
+        return Err(format!(
+            "plan-composed cannot honour this grammar: it characterizes as construct(s) \
+             EmissionStrategy::PlanComposed cannot represent, per crate::strategy_coverage's own \
+             table ({})",
+            holes
+                .iter()
+                .map(|kind| format!("{kind:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let plan = enumerate_default(g, semantics.prules_in_order(), phonology.as_ref());
     let markers = crate::build::unbuildable_markers(&plan);
@@ -156,6 +171,24 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
         .ok_or_else(|| "plan-composed build produced no network".to_string())?;
     crate::build::finish_controllable_net(&opts, net, surface_table(g), &alphabet);
     Ok(())
+}
+
+/// `semantics`'s own characterized constructs, filtered to those `crate::strategy_coverage::unrepresentable_kinds` names for `EmissionStrategy::PlanComposed`.
+fn plan_composed_unrepresentable_constructs(
+    semantics: &GrammarSemantics<'_>,
+) -> Vec<CharacteristicKind> {
+    let holes: BTreeSet<CharacteristicKind> = unrepresentable_kinds(EmissionStrategy::PlanComposed)
+        .into_iter()
+        .collect();
+    semantics
+        .characteristics()
+        .observations()
+        .iter()
+        .map(|o| o.kind)
+        .filter(|kind| holes.contains(kind))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// Characterizes `g`, asks `crate::backend_selection` which backends may run it, and COMPILES with
