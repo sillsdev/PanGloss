@@ -27,6 +27,54 @@ Do not use a `NotProductionReady` label to avoid a contained stress attempt, and
 limit to excuse incomplete or unproven output. Follow
 `docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`.
 
+## Never re-derive a decision another module makes — call it, or extract it
+
+Measured over one session: **four of seven code attempts were reverted, and three failed the same
+way.** Each tried to reproduce a condition the emitter already decides, by reading its uncovered-item
+text and writing an equivalent-looking check. Every one was a strict superset of the real condition
+and refused grammars that compile.
+
+- `rule_role`-based check on `Affixation` — changed nothing, because that kind is
+  `Disposition::Proven` and predicates there are never consulted. No test failed. No behaviour
+  differed. Only a before/after divergence count showed it was inert.
+- `rule_role == Reduplication` — closed 4 divergences, broke 5 working ones.
+- `preexpand::unbounded_candidate_rules` — the emitter's **own** helper, and still broke 3 tests
+  asserting a concatenative realizational rule compiles.
+
+The third is the lesson in its sharpest form. **A helper named `*_candidates` / `*_candidate_rules`
+names a candidate set, not a decision.** The emitter turned that set into a refusal only under a
+plan-topology flag the caller had skipped. So:
+
+1. **Call the owning module's function.** If the fact is not exposed, **extract** it — factor the
+   condition out of the owner so the owner and the new caller share one computation and cannot
+   drift. `crate::emit::eager_route_refuses_unbounded_closure` and
+   `unbounded_closure_rule_ordinals` are the worked example: the emitter's body is now a call to the
+   same function the envelope reads.
+2. **A published fact gets a one-way gate.** `the_published_closure_fact_never_over_claims_a_refusal`
+   asserts only that a claimed refusal really refuses — the direction a caller gates on, where a
+   false positive costs a working capability.
+3. **Check the seam before the condition.** The same condition that failed as a `CapabilityPredicate`
+   (7 failures against ratified `ConfirmOnly` contracts) passed with 0 at
+   `backend_selection`'s existing per-strategy refusal seam, beside `plan_composed_marker_refusal`.
+   A backend-specific structural fact belongs there, not in a predicate, and needs no
+   `CharacteristicKind`.
+
+## Build the differential measurement before the change, not after
+
+The only reason those four reverts were cheap is that the measurement existed first.
+`envelope_agrees_with_compiler_gate` reports agreement and BOTH divergence directions over every
+fixture x every backend, so each wrong turn was refuted inside one build cycle at zero shipped
+regressions — including the one that produced no failure and no behaviour change at all.
+
+Before changing a refusal, a threshold, or a capability verdict, add the gate that would show the
+change was wrong. Prefer one that reports both directions: a gate that only counts what you closed
+cannot see what you broke. Existing examples to copy rather than reinvent:
+`envelope_agrees_with_compiler_gate`, `faithfulness_coverage_gate`, `witnessed_strategy_coverage_gate`.
+
+Stage the assertion. `FaithfulnessRequirement::NoMoreThan { failures }` is a ratchet, not a target —
+it holds today's count so a new regression fails while a known backlog stays legible. An
+all-or-nothing gate on a non-empty inventory asserts nothing and gets left that way.
+
 ## Managed build commands (required for agent workflows)
 
 All PanGloss Rust builds and tests in agent workflows MUST go through the managed entry point
@@ -38,7 +86,28 @@ interruption, and — for corpus-backed suites — the fail-closed corpus-requir
 worktree from reporting a corpus run as green while its declared inputs are absent. See
 `docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md` for the full design.
 
+**Reach for `check` first, `test` last.** Measured on this workspace: full-suite test EXECUTION is
+~100s (2143 tests), and pg-foma alone accounts for ~100s of it. The cost of a round trip is not
+running tests — it is compiling and linking **105 integration test targets plus 32 examples** in
+pg-foma alone. So:
+
+- `-Mode check` — `cargo check --all-targets`. Type-checks test and example code, stops before
+  codegen and linking, skips comment hygiene. This is the answer to "did my signature change break
+  test code", which a green `-Mode build` cannot tell you and twice did not.
+- `-Mode quick` — `check`'s question plus `nextest run --lib --bins`. No integration targets.
+- `-Mode test` / `-Mode conformance-test` — the authoritative run. A green `quick` is not a green
+  suite.
+
+Use `-Package` and `-TestTarget` to narrow COMPILATION; `-Filter` narrows execution only and still
+links everything.
+
+**Test runs no longer stop at the first failure.** `--no-fail-fast` is the default for every nextest
+mode; pass `-FailFast` to opt out. One trailing-newline mismatch once kept 838 tests from running,
+and a ledger recorded that early-stopping run's failure count as fact — it was wrong by 18x. A count
+from a run that stopped early is not a count.
+
 Use:
+- `rust/tools/pg.ps1 -Mode check` for the fast inner loop, `-Mode quick` to add unit tests.
 - `rust/tools/pg.ps1 -Mode build` (or `build.ps1`) / `-Mode test` (or `test.ps1`) for ordinary work.
 - `rust/tools/pg.ps1 -Mode corpus-test` for anything gated on `samples/data/` — it refuses before
   Cargo starts if a required corpus file is missing, and fails a run that records zero executed
@@ -104,7 +173,8 @@ record so a "why is this slower than I expected" question is answerable from the
   winning, so a personal `rust/` override still takes precedence.
 - **Test-execution cap.** `CARGO_BUILD_JOBS` bounds *compilation only*. Once cargo finishes
   building, nextest and libtest fan out test processes at their own default of one per logical
-  core — 20 here, since this repo has no `nextest.toml`. So a capped build was followed straight
+  core — 20 here, because `rust/.config/nextest.toml` sets no thread count (it exists, but only to put
+a 10-minute kill on a hung test; read it before adding a knob here). So a capped build was followed straight
   away by an uncapped 20-wide test run, and that is the heavier half: these suites spawn real
   processes (`pangloss.exe` and a full C **and** C++ toolchain for
   `pg-ffi::header_abi`), and corpus/foma cases can each reach many GB of RSS. Twenty at once is a

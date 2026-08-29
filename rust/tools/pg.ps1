@@ -11,6 +11,17 @@
   here, so there is exactly one place that policy is decided rather than two copies that can drift.
 
   Modes:
+    check         cargo check --all-targets. The fast inner loop: it type-checks TEST and EXAMPLE
+                  code, which `build` never touches, and stops before codegen and linking. That
+                  matters because linking is where the time is -- pg-foma alone has 105 integration
+                  test targets and 32 examples, and a green `build` has twice hidden broken test
+                  code that only a full `test` round-trip revealed. Skips comment hygiene: that is a
+                  prose check, and this mode is asked exactly one question. Uses the same profile as
+                  `test` so its fingerprints are the ones a later test run reuses.
+    quick         check's question plus unit tests: `nextest run --lib --bins`. Deliberately does
+                  NOT build the integration targets -- that is the expensive half and what `test`
+                  is for. Hygiene off, same profile, so a warm loop stays inside a few minutes.
+                  A green `quick` is not a green suite; it is a fast way to be wrong less often.
     build        cargo build. --release unless -DebugProfile (matches build.ps1's existing
                   default exactly -- this mode exists for backward compatibility with that
                   script's long-standing behavior, not because "build" is meant to imply a dev
@@ -78,6 +89,9 @@
                   the deliberate choice, not an oversight.
 
   Examples:
+    rust\tools\pg.ps1 -Mode check                  # does everything, including test code, compile?
+    rust\tools\pg.ps1 -Mode quick -Package pg-foma # + that package's unit tests
+    rust\tools\pg.ps1 -Mode test -FailFast         # stop at the first failure (default: report all)
     rust\tools\pg.ps1 -Mode build -Package pg-foma
     rust\tools\pg.ps1 -Mode test
     rust\tools\pg.ps1 -Mode corpus-test -Package pg-foma -Filter f1_sena
@@ -128,7 +142,7 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree', 'remove-worktree')]
+    [ValidateSet('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'doctor', 'gc', 'run', 'new-worktree', 'remove-worktree')]
     [string]$Mode,
     # conformance-test only and MANDATORY there; no default by design (see CLAUDE.md).
     [ValidateSet('local', 'all')][string]$Scope = '',
@@ -149,6 +163,9 @@ param(
     [int]$RunMemoryGB = 0,
     [switch]$DebugProfile,
     [switch]$NoNextest,
+    # Stop at the first failing test. OFF by default: a run that stops early answers a different
+    # question than the one asked, and a failure count taken from one is not a failure count.
+    [switch]$FailFast,
     [int]$MaxConcurrent = 2,
     # 0 = derive from the machine; see this script's own header.
     [int]$Jobs = 0,
@@ -487,6 +504,8 @@ function Invoke-RustFmt {
 
 $profileLabel = switch ($Mode) {
     'release' { 'release (fat LTO)' }
+    'check' { if ($DebugProfile) { 'dev (check; no codegen, no linking)' } else { "$($script:TestOptProfile) (check; no codegen, no linking)" } }
+    'quick' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
     'test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
     'corpus-test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
     'conformance-test' { if ($DebugProfile) { 'dev' } else { $script:TestOptProfile } }
@@ -507,7 +526,7 @@ Write-Preflight -Mode $Mode -Profile $profileLabel -RepoRoot $repoRoot -TargetDi
     -CorpusState $corpusState -ConformanceCheck $conformanceCheck `
     -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit `
     -JobsBudget $jobsBudget -PerJobMemoryGB $perJobMemGB `
-    -TestThreads $(if ($Mode -in @('test', 'corpus-test', 'conformance-test')) { $TestThreads } else { 0 }) `
+    -TestThreads $(if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) { $TestThreads } else { 0 }) `
     -TestThreadsBudget $testThreadsBudget -Priority $Priority -HostCgroupProof $linuxHostProof
 
 if ($BaseMode -ne 'off' -and $baseCheck.Checked -and -not $baseCheck.Ok) {
@@ -549,10 +568,12 @@ if (-not $memCheck.Ok -and $Mode -notin @('gc', 'doctor')) {
 }
 
 # Not in doctor: it reports this in its own findings section further up, so an unguarded call would scan twice there.
-if ($Mode -ne 'doctor') { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
+# Skipped for the fast loops: hygiene is a prose check that costs 10-16s and says nothing about
+# whether the code compiles, which is the only question `check`/`quick` are asked.
+if ($Mode -notin @('doctor', 'check', 'quick')) { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
 
 # Only for modes that actually compile: `gc`/`run` must not rewrite source, and `doctor` is read-only.
-if ($Mode -in @('build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc')) { Invoke-RustFmt -RustRoot $rustRoot }
+if ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc')) { Invoke-RustFmt -RustRoot $rustRoot }
 
 if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
     Write-Host '[pg] corpus-test refused BEFORE starting cargo -- required corpus file(s) missing:' -ForegroundColor Red
@@ -654,10 +675,31 @@ if ($Mode -eq 'gc') {
 if ($Mode -ne 'run') {
 
 # build / test / corpus-test / release all run cargo from here.
-$useNextest = ($Mode -in @('test', 'corpus-test', 'conformance-test')) -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
+$useNextest = ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
 
 $cargoArgs = @()
 switch ($Mode) {
+    'check' {
+        # --all-targets is the whole point: it type-checks TEST and EXAMPLE code, which `build`
+        # never touches, and it stops before codegen and linking -- the expensive half here, since
+        # pg-foma alone links 105 integration targets plus 32 examples.
+        #
+        # Same profile as `test` deliberately: a different one would not share fingerprints with the
+        # test build, so the check would warm a cache nothing else reads.
+        $cargoArgs += @('check', '--all-targets')
+        if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
+    }
+    'quick' {
+        # Unit tests only. The 105 integration targets are where the link time is, and running them
+        # is what `test` is for; this mode answers "did I break something obvious" in one pass.
+        if ($useNextest) {
+            $cargoArgs += @('nextest', 'run', '--lib', '--bins', '--test-threads', "$TestThreads")
+            if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
+        } else {
+            $cargoArgs += @('test', '--lib', '--bins')
+            if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
+        }
+    }
     'build' {
         $cargoArgs += 'build'
         if (-not $DebugProfile) { $cargoArgs += '--release' }
@@ -706,13 +748,16 @@ if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--worksp
 if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 
 if ($useNextest) {
+    # Default-off fail-fast: a run that stops at the first failure reports a count that is not the
+    # count. One trailing-newline mismatch once hid 838 tests and put a wrong figure in a ledger.
+    if (-not $FailFast) { $cargoArgs += '--no-fail-fast' }
     if ($Filter) { $cargoArgs += $Filter }
     # Without this, PANGLOSS_CORPUS_CASES lines from PASSING tests are swallowed and misreport as zero cases.
     if ($Mode -eq 'corpus-test') { $cargoArgs += '--no-capture' }
 } else {
     $trailing = @()
     if ($Filter) { $trailing += $Filter }
-    if ($Mode -in @('test', 'corpus-test', 'conformance-test')) { $trailing += @('--test-threads', "$TestThreads") }
+    if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) { $trailing += @('--test-threads', "$TestThreads") }
     if ($Mode -eq 'corpus-test') {
         $trailing += '--nocapture'
         # libtest's spelling of nextest's --run-ignored all: without it, every corpus test (all #[ignore]d) is skipped.
@@ -727,7 +772,7 @@ if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
 if ($Mode -eq 'corpus-test') { $env:PANGLOSS_CORPUS_REQUIRED = '1' }
 
 # 'test'/'corpus-test' claim 'all' HERE, not as a library default, so the claim is visible and printed.
-if ($Mode -in @('test', 'corpus-test', 'conformance-test')) {
+if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
     $claimedScope = if ($Mode -eq 'conformance-test') { $Scope } else { 'all' }
     $env:PANGLOSS_CONFORMANCE_SCOPE = $claimedScope
     Write-Host "[pg] conformance scope: $claimedScope" -ForegroundColor DarkCyan
@@ -779,7 +824,7 @@ try {
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-ProcessInJobObject @invokeArgs
     } elseif ($Mode -eq 'corpus-test') {
-        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
+        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) "pg-corpus-test-$PID.log"
         $invokeArgs = @{
@@ -803,7 +848,7 @@ try {
         }
         Write-Host "[pg] corpus-test executed $totalCases corpus case(s) across $($caseLines.Count) label(s)." -ForegroundColor Green
     } else {
-        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
+        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $invokeArgs = @{
             Exe = 'cargo'; CmdArgs = $cargoArgs; WorkingDirectory = $rustRoot
@@ -849,3 +894,4 @@ if ($Mode -eq 'release' -and $code -eq 0 -and $targetDir) {
 }
 
 exit $code
+
