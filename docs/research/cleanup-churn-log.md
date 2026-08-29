@@ -224,3 +224,34 @@ Both were reverted. What the tree keeps is the measurement that made them legibl
 `envelope_agrees_with_compiler_gate` now reports agreement, both divergence directions, and the
 named uncovered constructs behind each surface-probe refusal. Before it existed, either change
 could have shipped looking correct.
+
+## 12. Three capability predicates, three over-refusals, one root cause
+
+Item 11 covered the first two; a third confirmed the pattern and named it.
+
+A `CapabilityPredicate` receives the grammar, the profile, and one `PlanNodeKind` — never the plan.
+Every refusal in the emitter's too-lax inventory is decided *after* the emitter knows which route
+the plan asked for. So a grammar-only condition is necessarily a superset of the emitter's own, and
+over-refuses:
+
+| condition | kind | closed | broke |
+|---|---|---|---|
+| `rule_role` role check | `Affixation` | 0 | 0 — never consulted (`Disposition::Proven`) |
+| `rule_role == Reduplication` | `Reduplication` | 4 | 5 |
+| `unbounded_candidate_rules` non-empty | `RealizationalMorphology` | 1 | 9 |
+
+The third is the sharpest, because it used the emitter's *own* helper —
+`crate::preexpand::unbounded_candidate_rules`, literally the set the refusal is computed from — and
+still broke three tests asserting a concatenative realizational rule compiles fine. The helper names
+candidates; the emitter turns them into a refusal only under a plan flag the predicate cannot see.
+
+What made this cheap rather than expensive: each attempt was measured and reverted inside one build
+cycle, because `envelope_agrees_with_compiler_gate` reports both divergence directions. Without it
+the first attempt would have looked like a clean win (4 divergences closed) and the breakage would
+have been attributed to something else. The first attempt in particular changed **nothing at all** —
+no failure, no behaviour difference — and only the before/after divergence numbers showed it was
+inert.
+
+The conclusion is architectural, not a matter of trying harder: either the predicate gets the plan,
+or the emitter publishes its route decision as a grammar-level fact the envelope can read, the way
+`structural_composite_attempted` already publishes `is_structural_rule`.

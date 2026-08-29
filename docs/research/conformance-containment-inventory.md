@@ -120,6 +120,40 @@ So the next attempt needs the emitter's own routing decision surfaced as a gramm
 rather than a condition inferred from the uncovered item's text. Reusing `crate::emit::rule_role`
 was right — it is the same classifier — but the role alone is not the emitter's guard.
 
+### Why all three predicate attempts failed: the emitter's refusals are plan-conditional
+
+Three attempts, three different kinds, one root cause. A `CapabilityPredicate` receives the grammar,
+the profile, and **one `PlanNodeKind`** — never the plan. Every refusal in the too-lax inventory is
+decided by the emitter *after* it knows which route the plan asked for, so a grammar-only condition
+is necessarily a superset of the emitter's own and over-refuses:
+
+| attempt | kind | outcome |
+|---|---|---|
+| `rule_role`-based | `Affixation` | never consulted — that kind is `Disposition::Proven` |
+| `rule_role == Reduplication` | `Reduplication` | closed 4, broke 5: the peel covers those rules on another route |
+| `unbounded_candidate_rules` | `RealizationalMorphology` | closed 1, broke 9: the emitter refuses only when `plan_wants_composite_emission`, and this helper is the *candidate* superset |
+
+The third is the clearest statement of the pattern. `crate::preexpand::unbounded_candidate_rules` is
+exactly the set the emitter starts from, and using it still broke three tests asserting that a
+*concatenative* realizational rule compiles through a regular loop — because the emitter only turns
+that candidate set into a refusal under a plan flag the predicate cannot see.
+
+Only predicates are gated by disposition, and only `Proven` is skipped (`capability.rs`'s
+`.filter(|o| o.disposition != Disposition::Proven)`); `ConfirmOnly` kinds like
+`RealizationalMorphology` **are** consulted, which is why attempt three ran at all where attempt one
+silently did nothing.
+
+So closing the too-lax inventory needs one of two structural changes, not more predicates:
+
+- **give the predicate the plan**, so a grammar-and-plan condition can match the emitter's; or
+- **have the emitter publish its route decision as a grammar-level fact** the envelope reads,
+  the way `structural_composite_attempted` already publishes `is_structural_rule`.
+
+The second is the smaller change and matches how this envelope already works elsewhere. Either way,
+a predicate written against a grammar-only condition will keep over-refusing, and the divergence
+gate will keep catching it — all three attempts were measured and reverted within one build cycle
+each, at a cost of 0 shipped regressions.
+
 ### The reduplication third is an emitter over-report, not a capability gap
 
 Measured, for exactly the mrules each refusal names:
