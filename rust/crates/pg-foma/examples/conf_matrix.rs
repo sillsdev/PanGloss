@@ -1,13 +1,5 @@
 //! Full backend scoreboard (`pg.ps1 -Mode run -Example conf_matrix`): every discovered conformance
-//! fixture x every `EmissionStrategy`, measured directly against the same run-scoped
-//! `RunEvaluationCache` per fixture. Per `docs/research/backend-measurement-instruments.md`:
-//! constructing a `LoweredCandidate` with `LoweringAdapter::for_strategy(...)` and calling
-//! `evaluate_plans_observed_with_cache` BYPASSES `select_backends`, so a capability-refused backend
-//! still compiles and runs here rather than reading as a pre-filtered refusal.
-//!
-//! Measurement only -- no production behaviour changes. Run in the foreground or background per
-//! `pg.ps1 -Mode run -Example conf_matrix`; never as a `#[test]` (nextest's 10-minute kill would
-//! truncate a full sweep silently).
+//! fixture x every `EmissionStrategy`. See docs/research/backend-measurement-instruments.md.
 
 use std::collections::BTreeMap;
 
@@ -24,10 +16,7 @@ use pg_foma::parity::IdentityDivergence;
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
 use pg_grammar::model::Grammar;
 
-/// Per-fixture word cap. Measured 2026-08-29 (see report): the largest fixture on disk today is 63
-/// words (`machine/languages/fusional-realizational-morphology`), well under this. It exists for a
-/// future larger corpus, not because one was observed at this size -- and any fixture it actually
-/// truncates is labeled in that fixture's own output, never silently.
+/// Safety margin above any fixture on disk; a larger fixture is subsampled and its own row says so.
 const MAX_WORDS_PER_FIXTURE: usize = 200;
 
 /// One strategy's measured outcome for one fixture.
@@ -36,17 +25,15 @@ struct StrategyRow {
     /// `Ok(())` = the network built; `Err(reason)` names the typed refusal/failure.
     compiles: Result<(), String>,
     certification_debug: String,
-    /// `Certification::FullHcConfirmed` -- every comparable word's confirmed output matched the
-    /// oracle's identity set exactly.
+    /// `Certification::FullHcConfirmed`: every comparable word matched the oracle's identity set.
     exact: bool,
     /// ADR-0001 defect: identities the oracle found that the CONFIRMED output missed.
     recall_oracle_only: u64,
     /// Real defect regardless of ADR-0001: identities the CONFIRMED output has that the oracle does not.
     soundness_candidate_only: u64,
-    /// Informational, legal under ADR-0001: raw pre-confirm proposals (by admission key) that did not
-    /// survive into the confirmed output.
+    /// Informational, legal under ADR-0001: raw proposals not surviving into the confirmed output.
     legal_overgeneration: u64,
-    /// Words evidence reached (`Some`) vs never reached (`None` -> `could_not_measure` names why).
+    /// `Some` when per-word evidence was produced; `None` means it was not (see could_not_measure).
     words_measured: Option<usize>,
     could_not_measure: Option<String>,
 }
@@ -60,8 +47,7 @@ struct FixtureRow {
     expect_fail_count: usize,
     expect_skip_count: usize,
     strategies: Vec<StrategyRow>,
-    /// `None` = the fixture itself could not be measured at all (load failure, empty corpus, oracle
-    /// preparation fault) -- distinct from every strategy individually failing.
+    /// `None` means the fixture itself could not be measured at all, distinct from a per-strategy failure.
     exact_count: Option<usize>,
 }
 
@@ -366,9 +352,7 @@ fn unmeasurable_row(label: &str, reason: String) -> FixtureRow {
     }
 }
 
-/// Whether `certification` means the candidate's network was actually BUILT. See this file's own
-/// module doc for the exact rule and why `Truncated`/`ResourceBreach`/`IdentityMismatch` all count
-/// as "compiles=yes" (the network built; the corpus-level verdict is a separate question).
+/// `Ok` means the candidate's network was actually built; only CapabilityRejected/BuildFailed/Unsupported count against it.
 fn compile_verdict(certification: &Certification) -> Result<(), String> {
     match certification {
         Certification::CapabilityRejected { reason }
@@ -413,10 +397,8 @@ fn subtract_divergence(
     }
 }
 
-/// Raw pre-confirm proposals (by admission key: morpheme ids + root index, the same key
-/// `crate::confirm::confirm_batch` routes on) that did not survive into the post-confirm `actual`
-/// result for this one word occurrence. Informational under ADR-0001, never a defect on its own --
-/// see this file's module doc and `docs/research/backend-measurement-instruments.md`.
+/// Raw pre-confirm proposals (admission key: morpheme ids + root index) not surviving into the
+/// confirmed output for one word. See docs/research/backend-measurement-instruments.md.
 fn proposals_pruned_by_confirm(evidence: &pg_foma::backend_runtime::WordEvidence) -> u64 {
     let mut actual_keys: BTreeMap<(Vec<u32>, i32), usize> = BTreeMap::new();
     for a in &evidence.actual {
