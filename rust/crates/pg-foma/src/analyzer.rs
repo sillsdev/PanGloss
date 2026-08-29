@@ -76,9 +76,7 @@ impl fmt::Display for FomaError {
     }
 }
 
-/// The constructs a report could not cover, in the `[kind] id -- reason` shape ADR-0001 asks a
-/// refusal to name. A tier alone says how bad the outcome was, never what could not be done, and
-/// `EmitReport::uncovered` has carried the answer all along.
+/// The constructs a report could not cover; a tier says how bad the outcome was, never what.
 fn uncovered_constructs(report: &EmitReport) -> String {
     if report.uncovered.is_empty() {
         return "no construct named; see the tier's own reason".to_owned();
@@ -318,12 +316,7 @@ impl FomaProposer {
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
 
-        // Before emitting: a construct this backend cannot represent is knowable from the
-        // characterization, and ADR-0001 puts the refusal here rather than in an emit tier.
-        //
-        // Skipped for the unproven developer path, whose whole purpose is to inspect a result the
-        // envelope refuses. That is not an override of ADR-0001's "never overridable by production
-        // selection": this path publishes nothing and stamps its output unproven.
+        // Refused before emitting, per ADR-0001; the unproven path is exempt and publishes nothing.
         if !allow_incomplete {
             if let Err(diagnostics) =
                 crate::capability_gate::refuse_unless_admitted(g, Self::EMISSION_STRATEGY)

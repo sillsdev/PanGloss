@@ -2979,30 +2979,7 @@ fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
         .any(|(_, kind)| matches!(kind, PlanNodeKind::Leaf { fragment: f, .. } if f == fragment))
 }
 
-/// Builds `g`'s reified `Plan` (`crate::enumerate::enumerate_default`) and returns
-/// `emit_with_budget_profiled`'s two topology decisions **derived from it** --
-/// `(plan wants the composite-emission subtree, plan wants the structural-composite subtree)` --
-/// rather than that function calling `crate::preexpand::should_run`/
-/// `structural_candidate_rules(...).is_empty()` a second, independently-derived time.
-/// `crate::enumerate::enumerate_default` is the ONE place these two seams are
-/// consulted to decide topology; this function only ever READS the plan it built. (The third seam,
-/// `gate::partition_entries`, belongs to `gate.rs`'s separate compile entry point, which this
-/// mainline lexc-emission path never calls at all -- see `emit_with_budget_profiled`'s own doc.)
-///
-/// `prules_in_order`/`alphabet` mirror `crate::capability_entry::best_case_across_backends`'s own
-/// construction of these same `enumerate_default` inputs (that module's own doc: this crate's
-/// mainline lexc-emission path doesn't build a `Replace` cascade at all, so `prules_in_order` isn't
-/// already a local anywhere in `emit.rs` -- built the same way every other real construction site in
-/// this crate does: `g`'s strata, in order, flattened over each stratum's own `phonologicalRules` id
-/// list, as literal borrows of `g.prules`).
-///
-/// Cheap and side-effect-free: `crate::enumerate::enumerate_default` builds plan DATA only
-/// (`crate::plan`'s own module doc: "no live `Fsm` is built here at all") -- calling it here does
-/// not build or compose any real FST, just the same handful of `Vec`/`HashMap` grammar-data scans
-/// `should_run`/`structural_candidate_rules`/`find_gated_subrules`/`partition_entries` already
-/// perform on their own.
-/// The realizational rules whose closure the eager route cannot bound, given which subtrees the
-/// plan topology asks for. Shared so the emitter and any pre-emission caller read one computation.
+/// Realizational rules whose closure the eager route cannot bound, given the plan topology.
 fn unbounded_closure_rule_ordinals(
     g: &Grammar,
     struct_rules: &[MRuleId],
@@ -3026,20 +3003,7 @@ fn unbounded_closure_rule_ordinals(
     rules
 }
 
-/// Whether the eager route would refuse `g` outright for unbounded realizational closure -- the
-/// same decision [`emit_with_budget`] makes, reachable without emitting.
-///
-/// The plan topology it depends on is itself derived from the grammar
-/// ([`plan_topology_decisions`]), so this is a grammar-level fact despite the emitter reaching it
-/// mid-emission. A caller that recomputes the rule set WITHOUT that topology gate gets a strict
-/// superset and will refuse grammars this route compiles.
-/// Whether the surface route would DROP root spellings for `g`: some lexical allomorph's shape
-/// enumerates past [`REP_VARIANT_CAP`], and the excess spellings are then simply absent from the
-/// network. Reachable without emitting, since it is a function of each stratum's own table and the
-/// shapes in it.
-///
-/// Unlike a construct another route might still cover, a dropped spelling has no second home: the
-/// emitter reports it as an uncovered item precisely because nothing else proposes it.
+/// Whether the surface route drops root spellings past [`REP_VARIANT_CAP`], without emitting.
 pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
     g.strata.iter().any(|sd| {
         let table = &g.char_tables[sd.table.0 as usize];
@@ -3052,6 +3016,7 @@ pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
     })
 }
 
+/// Unbounded realizational closure, decided from `g` alone rather than from an emit attempt.
 pub fn eager_route_refuses_unbounded_closure(g: &Grammar) -> bool {
     let phon = PhonologyProbe::new(g);
     let decisions = plan_topology_decisions(g, phon.as_ref());
@@ -3059,6 +3024,28 @@ pub fn eager_route_refuses_unbounded_closure(g: &Grammar) -> bool {
     !unbounded_closure_rule_ordinals(g, &struct_rules, decisions).is_empty()
 }
 
+/// Builds `g`'s reified `Plan` (`crate::enumerate::enumerate_default`) and returns
+/// `emit_with_budget_profiled`'s two topology decisions **derived from it** --
+/// `(plan wants the composite-emission subtree, plan wants the structural-composite subtree)` --
+/// rather than that function calling `crate::preexpand::should_run`/
+/// `structural_candidate_rules(...).is_empty()` a second, independently-derived time.
+/// `crate::enumerate::enumerate_default` is the ONE place these two seams are
+/// consulted to decide topology; this function only ever READS the plan it built. (The third seam,
+/// `gate::partition_entries`, belongs to `gate.rs`'s separate compile entry point, which this
+/// mainline lexc-emission path never calls at all -- see `emit_with_budget_profiled`'s own doc.)
+///
+/// `prules_in_order`/`alphabet` mirror `crate::capability_entry::best_case_across_backends`'s own
+/// construction of these same `enumerate_default` inputs (that module's own doc: this crate's
+/// mainline lexc-emission path doesn't build a `Replace` cascade at all, so `prules_in_order` isn't
+/// already a local anywhere in `emit.rs` -- built the same way every other real construction site in
+/// this crate does: `g`'s strata, in order, flattened over each stratum's own `phonologicalRules` id
+/// list, as literal borrows of `g.prules`).
+///
+/// Cheap and side-effect-free: `crate::enumerate::enumerate_default` builds plan DATA only
+/// (`crate::plan`'s own module doc: "no live `Fsm` is built here at all") -- calling it here does
+/// not build or compose any real FST, just the same handful of `Vec`/`HashMap` grammar-data scans
+/// `should_run`/`structural_candidate_rules`/`find_gated_subrules`/`partition_entries` already
+/// perform on their own.
 pub(crate) fn plan_topology_decisions(g: &Grammar, phon: Option<&PhonologyProbe>) -> (bool, bool) {
     let prules_in_order: Vec<&PhonRuleDef> = g
         .strata
@@ -4175,15 +4162,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     deriv_suffix.push(mid);
                 }
                 Role::CircumfixPrefix => {}
-                // This loop places a rule by its PRIMARY allomorph's role and has no arm for
-                // reduplication, but the peel proposes those analyses, so reporting them uncovered
-                // refuses a grammar this backend covers. Verified rather than assumed: the four
-                // fixtures it unblocks add no containment failure against the full-HC oracle.
-                //
-                // Deliberately NOT extended to `is_structural_rule`, which names a structural
-                // CANDIDATE whose route only runs under a plan topology this loop cannot see --
-                // `phase_c_circumfix::process_role_drop_stays_honestly_unsupported` pins a
-                // `Role::Process` drop that must stay visible.
+                // The peel proposes these, so reporting them uncovered would refuse a covered grammar.
                 _ if reduplication_rule_is_peelable(g, mid) => {}
                 other => uncovered.push(UncoveredItem {
                     kind: other.label().to_string(),
@@ -6713,3 +6692,4 @@ mod aweti_enum_census {
         });
     }
 }
+

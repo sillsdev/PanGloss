@@ -125,12 +125,6 @@ pub fn compile_with_backend(g: &Grammar, strategy: EmissionStrategy) -> Result<(
 }
 
 /// The plan-composing backend's production shape: enumerate the default plan, interpret it, and run the mandatory boundary-token cleanup a proposer needs.
-///
-/// `build_controllable` interprets the controllable subtree ALONE and documents the marker leaves as
-/// out of its scope, so a marker-bearing plan builds a network that omits them and under-generates.
-/// That is correct for `build_controllable`'s own callers, which compare subtrees or measure sizes.
-/// It is not correct here, where an `Ok` is a claim that this backend can run this grammar, so the
-/// marker check `crate::backend_runtime`'s realization path already applies belongs here too.
 fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
     let table = g
         .char_tables

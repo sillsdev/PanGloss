@@ -163,8 +163,7 @@ param(
     [int]$RunMemoryGB = 0,
     [switch]$DebugProfile,
     [switch]$NoNextest,
-    # Stop at the first failing test. OFF by default: a run that stops early answers a different
-    # question than the one asked, and a failure count taken from one is not a failure count.
+    # Stop at the first failing test. Off by default -- see the header block.
     [switch]$FailFast,
     [int]$MaxConcurrent = 2,
     # 0 = derive from the machine; see this script's own header.
@@ -568,8 +567,6 @@ if (-not $memCheck.Ok -and $Mode -notin @('gc', 'doctor')) {
 }
 
 # Not in doctor: it reports this in its own findings section further up, so an unguarded call would scan twice there.
-# Skipped for the fast loops: hygiene is a prose check that costs 10-16s and says nothing about
-# whether the code compiles, which is the only question `check`/`quick` are asked.
 if ($Mode -notin @('doctor', 'check', 'quick')) { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
 
 # Only for modes that actually compile: `gc`/`run` must not rewrite source, and `doctor` is read-only.
@@ -680,18 +677,12 @@ $useNextest = ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) 
 $cargoArgs = @()
 switch ($Mode) {
     'check' {
-        # --all-targets is the whole point: it type-checks TEST and EXAMPLE code, which `build`
-        # never touches, and it stops before codegen and linking -- the expensive half here, since
-        # pg-foma alone links 105 integration targets plus 32 examples.
-        #
-        # Same profile as `test` deliberately: a different one would not share fingerprints with the
-        # test build, so the check would warm a cache nothing else reads.
+        # --all-targets reaches test and example code; check stops before codegen and linking.
         $cargoArgs += @('check', '--all-targets')
         if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
     }
     'quick' {
-        # Unit tests only. The 105 integration targets are where the link time is, and running them
-        # is what `test` is for; this mode answers "did I break something obvious" in one pass.
+        # Unit tests only; the integration targets are the link cost and `test` runs them.
         if ($useNextest) {
             $cargoArgs += @('nextest', 'run', '--lib', '--bins', '--test-threads', "$TestThreads")
             if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
@@ -748,12 +739,11 @@ if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--worksp
 if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 
 if ($useNextest) {
-    # Default-off fail-fast: a run that stops at the first failure reports a count that is not the
-    # count. One trailing-newline mismatch once hid 838 tests and put a wrong figure in a ledger.
-    if (-not $FailFast) { $cargoArgs += '--no-fail-fast' }
+    # Skipped when the caller already passed it; nextest refuses a repeated flag.
+    if ((-not $FailFast) -and ($ExtraArgs -notcontains '--no-fail-fast')) { $cargoArgs += '--no-fail-fast' }
     if ($Filter) { $cargoArgs += $Filter }
     # Without this, PANGLOSS_CORPUS_CASES lines from PASSING tests are swallowed and misreport as zero cases.
-    if ($Mode -eq 'corpus-test') { $cargoArgs += '--no-capture' }
+    if (($Mode -eq 'corpus-test') -and ($ExtraArgs -notcontains '--no-capture')) { $cargoArgs += '--no-capture' }
 } else {
     $trailing = @()
     if ($Filter) { $trailing += $Filter }

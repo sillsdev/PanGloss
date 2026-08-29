@@ -14,11 +14,9 @@ use pg_foma::witnessed_coverage::compile_with_backend;
 #[derive(Debug, PartialEq, Eq)]
 enum Agreement {
     Agree,
-    /// The envelope admitted the backend and the compiler then refused. Safe -- the compiler caught
-    /// it -- but decided in the wrong place and in the wrong vocabulary.
+    /// The envelope admitted, the compiler refused: safe, but decided in the wrong place.
     TooLax(String),
-    /// The envelope refused a backend that compiles. Gating on the envelope would lose a capability
-    /// the tree actually has, so this direction must stay empty.
+    /// The envelope refused a backend that compiles; gating on it would lose a working capability.
     TooStrict,
 }
 
@@ -33,8 +31,7 @@ fn observe(name: &str, strategy: EmissionStrategy) -> Option<(String, Agreement)
         .report_for(strategy)
         .is_some_and(BackendReport::can_represent);
 
-    // Compiled REGARDLESS of the verdict: the disagreement is the measurement, so honouring the
-    // verdict here would make the too-strict direction unobservable by construction.
+    // Compiled regardless of the verdict; honouring it would hide the too-strict direction.
     let compiled = match panic::catch_unwind(AssertUnwindSafe(|| {
         compile_with_backend(&grammar, strategy)
     })) {
@@ -63,13 +60,7 @@ fn sweep() -> Vec<(String, Agreement)> {
     rows
 }
 
-/// The surface probe gates on the envelope, so for it a refusal must never cost a working compile.
-///
-/// Asserted for this backend alone. The other two also record `TooStrict` rows, but a build that
-/// succeeds is not yet evidence there that the envelope is wrong: `crate::build`'s own doc records a
-/// marker-bearing plan building a network that proposed nothing for 19 of 20 corpus words, so those
-/// builds succeed while under-generating. Widening this assertion needs the builders to refuse what
-/// they cannot faithfully build, not a looser envelope.
+/// Only the surface probe gates on the envelope, so only there may a refusal never cost a compile.
 #[test]
 fn the_envelope_never_refuses_a_surface_probe_that_compiles() {
     let rows = sweep();
@@ -95,11 +86,7 @@ fn the_envelope_never_refuses_a_surface_probe_that_compiles() {
     );
 }
 
-/// Names the constructs behind each surface-probe divergence -- the input to writing a predicate.
-///
-/// A tier alone ("Partial { uncovered: 1 }") does not say what could not be done, which is what
-/// ADR-0001 asks a refusal to carry. `EmitReport::uncovered` has carried kind/id/reason all along;
-/// nothing on the production path reads it.
+/// Names the constructs behind each surface-probe divergence; a tier alone does not.
 #[test]
 fn report_uncovered_constructs_behind_surface_probe_divergence() {
     let mut named = 0usize;
@@ -129,9 +116,7 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
                 item.reason
             );
         }
-        // Whether structural synthesis already claims the rule each uncovered item names. One it
-        // claims is an emitter OVER-REPORT, not a capability gap, and the two want opposite fixes:
-        // an over-report is fixed in the emitter, a gap by refusing at the envelope.
+        // A rule structural synthesis already claims is an emitter over-report, not a gap.
         let routed = pg_foma::emit::structurally_routed_rule_ordinals(&grammar);
         for item in &report.uncovered {
             let Some(ordinal) = item
@@ -161,11 +146,6 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
 }
 
 /// The published closure fact must never claim a refusal the eager route does not make.
-///
-/// It exists so a pre-emission caller can reach that decision without emitting. Asserted one way
-/// round deliberately: a caller gates on "this says refuse", so a false positive there refuses a
-/// grammar the route compiles, while the emitter refusing for some other reason is not this fact's
-/// business.
 #[test]
 fn the_published_closure_fact_never_over_claims_a_refusal() {
     let mut claimed = 0usize;
@@ -193,11 +173,6 @@ fn the_published_closure_fact_never_over_claims_a_refusal() {
 }
 
 /// The root-spelling fact must never claim a drop the surface route does not make.
-///
-/// Same one-way contract as the closure fact, and pinned for the same reason: it is published for a
-/// caller that would gate on it, and gating on a false positive refuses a grammar that compiles.
-/// It is not yet met into selection — it refuses two reference grammars, which is a question the
-/// fixture set cannot answer.
 #[test]
 fn the_published_root_spelling_fact_never_over_claims_a_drop() {
     let mut claimed = 0usize;
@@ -258,10 +233,10 @@ fn report_envelope_compiler_divergence() {
         eprintln!("  {label}: {reason}");
     }
 
-    // Non-vacuity only, mirroring `faithfulness_coverage_gate`: this becomes an equality against 0
-    // once each construct above is answered by a capability predicate instead of by the emitter.
+    // Non-vacuity only, mirroring `faithfulness_coverage_gate`; becomes == 0 when the list empties.
     assert!(
         rows.iter().any(|(_, a)| *a == Agreement::Agree),
         "no fixture agreed, so this sweep is measuring nothing"
     );
 }
+

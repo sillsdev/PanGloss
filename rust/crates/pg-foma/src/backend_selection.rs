@@ -342,13 +342,7 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
     // No advice: the catalog advises grammar changes, and no grammar change starts a compiler.
 }
 
-/// The surface probe's own structural refusal, in the same shape as the plan-composed marker one.
-///
-/// Not a capability predicate, and deliberately so. A predicate answers a `CharacteristicKind`
-/// question, and "this route cannot bound a realizational rule's closure" is not one — the kinds it
-/// would fall under are `Proven` or carry ratified `ConfirmOnly` verdicts this must not overturn.
-/// The marker refusal beside it is the precedent: a backend-specific structural fact met into one
-/// strategy's decision, leaving `compose_envelope`'s per-kind answers untouched.
+/// The surface probe's own structural refusal, shaped like the plan-composed marker one beside it.
 fn tuned_surface_closure_refusal() -> CompileDecision {
     CompileDecision::Refuse(vec![CapabilityDiagnostic {
         predicate: "surface-probe.finite-closure-bound",
@@ -360,20 +354,13 @@ fn tuned_surface_closure_refusal() -> CompileDecision {
     }])
 }
 
-/// Every structural fact that stops the surface probe, met into one refusal; `None` when it has
-/// none. Each is a decision that route makes about this grammar, published so selection can reach
-/// it without emitting.
+/// Every structural fact that stops the surface probe, met into one refusal.
 fn tuned_surface_structural_refusal(g: &Grammar) -> Option<CompileDecision> {
     let mut refusals = Vec::new();
     if crate::emit::eager_route_refuses_unbounded_closure(g) {
         refusals.push(tuned_surface_closure_refusal());
     }
-    // `crate::emit::eager_route_drops_root_spellings` is deliberately NOT met in yet. It closes
-    // three fixture divergences, but it also refuses Aweti and Mbugwe, leaving those two reference
-    // grammars with no accepted backend at all. Whether that is a correct refusal of a network that
-    // silently loses spellings, or a capability loss, is not decidable from the fixture set: the
-    // faithfulness sweep does not cover corpus grammars, and nothing has ever compiled those two on
-    // this route to find out. See docs/research/conformance-containment-inventory.md.
+    // eager_route_drops_root_spellings is NOT met in yet -- docs/research/conformance-containment-inventory.md.
     refusals.into_iter().reduce(meet)
 }
 

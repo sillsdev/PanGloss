@@ -754,8 +754,7 @@ mod tests {
             .any(|v| v.contains("FAILED proposal containment")));
     }
 
-    /// The ratchet must admit today's inventory and refuse one more -- a ceiling that cannot detect
-    /// its own target would pass for every count and gate nothing.
+    /// The ratchet must admit today's count and refuse one more, or it gates nothing.
     #[test]
     fn the_ratchet_admits_its_own_count_and_refuses_one_more() {
         let report = build_report(
@@ -773,8 +772,7 @@ mod tests {
                 )],
             )],
         );
-        // Asserted on the RATCHET's own violation, not on overall success: this synthetic report
-        // exercises one backend, so `check` reports a non-vacuity violation either way.
+        // On the ratchet's own violation: one backend trips non-vacuity either way.
         let at_count = report
             .check(FaithfulnessRequirement::NoMoreThan { failures: 1 })
             .err()

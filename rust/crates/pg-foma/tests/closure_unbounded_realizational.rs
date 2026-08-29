@@ -157,8 +157,7 @@ fn unbounded_realizational_composite_route_returns_no_artifact() {
     assert_eq!(refusal.affected_rule_ordinals, vec![5]);
     assert_eq!(refusal.depth_limit, None);
     assert_eq!(refusal.pending_successors, None);
-    // The route's own refusal is asserted above, on `emit` directly. The CONSTRUCTOR now refuses
-    // earlier than that: backend selection carries this closure fact, so no emission runs at all.
+    // The constructor refuses earlier than emit: selection carries the closure fact.
     assert!(matches!(
         FomaProposer::new(&grammar),
         Err(FomaError::CapabilityRefused(_))
