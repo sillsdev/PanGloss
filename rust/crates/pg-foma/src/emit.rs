@@ -5651,12 +5651,17 @@ const TEMPLATED_EMISSION_UNCOVERED_PREDICATE: &str = "templated-route.emission-u
 /// [`emit_underlying_templated`] itself -- the exact function `crate::templated_compile::
 /// compile_templated_morphotactics` calls first, and one that only ever builds lexc text, never a
 /// `foma::types::Fsm` -- rather than re-deriving an equivalent uncovered-item check. `None` when
-/// the route reports `FomaTier::Full`, the grammar has no character table to build an alphabet
-/// from, or the emission pass itself panics (`tests/all_fixtures_foma_analyzer_new_no_panic.rs`'s
-/// own known `SegAlphabet::token` overflow on an oversized char table -- this call site must not
-/// widen that pre-existing panic's reach into `select_backends`, which runs for every strategy,
-/// not just a caller that already wraps a compile attempt in `catch_unwind`). An absent report is
-/// admitted, never refused, matching every other "I could not look" site in this crate.
+/// the route reports `FomaTier::Full` or the grammar has no character table to build an alphabet
+/// from.
+///
+/// A panic in the emission pass is a REFUSAL, not an admission. `select_backends` calls this for
+/// every strategy, so the panic has to be caught here; but the thing that panicked is the compiler's
+/// own emission function, and a compile that would panic is a compile that cannot produce a network.
+/// Returning `None` -- as this did while `SegAlphabet::token`'s `NO_CHAR_DEF` overflow was still
+/// live -- publishes "admitted" for a grammar the backend provably cannot build, which is the
+/// "I could not look reads as everything is fine" failure this repo refuses everywhere else. No
+/// fixture reaches this arm today; `envelope_agrees_with_compiler_gate`'s too-strict count is what
+/// would show it if the probe ever panicked where the real compile does not.
 pub fn templated_route_uncovered_refusal(g: &Grammar) -> Option<CompileDecision> {
     if g.char_tables.is_empty() {
         return None;
@@ -5667,7 +5672,15 @@ pub fn templated_route_uncovered_refusal(g: &Grammar) -> Option<CompileDecision>
         emit_underlying_templated(g, &alphabet, None)
     })) {
         Ok(emitted) => emitted,
-        Err(_) => return None,
+        Err(_) => {
+            return Some(CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: TEMPLATED_EMISSION_UNCOVERED_PREDICATE,
+                construct: "grammar (templated emission panicked)".to_string(),
+                witness: "the templated emission pass panicked on this grammar, so it cannot \
+                          produce a network for it"
+                    .to_string(),
+            }]));
+        }
     };
     let diagnostics: Vec<CapabilityDiagnostic> = match &emitted.report.tier {
         FomaTier::Full => return None,
