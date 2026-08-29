@@ -364,6 +364,18 @@ fn tuned_surface_structural_refusal(g: &Grammar) -> Option<CompileDecision> {
     refusals.into_iter().reduce(meet)
 }
 
+/// Every published fact that stops the templated route, met into one refusal.
+fn templated_route_structural_refusal(g: &Grammar) -> Option<CompileDecision> {
+    let refusals: Vec<CompileDecision> = [
+        crate::emit::templated_route_uncovered_refusal(g),
+        crate::templated_compile::rule_cascade_uncompilable_refusal(g),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    refusals.into_iter().reduce(meet)
+}
+
 fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {
     CompileDecision::Refuse(
         markers
@@ -404,6 +416,7 @@ impl BackendSelection {
         envelope: &StrategyEnvelope,
         plan_composed_markers: &[FragmentSpec],
         tuned_surface_refusal: Option<&CompileDecision>,
+        templated_route_refusal: Option<&CompileDecision>,
     ) -> Self {
         let reports = ALL_STRATEGIES
             .iter()
@@ -421,6 +434,10 @@ impl BackendSelection {
                     )
                 } else if let (EmissionStrategy::TunedSurfaceProbed, Some(refusal)) =
                     (strategy, tuned_surface_refusal)
+                {
+                    meet(decision.clone(), refusal.clone())
+                } else if let (EmissionStrategy::TemplatedUnderlyingTokens, Some(refusal)) =
+                    (strategy, templated_route_refusal)
                 {
                     meet(decision.clone(), refusal.clone())
                 } else {
@@ -451,6 +468,7 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
         &envelope,
         &plan_composed_markers,
         tuned_surface_structural_refusal(g).as_ref(),
+        templated_route_structural_refusal(g).as_ref(),
     )
 }
 
@@ -459,4 +477,3 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
 pub fn select_backends_for_grammar(g: &Grammar) -> BackendSelection {
     select_backends(&GrammarSemantics::derive(g))
 }
-

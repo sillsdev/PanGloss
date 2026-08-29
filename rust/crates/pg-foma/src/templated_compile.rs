@@ -85,8 +85,7 @@ pub fn compile_templated_morphotactics(
 
     match &emitted.report.tier {
         crate::emit::FomaTier::Full => {}
-        crate::emit::FomaTier::Unsupported { .. }
-        | crate::emit::FomaTier::Partial { .. } => {
+        crate::emit::FomaTier::Unsupported { .. } | crate::emit::FomaTier::Partial { .. } => {
             return Err(TemplatedCompileError::Unsupported(emitted.report));
         }
     }
@@ -199,6 +198,48 @@ pub fn compile_templated_morphotactics(
             tuple_reports,
         },
     })
+}
+
+/// Predicate name for [`rule_cascade_uncompilable_refusal`]'s diagnostics.
+const TEMPLATED_RULE_CASCADE_PREDICATE: &str = "templated-route.rule-cascade-uncompilable";
+
+/// Whether every phonological rule this pipeline would hand to
+/// `crate::replace::compile_and_compose_rules_recall_safe` is confirmed unlowerable by
+/// `crate::replace::rewrite_rule_is_lowerable` -- the exact condition that makes that call return
+/// `None` and this module's `compile_templated_morphotactics` fail with `NoCompiledRules`, decided
+/// without building any `foma::types::Fsm`. A `Metathesis` rule has no cheap pre-check, so its
+/// presence always leaves the cascade unconfirmed rather than guessing at a refusal.
+pub fn rule_cascade_uncompilable_refusal(
+    g: &Grammar,
+) -> Option<crate::capability::CompileDecision> {
+    let rules_in_order: Vec<&PhonRuleDef> = g
+        .strata
+        .iter()
+        .flat_map(|stratum| stratum.prules.iter().map(|id| &g.prules[id.0 as usize]))
+        .collect();
+    if rules_in_order.is_empty() {
+        return None;
+    }
+    let all_confirmed_unlowerable = rules_in_order.iter().all(|pr| match pr {
+        PhonRuleDef::Rewrite(rule) => !crate::replace::rewrite_rule_is_lowerable(g, rule),
+        PhonRuleDef::Metathesis(_) => false,
+    });
+    if !all_confirmed_unlowerable {
+        return None;
+    }
+    Some(crate::capability::CompileDecision::Refuse(vec![
+        crate::capability::CapabilityDiagnostic {
+            predicate: TEMPLATED_RULE_CASCADE_PREDICATE,
+            construct: "grammar (phonological rule cascade)".to_string(),
+            witness: format!(
+                "every one of this grammar's {} phonological rewrite rule(s) fails the same shape \
+                 checks compile_rewrite_rule_subset runs before building an Fsm, so \
+                 compile_and_compose_rules_recall_safe returns no compiled rule and \
+                 compile_templated_morphotactics fails with NoCompiledRules",
+                rules_in_order.len()
+            ),
+        },
+    ]))
 }
 
 #[cfg(test)]

@@ -201,6 +201,7 @@ use pg_rules::cache::RuleCache;
 use pg_rules::word::{MorphRecord, Word};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape};
 
+use crate::capability::{CapabilityDiagnostic, CompileDecision};
 use crate::compose_budget::{ComposeBudget, ComposeError};
 use crate::enumerate::enumerate_default;
 use crate::junctions::PhonologyProbe;
@@ -5641,6 +5642,62 @@ pub fn emit_underlying_templated(
             closure_evidence: None,
         },
     }
+}
+
+/// Predicate name for [`templated_route_uncovered_refusal`]'s diagnostics.
+const TEMPLATED_EMISSION_UNCOVERED_PREDICATE: &str = "templated-route.emission-uncovered";
+
+/// The templated route's own uncovered-construct verdict, run by calling
+/// [`emit_underlying_templated`] itself -- the exact function `crate::templated_compile::
+/// compile_templated_morphotactics` calls first, and one that only ever builds lexc text, never a
+/// `foma::types::Fsm` -- rather than re-deriving an equivalent uncovered-item check. `None` when
+/// the route reports `FomaTier::Full`, the grammar has no character table to build an alphabet
+/// from, or the emission pass itself panics (`tests/all_fixtures_foma_analyzer_new_no_panic.rs`'s
+/// own known `SegAlphabet::token` overflow on an oversized char table -- this call site must not
+/// widen that pre-existing panic's reach into `select_backends`, which runs for every strategy,
+/// not just a caller that already wraps a compile attempt in `catch_unwind`). An absent report is
+/// admitted, never refused, matching every other "I could not look" site in this crate.
+pub fn templated_route_uncovered_refusal(g: &Grammar) -> Option<CompileDecision> {
+    if g.char_tables.is_empty() {
+        return None;
+    }
+    let table = surface_table(g);
+    let alphabet = SegAlphabet::new(table);
+    let emitted = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        emit_underlying_templated(g, &alphabet, None)
+    })) {
+        Ok(emitted) => emitted,
+        Err(_) => return None,
+    };
+    let diagnostics: Vec<CapabilityDiagnostic> = match &emitted.report.tier {
+        FomaTier::Full => return None,
+        FomaTier::Partial { .. } => emitted
+            .report
+            .uncovered
+            .iter()
+            // `capability::templated_shape_floor` already re-derives every one of these kinds unconditionally, so keeping them here would double-report one gap under two predicates.
+            .filter(|item| {
+                !matches!(
+                    item.kind.as_str(),
+                    "infix" | "reduplication" | "process" | "circumfix-prefix"
+                )
+            })
+            .map(|item| CapabilityDiagnostic {
+                predicate: TEMPLATED_EMISSION_UNCOVERED_PREDICATE,
+                construct: format!("{} {}", item.kind, item.id),
+                witness: item.reason.clone(),
+            })
+            .collect(),
+        FomaTier::Unsupported { reason } => vec![CapabilityDiagnostic {
+            predicate: TEMPLATED_EMISSION_UNCOVERED_PREDICATE,
+            construct: "grammar (templated emission unsupported)".to_string(),
+            witness: reason.clone(),
+        }],
+    };
+    if diagnostics.is_empty() {
+        return None;
+    }
+    Some(CompileDecision::Refuse(diagnostics))
 }
 
 #[cfg(test)]
