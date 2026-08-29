@@ -376,12 +376,31 @@ survived: every path anyone measured was env-driven.
 
 So the resolution is to thread it, not delete it:
 
-`new_with_budget_and_profile_policy` passes the caller's budget down to `emit_with_budget_profiled`,
-which currently takes none -- despite the name, its "budget" is `PrecisionConfig` and its internal
-caps, not a `ComposeBudget` -- and on to `compound_extra_levels_checked_with_cap`, which today
-reaches for `ComposeBudget::from_env()` when handed no cap. That env read becomes the DEFAULT rather
-than the only source. Deleting the parameter instead is the wrong half of the choice now that the
-worker is known to depend on it.
+**CORRECTION -- the paragraph that stood here said "thread it into the emitter", and that was wrong.**
+It named `emit_with_budget_profiled` -> `compound_extra_levels_checked_with_cap` as the destination.
+That is a DIFFERENT budget dimension, and `emit.rs`'s own doc on
+`DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` says so outright: the compile-time compound-unroll cap is
+"kept as its own budget dimension, separate from `ComposeBudget::chain_depth_cap`'s per-word runtime
+counter". Threading the caller's budget there would have conflated two deliberately separate
+dimensions -- the exact defect class this file exists to record.
+
+Where the runtime budget actually lives: `FomaAnalyzer` (`composite.rs`) owns
+`peel_budget: ComposeBudget`, read once from the environment at construction, and threads it into
+every `peel_candidates` call. `FomaProposer` -- the struct `new_with_budget*` builds -- has no budget
+field at all (`handle`, `report`, `query_encoder`), because the proposer does not peel; the composite
+layer does.
+
+So the parameter is not mis-routed, it is **unusable at that layer by construction**, and the right
+move is to delete it from `new_with_budget`/`new_with_budget_and_profile`/
+`new_with_budget_and_profile_policy`. A caller wanting to bound a COMPILE should use the compound
+dimension's own `HC_COMPOUND_CHAIN_DEPTH_BUDGET`; a caller wanting to bound PROPOSE-time peeling
+needs `FomaAnalyzer` to accept an explicit budget instead of reading the environment, which it does
+not today.
+
+That leaves `CompileWorkerRequest.chain_depth_cap` with no valid destination on this path at all --
+it builds a `FomaProposer`, never a `FomaAnalyzer`. Either give `FomaAnalyzer` an
+explicit-budget constructor and route the request through it, or drop the field and document the
+knob as environment-only. Both are honest; silently accepting it is not.
 
 The falsifying test is a `CompileWorkerRequest` with `chain_depth_cap: Some(n)` small enough to
 refuse a grammar that compiles unbounded: it passes today for the wrong reason, because the cap is
