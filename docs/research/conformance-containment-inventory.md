@@ -59,6 +59,38 @@ carrying `kind`, `id` and `reason` — exactly what ADR-0001 asks a refusal to s
 `Partial { uncovered: 1 }`. Several test binaries already print `[{kind}] {id} — {reason}`; the
 production path drops it.
 
+## Where the gate now sits, and what is left
+
+`FomaProposer::new` characterizes once and asks the envelope about
+`TunedSurfaceProbed` before emitting; a refusal is `FomaError::CapabilityRefused`, naming
+predicate/construct/witness rather than a tier, and costs no emission.
+`tests/envelope_agrees_with_compiler_gate.rs` is the standing measurement — 183 observations across
+every fixture x every backend:
+
+| | count | meaning |
+|---|---|---|
+| agree | 121 | envelope and compiler reach the same answer |
+| envelope admitted, compiler refused | 15 | envelope too lax; safe, but decided in the wrong place |
+| envelope refused, build succeeded | 47 | **not** all capability losses — see below |
+
+The gate asserts the 47 contains no `TunedSurfaceProbed` row, which is what makes the surface-probe
+gate safe; it is 38 `PlanComposed` and 9 `TemplatedUnderlyingTokens`.
+
+Three things must land before the other two backends can gate the same way:
+
+1. **`build_controllable` must refuse a marker-bearing plan itself.** It currently succeeds and
+   under-generates — `crate::build::unbuildable_markers`' own doc records such a network proposing
+   nothing for 19 of 20 corpus words. The check exists but is applied by callers, so anything
+   reaching the builder directly steps around it, exactly the bypass shape ADR-0001 forbids. Most of
+   the 38 should resolve to `agree` once it does.
+2. **The 15 too-lax pairs need capability predicates.** Each is a construct the emitter discovers it
+   cannot cover; deciding it from the characterization is what moves the refusal to the envelope.
+3. **The four containment causes above.** These are the dangerous direction: envelope admits,
+   compiler succeeds, network still misses an oracle analysis.
+
+Only then does "quit only on 1 GiB / 10 GiB / 10 minutes" become literally true, since those are the
+sole remaining non-capability reasons a compile stops (`DEFAULT_EXECUTION_LIMITS`).
+
 ## What this blocks
 
 `recipe_optimize_continuation`'s three tests derive their bounds from a baseline run's per-candidate
