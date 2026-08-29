@@ -1268,11 +1268,19 @@ function Remove-OrphanedScanProcesses {
 function Get-LiveBuildProcesses {
     <#
       .DESCRIPTION
-      gc's process check before it deletes anything: cargo/rustc/link/sccache all currently running,
-      orphaned or not -- broader than Remove-OrphanedCargoProcesses on purpose, since a live, healthy
-      build in another worktree is exactly what gc must not race against.
+      gc's process check before it deletes anything: cargo/rustc/link currently running, orphaned or
+      not -- broader than Remove-OrphanedCargoProcesses on purpose, since a live, healthy build in
+      another worktree is exactly what gc must not race against.
+
+      sccache is deliberately NOT in this list, and used to be. It is a long-lived shared DAEMON,
+      not a build: this script starts it, keeps it alive, and reports it healthy in every preflight
+      record. Counting it as a busy process made `gc -Apply` refuse unconditionally on any machine
+      where sccache works -- measured with 32GB of disposable target directories present, zero
+      compilers running, and the single reported "live build process" being the sccache server.
+      A reclaimer that can never reclaim is the same defect as a gate that never gates. sccache also
+      writes only its own cache directory, never a managed target dir, so it cannot be raced with.
     #>
-    Get-CimInstance Win32_Process -Filter "Name='rustc.exe' or Name='cargo.exe' or Name='link.exe' or Name='sccache.exe'"
+    Get-CimInstance Win32_Process -Filter "Name='rustc.exe' or Name='cargo.exe' or Name='link.exe'"
 }
 
 # Preflight and build-hardening surface, consumed by pg.ps1; exit code taxonomy is in this file's own header.

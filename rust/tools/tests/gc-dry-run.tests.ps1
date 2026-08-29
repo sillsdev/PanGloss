@@ -88,6 +88,12 @@ Test-Case '-Apply with a live build process present still deletes nothing' {
     }
 }
 
+Test-Case 'the sccache daemon is not a busy process, so it can never block -Apply' {
+    # It ran permanently and blocked every -Apply; 32GB of disposable dirs sat unreclaimable behind it.
+    $names = @(Get-LiveBuildProcesses | ForEach-Object { $_.Name })
+    Assert-False ($names -contains 'sccache.exe') 'sccache is a shared daemon, never evidence of a live build'
+}
+
 Test-Case '-Apply with no busy processes deletes ONLY the disposable directory' {
     $r = Invoke-TargetGc -Classification $classification -Apply:$true -BusyProcesses @() -Roots @($root)
     Assert-False $r.Skipped
