@@ -394,11 +394,11 @@ concurrently. Nothing about the analysis is outstanding -- only the edit.
 
 `envelope_agrees_with_compiler_gate`, all 46 fixtures x 4 strategies:
 
-| | start of track | plain `main` | integrated tip |
-|---|---|---|---|
-| agree | 121 | 161 | **166** |
-| too strict (envelope refuses, compile succeeds) | 47 | 11 | **11** |
-| too lax (envelope admits, compile refuses) | 15 | 11 | **6** |
+| | start of track | plain `main` | integrated tip | after the three fixes below |
+|---|---|---|---|---|
+| agree | 121 | 161 | 166 | **169** |
+| too strict (envelope refuses, compile succeeds) | 47 | 11 | 11 | **11** |
+| too lax (envelope admits, compile refuses) | 15 | 11 | 6 | **3** |
 
 **Three of the six remaining too-lax rows are one fact already published and deliberately not
 consulted.** `polysynthetic-stratal-derivation-chain`, `backend-strata-generic` and
@@ -406,8 +406,9 @@ consulted.** `polysynthetic-stratal-derivation-chain`, `backend-strata-generic` 
 "[Any]*" exceeds 64 representation variants; excess spellings dropped`. That is exactly what
 `emit::eager_route_drops_root_spellings` computes. Wiring it into the surface probe's per-strategy
 seam closes half the remaining backlog in one line -- and refuses Aweti and Mbugwe, leaving both
-with no accepted backend, which is why it has not been wired in. That decision is now the only
-thing standing between this gate and a much smaller number.
+with no accepted backend, which is why it has not been wired in. **This is unrelated to the three
+fixes below and remains open** (Aweti/Mbugwe question unresolved, own decision, another agent's
+scope on `tuned-surface-probed`).
 
 The other three are distinct and unrelated to it: a plan-composed build producing no network
 (`loader-pattern-shapes`), an unclaimed standalone Process rule
@@ -616,3 +617,44 @@ remaining three too-strict rows are `loader-isactive-breadth` (the classifier fa
 narrowing attempted and reverted, blocker recorded above), and `strrep-identity`/
 `truncate-morphotactic` (the two genuine `(a)` compiler defects, deliberately out of scope). See the
 top-level report for the full measured before/after triple and the test-status ledger.
+The other three were distinct and unrelated to the rep-variant-overflow question, and are now
+closed:
+
+### `loader-pattern-shapes` x `plan-composed`: closed via `grammar_has_no_tokenizable_root`
+
+The published fact `crate::replace::grammar_has_no_tokenizable_root` (already pinned one way round
+by `the_published_no_tokenizable_root_fact_never_over_claims_a_refusal`, and already naming this
+exact fixture in its own doc) was computed but never met into `backend_selection`'s per-strategy
+seam. `loader-pattern-shapes` has two root allomorphs — one an optional-group pattern (`is_pattern`
+true) and one a mandatory natural-class reference (untokenizable, `is_pattern` false) — so every
+root fails `SegAlphabet::shape_is_tokenizable` or is pattern-only, `emit_underlying_filtered` skips
+every root line, every gated group's `root_entries` stays zero, and
+`witnessed_coverage::compile_plan_composed` returns "plan-composed build produced no network" with
+no typed error. `select_backends` now meets `plan_composed_no_tokenizable_root_refusal()` into the
+`PlanComposed` decision whenever the fact holds, beside the existing marker-leaf refusal.
+
+### `process-morphology-in-place-mutation` x `tuned-surface-probed`: closed via `eager_route_refuses_unclaimed_standalone_rule`
+
+The standalone-derivational loop's own catch-all branch (`other => uncovered.push(...)`, for any
+`rule_role` that is not Prefix/Suffix/None/CircumfixPrefix and not a peelable reduplication) was
+factored into `standalone_rule_unclaimed_role(g, mid)`, called both by the loop itself (so it
+cannot drift from the published fact) and by the new
+`crate::emit::eager_route_refuses_unclaimed_standalone_rule(g)`. Met into
+`tuned_surface_structural_refusal`, this closes the `Role::Process` row. This does **not** attempt
+the "Process is an emitter over-report" question this document raised earlier
+(is_structural_rule admits it unconditionally, per `phase_c_circumfix::
+process_role_drop_stays_honestly_unsupported`) — it only makes the envelope refuse when the real
+compiler already does, which is this document's actual subject.
+
+### `circumfix-non-first-allomorph-selection` x `tuned-surface-probed`: closed via `eager_route_refuses_mixed_circumfix_zone`
+
+This document's own "zone mismatch" section named the exact condition and deliberately stopped
+short of extracting it. It is now published as `crate::emit::eager_route_refuses_mixed_circumfix_zone`:
+true when `any_allomorph_is_circumfix_prefix` holds for a rule (forcing it into both derivational
+zones) and that same rule owns another allomorph outside `Role::None`/`Role::CircumfixPrefix` — the
+exact and sufficient condition for `emit_rule_allomorphs`'s zone-mismatch branch to fire in
+whichever zone that allomorph does not own. It reuses `any_allomorph_is_circumfix_prefix`,
+`allomorphs_of` and `classify_affix` verbatim rather than re-deriving them, and the loop itself was
+left untouched — only a fact was published, met into `tuned_surface_structural_refusal`. Measured
+with the divergence gate before and after: agreement 166 → 169, too-strict unchanged at 11, so
+neither this fact nor the Process one above cost a working capability anywhere in the fixture set.

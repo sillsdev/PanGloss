@@ -354,11 +354,44 @@ fn tuned_surface_closure_refusal() -> CompileDecision {
     }])
 }
 
+/// The surface probe's own refusal for a standalone rule its derivational loop cannot route.
+fn tuned_surface_unclaimed_standalone_refusal() -> CompileDecision {
+    CompileDecision::Refuse(vec![CapabilityDiagnostic {
+        predicate: "surface-probe.standalone-rule-claimed",
+        construct: "standalone rule whose primary allomorph no derivational zone routes"
+            .to_string(),
+        witness: "EmissionStrategy::TunedSurfaceProbed's standalone-rule loop only routes \
+                  Prefix/Suffix/None/CircumfixPrefix classifications and peelable reduplication; \
+                  every other classification is reported uncovered and refuses the build"
+            .to_string(),
+    }])
+}
+
+/// The surface probe's own refusal for `crate::emit::eager_route_refuses_mixed_circumfix_zone`.
+fn tuned_surface_mixed_circumfix_zone_refusal() -> CompileDecision {
+    CompileDecision::Refuse(vec![CapabilityDiagnostic {
+        predicate: "surface-probe.circumfix-zone-exclusive-allomorph",
+        construct: "rule mixing a circumfix allomorph with a non-circumfix, non-zero allomorph"
+            .to_string(),
+        witness: "EmissionStrategy::TunedSurfaceProbed widens a circumfix-bearing rule into both \
+                  derivational zones, but a Prefix/Suffix/Infix/Reduplication/Process-classified \
+                  allomorph on that same rule is reported uncovered by the zone it does not own, \
+                  and refuses the build"
+            .to_string(),
+    }])
+}
+
 /// Every structural fact that stops the surface probe, met into one refusal.
 fn tuned_surface_structural_refusal(g: &Grammar) -> Option<CompileDecision> {
     let mut refusals = Vec::new();
     if crate::emit::eager_route_refuses_unbounded_closure(g) {
         refusals.push(tuned_surface_closure_refusal());
+    }
+    if crate::emit::eager_route_refuses_unclaimed_standalone_rule(g) {
+        refusals.push(tuned_surface_unclaimed_standalone_refusal());
+    }
+    if crate::emit::eager_route_refuses_mixed_circumfix_zone(g) {
+        refusals.push(tuned_surface_mixed_circumfix_zone_refusal());
     }
     // eager_route_drops_root_spellings is NOT met in yet -- docs/research/conformance-containment-inventory.md.
     refusals.into_iter().reduce(meet)
@@ -374,6 +407,20 @@ fn templated_route_structural_refusal(g: &Grammar) -> Option<CompileDecision> {
     .flatten()
     .collect();
     refusals.into_iter().reduce(meet)
+}
+
+/// The plan-composed backend's own refusal for `crate::replace::grammar_has_no_tokenizable_root`.
+fn plan_composed_no_tokenizable_root_refusal() -> CompileDecision {
+    CompileDecision::Refuse(vec![CapabilityDiagnostic {
+        predicate: "strategy-materializer.tokenizable-root-required",
+        construct: "lexicon with no root allomorph carrying a tokenizable underlying shape"
+            .to_string(),
+        witness: "EmissionStrategy::PlanComposed's emit_underlying_filtered skips every root \
+                  allomorph that is pattern-only or references a natural class in its shape, so a \
+                  lexicon with no other root produces zero entries in every gated group and \
+                  build_controllable's net stays empty"
+            .to_string(),
+    }])
 }
 
 fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {
@@ -415,6 +462,7 @@ impl BackendSelection {
     fn from_envelope_with_backend_findings(
         envelope: &StrategyEnvelope,
         plan_composed_markers: &[FragmentSpec],
+        plan_composed_no_tokenizable_root: bool,
         tuned_surface_refusal: Option<&CompileDecision>,
         templated_route_refusal: Option<&CompileDecision>,
     ) -> Self {
@@ -424,14 +472,20 @@ impl BackendSelection {
                 let Some(decision) = envelope.decision_for(strategy) else {
                     return BackendReport::missing(strategy, "backend was not available");
                 };
-                // Marker leaves name subtrees build_controllable cannot build.
-                let decision = if strategy == EmissionStrategy::PlanComposed
-                    && !plan_composed_markers.is_empty()
-                {
-                    meet(
-                        decision.clone(),
-                        plan_composed_marker_refusal(plan_composed_markers),
-                    )
+                let decision = if strategy == EmissionStrategy::PlanComposed {
+                    // Marker leaves name subtrees build_controllable cannot build.
+                    let mut decision = if plan_composed_markers.is_empty() {
+                        decision.clone()
+                    } else {
+                        meet(
+                            decision.clone(),
+                            plan_composed_marker_refusal(plan_composed_markers),
+                        )
+                    };
+                    if plan_composed_no_tokenizable_root {
+                        decision = meet(decision, plan_composed_no_tokenizable_root_refusal());
+                    }
+                    decision
                 } else if let (EmissionStrategy::TunedSurfaceProbed, Some(refusal)) =
                     (strategy, tuned_surface_refusal)
                 {
@@ -467,6 +521,7 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
     BackendSelection::from_envelope_with_backend_findings(
         &envelope,
         &plan_composed_markers,
+        crate::replace::grammar_has_no_tokenizable_root(g),
         tuned_surface_structural_refusal(g).as_ref(),
         templated_route_structural_refusal(g).as_ref(),
     )

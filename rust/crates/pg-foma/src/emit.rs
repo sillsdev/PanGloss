@@ -3028,6 +3028,43 @@ pub fn eager_route_refuses_unbounded_closure(g: &Grammar) -> bool {
     !unbounded_closure_rule_ordinals(g, &struct_rules, decisions).is_empty()
 }
 
+/// Shared by the standalone-derivational loop and `eager_route_refuses_unclaimed_standalone_rule` so the two never drift on which rule is unclaimed.
+fn standalone_rule_unclaimed_role(g: &Grammar, mid: MRuleId) -> Option<Role> {
+    match rule_role(g, mid) {
+        Role::Prefix | Role::Suffix | Role::None | Role::CircumfixPrefix => None,
+        _ if reduplication_rule_is_peelable(g, mid) => None,
+        other => Some(other),
+    }
+}
+
+/// Whether the eager route's standalone-rule loop would report at least one `UncoveredItem` for a
+/// role no derivational zone routes (e.g. a `Role::Process` allomorph) — the exact condition that
+/// turns `FomaProposer::new` into `Err(Incomplete)` for
+/// `machine:edge-cases/process-morphology-in-place-mutation`. Decided from `g` alone, mirroring
+/// `eager_route_refuses_unbounded_closure`'s shape.
+pub fn eager_route_refuses_unclaimed_standalone_rule(g: &Grammar) -> bool {
+    g.strata
+        .iter()
+        .flat_map(|sd| sd.mrules.iter())
+        .any(|&mid| standalone_rule_unclaimed_role(g, mid).is_some())
+}
+
+/// Whether the circumfix zone-widening (`any_allomorph_is_circumfix_prefix`, which pushes a
+/// standalone rule into BOTH derivational zones regardless of its own `rule_role`) forces a rule
+/// into a zone it also owns a non-`None`/`CircumfixPrefix` allomorph outside of — the shape whose
+/// non-owning zone pass reports that allomorph uncovered
+/// (`emit_rule_allomorphs`'s zone-mismatch branch) even though the same allomorph is fully emitted
+/// in its own zone. Pins `staging:edge-cases/circumfix-non-first-allomorph-selection`'s mixed
+/// suffix+circumfix rule.
+pub fn eager_route_refuses_mixed_circumfix_zone(g: &Grammar) -> bool {
+    g.strata.iter().flat_map(|sd| sd.mrules.iter()).any(|&mid| {
+        any_allomorph_is_circumfix_prefix(g, mid)
+            && allomorphs_of(g, mid)
+                .iter()
+                .any(|a| !matches!(classify_affix(&a.rhs), Role::None | Role::CircumfixPrefix))
+    })
+}
+
 /// Builds `g`'s reified `Plan` (`crate::enumerate::enumerate_default`) and returns
 /// `emit_with_budget_profiled`'s two topology decisions **derived from it** --
 /// `(plan wants the composite-emission subtree, plan wants the structural-composite subtree)` --
@@ -4170,15 +4207,17 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     deriv_suffix.push(mid);
                 }
                 Role::CircumfixPrefix => {}
-                // The peel proposes these, so reporting them uncovered would refuse a covered grammar.
-                _ if reduplication_rule_is_peelable(g, mid) => {}
-                other => uncovered.push(UncoveredItem {
-                    kind: other.label().to_string(),
-                    id: format!("mrule{}", mid.0),
-                    reason: format!(
-                        "standalone rule's primary allomorph classifies as {other:?} and no other route claims it (v1)"
-                    ),
-                }),
+                _ => {
+                    if let Some(other) = standalone_rule_unclaimed_role(g, mid) {
+                        uncovered.push(UncoveredItem {
+                            kind: other.label().to_string(),
+                            id: format!("mrule{}", mid.0),
+                            reason: format!(
+                                "standalone rule's primary allomorph classifies as {other:?} and no other route claims it (v1)"
+                            ),
+                        });
+                    }
+                }
             }
             if any_allomorph_is_circumfix_prefix(g, mid) {
                 if !deriv_prefix.contains(&mid) {
