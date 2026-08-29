@@ -946,6 +946,36 @@ pub fn compile_rewrite_rule(
     compile_rewrite_rule_subset(opts, g, rule, &|_| true)
 }
 
+/// Whether `compile_rewrite_rule_subset` could produce a net for `rule` at all when every subrule
+/// is allowed, decided from the same shape/pattern-lowering checks that function runs before it
+/// ever builds an `Fsm` -- so a capability-envelope caller reads one computation with the real
+/// compiler rather than re-deriving an equivalent-looking check (this repo's own CLAUDE.md names
+/// three past attempts that failed exactly that way).
+pub(crate) fn rewrite_rule_is_lowerable(g: &Grammar, rule: &RewriteRuleDef) -> bool {
+    if !is_fully_supported_shape(g, rule) {
+        return false;
+    }
+    let Some(table) = owning_table(g, rule) else {
+        return false;
+    };
+    let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
+    // A zero-subrule rule builds no net either (the real loop below never runs), so it is not lowerable.
+    !rule.subrules.is_empty()
+        && rule.subrules.iter().all(|subrule| {
+            let mut next_occurrence = 0usize;
+            pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope).is_some()
+                && pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope).is_some()
+                && match &subrule.left_env {
+                    Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope).is_some(),
+                    None => true,
+                }
+                && match &subrule.right_env {
+                    Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope).is_some(),
+                    None => true,
+                }
+        })
+}
+
 /// Identical to `compile_rewrite_rule`, but SKIPS any subrule for which `allowed(subrule_index)`
 /// is `false` (document order, `0`-based into `rule.subrules`) — the MPR/POS gating mechanism
 /// (`crate::gate`): a subrule declaring `requiredPartsOfSpeech`/`requiredMPRFeatures`/
@@ -982,36 +1012,6 @@ pub fn compile_rewrite_rule(
 /// these three changes alters any existing grammar's compiled output -- verified by
 /// `tests/p6_gate_parity.rs`'s byte-exact Amharic state/arc-count regression guard and
 /// `tests/f3_parity.rs`'s multiset parity gates staying green.
-/// Whether `compile_rewrite_rule_subset` could produce a net for `rule` at all when every subrule
-/// is allowed, decided from the same shape/pattern-lowering checks that function runs before it
-/// ever builds an `Fsm` -- so a capability-envelope caller reads one computation with the real
-/// compiler rather than re-deriving an equivalent-looking check (this repo's own CLAUDE.md names
-/// three past attempts that failed exactly that way).
-pub(crate) fn rewrite_rule_is_lowerable(g: &Grammar, rule: &RewriteRuleDef) -> bool {
-    if !is_fully_supported_shape(g, rule) {
-        return false;
-    }
-    let Some(table) = owning_table(g, rule) else {
-        return false;
-    };
-    let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
-    // A zero-subrule rule builds no net either (the real loop below never runs), so it is not lowerable.
-    !rule.subrules.is_empty()
-        && rule.subrules.iter().all(|subrule| {
-            let mut next_occurrence = 0usize;
-            pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope).is_some()
-                && pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope).is_some()
-                && match &subrule.left_env {
-                    Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope).is_some(),
-                    None => true,
-                }
-                && match &subrule.right_env {
-                    Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope).is_some(),
-                    None => true,
-                }
-        })
-}
-
 pub fn compile_rewrite_rule_subset(
     opts: &FomaOptions,
     g: &Grammar,
