@@ -119,6 +119,7 @@ pub mod capability;
 /// verdict a real compile is licensed by; see that module's own doc for the distinction and
 /// `backend_selection` for the entry point that decides.
 pub mod capability_entry;
+pub mod capability_gate;
 /// The
 /// cheap, pre-compile health pass -- `characterization::characterization_findings` turns
 /// `capability::characterize`'s already-computed `capability::CharacteristicsProfile` and

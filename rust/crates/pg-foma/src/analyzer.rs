@@ -38,6 +38,9 @@ pub enum FomaError {
     /// analyses that material does not propose. Confirmation cannot restore omitted candidates,
     /// so normal construction must refuse this report before compiling the partial network.
     Incomplete(EmitReport),
+    /// The capability envelope refused this backend before any emission ran. Unlike the three
+    /// above, this verdict costs no emission and names the construct rather than a tier.
+    CapabilityRefused(Vec<crate::capability::CapabilityDiagnostic>),
 }
 
 impl fmt::Display for FomaError {
@@ -60,6 +63,12 @@ impl fmt::Display for FomaError {
                 "foma emission is incomplete and cannot be used as a trusted proposer (emit report: {} uncovered constructs, tier {:?})",
                 report.uncovered.len(),
                 report.tier
+            ),
+            FomaError::CapabilityRefused(diagnostics) => write!(
+                f,
+                "the capability envelope refuses this backend for {} construct(s), so no emission ran: {}",
+                diagnostics.len(),
+                crate::capability_gate::render_refusal(diagnostics)
             ),
         }
     }
@@ -291,6 +300,17 @@ impl FomaProposer {
         allow_incomplete: bool,
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
+
+        // Before emitting: a construct this backend cannot represent is knowable from the
+        // characterization, and ADR-0001 puts the refusal here rather than in an emit tier.
+        if let Err(diagnostics) =
+            crate::capability_gate::refuse_unless_admitted(g, Self::EMISSION_STRATEGY)
+        {
+            return (
+                Err(FomaError::CapabilityRefused(diagnostics)),
+                profile.finish(None, None),
+            );
+        }
 
         let result = emit::emit_with_budget_profiled(
             g,

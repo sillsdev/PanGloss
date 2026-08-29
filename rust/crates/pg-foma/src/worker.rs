@@ -350,7 +350,8 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
         Err(
             err @ (FomaError::LexcCompileFailed(_)
             | FomaError::Unsupported(_)
-            | FomaError::Incomplete(_)),
+            | FomaError::Incomplete(_)
+            | FomaError::CapabilityRefused(_)),
         ) => {
             let health = crate::health_evaluator::evaluate_foma_error(&err);
             CompileWorkerOutcome::CompileFailed {

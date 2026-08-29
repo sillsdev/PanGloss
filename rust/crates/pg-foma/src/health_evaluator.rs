@@ -356,7 +356,37 @@ pub fn evaluate_foma_error(error: &FomaError) -> HealthReport {
             }
             HealthReport::new(health.findings)
         }
+        // No emission ran, so there is no `EmitReport` to evaluate; the refusal is already typed.
+        FomaError::CapabilityRefused(diagnostics) => {
+            HealthReport::new(vec![capability_refused_finding(diagnostics)])
+        }
     }
+}
+
+/// A pre-emission capability refusal, as `Representability` rather than an operational failure.
+fn capability_refused_finding(
+    diagnostics: &[crate::capability::CapabilityDiagnostic],
+) -> HealthFinding {
+    HealthFinding::new(
+        FindingCode::BackendCoverageIncomplete,
+        Severity::CannotRepresent,
+        Phase::Characterization,
+        Metric::BackendCoverageGapCount,
+        MetricValue::Count(diagnostics.len() as u64),
+        ValueProvenance::Observed,
+        format!(
+            "The capability envelope refused this backend for {} construct(s) before any emission \
+             ran: {}",
+            diagnostics.len(),
+            crate::capability_gate::render_refusal(diagnostics)
+        ),
+    )
+    .affecting(
+        diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.construct.clone())
+            .collect::<Vec<_>>(),
+    )
 }
 
 #[cfg(test)]
