@@ -191,3 +191,36 @@ The scratch directories are keyed by pid and a per-process counter, so this is n
 a path; the nondeterminism is inside the batch run. Not chased further — reproducing a one-in-three
 concurrency flake is its own project — but it is the same silent-absence shape this repository
 already refuses elsewhere, and it sits on the word-level path that every corpus measurement uses.
+
+## 11. Two false starts on the capability tranche, both caught by tests rather than by reading
+
+Recorded because both were reasonable-looking and both were wrong, and the second cost more than
+the first.
+
+**Refusing marker-bearing plans inside `build_controllable`.** The reasoning was "nothing may
+bypass the check, so put it in the function everything calls." It failed 17 tests, all legitimate:
+that module *documents* the marker leaves as out of scope, and the differential oracle, the
+plan-walk equivalence tests and selection's size measurement all hand it marker-bearing plans
+deliberately — comparing two plans of one grammar where both sides omit the same subtrees, or
+reading only state/arc counts. The refusal belongs where a network is *claimed to be a usable
+backend*, which was one caller, not the shared primitive. Moving it there closed 36 divergences with
+no fallout.
+
+The tell I missed: `build_controllable`'s own module doc says the marker leaves "are checked for by
+kind ... but never built". I had read that file's error section and not its scope section.
+
+**A capability predicate keyed on `rule_role`.** Two obstacles, both only visible by running:
+
+- Hung on `Affixation`, it changed *nothing*, because that kind is `Disposition::Proven` and a
+  predicate on a proven kind is never consulted. Nothing said so at the point of registration; the
+  measurement said 157/11/15 before and 157/11/15 after.
+- Hung on `Reduplication` (which is `ConfigPredicate`), it closed 4 divergences and broke 5 working
+  ones. `rule_role == Reduplication` is not the emitter's guard — the emitter refuses only rules no
+  other route claims, and that fact is not recoverable from the profile's own
+  `peel_attempted`/`structural_composite_attempted` pair, since the existing reduplication
+  predicate already tests exactly those and admits all six fixtures.
+
+Both were reverted. What the tree keeps is the measurement that made them legible:
+`envelope_agrees_with_compiler_gate` now reports agreement, both divergence directions, and the
+named uncovered constructs behind each surface-probe refusal. Before it existed, either change
+could have shipped looking correct.

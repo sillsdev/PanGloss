@@ -3,6 +3,7 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use pg_conformance_fixtures::discover;
+use pg_foma::analyzer::{FomaError, FomaProposer};
 use pg_foma::backend_selection::{select_backends, BackendReport};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
@@ -91,6 +92,52 @@ fn the_envelope_never_refuses_a_surface_probe_that_compiles() {
         "the envelope refuses {} surface-probe backend(s) that compile, so the gate in \
          `FomaProposer::new` would lose a capability the tree has: {too_strict:#?}",
         too_strict.len()
+    );
+}
+
+/// Names the constructs behind each surface-probe divergence -- the input to writing a predicate.
+///
+/// A tier alone ("Partial { uncovered: 1 }") does not say what could not be done, which is what
+/// ADR-0001 asks a refusal to carry. `EmitReport::uncovered` has carried kind/id/reason all along;
+/// nothing on the production path reads it.
+#[test]
+fn report_uncovered_constructs_behind_surface_probe_divergence() {
+    let mut named = 0usize;
+    let mut unnamed: Vec<String> = Vec::new();
+    for fixture in discover() {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        if grammar.char_tables.is_empty() {
+            continue;
+        }
+        let report = match FomaProposer::new(&grammar) {
+            Err(FomaError::Incomplete(report)) | Err(FomaError::Unsupported(report)) => report,
+            _ => continue,
+        };
+        if report.uncovered.is_empty() {
+            unnamed.push(format!("{} -- tier {:?}", fixture.label(), report.tier));
+            continue;
+        }
+        for item in &report.uncovered {
+            named += 1;
+            eprintln!(
+                "{}: [{}] {} -- {}",
+                fixture.label(),
+                item.kind,
+                item.id,
+                item.reason
+            );
+        }
+    }
+    eprintln!("uncovered items named: {named}");
+    eprintln!("refusals naming no construct: {}", unnamed.len());
+    for row in &unnamed {
+        eprintln!("  {row}");
+    }
+    assert!(
+        named > 0,
+        "no surface-probe refusal named a construct, so this report is measuring nothing"
     );
 }
 

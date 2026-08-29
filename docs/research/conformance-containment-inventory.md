@@ -76,6 +76,50 @@ every fixture x every backend:
 The gate asserts the 47 contains no `TunedSurfaceProbed` row, which is what makes the surface-probe
 gate safe; it is 38 `PlanComposed` and 9 `TemplatedUnderlyingTokens`.
 
+### Step 1 landed; step 2 has a measured false start worth not repeating
+
+**Step 1 (done).** The plan-composed witness path applied no marker check, so a plan whose marker
+subtrees `build_controllable` does not build counted as a compiled backend. The check does **not**
+belong in `build_controllable`: that module documents those leaves as out of scope, and the
+differential oracle, the plan-walk equivalence tests and selection's size measurement all pass it
+marker-bearing plans deliberately — comparisons where both sides omit the same subtrees, or where
+only state/arc counts are read. Refusing there failed 17 tests, every one a legitimate use. Moving
+it to `witnessed_coverage::compile_plan_composed`, where an `Ok` claims a usable backend, closed
+36 divergences with none of that fallout: agreement 121 → 157, too-strict 47 → 11.
+
+**Step 2 (measured, reverted).** The eight surface-probe too-lax rows have exactly five causes,
+read out of `EmitReport::uncovered` by
+`envelope_agrees_with_compiler_gate::report_uncovered_constructs_behind_surface_probe_divergence`:
+
+| cause | fixtures |
+|---|---|
+| standalone rule's primary allomorph is Reduplication | 3 |
+| root shape `[Any]*` exceeds 64 representation variants | 3 |
+| standalone rule's primary allomorph is Process | 1 |
+| allomorph is a Suffix referenced in a Prefix position | 1 |
+| unbounded RealizationalRule, no provable finite closure | 1 |
+
+All five are grammar-structural, so all are reachable without emitting. Two obstacles stand in the
+way, both found by trying:
+
+1. **`Affixation` is `Disposition::Proven`, so a predicate hung there is never consulted.** The
+   Process and Infix roles have no `CharacteristicKind` of their own and would fall under
+   Affixation. A predicate discharging it changed nothing at all — measured, not assumed. Widening
+   this needs a kind, or a disposition change whose blast radius covers every grammar.
+2. **`rule_role == Reduplication` is too broad a condition.** Hung on `Reduplication` (which *is*
+   `ConfigPredicate`), it closed 4 divergences and broke 5 working ones —
+   `prefix_reduplication_confirms`, `metathesis_boundary_in_surface_confirms`,
+   `bare_root_phonology_makes_post_nasal_voicing_proposable`, plus the plan-diagram and
+   templated-selector gates. The emitter reaches its standalone-rule refusal only for rules no
+   other route claims, and that fact is **not** recoverable from
+   `CharacteristicsProfile::reduplication_details` — `peel_attempted` /
+   `structural_composite_attempted` do not separate the refused three from the working three, since
+   `ReduplicationPeelSupportedPredicate` already tests exactly that pair and admits all six.
+
+So the next attempt needs the emitter's own routing decision surfaced as a grammar-derived fact,
+rather than a condition inferred from the uncovered item's text. Reusing `crate::emit::rule_role`
+was right — it is the same classifier — but the role alone is not the emitter's guard.
+
 Three things must land before the other two backends can gate the same way:
 
 1. **`build_controllable` must refuse a marker-bearing plan itself.** It currently succeeds and
