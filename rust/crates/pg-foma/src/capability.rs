@@ -235,7 +235,7 @@ impl CharacteristicKind {
     pub fn default_disposition(self) -> Disposition {
         match self {
             CharacteristicKind::Affixation => Disposition::Proven,
-            // Stays ConfirmOnly even though the surface probe refuses unbounded closure at `crate::backend_selection`'s seam: kind disposition is grammar-global, that refusal is strategy-local, and both are true at once.
+            // Grammar-global, so it stays ConfirmOnly regardless of any one strategy's structural refusal; the two answer different questions and both hold at once.
             CharacteristicKind::RealizationalMorphology => Disposition::ConfirmOnly,
             // Faithful, depth-budgeted proposal exists but no admission-filter proof; see `CompoundingRecursionSafePredicate`'s own doc.
             CharacteristicKind::Compounding => Disposition::ConfigPredicate,
