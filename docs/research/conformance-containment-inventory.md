@@ -120,6 +120,19 @@ So the next attempt needs the emitter's own routing decision surfaced as a gramm
 rather than a condition inferred from the uncovered item's text. Reusing `crate::emit::rule_role`
 was right — it is the same classifier — but the role alone is not the emitter's guard.
 
+### Two things landed that need no predicate
+
+**A refusal now names its construct.** `FomaError`'s `Display` stringified only the tier, so a
+reader got `Partial { uncovered: 1 }` while `EmitReport::uncovered` held kind, id and reason. It now
+renders them, which is what ADR-0001 asks a refusal to carry and what makes the five causes above
+readable from a production message rather than only from a test.
+
+**The containment inventory is ratcheted.** `FaithfulnessRequirement` offered `NonVacuity` or
+`NoFailures` and nothing between, and the inventory has never been empty, so a backend that newly
+started under-generating would have joined the list silently. `NoMoreThan { failures: 19 }` holds
+today's line without demanding the backlog be cleared first. It is guarded by a test that the
+ceiling detects its own target — a ratchet that fires for no count gates nothing.
+
 Three things must land before the other two backends can gate the same way:
 
 1. **`build_controllable` must refuse a marker-bearing plan itself.** It currently succeeds and
