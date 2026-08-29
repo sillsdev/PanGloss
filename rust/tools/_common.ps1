@@ -1652,7 +1652,7 @@ function Get-ConformancePinnedCommit {
 }
 
 function Get-ConformanceSubmoduleSizeMB {
-    # Reported alongside a successful init so the record states what happened (sparse ~1MB vs. fallback ~415MB), not just "ok".
+    # Reported alongside a successful init so the record states what happened (sparse ~3.6MB vs. fallback ~41MB), not just "ok".
     param([string]$RepoRoot = (Get-RepoRoot))
     $dir = Join-Path $RepoRoot 'machine'
     if (-not (Test-Path $dir)) { return 0 }
@@ -1701,7 +1701,7 @@ function Initialize-ConformanceSubmodule {
         }
     }
 
-    Write-Host "[conformance] machine/conformance not found -- initializing the machine submodule (sparse: conformance/ only, ~1MB, not the ~415MB full checkout)..." -ForegroundColor Cyan
+    Write-Host "[conformance] machine/conformance not found -- initializing the machine submodule (sparse: conformance/ only, ~3.6MB, not the ~41MB full checkout)..." -ForegroundColor Cyan
 
     # 2. Sparse, path-scoped init -- skip cloning if a machine/.git gitlink shows an earlier attempt got that far.
     $alreadyCloned = Test-Path (Join-Path $machineDir '.git')
@@ -1757,13 +1757,18 @@ function Initialize-ConformanceSubmodule {
         if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "sparse-checkout set conformance (exit $LASTEXITCODE): $($o2 -join ' | ')" }
     }
     if ($sparseOk) {
-        $o3 = & git -C $machineDir checkout $pinned 2>&1
-        if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "checkout $($pinned.Substring(0, 12)) (exit $LASTEXITCODE): $($o3 -join ' | ')" }
+        # `clone --branch` fetches only that branch, and a pinned commit the branch has since moved past is then absent -- the same hazard this recipe already avoids by not using `--depth`. Fetching the SHA by name is cheap when it is already present.
+        $o3 = & git -C $machineDir fetch --no-tags origin $pinned 2>&1
+        if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "fetch $($pinned.Substring(0, 12)) (exit $LASTEXITCODE): $($o3 -join ' | ')" }
+    }
+    if ($sparseOk) {
+        $o4 = & git -C $machineDir checkout $pinned 2>&1
+        if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "checkout $($pinned.Substring(0, 12)) (exit $LASTEXITCODE): $($o4 -join ' | ')" }
     }
 
     if (-not $sparseOk) {
-        # A working 415MB full checkout beats a broken clever one, rather than leaving the submodule half-initialized.
-        Write-Host "[conformance] sparse checkout failed ($sparseErr) -- falling back to a full (~415MB) submodule checkout." -ForegroundColor Yellow
+        # A working checkout beats a broken clever one, rather than leaving the submodule half-initialized.
+        Write-Host "[conformance] sparse checkout failed ($sparseErr) -- falling back to `git submodule update --init`." -ForegroundColor Yellow
         $fbOut = & git -C $RepoRoot submodule update --init -- machine 2>&1
         if ($LASTEXITCODE -ne 0 -or -not (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot)) {
             return [PSCustomObject]@{
@@ -1791,7 +1796,7 @@ function Initialize-ConformanceSubmodule {
     $sizeMB = Get-ConformanceSubmoduleSizeMB -RepoRoot $RepoRoot
     return [PSCustomObject]@{
         Ok = $true; AlreadyPresent = $false; Mode = 'sparse'
-        Detail          = "sparse checkout of machine/conformance complete (~${sizeMB}MB, cone mode -- not the ~415MB full checkout)"
+        Detail          = "sparse checkout of machine/conformance complete (~${sizeMB}MB, cone mode -- not the ~41MB full checkout)"
         RecoveryCommand = ''
     }
 }

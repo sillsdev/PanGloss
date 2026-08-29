@@ -397,18 +397,21 @@ ordinary `-Mode test` suite (not `#[ignore]`d) rather than something only `corpu
 submodule automatically wherever it's needed, **sparse and scoped to `machine/conformance` only** —
 never the full `machine` checkout. The scoping is the whole point, not an incidental optimization:
 
-- This repo's test suite reads only `machine/conformance` (904KB). A full checkout of `machine` is
-  **415MB** (`machine/src` alone is 350MB, `machine/tests` 64MB) — pure dead weight for every
-  worktree that only ever runs `pg-conformance-fixtures::discover()` against the `conformance/`
-  subtree.
+- This repo's test suite reads only `machine/conformance`. Measured at the current pin
+  (`74351b80`, `v3.9.2-12`): sparse is **3.6MB / 469 files**, a full checkout is **41.3MB / 1511
+  blobs** — the rest (`src`, `tests`, `samples`, `docs`, `eng`) is dead weight for every worktree
+  that only ever runs `pg-conformance-fixtures::discover()` against the `conformance/` subtree.
+- **These numbers used to read 904KB and 415MB and were wrong by an order of magnitude** — the
+  upstream branch changed under a pin nobody re-measured against. Re-measure before quoting them;
+  `git ls-tree -r -l <pin>` gives the full-checkout figure without checking anything out.
 - The underlying git **objects** are cheap regardless (a few MB fetched from GitHub; not a
   shallow/`--depth` clone, which would risk not containing the pinned SHA if it isn't the branch
-  tip) — it is the **working-tree materialization** that costs 415MB, so a sparse checkout is the
-  right lever, not a smaller fetch.
-- This machine runs a couple dozen worktrees at once. 415MB × ~15-30 worktrees is multiple
-  gigabytes of pure waste on a disk-constrained machine (see this file's own "1.3GB-free crisis"
-  motivation for the target-dir SSD/HDD split above) for data nothing ever reads. Scoping to
-  `machine/conformance` (~1MB) makes the cost per worktree negligible.
+  tip) — it is the **working-tree materialization** that costs, so a sparse checkout is the right
+  lever, not a smaller fetch.
+- This machine runs a couple dozen worktrees at once, so ~38MB × ~15-30 worktrees still buys back
+  most of a gigabyte on a disk-constrained machine (see this file's own "1.3GB-free crisis"
+  motivation for the target-dir SSD/HDD split above) for data nothing ever reads. Smaller than the
+  old claim, and still worth doing.
 
 **The exact git recipe, and why it's NOT the shorter one you might expect.** The obvious-looking
 `git submodule update --init --no-checkout -- machine` is **not valid syntax** — `--no-checkout` is
@@ -422,6 +425,7 @@ git clone --no-checkout --separate-git-dir=<this worktree's gitdir>/modules/mach
     --branch conformance-framework <url> machine
 git -C machine sparse-checkout init --cone
 git -C machine sparse-checkout set conformance
+git -C machine fetch --no-tags origin <pinned commit>
 git -C machine checkout <pinned commit, read from `git ls-tree HEAD -- machine`>
 ```
 `--separate-git-dir` is what gives `--no-checkout` an empty working tree to apply sparse patterns
@@ -429,8 +433,24 @@ to *before* anything is materialized, and it targets the same worktree-scoped `m
 `git submodule update` itself already uses per-worktree here (each linked worktree gets its own
 `.git/worktrees/<slug>/modules/machine`, confirmed by inspecting an already-initialized worktree's
 `machine/.git` gitlink file) — so two worktrees never contend for the same submodule gitdir, and
-`git submodule sync`/`status`/`foreach` keep working normally afterward. Cone-mode sparse-checkout
-worked cleanly on the first attempt on this git version; the fallback below exists for a
+`git submodule sync`/`status`/`foreach` keep working normally afterward.
+
+**The `fetch` line is load-bearing and was missing.** `clone --branch X` fetches only that branch,
+so a pinned commit the branch has since moved past is simply not in the new object store, and the
+`checkout` then fails with `fatal: unable to read tree <pin>`. That is the SAME hazard this recipe
+already refuses `--depth` for — and it was live: the sparse path failed on **every** worktree
+creation, silently taking the fallback each time, until an explicit `fetch origin <pin>` was added.
+The failure was legible only because the fallback message printed it; a pinned submodule drifting
+behind its branch tip is the normal state, not an edge case, so treat the branch-restricted clone as
+a fetch that does not include your pin.
+
+The failure was also self-masking in a way worth knowing: the failed sparse attempt leaves
+`core.sparseCheckout=true` and the `conformance` pattern behind, so the "full" fallback inherits
+them and produces a sparse tree anyway. The result looked right, and the warning about a full
+checkout was wrong about its own outcome. Do not read a plausible-looking working tree as proof the
+fast path ran.
+
+Cone-mode sparse-checkout itself worked cleanly on this git version; the fallback below exists for a
 *different* git version/environment where it might not, not because this one needed it.
 
 **Fast path first.** Before touching git at all, `Initialize-ConformanceSubmodule` checks for the
