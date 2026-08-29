@@ -106,16 +106,23 @@ fn report_envelope_compiler_divergence() {
         })
         .collect();
 
-    let strict = rows
+    let strict: Vec<&String> = rows
         .iter()
         .filter(|(_, a)| *a == Agreement::TooStrict)
-        .count();
+        .map(|(label, _)| label)
+        .collect();
     eprintln!("envelope-vs-compiler: {} observation(s)", rows.len());
     eprintln!(
         "agree: {}",
         rows.iter().filter(|(_, a)| *a == Agreement::Agree).count()
     );
-    eprintln!("envelope refused, build nonetheless succeeded: {strict}");
+    eprintln!(
+        "envelope refused, build nonetheless succeeded: {}",
+        strict.len()
+    );
+    for label in &strict {
+        eprintln!("  {label}");
+    }
     eprintln!("too lax (envelope admitted, compiler refused): {}", lax.len());
     for (label, reason) in &lax {
         eprintln!("  {label}: {reason}");

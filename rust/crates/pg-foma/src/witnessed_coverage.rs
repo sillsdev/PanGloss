@@ -125,6 +125,12 @@ pub fn compile_with_backend(g: &Grammar, strategy: EmissionStrategy) -> Result<(
 }
 
 /// The plan-composing backend's production shape: enumerate the default plan, interpret it, and run the mandatory boundary-token cleanup a proposer needs.
+///
+/// `build_controllable` interprets the controllable subtree ALONE and documents the marker leaves as
+/// out of its scope, so a marker-bearing plan builds a network that omits them and under-generates.
+/// That is correct for `build_controllable`'s own callers, which compare subtrees or measure sizes.
+/// It is not correct here, where an `Ok` is a claim that this backend can run this grammar, so the
+/// marker check `crate::backend_runtime`'s realization path already applies belongs here too.
 fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
     let table = g
         .char_tables
@@ -134,6 +140,18 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
     let semantics = GrammarSemantics::derive(g);
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let plan = enumerate_default(g, semantics.prules_in_order(), phonology.as_ref());
+    let markers = crate::build::unbuildable_markers(&plan);
+    if !markers.is_empty() {
+        return Err(format!(
+            "plan-composed cannot honour this plan: it requires subtrees build_controllable does \
+             not build ({})",
+            markers
+                .iter()
+                .map(|marker| format!("{marker:?}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
     let opts = FomaOptions::default();
     let mut built =
         crate::build::build_controllable(&plan, &opts, g, &alphabet, semantics.prules_in_order())
