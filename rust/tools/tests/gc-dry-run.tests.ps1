@@ -94,6 +94,27 @@ Test-Case 'the sccache daemon is not a busy process, so it can never block -Appl
     Assert-False ($names -contains 'sccache.exe') 'sccache is a shared daemon, never evidence of a live build'
 }
 
+Test-Case 'gc actually reclaims when driven by the REAL busy-process function' {
+    # The case beside this one passes -BusyProcesses @(), so it never exercised Get-LiveBuildProcesses
+    # and could not have caught a reclaimer that always refused. Judge the control by bytes freed.
+    $live = @(Get-LiveBuildProcesses)
+    $compilers = @($live | Where-Object { $_.Name -in @('cargo.exe', 'rustc.exe', 'link.exe') })
+    $probe = Join-Path $root 'effect-probe'
+    New-Item -ItemType Directory -Force -Path $probe | Out-Null
+    Set-Content -Path (Join-Path $probe 'filler.bin') -Value ('x' * 4096)
+    $classified = [PSCustomObject]@{ Path = $probe; Class = 'disposable'; SizeGB = 0 }
+    $r = Invoke-TargetGc -Classification @($classified) -Apply:$true -BusyProcesses $live -Roots @($root)
+    if ($compilers.Count -gt 0) {
+        # A real build is running, so refusing is correct; assert it refused FOR THAT, not for a daemon.
+        Assert-True $r.Skipped 'a live compiler must still stop gc dead'
+        Assert-True ($r.SkipReason -match 'live') "skip reason must name the live processes: $($r.SkipReason)"
+        Remove-Item -Recurse -Force -LiteralPath $probe
+    } else {
+        Assert-False $r.Skipped "gc refused with no compiler running: $($r.SkipReason)"
+        Assert-False (Test-Path $probe) 'the disposable probe directory must actually be gone'
+    }
+}
+
 Test-Case '-Apply with no busy processes deletes ONLY the disposable directory' {
     $r = Invoke-TargetGc -Classification $classification -Apply:$true -BusyProcesses @() -Roots @($root)
     Assert-False $r.Skipped
