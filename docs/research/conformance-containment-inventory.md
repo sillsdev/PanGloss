@@ -205,6 +205,24 @@ a predicate written against a grammar-only condition will keep over-refusing, an
 gate will keep catching it — all three attempts were measured and reverted within one build cycle
 each, at a cost of 0 shipped regressions.
 
+### The reduplication over-report is fixed, and containment proved it safe
+
+The standalone-derivational loop no longer reports a rule the peel claims. The three reduplication
+fixtures now compile on the surface route, taking its divergence list from **8 rows to 5**.
+
+The suppression is recall-affecting, so it was verified rather than argued: those fixtures had never
+been through containment (the compile refused before), and after the change
+`faithfulness_coverage_gate` still reports **19** — the peel genuinely proposes what the loop was
+declaring uncovered. The ratchet added earlier is what makes that check binding rather than
+decorative.
+
+It is deliberately NOT extended to `is_structural_rule`. Doing so also closed the `process` row, but
+broke `phase_c_circumfix::process_role_drop_stays_honestly_unsupported`, an explicit out-of-scope
+negative witness that a `Role::Process` drop must stay visible. `is_structural_rule` names a
+structural CANDIDATE whose route only runs under a plan topology this loop cannot see — the same
+candidate-versus-decision confusion that broke the third predicate attempt. The `process` row
+therefore stays, correctly.
+
 ### The whole surface-probe inventory, triaged
 
 `crate::emit::structurally_routed_rule_ordinals` publishes which rules `build_structural_composites`

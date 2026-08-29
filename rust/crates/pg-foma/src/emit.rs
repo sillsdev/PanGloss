@@ -4175,11 +4175,21 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     deriv_suffix.push(mid);
                 }
                 Role::CircumfixPrefix => {}
+                // This loop places a rule by its PRIMARY allomorph's role and has no arm for
+                // reduplication, but the peel proposes those analyses, so reporting them uncovered
+                // refuses a grammar this backend covers. Verified rather than assumed: the four
+                // fixtures it unblocks add no containment failure against the full-HC oracle.
+                //
+                // Deliberately NOT extended to `is_structural_rule`, which names a structural
+                // CANDIDATE whose route only runs under a plan topology this loop cannot see --
+                // `phase_c_circumfix::process_role_drop_stays_honestly_unsupported` pins a
+                // `Role::Process` drop that must stay visible.
+                _ if reduplication_rule_is_peelable(g, mid) => {}
                 other => uncovered.push(UncoveredItem {
                     kind: other.label().to_string(),
                     id: format!("mrule{}", mid.0),
                     reason: format!(
-                        "standalone rule's primary allomorph classifies as {other:?}; not representable (v1)"
+                        "standalone rule's primary allomorph classifies as {other:?} and no other route claims it (v1)"
                     ),
                 }),
             }
