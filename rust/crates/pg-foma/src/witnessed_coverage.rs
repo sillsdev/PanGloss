@@ -132,6 +132,24 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
         .ok_or_else(|| "grammar has no character table".to_string())?;
     let alphabet = SegAlphabet::new(table);
     let semantics = GrammarSemantics::derive(g);
+    // uflexc skips every Realizational rule wholesale, so a network can build while silently missing it.
+    if semantics
+        .characteristics()
+        .observations()
+        .iter()
+        .any(|o| o.kind == CharacteristicKind::RealizationalMorphology)
+    {
+        let row = crate::strategy_coverage::representation_of(
+            EmissionStrategy::PlanComposed,
+            CharacteristicKind::RealizationalMorphology,
+        );
+        if row.representation == crate::strategy_coverage::StrategyRepresentation::CannotRepresent {
+            return Err(format!(
+                "plan-composed cannot honour a grammar exercising RealizationalMorphology: {}",
+                row.evidence
+            ));
+        }
+    }
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let plan = enumerate_default(g, semantics.prules_in_order(), phonology.as_ref());
     let markers = crate::build::unbuildable_markers(&plan);

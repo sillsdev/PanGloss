@@ -413,3 +413,131 @@ The other three are distinct and unrelated to it: a plan-composed build producin
 (`loader-pattern-shapes`), an unclaimed standalone Process rule
 (`process-morphology-in-place-mutation`), and a Suffix allomorph on a rule referenced in Prefix
 position (`circumfix-non-first-allomorph-selection`).
+
+## The eleven too-strict rows, triaged against the oracle rather than against the classifier's own text
+
+`envelope_agrees_with_compiler_gate` names 11 too-strict rows (9 `templated-underlying-tokens`, 2
+`plan-composed`). The obvious reading -- "the envelope is too cautious everywhere here, relax it" --
+is right for seven of them and wrong for the other four, and the two directions need opposite fixes.
+Read out
+per-word via `evaluate_plans_observed_with_cache` (bypassing `select_backends`' filter so the refused
+backend runs for real against the same oracle `faithfulness_coverage_gate` uses), not inferred from
+either side's own diagnostic text:
+
+| row | verdict | witness |
+|---|---|---|
+| `machine:edge-cases/diacritic-segments` x templated | **(b) envelope wrong** | `FullHcConfirmed`, 13 words, exact match on every comparable word, incl. `gül` correctly SKIPPED |
+| `machine:edge-cases/disjunctive-recheck` x templated | **(b) envelope wrong** | `FullHcConfirmed`, 12 words, exact match |
+| `machine:edge-cases/loader-isactive-breadth` x templated | **(b) envelope wrong** | `FullHcConfirmed`, 18 words, exact match, incl. `mo+kul`/`zal` |
+| `machine:edge-cases/mpr-gated-exception` x templated | **(b) envelope wrong** | `FullHcConfirmed`, 9 words, exact match -- `vokadan` correctly excluded (0 confirmed analyses) |
+| `machine:edge-cases/stem-name-restricted-root-allomorph` x templated | **(b) envelope wrong** | `FullHcConfirmed`, 6 words, exact match |
+| `machine:edge-cases/strrep-identity` x templated | **(a) compiler wrong** | `IdentityMismatch` on `ndpat`/`imat`: oracle finds 3 identities (`ruleObj` alone, and both linear orders of `rulePfx`+`ruleObj` stacked), templated confirms only 2 -- one stacking order is silently dropped |
+| `machine:edge-cases/truncate-morphotactic` x templated | **(a) compiler wrong** | `IdentityMismatch` on `gas`: oracle finds 2 identities (the 1-hop and 2-hop truncation derivations), templated proposes **zero** |
+| `machine:languages/suffixing-evidential-adjacency-chain` x templated | **(b) envelope wrong** | `FullHcConfirmed`, 28 words, exact match across every `MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule` adjacency case |
+| `staging:edge-cases/backend-gated-generic` x templated | **(b) envelope wrong** | `FullHcConfirmed`, 9 words, exact match (same grammar/construct as `mpr-gated-exception`) |
+| `machine:edge-cases/feature-gating-breadth` x plan-composed | **(a) compiler wrong** | `IdentityMismatch` on `kalid`/`kalmuid`: `rrPast` (a `RealizationalRule`) is entirely missing, 0 proposed vs. 1 expected each |
+| `machine:edge-cases/morphotactic-attribute-breadth` x plan-composed | **(a) compiler wrong** | `IdentityMismatch` on `kuldede`/`kulru`/`simru`/`kulmoru`: `mrReal` (a `RealizationalRule`) entirely missing, 0 proposed |
+
+### Fixed: the two `plan-composed` rows
+
+Both plan-composed failures are the SAME construct (`CharacteristicKind::RealizationalMorphology`)
+and the envelope already carries the exactly right refusal --
+`crate::strategy_coverage::plan_composed`'s own table has marked this `CannotRepresent` since before
+this session (`coverage_ledger.rs`'s own comment already calls it "the live `PlanComposed` x
+`RealizationalMorphology` hole"). What was missing is that `witnessed_coverage::compile_plan_composed`
+-- the function `envelope_agrees_with_compiler_gate` actually calls -- never consulted it, so a
+network still built while silently dropping every `RealizationalRule`'s material. Fixed by adding the
+same check `compile_plan_composed` already runs for marker-bearing plans: read
+`GrammarSemantics::characteristics()` for `RealizationalMorphology`, ask
+`strategy_coverage::representation_of` (the exact table `capability::strategy_floor` already reads,
+not a re-derived condition), and refuse before calling `build_controllable` when it answers
+`CannotRepresent`. This moves both rows from too-strict to agree.
+
+### Fixed nothing further: the classifier-gating idea was tried and reverted
+
+The templated route's `strategy-coverage.templated-unsupported-shape` predicate
+(`capability::templated_shape_floor`) fires two ways for these fixtures: an "Unordered stratum, N
+loose rules" heuristic (fires on 7 of the 9 templated rows) and a `MorphologyRewriteClassifier`
+per-allomorph check (fires on `loader-isactive-breadth`, `strrep-identity`, `truncate-morphotactic`).
+Both are demonstrably over-broad for at least one fixture apiece -- `loader-isactive-breadth` compiles
+and confirms exactly, yet is refused solely by the classifier flagging its boundary-prefix allomorph as
+an unsupported "DirectWholeRootWrapper" -- but attempting to narrow either one the obvious way (gating
+the classifier behind the same "does a template slot mix prefix and suffix" condition
+`emit::atomic_template_carriers` uses before it ever calls the classifier for real) was tried and
+**reverted**: `strategy_aware_capability_gate.rs::templated_capability_translates_from_owner_to_final_active_table`
+pins a template-FREE synthetic grammar (`CROSS_TABLE_UNTRANSLATABLE_XML`) that must still be refused
+by this same classifier for a genuine cross-table translation failure, which proves the classifier is
+consulted more broadly than `atomic_template_carriers`' own gate and a grammar-shape-only re-derivation
+over-narrows just as reliably as the CLAUDE.md history's three over-refusing attempts. Reverted within
+the same build cycle, at zero shipped regressions -- see this file's own rule that a differential
+measurement comes before the change, not after.
+
+No narrower, evidence-backed replacement was found in the time available for either heuristic. This
+leaves 7 rows in the too-strict count that this session's own oracle comparison shows should read
+`Agree`:
+
+- `diacritic-segments`, `disjunctive-recheck`, `mpr-gated-exception`, `stem-name-restricted-root-allomorph`,
+  `backend-gated-generic`, `suffixing-evidential-adjacency-chain`: refused solely by "Unordered
+  stratum, N loose rules". This is not merely over-cautious, it **duplicates and contradicts an
+  already-reviewed verdict**: `CharacteristicKind::UnorderedMorphRuleApplication` has its own
+  registered `CapabilityPredicate` (`UnorderedOrderingUnionPredicate`, `capability.rs`), which
+  constrains exactly `DERIVATION_LAYER_STRATEGIES` -- `TunedSurfaceProbed` AND
+  `TemplatedUnderlyingTokens`, the same two `strategy_coverage::templated_underlying_tokens` says
+  share `build_deriv_chain` -- and its verdict for ANY observed `Unordered` stratum, at ANY loose-rule
+  count, is `ConfirmOnly`, never `Refuse`. `templated_shape_floor`'s "N loose rules" block is a second,
+  ad hoc mechanism for the identical construct, met into the decision OUTSIDE the
+  predicate/`Disposition` framework (`capability.rs`'s own `templated_shape_floor` call site, not
+  `compose_over_predicates`), and it disagrees with the reviewed predicate for every one of these six
+  fixtures. In all 6, the reviewed predicate is the one this session's oracle comparison bears out
+  (their two loose rules are either alternatives in one optional slot -- `rPl`/`rDim`,
+  `mrSuf`/`mrSufAlt` -- or standalone rules the fixture's own corpus never stacks on one word,
+  `ruleT`/`ruleD`). `strrep-identity` (a separate, `(a)`-verdict row above, not one of these six) is
+  where the SAME heuristic happens to be right for the wrong reason: its own oracle-cited proof for
+  the shared claim, `tests/cover_unordered_morph_rules.rs`, exercises only `FomaAnalyzer`/`Morpher` --
+  the mainline/`TunedSurfaceProbed` pipeline -- and names no `TemplatedUnderlyingTokens` case at all,
+  so "templated shares the same proven containment" is an UNVERIFIED extension of a mainline-only
+  proof, and this session's own measurement is the first evidence it does not hold for the
+  two-rule-stacking-order case. Removing `templated_shape_floor`'s duplicate check outright would
+  correctly un-refuse these six (bringing the envelope into line with the predicate the crate has
+  already reviewed and adopted) but would ALSO un-refuse `strrep-identity`,
+  which genuinely needs to stay refused. The predicate framework is exactly where that residual gap
+  belongs -- either narrowing `UnorderedOrderingUnionPredicate` itself for the stacking-order case, or
+  proving the templated-sharing claim with a templated-specific oracle test the way
+  `cover_unordered_morph_rules.rs` does for the mainline -- not left to a second, disagreeing,
+  un-reviewed heuristic. Not attempted here: `UnorderedOrderingUnionPredicate` is load-bearing for
+  every OTHER `Unordered`-stratum fixture in the suite, and touching it without that templated-specific
+  proof in hand is exactly the kind of change this file's own history shows costs a reverted attempt.
+- `loader-isactive-breadth`: refused solely by the classifier flagging `mrBoundaryPfx` (the
+  boundary-character-inserting prefix behind `mo+kul`) as an unsupported "DirectWholeRootWrapper" --
+  the real compile never needs that classifier for a simple one-part prefix allomorph
+  (`structural_allomorph::compile_layer`'s own `recipe_for` requires a two-part LHS before it even
+  looks at this allomorph), but the classifier still runs and refuses it as if it needed the wrapper
+  treatment `atomic_template_carriers` uses for interdigitating templates.
+
+**Recorded as a genuine blocker, not fixed:** a safe narrowing of either check needs either (1) a real
+static "can these N loose rules combine on one derivation" analysis, extracted from wherever the
+morphotactic-legality machinery (`pg_rules::cascade`, `crate::morphotactics`) already answers an
+adjacent question, or (2) splitting the classifier's per-allomorph check so it runs only under the
+exact precondition `compile_layer`'s `recipe_for` requires (two-part LHS) in addition to
+`atomic_template_carriers`' template-mixing precondition -- neither attempted here because both need
+more research than this session's remaining time allowed, and a wrong guess costs a shipped
+regression per this file's own three-strikes history.
+
+### Not fixed: the two genuine templated defects (`strrep-identity`, `truncate-morphotactic`)
+
+Both are real: the templated route silently drops an oracle-required analysis while its own
+`EmitReport.uncovered` stays empty (`tier: Full`), so `compile_templated_morphotactics` sees nothing
+wrong and returns `Ok`. The envelope already refuses both today, via the same "Unordered stratum, loose
+rules" heuristic discussed above (imprecise, but happens to be correct here) plus, before this
+session's revert, the classifier's `DirectWholeRootWrapper`/`UnlistedTopology` diagnostics. Because
+`compile_templated_morphotactics` does not consult the envelope at all (it only consults its own
+uncovered-item report, which does not see this class of loss), making the compiler refuse for exactly
+these two grammars -- without also refusing the 7 fixtures above where the SAME heuristic is wrong --
+needs the same real, targeted fact this section's blocker calls for. Recorded, not implemented.
+
+### Where this leaves the divergence count
+
+Only the two `plan-composed` rows are closed by code in this session, moving from too-strict to agree.
+The 9 templated rows are all triaged (7 **(b)**, 2 **(a)**) with hard oracle evidence, but stay
+too-strict until the blockers above are resolved -- a real narrowing for the 7, a real
+compiler-refuse fact for the 2. See the top-level report for the measured before/after triple.
