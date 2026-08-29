@@ -9,6 +9,7 @@ use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
 use pg_foma::witnessed_coverage::compile_with_backend;
+use pg_grammar::model::Grammar;
 
 /// How a fixture's envelope verdict lines up with what its compiler actually did.
 #[derive(Debug, PartialEq, Eq)]
@@ -172,6 +173,73 @@ fn the_published_closure_fact_never_over_claims_a_refusal() {
     );
 }
 
+/// Compiles `grammar` with `strategy`; asserts the attempt never panics, returns whether it compiled.
+fn compiled_without_panicking(grammar: &Grammar, strategy: EmissionStrategy, label: &str) -> bool {
+    match panic::catch_unwind(AssertUnwindSafe(|| compile_with_backend(grammar, strategy))) {
+        Ok(result) => result.is_ok(),
+        Err(_) => panic!("{label}: {strategy:?} panicked instead of returning a typed refusal"),
+    }
+}
+
+/// The published untokenizable-root-shape fact must never claim a refusal `TemplatedUnderlyingTokens` does not make.
+#[test]
+fn the_published_untokenizable_root_shape_fact_never_over_claims_a_refusal() {
+    let mut claimed = 0usize;
+    for fixture in discover() {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        if grammar.char_tables.is_empty() {
+            continue;
+        }
+        if !pg_foma::replace::grammar_has_untokenizable_root_shape(&grammar) {
+            continue;
+        }
+        claimed += 1;
+        assert!(
+            !compiled_without_panicking(
+                &grammar,
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                &fixture.label()
+            ),
+            "{}: the untokenizable-root-shape fact claims TemplatedUnderlyingTokens cannot \
+             compile, but it did",
+            fixture.label()
+        );
+    }
+    assert!(
+        claimed > 0,
+        "no fixture exercised the untokenizable-root-shape fact, so this gate proves nothing"
+    );
+}
+
+/// The published no-tokenizable-root fact must never claim a refusal `PlanComposed` does not make.
+#[test]
+fn the_published_no_tokenizable_root_fact_never_over_claims_a_refusal() {
+    let mut claimed = 0usize;
+    for fixture in discover() {
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        if grammar.char_tables.is_empty() || grammar.entries.is_empty() {
+            continue;
+        }
+        if !pg_foma::replace::grammar_has_no_tokenizable_root(&grammar) {
+            continue;
+        }
+        claimed += 1;
+        assert!(
+            !compiled_without_panicking(&grammar, EmissionStrategy::PlanComposed, &fixture.label()),
+            "{}: the no-tokenizable-root fact claims PlanComposed cannot compile, but it did",
+            fixture.label()
+        );
+    }
+    assert!(
+        claimed > 0,
+        "no fixture exercised the no-tokenizable-root fact, so this gate proves nothing"
+    );
+}
+
 /// The root-spelling fact must never claim a drop the surface route does not make.
 #[test]
 fn the_published_root_spelling_fact_never_over_claims_a_drop() {
@@ -228,7 +296,10 @@ fn report_envelope_compiler_divergence() {
     for label in &strict {
         eprintln!("  {label}");
     }
-    eprintln!("too lax (envelope admitted, compiler refused): {}", lax.len());
+    eprintln!(
+        "too lax (envelope admitted, compiler refused): {}",
+        lax.len()
+    );
     for (label, reason) in &lax {
         eprintln!("  {label}: {reason}");
     }
@@ -239,4 +310,3 @@ fn report_envelope_compiler_divergence() {
         "no fixture agreed, so this sweep is measuring nothing"
     );
 }
-

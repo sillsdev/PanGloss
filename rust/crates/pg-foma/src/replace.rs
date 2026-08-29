@@ -530,9 +530,50 @@ impl<'t> SegAlphabet<'t> {
         )
     }
 
+    /// True when every interior node of `shape` names a concrete `CharDefId` — false for an
+    /// abstract, natural-class-derived node (`pg_shape::NO_CHAR_DEF`), which stands for a SET of
+    /// segments and has no single codepoint of its own to hand `Self::token`.
+    pub fn shape_is_tokenizable(shape: &pg_shape::Shape) -> bool {
+        shape
+            .interior()
+            .all(|(_, _, cd, _)| cd != pg_shape::NO_CHAR_DEF)
+    }
+
     pub fn table(&self) -> &'t CharDefTable {
         self.table
     }
+}
+
+/// True when some root allomorph in `g`'s lexicon carries a shape
+/// [`SegAlphabet::shape_is_tokenizable`] declines — the pattern-language `[ClassName]` construct
+/// (`machine:edge-cases/loader-pattern-shapes`'s `b[Vowel]t`) segments to an abstract node even
+/// when it is not `RootAllomorphDef::is_pattern` (that flag only fires for an optional/iterative
+/// node, never a mandatory class reference), so `crate::uflexc`/`crate::emit`'s own `is_pattern`
+/// guard alone lets one through into `SegAlphabet::encode_shape`. Names
+/// `TemplatedUnderlyingTokens`'s own refusal condition specifically — too weak a claim for
+/// `PlanComposed` (below), which tolerates a partial lexicon; pinned by
+/// `the_published_untokenizable_root_shape_fact_never_over_claims_a_refusal`.
+pub fn grammar_has_untokenizable_root_shape(g: &Grammar) -> bool {
+    g.entries.iter().any(|entry| {
+        entry
+            .allomorphs
+            .iter()
+            .any(|allo| !SegAlphabet::shape_is_tokenizable(&allo.shape.shape))
+    })
+}
+
+/// True when EVERY root allomorph in `g`'s lexicon is `RootAllomorphDef::is_pattern` or a shape
+/// [`SegAlphabet::shape_is_tokenizable`] declines — the condition under which
+/// `crate::uflexc::emit_underlying_filtered` skips every root line, leaving `PlanComposed` with no
+/// candidate to certify. Vacuously true for a lexicon with no allomorph at all; pinned by
+/// `the_published_no_tokenizable_root_fact_never_over_claims_a_refusal`.
+pub fn grammar_has_no_tokenizable_root(g: &Grammar) -> bool {
+    g.entries.iter().all(|entry| {
+        entry
+            .allomorphs
+            .iter()
+            .all(|allo| allo.is_pattern || !SegAlphabet::shape_is_tokenizable(&allo.shape.shape))
+    })
 }
 
 // Re-exported from `crate::lower` (canonical home) at the same paths so existing callers need no change.
@@ -1056,7 +1097,15 @@ pub fn compile_and_compose_rules(
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
 ) -> Option<Fsm> {
-    compile_and_compose_rules_internal(opts, g, alphabet, prules_in_order, skipped, tuple_reports, false)
+    compile_and_compose_rules_internal(
+        opts,
+        g,
+        alphabet,
+        prules_in_order,
+        skipped,
+        tuple_reports,
+        false,
+    )
 }
 
 /// Compile the same ordered cascade for a propose-then-confirm caller, but preserve an identity
@@ -1083,7 +1132,15 @@ pub fn compile_and_compose_rules_recall_safe(
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
 ) -> Option<Fsm> {
-    compile_and_compose_rules_internal(opts, g, alphabet, prules_in_order, skipped, tuple_reports, true)
+    compile_and_compose_rules_internal(
+        opts,
+        g,
+        alphabet,
+        prules_in_order,
+        skipped,
+        tuple_reports,
+        true,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1246,9 +1303,7 @@ fn slot_candidates(
     match slot {
         Slot::Fixed(cd) => Some(expand(std::slice::from_ref(cd))),
         Slot::Union(members) => Some(expand(members)),
-        Slot::ForeignFixed { .. } | Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor => {
-            None
-        }
+        Slot::ForeignFixed { .. } | Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor => None,
     }
 }
 
@@ -1440,8 +1495,7 @@ pub(crate) fn compile_metathesis_rule(
         table,
         table_id,
         &alias_map,
-    )
-    else {
+    ) else {
         return None;
     };
 
@@ -1462,8 +1516,7 @@ pub(crate) fn compile_metathesis_rule(
                 table,
                 table_id,
                 &alias_map,
-            )
-            else {
+            ) else {
                 // Kept as an honest `None` rather than `unreachable!` in case this equivalence is ever violated.
                 return None;
             };
@@ -1620,9 +1673,8 @@ mod owning_table_tests {
         let g = two_table_alpha_grammar();
         let rule = rewrite_rule_by_xml_id(&g, "prule_alpha_t1");
         let opts = FomaOptions::default();
-        let (net, reports) =
-            compile_rewrite_rule_subset(&opts, &g, rule, &|_| true)
-                .expect("prule_alpha_t1 must compile");
+        let (net, reports) = compile_rewrite_rule_subset(&opts, &g, rule, &|_| true)
+            .expect("prule_alpha_t1 must compile");
         assert!(net.statecount > 0);
         assert_eq!(reports.len(), 1, "exactly one alpha-bearing subrule");
         assert_eq!(

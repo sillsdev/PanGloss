@@ -268,7 +268,8 @@ pub fn emit_underlying_filtered(
             .is_some_and(|l| l.head_eligible.contains(&LexEntryId(ei as u32)));
         let mut declared = false;
         for (ai, allo) in entry.allomorphs.iter().enumerate() {
-            if allo.is_pattern {
+            // `is_pattern` alone misses a mandatory `[ClassName]` reference (crate::replace's own doc on this fact).
+            if allo.is_pattern || !SegAlphabet::shape_is_tokenizable(&allo.shape.shape) {
                 skipped.push(format!("entry{ei}#allo{ai} pattern-allomorph"));
                 continue;
             }
@@ -297,7 +298,7 @@ pub fn emit_underlying_filtered(
             }
             let tag = tags::root_tag_lexc(entry.morpheme, width);
             for allo in &entry.allomorphs {
-                if allo.is_pattern {
+                if allo.is_pattern || !SegAlphabet::shape_is_tokenizable(&allo.shape.shape) {
                     continue;
                 }
                 if declared_tags.insert(tag.clone()) {
