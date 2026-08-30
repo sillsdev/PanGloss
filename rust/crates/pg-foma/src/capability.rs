@@ -3516,40 +3516,6 @@ impl GrammarWideCheck for UntokenizableRootShapeCheck {
     }
 }
 
-/// `EmissionStrategy::PlanComposed` has no arm in `crate::completed_build::compile_completed_backend`
-/// -- it falls to that function's `CompletedBuildError::UnsupportedStrategy` catch-all -- so no
-/// production artifact can ever come from selecting it, independent of any grammar. An envelope
-/// that admits a route with no way to produce an artifact is the same "control that cannot act"
-/// this crate refuses everywhere else. Pinned by
-/// `crate::completed_build::tests::plan_composed_has_no_production_compile_arm`, which fails the
-/// day a real arm is added -- at which point this check should be removed, not adjusted.
-pub struct PlanComposedNoProductionArmCheck;
-
-impl GrammarWideCheck for PlanComposedNoProductionArmCheck {
-    fn id(&self) -> PredicateId {
-        "strategy-materializer.no-production-compile-arm"
-    }
-    fn strategy(&self) -> EmissionStrategy {
-        EmissionStrategy::PlanComposed
-    }
-    fn shape_key(&self) -> &'static str {
-        "nonregular-process-morphology"
-    }
-    fn provenance(&self) -> EvidenceProvenance {
-        EvidenceProvenance::Structural
-    }
-    fn evaluate(&self, _semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
-        Some(CompileDecision::Refuse(vec![CapabilityDiagnostic {
-            predicate: self.id(),
-            construct: "grammar (EmissionStrategy::PlanComposed backend)".to_string(),
-            witness: "crate::completed_build::compile_completed_backend has no PlanComposed arm \
-                      and falls to its UnsupportedStrategy catch-all, so no production artifact \
-                      can ever be produced by selecting this backend"
-                .to_string(),
-        }]))
-    }
-}
-
 /// The registry this crate ships: every grammar-wide fact `crate::backend_selection::select_backends`
 /// applies, named and strategy-scoped rather than threaded as a growing positional argument list.
 pub fn default_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
@@ -3564,7 +3530,6 @@ pub fn default_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
         Box::new(PlanComposedMarkerCheck),
         Box::new(EagerRouteDropsRootSpellingsCheck),
         Box::new(UntokenizableRootShapeCheck),
-        Box::new(PlanComposedNoProductionArmCheck),
     ]
 }
 
