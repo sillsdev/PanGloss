@@ -153,11 +153,18 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
                 .collect()
         })
         .unwrap_or_default();
+    // `enum_budget_exceeded` carries the measured value a budget stop tripped on; without it the finding reported `Unbounded` while the number sat unread on the report.
     let value = report
         .closure_refusal
         .as_ref()
         .and_then(|refusal| refusal.pending_successors)
         .map(|pending| MetricValue::Count(pending as u64))
+        .or_else(|| {
+            report
+                .enum_budget_exceeded
+                .as_ref()
+                .map(|budget| MetricValue::Count(budget.value as u64))
+        })
         .unwrap_or(MetricValue::Unbounded);
     let closure_detail = report
         .closure_refusal
@@ -172,12 +179,20 @@ fn unsupported_tier_finding(report: &EmitReport, reason: &str) -> HealthFinding 
                 refusal.pending_successors.unwrap_or_default()
             ),
         })
+        .or_else(|| {
+            report.enum_budget_exceeded.as_ref().map(|budget| {
+                format!(
+                    " The {} limit was {} and this grammar reached {}.",
+                    budget.measure, budget.limit, budget.value
+                )
+            })
+        })
         .unwrap_or_default();
-    // A depth-budget stop halted THIS attempt; every other cause is a coverage gap in the grammar.
+    // Both stop THIS attempt at a raisable cap; reading either as a coverage gap reports a tunable limit as CannotRepresent, a permanent verdict about the grammar.
     let depth_budget_stop = matches!(
         report.closure_refusal.as_ref().map(|refusal| refusal.code),
         Some(ClosureRefusalCode::DepthBudgetExceeded)
-    );
+    ) || report.enum_budget_exceeded.is_some();
     let (code, severity, explanation) = if depth_budget_stop {
         (
             FindingCode::ResourceBudgetReached,
@@ -717,6 +732,42 @@ mod tests {
         assert_eq!(finding.affected, vec!["mrule3", "mrule7"]);
         assert_eq!(finding.value, MetricValue::Count(11));
         assert!(finding.explanation.contains("closure-depth limit was 64"));
+    }
+
+    /// A raisable compound-depth budget is a stop on THIS attempt, never a verdict that the grammar cannot be represented.
+    #[test]
+    fn an_enum_budget_stop_is_readiness_not_representability() {
+        let report = EmitReport {
+            uncovered: Vec::new(),
+            counts: EmitCounts::default(),
+            tier: FomaTier::Unsupported {
+                reason: "compound chain depth budget".to_string(),
+            },
+            // The shape emit.rs produces for HC_COMPOUND_CHAIN_DEPTH_BUDGET: a budget, and no closure refusal.
+            enum_budget_exceeded: Some(crate::emit::EnumBudgetExceeded {
+                measure: "compound chain depth (extra non-head root levels)",
+                value: 37,
+                limit: 24,
+            }),
+            closure_refusal: None,
+            closure_evidence: None,
+        };
+        let health = evaluate_health(None, Some(&report), &[], &[]);
+        let finding = &health.findings[0];
+        assert_eq!(
+            finding.code,
+            FindingCode::ResourceBudgetReached,
+            "a configured, raisable cap is a budget stop; reporting it as BackendCoverageIncomplete \
+             tells the reader this language cannot be represented, which is not what happened"
+        );
+        assert_eq!(finding.severity, Severity::NotProductionReady);
+        assert_eq!(
+            finding.value,
+            MetricValue::Count(37),
+            "the measured value was on the report all along and read as Unbounded"
+        );
+        assert!(finding.explanation.contains("limit was 24"));
+        assert!(finding.explanation.contains("reached 37"));
     }
 
     // fst_health_evaluator_compose_errors: every ComposeError variant maps to a finding.
