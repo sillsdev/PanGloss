@@ -322,6 +322,9 @@ impl SelectedBackendBuild {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompletedBuildError {
     UnsupportedStrategy(EmissionStrategy),
+    /// The capability envelope refused this backend before any emission ran, mirroring
+    /// `crate::analyzer::FomaError::CapabilityRefused`.
+    CapabilityRefused(Vec<crate::capability::CapabilityDiagnostic>),
     Compiler(String),
     IncompleteEvidence(String),
     IncompleteClosure {
@@ -363,6 +366,13 @@ impl fmt::Display for CompletedBuildError {
             Self::UnsupportedStrategy(strategy) => {
                 write!(f, "unsupported completed-build strategy {strategy:?}")
             }
+            Self::CapabilityRefused(diagnostics) => write!(
+                f,
+                "the capability envelope refuses this backend for {} construct(s), so no \
+                 emission ran: {}",
+                diagnostics.len(),
+                crate::capability_gate::render_refusal(diagnostics)
+            ),
             Self::Compiler(error) => write!(f, "backend compiler failed: {error}"),
             Self::IncompleteEvidence(reason) => {
                 write!(f, "completed-build evidence is incomplete: {reason}")
@@ -462,6 +472,12 @@ pub fn compile_completed_backend(
             )
         }
         EmissionStrategy::TemplatedUnderlyingTokens => {
+            // Refused before emitting, per ADR-0001, mirroring `analyzer::FomaProposer::new`'s own gate.
+            if let Err(diagnostics) =
+                crate::capability_gate::refuse_unless_admitted(grammar, requested_strategy)
+            {
+                return Err(CompletedBuildError::CapabilityRefused(diagnostics));
+            }
             let output = compile_templated_morphotactics(grammar)
                 .map_err(|error| CompletedBuildError::Compiler(error.to_string()))?;
             let report = output.proposer.report.as_ref().ok_or_else(|| {
@@ -691,5 +707,61 @@ mod tests {
         assert!(rendered.contains("pending_successor_count=3"));
         assert!(rendered.contains("pending_rule_ordinals=[7, 19]"));
         assert!(rendered.contains("worklist_empty=false"));
+    }
+
+    /// Minimal, delanguaged grammar: one char table, one entry, no rules.
+    const MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>MinimalCompletedBuildFixture</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <Strata>
+        <Stratum characterDefinitionTable="t1">
+          <Name>S</Name>
+          <LexicalEntries>
+            <LexicalEntry id="e1">
+              <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+            </LexicalEntry>
+          </LexicalEntries>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// Pins the premise `capability::PlanComposedNoProductionArmCheck` refuses on unconditionally.
+    #[test]
+    fn plan_composed_has_no_production_compile_arm() {
+        let grammar = pg_grammar::load(MINIMAL_XML).expect("fixture must load");
+        let attempt = CompileAttempt::try_new().expect("attempt id must construct");
+        let result = compile_completed_backend(&grammar, EmissionStrategy::PlanComposed, &attempt);
+        assert!(
+            matches!(
+                result,
+                Err(CompletedBuildError::UnsupportedStrategy(
+                    EmissionStrategy::PlanComposed
+                ))
+            ),
+            "expected UnsupportedStrategy(PlanComposed); got {result:?}"
+        );
+    }
+
+    /// A too-strict fixture (envelope refuses, emitter still builds) must now refuse here too.
+    #[test]
+    fn templated_route_refuses_before_emitting_when_the_envelope_refuses() {
+        let fixture = pg_conformance_fixtures::discover()
+            .into_iter()
+            .find(|f| f.label() == "machine:edge-cases/strrep-identity")
+            .expect("fixture must be discoverable");
+        let grammar =
+            pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
+        let attempt = CompileAttempt::try_new().expect("attempt id must construct");
+        let result = compile_completed_backend(
+            &grammar,
+            EmissionStrategy::TemplatedUnderlyingTokens,
+            &attempt,
+        );
+        assert!(
+            matches!(result, Err(CompletedBuildError::CapabilityRefused(_))),
+            "expected CapabilityRefused; got {result:?}"
+        );
     }
 }

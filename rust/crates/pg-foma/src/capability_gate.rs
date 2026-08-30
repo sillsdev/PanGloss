@@ -6,17 +6,23 @@
 //! whatever the emitter happened to report afterwards, which arrives as a compile artifact rather
 //! than as a capability refusal a selector can read.
 //!
-//! # Why this is safe for the surface probe and not (yet) for the other two
+//! # Why this is safe for the surface probe and the templated route, and never will be for PlanComposed
 //! Measured by `tests/envelope_agrees_with_compiler_gate.rs` over every discovered fixture x every
-//! backend: 183 observations, of which 47 are backends the envelope refuses while their build
-//! nonetheless succeeds. Not one of those 47 is `TunedSurfaceProbed` -- they are `PlanComposed`
-//! (38) and `TemplatedUnderlyingTokens` (9) -- so making the envelope authoritative for the surface
-//! probe cannot lose a capability the tree has, while doing the same for the other two would.
+//! backend: 183 observations, of which 25 are backends the envelope refuses while their build
+//! nonetheless succeeds. Not one of those 25 is `TunedSurfaceProbed` -- they are `PlanComposed`
+//! (22) and `TemplatedUnderlyingTokens` (3) -- so making the envelope authoritative for the surface
+//! probe (`analyzer::FomaProposer::new`) and the templated route
+//! (`completed_build::compile_completed_backend`) cannot lose a capability either tree has.
 //!
-//! The 38 are not evidence the envelope is wrong. `crate::build::unbuildable_markers`' own doc
-//! records a marker-bearing plan building a network that "proposed nothing for 19 of 20 corpus
-//! words": the build succeeds and the result under-generates, so the envelope's refusal is right
-//! and the builder's success is the defect.
+//! `PlanComposed` is the different case: all 22 of its too-strict rows are
+//! `capability::PlanComposedNoProductionArmCheck`'s unconditional refusal. Pinned by `plan_composed_has_no_production_compile_arm`.
+//! No production caller could ever select `PlanComposed` regardless of what this gate says, unlike
+//! the templated route before this file wired it in. `crate::build::unbuildable_markers`'s own doc
+//! independently records a marker-bearing `PlanComposed` plan building a network that "proposed
+//! nothing for 19 of 20 corpus words": the build succeeds and the result under-generates, so a
+//! `PlanComposed` refusal is right even judged by build success alone, before this check's
+//! unconditional reason is counted at all. The remaining 3 `TemplatedUnderlyingTokens` rows are
+//! real, open compiler defects.
 
 use pg_grammar::model::Grammar;
 

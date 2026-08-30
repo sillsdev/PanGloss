@@ -148,13 +148,14 @@ fn sena_backend_reports_are_complete() {
         Some(FindingCode::BackendCoverageIncomplete),
         Some("nonregular-process-morphology"),
     );
+    // No completed-build arm exists for PlanComposed, so it now refuses with no grammar-directed advice (ADR-0007).
     assert_backend(
         "sena",
         &selection,
         EmissionStrategy::PlanComposed,
-        BackendStatus::Accepted,
-        Severity::WithinLimits,
-        None,
+        BackendStatus::Refused,
+        Severity::CannotRepresent,
+        Some(FindingCode::BackendCoverageIncomplete),
         None,
     );
 }

@@ -371,11 +371,33 @@ fn report_envelope_compiler_divergence() {
         eprintln!("  {label}: {reason}");
     }
 
-    // Staged, not vacuity-only: names every remaining too-strict row so a NEW one fails here.
+    // Staged: names every too-strict row (22 are `PlanComposedNoProductionArmCheck`'s) so a NEW one fails here rather than joining an unnamed backlog.
     const EXPECTED_TOO_STRICT: &[&str] = &[
         "machine:edge-cases/loader-isactive-breadth x templated-underlying-tokens",
         "machine:edge-cases/strrep-identity x templated-underlying-tokens",
         "machine:edge-cases/truncate-morphotactic x templated-underlying-tokens",
+        "machine:edge-cases/bistratal-overlapping-segment-representation x plan-composed",
+        "machine:edge-cases/compounding-breadth x plan-composed",
+        "machine:edge-cases/deep-optional-affix-nesting x plan-composed",
+        "machine:edge-cases/diacritic-segments x plan-composed",
+        "machine:edge-cases/disjunctive-recheck x plan-composed",
+        "machine:edge-cases/free-fluctuating-allomorph-pair x plan-composed",
+        "machine:edge-cases/loader-isactive x plan-composed",
+        "machine:edge-cases/loader-isactive-breadth x plan-composed",
+        "machine:edge-cases/mpr-group-overwrite-without-realizational x plan-composed",
+        "machine:edge-cases/mpr-overwrite-order-dependence x plan-composed",
+        "machine:edge-cases/stem-name-restricted-root-allomorph x plan-composed",
+        "machine:edge-cases/strrep-identity x plan-composed",
+        "machine:languages/prefixal-discontinuous-slot-dependency x plan-composed",
+        "machine:languages/suffixing-evidential-adjacency-chain x plan-composed",
+        "staging:edge-cases/backend-template-generic x plan-composed",
+        "staging:edge-cases/compounding-non-recursive x plan-composed",
+        "staging:edge-cases/cross-stem-material-determination x plan-composed",
+        "staging:edge-cases/guesser-pattern-root-fallback x plan-composed",
+        "staging:edge-cases/head-ambiguous-compounding x plan-composed",
+        "staging:edge-cases/recursive-endocentric-compounding x plan-composed",
+        "staging:edge-cases/standalone-combining-mark x plan-composed",
+        "staging:edge-cases/template-category-sharing x plan-composed",
     ];
     let mut strict_sorted: Vec<&str> = strict.iter().map(|label| label.as_str()).collect();
     strict_sorted.sort_unstable();
