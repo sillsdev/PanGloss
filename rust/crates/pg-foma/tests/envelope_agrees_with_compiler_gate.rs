@@ -297,7 +297,7 @@ fn the_published_no_tokenizable_root_fact_never_over_claims_a_refusal() {
         claimed += 1;
         assert!(
             !compiled_without_panicking(&grammar, EmissionStrategy::PlanComposed, &fixture.label()),
-            "{}: the no-tokenizable-root fact claims PlanComposed cannot compile, but it did",
+            "{}: the no-tokenizable-root fact claims PlanComposed builds no network, but it did",
             fixture.label()
         );
     }

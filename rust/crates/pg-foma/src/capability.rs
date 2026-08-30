@@ -1562,6 +1562,14 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 pub type PredicateId = &'static str;
 
 /// Where a predicate's evidence comes from.
+///
+/// ADR-0001's "Two-tier, migrating" names two: `structural` for the controllable composition path,
+/// and `behavioral` — proven by oracle witnesses — for the black-box foma mainline, so "the two are
+/// never conflated". Only `Structural` is representable here, and every predicate and
+/// `GrammarWideCheck` in this crate carries it, because each reads model fields or lowered automata
+/// directly. The missing tier is a KNOWN GAP, recorded rather than closed: a `Behavioral` variant
+/// nothing constructs would be a control that cannot act. It becomes a variant when a predicate
+/// actually constrains on an oracle witness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvidenceProvenance {
     /// Evidence comes from directly inspecting compositional structure (lowered automata, or —
@@ -1574,6 +1582,7 @@ pub enum EvidenceProvenance {
 /// human-readable witness: compilation fails with a typed diagnostic naming the construct and
 /// configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a capability verdict that is computed and dropped decides nothing"]
 pub struct CapabilityDiagnostic {
     pub predicate: PredicateId,
     pub construct: String,
@@ -1582,6 +1591,7 @@ pub struct CapabilityDiagnostic {
 
 /// A capability predicate's verdict for one plan node.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a capability verdict that is computed and dropped decides nothing"]
 pub enum PredicateVerdict {
     /// Proven faithful; admission-filtering allowed.
     Admit,
@@ -3566,6 +3576,7 @@ impl<'a> CapabilityContributions<'a> {
 /// in first — this type widens the single diagnostic to a deduplicated `Vec` at exactly the point
 /// those per-node/per-observation verdicts get folded together.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a capability verdict that is computed and dropped decides nothing"]
 pub enum CompileDecision {
     /// Every construct in the plan is `Proven`, or has a predicate-proven `PredicateVerdict::Admit`.
     /// Admission-filtering is licensed.
@@ -3990,7 +4001,7 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
         }
     }
 
-    // UnorderedOrderingUnionPredicate already answers this (ConfirmOnly) upstream; a second ad hoc check here only duplicated and contradicted it.
+    // Owned upstream by `UnorderedOrderingUnionPredicate`; re-deriving it here duplicated and contradicted that owner (`docs/research/conformance-containment-inventory.md`).
 
     for (prule_index, prule) in grammar.prules.iter().enumerate() {
         let PhonRuleDef::Rewrite(rule) = prule else {

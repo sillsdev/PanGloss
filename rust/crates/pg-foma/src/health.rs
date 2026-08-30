@@ -541,6 +541,7 @@ fn severity_axis(severity: Severity) -> Option<FindingClass> {
 /// The aggregated report for one grammar compilation. See `HealthReport::admission` for the
 /// raw-severity aggregation rule.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[must_use = "a health report that is computed and dropped reports nothing"]
 pub struct HealthReport {
     /// This schema's version (`HEALTH_SCHEMA_VERSION`) at the time this report was produced.
     pub schema_version: u32,

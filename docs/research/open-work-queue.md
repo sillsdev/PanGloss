@@ -1,122 +1,101 @@
 # Open work queue
 
-Everything called out as owed, with what "done" means for each. Ordered by what blocks what, not by
-size. Delete an entry when it lands; this file is a queue, not a history.
+What is genuinely owed, with what "done" means for each. Delete an entry when it lands; this file is
+a queue, not a history.
 
-## 1. Gate `strategy_coverage` against the measured matrix -- IN FLIGHT
+Audited against the code at `c830063c`, because the previous revision listed five completed items as
+pending and one done item as "IN FLIGHT". A queue that misreports its own state is worse than no
+queue, so each entry below carries the evidence its status rests on.
 
-The last authored claim nothing checks. The table asserts per `(CharacteristicKind,
-EmissionStrategy)` what each compiler can propose; `examples/conf_matrix.rs` now measures what they
-do. Sound direction: a table entry claiming a strategy CANNOT propose a kind is refuted by any
-fixture exhibiting that kind which works on that strategy. The reverse is only suggestive, because a
-fixture exhibits several kinds and attribution is not one-to-one.
+## 1. Re-run the backend matrix
 
-**Done when:** a report names every agreed / contradicted / unsupported entry, the sound direction is
-gated at its real count, and a can-fire test forces a synthetic contradiction and requires the gate
-to name it.
+`docs/research/conformance-backend-matrix.md` says "measured at `496a6f3c`". `main` is 20+ commits
+past that, including `719c2773`, which exposed `IdentityDivergence` and gated over-generation per
+backend -- exactly the kind of change that doc's own text warns invalidates the measurement.
 
-## 2. `-Mode run` cannot have its stdout captured -- BLOCKS Aweti/Mbugwe
+**Done when:** re-run via `pg.ps1 -Mode run -Example conf_matrix`, and the doc's measured-at line
+names a current commit. Everything below that depends on the 61x3 numbers is unverified until then,
+including the "36 PlanComposed refusals, one shape" figure in the Future section.
 
-`Invoke-ProcessInJobObject` already takes `CaptureStdoutPath` and wires it to
-`RedirectStandardOutput`, but only `corpus-test` passes it. `run` launches via `Start-Process
--NoNewWindow` with no redirection, so ordinary PowerShell `*>` at the outer invocation captures
-nothing (console-handle inheritance). Two long censuses lost their output to this today.
+## 2. Merge `fix/env-repvariant`
 
-**Done when:** `-Mode run` accepts an opt-in capture path that reaches the existing parameter, live
-console output still works when it is not passed, and the Aweti/Mbugwe census can be run with its
-output landing in a file.
+Five commits of Aweti/Mbugwe recall-census tooling. `git merge-base --is-ancestor` says not merged.
+Its blocker -- `-Mode run` stdout capture -- is done, so it is mergeable now.
 
-## 3. Three permanently-red tests are eroding the suite's signal
+## 3. Three registered facts have no can-fire fixture
 
-`recipe_optimize_continuation`'s three tests carry a plain `#[test]`, no `#[ignore]`, no marker.
-They fail on every run. Every "green modulo known failures" report today read past them, which is
-exactly how a new failure hides behind an old one.
+`default_grammar_wide_checks()` registers 10 checks. Seven have a one-way pin (six in
+`tests/envelope_agrees_with_compiler_gate.rs`, one in `tests/backend_selection_contract.rs`). These
+three have none:
 
-The cause is recorded: no fixture has the required cost profile (a non-confirmed candidate
-mid-sequence AND a final candidate carrying cost). Repointing them at whichever fixture passes is
-fitting the test to the tree and is explicitly rejected.
+- `TemplatedRouteUncoveredCheck` (`templated-route.emission-uncovered`)
+- `RuleCascadeUncompilableCheck` (`templated-route.rule-cascade-uncompilable`)
+- `TemplatedShapeFloorCheck` (`strategy-coverage.templated-unsupported-shape`)
 
-**Done when:** either a fixture with the right profile is authored and the tests pass, or the tests
-are marked with a machine-readable reason naming what is missing. Not left red.
+A registered fact with no can-fire test is a refusal nobody has proven fires. That is the shape this
+repo keeps finding: computed, registered, and never demonstrated to act.
 
-## 4. RECONCILED -- and the recall ratchet understates, by construction
+**Done when:** each has a fixture proving it fires, following the pattern of the existing six.
 
-The two numbers count different things and neither is a defect count.
+Related, same family, cheaper: `cargo check` reports `BACKEND_REFUSED_GRAMMAR_XML`
+(`pg-cli/src/test_support.rs:96`) as never used. A fixture named for a refusal that no test consumes
+is a refusal nobody exercises. Either wire it to a test or delete it.
 
-**19 is `(kind, backend)` pairs, and it reports ONE witness per pair.** Measured: all 19 trace to
-just **four words in four fixtures** -- `mo+kul` (`loader-isactive-breadth`, 4 pairs), `isk`
-(`feature-system-breadth`, 6), `kuldede` (`morphotactic-attribute-breadth`, 8), `daboyuxa`
-(`mpr-overwrite-order-dependence`, 1). One word failing under a fixture that exhibits eight kinds
-produces eight failing pairs. Reading 19 as an error count overstates by ~5x, which
-`under-generation-by-construct.md` already warned.
+## 4. One advice shape key is wrong, and the right one does not exist
 
-**12 is `(fixture, backend)` cells**, post-confirm: 9 recall misses plus 3 with no usable evidence.
+`capability_shape_key`'s `_ => "nonregular-process-morphology"` catch-all is reached by exactly three
+diagnostics today, all `strategy-coverage.construct-not-representable`:
 
-**The gap that matters: `plan-composed` reports `0 FAILED` in the faithfulness gate, and
-`conf_matrix` independently found it missing identities** -- `MISS r=4` on
-`morphotactic-attribute-breadth`, `MISS r=2` on `feature-gating-breadth`. Both measurements are
-correct. `faithfulness_coverage` gates on `select_backends`, so an envelope-refused backend records
-`not-attempted` and is never measured; `conf_matrix` bypasses the selector deliberately, so it sees
-what the gate cannot. plan-composed carries **12 not-attempted pairs**, the most of any backend.
+| pair | label it gets | correct? |
+|---|---|---|
+| PlanComposed x ProcessMorphology | nonregular-process-morphology | yes, coincidentally |
+| TemplatedUnderlyingTokens x ProcessMorphology | nonregular-process-morphology | yes, coincidentally |
+| **PlanComposed x RealizationalMorphology** | nonregular-process-morphology | **no** |
 
-So the ratchet's 19 is a floor, not a total, and `not-attempted` is the blind spot -- exactly the
-"refused is not passing" rule `backend-measurement-instruments.md` states. Lowering 19 as fixes land
-is right; treating it as the whole recall surface is not.
+The third gets advice about process morphology for a realizational-morphology refusal.
+`assets/backend-advice-v1.toml` defines nine shape keys and none covers realizational morphology, so
+the fix is not a routing change -- it needs either a new catalog entry (advice content: a linguistic
+judgement about what to recommend) or a decision that no advice is better than wrong advice.
 
-**Still open:** nothing forces the two to stay consistent. A cheap follow-up is for the faithfulness
-report to print its `not-attempted` count beside the failure count, so the floor announces that it
-is one.
+**Not spec-required:** a prior review established ADR-0001's no-catch-all rule targets the
+characterizer's enumerator, not this advice lookup. This is a correctness wart, not a contract
+breach.
 
-## 5. `compose_budget` is dead at its layer -- DELETE, do not thread
+**Done when:** the realizational pair gets correct advice, or explicitly none.
 
-Corrected conclusion (an earlier entry in `conformance-containment-inventory.md` said "thread it"
-and named the wrong destination). `FomaAnalyzer` owns `peel_budget`, read from the environment;
-`FomaProposer` -- what `new_with_budget*` builds -- has no budget field, because the proposer does
-not peel. The parameter is unusable at that layer by construction.
+## 5. ADR-0001's behavioral provenance tier has no representation
 
-Leaves `CompileWorkerRequest.chain_depth_cap` with no valid destination: either `FomaAnalyzer` gains
-an explicit-budget constructor, or the field goes and the knob is documented as environment-only.
+`EvidenceProvenance` has one variant. ADR-0001's "Two-tier, migrating" names two, and the missing one
+-- `behavioral`, proven by oracle witnesses -- describes the **production mainline** (the black-box
+foma compiler), not a future path.
 
-**Done when:** the parameter is gone from the three `new_with_budget*` signatures, the worker knob
-is either routed or removed, and `unused_variables = "deny"` is on -- it costs exactly this one fix
-and then kills the class.
+The gap is now recorded on the type itself rather than silent, which was the review finding. Closing
+it needs a predicate that actually constrains on an oracle witness; adding a variant nothing
+constructs would be a control that cannot act.
 
-## 6. The cheap mechanism subset
+**Done when:** a behavioral-evidence predicate exists, or the ADR is amended to say one tier is
+enough today.
 
-`#[must_use]` on verdict / decision / report types. Honest scope: it is defeated by `let _ =`, cannot
-see a struct field dropped by callers (the `IdentityDivergence` case), and cannot see a registration
-that is never consulted (the `Disposition::Proven` case). It catches one narrow shape and is nearly
-free. Gates should also print their denominators in assertion messages.
+## 6. `stats_cmd` is nondeterministic, and it is probably two defects
 
-**Done when:** applied, with no claim that it covers more than it does.
+Five distinct tests in `pg-cli`'s `stats_cmd::tests` have failed intermittently. Scratch-path
+collision is ruled out (pid+counter keyed), and so is pure cross-process contention -- one failed
+running its module alone, 29/30.
 
-## 6b. Every published fact met into a selection seam needs a can-fire fixture
+An audit found no single mechanism, and good reason to think there is none: the batch-report flake
+traces to `run_batch`'s 8-thread word fan-out, while `never_fires_keeps_attempt_denominators_within_rule_kind`
+and `named_allomorph_report_does_not_claim_rule_attempts` are single-threaded unit tests on synthetic
+data with no batch involvement. Two shapes, not one.
 
-The one-way pin (a claimed refusal really refuses) is already the pattern. The missing half is a
-synthetic fixture proving the fact fires at all. `.claude/skills/conformance-grammars/SKILL.md`
-exists to author these.
-
-**Done when:** each fact met at `backend_selection`'s per-strategy seam has one.
-
-## 7. Merge `fix/env-repvariant`
-
-Five commits of Aweti/Mbugwe census tooling, parked but preserved. Needs #2 first to be usable.
-
-## 8. Re-run the matrix at current `main`
-
-`conformance-backend-matrix.md` was measured at `496a6f3c`; `main` has since changed
-`backend_runtime.rs`'s certify path and split `IdentityMismatch`. The semantics probably did not
-move, but the table has not been re-run since the instrument under it changed, and it is one
-`-Mode run` to settle.
-
-**Done when:** re-run, and the doc's measured-at line matches a current commit.
+Each costs a re-run to distinguish from a real regression, every time.
 
 ## Future, not queued
 
-- **`PlanComposed`'s marker-subtree gap.** All 36 of its refusals are one shape: a plan requiring a
+- **`PlanComposed`'s marker-subtree gap.** All of its refusals are one shape: a plan requiring a
   `CompositeEmissionMarker` / `StructuralCompositeMarker` subtree `build_controllable` cannot build.
-  One gap, over half the unbuildable cells in the matrix. The cheapest route to broader coverage
-  whenever coverage becomes the goal.
-- **The 12 silently-wrong cells**, starting with `morphotactic-attribute-breadth` -- the only fixture
-  where all three backends miss analyses, so there is no correct path to it at all.
-- **Aweti/Mbugwe sizing**, parked by instruction until conformance is settled.
+  The cheapest route to broader coverage whenever coverage becomes the goal. Count unverified until
+  item 1 re-runs.
+- **The silently-wrong cells**, starting with `morphotactic-attribute-breadth` -- the only fixture
+  where all three backends miss analyses.
+- **Aweti/Mbugwe sizing**, parked by instruction. Both now have no accepted backend, deliberately:
+  the surface probe was dropping root spellings past `REP_VARIANT_CAP` and the envelope now says so.

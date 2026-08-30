@@ -218,7 +218,8 @@ fn per_node_verdicts(
 
     let mut cache = HashMap::new();
     for (id, _) in plan.iter() {
-        node_decision_mirror(
+        // `cache` is this loop's output; the returned decision exists for the recursive case.
+        let _ = node_decision_mirror(
             grammar,
             plan,
             profile,

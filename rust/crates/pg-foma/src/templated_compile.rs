@@ -203,7 +203,7 @@ pub fn compile_templated_morphotactics(
 /// Predicate name for [`rule_cascade_uncompilable_refusal`]'s diagnostics.
 const TEMPLATED_RULE_CASCADE_PREDICATE: &str = "templated-route.rule-cascade-uncompilable";
 
-/// Whether every phonological rule this pipeline would hand to
+/// Whether every phonological rule this compiler would hand to
 /// `crate::replace::compile_and_compose_rules_recall_safe` is confirmed unlowerable by
 /// `crate::replace::rewrite_rule_is_lowerable` -- the exact condition that makes that call return
 /// `None` and this module's `compile_templated_morphotactics` fail with `NoCompiledRules`, decided
