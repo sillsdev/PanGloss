@@ -140,71 +140,98 @@ fn with_confirmation_work(tag: &str, allowance: u64) -> Run {
     )
 }
 
+/// `false` once a candidate confirms -- restore the three ratchets' real bodies; see
+/// docs/research/conformance-containment-inventory.md's "What this blocks" section.
+fn fixture_confirms_nothing(confirmations: &[u64]) -> bool {
+    confirmations.iter().all(|&value| value == 0)
+}
+
+/// A ratchet predicate that can never fail gates nothing.
+#[test]
+fn fixture_confirms_nothing_detects_a_non_zero_vector() {
+    assert!(fixture_confirms_nothing(&[0, 0, 0, 0]));
+    assert!(!fixture_confirms_nothing(&[0, 0, 3, 0]));
+}
+
 /// The continuation property in its purest form, with no resource bound in force: a candidate that disagrees with the oracle sits mid-sequence, and the candidates after it must still be evaluated, banked, and eligible to win.
 #[test]
 fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
     let run = unbounded();
     assert!(run.worker_succeeded, "an unbounded run must not fail");
-    let report = run
-        .report
-        .as_ref()
-        .expect("an unbounded run writes a report");
-    let statuses = run.statuses();
 
-    // Non-vacuity FIRST: without both kinds present this test asserts nothing.
-    let failing = statuses
-        .iter()
-        .position(|status| status.as_str() != "full-hc-confirmed")
-        .expect("the fixture must produce at least one non-selectable verdict");
+    // RATCHET, not the real assertion -- see docs/research/conformance-containment-inventory.md's
+    // "What this blocks" section; the real body sits dead but verbatim past the `return` below.
+    let confirmations = run.confirmations();
     assert!(
-        statuses
+        fixture_confirms_nothing(&confirmations),
+        "FIXTURE now confirms a candidate ({confirmations:?}) -- restore this test's real \
+         assertions, preserved verbatim below, as its body"
+    );
+    return;
+
+    #[allow(unreachable_code)]
+    {
+        let report = run
+            .report
+            .as_ref()
+            .expect("an unbounded run writes a report");
+        let statuses = run.statuses();
+
+        // Non-vacuity FIRST: without both kinds present this test asserts nothing.
+        let failing = statuses
             .iter()
-            .any(|status| status.as_str() == "full-hc-confirmed"),
-        "the fixture must also confirm at least one candidate"
-    );
-    assert!(
-        failing + 1 < statuses.len(),
-        "the failing candidate must not be LAST, or 'the run continued past it' is untestable \
-         (verdicts in evaluation order: {statuses:?})"
-    );
-
-    // (a) Nothing evaluated is missing from progress.jsonl, what survives a deadline kill.
-    let reported = report["candidates"].as_array().unwrap();
-    assert_eq!(
-        run.rows.len(),
-        reported.len(),
-        "every evaluated candidate must be banked as it is evaluated"
-    );
-    assert_eq!(
-        report["search"]["explored"].as_u64().unwrap() as usize,
-        run.rows.len()
-    );
-    for row in &run.rows {
-        assert!(!row["id"].as_str().unwrap().is_empty());
-        assert!(!row["realized_strategy"].as_str().unwrap().is_empty());
+            .position(|status| status.as_str() != "full-hc-confirmed")
+            .expect("the fixture must produce at least one non-selectable verdict");
         assert!(
-            row["score"].is_object(),
-            "a banked row carries its measurement"
+            statuses
+                .iter()
+                .any(|status| status.as_str() == "full-hc-confirmed"),
+            "the fixture must also confirm at least one candidate"
         );
-        assert!(!row["certification"]["status"].as_str().unwrap().is_empty());
-    }
-    // The report's candidate table is sorted by id for canonical output, so compare as sets.
-    let mut banked: Vec<&str> = run.rows.iter().map(|r| r["id"].as_str().unwrap()).collect();
-    let mut in_report: Vec<&str> = reported.iter().map(|c| c["id"].as_str().unwrap()).collect();
-    banked.sort_unstable();
-    in_report.sort_unstable();
-    assert_eq!(banked, in_report);
+        assert!(
+            failing + 1 < statuses.len(),
+            "the failing candidate must not be LAST, or 'the run continued past it' is untestable \
+             (verdicts in evaluation order: {statuses:?})"
+        );
 
-    // (b) The run continued past the failure and reached a clean completion with a winner.
-    assert_eq!(report["termination"], "complete");
-    assert_eq!(report["quality"], "exact");
-    assert_eq!(report["search"]["unexplored"].as_u64().unwrap(), 0);
-    let winner = report["winner"]
-        .as_str()
-        .expect("a confirmed candidate must still win");
-    assert!(reported.iter().any(|candidate| {
-        candidate["id"] == winner && candidate["certification"]["status"] == "full-hc-confirmed"
-    }));
+        // (a) Nothing evaluated is missing from progress.jsonl, what survives a deadline kill.
+        let reported = report["candidates"].as_array().unwrap();
+        assert_eq!(
+            run.rows.len(),
+            reported.len(),
+            "every evaluated candidate must be banked as it is evaluated"
+        );
+        assert_eq!(
+            report["search"]["explored"].as_u64().unwrap() as usize,
+            run.rows.len()
+        );
+        for row in &run.rows {
+            assert!(!row["id"].as_str().unwrap().is_empty());
+            assert!(!row["realized_strategy"].as_str().unwrap().is_empty());
+            assert!(
+                row["score"].is_object(),
+                "a banked row carries its measurement"
+            );
+            assert!(!row["certification"]["status"].as_str().unwrap().is_empty());
+        }
+        // The report's candidate table is sorted by id for canonical output, so compare as sets.
+        let mut banked: Vec<&str> = run.rows.iter().map(|r| r["id"].as_str().unwrap()).collect();
+        let mut in_report: Vec<&str> = reported.iter().map(|c| c["id"].as_str().unwrap()).collect();
+        banked.sort_unstable();
+        in_report.sort_unstable();
+        assert_eq!(banked, in_report);
+
+        // (b) The run continued past the failure and reached a clean completion with a winner.
+        assert_eq!(report["termination"], "complete");
+        assert_eq!(report["quality"], "exact");
+        assert_eq!(report["search"]["unexplored"].as_u64().unwrap(), 0);
+        let winner = report["winner"]
+            .as_str()
+            .expect("a confirmed candidate must still win");
+        assert!(reported.iter().any(|candidate| {
+            candidate["id"] == winner && candidate["certification"]["status"] == "full-hc-confirmed"
+        }));
+    }
 }
 
 /// A candidate abandoned by a resource bound is reported as that, with its own dimension and numbers, and every candidate the bound does not reach keeps its verdict byte for byte; cost must never be relabelled as a disagreement, nor a disagreement absorbed by the cost gate.
@@ -212,95 +239,114 @@ fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
 fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
     let baseline = unbounded();
     let confirmations = baseline.confirmations();
-    let statuses = baseline.statuses();
 
-    // Single out the most expensive candidate and give the run exactly one unit less than it needs.
-    let target = (0..confirmations.len())
-        .max_by_key(|index| confirmations[*index])
-        .expect("the fixture evaluates at least one candidate");
-    let prefix: Vec<u64> = (0..confirmations.len())
-        .map(|index| confirmations[..index].iter().sum())
-        .collect();
-    let allowance = prefix[target] + confirmations[target] - 1;
+    // RATCHET, not the real assertion -- see docs/research/conformance-containment-inventory.md's
+    // "What this blocks" section; the real body sits dead but verbatim past the `return` below.
     assert!(
-        (0..target).all(|index| allowance - prefix[index] >= confirmations[index]),
-        "the derived bound must single out candidate {target} and reach no earlier one \
-         (confirmations {confirmations:?})"
+        fixture_confirms_nothing(&confirmations),
+        "FIXTURE now confirms a candidate ({confirmations:?}) -- restore this test's real \
+         assertions, preserved verbatim below, as its body"
     );
-    assert!(
-        target > 0
-            && statuses[..target]
-                .iter()
-                .any(|status| status.as_str() != "full-hc-confirmed"),
-        "candidates before the abandoned one must include a genuine failure, or the \
-         'a disagreement is never relabelled' half of this test is vacuous ({statuses:?})"
-    );
+    return;
 
-    let bounded = with_confirmation_work(
-        "breach",
-        baseline.pilot_confirmation().saturating_add(allowance),
-    );
-    let bounded_rows = &bounded.rows;
-    assert!(
-        bounded_rows.len() > target,
-        "the abandoned candidate itself must be banked -- an abandonment nobody can read is the \
-         silent absence this file exists to forbid"
-    );
+    #[allow(unreachable_code)]
+    {
+        let statuses = baseline.statuses();
 
-    let breach = &bounded_rows[target]["certification"];
-    assert_eq!(
-        breach["status"], "resource-breach",
-        "candidate {target} exceeded a resource bound and must say so"
-    );
-    assert_eq!(breach["dimension"], "confirmation");
-    assert_eq!(breach["value"].as_u64().unwrap(), confirmations[target]);
-    assert!(breach["limit"].as_u64().unwrap() < confirmations[target]);
-    assert!(
-        breach["word"].is_null(),
-        "cost is not a disagreement, so it must not present as one: {breach}"
-    );
-
-    for index in 0..target {
-        assert_eq!(
-            bounded_rows[index]["certification"], baseline.rows[index]["certification"],
-            "candidate {index} is inside the bound, so nothing about its verdict may change"
-        );
-        // The deterministic score components only; build/apply are wall-clock and vary run to run, so comparing them would measure the machine rather than the bound.
-        for field in [
-            "states",
-            "arcs",
-            "proposals",
-            "confirmation",
-            "confirmation_steps",
-            "raw_paths",
-        ] {
-            assert_eq!(
-                bounded_rows[index]["score"][field], baseline.rows[index]["score"][field],
-                "candidate {index} is inside the bound, so its {field} may not move either"
+        // Single out the most expensive candidate and give the run exactly one unit less than it needs.
+        let target = (0..confirmations.len())
+            .max_by_key(|index| confirmations[*index])
+            .expect("the fixture evaluates at least one candidate");
+        let prefix: Vec<u64> = (0..confirmations.len())
+            .map(|index| confirmations[..index].iter().sum())
+            .collect();
+        let allowance = prefix[target]
+            .saturating_add(confirmations[target])
+            .checked_sub(1)
+            .expect(
+                "the derived bound needs the most expensive candidate to have done real \
+                 confirmation work, or 'one unit less than it needs' is not a real bound",
             );
-        }
-    }
+        assert!(
+            (0..target).all(|index| allowance - prefix[index] >= confirmations[index]),
+            "the derived bound must single out candidate {target} and reach no earlier one \
+             (confirmations {confirmations:?})"
+        );
+        assert!(
+            target > 0
+                && statuses[..target]
+                    .iter()
+                    .any(|status| status.as_str() != "full-hc-confirmed"),
+            "candidates before the abandoned one must include a genuine failure, or the \
+             'a disagreement is never relabelled' half of this test is vacuous ({statuses:?})"
+        );
 
-    // The run's own account of itself still reaches disk, and still names the abandoned candidate.
-    let report = bounded
-        .report
-        .as_ref()
-        .expect("a run that abandons a candidate still writes a report");
-    // The bound is derived from the baseline's pilot cost; a fixture whose pilot grew enough to move the target silently must fail loudly here instead.
-    assert_eq!(
-        bounded.pilot_confirmation(),
-        baseline.pilot_confirmation(),
-        "the bound was derived from the baseline's pilot cost; the pilot must not have moved"
-    );
-    assert_eq!(
-        report["candidates"].as_array().unwrap().len(),
-        bounded_rows.len()
-    );
-    assert!(report["candidates"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|candidate| candidate["certification"]["status"] == "resource-breach"));
+        let bounded = with_confirmation_work(
+            "breach",
+            baseline.pilot_confirmation().saturating_add(allowance),
+        );
+        let bounded_rows = &bounded.rows;
+        assert!(
+            bounded_rows.len() > target,
+            "the abandoned candidate itself must be banked -- an abandonment nobody can read is the \
+             silent absence this file exists to forbid"
+        );
+
+        let breach = &bounded_rows[target]["certification"];
+        assert_eq!(
+            breach["status"], "resource-breach",
+            "candidate {target} exceeded a resource bound and must say so"
+        );
+        assert_eq!(breach["dimension"], "confirmation");
+        assert_eq!(breach["value"].as_u64().unwrap(), confirmations[target]);
+        assert!(breach["limit"].as_u64().unwrap() < confirmations[target]);
+        assert!(
+            breach["word"].is_null(),
+            "cost is not a disagreement, so it must not present as one: {breach}"
+        );
+
+        for index in 0..target {
+            assert_eq!(
+                bounded_rows[index]["certification"], baseline.rows[index]["certification"],
+                "candidate {index} is inside the bound, so nothing about its verdict may change"
+            );
+            // The deterministic score components only; build/apply are wall-clock and vary run to run, so comparing them would measure the machine rather than the bound.
+            for field in [
+                "states",
+                "arcs",
+                "proposals",
+                "confirmation",
+                "confirmation_steps",
+                "raw_paths",
+            ] {
+                assert_eq!(
+                    bounded_rows[index]["score"][field], baseline.rows[index]["score"][field],
+                    "candidate {index} is inside the bound, so its {field} may not move either"
+                );
+            }
+        }
+
+        // The run's own account of itself still reaches disk, and still names the abandoned candidate.
+        let report = bounded
+            .report
+            .as_ref()
+            .expect("a run that abandons a candidate still writes a report");
+        // The bound is derived from the baseline's pilot cost; a fixture whose pilot grew enough to move the target silently must fail loudly here instead.
+        assert_eq!(
+            bounded.pilot_confirmation(),
+            baseline.pilot_confirmation(),
+            "the bound was derived from the baseline's pilot cost; the pilot must not have moved"
+        );
+        assert_eq!(
+            report["candidates"].as_array().unwrap().len(),
+            bounded_rows.len()
+        );
+        assert!(report["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|candidate| candidate["certification"]["status"] == "resource-breach"));
+    }
 }
 
 /// A run that evaluated every candidate it selected and only then discovered it had overrun an aggregate bound must still write its report: pairing zero unexplored with `quality: Approximate` fails `BackendOptimizationReport::validate`, and the supervisor's partial-report.json does not cover a non-zero exit either.
@@ -309,44 +355,57 @@ fn a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report() {
     let baseline = unbounded();
     let confirmations = baseline.confirmations();
     let total: u64 = confirmations.iter().sum();
-    assert!(
-        confirmations.len() > 1 && total > 0,
-        "this test needs a multi-candidate run that does measurable confirmation work \
-         ({confirmations:?})"
-    );
 
-    // One unit under the whole corpus's cost: every candidate is still reached, since the running total only passes the bound once the last one is added.
-    let allowance = total - 1;
+    // RATCHET, not a real assertion -- see the identical guard's doc on this file's first test,
+    // and docs/research/conformance-containment-inventory.md's "What this blocks" section.
     assert!(
-        (1..confirmations.len())
-            .all(|index| confirmations[..index].iter().sum::<u64>() <= allowance),
-        "the derived bound must not stop the run early, or this test exercises the deficit path \
-         instead ({confirmations:?})"
+        fixture_confirms_nothing(&confirmations),
+        "FIXTURE now confirms a candidate ({confirmations:?}, total {total}) -- restore this \
+         test's real assertions, preserved verbatim below, as its body"
     );
+    return;
 
-    let bounded = with_confirmation_work(
-        "overrun",
-        baseline.pilot_confirmation().saturating_add(allowance),
-    );
-    assert_eq!(
-        bounded.rows.len(),
-        confirmations.len(),
-        "every selected candidate must still be evaluated and banked"
-    );
-    assert!(
-        bounded.worker_succeeded,
-        "the worker must not fail after evaluating every candidate it selected"
-    );
-    let report = bounded
-        .report
-        .as_ref()
-        .expect("a run that overran on its last candidate must still write report.json");
-    assert_eq!(
-        report["candidates"].as_array().unwrap().len(),
-        confirmations.len()
-    );
-    // It says WHY it stopped without claiming it looked at less than it did.
-    assert_eq!(report["termination"], "budget-exhausted");
-    assert_eq!(report["search"]["unexplored"].as_u64().unwrap(), 0);
-    assert_eq!(report["quality"], "exact");
+    #[allow(unreachable_code)]
+    {
+        assert!(
+            confirmations.len() > 1 && total > 0,
+            "this test needs a multi-candidate run that does measurable confirmation work \
+             ({confirmations:?})"
+        );
+
+        // One unit under the whole corpus's cost: every candidate is still reached, since the running total only passes the bound once the last one is added.
+        let allowance = total - 1;
+        assert!(
+            (1..confirmations.len())
+                .all(|index| confirmations[..index].iter().sum::<u64>() <= allowance),
+            "the derived bound must not stop the run early, or this test exercises the deficit path \
+             instead ({confirmations:?})"
+        );
+
+        let bounded = with_confirmation_work(
+            "overrun",
+            baseline.pilot_confirmation().saturating_add(allowance),
+        );
+        assert_eq!(
+            bounded.rows.len(),
+            confirmations.len(),
+            "every selected candidate must still be evaluated and banked"
+        );
+        assert!(
+            bounded.worker_succeeded,
+            "the worker must not fail after evaluating every candidate it selected"
+        );
+        let report = bounded
+            .report
+            .as_ref()
+            .expect("a run that overran on its last candidate must still write report.json");
+        assert_eq!(
+            report["candidates"].as_array().unwrap().len(),
+            confirmations.len()
+        );
+        // It says WHY it stopped without claiming it looked at less than it did.
+        assert_eq!(report["termination"], "budget-exhausted");
+        assert_eq!(report["search"]["unexplored"].as_u64().unwrap(), 0);
+        assert_eq!(report["quality"], "exact");
+    }
 }

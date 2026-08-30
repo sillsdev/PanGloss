@@ -344,6 +344,29 @@ plan-composed candidates, which are exactly the ones that sort last. The propert
 currently unexercisable, and repointing them at whichever fixture happens to pass would be fitting
 the test to the tree rather than to the property.
 
+Re-verified independently: the certification the second test reports (`unsupported`) is not a
+conflation of `ResourceBreach` with `Unsupported` in `backend_runtime.rs` -- `budget_breach` and
+`measure_and_certify_inner` still route a mid-corpus resource abandonment to `ResourceBreach`
+correctly. The `[0,0,0,0,0,0]` profile means the test's own `target` derivation (max-by-key over an
+all-zero vector, tie-broken to the last index) never encounters a real budget, and the old
+`prefix[target] + confirmations[target] - 1` silently underflowed to `u64::MAX` in a release-profile
+build -- so the "resource-breach expected, unsupported observed" mismatch was that masking artifact,
+not evidence of a code defect. The underflow itself is fixed (`checked_sub` with a named panic)
+regardless of the fixture question, since a silent wraparound is a real bug in the test on its own.
+
+`#[ignore]` is the wrong mechanism here: `pg.ps1 -Mode corpus-test` passes `--run-ignored all`
+(needed because every corpus-backed suite is `#[ignore]`d for exactly that reason), so an ignored
+test that is NOT corpus-backed still runs there and still fails, permanently -- it only relocates the
+red from `-Mode test` to the stronger gate. All three tests in
+`rust/crates/pg-cli/tests/recipe_optimize_continuation.rs` are instead a `NoMoreThan`-style ratchet:
+each keeps its real assertions verbatim (dead code behind a `return`, `#[allow(unreachable_code)]`,
+still type-checked by `cargo check` on every ordinary run) and, in front of them, asserts today's
+known-blocked reality via a shared `fixture_confirms_nothing` predicate. That assertion is green
+today and turns red -- in whichever mode runs pg-cli's tests, no relocation possible -- the moment a
+fixture reaches confirmation, naming exactly what to do next (delete the ratchet, keep the body).
+`fixture_confirms_nothing_detects_a_non_zero_vector` proves the predicate can actually turn red,
+per this file's own rule that a ratchet which cannot fail gates nothing.
+
 ## A budget the surface probe accepts and ignores
 
 Separate from the containment inventory above, found while type-checking: rustc reports
