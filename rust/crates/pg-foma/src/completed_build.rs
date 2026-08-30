@@ -1,6 +1,6 @@
 //! Trusted handoff from one selected backend build to the runtime.
 //!
-//! A [`CompletedBackendBuild`] is deliberately not constructible by callers.  It contains the
+//! A [`CompletedBackendBuildEvidence`](crate::completed_build::CompletedBackendBuildEvidence) is deliberately not constructible by callers.  It contains the
 //! exact Foma binary-memory payload returned by one compiler route plus the immutable evidence
 //! that makes that payload eligible for normal selection.  The selector checks the evidence again
 //! before handing the value to runtime; neither selection nor runtime recompiles a grammar.

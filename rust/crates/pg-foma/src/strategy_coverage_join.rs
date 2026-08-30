@@ -17,17 +17,17 @@
 //!   compiler proposes NOTHING for the construct. If ANY fixture exercising it is measured EXACT
 //!   (`crate::backend_optimizer::Certification::FullHcConfirmed` -- every comparable word in the
 //!   fixture matched the live oracle) on that strategy, the row is
-//!   [`JoinVerdict::Contradicted`]: "every word matched" already includes whichever word carried
+//!   [`JoinVerdict::Contradicted`](crate::strategy_coverage_join::JoinVerdict::Contradicted): "every word matched" already includes whichever word carried
 //!   the tag, so the compiler demonstrably proposed (and confirmed) that construct at least once.
 //!   No attribution is needed for this direction to be sound.
 //! - The reverse never holds. A `Represents`/`RepresentsWithKnownGap` row claims a compiler CAN
 //!   propose a construct, but a fixture measured NOT exact on that strategy may be failing on a
 //!   *different* construct the same fixture also exercises. Absence of an exact witness is
-//!   therefore only [`JoinVerdict::Unsupported`], never a refutation.
+//!   therefore only [`JoinVerdict::Unsupported`](crate::strategy_coverage_join::JoinVerdict::Unsupported), never a refutation.
 //!
-//! [`classify`] is the pure reduction of that asymmetry; [`classify_with_witnesses`] is the same
+//! [`classify`](crate::strategy_coverage_join::classify) is the pure reduction of that asymmetry; [`classify_with_witnesses`](crate::strategy_coverage_join::classify_with_witnesses) is the same
 //! reduction over real fixture-label evidence so a report can NAME which fixture did the work.
-//! Neither touches a fixture, a grammar, or the compiler -- [`measure_fixture_exact`] is the one
+//! Neither touches a fixture, a grammar, or the compiler -- [`measure_fixture_exact`](crate::strategy_coverage_join::measure_fixture_exact) is the one
 //! function here that does, and it exists only because no prior helper exposed "is this fixture's
 //! confirmed output oracle-exact under this strategy" as a callable fact
 //! (`examples/conf_matrix.rs` computes the same thing inline, with no library seam a second
