@@ -99,8 +99,21 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
         if grammar.char_tables.is_empty() {
             continue;
         }
+        // A capability refusal names its constructs via `CapabilityDiagnostic`, not `uncovered`.
         let report = match FomaProposer::new(&grammar) {
             Err(FomaError::Incomplete(report)) | Err(FomaError::Unsupported(report)) => report,
+            Err(FomaError::CapabilityRefused(diagnostics)) => {
+                for diagnostic in &diagnostics {
+                    named += 1;
+                    eprintln!(
+                        "{}: [capability-refused] {} -- {}",
+                        fixture.label(),
+                        diagnostic.construct,
+                        diagnostic.witness
+                    );
+                }
+                continue;
+            }
             _ => continue,
         };
         if report.uncovered.is_empty() {
@@ -358,9 +371,22 @@ fn report_envelope_compiler_divergence() {
         eprintln!("  {label}: {reason}");
     }
 
-    // Non-vacuity only, mirroring `faithfulness_coverage_gate`; becomes == 0 when the list empties.
+    // Staged, not vacuity-only: names every remaining too-strict row so a NEW one fails here.
+    const EXPECTED_TOO_STRICT: &[&str] = &[
+        "machine:edge-cases/loader-isactive-breadth x templated-underlying-tokens",
+        "machine:edge-cases/strrep-identity x templated-underlying-tokens",
+        "machine:edge-cases/truncate-morphotactic x templated-underlying-tokens",
+    ];
+    let mut strict_sorted: Vec<&str> = strict.iter().map(|label| label.as_str()).collect();
+    strict_sorted.sort_unstable();
+    let mut expected_sorted = EXPECTED_TOO_STRICT.to_vec();
+    expected_sorted.sort_unstable();
+    assert_eq!(
+        strict_sorted, expected_sorted,
+        "the too-strict inventory moved without this ratchet being updated to name the new set"
+    );
     assert!(
-        rows.iter().any(|(_, a)| *a == Agreement::Agree),
-        "no fixture agreed, so this sweep is measuring nothing"
+        lax.is_empty(),
+        "the too-lax inventory must be empty; got: {lax:#?}"
     );
 }

@@ -173,25 +173,58 @@ fn amharic_backend_reports_are_complete() {
     assert_only_tuned_surface_accepts("amharic", &selection);
 }
 
+/// Pinned by `aweti_backend_reports_are_complete`/`mbugwe_backend_reports_are_complete` below.
+fn assert_no_backend_accepts(name: &str, selection: &BackendSelection) {
+    assert_every_backend_reported(name, selection);
+    assert_backend(
+        name,
+        selection,
+        EmissionStrategy::TunedSurfaceProbed,
+        BackendStatus::Refused,
+        Severity::CannotRepresent,
+        Some(FindingCode::BackendCoverageIncomplete),
+        Some("repeated-application"),
+    );
+    assert_backend(
+        name,
+        selection,
+        EmissionStrategy::TemplatedUnderlyingTokens,
+        BackendStatus::Refused,
+        Severity::CannotRepresent,
+        Some(FindingCode::BackendCoverageIncomplete),
+        Some("nonregular-process-morphology"),
+    );
+    assert_backend(
+        name,
+        selection,
+        EmissionStrategy::PlanComposed,
+        BackendStatus::Refused,
+        Severity::CannotRepresent,
+        Some(FindingCode::BackendCoverageIncomplete),
+        Some("plan-composed-missing-subtrees"),
+    );
+}
+
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn aweti_backend_reports_are_complete() {
     let selection = characterize("aweti", &load("aweti"));
-    assert_only_tuned_surface_accepts("aweti", &selection);
+    assert_no_backend_accepts("aweti", &selection);
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn mbugwe_backend_reports_are_complete() {
     let selection = characterize("mbugwe", &load("mbugwe"));
-    assert_only_tuned_surface_accepts("mbugwe", &selection);
+    assert_no_backend_accepts("mbugwe", &selection);
 }
 
-/// Every reference grammar has at least one accepted backend; four had none under the deleted envelope.
+/// Every OTHER reference grammar keeps an accepted backend; Aweti and Mbugwe correctly do not.
+/// Pinned by `aweti_backend_reports_are_complete`/`mbugwe_backend_reports_are_complete` above.
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
-fn every_reference_grammar_has_an_accepted_backend() {
-    for name in ["sena", "indonesian", "amharic", "aweti", "mbugwe"] {
+fn every_other_reference_grammar_has_an_accepted_backend() {
+    for name in ["sena", "indonesian", "amharic"] {
         let selection = characterize(name, &load(name));
         assert!(
             selection

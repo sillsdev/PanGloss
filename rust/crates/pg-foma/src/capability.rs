@@ -3434,6 +3434,88 @@ impl GrammarWideCheck for PlanComposedMarkerCheck {
     }
 }
 
+/// `crate::emit::eager_route_drops_root_spellings`, published for `TunedSurfaceProbed`.
+///
+/// The oracle-backed witness this fact rests on: for each of the three fixtures this check moves
+/// from too-lax to agree (`languages/polysynthetic-stratal-derivation-chain`,
+/// `edge-cases/backend-strata-generic`, `edge-cases/guesser-pattern-root-fallback`), the ARTIFACT
+/// the eager route actually produces is not a faithful proposer for the affected entry — confirmed
+/// by `FomaProposer::new` itself refusing to trust it (`envelope_agrees_with_compiler_gate`'s own
+/// `the_published_root_spelling_fact_never_over_claims_a_drop`, which asserts exactly that for
+/// every fixture this fact fires on): `[rep-variant-overflow] ... root shape "[Any]*" exceeds 64
+/// representation variants; excess spellings dropped`. That is not "the fact fired" alone -- it is
+/// the compiler's own emission report naming a real spelling it silently could not represent, which
+/// is what separates a correct refusal from an over-refusal.
+pub struct EagerRouteDropsRootSpellingsCheck;
+
+impl GrammarWideCheck for EagerRouteDropsRootSpellingsCheck {
+    fn id(&self) -> PredicateId {
+        "surface-probe.root-spelling-cap"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TunedSurfaceProbed
+    }
+    fn shape_key(&self) -> &'static str {
+        "repeated-application"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::emit::eager_route_drops_root_spellings(semantics.grammar()).then(|| {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: "root allomorph whose pattern shape exceeds the representation-variant \
+                            cap"
+                    .to_string(),
+                witness: "EmissionStrategy::TunedSurfaceProbed's eager route encodes a root \
+                          allomorph's pattern variants only up to REP_VARIANT_CAP and drops the \
+                          rest without emitting them, so the compiled network omits root spellings \
+                          past the cap and confirm has no candidate left to recover them for those \
+                          spellings"
+                    .to_string(),
+            }])
+        })
+    }
+}
+
+/// `crate::replace::grammar_has_untokenizable_root_shape`, published for `TemplatedUnderlyingTokens`.
+///
+/// No fixture in `envelope_agrees_with_compiler_gate`'s sweep exercises this fact (its own
+/// `the_published_untokenizable_root_shape_fact_never_over_claims_a_refusal` non-vacuity assertion
+/// is satisfied by a synthetic grammar built inside that test, not by a discovered fixture), so
+/// wiring it moves no row in the fixture inventory; its effect is confined to the two reference
+/// grammars (Aweti, Mbugwe) reported separately under `-Mode corpus-test`.
+pub struct UntokenizableRootShapeCheck;
+
+impl GrammarWideCheck for UntokenizableRootShapeCheck {
+    fn id(&self) -> PredicateId {
+        "templated-route.tokenizable-root-shape"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TemplatedUnderlyingTokens
+    }
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::replace::grammar_has_untokenizable_root_shape(semantics.grammar()).then(|| {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: "root allomorph shape naming an abstract natural-class node".to_string(),
+                witness: "EmissionStrategy::TemplatedUnderlyingTokens's SegAlphabet::encode_shape \
+                          requires every root allomorph shape to name a concrete character \
+                          definition; a root carrying an abstract class-derived node has no single \
+                          codepoint to hand it, so the templated route cannot tokenize this lexicon"
+                    .to_string(),
+            }])
+        })
+    }
+}
+
 /// The registry this crate ships: every grammar-wide fact `crate::backend_selection::select_backends`
 /// applies, named and strategy-scoped rather than threaded as a growing positional argument list.
 pub fn default_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
@@ -3446,6 +3528,8 @@ pub fn default_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
         Box::new(TemplatedShapeFloorCheck),
         Box::new(PlanComposedNoTokenizableRootCheck),
         Box::new(PlanComposedMarkerCheck),
+        Box::new(EagerRouteDropsRootSpellingsCheck),
+        Box::new(UntokenizableRootShapeCheck),
     ]
 }
 
