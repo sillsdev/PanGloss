@@ -317,6 +317,9 @@ pub mod selection;
 /// inherited by all three. Consulted by `capability::compose_envelope_for_strategy`, which
 /// `selection::select_plan` calls at the point a candidate becomes selectable.
 pub mod strategy_coverage;
+/// Joins `strategy_coverage`'s table against a real per-fixture measurement -- the check that
+/// table never previously had. See that module's own doc for the sound/unsound direction split.
+pub mod strategy_coverage_join;
 /// Exact shared templated-morphotactics compile pipeline and its stage profile.
 pub mod structural_allomorph;
 pub mod tags;
