@@ -9,14 +9,14 @@
 //! this", which is no licence for the backend actually in hand. Nothing in this workspace turned
 //! the envelope into a choice, so callers reached for the join and inherited that ambiguity.
 //!
+use std::collections::HashMap;
+
 use pg_grammar::model::Grammar;
 
-use crate::advice_catalog::{
-    builtin_catalog, RemedyEffort, PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY,
-};
+use crate::advice_catalog::{builtin_catalog, RemedyEffort};
 use crate::capability::{
-    compose_envelope_across_strategies, default_registry, meet, CapabilityDiagnostic,
-    CompileDecision, StrategyEnvelope,
+    compose_envelope_across_strategies, default_grammar_wide_checks, default_registry,
+    CapabilityContributions, CapabilityDiagnostic, CompileDecision, StrategyEnvelope,
 };
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
@@ -24,7 +24,6 @@ use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
 use crate::junctions::PhonologyProbe;
-use crate::plan::FragmentSpec;
 use crate::strategy_coverage::ALL_STRATEGIES;
 
 /// Why a backend report exists even when no artifact can be produced from it.
@@ -225,11 +224,19 @@ impl BackendReport {
     }
 }
 
+/// `PredicateId` -> `GrammarWideCheck::shape_key`, so a grammar-wide check's advice shape is a field it carries, not a second guess re-matched here.
+fn grammar_wide_shape_keys() -> HashMap<crate::capability::PredicateId, &'static str> {
+    crate::capability::default_grammar_wide_checks()
+        .iter()
+        .map(|check| (check.id(), check.shape_key()))
+        .collect()
+}
+
 fn capability_shape_key(diagnostic: &CapabilityDiagnostic) -> &'static str {
+    if let Some(&key) = grammar_wide_shape_keys().get(diagnostic.predicate) {
+        return key;
+    }
     match diagnostic.predicate {
-        "strategy-materializer.marker-subtree-not-buildable" => {
-            PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY
-        }
         "circumfix-output-action.faithful-structural-composite" => "late-structural-reachability",
         "reduplication.peel-eligible-rule-kind" => "nonregular-process-morphology",
         "compounding.non-recursive" | "quantifier.bounded-expansion" => "repeated-application",
@@ -342,107 +349,6 @@ fn attach_operational_failure(report: &mut BackendReport, code: FindingCode) {
     // No advice: the catalog advises grammar changes, and no grammar change starts a compiler.
 }
 
-/// The surface probe's own structural refusal, shaped like the plan-composed marker one beside it.
-fn tuned_surface_closure_refusal() -> CompileDecision {
-    CompileDecision::Refuse(vec![CapabilityDiagnostic {
-        predicate: "surface-probe.finite-closure-bound",
-        construct: "realizational rule with no authored application bound".to_string(),
-        witness: "EmissionStrategy::TunedSurfaceProbed's eager route cannot prove finite closure \
-                  for this grammar and generates no partial FST, so selecting it would promise a \
-                  proposer the compiler does not produce"
-            .to_string(),
-    }])
-}
-
-/// The surface probe's own refusal for a standalone rule its derivational loop cannot route.
-fn tuned_surface_unclaimed_standalone_refusal() -> CompileDecision {
-    CompileDecision::Refuse(vec![CapabilityDiagnostic {
-        predicate: "surface-probe.standalone-rule-claimed",
-        construct: "standalone rule whose primary allomorph no derivational zone routes"
-            .to_string(),
-        witness: "EmissionStrategy::TunedSurfaceProbed's standalone-rule loop only routes \
-                  Prefix/Suffix/None/CircumfixPrefix classifications and peelable reduplication; \
-                  every other classification is reported uncovered and refuses the build"
-            .to_string(),
-    }])
-}
-
-/// The surface probe's own refusal for `crate::emit::eager_route_refuses_mixed_circumfix_zone`.
-fn tuned_surface_mixed_circumfix_zone_refusal() -> CompileDecision {
-    CompileDecision::Refuse(vec![CapabilityDiagnostic {
-        predicate: "surface-probe.circumfix-zone-exclusive-allomorph",
-        construct: "rule mixing a circumfix allomorph with a non-circumfix, non-zero allomorph"
-            .to_string(),
-        witness: "EmissionStrategy::TunedSurfaceProbed widens a circumfix-bearing rule into both \
-                  derivational zones, but a Prefix/Suffix/Infix/Reduplication/Process-classified \
-                  allomorph on that same rule is reported uncovered by the zone it does not own, \
-                  and refuses the build"
-            .to_string(),
-    }])
-}
-
-/// Every structural fact that stops the surface probe, met into one refusal.
-fn tuned_surface_structural_refusal(g: &Grammar) -> Option<CompileDecision> {
-    let mut refusals = Vec::new();
-    if crate::emit::eager_route_refuses_unbounded_closure(g) {
-        refusals.push(tuned_surface_closure_refusal());
-    }
-    if crate::emit::eager_route_refuses_unclaimed_standalone_rule(g) {
-        refusals.push(tuned_surface_unclaimed_standalone_refusal());
-    }
-    if crate::emit::eager_route_refuses_mixed_circumfix_zone(g) {
-        refusals.push(tuned_surface_mixed_circumfix_zone_refusal());
-    }
-    // eager_route_drops_root_spellings is NOT met in yet -- docs/research/conformance-containment-inventory.md.
-    refusals.into_iter().reduce(meet)
-}
-
-/// Every published fact that stops the templated route, met into one refusal.
-fn templated_route_structural_refusal(g: &Grammar) -> Option<CompileDecision> {
-    let refusals: Vec<CompileDecision> = [
-        crate::emit::templated_route_uncovered_refusal(g),
-        crate::templated_compile::rule_cascade_uncompilable_refusal(g),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    refusals.into_iter().reduce(meet)
-}
-
-/// The plan-composed backend's own refusal for `crate::replace::grammar_has_no_tokenizable_root`.
-fn plan_composed_no_tokenizable_root_refusal() -> CompileDecision {
-    CompileDecision::Refuse(vec![CapabilityDiagnostic {
-        predicate: "strategy-materializer.tokenizable-root-required",
-        construct: "lexicon with no root allomorph carrying a tokenizable underlying shape"
-            .to_string(),
-        witness: "EmissionStrategy::PlanComposed's emit_underlying_filtered skips every root \
-                  allomorph that is pattern-only or references a natural class in its shape, so a \
-                  lexicon with no other root produces zero entries in every gated group and \
-                  build_controllable's net stays empty"
-            .to_string(),
-    }])
-}
-
-fn plan_composed_marker_refusal(markers: &[FragmentSpec]) -> CompileDecision {
-    CompileDecision::Refuse(
-        markers
-            .iter()
-            .map(|marker| {
-                let marker = format!("{marker:?}");
-                CapabilityDiagnostic {
-                    predicate: "strategy-materializer.marker-subtree-not-buildable",
-                    construct: marker.clone(),
-                    witness: format!(
-                        "EmissionStrategy::PlanComposed uses build_controllable, which skips the \
-                         required {marker} subtree; selecting PlanComposed would silently omit its \
-                         material"
-                    ),
-                }
-            })
-            .collect(),
-    )
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct BackendSelection {
     reports: Vec<BackendReport>,
@@ -459,48 +365,17 @@ impl BackendSelection {
     }
 
     /// One report per backend in [`crate::strategy_coverage::ALL_STRATEGIES`] declaration order.
-    fn from_envelope_with_backend_findings(
-        envelope: &StrategyEnvelope,
-        plan_composed_markers: &[FragmentSpec],
-        plan_composed_no_tokenizable_root: bool,
-        tuned_surface_refusal: Option<&CompileDecision>,
-        templated_route_refusal: Option<&CompileDecision>,
-    ) -> Self {
+    fn from_envelope(envelope: &StrategyEnvelope) -> Self {
         let reports = ALL_STRATEGIES
             .iter()
             .map(|&strategy| {
                 let Some(decision) = envelope.decision_for(strategy) else {
                     return BackendReport::missing(strategy, "backend was not available");
                 };
-                let decision = if strategy == EmissionStrategy::PlanComposed {
-                    // Marker leaves name subtrees build_controllable cannot build.
-                    let mut decision = if plan_composed_markers.is_empty() {
-                        decision.clone()
-                    } else {
-                        meet(
-                            decision.clone(),
-                            plan_composed_marker_refusal(plan_composed_markers),
-                        )
-                    };
-                    if plan_composed_no_tokenizable_root {
-                        decision = meet(decision, plan_composed_no_tokenizable_root_refusal());
-                    }
-                    decision
-                } else if let (EmissionStrategy::TunedSurfaceProbed, Some(refusal)) =
-                    (strategy, tuned_surface_refusal)
-                {
-                    meet(decision.clone(), refusal.clone())
-                } else if let (EmissionStrategy::TemplatedUnderlyingTokens, Some(refusal)) =
-                    (strategy, templated_route_refusal)
-                {
-                    meet(decision.clone(), refusal.clone())
-                } else {
-                    decision.clone()
-                };
                 if matches!(decision, CompileDecision::Refuse(_)) {
-                    BackendReport::refused(strategy, decision)
+                    BackendReport::refused(strategy, decision.clone())
                 } else {
-                    BackendReport::accepted(strategy, decision, Vec::new())
+                    BackendReport::accepted(strategy, decision.clone(), Vec::new())
                         .expect("a non-refusing decision is always accepted")
                 }
             })
@@ -516,15 +391,11 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
     let g = semantics.grammar();
     let phon = PhonologyProbe::new_with_semantics(semantics);
     let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
-    let envelope = compose_envelope_across_strategies(semantics, &plan, &default_registry());
-    let plan_composed_markers = crate::build::unbuildable_markers(&plan);
-    BackendSelection::from_envelope_with_backend_findings(
-        &envelope,
-        &plan_composed_markers,
-        crate::replace::grammar_has_no_tokenizable_root(g),
-        tuned_surface_structural_refusal(g).as_ref(),
-        templated_route_structural_refusal(g).as_ref(),
-    )
+    let registry = default_registry();
+    let grammar_wide = default_grammar_wide_checks();
+    let contributions = CapabilityContributions::new(&registry, &grammar_wide);
+    let envelope = compose_envelope_across_strategies(semantics, &plan, &contributions);
+    BackendSelection::from_envelope(&envelope)
 }
 
 /// `select_backends` from a bare `&Grammar`, deriving the semantics itself. **Check-only**: nothing

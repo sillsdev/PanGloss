@@ -3173,6 +3173,304 @@ pub fn inert_predicates(registry: &PredicateRegistry) -> Vec<PredicateId> {
         .collect()
 }
 
+// ---- GrammarWideCheck: whole-grammar, per-strategy facts (not per plan node) ----
+
+/// A grammar-wide capability fact for exactly one `EmissionStrategy`, evaluated once against the
+/// whole grammar and plan rather than per `PlanNodeKind`.
+///
+/// Deliberately a SEPARATE trait from [`CapabilityPredicate`] rather than one `evaluate` shared by
+/// both shapes: a predicate answers "is this plan node faithful" and is checked at every node a
+/// relevant characteristic touches, while a fact here answers "can this compiler represent this
+/// grammar at all" and has no node to be checked at. A shared signature would leave one of
+/// `plan_node`/nothing permanently unused by every implementor of one of the two kinds — the
+/// "control that cannot act" shape `inert_predicates` exists to catch on the predicate side.
+pub trait GrammarWideCheck {
+    /// e.g. `"surface-probe.finite-closure-bound"`.
+    fn id(&self) -> PredicateId;
+    /// The one `EmissionStrategy` this fact's proposer shape is about.
+    fn strategy(&self) -> EmissionStrategy;
+    /// The `crate::advice_catalog` remedy shape this check's refusal maps to.
+    fn shape_key(&self) -> &'static str;
+    fn provenance(&self) -> EvidenceProvenance;
+    /// `None` when the fact does not apply to `semantics`/`plan`; `Some(Refuse(..))` when it does.
+    /// Never `Some(Admit)`/`Some(ConfirmOnly)` — a grammar-wide fact only ever narrows.
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, plan: &Plan) -> Option<CompileDecision>;
+}
+
+/// `crate::emit::eager_route_refuses_unbounded_closure`, published for `TunedSurfaceProbed`.
+pub struct TunedSurfaceClosureCheck;
+
+impl GrammarWideCheck for TunedSurfaceClosureCheck {
+    fn id(&self) -> PredicateId {
+        "surface-probe.finite-closure-bound"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TunedSurfaceProbed
+    }
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::emit::eager_route_refuses_unbounded_closure(semantics.grammar()).then(|| {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: "realizational rule with no authored application bound".to_string(),
+                witness: "EmissionStrategy::TunedSurfaceProbed's eager route cannot prove finite \
+                          closure for this grammar and generates no partial FST, so selecting it \
+                          would promise a proposer the compiler does not produce"
+                    .to_string(),
+            }])
+        })
+    }
+}
+
+/// `crate::emit::eager_route_refuses_unclaimed_standalone_rule`, published for `TunedSurfaceProbed`.
+pub struct TunedSurfaceUnclaimedStandaloneCheck;
+
+impl GrammarWideCheck for TunedSurfaceUnclaimedStandaloneCheck {
+    fn id(&self) -> PredicateId {
+        "surface-probe.standalone-rule-claimed"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TunedSurfaceProbed
+    }
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::emit::eager_route_refuses_unclaimed_standalone_rule(semantics.grammar()).then(|| {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: "standalone rule whose primary allomorph no derivational zone routes"
+                    .to_string(),
+                witness: "EmissionStrategy::TunedSurfaceProbed's standalone-rule loop only routes \
+                          Prefix/Suffix/None/CircumfixPrefix classifications and peelable \
+                          reduplication; every other classification is reported uncovered and \
+                          refuses the build"
+                    .to_string(),
+            }])
+        })
+    }
+}
+
+/// `crate::emit::eager_route_refuses_mixed_circumfix_zone`, published for `TunedSurfaceProbed`.
+pub struct TunedSurfaceMixedCircumfixZoneCheck;
+
+impl GrammarWideCheck for TunedSurfaceMixedCircumfixZoneCheck {
+    fn id(&self) -> PredicateId {
+        "surface-probe.circumfix-zone-exclusive-allomorph"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TunedSurfaceProbed
+    }
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::emit::eager_route_refuses_mixed_circumfix_zone(semantics.grammar()).then(|| {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: self.id(),
+                construct:
+                    "rule mixing a circumfix allomorph with a non-circumfix, non-zero allomorph"
+                        .to_string(),
+                witness: "EmissionStrategy::TunedSurfaceProbed widens a circumfix-bearing rule \
+                          into both derivational zones, but a \
+                          Prefix/Suffix/Infix/Reduplication/Process-classified allomorph on that \
+                          same rule is reported uncovered by the zone it does not own, and \
+                          refuses the build"
+                    .to_string(),
+            }])
+        })
+    }
+}
+
+/// `crate::emit::templated_route_uncovered_refusal`, published for `TemplatedUnderlyingTokens`.
+pub struct TemplatedRouteUncoveredCheck;
+
+impl GrammarWideCheck for TemplatedRouteUncoveredCheck {
+    fn id(&self) -> PredicateId {
+        "templated-route.emission-uncovered"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TemplatedUnderlyingTokens
+    }
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::emit::templated_route_uncovered_refusal(semantics.grammar())
+    }
+}
+
+/// `crate::templated_compile::rule_cascade_uncompilable_refusal`, published for
+/// `TemplatedUnderlyingTokens`.
+pub struct RuleCascadeUncompilableCheck;
+
+impl GrammarWideCheck for RuleCascadeUncompilableCheck {
+    fn id(&self) -> PredicateId {
+        "templated-route.rule-cascade-uncompilable"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TemplatedUnderlyingTokens
+    }
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::templated_compile::rule_cascade_uncompilable_refusal(semantics.grammar())
+    }
+}
+
+/// [`templated_shape_floor`], published for `TemplatedUnderlyingTokens` as an ordinary registered
+/// check rather than `with_strategy_coverage`'s own hardcoded strategy match.
+pub struct TemplatedShapeFloorCheck;
+
+impl GrammarWideCheck for TemplatedShapeFloorCheck {
+    fn id(&self) -> PredicateId {
+        TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::TemplatedUnderlyingTokens
+    }
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        match templated_shape_floor(semantics) {
+            CompileDecision::Admit => None,
+            refused => Some(refused),
+        }
+    }
+}
+
+/// `crate::replace::grammar_has_no_tokenizable_root`, published for `PlanComposed`.
+pub struct PlanComposedNoTokenizableRootCheck;
+
+impl GrammarWideCheck for PlanComposedNoTokenizableRootCheck {
+    fn id(&self) -> PredicateId {
+        "strategy-materializer.tokenizable-root-required"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::PlanComposed
+    }
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
+        crate::replace::grammar_has_no_tokenizable_root(semantics.grammar()).then(|| {
+            CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: self.id(),
+                construct: "lexicon with no root allomorph carrying a tokenizable underlying shape"
+                    .to_string(),
+                witness: "EmissionStrategy::PlanComposed's emit_underlying_filtered skips every \
+                          root allomorph that is pattern-only or references a natural class in \
+                          its shape, so a lexicon with no other root produces zero entries in \
+                          every gated group and build_controllable's net stays empty"
+                    .to_string(),
+            }])
+        })
+    }
+}
+
+/// `crate::build::unbuildable_markers`, published for `PlanComposed`.
+pub struct PlanComposedMarkerCheck;
+
+impl GrammarWideCheck for PlanComposedMarkerCheck {
+    fn id(&self) -> PredicateId {
+        "strategy-materializer.marker-subtree-not-buildable"
+    }
+    fn strategy(&self) -> EmissionStrategy {
+        EmissionStrategy::PlanComposed
+    }
+    fn shape_key(&self) -> &'static str {
+        crate::advice_catalog::PLAN_COMPOSED_MISSING_SUBTREES_SHAPE_KEY
+    }
+    fn provenance(&self) -> EvidenceProvenance {
+        EvidenceProvenance::Structural
+    }
+    fn evaluate(&self, _semantics: &GrammarSemantics<'_>, plan: &Plan) -> Option<CompileDecision> {
+        let markers = crate::build::unbuildable_markers(plan);
+        if markers.is_empty() {
+            return None;
+        }
+        Some(CompileDecision::Refuse(
+            markers
+                .iter()
+                .map(|marker| {
+                    let marker = format!("{marker:?}");
+                    CapabilityDiagnostic {
+                        predicate: self.id(),
+                        construct: marker.clone(),
+                        witness: format!(
+                            "EmissionStrategy::PlanComposed uses build_controllable, which skips \
+                             the required {marker} subtree; selecting PlanComposed would silently \
+                             omit its material"
+                        ),
+                    }
+                })
+                .collect(),
+        ))
+    }
+}
+
+/// The registry this crate ships: every grammar-wide fact `crate::backend_selection::select_backends`
+/// applies, named and strategy-scoped rather than threaded as a growing positional argument list.
+pub fn default_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
+    vec![
+        Box::new(TunedSurfaceClosureCheck),
+        Box::new(TunedSurfaceUnclaimedStandaloneCheck),
+        Box::new(TunedSurfaceMixedCircumfixZoneCheck),
+        Box::new(TemplatedRouteUncoveredCheck),
+        Box::new(RuleCascadeUncompilableCheck),
+        Box::new(TemplatedShapeFloorCheck),
+        Box::new(PlanComposedNoTokenizableRootCheck),
+        Box::new(PlanComposedMarkerCheck),
+    ]
+}
+
+/// The single check `with_strategy_coverage`'s old hardcoded `TemplatedUnderlyingTokens` branch applied, preserved for every caller that is not `crate::backend_selection`.
+fn baseline_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
+    vec![Box::new(TemplatedShapeFloorCheck)]
+}
+
+/// Everything a compiler's own capability envelope composes from: per-plan-node
+/// `CapabilityPredicate`s and per-strategy `GrammarWideCheck`s, bundled so
+/// `compose_envelope_across_strategies` takes one argument rather than a growing positional list.
+pub struct CapabilityContributions<'a> {
+    pub predicates: &'a PredicateRegistry,
+    pub grammar_wide: &'a [Box<dyn GrammarWideCheck>],
+}
+
+impl<'a> CapabilityContributions<'a> {
+    pub fn new(predicates: &'a PredicateRegistry, grammar_wide: &'a [Box<dyn GrammarWideCheck>]) -> Self {
+        Self {
+            predicates,
+            grammar_wide,
+        }
+    }
+}
+
 // ---- Bottom-up envelope composition + the compile decision ----
 
 /// The overall, whole-plan compile decision `compose_envelope` returns: a node verdict is the
@@ -3391,7 +3689,13 @@ pub fn compose_envelope_with_semantics(
     plan: &Plan,
     registry: &PredicateRegistry,
 ) -> CompileDecision {
-    compose_envelope_across_strategies(semantics, plan, registry).global()
+    let grammar_wide = baseline_grammar_wide_checks();
+    compose_envelope_across_strategies(
+        semantics,
+        plan,
+        &CapabilityContributions::new(registry, &grammar_wide),
+    )
+    .global()
 }
 
 // Narrowing a predicate away lands its kind on the default-disposition floor, never out of account.
@@ -3466,11 +3770,22 @@ fn with_strategy_coverage(
         decision = meet(decision, strategy_floor(strategy, kind));
     }
 
-    // Shape-specific refusals apply only to templated emission.
-    if strategy == EmissionStrategy::TemplatedUnderlyingTokens {
-        decision = meet(decision, templated_shape_floor(semantics));
-    }
+    decision
+}
 
+/// Folds every `checks` entry scoped to `strategy` into `decision` via `meet`.
+fn fold_grammar_wide_checks(
+    mut decision: CompileDecision,
+    semantics: &GrammarSemantics<'_>,
+    plan: &Plan,
+    strategy: EmissionStrategy,
+    checks: &[Box<dyn GrammarWideCheck>],
+) -> CompileDecision {
+    for check in checks.iter().filter(|c| c.strategy() == strategy) {
+        if let Some(refusal) = check.evaluate(semantics, plan) {
+            decision = meet(decision, refusal);
+        }
+    }
     decision
 }
 
@@ -3771,29 +4086,34 @@ impl StrategyEnvelope {
 pub fn compose_envelope_across_strategies(
     semantics: &GrammarSemantics<'_>,
     plan: &Plan,
-    registry: &PredicateRegistry,
+    contributions: &CapabilityContributions<'_>,
 ) -> StrategyEnvelope {
     let mut walked: Vec<(Vec<usize>, CompileDecision)> = Vec::new();
     let mut verdicts = Vec::with_capacity(ALL_STRATEGIES.len());
 
     for &strategy in ALL_STRATEGIES {
-        let indices = constraining_predicate_indices(registry, strategy);
+        let indices = constraining_predicate_indices(contributions.predicates, strategy);
         let base = match walked.iter().find(|(seen, _)| *seen == indices) {
             Some((_, decision)) => decision.clone(),
             None => {
                 let predicates: Vec<&dyn CapabilityPredicate> = indices
                     .iter()
-                    .map(|&i| registry.predicates()[i].as_ref())
+                    .map(|&i| contributions.predicates.predicates()[i].as_ref())
                     .collect();
                 let decision = compose_over_predicates(semantics, plan, &predicates);
                 walked.push((indices, decision.clone()));
                 decision
             }
         };
-        verdicts.push(StrategyVerdict {
+        let decision = with_strategy_coverage(semantics, strategy, base);
+        let decision = fold_grammar_wide_checks(
+            decision,
+            semantics,
+            plan,
             strategy,
-            decision: with_strategy_coverage(semantics, strategy, base),
-        });
+            contributions.grammar_wide,
+        );
+        verdicts.push(StrategyVerdict { strategy, decision });
     }
 
     StrategyEnvelope { verdicts }
@@ -3843,7 +4163,14 @@ pub fn compose_envelope_for_strategy(
             .map(|i| registry.predicates()[i].as_ref())
             .collect();
     let base = compose_over_predicates(semantics, plan, &predicates);
-    with_strategy_coverage(semantics, strategy, base)
+    let decision = with_strategy_coverage(semantics, strategy, base);
+    fold_grammar_wide_checks(
+        decision,
+        semantics,
+        plan,
+        strategy,
+        &baseline_grammar_wide_checks(),
+    )
 }
 
 // The per-strategy account's contribution alone; `compose_over_predicates` folds in the dispositions.
@@ -7678,7 +8005,12 @@ mod tests {
         let registry = default_registry();
 
         let blind = compiler_blind_reference(&semantics, &plan, &registry);
-        let envelope = compose_envelope_across_strategies(&semantics, &plan, &registry);
+        let baseline = baseline_grammar_wide_checks();
+        let envelope = compose_envelope_across_strategies(
+            &semantics,
+            &plan,
+            &CapabilityContributions::new(&registry, &baseline),
+        );
 
         assert_eq!(
             compose_envelope_with_semantics(&semantics, &plan, &registry),
@@ -7695,8 +8027,14 @@ mod tests {
                 "{label}: {strategy:?}'s row in the envelope differs from asking for it directly"
             );
 
-            // The OLD per-strategy form: the compiler-blind verdict, narrowed by the coverage rows.
-            let blind_narrowed = with_strategy_coverage(&semantics, strategy, blind.clone());
+            // The OLD per-strategy form: the compiler-blind verdict, narrowed by the same coverage rows and baseline checks `compose_envelope_for_strategy` folds in.
+            let blind_narrowed = fold_grammar_wide_checks(
+                with_strategy_coverage(&semantics, strategy, blind.clone()),
+                &semantics,
+                &plan,
+                strategy,
+                &baseline,
+            );
             if constraining_predicate_indices(&registry, strategy) == whole_registry {
                 assert_eq!(
                     composed, blind_narrowed,

@@ -6,7 +6,10 @@ use pg_foma::backend_optimizer::Certification;
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::build::unbuildable_markers;
-use pg_foma::capability::{compose_envelope_across_strategies, default_registry};
+use pg_foma::capability::{
+    compose_envelope_across_strategies, default_grammar_wide_checks, default_registry,
+    CapabilityContributions,
+};
 use pg_foma::emit;
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::enumerate::CandidateRole;
@@ -114,7 +117,10 @@ fn corpus_indonesian_registry_candidates_are_named_before_build() {
     let phonology = PhonologyProbe::new(&grammar);
     let baseline = enumerate_default(&grammar, &prules, phonology.as_ref());
     let semantics = GrammarSemantics::derive(&grammar);
-    let envelope = compose_envelope_across_strategies(&semantics, &baseline, &default_registry());
+    let registry = default_registry();
+    let grammar_wide = default_grammar_wide_checks();
+    let contributions = CapabilityContributions::new(&registry, &grammar_wide);
+    let envelope = compose_envelope_across_strategies(&semantics, &baseline, &contributions);
     for verdict in envelope.verdicts() {
         eprintln!(
             "capability strategy={:?} decision={:?}",
