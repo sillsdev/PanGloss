@@ -45,11 +45,18 @@ use crate::backend_runtime::{
 };
 use crate::backend_selection::{select_backends, BackendReport};
 use crate::capability::CharacteristicKind;
+use crate::coverage_seam::{self, MeasuredOutcome, Observation, Verdict};
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
 use crate::lowering_adapter::LoweringAdapter;
 use crate::strategy_coverage::ALL_STRATEGIES;
+
+/// Why a containment comparison never ran, moved to `crate::coverage_seam` so
+/// `crate::witnessed_coverage`'s `BackendOutcome` can spell the same "never measured" fact the same
+/// way. Re-exported here so every existing caller of `faithfulness_coverage::NotAttemptedReason`
+/// keeps resolving.
+pub use crate::coverage_seam::NotAttemptedReason;
 
 /// One (fixture, backend) pair's containment outcome. Only `Held`/`Failed` come from a real
 /// comparison; `NotAttempted` covers every reason the comparison could not run at all.
@@ -63,57 +70,25 @@ pub enum ContainmentOutcome {
     NotAttempted { reason: NotAttemptedReason },
 }
 
-/// Why a containment comparison never ran. Typed rather than a string so a caller can tell an
-/// envelope refusal from an oracle fault without parsing prose -- `RefusedBySelector` in particular
-/// is the case `backend-measurement-instruments.md` says must never read as passing, and it was a
-/// string literal at two sites, which is a convention every reader had to know rather than a fact
-/// the type carries.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NotAttemptedReason {
-    /// `select_backends` refused this backend, so nothing was measured. NEVER a pass.
-    RefusedBySelector,
-    /// The oracle itself yielded nothing comparable for this fixture, so no backend can miss anything here.
-    NoComparableWords,
-    /// Evaluation stopped before per-word evidence existed; carries the certification that stopped it.
-    EvaluationIncomplete(String),
-    /// The fixture could not be prepared at all; carries the fault.
-    OracleFault(String),
-    /// The fixture offers nothing to compare before the oracle even runs (no words, no character table).
-    FixtureNotComparable(String),
-}
-
-impl NotAttemptedReason {
-    /// Stable label for reports; the payload-carrying variants render their own detail.
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::RefusedBySelector => "refused-by-selector",
-            Self::NoComparableWords => "no comparable words after oracle exclusions",
-            Self::EvaluationIncomplete(_) => "evaluation did not reach comparable words",
-            Self::OracleFault(_) => "oracle preparation faulted",
-            Self::FixtureNotComparable(_) => "fixture offers nothing to compare",
-        }
-    }
-}
-
-impl std::fmt::Display for NotAttemptedReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EvaluationIncomplete(detail)
-            | Self::OracleFault(detail)
-            | Self::FixtureNotComparable(detail) => {
-                write!(f, "{}: {detail}", self.label())
-            }
-            _ => f.write_str(self.label()),
-        }
-    }
-}
-
 impl ContainmentOutcome {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Held => "held",
             Self::Failed { .. } => "failed",
             Self::NotAttempted { .. } => "not-attempted",
+        }
+    }
+}
+
+/// The (word, detail) pair a containment failure carries, recovered losslessly from `Self::Failed`.
+impl MeasuredOutcome for ContainmentOutcome {
+    type Failure = (String, String);
+
+    fn classify(&self) -> Verdict<Self::Failure> {
+        match self {
+            Self::Held => Verdict::Held,
+            Self::Failed { word, detail } => Verdict::Failed((word.clone(), detail.clone())),
+            Self::NotAttempted { reason } => Verdict::NotAttempted(reason.clone()),
         }
     }
 }
@@ -615,36 +590,32 @@ impl FaithfulnessReport {
     }
 }
 
-/// Folds observations into the account. `scope` and `fixtures_discovered` are the caller's
+/// Folds observations into the account, over the shared `crate::coverage_seam::build_report` fold
+/// for the containment (recall) axis. `scope` and `fixtures_discovered` are the caller's
 /// denominator claim: this function cannot see what the caller chose to walk, so it never invents
 /// either.
+///
+/// The soundness (over-generation) axis is NOT part of the shared fold: it reads
+/// `FixtureContainmentObservation::soundness`, a side-vector `crate::coverage_seam::Observation`
+/// has no field for, since it answers a question `ContainmentOutcome`'s own `MeasuredOutcome::classify`
+/// cannot see (this module's own doc explains why the two axes are independent).
 pub fn build_report(
     scope: &str,
     fixtures_discovered: usize,
     observations: &[FixtureContainmentObservation],
 ) -> FaithfulnessReport {
-    let mut kinds_exhibited_set: BTreeSet<CharacteristicKind> = BTreeSet::new();
-    let mut backends_exercised_set: BTreeSet<usize> = BTreeSet::new();
-    for observation in observations {
-        kinds_exhibited_set.extend(observation.kinds.iter().copied());
-        for (strategy, outcome) in &observation.outcomes {
-            if matches!(
-                outcome,
-                ContainmentOutcome::Held | ContainmentOutcome::Failed { .. }
-            ) {
-                backends_exercised_set.insert(strategy_index(*strategy));
-            }
-        }
-    }
+    let generic: Vec<Observation<ContainmentOutcome>> = observations
+        .iter()
+        .map(|o| Observation {
+            label: o.label.clone(),
+            kinds: o.kinds.clone(),
+            outcomes: o.outcomes.clone(),
+        })
+        .collect();
+    let matrix = coverage_seam::build_report(scope, fixtures_discovered, &generic);
 
-    let mut held = Vec::new();
-    let mut failed = Vec::new();
-    let mut failure_examples = Vec::new();
-    let mut not_attempted = Vec::new();
-    let mut not_attempted_examples = Vec::new();
     let mut over_generating = Vec::new();
     let mut over_generation_examples = Vec::new();
-
     for &kind in CharacteristicKind::ALL {
         let exhibiting: Vec<&FixtureContainmentObservation> = observations
             .iter()
@@ -654,25 +625,8 @@ pub fn build_report(
             continue;
         }
         for &strategy in ALL_STRATEGIES {
-            let mut first_failure: Option<(String, String, String)> = None;
-            let mut any_held = false;
-            let mut reasons: Vec<String> = Vec::new();
-            // Independent of containment classification above: a fixture can be Held/Failed/NotAttempted for RECALL and separately over-generate, since the two are different directions of `crate::parity::IdentityDivergence`.
             let mut first_over_generation: Option<(String, u64)> = None;
             for observation in &exhibiting {
-                match observation.outcome_for(strategy) {
-                    Some(ContainmentOutcome::Failed { word, detail }) => {
-                        if first_failure.is_none() {
-                            first_failure =
-                                Some((observation.label.clone(), word.clone(), detail.clone()));
-                        }
-                    }
-                    Some(ContainmentOutcome::Held) => any_held = true,
-                    Some(ContainmentOutcome::NotAttempted { reason }) => {
-                        reasons.push(format!("{}: {reason}", observation.label))
-                    }
-                    None => {}
-                }
                 if first_over_generation.is_none() {
                     if let Some(count) = observation.soundness_for(strategy) {
                         if count > 0 {
@@ -680,24 +634,6 @@ pub fn build_report(
                         }
                     }
                 }
-            }
-            if let Some((fixture, word, detail)) = first_failure {
-                failed.push((kind, strategy));
-                failure_examples.push((
-                    kind,
-                    strategy,
-                    fixture,
-                    format!("word {word:?}: {detail}"),
-                ));
-            } else if any_held {
-                held.push((kind, strategy));
-            } else {
-                not_attempted.push((kind, strategy));
-                not_attempted_examples.push((
-                    kind,
-                    strategy,
-                    reasons.into_iter().next().unwrap_or_default(),
-                ));
             }
             if let Some((fixture, count)) = first_over_generation {
                 over_generating.push((kind, strategy));
@@ -707,23 +643,22 @@ pub fn build_report(
     }
 
     FaithfulnessReport {
-        scope: scope.to_string(),
-        fixtures_discovered,
-        fixtures_observed: observations.iter().map(|o| o.label.clone()).collect(),
-        kinds_exhibited: CharacteristicKind::ALL
-            .iter()
-            .copied()
-            .filter(|kind| kinds_exhibited_set.contains(kind))
+        scope: matrix.scope,
+        fixtures_discovered: matrix.discovered,
+        fixtures_observed: matrix.observed,
+        kinds_exhibited: matrix.kinds_exhibited,
+        backends_exercised: matrix.backends_active,
+        held: matrix.held,
+        failed: matrix.failed,
+        failure_examples: matrix
+            .failed_examples
+            .into_iter()
+            .map(|(kind, strategy, fixture, (word, detail))| {
+                (kind, strategy, fixture, format!("word {word:?}: {detail}"))
+            })
             .collect(),
-        backends_exercised: backends_exercised_set
-            .iter()
-            .map(|&index| ALL_STRATEGIES[index])
-            .collect(),
-        held,
-        failed,
-        failure_examples,
-        not_attempted,
-        not_attempted_examples,
+        not_attempted: matrix.not_attempted,
+        not_attempted_examples: matrix.not_attempted_examples,
         over_generating,
         over_generation_examples,
     }
@@ -742,14 +677,6 @@ pub fn unobservable_fixture(
         kinds,
         NotAttemptedReason::FixtureNotComparable(reason),
     )
-}
-
-/// Position in `crate::strategy_coverage::ALL_STRATEGIES`, giving `EmissionStrategy` a total order it does not derive.
-fn strategy_index(strategy: EmissionStrategy) -> usize {
-    ALL_STRATEGIES
-        .iter()
-        .position(|&s| s == strategy)
-        .unwrap_or_else(|| panic!("{strategy:?} is missing from ALL_STRATEGIES"))
 }
 
 #[cfg(test)]

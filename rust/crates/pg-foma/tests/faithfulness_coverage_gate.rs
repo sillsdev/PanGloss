@@ -3,6 +3,7 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use pg_conformance_fixtures::{claimed_scope, discover, SCOPE_ENV};
+use pg_foma::coverage_seam::collect_observations;
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::faithfulness_coverage::{
     build_report, containment_outcome_for_evidence, observe_fixture_containment,
@@ -16,40 +17,32 @@ const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NoMoreThan
 // The SOUNDNESS gate (candidate-only identities), the direction `REQUIREMENT` cannot see; measured 0 across all 61 fixtures / 3 backends, so this is a strict floor, not a backlog ratchet -- see `docs/research/backend-measurement-instruments.md` defect 3.
 const SOUNDNESS_REQUIREMENT: SoundnessRequirement = SoundnessRequirement::NoOverGeneration;
 
-/// A fixture that fails to load, is `skip_in_generic_replay`, or panics mid-evaluation contributes an `unobservable_fixture` row rather than aborting the sweep.
+/// A fixture that fails to load, is `skip_in_generic_replay`, or panics mid-evaluation contributes an `unobservable_fixture` row rather than aborting the sweep -- via the shared `crate::coverage_seam` walk, with the panic guard staying this instrument's own (see that module's doc for why).
 fn collect() -> (usize, Vec<FixtureContainmentObservation>) {
     let fixtures = discover();
-    let discovered = fixtures.len();
-
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(|_| {}));
-    let mut observations = Vec::new();
-    for fixture in fixtures {
-        let label = fixture.label();
-        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
-            continue;
-        };
-        let words_yaml = fixture.load_words_yaml();
-        if let Some(reason) = words_yaml.skip_in_generic_replay() {
-            observations.push(unobservable_fixture(&label, Vec::new(), reason.to_string()));
-            continue;
-        }
-        let words: Vec<String> = words_yaml.words.into_iter().map(|w| w.word).collect();
-        let observation = panic::catch_unwind(AssertUnwindSafe(|| {
-            observe_fixture_containment(&label, &grammar, &words)
-        }))
-        .unwrap_or_else(|payload| {
-            let reason = payload
-                .downcast_ref::<&str>()
-                .map(|s| s.to_string())
-                .or_else(|| payload.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "<non-string panic payload>".to_string());
-            unobservable_fixture(&label, Vec::new(), format!("panicked: {reason}"))
-        });
-        observations.push(observation);
-    }
-    panic::set_hook(default_hook);
-    (discovered, observations)
+    collect_observations(
+        &fixtures,
+        |fixture| pg_grammar::load(&fixture.load_grammar_xml()).ok(),
+        |fixture, grammar| {
+            let label = fixture.label();
+            let words_yaml = fixture.load_words_yaml();
+            if let Some(reason) = words_yaml.skip_in_generic_replay() {
+                return unobservable_fixture(&label, Vec::new(), reason.to_string());
+            }
+            let words: Vec<String> = words_yaml.words.into_iter().map(|w| w.word).collect();
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                observe_fixture_containment(&label, grammar, &words)
+            }))
+            .unwrap_or_else(|payload| {
+                let reason = payload
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "<non-string panic payload>".to_string());
+                unobservable_fixture(&label, Vec::new(), format!("panicked: {reason}"))
+            })
+        },
+    )
 }
 
 fn report() -> FaithfulnessReport {

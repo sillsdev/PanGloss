@@ -1,9 +1,8 @@
 //! The wired-up edge of `pg_foma::witnessed_coverage`: compiles every discovered conformance fixture with every backend the selector permits, states the denominator, and prints the completeness account -- asserting NON-VACUITY only, with the gap inventory reported rather than gated (see `REQUIREMENT`).
 
-use std::panic;
-
 use pg_conformance_fixtures::{claimed_scope, discover, SCOPE_ENV};
 use pg_foma::capability::CharacteristicKind;
+use pg_foma::coverage_seam::collect_observations;
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::witnessed_coverage::{
     build_report, observe_grammar, observe_grammar_with, BackendOutcome, CompletenessReport,
@@ -13,24 +12,14 @@ use pg_foma::witnessed_coverage::{
 /// THE PLACE THE GATE BECOMES STRICT: swap to `CompletenessRequirement::NoGaps` once the printed inventory reaches zero.
 const REQUIREMENT: CompletenessRequirement = CompletenessRequirement::NonVacuity;
 
-/// Walks every discovered fixture once, silencing panic spam (a compiler contract violation is recorded as a failed compile, never a witness, and must not abort the sweep).
+/// Walks every discovered fixture once via the shared `crate::coverage_seam` walk (a compiler contract violation is recorded as a failed compile, never a witness, via `observe_grammar`'s own internal `catch_unwind`).
 fn collect() -> (usize, Vec<GrammarObservation>) {
     let fixtures = discover();
-    let discovered = fixtures.len();
-
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(|_| {}));
-    let mut observations = Vec::new();
-    for fixture in fixtures {
-        let label = fixture.label();
-        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
-            // A fixture this sweep cannot even load contributes no constructs and no compiles; diagnosing it is another gate's job.
-            continue;
-        };
-        observations.push(observe_grammar(&label, &grammar));
-    }
-    panic::set_hook(default_hook);
-    (discovered, observations)
+    collect_observations(
+        &fixtures,
+        |fixture| pg_grammar::load(&fixture.load_grammar_xml()).ok(),
+        |fixture, grammar| observe_grammar(&fixture.label(), grammar),
+    )
 }
 
 fn report() -> CompletenessReport {
@@ -75,23 +64,19 @@ fn forcing_a_backend_to_fail_removes_exactly_its_witnesses() {
     );
 
     let fixtures = discover();
-    let default_hook = panic::take_hook();
-    panic::set_hook(Box::new(|_| {}));
-    let mut sabotaged = Vec::new();
-    for fixture in fixtures {
-        let label = fixture.label();
-        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
-            continue;
-        };
-        sabotaged.push(observe_grammar_with(&label, &grammar, &|g, strategy| {
-            if strategy == sabotaged_backend {
-                Err("forced failure".to_string())
-            } else {
-                pg_foma::witnessed_coverage::compile_with_backend(g, strategy)
-            }
-        }));
-    }
-    panic::set_hook(default_hook);
+    let (_, sabotaged) = collect_observations(
+        &fixtures,
+        |fixture| pg_grammar::load(&fixture.load_grammar_xml()).ok(),
+        |fixture, grammar| {
+            observe_grammar_with(&fixture.label(), grammar, &|g, strategy| {
+                if strategy == sabotaged_backend {
+                    Err("forced failure".to_string())
+                } else {
+                    pg_foma::witnessed_coverage::compile_with_backend(g, strategy)
+                }
+            })
+        },
+    );
     let sabotaged_report = build_report(claimed_scope().label(), discovered, &sabotaged);
     println!(
         "falsification: {sabotaged_backend:?} witnessed {} -> {}; gaps {} -> {}",

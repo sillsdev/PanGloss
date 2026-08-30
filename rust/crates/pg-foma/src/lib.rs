@@ -154,6 +154,9 @@ pub mod conformance_coverage;
 /// citation table). **Evidence, not a gate**: a report input, not a compile-time check — see
 /// that module's own doc.
 pub mod coverage_ledger;
+/// The shared walk + fold `witnessed_coverage` and `faithfulness_coverage` build their own
+/// `(CharacteristicKind, EmissionStrategy)` reports from -- see that module's own doc.
+pub mod coverage_seam;
 /// A feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
 /// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
 /// `replace`'s rule cascade? Standalone, additive, same status as `replace`/`uflexc`.

@@ -43,6 +43,7 @@ use pg_grammar::model::Grammar;
 use crate::analyzer::FomaProposer;
 use crate::backend_selection::{select_backends, BackendReport};
 use crate::capability::CharacteristicKind;
+use crate::coverage_seam::{self, MeasuredOutcome, NotAttemptedReason, Verdict};
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
@@ -78,27 +79,22 @@ impl BackendOutcome {
     }
 }
 
-/// One grammar's contribution to the collection: the constructs it contains, and what each backend
-/// did with it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GrammarObservation {
-    /// Caller-supplied identity (a `pg_conformance_fixtures::FixtureRef::label`, typically).
-    pub label: String,
-    /// Every distinct `CharacteristicKind` `crate::capability::characterize` observed, in
-    /// `CharacteristicKind::ALL` order.
-    pub kinds: Vec<CharacteristicKind>,
-    /// One entry per `crate::strategy_coverage::ALL_STRATEGIES` entry, in that constant's order.
-    pub outcomes: Vec<(EmissionStrategy, BackendOutcome)>,
-}
+/// The compile-failure reason a `Self::CompileFailed` carries, recovered losslessly.
+impl MeasuredOutcome for BackendOutcome {
+    type Failure = String;
 
-impl GrammarObservation {
-    pub fn outcome_for(&self, strategy: EmissionStrategy) -> Option<&BackendOutcome> {
-        self.outcomes
-            .iter()
-            .find(|(s, _)| *s == strategy)
-            .map(|(_, outcome)| outcome)
+    fn classify(&self) -> Verdict<String> {
+        match self {
+            Self::Compiled => Verdict::Held,
+            Self::CompileFailed(reason) => Verdict::Failed(reason.clone()),
+            Self::RefusedBySelector => Verdict::NotAttempted(NotAttemptedReason::RefusedBySelector),
+        }
     }
 }
+
+/// One grammar's contribution to the collection: the constructs it contains, and what each backend
+/// did with it.
+pub type GrammarObservation = coverage_seam::Observation<BackendOutcome>;
 
 /// Compiles `g` with `strategy`'s REAL entry point — the only source of a witness in this module.
 ///
@@ -471,30 +467,32 @@ impl CompletenessReport {
     }
 }
 
-/// Folds observations into the account. `scope` and `grammars_discovered` are the caller's
-/// denominator claim: this function cannot see what the caller chose to walk, so it never invents
-/// either.
+/// Folds observations into the account, over the shared `crate::coverage_seam::build_report` fold
+/// for the witnessed/held axis. `scope` and `grammars_discovered` are the caller's denominator
+/// claim: this function cannot see what the caller chose to walk, so it never invents either.
+///
+/// `declared_cannot_represent`/`contradictions`/`gaps` are NOT part of the shared fold: they range
+/// over the FULL `CharacteristicKind::ALL` grid (including a kind no observed grammar exhibits at
+/// all, which the shared fold -- by design, see its own doc -- has no evidence for and so never
+/// visits), and they compare against `crate::strategy_coverage::representation_of`'s declarative
+/// table, a fact the shared fold has no vocabulary for either. `backends_compiling` also stays its
+/// own pass: it credits only an actual `Compiled` outcome, never a `CompileFailed` one, which is a
+/// narrower criterion than the shared fold's "attempted" (Held or Failed) reading of "active".
 pub fn build_report(
     scope: &str,
     grammars_discovered: usize,
     observations: &[GrammarObservation],
 ) -> CompletenessReport {
-    let mut witnessed_set: BTreeSet<(CharacteristicKind, usize)> = BTreeSet::new();
-    let mut kinds_exhibited_set: BTreeSet<CharacteristicKind> = BTreeSet::new();
+    let matrix = coverage_seam::build_report(scope, grammars_discovered, observations);
+
     let mut backends_compiling_set: BTreeSet<usize> = BTreeSet::new();
     let mut compile_failures = Vec::new();
     let mut selector_refusals = Vec::new();
-
     for observation in observations {
-        kinds_exhibited_set.extend(observation.kinds.iter().copied());
         for (strategy, outcome) in &observation.outcomes {
-            let index = strategy_index(*strategy);
             match outcome {
                 BackendOutcome::Compiled => {
-                    backends_compiling_set.insert(index);
-                    for &kind in &observation.kinds {
-                        witnessed_set.insert((kind, index));
-                    }
+                    backends_compiling_set.insert(coverage_seam::strategy_index(*strategy));
                 }
                 BackendOutcome::CompileFailed(reason) => {
                     compile_failures.push((observation.label.clone(), *strategy, reason.clone()))
@@ -512,8 +510,8 @@ pub fn build_report(
     let mut gaps = Vec::new();
     let mut gap_attributions = Vec::new();
     for &kind in CharacteristicKind::ALL {
-        for (index, &strategy) in ALL_STRATEGIES.iter().enumerate() {
-            let is_witnessed = witnessed_set.contains(&(kind, index));
+        for &strategy in ALL_STRATEGIES {
+            let is_witnessed = matrix.held.contains(&(kind, strategy));
             let is_declared = representation_of(strategy, kind).representation
                 == StrategyRepresentation::CannotRepresent;
             if is_witnessed {
@@ -537,14 +535,10 @@ pub fn build_report(
     }
 
     CompletenessReport {
-        scope: scope.to_string(),
-        grammars_discovered,
-        grammars_observed: observations.iter().map(|o| o.label.clone()).collect(),
-        kinds_exhibited: CharacteristicKind::ALL
-            .iter()
-            .copied()
-            .filter(|kind| kinds_exhibited_set.contains(kind))
-            .collect(),
+        scope: matrix.scope,
+        grammars_discovered: matrix.discovered,
+        grammars_observed: matrix.observed,
+        kinds_exhibited: matrix.kinds_exhibited,
         backends_compiling: backends_compiling_set
             .iter()
             .map(|&index| ALL_STRATEGIES[index])
@@ -599,14 +593,6 @@ fn attribute_gap(
          {failed} failed to compile -- e.g. {example}",
         exhibiting.len()
     )
-}
-
-/// Position in `crate::strategy_coverage::ALL_STRATEGIES`, giving `EmissionStrategy` a total order it does not derive.
-fn strategy_index(strategy: EmissionStrategy) -> usize {
-    ALL_STRATEGIES
-        .iter()
-        .position(|&s| s == strategy)
-        .unwrap_or_else(|| panic!("{strategy:?} is missing from ALL_STRATEGIES"))
 }
 
 #[cfg(test)]
