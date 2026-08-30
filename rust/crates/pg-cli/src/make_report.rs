@@ -15,7 +15,7 @@ use pg_foma::plan_diagram::{
 use pg_foma::readiness_policy::{policy_v1, ThresholdPolicy};
 use pg_foma::readiness_verdict::{
     certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
-    CoverageAssessment, LatencyMeasurement, Measurements, ReadinessReport, Tier, TrustStatus,
+    Measurements, ReadinessReport, Tier, TrustStatus,
 };
 use sha2::{Digest, Sha256};
 
@@ -833,6 +833,8 @@ mod tests {
     // The `&Grammar` front ends, used only by the golden-render test below; the live command drives the `_with_semantics` forms off its one shared owner.
     use pg_foma::plan_diagram::build_plan_document;
     use pg_foma::readiness_verdict::certify;
+    // Test-only: hoisting these to the module head made the production build warn on every compile.
+    use pg_foma::readiness_verdict::{CoverageAssessment, LatencyMeasurement};
 
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
