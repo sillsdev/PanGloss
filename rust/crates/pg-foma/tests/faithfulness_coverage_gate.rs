@@ -96,9 +96,12 @@ fn any_containment_failure_is_printed_with_its_missing_analysis() {
         println!("faithfulness-coverage: no containment failures on this run");
         return;
     }
+    // A floor, not a total: `not_attempted` pairs were never compared, so printing the failure count alone invites reading it as the whole recall surface.
     println!(
-        "faithfulness-coverage: {} (construct, backend) pair(s) FAILED containment:",
-        report.failed.len()
+        "faithfulness-coverage: {} (construct, backend) pair(s) FAILED containment \
+         ({} pair(s) NOT ATTEMPTED and therefore unmeasured -- this count is a floor):",
+        report.failed.len(),
+        report.not_attempted.len()
     );
     for (kind, strategy, fixture, detail) in &report.failure_examples {
         println!(

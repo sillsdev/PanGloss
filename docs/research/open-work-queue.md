@@ -39,14 +39,33 @@ fitting the test to the tree and is explicitly rejected.
 **Done when:** either a fixture with the right profile is authored and the tests pass, or the tests
 are marked with a machine-readable reason naming what is missing. Not left red.
 
-## 4. Two ratchets that measure the same thing and do not reconcile
+## 4. RECONCILED -- and the recall ratchet understates, by construction
 
-`faithfulness_coverage_gate` holds recall at `NoMoreThan { failures: 19 }` -- 19 `(kind, backend)`
-pairs. `conf_matrix` reports **12** silently-wrong cells over `(fixture, backend)`. Different
-denominators, never compared, so neither can check the other.
+The two numbers count different things and neither is a defect count.
 
-**Done when:** the two are reconciled -- either one derives from the other, or the difference is
-explained and recorded so a future reader is not left to guess which number is the truth.
+**19 is `(kind, backend)` pairs, and it reports ONE witness per pair.** Measured: all 19 trace to
+just **four words in four fixtures** -- `mo+kul` (`loader-isactive-breadth`, 4 pairs), `isk`
+(`feature-system-breadth`, 6), `kuldede` (`morphotactic-attribute-breadth`, 8), `daboyuxa`
+(`mpr-overwrite-order-dependence`, 1). One word failing under a fixture that exhibits eight kinds
+produces eight failing pairs. Reading 19 as an error count overstates by ~5x, which
+`under-generation-by-construct.md` already warned.
+
+**12 is `(fixture, backend)` cells**, post-confirm: 9 recall misses plus 3 with no usable evidence.
+
+**The gap that matters: `plan-composed` reports `0 FAILED` in the faithfulness gate, and
+`conf_matrix` independently found it missing identities** -- `MISS r=4` on
+`morphotactic-attribute-breadth`, `MISS r=2` on `feature-gating-breadth`. Both measurements are
+correct. `faithfulness_coverage` gates on `select_backends`, so an envelope-refused backend records
+`not-attempted` and is never measured; `conf_matrix` bypasses the selector deliberately, so it sees
+what the gate cannot. plan-composed carries **12 not-attempted pairs**, the most of any backend.
+
+So the ratchet's 19 is a floor, not a total, and `not-attempted` is the blind spot -- exactly the
+"refused is not passing" rule `backend-measurement-instruments.md` states. Lowering 19 as fixes land
+is right; treating it as the whole recall surface is not.
+
+**Still open:** nothing forces the two to stay consistent. A cheap follow-up is for the faithfulness
+report to print its `not-attempted` count beside the failure count, so the floor announces that it
+is one.
 
 ## 5. `compose_budget` is dead at its layer -- DELETE, do not thread
 
