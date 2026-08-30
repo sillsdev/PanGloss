@@ -2,7 +2,7 @@
 //! compile-time **profile** type — per-stage timings, per-group emitted-line counts, and the final
 //! compiled network's own state/arc counts — collected from the PRODUCTION surface-prebaked
 //! `crate::emit::emit_with_budget` -> `foma::lexcread::fsm_lexc_parse_string` path
-//! (`crate::analyzer::FomaProposer::new_with_budget`). Measurements come from the production
+//! (`crate::analyzer::FomaProposer::new_proposer`). Measurements come from the production
 //! emitter/analyzer once; this profile stores them without recomputation.
 //!
 //! # Scope: the production path only
@@ -25,7 +25,7 @@
 //!
 //! # Top-line compile time is mandatory
 //! `CompileProfileBuilder::production` starts its own wall-clock timer at construction (called at
-//! the very top of `FomaProposer::new_with_budget`, before `crate::emit::emit_with_budget_profiled`
+//! the very top of `FomaProposer::new_proposer`, before `crate::emit::emit_with_budget_profiled`
 //! even runs) and `CompileProfileBuilder::finish` (called after `fsm_lexc_parse_string` returns)
 //! stamps `CompileProfile::total_elapsed_millis` from that SAME timer — the full
 //! grammar-to-ready-network wall time, spanning both this crate's own emission work and the
@@ -74,7 +74,7 @@
 //!    give callers a single non-negative-friendly integer type without a second `try_into`), and
 //!    stays `None` (never a fabricated `0`) whenever the production path never reaches a compiled
 //!    network at all (an `Unsupported`/budget-exceeded early return) -- see
-//!    `crate::analyzer::FomaProposer::new_with_budget`'s own call site for exactly which outcomes
+//!    `crate::analyzer::FomaProposer::new_proposer`'s own call site for exactly which outcomes
 //!    leave this `None`.
 
 use std::time::{Duration, Instant};
@@ -84,11 +84,11 @@ use serde::{Deserialize, Serialize};
 /// This profile's own pipeline fingerprint string: every compile profile names and fingerprints
 /// the constructor/network it measures. Named after the exact
 /// production call chain
-/// (`crate::analyzer::FomaProposer::new_with_budget` -> `crate::emit::emit_with_budget_profiled` ->
+/// (`crate::analyzer::FomaProposer::new_proposer` -> `crate::emit::emit_with_budget_profiled` ->
 /// `foma::lexcread::fsm_lexc_parse_string`) so a report reader can locate the real code path this
 /// profile describes without guessing.
 pub const PRODUCTION_PIPELINE: &str =
-    "pg_foma::analyzer::FomaProposer::new_with_budget (crate::emit::emit_with_budget_profiled -> \
+    "pg_foma::analyzer::FomaProposer::new_proposer (crate::emit::emit_with_budget_profiled -> \
      foma::lexcread::fsm_lexc_parse_string)";
 
 /// The real, sequential stage boundaries this module instruments (see module doc "Stage
@@ -185,7 +185,7 @@ pub struct CompileProfile {
 }
 
 /// The mutable accumulator `crate::emit::emit_with_budget_profiled`/
-/// `crate::analyzer::FomaProposer::new_with_budget` push measurements into as the production path
+/// `crate::analyzer::FomaProposer::new_proposer` push measurements into as the production path
 /// runs, consumed once by `Self::finish`. `pub(crate)`: this is an internal plumbing detail, not
 /// part of this module's public surface — callers outside this crate only ever see the finished
 /// `CompileProfile`.
@@ -200,7 +200,7 @@ pub(crate) struct CompileProfileBuilder {
 impl CompileProfileBuilder {
     /// Starts a production profile's wall-clock timer NOW — callers must construct this
     /// at the very top of the production entry point (`crate::analyzer::FomaProposer::
-    /// new_with_budget`), before any emission work runs, so `Self::finish`'s
+    /// new_proposer`), before any emission work runs, so `Self::finish`'s
     /// `total_elapsed_millis` is genuinely D3's "grammar-to-ready-network" span.
     pub(crate) fn production() -> Self {
         CompileProfileBuilder {

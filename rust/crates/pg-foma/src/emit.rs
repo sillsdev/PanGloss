@@ -3929,7 +3929,7 @@ enum SurfaceRootScopePolicy {
 /// parameter. `profile: None` is byte-for-byte
 /// identical to this function's pre-profiling behavior (nothing here branches on `profile` for any
 /// purpose OTHER than pushing a timing/count record) -- `crate::analyzer::FomaProposer::
-/// new_with_budget` is the one production caller that passes `Some`.
+/// new_proposer` is the one production caller that passes `Some`.
 ///
 /// Every stage boundary below is a plain `Instant::now()`/`.elapsed()` pair around already-existing
 /// sequential code, never a closure: several stages sit across this function's own early `return`s

@@ -41,6 +41,14 @@ members = [
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"
 
+# A parameter accepted and never read is a promise the signature cannot keep. `compose_budget` was
+# threaded through four layers of `FomaProposer` and dropped; rustc warned on it for however long,
+# and nobody read the warning. Denying it costs exactly that one fix and then the class cannot
+# recur. It does NOT catch the neighbouring shapes -- a struct field dropped by a caller, or a
+# registration nothing consults -- which need their own gates.
+[workspace.lints.rust]
+unused_variables = "deny"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

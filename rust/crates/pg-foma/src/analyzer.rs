@@ -20,7 +20,7 @@ use foma::types::{ApplyHandle, Fsm};
 use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::Grammar;
 
-use crate::compose_budget::{ApplyBudget, ApplyDimension, ApplyOutcome, ComposeBudget};
+use crate::compose_budget::{ApplyBudget, ApplyDimension, ApplyOutcome};
 use crate::emit::{self, EmitReport, FomaTier};
 use crate::profile::{CompileProfile, CompileProfileBuilder, CompileStage};
 use crate::tags::{self, Candidate};
@@ -262,16 +262,12 @@ impl FomaProposer {
     // variant shape for every downstream `match`, which is out of scope for a lint-only cleanup.
     #[allow(clippy::result_large_err)]
     pub fn new(g: &Grammar) -> Result<Self> {
-        let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget(g, &compose_budget)
+        Self::new_proposer(g)
     }
 
-    /// `Self::new`, plus
-    /// its own `CompileProfile` -- the production compile-time-profiling entry point. Reads the
-    /// same external compose limits `Self::new` does, exactly once, mirroring its convention.
+    /// `Self::new`, plus its own `CompileProfile` -- the production compile-time-profiling entry point.
     pub fn new_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
-        let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget_and_profile(g, &compose_budget)
+        Self::new_proposer_with_profile(g)
     }
 
     /// Development-only counterpart to [`Self::new_with_profile`]. It may compile an emitter
@@ -280,35 +276,34 @@ impl FomaProposer {
     /// resource-aborted result, because those paths intentionally contain no usable lexc source.
     #[cfg(feature = "developer-tools")]
     pub fn new_unproven_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
-        let compose_budget = ComposeBudget::from_env();
-        Self::new_with_budget_and_profile_policy(g, &compose_budget, true)
+        Self::new_proposer_with_profile_policy(g, true)
     }
 
-    /// Thin, zero-behavior-change wrapper over `Self::new_with_budget_and_profile`, discarding its
+    /// Thin, zero-behavior-change wrapper over `Self::new_proposer_with_profile`, discarding its
     /// `CompileProfile` -- proven byte-for-byte identical (same `Result`, same emitted network) by
-    /// this file's own `fst_profile_new_with_budget_matches_new_with_budget_and_profile` test.
+    /// this file's own `new_proposer_matches_new_proposer_with_profile_byte_for_byte` test.
     // See the `#[allow(clippy::result_large_err)]` justification on `Self::new` above.
     #[allow(clippy::result_large_err)]
-    pub(crate) fn new_with_budget(g: &Grammar, compose_budget: &ComposeBudget) -> Result<Self> {
-        Self::new_with_budget_and_profile(g, compose_budget).0
+    pub(crate) fn new_proposer(g: &Grammar) -> Result<Self> {
+        Self::new_proposer_with_profile(g).0
     }
 
-    /// `Self::new_with_budget`'s real core, with a `CompileProfileBuilder`
+    /// `Self::new_proposer`'s real core, with a `CompileProfileBuilder`
     /// threaded through: [`CompileProfileBuilder::
     /// production`] starts the top-line wall-clock timer at the very top of this function, before
     /// any emission work runs, and `CompileProfileBuilder::finish` is called exactly once on
     /// EVERY return path (including every early-return error path) so the returned `CompileProfile`
     /// always reflects real elapsed time up to that outcome, never a fabricated/zero value.
-    pub(crate) fn new_with_budget_and_profile(
-        g: &Grammar,
-        compose_budget: &ComposeBudget,
-    ) -> (Result<Self>, CompileProfile) {
-        Self::new_with_budget_and_profile_policy(g, compose_budget, false)
+    ///
+    /// Takes no `ComposeBudget`: it used to, and dropped it. That type bounds PROPOSE-time peeling
+    /// and is owned by `crate::composite::FomaAnalyzer`'s `peel_budget`; a proposer does not peel.
+    /// The compile-time compound-unroll cap is a separate dimension with its own env knob.
+    pub(crate) fn new_proposer_with_profile(g: &Grammar) -> (Result<Self>, CompileProfile) {
+        Self::new_proposer_with_profile_policy(g, false)
     }
 
-    fn new_with_budget_and_profile_policy(
+    fn new_proposer_with_profile_policy(
         g: &Grammar,
-        compose_budget: &ComposeBudget,
         allow_incomplete: bool,
     ) -> (Result<Self>, CompileProfile) {
         let mut profile = CompileProfileBuilder::production();
@@ -874,16 +869,14 @@ mod profile_tests {
 
     /// The profiled path must build the same network as the non-profiled path -- proven via identical `propose` results, not just "both `Ok`".
     #[test]
-    fn new_with_budget_and_profile_matches_new_with_budget_byte_for_byte() {
+    fn new_proposer_matches_new_proposer_with_profile_byte_for_byte() {
         let g = load_fixture();
-        let compose_budget = ComposeBudget::from_env();
 
-        let mut without_profile = FomaProposer::new_with_budget(&g, &compose_budget)
-            .unwrap_or_else(|e| panic!("new_with_budget failed: {e}"));
-        let (with_profile, _profile) =
-            FomaProposer::new_with_budget_and_profile(&g, &compose_budget);
+        let mut without_profile = FomaProposer::new_proposer(&g)
+            .unwrap_or_else(|e| panic!("new_proposer failed: {e}"));
+        let (with_profile, _profile) = FomaProposer::new_proposer_with_profile(&g);
         let mut with_profile =
-            with_profile.unwrap_or_else(|e| panic!("new_with_budget_and_profile failed: {e}"));
+            with_profile.unwrap_or_else(|e| panic!("new_proposer_with_profile failed: {e}"));
 
         assert_eq!(without_profile.propose("ka"), with_profile.propose("ka"));
     }

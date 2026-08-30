@@ -3,7 +3,7 @@
 //!   `format.rs` validate-before-allocate discipline verbatim: the declared length is checked
 //!   against a versioned ceiling BEFORE any buffer of that size is allocated.
 //! **Child** (`run_worker_child`): reads exactly one `CompileWorkerRequest` frame, loads and
-//!   compiles the named grammar under the request's `ComposeBudget`, and writes one result frame
+//!   compiles the named grammar on the production proposer path, and writes one result frame
 //!   (plus one length-prefixed raw payload frame for selected success). Wraps the compile call in
 //!   `std::panic::catch_unwind` as best-effort panic containment only.
 //!
@@ -31,7 +31,6 @@ use crate::analyzer::FomaError;
 use crate::completed_build::{
     compile_completed_backend, sha256_hex, CompileAttempt, CompletedBackendBuildWire,
 };
-use crate::compose_budget::ComposeBudget;
 use crate::enumerate::EmissionStrategy;
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
@@ -193,9 +192,6 @@ pub struct CompileWorkerRequest {
     pub protocol_version: u32,
     pub grammar_path: String,
     pub grammar_format: GrammarFormat,
-    /// configured `chain_depth_cap` field -- `None` (unbounded) by default, mirroring that field's
-    /// own uncalibrated-default convention (`compose_budget.rs`'s "Chain-depth dimension" doc).
-    pub chain_depth_cap: Option<usize>,
     /// Additive selected-backend payload request. `None` preserves the original worker behavior.
     #[serde(default)]
     pub(crate) selected: Option<SelectedCompileRequest>,
@@ -203,24 +199,19 @@ pub struct CompileWorkerRequest {
 
 impl CompileWorkerRequest {
     /// A request for `grammar_path`/`grammar_format` and the remaining compile-time safety caps.
+    ///
+    /// Carried a `chain_depth_cap` until it was found to reach nothing: it became a `ComposeBudget`
+    /// that the compile path dropped one layer down, because that type bounds PROPOSE-time peeling
+    /// (`crate::composite::FomaAnalyzer`'s `peel_budget`) and a worker builds a proposer, which does
+    /// not peel. No sender ever set it. This struct has no `deny_unknown_fields`, so an older
+    /// sender's frame still deserializes with the field ignored.
     pub fn new(grammar_path: impl Into<String>, grammar_format: GrammarFormat) -> Self {
         CompileWorkerRequest {
             protocol_version: WORKER_PROTOCOL_VERSION,
             grammar_path: grammar_path.into(),
             grammar_format,
-            chain_depth_cap: None,
             selected: None,
         }
-    }
-
-    pub fn compose_budget(&self) -> ComposeBudget {
-        let mut budget = ComposeBudget {
-            chain_depth_cap: None,
-        };
-        if let Some(cap) = self.chain_depth_cap {
-            budget = budget.with_chain_depth_cap(cap);
-        }
-        budget
     }
 }
 
@@ -305,17 +296,15 @@ fn load_grammar_for_worker(
     }
 }
 
-/// Loads `request`'s grammar and runs it through `FomaProposer::new_with_budget_and_profile` under `request`'s own `ComposeBudget` -- the same production path, wrapped in `catch_unwind` as best-effort panic containment only (does not protect against stack overflow or allocator OOM).
+/// Loads `request`'s grammar and runs it through `FomaProposer::new_proposer_with_profile` -- the same production path, wrapped in `catch_unwind` as best-effort panic containment only (does not protect against stack overflow or allocator OOM).
 fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorkerOutcome {
     let grammar = match load_grammar_for_worker(&request.grammar_path, request.grammar_format) {
         Ok(g) => g,
         Err(detail) => return CompileWorkerOutcome::GrammarLoadFailed { detail },
     };
 
-    let compose_budget = request.compose_budget();
-
     let compiled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::analyzer::FomaProposer::new_with_budget_and_profile(&grammar, &compose_budget)
+        crate::analyzer::FomaProposer::new_proposer_with_profile(&grammar)
     }));
 
     let (result, profile) = match compiled {

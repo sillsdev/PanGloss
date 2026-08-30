@@ -612,8 +612,6 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     let mut pack_path: Option<String> = None;
     let mut policy_path: Option<String> = None;
     let mut allow_unproven = false;
-    let mut authorized_by: Option<String> = None;
-    let mut reason: Option<String> = None;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -628,14 +626,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 crate::accept_developer_flag(a)?;
                 allow_unproven = true;
             }
-            "--authorized-by" => {
-                authorized_by = Some(it.next().ok_or("--authorized-by requires a value")?.clone())
-            }
-            s if s.starts_with("--authorized-by=") => {
-                authorized_by = Some(s["--authorized-by=".len()..].to_string())
-            }
-            "--reason" => reason = Some(it.next().ok_or("--reason requires a value")?.clone()),
-            s if s.starts_with("--reason=") => reason = Some(s["--reason=".len()..].to_string()),
+            // --authorized-by/--reason were parsed here and discarded; an override is authorized where it is exercised, and stamping one at render time would forge it.
             s => {
                 crate::reject_unknown_option(s)?;
                 positional.push(s);
@@ -644,8 +635,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, out_path] = positional[..] else {
         return Err(format!(
-            "usage: make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{} \
-             [--authorized-by=<name>] [--reason=<text>]",
+            "usage: make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{}",
             crate::REPORT_DEVELOPER_HELP
         ));
     };
