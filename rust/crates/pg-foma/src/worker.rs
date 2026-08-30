@@ -10,7 +10,7 @@
 //! # Typed outcomes -> existing health/error vocabulary (do not invent a parallel one)
 //! `CompileWorkerOutcome` is the typed result the CHILD reports. Successful ordinary compiles
 //! carry the real `crate::health::HealthReport` produced by
-//! `crate::health_evaluator::evaluate_health`; child-level failures retain their detail and
+//! `crate::health_evaluator::evaluate`; child-level failures retain their detail and
 //! protocol violations remain distinct from grammar-content failures. The health vocabulary is
 //! shared with the rest of the crate; this module does not add a parallel report shape.
 //!
@@ -35,6 +35,7 @@ use crate::enumerate::EmissionStrategy;
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
+use crate::health_evaluator::{evaluate, AttemptedPhases, CompileMeasurements};
 // Protocol version and versioned wire limits, mirroring `pg_pack::format`'s `VersionLimits` shape.
 
 /// This worker protocol's own version, carried inside every `CompileWorkerRequest`/
@@ -229,7 +230,7 @@ pub struct CompileWorkerResult {
 /// remains the caller's responsibility for failures that prevent a child result from being sent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompileWorkerOutcome {
-    /// The compile completed under budget, carrying the final state/arc counts and the real `HealthReport` from `crate::health_evaluator::evaluate_health`.
+    /// The compile completed under budget, carrying the final state/arc counts and the real `HealthReport` from `crate::health_evaluator::evaluate`.
     Success {
         final_state_count: Option<i64>,
         final_arc_count: Option<i64>,
@@ -328,7 +329,14 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
                 .report
                 .as_ref()
                 .expect("FomaProposer::new always runs the tuned emitter and supplies its report");
-            let health = crate::health_evaluator::evaluate_health(None, Some(report), &[], &[]);
+            // No live `ComposeError` reaches this call site separately from `report`'s own `enum_budget_exceeded`, the only production ComposeError source at compile time and already embedded there.
+            let health = evaluate(CompileMeasurements {
+                phases: AttemptedPhases::starting_with(Phase::Compile),
+                payload_bytes: None,
+                emit_report: Some(report),
+                compose_errors: &[],
+                apply_budget_trips: &[],
+            });
             CompileWorkerOutcome::Success {
                 final_state_count: profile.final_state_count,
                 final_arc_count: profile.final_arc_count,

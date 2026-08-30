@@ -200,8 +200,9 @@ pub mod grammar_semantics;
 /// about a compile, never consulted during one; `health_evaluator` produces the findings.
 pub mod health;
 /// The real health EVALUATOR --
-/// `health_evaluator::evaluate_health` turns available compile measurements (final FST payload
-/// size, `emit::EmitReport`, `compose_budget::ComposeError`, per-word
+/// `health_evaluator::evaluate` turns a `health_evaluator::CompileMeasurements` (the non-empty
+/// `health_evaluator::AttemptedPhases` an attempt reached, plus final FST payload size,
+/// `emit::EmitReport`, `compose_budget::ComposeError`, per-word
 /// `health_evaluator::ApplyBudgetTrip`s) into `health::HealthFinding`s + a [`health::
 /// HealthReport`], consuming `health`'s schema without recomputing any measurement itself. See
 /// that module's own doc for the exact input -> finding mapping.

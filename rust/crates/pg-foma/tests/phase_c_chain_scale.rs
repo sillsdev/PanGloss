@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 
 use pg_foma::analyzer::FomaProposer;
 use pg_foma::emit::FomaTier;
-use pg_foma::health::Severity;
-use pg_foma::health_evaluator::evaluate_health;
+use pg_foma::health::{Phase, Severity};
+use pg_foma::health_evaluator::{evaluate, AttemptedPhases, CompileMeasurements};
 use pg_grammar_gen::oracle::{sweep, OracleOpts};
 use pg_grammar_gen::{ConstructKnobs, Recipe, ScaleKnobs};
 use pg_parse::{Morpher, ParseOptions};
@@ -49,7 +49,13 @@ fn ordinary_affix_depth_five_and_ten_are_not_health_violations() {
             "ordinary depth {depth} must not leave uncovered constructs: {:?}",
             emitted.report.uncovered
         );
-        let health = evaluate_health(None, Some(&emitted.report), &[], &[]);
+        let health = evaluate(CompileMeasurements {
+            phases: AttemptedPhases::starting_with(Phase::Compile),
+            payload_bytes: None,
+            emit_report: Some(&emitted.report),
+            compose_errors: &[],
+            apply_budget_trips: &[],
+        });
         assert_eq!(
             health.admission(),
             Severity::WithinLimits,
