@@ -727,7 +727,7 @@ mod tests {
       </Strata>
     </Language></HermitCrabInput>"#;
 
-    /// Pins the premise `capability::PlanComposedNoProductionArmCheck` refuses on unconditionally.
+    /// Pins that no production artifact can come from this strategy; fails the day an arm is added.
     #[test]
     fn plan_composed_has_no_production_compile_arm() {
         let grammar = pg_grammar::load(MINIMAL_XML).expect("fixture must load");

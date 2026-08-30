@@ -6,16 +6,18 @@
 //! whatever the emitter happened to report afterwards, which arrives as a compile artifact rather
 //! than as a capability refusal a selector can read.
 //!
-//! # Why this is safe for the surface probe and the templated route, and never will be for PlanComposed
+//! # Why this is safe for the surface probe and the templated route
 //! Measured by `tests/envelope_agrees_with_compiler_gate.rs` over every discovered fixture x every
-//! backend: 183 observations, of which 25 are backends the envelope refuses while their build
-//! nonetheless succeeds. Not one of those 25 is `TunedSurfaceProbed` -- they are `PlanComposed`
-//! (22) and `TemplatedUnderlyingTokens` (3) -- so making the envelope authoritative for the surface
-//! probe (`analyzer::FomaProposer::new`) and the templated route
-//! (`completed_build::compile_completed_backend`) cannot lose a capability either tree has.
+//! backend: 183 observations, of which 3 are backends the envelope refuses while their build
+//! nonetheless succeeds -- all three `TemplatedUnderlyingTokens`, none `TunedSurfaceProbed` -- so
+//! making the envelope authoritative for the surface probe (`analyzer::FomaProposer::new`) and the
+//! templated route (`completed_build::compile_completed_backend`) cannot lose a capability either
+//! tree has. The inventory is named row-by-row in
+//! `docs/research/envelope-inventory-snapshot.md`.
 //!
-//! `PlanComposed` is the different case: all 22 of its too-strict rows are
-//! `capability::PlanComposedNoProductionArmCheck`'s unconditional refusal. Pinned by `plan_composed_has_no_production_compile_arm`.
+//! `PlanComposed` is the different case, and this gate deliberately does not refuse it: artifact
+//! production and representability are separate axes (`CONTEXT.md`, "Three axes that must never
+//! merge"). Pinned by `plan_composed_has_no_production_compile_arm`.
 //! No production caller could ever select `PlanComposed` regardless of what this gate says, unlike
 //! the templated route before this file wired it in. `crate::build::unbuildable_markers`'s own doc
 //! independently records a marker-bearing `PlanComposed` plan building a network that "proposed

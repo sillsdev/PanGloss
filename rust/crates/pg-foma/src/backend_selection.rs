@@ -308,10 +308,6 @@ fn attach_capability_refusal(report: &mut BackendReport) {
 
     let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
     for diagnostic in diagnostics {
-        // ADR-0007: a missing compile arm is a PanGloss defect, not a grammar problem, so it carries no remedy (same rule attach_operational_failure follows for a missing/failed compiler).
-        if diagnostic.predicate == "strategy-materializer.no-production-compile-arm" {
-            continue;
-        }
         let shape_key = capability_shape_key(diagnostic);
         let entry = catalog
             .entry_for(shape_key)
