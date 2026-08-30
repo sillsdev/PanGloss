@@ -60,7 +60,52 @@ pub enum ContainmentOutcome {
     /// At least one comparable word's proposal set was missing an oracle identity or offered it too few times; carries the first such gap, human-readable.
     Failed { word: String, detail: String },
     /// The comparison never ran for this fixture/backend pair; names why.
-    NotAttempted { reason: String },
+    NotAttempted { reason: NotAttemptedReason },
+}
+
+/// Why a containment comparison never ran. Typed rather than a string so a caller can tell an
+/// envelope refusal from an oracle fault without parsing prose -- `RefusedBySelector` in particular
+/// is the case `backend-measurement-instruments.md` says must never read as passing, and it was a
+/// string literal at two sites, which is a convention every reader had to know rather than a fact
+/// the type carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotAttemptedReason {
+    /// `select_backends` refused this backend, so nothing was measured. NEVER a pass.
+    RefusedBySelector,
+    /// The oracle itself yielded nothing comparable for this fixture, so no backend can miss anything here.
+    NoComparableWords,
+    /// Evaluation stopped before per-word evidence existed; carries the certification that stopped it.
+    EvaluationIncomplete(String),
+    /// The fixture could not be prepared at all; carries the fault.
+    OracleFault(String),
+    /// The fixture offers nothing to compare before the oracle even runs (no words, no character table).
+    FixtureNotComparable(String),
+}
+
+impl NotAttemptedReason {
+    /// Stable label for reports; the payload-carrying variants render their own detail.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::RefusedBySelector => "refused-by-selector",
+            Self::NoComparableWords => "no comparable words after oracle exclusions",
+            Self::EvaluationIncomplete(_) => "evaluation did not reach comparable words",
+            Self::OracleFault(_) => "oracle preparation faulted",
+            Self::FixtureNotComparable(_) => "fixture offers nothing to compare",
+        }
+    }
+}
+
+impl std::fmt::Display for NotAttemptedReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EvaluationIncomplete(detail)
+            | Self::OracleFault(detail)
+            | Self::FixtureNotComparable(detail) => {
+                write!(f, "{}: {detail}", self.label())
+            }
+            _ => f.write_str(self.label()),
+        }
+    }
 }
 
 impl ContainmentOutcome {
@@ -110,7 +155,7 @@ impl FixtureContainmentObservation {
             .and_then(|(_, count)| *count)
     }
 
-    fn not_attempted(label: &str, kinds: Vec<CharacteristicKind>, reason: String) -> Self {
+    fn not_attempted(label: &str, kinds: Vec<CharacteristicKind>, reason: NotAttemptedReason) -> Self {
         Self {
             label: label.to_string(),
             kinds,
@@ -160,14 +205,14 @@ pub fn observe_fixture_containment(
         return FixtureContainmentObservation::not_attempted(
             label,
             kinds,
-            "fixture has no words".to_string(),
+            NotAttemptedReason::FixtureNotComparable("fixture has no words".to_string()),
         );
     }
     let Some(_) = grammar.char_tables.first() else {
         return FixtureContainmentObservation::not_attempted(
             label,
             kinds,
-            "grammar has no character table".to_string(),
+            NotAttemptedReason::FixtureNotComparable("grammar has no character table".to_string()),
         );
     };
 
@@ -184,7 +229,7 @@ pub fn observe_fixture_containment(
             not_attempted.push((
                 strategy,
                 ContainmentOutcome::NotAttempted {
-                    reason: "refused-by-selector".to_string(),
+                    reason: NotAttemptedReason::RefusedBySelector,
                 },
             ));
         }
@@ -219,7 +264,7 @@ pub fn observe_fixture_containment(
     let mut cache = match RunEvaluationCache::prepare(grammar, words, RuntimeBudget::default()) {
         Ok(cache) => cache,
         Err(fault) => {
-            let reason = format!("oracle preparation faulted: {fault}");
+            let reason = NotAttemptedReason::OracleFault(fault.to_string());
             let mut outcomes: Vec<(EmissionStrategy, ContainmentOutcome)> = selected_strategies
                 .iter()
                 .map(|&strategy| {
@@ -265,10 +310,10 @@ pub fn observe_fixture_containment(
             outcomes.push((
                 strategy,
                 ContainmentOutcome::NotAttempted {
-                    reason: format!(
-                        "evaluation did not reach comparable words: {:?}",
+                    reason: NotAttemptedReason::EvaluationIncomplete(format!(
+                        "{:?}",
                         observation.evaluation.certification
-                    ),
+                    )),
                 },
             ));
             continue;
@@ -299,7 +344,7 @@ pub fn observe_fixture_containment(
 pub fn containment_outcome_for_evidence(evidence: &[WordEvidence]) -> ContainmentOutcome {
     if evidence.is_empty() {
         return ContainmentOutcome::NotAttempted {
-            reason: "no comparable words after oracle exclusions".to_string(),
+            reason: NotAttemptedReason::NoComparableWords,
         };
     }
     for word in evidence {
@@ -692,7 +737,11 @@ pub fn unobservable_fixture(
     kinds: Vec<CharacteristicKind>,
     reason: String,
 ) -> FixtureContainmentObservation {
-    FixtureContainmentObservation::not_attempted(label, kinds, reason)
+    FixtureContainmentObservation::not_attempted(
+        label,
+        kinds,
+        NotAttemptedReason::FixtureNotComparable(reason),
+    )
 }
 
 /// Position in `crate::strategy_coverage::ALL_STRATEGIES`, giving `EmissionStrategy` a total order it does not derive.
@@ -759,7 +808,7 @@ mod tests {
                     (
                         EmissionStrategy::TemplatedUnderlyingTokens,
                         ContainmentOutcome::NotAttempted {
-                            reason: "refused-by-selector".to_string(),
+                            reason: NotAttemptedReason::RefusedBySelector,
                         },
                     ),
                 ],

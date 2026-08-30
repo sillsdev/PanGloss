@@ -12,7 +12,9 @@ use pg_foma::capability::{
 use pg_foma::enumerate::{
     enumerate_default, prules_in_order, CandidateRole, EmissionStrategy, LoweredCandidate,
 };
-use pg_foma::faithfulness_coverage::{observe_fixture_containment, ContainmentOutcome};
+use pg_foma::faithfulness_coverage::{
+    observe_fixture_containment, ContainmentOutcome, NotAttemptedReason,
+};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::lowering_adapter::LoweringAdapter;
@@ -528,7 +530,7 @@ fn refused_templated_fixture_is_not_attempted_by_containment() {
     assert_eq!(
         observation.outcome_for(EmissionStrategy::TemplatedUnderlyingTokens),
         Some(&ContainmentOutcome::NotAttempted {
-            reason: "refused-by-selector".to_string(),
+            reason: NotAttemptedReason::RefusedBySelector,
         })
     );
 }
