@@ -617,18 +617,21 @@ fn metathesis_rule_is_unsupported_and_warns_rather_than_erroring() {
     );
 }
 
-/// A circumfix entry is also unimplemented: it warns and contributes no rule, rather than crashing the whole compile.
-#[test]
-fn circumfix_entry_is_unsupported_and_warns_rather_than_erroring() {
+/// A circumfix entry with `prefix_env`/`suffix_env` attached to its two halves (empty = unconditioned).
+fn circumfix_snapshot(
+    prefix_env: &[&str],
+    suffix_env: &[&str],
+) -> (pg_snapshot::Snapshot, Fixture) {
     let (mut snapshot, f) = fixture();
-    let circumfix_entry = LexEntry {
+    let mut prefix = simple_allomorph("allo-circ-prefix", MorphType::Prefix, "ka");
+    let mut suffix = simple_allomorph("allo-circ-suffix", MorphType::Suffix, "ta");
+    prefix.environments = prefix_env.iter().map(|s| s.to_string()).collect();
+    suffix.environments = suffix_env.iter().map(|s| s.to_string()).collect();
+    snapshot.lexicon.entries.push(LexEntry {
         guid: "entry-circumfix".to_string(),
         citation_form: vec![ws("sen", "ka-...-ta")],
         lexeme_morph_type: MorphType::Circumfix,
-        allomorphs: vec![
-            simple_allomorph("allo-circ-prefix", MorphType::Prefix, "ka"),
-            simple_allomorph("allo-circ-suffix", MorphType::Suffix, "ta"),
-        ],
+        allomorphs: vec![prefix, suffix],
         msas: vec![Msa::Inflectional {
             guid: "msa-circumfix".to_string(),
             part_of_speech: Some(f.noun_pos.clone()),
@@ -638,16 +641,87 @@ fn circumfix_entry_is_unsupported_and_warns_rather_than_erroring() {
         }],
         senses: Vec::new(),
         entry_refs: Vec::new(),
-    };
-    snapshot.lexicon.entries.push(circumfix_entry);
+    });
+    (snapshot, f)
+}
 
-    let (_grammar, warnings) =
-        compile_project(&snapshot).expect("circumfix must not be a hard error");
+/// The `mrCross` shape: one allomorph per prefix-half x suffix-half pairing, inserting on both sides of one copy.
+/// See docs/research/circumfix-cross-product-loading.md.
+#[test]
+fn an_unconditioned_circumfix_entry_builds_the_half_cross_product() {
+    let (snapshot, _f) = circumfix_snapshot(&[], &[]);
+    let (grammar, warnings) = compile_project(&snapshot).expect("circumfix must not be a hard error");
+    assert!(
+        !warnings.iter().any(|w| w.contains("circumfix")),
+        "an unconditioned circumfix is representable, so nothing about it should be warned: {warnings:?}"
+    );
+    let built: Vec<&crate::model::AffixProcessRuleDef> = grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            crate::model::MorphRuleDef::AffixProcess(a) => Some(a),
+            _ => None,
+        })
+        .filter(|a| {
+            a.allomorphs.iter().any(|allo| {
+                matches!(
+                    allo.rhs.as_slice(),
+                    [
+                        crate::model::OutputAction::InsertSegments { .. },
+                        crate::model::OutputAction::Copy(_),
+                        crate::model::OutputAction::InsertSegments { .. }
+                    ]
+                )
+            })
+        })
+        .collect();
+    assert_eq!(
+        built.len(),
+        1,
+        "expected exactly one rule whose allomorph inserts on both sides of a copy"
+    );
+    assert_eq!(
+        built[0].allomorphs.len(),
+        1,
+        "one prefix half x one suffix half is a 1x1 cross-product"
+    );
+}
+
+/// Per-side conditioning is unrepresentable (W3.3), so it is refused rather than silently never firing; Aweti's real circumfix is this shape.
+/// See docs/research/circumfix-cross-product-loading.md.
+#[test]
+fn a_circumfix_half_carrying_an_environment_is_refused_not_approximated() {
+    let (mut snapshot, _f) = circumfix_snapshot(&["env-after-vowel"], &[]);
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-after-vowel".to_string(),
+            name: "after vowel".to_string(),
+            representation: "/[V]_".to_string(),
+        });
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must not be a hard error");
     assert!(
         warnings
             .iter()
-            .any(|w| w.contains("unsupported") && w.contains("circumfix")),
-        "expected an 'unsupported: circumfix ...' warning; got {warnings:?}"
+            .any(|w| w.contains("circumfix") && w.contains("environment")),
+        "expected a refusal naming the environment; got {warnings:?}"
+    );
+    assert!(
+        !grammar.mrules.iter().any(|r| matches!(
+            r,
+            crate::model::MorphRuleDef::AffixProcess(a)
+                if a.allomorphs.iter().any(|allo| matches!(
+                    allo.rhs.as_slice(),
+                    [
+                        crate::model::OutputAction::InsertSegments { .. },
+                        crate::model::OutputAction::Copy(_),
+                        crate::model::OutputAction::InsertSegments { .. }
+                    ]
+                ))
+        )),
+        "a refused circumfix must contribute no both-sides rule at all"
     );
 }
 

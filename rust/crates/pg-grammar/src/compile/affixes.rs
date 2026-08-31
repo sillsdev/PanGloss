@@ -57,15 +57,6 @@ pub(crate) fn build_affix_rule(
         return None;
     }
 
-    if entry.lexeme_morph_type == MorphType::Circumfix {
-        warnings.push(format!(
-            "unsupported: circumfix cross-product allomorphs (entry {:?}) not implemented; \
-             entry skipped",
-            entry.guid
-        ));
-        return None;
-    }
-
     let mrule_id = MRuleId(acc.mrules.len() as u32);
 
     let (required_syn_fs, out_syn_fs, partial, msa_guid) = match msa {
@@ -252,16 +243,39 @@ pub(crate) fn build_affix_rule(
         _ => None,
     };
 
+    // A circumfix's allomorph set is the cross-product of its halves, not one def per stored form, so it is built from the whole bucket rather than per-allomorph.
+    let built: Vec<(String, AffixAllomorphDef)> =
+        if entry.lexeme_morph_type == MorphType::Circumfix {
+            build_circumfix_allomorphs(
+                entry,
+                &rule_form_allos,
+                msa,
+                required_mpr,
+                out_mpr,
+                ctx,
+                acc,
+                warnings,
+            )
+        } else {
+            rule_form_allos
+                .iter()
+                .flat_map(|allo| {
+                    build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, ctx, acc, warnings)
+                        .into_iter()
+                        .map(|def| (allo.guid.clone(), def))
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        };
+
     let mut allomorphs = Vec::new();
-    for allo in rule_form_allos {
-        for def in build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, ctx, acc, warnings)
-        {
-            let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
-            acc.allomorph_owners
-                .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
-            acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
-            allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
-        }
+    for (guid, def) in built {
+        let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
+        acc.allomorph_owners
+            .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
+        // First-wins for a circumfix, whose halves each appear in several pairings; this index only resolves ad-hoc co-occurrence references, where a miss is already a warning.
+        acc.allomorph_guid_index.entry(guid).or_insert(allo_id);
+        allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
     }
     if allomorphs.is_empty() {
         return None;
@@ -303,6 +317,115 @@ pub(crate) fn build_affix_rule(
     }
 
     Some(mrule_id)
+}
+
+/// Whether `mt` is a circumfix's leading half.
+fn is_circumfix_prefix_half(mt: MorphType) -> bool {
+    matches!(
+        mt,
+        MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic
+    )
+}
+
+/// Whether `mt` is a circumfix's trailing half.
+fn is_circumfix_suffix_half(mt: MorphType) -> bool {
+    matches!(
+        mt,
+        MorphType::Suffix | MorphType::SuffixingInterfix | MorphType::Enclitic
+    )
+}
+
+/// A circumfix entry's allomorph set: one per prefix-half x suffix-half pairing, or empty when a half is conditioned.
+/// See docs/research/circumfix-cross-product-loading.md.
+fn build_circumfix_allomorphs(
+    entry: &LexEntry,
+    allos: &[&Allomorph],
+    msa: &Msa,
+    required_mpr: crate::model::MprSet,
+    out_mpr: crate::model::MprSet,
+    ctx: &Ctx,
+    acc: &mut Acc,
+    warnings: &mut Vec<String>,
+) -> Vec<(String, AffixAllomorphDef)> {
+    let halves = |pick: fn(MorphType) -> bool| -> Vec<&Allomorph> {
+        allos
+            .iter()
+            .copied()
+            .filter(|a| a.process.is_none() && pick(a.morph_type))
+            .collect()
+    };
+    let prefixes = halves(is_circumfix_prefix_half);
+    let suffixes = halves(is_circumfix_suffix_half);
+
+    if prefixes.is_empty() || suffixes.is_empty() {
+        warnings.push(format!(
+            "circumfix entry {:?}: found {} prefix half/halves and {} suffix half/halves; a \
+             circumfix needs at least one of each, so no rule is built",
+            entry.guid,
+            prefixes.len(),
+            suffixes.len()
+        ));
+        return Vec::new();
+    }
+
+    let conditioned = |a: &Allomorph| !a.environments.is_empty() || !a.positions.is_empty();
+    if prefixes.iter().any(|a| conditioned(a)) || suffixes.iter().any(|a| conditioned(a)) {
+        warnings.push(format!(
+            "circumfix entry {:?}: a half carries a phonological environment, which cannot be \
+             represented -- a both-sides insert produces two MorphRecord runs and each is checked \
+             against its own span, so the environment would also be tested past the end of the \
+             suffix and never fire; no rule is built",
+            entry.guid
+        ));
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    for prefix in &prefixes {
+        let prefix_form =
+            super::format_form(super::best_ws(&prefix.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""));
+        for suffix in &suffixes {
+            let suffix_form = super::format_form(
+                super::best_ws(&suffix.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""),
+            );
+            let lead = match insert_segments(&format!("{prefix_form}+"), ctx) {
+                Ok(a) => a,
+                Err(e) => {
+                    warnings.push(format!("circumfix allomorph {:?}: {e}; skipped", prefix.guid));
+                    continue;
+                }
+            };
+            let trail = match insert_segments(&format!("+{suffix_form}"), ctx) {
+                Ok(a) => a,
+                Err(e) => {
+                    warnings.push(format!("circumfix allomorph {:?}: {e}; skipped", suffix.guid));
+                    continue;
+                }
+            };
+            out.push((
+                prefix.guid.clone(),
+                AffixAllomorphDef {
+                    id: AllomorphId(0),
+                    environments: Vec::new(),
+                    co_occurrence: Vec::new(),
+                    required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
+                    vars: crate::model::VarTable::default(),
+                    required_mpr,
+                    excluded_mpr: crate::model::MprSet::EMPTY,
+                    out_mpr,
+                    redup_hint: ReduplicationHint::Implicit,
+                    lhs: vec![Pattern {
+                        nodes: environment::any_plus(ctx),
+                    }],
+                    // Leading AND trailing insert around one copy: what `pg_foma::emit::classify_affix` reads as `Role::CircumfixPrefix`.
+                    rhs: vec![lead, OutputAction::Copy(PartRef::Input(0)), trail],
+                    properties: Vec::new(),
+                },
+            ));
+        }
+    }
+    let _ = msa;
+    out
 }
 
 /// Simplified `IsValidRuleForm`: bracket-pattern (reduplication) forms are not implemented (warned, dropped) rather than gated on environment validity.
