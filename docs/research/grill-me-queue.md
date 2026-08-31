@@ -13,8 +13,53 @@ except the spelling cap, which was simply set too low. See G7.
 | Amharic | refused | ADMITTED | refused |
 | Indonesian | refused | ADMITTED | refused |
 
-Measured by `examples/backend_envelope_report.rs`. Envelope only: admission is not a successful
-build, and the corpus runs that would prove recall have not been done.
+Measured by `examples/backend_envelope_report.rs`. Admission is only an envelope verdict, so it was
+checked against the compiler: `pangloss fst-health` on both languages reports
+
+```
+admission=LargeMultiplier (representability=WithinLimits, readiness=LargeMultiplier,
+                           containment=WithinLimits, process=WithinLimits)
+```
+
+**`representability=WithinLimits` for both.** The single finding is readiness-tier, and this repo's
+own classification says `LargeMultiplier` is class `Readiness` and blocks nothing. So Aweti and
+Mbugwe are representable and buildable, not merely un-refused.
+
+**A trap worth keeping.** I first "verified" this with `pangloss batch`, which reports
+`engine=default` and builds a `Morpher` -- that is the **HC oracle**, not `TunedSurfaceProbed`.
+Those numbers (Mbugwe 83 ok / 71 timeout over 155 words at 0.1GB; Aweti 15 ok / 5 timeout then an
+abort at the 19GB job cap) say nothing about the backend this work expanded. `fst-health` is the
+instrument that does. I nearly reported oracle behaviour as backend behaviour.
+
+Two live facts fall out of that mistake rather than being wasted:
+- **Aweti exhausts 19GB on a single word through the HC path.** `procgov` failed its allocation and
+  killed it rather than taking the machine to the 118GB of the historical incidents -- the kernel
+  ceiling doing exactly its job.
+- **Mbugwe's HC path is latency-bound, not memory-bound**: 0.1GB RSS, ~54% of words analysed, the
+  rest timing out at 10s.
+
+## G8. Mbugwe drops two circumfix entries at grammar-compile time
+
+**Found while proving the above, not yet fixed.** Loading Mbugwe warns twice:
+
+```
+unsupported: circumfix cross-product allomorphs (entry "577b6780-...") not implemented; entry skipped
+```
+
+`compile/affixes.rs:60` returns `None` for any entry whose `lexeme_morph_type` is
+`MorphType::Circumfix`. Note this is a **warning, not a refusal**: the grammar loads with two
+morphological rules missing, and nothing downstream knows the word list can never be fully analysed.
+That is the file's own signature defect -- a control that cannot act, staying quiet -- sitting in the
+loader rather than the envelope.
+
+The capability itself is not missing: `Role::CircumfixPrefix` exists and Aweti exercises it
+(mrule 40), derived by `classify_affix` from an allomorph whose RHS inserts on both sides. What is
+missing is the FieldWorks path: a circumfix-typed entry whose left and right forms need a
+cross-product to become such allomorphs.
+
+**To grill:** should this warning become a typed capability refusal in the meantime? It would make
+two currently-silent missing rules visible, at the cost of refusing a grammar that today loads and
+analyses 44% of its corpus.
 
 Decisions taken without the user in the room, and questions raised that only the user can settle.
 Each entry says what was decided, what else was considered, and what would falsify it. Newest first.
