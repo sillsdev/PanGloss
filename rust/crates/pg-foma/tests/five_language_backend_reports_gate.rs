@@ -148,14 +148,14 @@ fn sena_backend_reports_are_complete() {
         Some(FindingCode::BackendCoverageIncomplete),
         Some("nonregular-process-morphology"),
     );
-    // No completed-build arm exists for PlanComposed, so it now refuses with no grammar-directed advice (ADR-0007).
+    // Sena is the one reference grammar whose plan `build_controllable` can build outright, so PlanComposed is admitted rather than refused for a missing subtree.
     assert_backend(
         "sena",
         &selection,
         EmissionStrategy::PlanComposed,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
+        BackendStatus::Accepted,
+        Severity::WithinLimits,
+        None,
         None,
     );
 }
@@ -174,58 +174,26 @@ fn amharic_backend_reports_are_complete() {
     assert_only_tuned_surface_accepts("amharic", &selection);
 }
 
-/// Pinned by `aweti_backend_reports_are_complete`/`mbugwe_backend_reports_are_complete` below.
-fn assert_no_backend_accepts(name: &str, selection: &BackendSelection) {
-    assert_every_backend_reported(name, selection);
-    assert_backend(
-        name,
-        selection,
-        EmissionStrategy::TunedSurfaceProbed,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
-        Some("repeated-application"),
-    );
-    assert_backend(
-        name,
-        selection,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
-        Some("nonregular-process-morphology"),
-    );
-    assert_backend(
-        name,
-        selection,
-        EmissionStrategy::PlanComposed,
-        BackendStatus::Refused,
-        Severity::CannotRepresent,
-        Some(FindingCode::BackendCoverageIncomplete),
-        Some("plan-composed-missing-subtrees"),
-    );
-}
-
+/// Both were refused on `"repeated-application"` until the variant CAP became an advisory threshold; they now enumerate completely and match Indonesian/Amharic.
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn aweti_backend_reports_are_complete() {
     let selection = characterize("aweti", &load("aweti"));
-    assert_no_backend_accepts("aweti", &selection);
+    assert_only_tuned_surface_accepts("aweti", &selection);
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn mbugwe_backend_reports_are_complete() {
     let selection = characterize("mbugwe", &load("mbugwe"));
-    assert_no_backend_accepts("mbugwe", &selection);
+    assert_only_tuned_surface_accepts("mbugwe", &selection);
 }
 
-/// Every OTHER reference grammar keeps an accepted backend; Aweti and Mbugwe correctly do not.
-/// Pinned by `aweti_backend_reports_are_complete`/`mbugwe_backend_reports_are_complete` above.
+/// All five reference grammars keep an accepted backend; which one, and why, is pinned above.
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
-fn every_other_reference_grammar_has_an_accepted_backend() {
-    for name in ["sena", "indonesian", "amharic"] {
+fn every_reference_grammar_has_an_accepted_backend() {
+    for name in ["sena", "indonesian", "amharic", "aweti", "mbugwe"] {
         let selection = characterize(name, &load(name));
         assert!(
             selection

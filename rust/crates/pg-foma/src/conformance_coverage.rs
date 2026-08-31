@@ -1,15 +1,17 @@
-//! The conformance-coverage cross-check, shipped
-//! here as a **NON-BLOCKING, advisory preview** — the same non-blocking-first pattern
-//! `crate::capability`'s own `characterize` (computes only) → `compose_envelope` (CHECK-ONLY) →
-//! a later, deliberate compile-blocking step already used.
+//! The conformance-coverage cross-check. It shipped first as a NON-BLOCKING, advisory preview —
+//! the same non-blocking-first pattern `crate::capability`'s own `characterize` (computes only) →
+//! `compose_envelope` (CHECK-ONLY) → a later, deliberate compile-blocking step already used — and
+//! has since taken that last step; see "End state" below for what is build-breaking today.
 //!
 //! This crate's own honest-capability discipline: "'Supported' is mechanically gated on passing conformance coverage... CI
 //! cross-checks the capability registry (the source-controlled, per-construct
 //! supported/unsupported contract)... against conformance coverage (`constructs.txt` / per-word
 //! `exercises:` / `rules.csv`), and marking anything supported without a covering, passing fixture
 //! **breaks the build**." This module supplies the mapping (deliverable 1) and the pure
-//! cross-check function (deliverable 2) that claim answers; **nothing in this crate or its test
-//! suite yet enforces `gaps.is_empty()`** — see "End state" below.
+//! cross-check function (deliverable 2) that this crate's own
+//! `tests/conformance_coverage_gate.rs::supported_construct_conformance_coverage_has_no_gaps`
+//! (BUILD-BREAKING, zero `#[ignore]`) actually enforces — see "End state" below for what is and
+//! is not yet asserted.
 //!
 //! # The two sides of the cross-check
 //! - **The registry side**: `crate::capability::CharacteristicKind` + [`crate::capability::

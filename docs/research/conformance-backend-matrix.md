@@ -1,14 +1,16 @@
 # Which backends handle which conformance fixtures, and why
 
-Measured at `496a6f3c` by `rust/crates/pg-foma/examples/conf_matrix.rs`. Reproduce:
+Measured at `9d1a9d76` by `rust/crates/pg-foma/examples/conf_matrix.rs`, scored against the HC-Rust
+oracle, 61 fixtures x 3 `EmissionStrategy` = 183 cells. Reproduce:
 
 ```
+$env:PANGLOSS_CONFORMANCE_SCOPE = 'all'
 rust/tools/pg.ps1 -Mode run -Example conf_matrix
 ```
 
-61 fixtures x 3 `EmissionStrategy` = 183 cells. `select_backends` is bypassed by construction
-(`LoweringAdapter::for_strategy`), so a capability-refused backend still compiles and is measured --
-otherwise the measurement reports the refusal rather than the backend.
+`PANGLOSS_CONFORMANCE_SCOPE=all` is required first — `pg_conformance_fixtures::discover` panics if
+it is unset (see `CLAUDE.md`, "A conformance run must claim what it covers"), and `local` scope would
+silently drop the 21 upstream `machine:` fixtures from the 61.
 
 ## Legend
 
@@ -20,133 +22,81 @@ otherwise the measurement reports the refusal rather than the backend.
 | **NODATA** | compiles, but produced no usable per-word evidence | **yes** |
 | **TRUNC** | the ORACLE found zero analyses corpus-wide | not a backend result |
 
-`OK` never means "proposed nothing extra". Legal pre-confirm over-generation totalled **2443** across
-the measured cells and is permitted by ADR-0001 -- the confirm step prunes it. Judging a proposer by
-raw acceptance instead of confirmed output is what made 7 of 9 fixtures look broken when they were
-not.
+## Per-backend totals
 
-## Totals
+| Backend | Oracle-exact | Refused | Compile-but-miss | Compiled, no verdict |
+|---|---|---|---|---|
+| `TunedSurfaceProbed` | 51 | 6 | 2 | 2 |
+| `TemplatedUnderlyingTokens` | 33 | 21 | 5 | 2 |
+| `PlanComposed` | 20 | 36 | 2 | 3 |
+| **total** | **104** | **63** | **9** | **7** |
 
-| | cells |
-|---|---|
-| Works | 104 |
-| Honestly refuses | 63 |
-| **Silently wrong** | **12** (9 `MISS` + 3 `NODATA`) |
-| Oracle-empty (`TRUNC`) | 4 |
+104 + 63 + 9 + 7 = 183 = 61 fixtures x 3 backends, and the compile-but-miss column now sums to the
+9-cell itemized list below.
 
-**Soundness violations: 0.** Not one over-generation survived confirmation, on any backend, in any
-cell. Every defect below is a recall miss or an absence of evidence.
+**Corrected on re-derivation.** An earlier revision of this table reported 4 / 7 / 5 compile-but-miss
+and flagged that it would not reconcile with the itemized 9. It did not reconcile because that column
+was computed as "compiled but not oracle-exact", which folds in `IdentityMismatch`, `Truncated` and
+no-data cells alongside genuine recall misses. Those are now the separate right-hand column. A miss
+is a recall defect against the oracle; "no verdict" is an absence of evidence, and ADR-0001 treats
+those as different questions.
+
+**0 soundness violations** across the 117 cells that produced a recall/soundness verdict (120
+compiled, of which 3 yielded no per-word evidence at all). Not one over-generation survived
+confirmation, on any backend, in any cell. Every defect below is a recall miss or an absence of
+evidence, never a wrong answer accepted as right.
+
+## Per-fixture headline
+
+Of 61 fixtures: **15 pass on all three** backends, **21 on two**, **17 on one**, **8 on none**, **0
+unmeasurable**.
+
+## The 9 cells that compile but miss oracle analyses
+
+| Fixture | Backend | Recall miss |
+|---|---|---|
+| `feature-gating-breadth` | PlanComposed | r=2 |
+| `feature-system-breadth` | TemplatedUnderlyingTokens | r=1 |
+| `loader-isactive-breadth` | TunedSurfaceProbed | r=1 |
+| `morphotactic-attribute-breadth` | PlanComposed | r=4 |
+| `morphotactic-attribute-breadth` | TunedSurfaceProbed | r=1 |
+| `morphotactic-attribute-breadth` | TemplatedUnderlyingTokens | r=1 |
+| `mpr-overwrite-order-dependence` | TemplatedUnderlyingTokens | r=4 |
+| `strrep-identity` | TemplatedUnderlyingTokens | r=2 |
+| `truncate-morphotactic` | TemplatedUnderlyingTokens | r=2 |
+
+**`morphotactic-attribute-breadth` is the only fixture that misses on all three backends** -- flag it
+as the shared-gap suspect: whatever it exercises is not a single-backend weakness.
+
+## The 8 fixtures no backend handles cleanly
+
+Not all 8 are the same kind of gap. Checked against each fixture's own `STAGING.md` (staged fixtures)
+or its `grammar.xml` header comment (upstream `machine:` fixtures, which carry no `STAGING.md`):
+
+| Fixture | Root | Verdict |
+|---|---|---|
+| `circumfix-non-first-allomorph-selection` | staging | **Intended refusal.** Its `STAGING.md` says this pins a real, honest, fail-closed recall gap on purpose -- the affected allomorph is deliberately never reachable from the proposer, and that is the point of the fixture. |
+| `metathesis-comparison-crash` | machine | **Not a meaningful defect for this matrix.** Its `grammar.xml` header states it "pins a C# engine defect, not a grammar error" -- the founding oracle itself throws on this input, so there is no ground truth to confirm against on 2 of 3 backends (`TRUNC`); `PlanComposed`'s `NOBUILD` is the same generic marker-subtree gap that accounts for most `PlanComposed` refusals, unrelated to this fixture's purpose. |
+| `simultaneous-epenthesis-cascade` | machine | **Unverified -- do not assume.** Same `NOBUILD`/`TRUNC`/`TRUNC` shape as the crash fixture above, but its `grammar.xml` header carries no comparable statement explaining the `TRUNC` result or naming an expected backend. No `STAGING.md` exists to check. Left unclassified rather than guessed. |
+| `morphotactic-attribute-breadth` | machine | **Real defect** (see above -- the only all-backend `MISS`, not a refusal at all). |
+| `process-morphology-in-place-mutation` | machine | **Unintended gap.** Its `grammar.xml` comment names "the ProcessMorphology compile path (`crate::emit::is_structural_rule` admitting `Role::Process`...)" as the exact mechanism this fixture means to exercise -- the design target is for a backend to compile it, and none currently does. |
+| `polysynthetic-stratal-derivation-chain` | machine | **Unintended gap.** Refused by the open `rep-variant-overflow` limit (see `emit::VariantLimit`), unrelated to the fixture's own stated purpose (a derivation-then-inflection stratum chain). |
+| `suffixing-extension-slot-ordering` | machine | **Unintended gap.** Trips `MprGroupOverwrite`'s unconditional `FailClosed` as a side effect of exercising `mpr-groups/output-overwrite`, not because the fixture means to test that refusal. |
+| `backend-strata-generic` | staging | **Unintended gap, still open.** Its `STAGING.md` requires promotion to produce "either a content-distinct buildable backend or an explicit elimination report" -- i.e. this fixture is expected to eventually compile somewhere; a permanent refusal is not the documented intent. |
+
+So: **1 of the 8 is a documented intended refusal, 1 is not a meaningful defect (oracle-empty by the
+fixture's own design), 1 is unverified, and the remaining 5 are real, undocumented gaps** (including
+the all-backend miss). Do not report "8 defects" without this split.
 
 ## Why each backend refuses
 
-- **`PlanComposed` -- 36 cells, all ONE shape.** The plan requires a `CompositeEmissionMarker` /
-  `StructuralCompositeMarker` subtree that `build_controllable` cannot build. One capability gap
-  accounts for over half of every unbuildable cell in the matrix.
-- **`TemplatedUnderlyingTokens` -- 21 cells.** Mostly `BuildFailed: templated emission unsupported:
-  Partial{uncovered:N}`, plus 2x "no phonological rule compiled".
-- **`TunedSurfaceProbed` -- 6 cells**, each a named capability-envelope refusal: 3x
-  `rep-variant-overflow` (root shape exceeds 64 representation variants), 1x
-  `standalone-rule-claimed`, 1x `finite-closure-bound`, 1x `circumfix-zone-exclusive-allomorph`.
+- **`PlanComposed`.** Most refusals trace to one shape: a plan requiring a `CompositeEmissionMarker`
+  / `StructuralCompositeMarker` subtree that `build_controllable` cannot build.
+- **`TemplatedUnderlyingTokens`.** Mostly `BuildFailed: templated emission unsupported:
+  Partial{uncovered:N}`, plus phonological-rule-compilation failures on a smaller number of fixtures.
+- **`TunedSurfaceProbed`.** Named capability-envelope refusals -- root-shape/representation-variant
+  overflow, standalone-rule claims, finite-closure bounds, and zone-exclusive-allomorph conflicts,
+  each a distinct typed diagnostic rather than one undifferentiated failure.
 
-## The 12 silently-wrong cells -- the real defect surface
-
-| Fixture | Backend | Detail |
-|---|---|---|
-| `morphotactic-attribute-breadth` | **all three** | MISS r=4 / r=1 / r=1 -- every backend misses |
-| `feature-gating-breadth` | PlanComposed | MISS r=2 |
-| `feature-system-breadth` | Templated | MISS r=1 |
-| `loader-isactive-breadth` | TunedSurface | MISS r=1 |
-| `mpr-overwrite-order-dependence` | Templated | MISS r=4 |
-| `strrep-identity` | Templated | MISS r=2 |
-| `truncate-morphotactic` | Templated | MISS r=2 |
-| `deep-optional-affix-nesting` | PlanComposed | NODATA -- `ResourceBreach`, apply_up path budget |
-| `backend-template-generic` | PlanComposed | NODATA -- `ResourceBreach` |
-| `loader-pattern-shapes` | PlanComposed | NODATA -- `Truncated{empty-network}` |
-
-## The five all-refused fixtures
-
-One is passing by design; four are real gaps.
-
-| Fixture | Verdict |
-|---|---|
-| `circumfix-non-first-allomorph-selection` | **intended refusal -- PASSING.** `STAGING.md` authors it to pin an honest fail-closed recall gap |
-| `process-morphology-in-place-mutation` | unintended gap -- the grammar's own comment says the design target is to compile |
-| `polysynthetic-stratal-derivation-chain` | unintended gap -- refused by the open `rep-variant-overflow` limit, unrelated to the fixture's purpose |
-| `suffixing-extension-slot-ordering` | unintended gap -- trips `MprGroupOverwrite`'s unconditional `FailClosed` as a side effect |
-| `backend-strata-generic` | unintended gap -- `STAGING.md` expects it to become buildable |
-
-## Full table
-
-PC = `PlanComposed`, TSP = `TunedSurfaceProbed`, TUT = `TemplatedUnderlyingTokens`.
-
-| Fixture | PC | TSP | TUT |
-|---|---|---|---|
-| machine:edge-cases/alpha-variable-name-collision | NOBUILD | OK | NOBUILD |
-| machine:edge-cases/bistratal-overlapping-segment-representation | OK | OK | NOBUILD |
-| machine:edge-cases/compounding-breadth | OK | OK | OK |
-| machine:edge-cases/deep-optional-affix-nesting | NODATA | OK | OK |
-| machine:edge-cases/diacritic-segments | OK | OK | OK |
-| machine:edge-cases/disjunctive-recheck | OK | OK | OK |
-| machine:edge-cases/feature-gating-breadth | MISS r=2 | OK | OK |
-| machine:edge-cases/feature-system-breadth | NOBUILD | OK | MISS r=1 |
-| machine:edge-cases/free-fluctuating-allomorph-pair | OK | OK | OK |
-| machine:edge-cases/loader-default-symbol | NOBUILD | OK | OK |
-| machine:edge-cases/loader-isactive | OK | OK | OK |
-| machine:edge-cases/loader-isactive-breadth | OK | MISS r=1 | OK |
-| machine:edge-cases/loader-pattern-shapes | NODATA | OK | NOBUILD |
-| machine:edge-cases/metathesis-comparison-crash | NOBUILD | TRUNC | TRUNC |
-| machine:edge-cases/morphotactic-attribute-breadth | MISS r=4 | MISS r=1 | MISS r=1 |
-| machine:edge-cases/mpr-gated-exception | NOBUILD | OK | OK |
-| machine:edge-cases/mpr-group-overwrite-without-realizational | OK | OK | OK |
-| machine:edge-cases/mpr-overwrite-order-dependence | OK | OK | MISS r=4 |
-| machine:edge-cases/process-morphology-in-place-mutation | NOBUILD | NOBUILD | NOBUILD |
-| machine:edge-cases/right-to-left-anchor-environment | NOBUILD | OK | OK |
-| machine:edge-cases/simultaneous-epenthesis-cascade | NOBUILD | TRUNC | TRUNC |
-| machine:edge-cases/stem-name-restricted-root-allomorph | OK | OK | OK |
-| machine:edge-cases/strrep-identity | OK | OK | MISS r=2 |
-| machine:edge-cases/subrule-morphosyntactic-gating | NOBUILD | OK | OK |
-| machine:edge-cases/truncate-morphotactic | NOBUILD | OK | MISS r=2 |
-| machine:languages/fusional-realizational-morphology | NOBUILD | OK | NOBUILD |
-| machine:languages/metathesis-phase-isolation | NOBUILD | OK | NOBUILD |
-| machine:languages/polysynthetic-stratal-derivation-chain | NOBUILD | NOBUILD | NOBUILD |
-| machine:languages/prefixal-discontinuous-slot-dependency | OK | OK | OK |
-| machine:languages/suffixing-evidential-adjacency-chain | OK | OK | OK |
-| machine:languages/suffixing-extension-slot-ordering | NOBUILD | NOBUILD | NOBUILD |
-| machine:languages/suffixing-vowel-harmony | NOBUILD | OK | NOBUILD |
-| machine:languages/templatic-root-modification | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/backend-gated-generic | NOBUILD | OK | OK |
-| staging:edge-cases/backend-ordered-generic | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/backend-strata-generic | NOBUILD | NOBUILD | NOBUILD |
-| staging:edge-cases/backend-template-generic | NODATA | OK | OK |
-| staging:edge-cases/circumfix-cross-product-and-infix-drop | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/circumfix-in-template-slot | NOBUILD | OK | OK |
-| staging:edge-cases/circumfix-infix-interior-action-precedence | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/circumfix-non-first-allomorph-selection | NOBUILD | NOBUILD | NOBUILD |
-| staging:edge-cases/circumfix-reduplication-precedence | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/compounding-non-recursive | OK | OK | OK |
-| staging:edge-cases/cross-stem-material-determination | OK | OK | OK |
-| staging:edge-cases/deletion-reduplication-exception-composite | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/guesser-pattern-root-fallback | OK | NOBUILD | NOBUILD |
-| staging:edge-cases/head-ambiguous-compounding | OK | OK | OK |
-| staging:edge-cases/infix-interdigitation | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/multi-table-metathesis-shared-representation | NOBUILD | OK | OK |
-| staging:edge-cases/optional-template-composite | NOBUILD | OK | OK |
-| staging:edge-cases/recursive-endocentric-compounding | OK | OK | OK |
-| staging:edge-cases/right-to-left-bounded-quantifier-rewrite | NOBUILD | OK | OK |
-| staging:edge-cases/right-to-left-cross-table-segments-environment | NOBUILD | OK | OK |
-| staging:edge-cases/right-to-left-metathesis-reversal | NOBUILD | OK | OK |
-| staging:edge-cases/right-to-left-segments-environment | NOBUILD | OK | OK |
-| staging:edge-cases/segment-natural-class-table-binding | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/simultaneous-subrule-genuine-overlap | NOBUILD | OK | NOBUILD |
-| staging:edge-cases/standalone-combining-mark | OK | OK | OK |
-| staging:edge-cases/template-category-sharing | OK | OK | OK |
-| staging:edge-cases/two-table-shared-representation-recall | NOBUILD | OK | OK |
-| staging:edge-cases/unbounded-iterative-quantifier-expansion | NOBUILD | OK | OK |
-
-## Per-backend totals
-
-| Backend | Compiles | Oracle-exact (of compiled) | Recall misses | Soundness |
-|---|---|---|---|---|
-| `TunedSurfaceProbed` | 55/61 (90%) | 51/55 | 2 cells | 0 |
-| `TemplatedUnderlyingTokens` | 40/61 (66%) | 33/40 | 5 cells | 0 |
-| `PlanComposed` | 25/61 (41%) | 20/22 measured | 2 cells | 0 |
+Legal pre-confirm over-generation is permitted by ADR-0001 -- the confirm step prunes it. Judging a
+proposer by raw acceptance instead of confirmed output overstates how broken a backend looks.

@@ -3,19 +3,17 @@
 What is genuinely owed, with what "done" means for each. Delete an entry when it lands; this file is
 a queue, not a history.
 
-Audited against the code at `c830063c`, because the previous revision listed five completed items as
-pending and one done item as "IN FLIGHT". A queue that misreports its own state is worse than no
-queue, so each entry below carries the evidence its status rests on.
+Audited against the code at `9d1a9d76`, because the previous revision cited a stale backend-matrix
+commit and a `REP_VARIANT_CAP` constant that no longer exists. A queue that misreports its own state
+is worse than no queue, so each entry below carries the evidence its status rests on.
 
-## 1. Re-run the backend matrix
+## 1. Re-run the backend matrix -- DONE
 
-`docs/research/conformance-backend-matrix.md` says "measured at `496a6f3c`". `main` is 20+ commits
-past that, including `719c2773`, which exposed `IdentityDivergence` and gated over-generation per
-backend -- exactly the kind of change that doc's own text warns invalidates the measurement.
-
-**Done when:** re-run via `pg.ps1 -Mode run -Example conf_matrix`, and the doc's measured-at line
-names a current commit. Everything below that depends on the 61x3 numbers is unverified until then,
-including the "36 PlanComposed refusals, one shape" figure in the Future section.
+`docs/research/conformance-backend-matrix.md` now reads "measured at `9d1a9d76`", with fresh
+per-backend and per-fixture numbers. See that doc directly rather than duplicating the figures here.
+One thing surfaced by this re-run that is NOT yet resolved: the doc's own per-backend "compile but
+miss" totals do not sum to its itemized 9-cell list (flagged prominently in the doc itself, not
+silently corrected) -- worth reconciling next time `conf_matrix` runs.
 
 ## 2. Merge `fix/env-repvariant`
 
@@ -87,15 +85,41 @@ traces to `run_batch`'s 8-thread word fan-out, while `never_fires_keeps_attempt_
 and `named_allomorph_report_does_not_claim_rule_attempts` are single-threaded unit tests on synthetic
 data with no batch involvement. Two shapes, not one.
 
-Each costs a re-run to distinguish from a real regression, every time.
+Each costs a re-run to distinguish from a real regression, every time. Not re-verified this pass --
+these are `#[ignore]`d/gated or require a live run to observe flake, and no test execution was done
+for this audit; the entry stands on the prior finding, not a fresh re-check.
 
 ## Future, not queued
 
 - **`PlanComposed`'s marker-subtree gap.** All of its refusals are one shape: a plan requiring a
   `CompositeEmissionMarker` / `StructuralCompositeMarker` subtree `build_controllable` cannot build.
-  The cheapest route to broader coverage whenever coverage becomes the goal. Count unverified until
-  item 1 re-runs.
+  The cheapest route to broader coverage whenever coverage becomes the goal. Now re-measured (item 1,
+  DONE): 36 of `PlanComposed`'s refusals are this one shape, per the fresh `9d1a9d76` run.
 - **The silently-wrong cells**, starting with `morphotactic-attribute-breadth` -- the only fixture
-  where all three backends miss analyses.
-- **Aweti/Mbugwe sizing**, parked by instruction. Both now have no accepted backend, deliberately:
-  the surface probe was dropping root spellings past `REP_VARIANT_CAP` and the envelope now says so.
+  where all three backends miss analyses. Still true after the re-run; see
+  `docs/research/conformance-backend-matrix.md`.
+- **Circumfix cross-product loading** (a FieldWorks/LCM `MoAffixProcess`-shaped entry, prefix-typed x
+  suffix-typed halves) is now IMPLEMENTED for unconditioned entries; an environment-bearing half is
+  refused rather than silently dropped or mis-combined. See
+  `docs/research/circumfix-cross-product-loading.md`. Not a queue item -- recorded here because it
+  was open work the last time this file was written and is no longer.
+- **Aweti/Mbugwe sizing**, parked by instruction. The `REP_VARIANT_CAP` constant this entry used to
+  name no longer exists -- it was replaced by `REP_VARIANT_WARN_THRESHOLD` (advisory, drops nothing)
+  and `REP_VARIANT_BYTE_BUDGET` (a 1 GiB containment stop), reported through a `VariantLimit` enum
+  (`rust/crates/pg-foma/src/emit.rs`).
+  **Backend-acceptance status contradicts what this task was told to assume**, and is recorded here
+  as checked-in code rather than guessed: `rust/crates/pg-foma/tests/
+  five_language_backend_reports_gate.rs` (`#[ignore]`d on a gitignored corpus, last touched
+  2026-08-30, commit `6b46914b`) still pins `assert_no_backend_accepts` for BOTH Aweti and Mbugwe --
+  `TunedSurfaceProbed` itself now refuses with shape `"repeated-application"`
+  (`Severity::CannotRepresent`), not an accepted backend. This is a *different* mechanism than the
+  old REP_VARIANT overflow story (that shape key comes from `compounding.non-recursive` /
+  `quantifier.bounded-expansion`, per `backend_selection.rs`'s `capability_shape_key`), and it means
+  neither grammar has an accepted backend as of this commit. Separately and NOT in conflict:
+  `pangloss fst-health`'s *representability* axis (a different, whole-grammar report) can still read
+  `WithinLimits` for both (per `docs/research/circumfix-cross-product-loading.md` and
+  `docs/research/conformance-containment-inventory.md`) -- that axis answers "can this be
+  structurally represented at all", not "does a specific `EmissionStrategy` accept it". This test is
+  corpus-gated and was not run for this audit; if something has changed backend acceptance since
+  `6b46914b`, re-run `five_language_backend_reports_gate.rs --include-ignored` to confirm before
+  trusting either version of this claim.

@@ -33,11 +33,12 @@
 //! (`examples/conf_matrix.rs` computes the same thing inline, with no library seam a second
 //! caller could reuse).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::backend_optimizer::Certification;
 use crate::backend_runtime::{evaluate_plans_observed_with_cache, RunEvaluationCache, RuntimeBudget};
-use crate::capability::CharacteristicKind;
+use crate::backend_selection::select_backends;
+use crate::capability::{CharacteristicKind, PredicateId};
 use crate::conformance_coverage::construct_ids_for;
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
@@ -151,6 +152,51 @@ pub fn classify_with_witnesses(
 /// be non-empty and `words` non-empty; a grammar/corpus this fails to prepare against measures as
 /// not exact rather than panicking, matching every other "could not measure" path in this crate's
 /// own measurement instruments.
+/// Which predicates the capability envelope cites when it declines `strategy` for `grammar`; empty
+/// when it admits, and empty when the envelope has no report for that strategy (absence is not a
+/// refusal, matching `crate::capability_gate::refuse_unless_admitted`'s own rule).
+///
+/// This is the ATTRIBUTABLE direction this module's own doc says the fixture-outcome join lacks. An
+/// aggregate "not exact under this strategy" names only the fixture, because a fixture exercises
+/// several kinds at once; a refusal names the predicate that produced it, so a refused cell is
+/// evidence about that predicate specifically and nothing else.
+pub fn envelope_refusal_predicates(grammar: &Grammar, strategy: EmissionStrategy) -> Vec<PredicateId> {
+    let semantics = GrammarSemantics::derive(grammar);
+    let selection = select_backends(&semantics);
+    let Some(report) = selection.report_for(strategy) else {
+        return Vec::new();
+    };
+    if report.can_represent() {
+        return Vec::new();
+    }
+    let mut out: Vec<PredicateId> = report.declined_on().iter().map(|d| d.predicate).collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// Every predicate provoked into refusing by at least one of `grammars`, with the (label, strategy)
+/// cells that provoked it -- the negative half of CONTEXT.md's "Construct witness" pair.
+///
+/// Shared by the census example and the gate that ratchets on it, so the number a report prints and
+/// the number a build breaks on cannot drift.
+pub fn negative_witness_index<'a>(
+    grammars: impl IntoIterator<Item = (String, &'a Grammar)>,
+) -> BTreeMap<PredicateId, Vec<(String, EmissionStrategy)>> {
+    let mut index: BTreeMap<PredicateId, Vec<(String, EmissionStrategy)>> = BTreeMap::new();
+    for (label, grammar) in grammars {
+        for &strategy in crate::strategy_coverage::ALL_STRATEGIES {
+            for predicate in envelope_refusal_predicates(grammar, strategy) {
+                index
+                    .entry(predicate)
+                    .or_default()
+                    .push((label.clone(), strategy));
+            }
+        }
+    }
+    index
+}
+
 pub fn measure_fixture_exact(grammar: &Grammar, words: &[String], strategy: EmissionStrategy) -> bool {
     let semantics = GrammarSemantics::derive(grammar);
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
