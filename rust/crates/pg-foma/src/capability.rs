@@ -3475,14 +3475,14 @@ impl GrammarWideCheck for EagerRouteDropsRootSpellingsCheck {
         crate::emit::eager_route_drops_root_spellings(semantics.grammar()).then(|| {
             CompileDecision::Refuse(vec![CapabilityDiagnostic {
                 predicate: self.id(),
-                construct: "root allomorph whose pattern shape exceeds the representation-variant \
-                            cap"
+                construct: "root allomorph whose pattern shape cannot be enumerated in full"
                     .to_string(),
-                witness: "EmissionStrategy::TunedSurfaceProbed's eager route encodes a root \
-                          allomorph's pattern variants only up to REP_VARIANT_CAP and drops the \
-                          rest without emitting them, so the compiled network omits root spellings \
-                          past the cap and confirm has no candidate left to recover them for those \
-                          spellings"
+                witness: "EmissionStrategy::TunedSurfaceProbed's eager route leaves root spellings \
+                          out of the compiled network -- an unbounded `*` shape, which has no finite \
+                          spelling set at any budget, or REP_VARIANT_BYTE_BUDGET reached mid \
+                          enumeration -- so confirm has no candidate left to recover them. Breadth \
+                          alone never reaches here: a complete enumeration is emitted in full \
+                          however large"
                     .to_string(),
             }])
         })

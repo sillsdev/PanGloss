@@ -439,7 +439,7 @@ fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCover
     };
     let literal_table = &g.char_tables[seg_table.0 as usize];
     match surface_variants(literal_table, &shape.text) {
-        Some((variants, false)) if !variants.is_empty() => {
+        Some((variants, limit)) if !limit.drops_spellings() && !variants.is_empty() => {
             // Declines whenever a rewrite rule could plausibly produce a suffix of this literal, since the y-test can't see that.
             if prule_tail_rewrite_risk(g, &variants) {
                 EnvCoverage::Unsupported {
@@ -451,7 +451,9 @@ fn classify(g: &Grammar, env: &EnvironmentDef, sibling_count: usize) -> EnvCover
                 }
             }
         }
-        Some((_, true)) => EnvCoverage::Unsupported { reason: "overflow" },
+        Some((_, _)) => EnvCoverage::Unsupported {
+            reason: "incomplete-variant-set",
+        },
         _ => EnvCoverage::Unsupported {
             reason: "unsegmentable",
         },
@@ -499,8 +501,8 @@ fn render_pattern_literal(g: &Grammar, pattern: &Pattern) -> Option<Vec<String>>
     }
     let table = &g.char_tables[table_id?.0 as usize];
     match surface_variants(table, &text) {
-        Some((variants, false)) => Some(variants),
-        _ => None, // Overflow or unsegmentable: can't cheaply prove no overlap either.
+        Some((variants, limit)) if !limit.drops_spellings() => Some(variants),
+        _ => None, // Incomplete or unsegmentable: can't cheaply prove no overlap either.
     }
 }
 

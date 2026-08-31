@@ -3,7 +3,8 @@
 use std::path::Path;
 
 use pg_foma::emit::{
-    eager_route_drops_root_spellings, root_variant_census, RootVariantFact, REP_VARIANT_CAP,
+    eager_route_drops_root_spellings, root_variant_census, RootVariantFact,
+    REP_VARIANT_WARN_THRESHOLD,
 };
 use pg_grammar::model::Grammar;
 
@@ -48,18 +49,18 @@ fn bucket(fact: &RootVariantFact) -> &'static str {
 
 fn report(name: &str, g: &Grammar) {
     let facts = root_variant_census(g);
-    let overflowing = facts.iter().filter(|f| f.overflows()).count();
-    let unbounded = facts.iter().filter(|f| f.variants.is_none()).count();
+    let notable = facts.iter().filter(|f| f.notable()).count();
+    let unbounded = facts.iter().filter(|f| f.unbounded()).count();
     let worst_finite = facts.iter().filter_map(|f| f.variants).max().unwrap_or(0);
 
     println!("\n=== {name} ===");
     println!(
-        "root allomorphs: {}  overflowing cap: {overflowing}  unbounded: {unbounded}  worst finite product: {worst_finite}",
+        "root allomorphs: {}  above advisory threshold: {notable}  unbounded: {unbounded}  worst finite product: {worst_finite}",
         facts.len()
     );
-    // The gate the capability envelope actually reads, not the census's own arithmetic about it.
+    // The gate the capability envelope actually reads, not the census's own arithmetic about it. It fires on ABSENT spellings only, so breadth alone must leave it false.
     println!(
-        "  cap={REP_VARIANT_CAP}  eager_route_drops_root_spellings = {}",
+        "  warn-threshold={REP_VARIANT_WARN_THRESHOLD}  eager_route_drops_root_spellings = {}",
         eager_route_drops_root_spellings(g)
     );
 
@@ -70,8 +71,8 @@ fn report(name: &str, g: &Grammar) {
         }
     }
 
-    let mut worst: Vec<&RootVariantFact> = facts.iter().filter(|f| f.overflows()).collect();
-    // Unbounded first, then by descending product: the rows that decide whether a bigger cap helps at all.
+    let mut worst: Vec<&RootVariantFact> = facts.iter().filter(|f| f.notable()).collect();
+    // Unbounded first, then by descending product: only the unbounded rows lose spellings.
     worst.sort_by_key(|f| (f.variants.is_some(), std::cmp::Reverse(f.variants.unwrap_or(0))));
     for fact in worst.iter().take(10) {
         let magnitude = match fact.variants {

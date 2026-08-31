@@ -94,10 +94,11 @@
 //! word. A single literal lexc string cannot ("tun", the authored shape of Sena's *mentir*, must
 //! also match corpus "tum..." — found as 13 of the first recall gate's 19 misses).
 //! `surface_variants` therefore returns the CARTESIAN PRODUCT of each matched segment
-//! char-def's representations — every spelling the engine would accept. Bounded by
-//! `REP_VARIANT_CAP`; on overflow the remainder is dropped AND reported as an uncovered item
-//! (an explicit, visible under-approximation for a pathological grammar — never triggered by
-//! Sena, whose only multi-representation segment char-def is `char4`).
+//! char-def's representations — every spelling the engine would accept. There is no count cap:
+//! breadth above `REP_VARIANT_WARN_THRESHOLD` is reported as advisory and emitted in full, since
+//! discarding a spelling the grammar allows is under-generation. Only `REP_VARIANT_BYTE_BUDGET`
+//! (memory, this machine) or an unbounded `*` shape (representability) can leave spellings out, and
+//! each is reported as its own `VariantLimit`, never merged into one verdict.
 //!
 //! ## Normalization
 //! `kept_surface_text` NFD-normalizes before matching (mirroring `pg_grammar::segment::segment`
@@ -249,21 +250,80 @@ pub const DERIV_DEPTH_MIN: usize = 2;
 /// Cap on consecutive dedicated levels one rule gets; keeps an uncapped `Realizational` rule (which reports `max_apps() == u16::MAX`) from inflating a chain's depth unboundedly.
 const MAX_DEDICATED_LEVELS_PER_RULE: usize = 4;
 
-/// Cap on the representation-variant cartesian product per emitted morph surface (module doc,
-/// "Surface spelling"). Overflow is reported as an uncovered item, never silent.
+/// Advisory threshold on the representation-variant product per emitted morph surface: crossing it
+/// DROPS NOTHING and refuses nothing.
 ///
-/// Sized from measurement, not intuition: [`root_variant_census`] over the five reference grammars
-/// gives worst finite products of Aweti 4096, Mbugwe 256, Sena 8, Amharic 8, Indonesian 4, with
-/// ZERO unbounded shapes among them. The old value of 64 therefore refused two real languages over
-/// ordinary breadth -- an Aweti root of twelve segments each carrying two spellings is 2^12, and a
-/// six-vowel Bantu stem with optionally-marked tone is 2^6 = 64 exactly, at the old ceiling. 8192
-/// clears the measured worst with one doubling of headroom while still bounding a runaway.
+/// There is deliberately no cap. A count is a size question, and a size question must not be
+/// answered by discarding spellings the grammar really allows -- that is under-generation, which
+/// ADR-0001 forbids outright. Measured worst finite products over the reference grammars are Aweti
+/// 4096, Mbugwe 256, Sena 8, Amharic 8, Indonesian 4 ([`root_variant_census`]); the former cap of 64
+/// refused two real languages over ordinary breadth, because a twelve-segment root whose segments
+/// each carry two spellings is 2^12 and a six-vowel Bantu stem with optional tone marking is 2^6.
+/// Any constant chosen here would refuse the next language with one more segment.
 ///
-/// It does NOT bound the genuinely unbounded case: a Kleene-star shape (`[Any]*`, which the
-/// conformance fixtures carry and no reference grammar does) has no finite variant count, so it
-/// overflows any cap and is refused rather than truncated. Raising this number is not a fix for
-/// that, which is why the census reports the two populations separately.
-pub const REP_VARIANT_CAP: usize = 8192;
+/// So this number's only job is to say "this is unusually broad, check the grammar" -- readiness in
+/// `CLAUDE.md`'s classification, which blocks nothing. Containment is [`REP_VARIANT_BYTE_BUDGET`]'s
+/// job, and representability is [`VariantLimit::Unbounded`]'s.
+pub const REP_VARIANT_WARN_THRESHOLD: usize = 8192;
+
+/// Bytes of materialized variant strings one morph surface may hold before enumeration STOPS.
+///
+/// The real resource is memory, not a count: 10 million two-byte spellings and 8192 megabyte ones
+/// are the same threat and wildly different counts. Exhausting this is a `Containment` verdict about
+/// this machine and this attempt -- never a claim about the grammar -- and it is reported, never
+/// silently truncated.
+pub const REP_VARIANT_BYTE_BUDGET: usize = 1 << 30;
+
+/// How enumeration of one morph surface ended. Replaces a bare `overflowed: bool`, which gave one
+/// answer to three different questions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VariantLimit {
+    /// Every spelling the shape allows was enumerated. `warn` means it crossed
+    /// [`REP_VARIANT_WARN_THRESHOLD`] on the way -- broad, complete, and blocking nothing.
+    Complete { warn: bool },
+    /// A Kleene-star node: the shape's language is infinite, so no finite enumeration exists at any
+    /// budget. Representability, and the one case a bigger number cannot fix.
+    Unbounded,
+    /// [`REP_VARIANT_BYTE_BUDGET`] was reached mid-enumeration, so spellings are missing.
+    BytesExhausted { bytes: usize },
+}
+
+impl VariantLimit {
+    /// Whether spellings the shape allows are ABSENT from the returned set -- the only condition a
+    /// recall-sensitive caller may gate on. A `Complete` set never qualifies, however large.
+    pub fn drops_spellings(self) -> bool {
+        matches!(self, Self::Unbounded | Self::BytesExhausted { .. })
+    }
+
+    /// Merges the outcomes of two independently enumerated pieces, worst case winning.
+    pub fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Unbounded, _) | (_, Self::Unbounded) => Self::Unbounded,
+            (Self::BytesExhausted { bytes }, _) | (_, Self::BytesExhausted { bytes }) => {
+                Self::BytesExhausted { bytes }
+            }
+            (Self::Complete { warn: a }, Self::Complete { warn: b }) => {
+                Self::Complete { warn: a || b }
+            }
+        }
+    }
+
+    /// One line naming what actually happened, for an uncovered item's `reason`.
+    pub fn describe(self) -> String {
+        match self {
+            Self::Complete { warn: false } => "fully enumerated".to_string(),
+            Self::Complete { warn: true } => format!(
+                "fully enumerated, above the {REP_VARIANT_WARN_THRESHOLD}-variant advisory threshold; nothing dropped"
+            ),
+            Self::Unbounded => format!(
+                "unbounded `*` shape: no finite spelling set exists, and the emitter can only offer {PATTERN_ITER_CAP} repetitions"
+            ),
+            Self::BytesExhausted { bytes } => format!(
+                "enumeration stopped after {bytes} bytes (budget {REP_VARIANT_BYTE_BUDGET}); spellings are missing"
+            ),
+        }
+    }
+}
 
 /// Compile-time unroll cap for the bounded compound loop, checked before any lexc text is written; kept as its own budget dimension, separate from `ComposeBudget::chain_depth_cap`'s per-word runtime counter — see `docs/research/pg-foma-emit-design-notes.md`.
 const DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET: usize = 200;
@@ -683,15 +743,19 @@ fn origin_table_for_mrule<'a>(
 /// REPRESENTATIONS (the engine matches segments by char-def identity, so any representation of
 /// the matched char-def is accepted in the input word — Sena `char4` = {"m","n"}).
 ///
-/// Returns `(variants, overflowed)`: `variants` deduped, capped at `REP_VARIANT_CAP`;
-/// `overflowed = true` means spellings were dropped (the caller must report it — an explicit
-/// under-approximation, never silent). `None` if some position fails to match any char-def
-/// (defensive; the loader already accepted this text once).
-pub(crate) fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bool)> {
+/// Returns `(variants, limit)`: `variants` deduped and COMPLETE unless `limit.drops_spellings()`.
+/// Nothing is discarded for being merely numerous — only a byte-budget stop removes spellings here.
+/// `None` if some position fails to match any char-def (defensive; the loader already accepted this
+/// text once).
+pub(crate) fn surface_variants(
+    table: &CharDefTable,
+    text: &str,
+) -> Option<(Vec<String>, VariantLimit)> {
     let normalized = pg_grammar::nfd::nfd(text);
     let chars: Vec<char> = normalized.chars().collect();
     let mut variants: Vec<String> = vec![String::new()];
-    let mut overflowed = false;
+    let mut bytes = 0usize;
+    let mut exhausted = None;
     let mut i = 0usize;
     while i < chars.len() {
         let mut matched = false;
@@ -706,21 +770,28 @@ pub(crate) fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<
                         for v in &mut variants {
                             v.push_str(&candidate);
                         }
+                        bytes = bytes.saturating_add(candidate.len() * variants.len());
                     } else {
                         let mut next =
                             Vec::with_capacity(variants.len().saturating_mul(reps.len()));
+                        let mut grown = 0usize;
                         'grow: for v in &variants {
                             for rep in reps {
-                                if next.len() >= REP_VARIANT_CAP {
-                                    overflowed = true;
-                                    break 'grow;
-                                }
                                 let mut nv = v.clone();
                                 nv.push_str(rep);
+                                grown = grown.saturating_add(nv.len());
+                                if grown > REP_VARIANT_BYTE_BUDGET {
+                                    exhausted = Some(grown);
+                                    break 'grow;
+                                }
                                 next.push(nv);
                             }
                         }
+                        bytes = grown;
                         variants = next;
+                        if exhausted.is_some() {
+                            break;
+                        }
                     }
                 }
                 i += j;
@@ -728,38 +799,61 @@ pub(crate) fn surface_variants(table: &CharDefTable, text: &str) -> Option<(Vec<
                 break;
             }
         }
+        if exhausted.is_some() {
+            break;
+        }
         if !matched {
             return None;
         }
     }
     variants.sort_unstable();
     variants.dedup();
-    Some((variants, overflowed))
+    let limit = match exhausted {
+        Some(bytes) => VariantLimit::BytesExhausted { bytes },
+        None => VariantLimit::Complete {
+            warn: variants.len() > REP_VARIANT_WARN_THRESHOLD,
+        },
+    };
+    Some((variants, limit))
 }
 
 /// `surface_variants`, extended to multiple insert-text pieces: segments each piece separately (never re-segmenting a merged concatenation, which could spuriously merge across an authored `InsertSegments` boundary), then takes the cartesian product of the per-piece variants; `None` if any piece fails to segment.
-fn surface_variants_concat(table: &CharDefTable, texts: &[&str]) -> Option<(Vec<String>, bool)> {
+fn surface_variants_concat(
+    table: &CharDefTable,
+    texts: &[&str],
+) -> Option<(Vec<String>, VariantLimit)> {
     let mut variants: Vec<String> = vec![String::new()];
-    let mut overflowed = false;
+    let mut limit = VariantLimit::Complete { warn: false };
     for text in texts {
-        let (piece_variants, piece_overflowed) = surface_variants(table, text)?;
-        overflowed |= piece_overflowed;
+        let (piece_variants, piece_limit) = surface_variants(table, text)?;
+        limit = limit.and(piece_limit);
         let mut next =
             Vec::with_capacity(variants.len().saturating_mul(piece_variants.len().max(1)));
+        let mut grown = 0usize;
         'grow: for v in &variants {
             for p in &piece_variants {
-                if next.len() >= REP_VARIANT_CAP {
-                    overflowed = true;
+                let joined = format!("{v}{p}");
+                grown = grown.saturating_add(joined.len());
+                if grown > REP_VARIANT_BYTE_BUDGET {
+                    limit = limit.and(VariantLimit::BytesExhausted { bytes: grown });
                     break 'grow;
                 }
-                next.push(format!("{v}{p}"));
+                next.push(joined);
             }
         }
         variants = next;
+        if limit.drops_spellings() {
+            break;
+        }
     }
     variants.sort_unstable();
     variants.dedup();
-    Some((variants, overflowed))
+    if let VariantLimit::Complete { .. } = limit {
+        limit = VariantLimit::Complete {
+            warn: variants.len() > REP_VARIANT_WARN_THRESHOLD,
+        };
+    }
+    Some((variants, limit))
 }
 
 /// Surface spellings for one literal-only action slice, preserving each action's source table.
@@ -772,18 +866,21 @@ fn surface_insert_action_variants(g: &Grammar, actions: &[OutputAction]) -> Opti
         let OutputAction::InsertSegments { table, shape } = action else {
             return None;
         };
-        let (pieces, overflowed) =
-            surface_variants(g.char_tables.get(table.0 as usize)?, &shape.text)?;
-        if overflowed || pieces.is_empty() {
+        let (pieces, limit) = surface_variants(g.char_tables.get(table.0 as usize)?, &shape.text)?;
+        // Bails on an INCOMPLETE set only; a complete set is usable however large, since this caller needs every spelling or none.
+        if limit.drops_spellings() || pieces.is_empty() {
             return None;
         }
         let mut next = Vec::with_capacity(variants.len().saturating_mul(pieces.len()));
+        let mut grown = 0usize;
         for prefix in &variants {
             for piece in &pieces {
-                if next.len() >= REP_VARIANT_CAP {
+                let joined = format!("{prefix}{piece}");
+                grown = grown.saturating_add(joined.len());
+                if grown > REP_VARIANT_BYTE_BUDGET {
                     return None;
                 }
-                next.push(format!("{prefix}{piece}"));
+                next.push(joined);
             }
         }
         variants = next;
@@ -827,7 +924,10 @@ fn circumfix_surface_texts(
 /// `Segment`-kind match (possibly multi-CHARACTER, e.g. `"ny"`/`"ng"`/`"kh"`/`"sy"` are each ONE
 /// segment), then return `surface_variants` of everything after it. `None` when `text` is
 /// entirely boundaries (or empty) — nothing to strip — or fails to segment at all.
-pub(crate) fn stripped_variants(table: &CharDefTable, text: &str) -> Option<(Vec<String>, bool)> {
+pub(crate) fn stripped_variants(
+    table: &CharDefTable,
+    text: &str,
+) -> Option<(Vec<String>, VariantLimit)> {
     let normalized = pg_grammar::nfd::nfd(text);
     let chars: Vec<char> = normalized.chars().collect();
     let mut i = 0usize;
@@ -926,7 +1026,7 @@ fn node_alternatives(
 ///
 /// Walks the interior nodes left to right, taking the CARTESIAN PRODUCT of each node's own
 /// alternatives (mirroring `surface_variants`'s representation-variant product, same
-/// `REP_VARIANT_CAP` bound): a concrete `Segment` node contributes its own char-def's
+/// [`REP_VARIANT_BYTE_BUDGET`]): a concrete `Segment` node contributes its own char-def's
 /// representations (`Boundary`-kind nodes are dropped, exactly like `surface_variants`/module doc
 /// "Surface spelling"); an abstract class-reference node contributes the union of every member's
 /// representations. An `OPTIONAL` node (from `(...)` or a Kleene star) ADDITIONALLY contributes the
@@ -940,37 +1040,52 @@ fn node_alternatives(
 /// grammars or the conformance suite's own pattern fixture, whose only patterns are
 /// `[Vowel]`/`([Vowel])`, module doc).
 ///
-/// Returns `(variants, overflowed)` exactly like `surface_variants`.
-pub(crate) fn pattern_variants(table: &CharDefTable, shape: &Shape) -> (Vec<String>, bool) {
+/// Returns `(variants, limit)` exactly like `surface_variants`.
+pub(crate) fn pattern_variants(
+    table: &CharDefTable,
+    shape: &Shape,
+) -> (Vec<String>, VariantLimit) {
     let mut variants: Vec<String> = vec![String::new()];
-    let mut overflowed = false;
-    let mut truncated_star = false;
+    let mut exhausted = None;
+    let mut unbounded = false;
     for (i, kind, char_def, flags) in shape.interior() {
-        if overflowed {
+        if exhausted.is_some() {
             break;
         }
         if kind == NodeKind::Boundary {
             continue; // dropped, same convention as `surface_variants`.
         }
-        // A star's language is infinite, so `PATTERN_ITER_CAP` always drops spellings: reported here because no `REP_VARIANT_CAP` value can bound it, and at a low cap this only LOOKED covered by the count overflowing.
-        truncated_star |= flags.is_iterative();
+        // A star's language is infinite, so no budget enumerates it: representability, not size.
+        unbounded |= flags.is_iterative();
         let reps = node_alternatives(table, shape, i, char_def, flags);
 
         let mut next = Vec::with_capacity(variants.len().saturating_mul(reps.len().max(1)));
+        let mut grown = 0usize;
         'grow: for v in &variants {
             for r in &reps {
-                if next.len() >= REP_VARIANT_CAP {
-                    overflowed = true;
+                let joined = format!("{v}{r}");
+                grown = grown.saturating_add(joined.len());
+                if grown > REP_VARIANT_BYTE_BUDGET {
+                    exhausted = Some(grown);
                     break 'grow;
                 }
-                next.push(format!("{v}{r}"));
+                next.push(joined);
             }
         }
         variants = next;
     }
     variants.sort_unstable();
     variants.dedup();
-    (variants, overflowed || truncated_star)
+    let limit = if unbounded {
+        VariantLimit::Unbounded
+    } else if let Some(bytes) = exhausted {
+        VariantLimit::BytesExhausted { bytes }
+    } else {
+        VariantLimit::Complete {
+            warn: variants.len() > REP_VARIANT_WARN_THRESHOLD,
+        }
+    };
+    (variants, limit)
 }
 
 /// What one root allomorph's shape would cost to enumerate, measured WITHOUT enumerating it.
@@ -989,13 +1104,20 @@ pub struct RootVariantFact {
 }
 
 impl RootVariantFact {
-    /// Whether enumeration under [`REP_VARIANT_CAP`] drops spellings this shape genuinely allows.
-    pub fn overflows(&self) -> bool {
-        self.variants.is_none_or(|n| n > REP_VARIANT_CAP as u128)
+    /// Unbounded, or past [`REP_VARIANT_WARN_THRESHOLD`] -- i.e. worth a census row. Only the
+    /// unbounded half means spellings are actually missing; breadth alone costs memory, not recall.
+    pub fn notable(&self) -> bool {
+        self.variants
+            .is_none_or(|n| n > REP_VARIANT_WARN_THRESHOLD as u128)
+    }
+
+    /// Whether this shape can never be fully enumerated, at any budget.
+    pub fn unbounded(&self) -> bool {
+        self.variants.is_none()
     }
 }
 
-/// Every root allomorph's true enumeration cost, to answer whether [`REP_VARIANT_CAP`] is a
+/// Every root allomorph's true enumeration cost, to answer whether [`REP_VARIANT_WARN_THRESHOLD`] is a
 /// realistic ceiling or the wrong shape of control entirely.
 ///
 /// Computes the magnitude symbolically -- multiplying per-node alternative counts rather than
@@ -1803,14 +1925,26 @@ fn collect_roots(
                     continue;
                 }
                 // Routes every root uniformly through the Shape-based `pattern_variants` path rather than re-segmenting literal text: a mandatory (non-optional) `[ClassName]` node doesn't set `is_pattern`, but its literal text (e.g. `"b[Vowel]t"`) still can't re-segment, so text-based re-segmentation alone would miss it.
-                let (variants, overflowed) = pattern_variants(stratum_table, &allo.shape.shape);
-                if overflowed {
+                let (variants, limit) = pattern_variants(stratum_table, &allo.shape.shape);
+                // Only an incomplete set is an uncovered item. Breadth above the advisory threshold is reported as its own kind, so a size note can never be read as a recall gap.
+                if limit.drops_spellings() {
                     uncovered.push(UncoveredItem {
                         kind: "rep-variant-overflow".to_string(),
                         id: label.clone(),
                         reason: format!(
-                            "root shape {:?} is not fully enumerable -- over {REP_VARIANT_CAP} representation variants, or an unbounded `*` shape truncated at {PATTERN_ITER_CAP} repetitions; excess spellings dropped",
-                            allo.shape.text
+                            "root shape {:?}: {}",
+                            allo.shape.text,
+                            limit.describe()
+                        ),
+                    });
+                } else if limit == (VariantLimit::Complete { warn: true }) {
+                    uncovered.push(UncoveredItem {
+                        kind: "rep-variant-breadth".to_string(),
+                        id: label.clone(),
+                        reason: format!(
+                            "root shape {:?}: {} -- advisory only, every spelling is emitted",
+                            allo.shape.text,
+                            limit.describe()
                         ),
                     });
                 }
@@ -2407,13 +2541,14 @@ fn emit_rule_allomorphs(
             InsertText::Text { texts, .. } => {
                 let mut emitted_any = false;
                 match surface_variants_concat(table, &texts) {
-                    Some((variants, overflowed)) => {
-                        if overflowed {
+                    Some((variants, limit)) => {
+                        if limit.drops_spellings() {
                             uncovered.push(UncoveredItem {
                                 kind: "rep-variant-overflow".to_string(),
                                 id: label.clone(),
                                 reason: format!(
-                                    "affix insert text {texts:?} exceeds {REP_VARIANT_CAP} representation variants; excess spellings dropped"
+                                    "affix insert text {texts:?}: {}",
+                                    limit.describe()
                                 ),
                             });
                         }
@@ -2732,8 +2867,8 @@ enum PeelAtom {
 /// Exact scalar width shared by every safely enumerable surface representation, or `None`.
 fn inserted_surface_width(g: &Grammar, table: TableId, text: &str) -> Option<usize> {
     let table = g.char_tables.get(table.0 as usize)?;
-    let (variants, overflowed) = surface_variants(table, text)?;
-    if overflowed || variants.is_empty() {
+    let (variants, limit) = surface_variants(table, text)?;
+    if limit.drops_spellings() || variants.is_empty() {
         return None;
     }
     let width = variants[0].chars().count();
@@ -3122,7 +3257,7 @@ fn unbounded_closure_rule_ordinals(
     rules
 }
 
-/// Whether the surface route drops root spellings past [`REP_VARIANT_CAP`], without emitting.
+/// Whether the surface route leaves root spellings OUT -- unbounded shape or byte budget, never mere breadth -- without emitting.
 pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
     g.strata.iter().any(|sd| {
         let table = &g.char_tables[sd.table.0 as usize];
@@ -3130,7 +3265,8 @@ pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
             g.entries[entry_id.0 as usize]
                 .allomorphs
                 .iter()
-                .any(|allo| pattern_variants(table, &allo.shape.shape).1)
+                // Gates on spellings genuinely ABSENT, never on breadth: a complete enumeration drops nothing however large, so this no longer fires for a merely broad root.
+                .any(|allo| pattern_variants(table, &allo.shape.shape).1.drops_spellings())
         })
     })
 }
@@ -5894,15 +6030,17 @@ pub fn templated_route_uncovered_refusal(g: &Grammar) -> Option<CompileDecision>
 mod structural_and_pattern_tests {
     use super::*;
 
-    /// Aweti's measured worst root is 4096 variants and Mbugwe's 256 ([`root_variant_census`]).
+    /// A count cap re-added here would refuse Aweti (4096) and Mbugwe (256) for ordinary breadth.
     #[test]
-    fn the_variant_cap_clears_the_measured_reference_grammar_worst_case() {
+    fn breadth_alone_never_reads_as_dropped_spellings() {
+        assert!(!VariantLimit::Complete { warn: false }.drops_spellings());
         assert!(
-            REP_VARIANT_CAP >= 4096,
-            "REP_VARIANT_CAP={REP_VARIANT_CAP} is under Aweti's measured worst root (4096): \
-             TunedSurfaceProbed drops root spellings and `EagerRouteDropsRootSpellingsCheck` then \
-             refuses the grammar"
+            !VariantLimit::Complete { warn: true }.drops_spellings(),
+            "a complete enumeration drops nothing however broad; treating the advisory threshold as \
+             a recall gap is what refused Aweti and Mbugwe outright"
         );
+        assert!(VariantLimit::Unbounded.drops_spellings());
+        assert!(VariantLimit::BytesExhausted { bytes: 1 }.drops_spellings());
     }
 
     fn load(path: &str) -> Grammar {
@@ -5959,8 +6097,8 @@ mod structural_and_pattern_tests {
         let g = load("edge-cases/loader-pattern-shapes/grammar.xml");
         let table = surface_table(&g);
         let entry = &g.entries[entry_id_of(&g, "e1").0 as usize];
-        let (variants, overflowed) = pattern_variants(table, &entry.allomorphs[0].shape.shape);
-        assert!(!overflowed);
+        let (variants, limit) = pattern_variants(table, &entry.allomorphs[0].shape.shape);
+        assert!(!limit.drops_spellings());
         let mut sorted = variants.clone();
         sorted.sort();
         assert_eq!(sorted, vec!["bat".to_string(), "bet".to_string()]);
@@ -5972,8 +6110,8 @@ mod structural_and_pattern_tests {
         let g = load("edge-cases/loader-pattern-shapes/grammar.xml");
         let table = surface_table(&g);
         let entry = &g.entries[entry_id_of(&g, "e2").0 as usize];
-        let (variants, overflowed) = pattern_variants(table, &entry.allomorphs[0].shape.shape);
-        assert!(!overflowed);
+        let (variants, limit) = pattern_variants(table, &entry.allomorphs[0].shape.shape);
+        assert!(!limit.drops_spellings());
         let mut sorted = variants.clone();
         sorted.sort();
         assert_eq!(
