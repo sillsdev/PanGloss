@@ -57,9 +57,56 @@ The capability itself is not missing: `Role::CircumfixPrefix` exists and Aweti e
 missing is the FieldWorks path: a circumfix-typed entry whose left and right forms need a
 cross-product to become such allomorphs.
 
-**To grill:** should this warning become a typed capability refusal in the meantime? It would make
-two currently-silent missing rules visible, at the cost of refusing a grammar that today loads and
-analyses 44% of its corpus.
+### The data, read out of `mbugwe.fwdata` rather than assumed
+
+Entry `577b6780` holds three `MoAffixAllomorph` records:
+
+| record | form | `MorphType` guid | meaning |
+|---|---|---|---|
+| LexemeForm `f2774ad4` | `kaa- -iyɛ` | `d7f713df` | circumfix (display form) |
+| AlternateForm `f252f2b2` | `kaa` | `d7f713db` | **prefix half** |
+| AlternateForm `7da95189` | `iyɛ` | `d7f713dd` | **suffix half** |
+
+The halves are already present as ordinary prefix- and suffix-typed allomorphs; the lexeme form is
+only a combined display string. "Cross-product" means prefix-typed x suffix-typed -- here 1x1.
+
+### The design this implies
+
+`build_concatenative` (`compile/affixes.rs:441`) builds `Shape::Prefix` as
+`insert("kaa+") · Copy(Input(0))` and `Shape::Suffix` as `Copy(Input(0)) · insert("+iyɛ")`. A
+circumfix is exactly the composition:
+
+```
+lhs = [Pattern { nodes: any_plus }]
+rhs = [ insert("kaa+"), Copy(PartRef::Input(0)), insert("+iyɛ") ]
+```
+
+which is what `crate::emit::classify_affix` already reads as `Role::CircumfixPrefix` -- the role
+Aweti's mrule 40 exercises today. **So the emitter needs nothing new; only the loader does.** Replace
+the early `return None` at `affixes.rs:60` with a partition of `rule_form_allos` by morph type and a
+cross-product over the two buckets.
+
+### Why I did NOT implement it tonight
+
+Two open semantic questions, and this file's own history says guessing at them is how attempts get
+reverted:
+
+1. **Environments.** Each half may carry its own `PhoneEnvRC`. Does a circumfix allomorph require
+   the prefix half's left environment AND the suffix half's right environment simultaneously, or
+   does HC drop them? `build_concatenative` returns an `EnvironmentDef` per half today; combining
+   them is a linguistic decision, not a mechanical one.
+2. **Inflection classes and MPR.** The halves can disagree. Union or intersection changes which
+   stems the rule applies to.
+
+Both are answerable from `HCLoader.cs:1048-1332`, which `pg-snapshot/src/lexicon.rs:5` already cites
+as the reference for exactly this cross-product. That reading is the next step, not more inference
+from the Rust side.
+
+**To grill, and it is a genuine tension.** Until it is implemented, should the warning become a typed
+refusal? It would make three currently-invisible missing rules visible across Mbugwe and Aweti --
+this file's own "a control that cannot act must say so" -- but it would refuse the two grammars
+tonight's work just got admitted, and `fst-health` would flip from `representability=WithinLimits` to
+`CannotRepresent`. I have left it as a warning rather than take that trade unilaterally.
 
 Decisions taken without the user in the room, and questions raised that only the user can settle.
 Each entry says what was decided, what else was considered, and what would falsify it. Newest first.
