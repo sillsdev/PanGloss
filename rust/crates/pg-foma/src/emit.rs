@@ -251,7 +251,19 @@ const MAX_DEDICATED_LEVELS_PER_RULE: usize = 4;
 
 /// Cap on the representation-variant cartesian product per emitted morph surface (module doc,
 /// "Surface spelling"). Overflow is reported as an uncovered item, never silent.
-pub const REP_VARIANT_CAP: usize = 64;
+///
+/// Sized from measurement, not intuition: [`root_variant_census`] over the five reference grammars
+/// gives worst finite products of Aweti 4096, Mbugwe 256, Sena 8, Amharic 8, Indonesian 4, with
+/// ZERO unbounded shapes among them. The old value of 64 therefore refused two real languages over
+/// ordinary breadth -- an Aweti root of twelve segments each carrying two spellings is 2^12, and a
+/// six-vowel Bantu stem with optionally-marked tone is 2^6 = 64 exactly, at the old ceiling. 8192
+/// clears the measured worst with one doubling of headroom while still bounding a runaway.
+///
+/// It does NOT bound the genuinely unbounded case: a Kleene-star shape (`[Any]*`, which the
+/// conformance fixtures carry and no reference grammar does) has no finite variant count, so it
+/// overflows any cap and is refused rather than truncated. Raising this number is not a fix for
+/// that, which is why the census reports the two populations separately.
+pub const REP_VARIANT_CAP: usize = 8192;
 
 /// Compile-time unroll cap for the bounded compound loop, checked before any lexc text is written; kept as its own budget dimension, separate from `ComposeBudget::chain_depth_cap`'s per-word runtime counter — see `docs/research/pg-foma-emit-design-notes.md`.
 const DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET: usize = 200;
@@ -861,6 +873,48 @@ fn class_node_representations(table: &CharDefTable, cd_set: EffectiveCdSet<'_>) 
     out
 }
 
+/// One interior shape node's alternatives, shared by [`pattern_variants`] and [`root_variant_census`] so the census cannot drift from the emitter it measures.
+fn node_alternatives(
+    table: &CharDefTable,
+    shape: &Shape,
+    i: usize,
+    char_def: u32,
+    flags: pg_shape::NodeFlags,
+) -> Vec<String> {
+    let mut reps: Vec<String> = if char_def != pg_shape::NO_CHAR_DEF {
+        table
+            .get(CharDefId(char_def))
+            .representations_nfd()
+            .to_vec()
+    } else {
+        class_node_representations(table, shape.node_cd_set(i))
+    };
+    if reps.is_empty() {
+        // Defensive: neither case occurs in practice, but treat as silent epsilon rather than dropping the whole allomorph.
+        reps.push(String::new());
+    }
+    if flags.is_iterative() {
+        let base = reps.clone();
+        let mut repeated = base.clone();
+        for _ in 0..PATTERN_ITER_CAP {
+            let mut next = Vec::with_capacity(repeated.len() * base.len());
+            for prev in &repeated {
+                for r in &base {
+                    next.push(format!("{prev}{r}"));
+                }
+            }
+            reps.extend(next.iter().cloned());
+            repeated = next;
+        }
+    }
+    if flags.is_optional() {
+        reps.push(String::new());
+    }
+    reps.sort_unstable();
+    reps.dedup();
+    reps
+}
+
 /// Every concrete surface spelling a lexical PATTERN root allomorph (`RootAllomorphDef::is_pattern`
 /// — module doc "Not emittable as literal lexc" v1) CAN realize as, computed directly from the
 /// allomorph's own already-parsed `Shape` (built once at grammar load by
@@ -890,6 +944,7 @@ fn class_node_representations(table: &CharDefTable, cd_set: EffectiveCdSet<'_>) 
 pub(crate) fn pattern_variants(table: &CharDefTable, shape: &Shape) -> (Vec<String>, bool) {
     let mut variants: Vec<String> = vec![String::new()];
     let mut overflowed = false;
+    let mut truncated_star = false;
     for (i, kind, char_def, flags) in shape.interior() {
         if overflowed {
             break;
@@ -897,37 +952,9 @@ pub(crate) fn pattern_variants(table: &CharDefTable, shape: &Shape) -> (Vec<Stri
         if kind == NodeKind::Boundary {
             continue; // dropped, same convention as `surface_variants`.
         }
-        let mut reps: Vec<String> = if char_def != pg_shape::NO_CHAR_DEF {
-            table
-                .get(CharDefId(char_def))
-                .representations_nfd()
-                .to_vec()
-        } else {
-            class_node_representations(table, shape.node_cd_set(i))
-        };
-        if reps.is_empty() {
-            // Defensive: neither case occurs in practice, but treat as silent epsilon rather than dropping the whole allomorph.
-            reps.push(String::new());
-        }
-        if flags.is_iterative() {
-            let base = reps.clone();
-            let mut repeated = base.clone();
-            for _ in 0..PATTERN_ITER_CAP {
-                let mut next = Vec::with_capacity(repeated.len() * base.len());
-                for prev in &repeated {
-                    for r in &base {
-                        next.push(format!("{prev}{r}"));
-                    }
-                }
-                reps.extend(next.iter().cloned());
-                repeated = next;
-            }
-        }
-        if flags.is_optional() {
-            reps.push(String::new());
-        }
-        reps.sort_unstable();
-        reps.dedup();
+        // A star's language is infinite, so `PATTERN_ITER_CAP` always drops spellings: reported here because no `REP_VARIANT_CAP` value can bound it, and at a low cap this only LOOKED covered by the count overflowing.
+        truncated_star |= flags.is_iterative();
+        let reps = node_alternatives(table, shape, i, char_def, flags);
 
         let mut next = Vec::with_capacity(variants.len().saturating_mul(reps.len().max(1)));
         'grow: for v in &variants {
@@ -943,7 +970,76 @@ pub(crate) fn pattern_variants(table: &CharDefTable, shape: &Shape) -> (Vec<Stri
     }
     variants.sort_unstable();
     variants.dedup();
-    (variants, overflowed)
+    (variants, overflowed || truncated_star)
+}
+
+/// What one root allomorph's shape would cost to enumerate, measured WITHOUT enumerating it.
+pub struct RootVariantFact {
+    /// `entry<id>(morpheme=<name>)#allo<n>`, the same label `collect_roots` reports uncovered items under.
+    pub label: String,
+    /// The authored surface text of the shape, for reading a census row back to a grammar.
+    pub text: String,
+    pub is_pattern: bool,
+    /// Interior nodes excluding `Boundary`, i.e. how many factors the product below has.
+    pub nodes: usize,
+    /// The product of every node's alternative count, saturating at `u128::MAX`. `None` when a
+    /// Kleene-star node makes the TRUE count unbounded -- which no cap can make representable by
+    /// enumeration, however large.
+    pub variants: Option<u128>,
+}
+
+impl RootVariantFact {
+    /// Whether enumeration under [`REP_VARIANT_CAP`] drops spellings this shape genuinely allows.
+    pub fn overflows(&self) -> bool {
+        self.variants.is_none_or(|n| n > REP_VARIANT_CAP as u128)
+    }
+}
+
+/// Every root allomorph's true enumeration cost, to answer whether [`REP_VARIANT_CAP`] is a
+/// realistic ceiling or the wrong shape of control entirely.
+///
+/// Computes the magnitude symbolically -- multiplying per-node alternative counts rather than
+/// materializing strings -- so measuring a grammar that would exhaust memory under enumeration
+/// costs no more than one that fits. It walks strata and entries in `collect_roots`'s order and
+/// shares `node_alternatives` with `pattern_variants`, so a row here describes the shape the
+/// emitter really faces.
+pub fn root_variant_census(g: &Grammar) -> Vec<RootVariantFact> {
+    let mut out = Vec::new();
+    for sd in &g.strata {
+        let table = &g.char_tables[sd.table.0 as usize];
+        for &entry_id in &sd.entries {
+            let entry = &g.entries[entry_id.0 as usize];
+            let morpheme_name = g
+                .morphemes
+                .get(entry.morpheme.0 as usize)
+                .map(|m| m.xml_key.as_str())
+                .unwrap_or("?");
+            for (allo_idx, allo) in entry.allomorphs.iter().enumerate() {
+                let shape = &allo.shape.shape;
+                let mut product: u128 = 1;
+                let mut unbounded = false;
+                let mut nodes = 0usize;
+                for (i, kind, char_def, flags) in shape.interior() {
+                    if kind == NodeKind::Boundary {
+                        continue;
+                    }
+                    nodes += 1;
+                    // The emitter approximates a star with `PATTERN_ITER_CAP` repetitions; the shape's own semantics do not stop there.
+                    unbounded |= flags.is_iterative();
+                    let count = node_alternatives(table, shape, i, char_def, flags).len() as u128;
+                    product = product.saturating_mul(count.max(1));
+                }
+                out.push(RootVariantFact {
+                    label: format!("entry{}(morpheme={morpheme_name})#allo{allo_idx}", entry_id.0),
+                    text: allo.shape.text.clone(),
+                    is_pattern: allo.is_pattern,
+                    nodes,
+                    variants: (!unbounded).then_some(product),
+                });
+            }
+        }
+    }
+    out
 }
 
 /// Escapes lexc's special characters (`% < : > 0 ; !` and space) in literal text — `0` matters for any text, not just tag numerals (gate F0, `tests/f0_viability.rs`).
@@ -1713,7 +1809,7 @@ fn collect_roots(
                         kind: "rep-variant-overflow".to_string(),
                         id: label.clone(),
                         reason: format!(
-                            "root shape {:?} exceeds {REP_VARIANT_CAP} representation variants; excess spellings dropped",
+                            "root shape {:?} is not fully enumerable -- over {REP_VARIANT_CAP} representation variants, or an unbounded `*` shape truncated at {PATTERN_ITER_CAP} repetitions; excess spellings dropped",
                             allo.shape.text
                         ),
                     });
@@ -5797,6 +5893,17 @@ pub fn templated_route_uncovered_refusal(g: &Grammar) -> Option<CompileDecision>
 #[cfg(test)]
 mod structural_and_pattern_tests {
     use super::*;
+
+    /// Aweti's measured worst root is 4096 variants and Mbugwe's 256 ([`root_variant_census`]).
+    #[test]
+    fn the_variant_cap_clears_the_measured_reference_grammar_worst_case() {
+        assert!(
+            REP_VARIANT_CAP >= 4096,
+            "REP_VARIANT_CAP={REP_VARIANT_CAP} is under Aweti's measured worst root (4096): \
+             TunedSurfaceProbed drops root spellings and `EagerRouteDropsRootSpellingsCheck` then \
+             refuses the grammar"
+        );
+    }
 
     fn load(path: &str) -> Grammar {
         let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
