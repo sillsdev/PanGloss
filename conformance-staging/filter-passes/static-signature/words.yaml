@@ -1,3 +1,4 @@
+# oracle-provenance: rust-only
 # Candidate-filter per-pass fixture for symbolic.static_signature.v1 -- see STAGING.md and
 # grammar.xml's own header comment for the pathology and the isolation argument.
 #

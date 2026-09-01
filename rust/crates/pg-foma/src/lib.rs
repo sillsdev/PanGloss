@@ -314,6 +314,10 @@ pub mod replace;
 /// path calls it today, a deliberately separate and still-open question; see that module's own doc
 /// for the full filter/rank/tie-break contract.
 pub mod selection;
+/// Typed per-(grammar, words) backend measurement extracted from `examples/conf_matrix.rs` -- see
+/// this module's own doc for why `IdentityDivergence` is exposed rather than recomputed, and why it
+/// names no fixture-loading type (fixture discovery is a caller's concern, not the Compiler's).
+pub mod scoreboard;
 /// The per-STRATEGY construct-coverage account: which of this crate's compilers can actually
 /// PROPOSE each `capability::CharacteristicKind`. `capability::Disposition::ConfirmOnly` is
 /// defined as "recall-preserving only if the proposer proposes the superset", and until this module

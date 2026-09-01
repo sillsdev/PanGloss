@@ -623,6 +623,15 @@ fn circumfix_snapshot(
     suffix_env: &[&str],
 ) -> (pg_snapshot::Snapshot, Fixture) {
     let (mut snapshot, f) = fixture();
+    // The conditioned cases below reference `[V]`; without the class, `parse_environment` fails and the environment is dropped as absent, which would make those tests unmeetable rather than meaningful.
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
     let mut prefix = simple_allomorph("allo-circ-prefix", MorphType::Prefix, "ka");
     let mut suffix = simple_allomorph("allo-circ-suffix", MorphType::Suffix, "ta");
     prefix.environments = prefix_env.iter().map(|s| s.to_string()).collect();
@@ -687,10 +696,34 @@ fn an_unconditioned_circumfix_entry_builds_the_half_cross_product() {
     );
 }
 
-/// Per-side conditioning is unrepresentable (W3.3), so it is refused rather than silently never firing; Aweti's real circumfix is this shape.
-/// See docs/research/circumfix-cross-product-loading.md.
+/// Every allomorph across `grammar.mrules` shaped like a circumfix cross-product cell (leading+trailing insert around one copy).
+fn circumfix_rule_allomorphs(
+    grammar: &crate::model::Grammar,
+) -> Vec<&crate::model::AffixAllomorphDef> {
+    grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(a) => Some(a),
+            _ => None,
+        })
+        .flat_map(|a| a.allomorphs.iter())
+        .filter(|allo| {
+            matches!(
+                allo.rhs.as_slice(),
+                [
+                    crate::model::OutputAction::InsertSegments { .. },
+                    crate::model::OutputAction::Copy(_),
+                    crate::model::OutputAction::InsertSegments { .. }
+                ]
+            )
+        })
+        .collect()
+}
+
+/// Per-side conditioning is representable now, not refused; see docs/research/circumfix-cross-product-loading.md.
 #[test]
-fn a_circumfix_half_carrying_an_environment_is_refused_not_approximated() {
+fn a_circumfix_half_carrying_an_environment_builds_with_it_unioned_in() {
     let (mut snapshot, _f) = circumfix_snapshot(&["env-after-vowel"], &[]);
     snapshot
         .phonology
@@ -703,25 +736,94 @@ fn a_circumfix_half_carrying_an_environment_is_refused_not_approximated() {
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must not be a hard error");
     assert!(
-        warnings
+        !warnings
             .iter()
             .any(|w| w.contains("circumfix") && w.contains("environment")),
-        "expected a refusal naming the environment; got {warnings:?}"
+        "a conditioned circumfix half is representable, so nothing about it should be refused: {warnings:?}"
     );
-    assert!(
-        !grammar.mrules.iter().any(|r| matches!(
-            r,
-            crate::model::MorphRuleDef::AffixProcess(a)
-                if a.allomorphs.iter().any(|allo| matches!(
-                    allo.rhs.as_slice(),
-                    [
-                        crate::model::OutputAction::InsertSegments { .. },
-                        crate::model::OutputAction::Copy(_),
-                        crate::model::OutputAction::InsertSegments { .. }
-                    ]
-                ))
-        )),
-        "a refused circumfix must contribute no both-sides rule at all"
+    let built = circumfix_rule_allomorphs(&grammar);
+    assert_eq!(
+        built.len(),
+        1,
+        "one prefix half x one suffix half is still a 1x1 cross-product"
+    );
+    assert_eq!(
+        built[0].environments.len(),
+        1,
+        "the prefix half's one environment must survive onto the combined allomorph: {:?}",
+        built[0].environments
+    );
+}
+
+/// Both halves conditioned: the combined allomorph must carry the UNION of both, not just one side.
+#[test]
+fn a_circumfix_with_environments_on_both_halves_unions_them() {
+    let (mut snapshot, _f) = circumfix_snapshot(&["env-after-vowel"], &["env-before-vowel"]);
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-after-vowel".to_string(),
+            name: "after vowel".to_string(),
+            representation: "/[V]_".to_string(),
+        });
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-before-vowel".to_string(),
+            name: "before vowel".to_string(),
+            representation: "/_[V]".to_string(),
+        });
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must not be a hard error");
+    assert!(!warnings
+        .iter()
+        .any(|w| w.contains("circumfix") && w.contains("environment")));
+    let built = circumfix_rule_allomorphs(&grammar);
+    assert_eq!(built.len(), 1);
+    assert_eq!(
+        built[0].environments.len(),
+        2,
+        "both halves' environments must both survive, unioned onto one allomorph: {:?}",
+        built[0].environments
+    );
+}
+
+/// `positions` has the same C# analog as `environments` (see `combined_env_guids` below) and unions in the same way.
+#[test]
+fn a_circumfix_half_carrying_a_position_builds_with_it_unioned_in() {
+    let (mut snapshot, f) = circumfix_snapshot(&[], &[]);
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-after-vowel".to_string(),
+            name: "after vowel".to_string(),
+            representation: "/[V]_".to_string(),
+        });
+    snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|e| e.guid == "entry-circumfix")
+        .expect("circumfix_snapshot must have pushed entry-circumfix")
+        .allomorphs[0]
+        .positions
+        .push("env-after-vowel".to_string());
+    let _ = f;
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must not be a hard error");
+    assert!(!warnings
+        .iter()
+        .any(|w| w.contains("circumfix") && w.contains("environment")));
+    let built = circumfix_rule_allomorphs(&grammar);
+    assert_eq!(built.len(), 1);
+    assert_eq!(
+        built[0].environments.len(),
+        1,
+        "the prefix half's position must survive onto the combined allomorph like an environment would: {:?}",
+        built[0].environments
     );
 }
 

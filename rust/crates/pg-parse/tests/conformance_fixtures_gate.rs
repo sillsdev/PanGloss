@@ -1,7 +1,10 @@
 //! Dual-root conformance fixture replay: every fixture discovered under both `machine/conformance/**` and `conformance-staging/**` is loaded and every `words.yaml` word checked against `pg_parse::Morpher`.
 //! See docs/conformance-staging-plan.md for the design and `machine/conformance/PROTOCOL.md` for the fixture format.
 
-use pg_conformance_fixtures::{assert_matches_oracle, discover, graduation_guard_violations};
+use pg_conformance_fixtures::{
+    all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
+    OracleProvenance,
+};
 use pg_parse::Morpher;
 
 /// Fails if the same `(category, name)` fixture identity exists under both roots, enforcing that a fixture accepted upstream has its staged copy deleted in the same change.
@@ -97,5 +100,43 @@ fn w91_affix_shapes_covered_by_upstream_fixtures() {
     assert_eq!(
         gas, "++|gas;+|gas",
         "gas must yield both the direct and chained analyses"
+    );
+}
+
+/// Every staged fixture must declare a recognized `# oracle-provenance:` marker in `words.yaml` (CLAUDE.md's "oracle hierarchy"): silence reads as "verified against the C# founding oracle" and is the bug.
+#[test]
+fn staged_fixtures_carry_recognized_oracle_provenance() {
+    let fixtures = all_staged_fixtures();
+    assert!(
+        !fixtures.is_empty(),
+        "no staged fixtures discovered — check conformance-staging/ exists"
+    );
+    let missing: Vec<String> = fixtures
+        .iter()
+        .filter(|f| f.oracle_provenance().is_none())
+        .map(|f| f.label())
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "fixture(s) missing a recognized `# oracle-provenance: founding-oracle|rust-only` marker \
+         in words.yaml (see CLAUDE.md's oracle hierarchy / machine/conformance/PROTOCOL.md): {missing:?}"
+    );
+}
+
+/// Ratchet, not a target: the rust-only backlog may only shrink via `rust/tools/oracle-conformance.ps1` reconciliation, never grow with a newly staged, unverified fixture.
+const RUST_ONLY_ORACLE_PROVENANCE_BACKLOG: usize = 21;
+
+#[test]
+fn rust_only_oracle_provenance_backlog_does_not_grow() {
+    let fixtures = all_staged_fixtures();
+    let rust_only = fixtures
+        .iter()
+        .filter(|f| f.oracle_provenance() == Some(OracleProvenance::RustOnly))
+        .count();
+    assert!(
+        rust_only <= RUST_ONLY_ORACLE_PROVENANCE_BACKLOG,
+        "rust-only oracle-provenance backlog grew from {RUST_ONLY_ORACLE_PROVENANCE_BACKLOG} to \
+         {rust_only} — a newly staged fixture must be verified against the C# founding oracle \
+         (rust/tools/oracle-conformance.ps1) before being marked rust-only"
     );
 }

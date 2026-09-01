@@ -1408,6 +1408,10 @@ $script:ExitCodeLinuxHostContainment = 21
 $script:ExitCodeLinuxRunMemoryOverride = 22
 $script:ExitCodeUnsupportedPlatform = 23
 $script:ExitCodeLinuxGcUnsupported = 24
+# oracle-conformance.ps1: dotnet or hc-conformance.exe not found -- "I could not look" must exit loud.
+$script:ExitCodeOracleUnavailable = 25
+# oracle-conformance.ps1: a signature/load-failure mismatch outside the known-divergence baseline.
+$script:ExitCodeOracleDivergence = 26
 
 function Get-FilterZeroMatchHint {
     <#

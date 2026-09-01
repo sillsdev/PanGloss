@@ -1,54 +1,23 @@
-//! Full backend scoreboard (`pg.ps1 -Mode run -Example conf_matrix`): every discovered conformance
-//! fixture x every `EmissionStrategy`. See docs/research/backend-measurement-instruments.md.
+//! Full backend scoreboard (`pg.ps1 -Mode run -Example conf_matrix`): a printer over
+//! `pg_foma::scoreboard`'s typed per-(grammar, words) measurement. See docs/research/backend-measurement-instruments.md.
 
-use std::collections::BTreeMap;
-
-use pg_conformance_fixtures::{discover, FixtureRef};
-use pg_foma::backend_optimizer::Certification;
-use pg_foma::backend_runtime::{
-    evaluate_plans_observed_with_cache, RunEvaluationCache, RuntimeBudget,
-};
-use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
-use pg_foma::grammar_semantics::GrammarSemantics;
-use pg_foma::junctions::PhonologyProbe;
-use pg_foma::lowering_adapter::LoweringAdapter;
-use pg_foma::parity::IdentityDivergence;
+use pg_conformance_fixtures::discover;
+use pg_foma::scoreboard::{self, CellOutcome, ScoredFixture, MAX_WORDS_PER_FIXTURE};
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
-use pg_grammar::model::Grammar;
 
-/// Safety margin above any fixture on disk; a larger fixture is subsampled and its own row says so.
-const MAX_WORDS_PER_FIXTURE: usize = 200;
-
-/// One strategy's measured outcome for one fixture.
-struct StrategyRow {
-    strategy: EmissionStrategy,
-    /// `Ok(())` = the network built; `Err(reason)` names the typed refusal/failure.
-    compiles: Result<(), String>,
-    certification_debug: String,
-    /// `Certification::FullHcConfirmed`: every comparable word matched the oracle's identity set.
-    exact: bool,
-    /// ADR-0001 defect: identities the oracle found that the CONFIRMED output missed.
-    recall_oracle_only: u64,
-    /// Real defect regardless of ADR-0001: identities the CONFIRMED output has that the oracle does not.
-    soundness_candidate_only: u64,
-    /// Informational, legal under ADR-0001: raw proposals not surviving into the confirmed output.
-    legal_overgeneration: u64,
-    /// `Some` when per-word evidence was produced; `None` means it was not (see could_not_measure).
-    words_measured: Option<usize>,
-    could_not_measure: Option<String>,
+/// A fixture excluded by name (`expect_crash: true`), distinct from one scored zero backends.
+struct Excluded {
+    label: String,
+    reason: String,
 }
 
-struct FixtureRow {
-    label: String,
+/// A [`ScoredFixture`] plus the caller-owned `words.yaml` metadata it no longer carries.
+struct Row {
+    scored: ScoredFixture,
     total_words: usize,
-    measured_words: usize,
     subsampled: bool,
-    excluded: Vec<(String, String)>,
     expect_fail_count: usize,
     expect_skip_count: usize,
-    strategies: Vec<StrategyRow>,
-    /// `None` means the fixture itself could not be measured at all, distinct from a per-strategy failure.
-    exact_count: Option<usize>,
 }
 
 fn main() {
@@ -79,41 +48,89 @@ fn main() {
          today)"
     );
     println!(
-        "\"compiles\" below means the candidate's network was actually built: Certification::\
-         {{CapabilityRejected,BuildFailed,Unsupported}} = no; every other certification variant \
-         (Truncated/ResourceBreach/IdentityMismatch/FullHcConfirmed/EstimateOnly) = yes, since the \
-         network was built even if the corpus-level verdict is not FullHcConfirmed.\n"
+        "\"compiles\" below means the candidate's network was actually built: \
+         CellOutcome::Refused = no; every other CellOutcome = yes, since the network was built \
+         even if the corpus-level verdict is not oracle-exact.\n"
+    );
+    println!(
+        "fixtures whose words.yaml declares expect_crash: true are a NAMED EXCLUSION (no oracle \
+         ground truth to measure against), listed separately below -- never scored as a 0/3 \
+         defect and never silently dropped.\n"
     );
 
     let fixtures = discover();
     println!("discovered {} fixtures under scope=all\n", fixtures.len());
 
-    let mut rows: Vec<FixtureRow> = Vec::with_capacity(fixtures.len());
+    let mut scored: Vec<Row> = Vec::with_capacity(fixtures.len());
+    let mut excluded: Vec<Excluded> = Vec::new();
     let mut dist = [0usize; 4]; // index = count of strategies FullHcConfirmed (0..=3)
     let mut unmeasurable = 0usize;
 
     for fixture in &fixtures {
-        let row = run_fixture(fixture);
-        match row.exact_count {
+        let label = fixture.label();
+        let words_yaml = fixture.load_words_yaml();
+        if words_yaml.expect_crash {
+            let reason = "words.yaml declares expect_crash: true -- the founding oracle run \
+                          crashed, so there is no oracle ground truth to measure against"
+                .to_string();
+            println!("=== {label} === EXCLUDED (expect_crash): {reason}\n");
+            excluded.push(Excluded { label, reason });
+            continue;
+        }
+
+        let row = match pg_grammar::load(&fixture.load_grammar_xml()) {
+            Err(e) => Row {
+                scored: scoreboard::unmeasurable(&label, &format!("grammar failed to load: {e}")),
+                total_words: 0,
+                subsampled: false,
+                expect_fail_count: 0,
+                expect_skip_count: 0,
+            },
+            Ok(grammar) => {
+                let total_words = words_yaml.words.len();
+                let expect_fail_count = words_yaml.words.iter().filter(|w| w.expect_fail).count();
+                let expect_skip_count = words_yaml.words.iter().filter(|w| w.expect_skip).count();
+                let all_words: Vec<String> =
+                    words_yaml.words.iter().map(|w| w.word.clone()).collect();
+                let subsampled = all_words.len() > MAX_WORDS_PER_FIXTURE;
+                let words: Vec<String> = if subsampled {
+                    all_words[..MAX_WORDS_PER_FIXTURE].to_vec()
+                } else {
+                    all_words
+                };
+                Row {
+                    scored: scoreboard::measure(&label, &grammar, &words),
+                    total_words,
+                    subsampled,
+                    expect_fail_count,
+                    expect_skip_count,
+                }
+            }
+        };
+
+        print_fixture_progress(&row);
+        match row.scored.exact_count {
             Some(n) => dist[n] += 1,
             None => unmeasurable += 1,
         }
-        // Running tally after every fixture, so a killed run still leaves a legible partial headline.
         println!(
-            "  [running tally after {} fixture(s): 3/3={} 2/3={} 1/3={} 0/3={} unmeasurable={}]\n",
-            rows.len() + 1,
+            "  [running tally after {} scored fixture(s), {} excluded: 3/3={} 2/3={} 1/3={} \
+             0/3={} unmeasurable={}]\n",
+            scored.len() + 1,
+            excluded.len(),
             dist[3],
             dist[2],
             dist[1],
             dist[0],
             unmeasurable
         );
-        rows.push(row);
+        scored.push(row);
     }
 
-    print_headline(&rows, &dist, unmeasurable);
-    print_full_table(&rows);
-    print_could_not_measure(&rows);
+    print_headline(&scored, &dist, unmeasurable, &excluded);
+    print_full_table(&scored);
+    print_could_not_measure(&scored);
+    print_excluded(&excluded);
 
     println!("\ncommit under measurement: {commit}");
     println!(
@@ -122,308 +139,88 @@ fn main() {
     );
 }
 
-fn run_fixture(fixture: &FixtureRef) -> FixtureRow {
-    let label = fixture.label();
-    println!("=== {label} ===");
-
-    let grammar_xml = fixture.load_grammar_xml();
-    let grammar: Grammar = match pg_grammar::load(&grammar_xml) {
-        Ok(g) => g,
-        Err(e) => {
-            println!("  COULD NOT MEASURE (any strategy): grammar failed to load: {e}\n");
-            return unmeasurable_row(&label, format!("grammar failed to load: {e}"));
-        }
-    };
-    if grammar.char_tables.is_empty() {
-        println!("  COULD NOT MEASURE (any strategy): grammar has no character table\n");
-        return unmeasurable_row(&label, "grammar has no character table".to_string());
-    }
-
-    let words_yaml = fixture.load_words_yaml();
-    let total_words = words_yaml.words.len();
-    if total_words == 0 {
-        println!("  COULD NOT MEASURE (any strategy): words.yaml has no words\n");
-        return unmeasurable_row(&label, "words.yaml has no words".to_string());
-    }
-
-    let expect_fail_count = words_yaml.words.iter().filter(|w| w.expect_fail).count();
-    let expect_skip_count = words_yaml.words.iter().filter(|w| w.expect_skip).count();
+fn print_fixture_progress(row: &Row) {
+    let f = &row.scored;
+    println!("=== {} ===", f.label);
     println!(
-        "  words.yaml: {total_words} word(s) declared ({expect_fail_count} expect_fail, \
-         {expect_skip_count} expect_skip -- negative controls the oracle itself resolves to zero/\
-         invalid-shape, not measurement gaps)"
+        "  words.yaml: {} word(s) declared ({} expect_fail, {} expect_skip -- negative controls \
+         the oracle itself resolves to zero/invalid-shape, not measurement gaps)",
+        row.total_words, row.expect_fail_count, row.expect_skip_count
     );
-
-    let all_words: Vec<String> = words_yaml.words.iter().map(|w| w.word.clone()).collect();
-    let subsampled = all_words.len() > MAX_WORDS_PER_FIXTURE;
-    let words: Vec<String> = if subsampled {
+    if row.subsampled {
         println!(
-            "  SUBSAMPLED: measuring the first {MAX_WORDS_PER_FIXTURE} of {total_words} words \
-             (bound = MAX_WORDS_PER_FIXTURE)"
+            "  SUBSAMPLED: measuring the first {MAX_WORDS_PER_FIXTURE} of {} words (bound = \
+             MAX_WORDS_PER_FIXTURE)",
+            row.total_words
         );
-        all_words[..MAX_WORDS_PER_FIXTURE].to_vec()
-    } else {
-        all_words
-    };
-    let measured_words = words.len();
-
-    let semantics = GrammarSemantics::derive(&grammar);
-    let phonology = PhonologyProbe::new_with_semantics(&semantics);
-    let baseline_plan =
-        enumerate_default(&grammar, semantics.prules_in_order(), phonology.as_ref());
-
-    let mut cache = match RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default()) {
-        Ok(cache) => cache,
-        Err(fault) => {
-            println!("  COULD NOT MEASURE (any strategy): oracle preparation faulted: {fault}\n");
-            return unmeasurable_row(&label, format!("oracle preparation faulted: {fault}"));
-        }
-    };
-
-    let corpus_evidence = cache.corpus_evidence(&words);
-    let excluded: Vec<(String, String)> = corpus_evidence
-        .exclusions
-        .iter()
-        .map(|e| (e.word.clone(), e.reason.clone()))
-        .collect();
-    if excluded.is_empty() {
-        println!("  words excluded by the oracle: 0/{measured_words}");
+    }
+    if f.excluded_words.is_empty() {
+        println!("  words excluded by the oracle: 0/{}", f.measured_words);
     } else {
         println!(
-            "  words excluded by the oracle: {}/{measured_words} (named, never dropped silently):",
-            excluded.len()
+            "  words excluded by the oracle: {}/{} (named, never dropped silently):",
+            f.excluded_words.len(),
+            f.measured_words
         );
-        for (word, reason) in &excluded {
+        for (word, reason) in &f.excluded_words {
             println!("    excluded {word:?}: {reason}");
         }
     }
-
-    let mut prev_divergence = cache.identity_divergence();
-    let mut strategy_rows = Vec::with_capacity(ALL_STRATEGIES.len());
-    let mut exact_count = 0usize;
-
-    for &strategy in ALL_STRATEGIES {
-        let candidate = LoweredCandidate {
-            label: "conf-matrix",
-            plan: baseline_plan.clone(),
-            adapter: LoweringAdapter::for_strategy(strategy),
-            // Only the plan-composing adapter reads this shared baseline plan, so it alone is baseline.
-            role: if strategy == EmissionStrategy::PlanComposed {
-                CandidateRole::Baseline
-            } else {
-                CandidateRole::Alternative
-            },
-        };
-
-        let observed = evaluate_plans_observed_with_cache(
-            &grammar,
-            std::slice::from_ref(&candidate),
-            &words,
-            RuntimeBudget::default(),
-            &mut cache,
-        );
-        let obs = &observed[0];
-
-        let now_divergence = cache.identity_divergence();
-        let delta = subtract_divergence(now_divergence, prev_divergence);
-        prev_divergence = now_divergence;
-
-        let certification = &obs.evaluation.certification;
-        let certification_debug = format!("{certification:?}");
-        let compiles = compile_verdict(certification);
-        let exact = matches!(certification, Certification::FullHcConfirmed { .. });
-        if exact {
-            exact_count += 1;
+    for cell in &f.cells {
+        match &cell.outcome {
+            CellOutcome::Refused { reason, predicates } => {
+                println!(
+                    "  [{:?}] compiles=no certification={} -- REFUSED/FAILED: {reason} \
+                     (envelope predicates: {predicates:?})",
+                    cell.strategy, cell.certification_debug
+                );
+            }
+            CellOutcome::Unmeasurable { reason } => {
+                println!(
+                    "  [{:?}] compiles=yes certification={}",
+                    cell.strategy, cell.certification_debug
+                );
+                println!("    COULD NOT MEASURE per-word evidence: {reason}");
+            }
+            CellOutcome::OracleExact | CellOutcome::CompilesButMisses { .. } => {
+                let recall = match cell.outcome {
+                    CellOutcome::CompilesButMisses { recall_deficit } => recall_deficit,
+                    _ => 0,
+                };
+                let soundness = cell
+                    .divergence
+                    .map(|d| d.candidate_only_identities)
+                    .unwrap_or(0);
+                println!(
+                    "  [{:?}] compiles=yes certification={}",
+                    cell.strategy, cell.certification_debug
+                );
+                println!(
+                    "    recall(oracle_only,DEFECT)={recall} soundness(candidate_only \
+                     post-confirm,DEFECT)={soundness} \
+                     legal_overgeneration(pre-confirm pruned by confirm,INFORMATIONAL per \
+                     ADR-0001)={} words_measured={}/{} exact={}",
+                    cell.legal_overgeneration.unwrap_or(0),
+                    cell.words_measured.unwrap_or(0),
+                    f.measured_words,
+                    cell.exact()
+                );
+            }
         }
-
-        print!(
-            "  [{:?}] compiles={} certification={certification_debug}",
-            strategy,
-            if compiles.is_ok() { "yes" } else { "no" }
-        );
-        if let Err(reason) = &compiles {
-            println!(" -- REFUSED/FAILED: {reason}");
-            strategy_rows.push(StrategyRow {
-                strategy,
-                compiles: Err(reason.clone()),
-                certification_debug,
-                exact,
-                recall_oracle_only: 0,
-                soundness_candidate_only: 0,
-                legal_overgeneration: 0,
-                words_measured: None,
-                could_not_measure: Some(reason.clone()),
-            });
-            continue;
-        }
-        println!();
-
-        let Some(evidence) = &obs.words else {
-            let reason = format!(
-                "evaluation did not reach comparable per-word evidence (certification={certification_debug})"
-            );
-            println!("    COULD NOT MEASURE per-word evidence: {reason}");
-            strategy_rows.push(StrategyRow {
-                strategy,
-                compiles: Ok(()),
-                certification_debug,
-                exact,
-                recall_oracle_only: 0,
-                soundness_candidate_only: 0,
-                legal_overgeneration: 0,
-                words_measured: None,
-                could_not_measure: Some(reason),
-            });
-            continue;
-        };
-
-        let legal_overgeneration: u64 = evidence
-            .iter()
-            .map(|we| proposals_pruned_by_confirm(we))
-            .sum();
-
-        println!(
-            "    recall(oracle_only,DEFECT)={} soundness(candidate_only post-confirm,DEFECT)={} \
-             legal_overgeneration(pre-confirm pruned by confirm,INFORMATIONAL per ADR-0001)={} \
-             words_measured={}/{measured_words} exact={exact}",
-            delta.oracle_only_identities,
-            delta.candidate_only_identities,
-            legal_overgeneration,
-            evidence.len(),
-        );
-
-        strategy_rows.push(StrategyRow {
-            strategy,
-            compiles: Ok(()),
-            certification_debug,
-            exact,
-            recall_oracle_only: delta.oracle_only_identities,
-            soundness_candidate_only: delta.candidate_only_identities,
-            legal_overgeneration,
-            words_measured: Some(evidence.len()),
-            could_not_measure: None,
-        });
     }
-
     println!(
-        "  HEADLINE: {exact_count}/{} backends produce oracle-exact confirmed output for this \
-         fixture\n",
+        "  HEADLINE: {}/{} backends produce oracle-exact confirmed output for this fixture\n",
+        f.exact_count.unwrap_or(0),
         ALL_STRATEGIES.len()
     );
-
-    FixtureRow {
-        label,
-        total_words,
-        measured_words,
-        subsampled,
-        excluded,
-        expect_fail_count,
-        expect_skip_count,
-        strategies: strategy_rows,
-        exact_count: Some(exact_count),
-    }
 }
 
-fn unmeasurable_row(label: &str, reason: String) -> FixtureRow {
-    let strategies = ALL_STRATEGIES
-        .iter()
-        .map(|&strategy| StrategyRow {
-            strategy,
-            compiles: Err(reason.clone()),
-            certification_debug: "n/a".to_string(),
-            exact: false,
-            recall_oracle_only: 0,
-            soundness_candidate_only: 0,
-            legal_overgeneration: 0,
-            words_measured: None,
-            could_not_measure: Some(reason.clone()),
-        })
-        .collect();
-    FixtureRow {
-        label: label.to_string(),
-        total_words: 0,
-        measured_words: 0,
-        subsampled: false,
-        excluded: Vec::new(),
-        expect_fail_count: 0,
-        expect_skip_count: 0,
-        strategies,
-        exact_count: None,
-    }
-}
-
-/// `Ok` means the candidate's network was actually built; only CapabilityRejected/BuildFailed/Unsupported count against it.
-fn compile_verdict(certification: &Certification) -> Result<(), String> {
-    match certification {
-        Certification::CapabilityRejected { reason }
-        | Certification::BuildFailed { reason }
-        | Certification::Unsupported { reason } => Err(reason.clone()),
-        _ => Ok(()),
-    }
-}
-
-fn subtract_divergence(
-    after: IdentityDivergence,
-    before: IdentityDivergence,
-) -> IdentityDivergence {
-    IdentityDivergence {
-        occurrences_compared: after
-            .occurrences_compared
-            .saturating_sub(before.occurrences_compared),
-        occurrences_not_compared: after
-            .occurrences_not_compared
-            .saturating_sub(before.occurrences_not_compared),
-        oracle_identities: after
-            .oracle_identities
-            .saturating_sub(before.oracle_identities),
-        candidate_identities: after
-            .candidate_identities
-            .saturating_sub(before.candidate_identities),
-        oracle_only_identities: after
-            .oracle_only_identities
-            .saturating_sub(before.oracle_only_identities),
-        candidate_only_identities: after
-            .candidate_only_identities
-            .saturating_sub(before.candidate_only_identities),
-        occurrences_with_candidate_only: after
-            .occurrences_with_candidate_only
-            .saturating_sub(before.occurrences_with_candidate_only),
-        oracle_admission_key_collisions: after
-            .oracle_admission_key_collisions
-            .saturating_sub(before.oracle_admission_key_collisions),
-        candidate_admission_key_collisions: after
-            .candidate_admission_key_collisions
-            .saturating_sub(before.candidate_admission_key_collisions),
-    }
-}
-
-/// Raw pre-confirm proposals (admission key: morpheme ids + root index) not surviving into the
-/// confirmed output for one word. See docs/research/backend-measurement-instruments.md.
-fn proposals_pruned_by_confirm(evidence: &pg_foma::backend_runtime::WordEvidence) -> u64 {
-    let mut actual_keys: BTreeMap<(Vec<u32>, i32), usize> = BTreeMap::new();
-    for a in &evidence.actual {
-        *actual_keys
-            .entry((a.morpheme_ids.clone(), a.root_morpheme_index))
-            .or_default() += 1;
-    }
-    let mut proposed_keys: BTreeMap<(Vec<u32>, i32), usize> = BTreeMap::new();
-    for c in &evidence.proposals {
-        let key = (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
-        *proposed_keys.entry(key).or_default() += 1;
-    }
-    let mut pruned = 0u64;
-    for (key, proposed_count) in &proposed_keys {
-        let actual_count = actual_keys.get(key).copied().unwrap_or(0);
-        pruned = pruned.saturating_add((*proposed_count).saturating_sub(actual_count) as u64);
-    }
-    pruned
-}
-
-fn print_headline(rows: &[FixtureRow], dist: &[usize; 4], unmeasurable: usize) {
+fn print_headline(rows: &[Row], dist: &[usize; 4], unmeasurable: usize, excluded: &[Excluded]) {
     println!(
         "\n================ HEADLINE: oracle-exact confirmed output, per fixture ================"
     );
-    println!("fixtures discovered: {}", rows.len());
+    println!("fixtures discovered and scored: {}", rows.len());
+    println!("fixtures excluded (expect_crash): {}", excluded.len());
     println!("fixtures measurable: {}", rows.len() - unmeasurable);
     for k in (0..=3).rev() {
         println!("  supported by {k}/3 backends: {} fixture(s)", dist[k]);
@@ -431,49 +228,62 @@ fn print_headline(rows: &[FixtureRow], dist: &[usize; 4], unmeasurable: usize) {
     println!("  unmeasurable (see COULD NOT MEASURE section below): {unmeasurable} fixture(s)");
     if dist[0] > 0 {
         println!("\n  fixtures supported by 0/3 backends:");
-        for row in rows.iter().filter(|r| r.exact_count == Some(0)) {
-            println!("    {}", row.label);
+        for row in rows.iter().filter(|r| r.scored.exact_count == Some(0)) {
+            println!("    {}", row.scored.label);
         }
     }
 }
 
-fn print_full_table(rows: &[FixtureRow]) {
+fn print_full_table(rows: &[Row]) {
     println!("\n================ FULL TABLE ================");
     println!(
         "columns per strategy: compiles(y/n) / recall(oracle-only,DEFECT) / \
          soundness(candidate-only,DEFECT) / legal-overgen(informational) / exact(y/n)"
     );
     for row in rows {
+        let f = &row.scored;
         println!(
             "\n{} [{} words measured of {} total{}, {} excluded, {} expect_fail, {} expect_skip]",
-            row.label,
-            row.measured_words,
+            f.label,
+            f.measured_words,
             row.total_words,
             if row.subsampled { ", SUBSAMPLED" } else { "" },
-            row.excluded.len(),
+            f.excluded_words.len(),
             row.expect_fail_count,
             row.expect_skip_count
         );
-        for s in &row.strategies {
-            let compiles = if s.compiles.is_ok() { "y" } else { "n" };
-            match &s.could_not_measure {
-                Some(reason) => {
+        for cell in &f.cells {
+            let compiles = if cell.compiled() { "y" } else { "n" };
+            match &cell.outcome {
+                CellOutcome::Refused { reason, .. } => {
                     println!(
                         "  {:?}: compiles={compiles} certification={} COULD NOT MEASURE -- {reason}",
-                        s.strategy, s.certification_debug
+                        cell.strategy, cell.certification_debug
                     );
                 }
-                None => {
+                CellOutcome::Unmeasurable { reason } => {
                     println!(
-                        "  {:?}: compiles={compiles} certification={} recall={} soundness={} \
-                         legal_overgen={} words_measured={} exact={}",
-                        s.strategy,
-                        s.certification_debug,
-                        s.recall_oracle_only,
-                        s.soundness_candidate_only,
-                        s.legal_overgeneration,
-                        s.words_measured.unwrap_or(0),
-                        s.exact
+                        "  {:?}: compiles={compiles} certification={} COULD NOT MEASURE -- {reason}",
+                        cell.strategy, cell.certification_debug
+                    );
+                }
+                CellOutcome::OracleExact | CellOutcome::CompilesButMisses { .. } => {
+                    let recall = match cell.outcome {
+                        CellOutcome::CompilesButMisses { recall_deficit } => recall_deficit,
+                        _ => 0,
+                    };
+                    let soundness = cell
+                        .divergence
+                        .map(|d| d.candidate_only_identities)
+                        .unwrap_or(0);
+                    println!(
+                        "  {:?}: compiles={compiles} certification={} recall={recall} \
+                         soundness={soundness} legal_overgen={} words_measured={} exact={}",
+                        cell.strategy,
+                        cell.certification_debug,
+                        cell.legal_overgeneration.unwrap_or(0),
+                        cell.words_measured.unwrap_or(0),
+                        cell.exact()
                     );
                 }
             }
@@ -481,18 +291,34 @@ fn print_full_table(rows: &[FixtureRow]) {
     }
 }
 
-fn print_could_not_measure(rows: &[FixtureRow]) {
+fn print_could_not_measure(rows: &[Row]) {
     let mut any = false;
     println!("\n================ CELLS THAT COULD NOT BE MEASURED ================");
     for row in rows {
-        for s in &row.strategies {
-            if let Some(reason) = &s.could_not_measure {
+        for cell in &row.scored.cells {
+            let reason = match &cell.outcome {
+                CellOutcome::Refused { reason, .. } => Some(reason),
+                CellOutcome::Unmeasurable { reason } => Some(reason),
+                _ => None,
+            };
+            if let Some(reason) = reason {
                 any = true;
-                println!("{} [{:?}]: {reason}", row.label, s.strategy);
+                println!("{} [{:?}]: {reason}", row.scored.label, cell.strategy);
             }
         }
     }
     if !any {
         println!("none -- every (fixture, backend) cell was measured");
+    }
+}
+
+fn print_excluded(excluded: &[Excluded]) {
+    println!("\n================ FIXTURES EXCLUDED (expect_crash) ================");
+    if excluded.is_empty() {
+        println!("none");
+        return;
+    }
+    for ex in excluded {
+        println!("{}: {}", ex.label, ex.reason);
     }
 }

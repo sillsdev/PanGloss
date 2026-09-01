@@ -306,24 +306,12 @@ fn build_root_allomorph(
         return Err(format!("root allomorph shape {form:?} is all boundaries"));
     }
 
-    let mut environments = Vec::new();
-    for env_guid in &allo.environments {
-        let Some(env) = ctx.env_by_guid.get(env_guid.as_str()) else {
-            continue;
-        };
-        // Invalid environment: HCLoader logs and drops just this one context.
-        match super::environment::parse_environment(&env.representation, ctx) {
-            Ok((left, right)) => environments.push(crate::model::EnvironmentDef {
-                require: true,
-                left,
-                right,
-            }),
-            Err(e) => warnings.push(format!(
-                "allomorph {:?}: invalid environment {:?} ({}): {e}; treated as absent",
-                allo.guid, env.guid, env.representation
-            )),
-        }
-    }
+    let environments = super::environment::resolve_environment_defs(
+        allo.environments.iter().map(String::as_str),
+        ctx,
+        &allo.guid,
+        warnings,
+    );
 
     let stem_name = allo
         .stem_name

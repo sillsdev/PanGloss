@@ -115,6 +115,40 @@ Two rules follow, and the second is the one people skip:
    while announcing the wrong thing. A plausible-looking result is not evidence the fast path ran.
    Check the count deleted, the bytes on disk, the fire-count of the branch you think you took.
 
+## The oracle hierarchy: C# hc.dll is the founding oracle; HC-Rust is a port under test
+
+Two implementations of HermitCrab exist in this project, and they are not peers.
+
+- **The founding oracle** is `SIL.Machine.Morphology.HermitCrab`'s C# implementation (`hc.dll`),
+  exercised via its dotnet tooling per `machine/conformance/PROTOCOL.md` — on this machine, a built
+  `hc-conformance.exe` sits at
+  `C:\Users\johnm\Documents\repos\machine\src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\Release\net10.0\`
+  (dotnet 10 on PATH; verified present). Every conformance fixture's committed `words.yaml` ground
+  truth is authored from this oracle and human-accepted — never generated and never blindly
+  regenerated (ADR-0001, "Supported... is mechanically gated on passing conformance coverage").
+- **`pg_parse::Morpher` (HC-Rust) is a port under test.** It stands in for the founding oracle only
+  when the oracle is unavailable, and a fixture authored that way records HC-Rust's own behavior,
+  not correctness. If HC-Rust diverges from C#, an HC-Rust-only fixture enshrines the divergence AS
+  the expected answer — a silent wrong-by-construction result indistinguishable from a real one
+  until someone oracle-diffs it.
+- **Where the oracle itself is unverified for a configuration, that configuration is unsupported by
+  definition** — there is no correct behavior to check a Backend's Construct disposition against
+  (ADR-0001:51-54, e.g. simultaneous-subrule overlap, never pinned against `hc.dll`).
+
+**This has already bitten.** `rust/crates/pg-rules/src/validity.rs` (W3.3): the single-merged-morph-
+record approximation mis-anchored environment checks on discontinuous morphs. Pre-fix, Rust accepted
+`xpitz`/`muat`; the C# oracle rejects both, because the environment check fails at the morph's
+*second* piece. The fixture that caught it (`rust/conformance/allomorphy/discontinuous-env/`) was
+oracle-diffed — an HC-Rust-only fixture over the same words would have certified the bug as a
+Construct witness.
+
+**Operationally:** expectations for a new or updated staged fixture (`conformance-staging/**`) must
+be verified against the C# founding oracle when it is available on this machine — it is, at the path
+above. A fixture that cannot be oracle-verified (oracle load failure, unreachable checkout, etc.)
+must say so explicitly in its `words.yaml`/`STAGING.md`, naming HC-Rust as the fixture's oracle of
+record until re-verified. Silence reads as "verified against hc.dll" and is the bug, not a
+convenience — see `.claude/skills/conformance-grammars/SKILL.md`'s "Oracle discipline" step.
+
 ## Managed build commands (required for agent workflows)
 
 All PanGloss Rust builds and tests in agent workflows MUST go through the managed entry point

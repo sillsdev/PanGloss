@@ -1,3 +1,4 @@
+# oracle-provenance: rust-only
 language: RightToLeftCrossTableSegmentsEnvironment
 inspired_by: ["synthetic cross-table right-to-left Segments environment probe"]
 sources:

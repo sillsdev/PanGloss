@@ -41,11 +41,13 @@ the local duplicate is removed. FST/package/resource/diagnostic fixtures are
 3. **Default-suite/CI fit**: staged fixtures are committed and small, so they run in the
    default <60s suite and in CI (unlike the `samples/data`-gated tests). This gives every
    bug-fix-with-fixture immediate CI coverage on every push, pre-machine, pre-merge-to-master.
-4. **Oracle discipline**: `expected.tsv` ground truth should come from the C# founding oracle
-   (machine's own tooling) when available; when a fixture is authored against pangloss instead
-   (e.g. pinning a foma-proposer bug where pangloss full engine IS the oracle), `STAGING.md` must
-   say so — machine acceptance re-verifies against the founding oracle, and any divergence
-   found there is itself a finding.
+4. **Oracle discipline** (see CLAUDE.md's "The oracle hierarchy" section): the C# founding oracle
+   (machine's own tooling) is the only source of ground truth; `pangloss` (HC-Rust) is a port under
+   test, never a peer source of truth. `expected.tsv` ground truth should come from the C# founding
+   oracle when available; when a fixture is authored against pangloss instead (e.g. pinning a
+   foma-proposer bug where pangloss full engine IS the oracle), `STAGING.md` must say so — silence
+   reads as C#-verified and is the defect. Machine acceptance re-verifies against the founding
+   oracle, and any divergence found there is itself a finding.
 5. **Upstream-candidate threshold**: a semantic fixture becomes `upstream_candidate` only when it
    isolates one HermitCrab behavior, records the pinned Machine revision and evidence method
    (existing Machine test, direct source audit, or source-only C# utility), and checks both Rust HC

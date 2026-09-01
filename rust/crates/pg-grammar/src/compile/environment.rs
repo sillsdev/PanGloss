@@ -1,8 +1,35 @@
 //! Environment-string tokenization and pattern building (`TokenizeContext`/`LoadPatternNodes`/`LoadEnvironmentPattern`/`SplitEnvironment`, HCLoader.cs:2260-2457): re-tokenizes and validates a hand-authored string like `/_[UnVDent]` at compile time exactly as HCLoader does at load time -- lazily and tolerantly, since a malformed environment is a warning, never a hard failure.
 
-use crate::model::{AnchorSide, Pattern, PatternNode, SimpleContext};
+use crate::model::{AnchorSide, EnvironmentDef, Pattern, PatternNode, SimpleContext};
 
 use super::Ctx;
+
+/// Resolves environment guids into `EnvironmentDef`s, dropping (with a warning) any that fail to resolve or parse; shared by `build_root_allomorph` and `build_circumfix_allomorphs`.
+pub(crate) fn resolve_environment_defs<'a>(
+    guids: impl IntoIterator<Item = &'a str>,
+    ctx: &Ctx,
+    allo_guid: &str,
+    warnings: &mut Vec<String>,
+) -> Vec<EnvironmentDef> {
+    let mut environments = Vec::new();
+    for env_guid in guids {
+        let Some(env) = ctx.env_by_guid.get(env_guid) else {
+            continue;
+        };
+        match parse_environment(&env.representation, ctx) {
+            Ok((left, right)) => environments.push(EnvironmentDef {
+                require: true,
+                left,
+                right,
+            }),
+            Err(e) => warnings.push(format!(
+                "allomorph {allo_guid:?}: invalid environment {:?} ({}): {e}; treated as absent",
+                env.guid, env.representation
+            )),
+        }
+    }
+    environments
+}
 
 /// `SplitEnvironment` + `IsValidEnvironment` + `LoadEnvironmentPattern` folded into one tokenize-and-build pass: parses `/left_right` into `(leftPattern, rightPattern)`, `Err` for anything `IsValidEnvironment` would reject so the caller can fall back to treating the environment as absent.
 pub(crate) fn parse_environment(

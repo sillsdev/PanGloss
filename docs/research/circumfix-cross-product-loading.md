@@ -41,24 +41,49 @@ lhs = [Pattern { nodes: any_plus }]
 rhs = [ insert("kaa+"), Copy(PartRef::Input(0)), insert("+iyE") ]
 ```
 
-## Why a conditioned half is refused instead
+## Corrected: a conditioned half IS representable (the earlier reasoning above was backwards)
 
-A half may carry a `PhoneEnvRC` environment. Per-side conditioning **cannot be represented**, and
-this is proven rather than assumed -- the same fixture's "Deviations from the original sketch"
-records two attempts, both abandoned against the real `pg_parse::Morpher`:
+The two "abandoned" attempts below were real, and their empirical failures were real, but the
+*theory* attributed to attempt 2 had the anchoring direction backwards, and the fix follows directly
+from reading the actual check rather than the module doc's summary of it.
 
-1. LHS-embedded `SegmentNaturalClass` constraints on the stem's first/last segment: every subrule
-   with a real class constraint failed to parse at all, while the unconstrained one parsed.
-2. `RequiredEnvironments`/`LeftEnvironment`/`RightEnvironment` on an unsplit stem. `pg-rules/src/
-   validity.rs`'s W3.3 discontinuous-morph fix explains why this cannot work: a rule inserting both a
-   prefix AND a suffix produces **two separate contiguous `MorphRecord` runs for the same
-   allomorph**, and `environments_ok` is checked independently against each run's own span. A
-   `RightEnvironment` meant to gate the prefix side is also evaluated against the suffix run --
-   checking past the end of the word -- and fails there. There is no way to say "this environment
-   applies to only one of a circumfix's two pieces".
+`pg-rules/src/validity.rs`'s `environments_ok` (W3.3) is `envs.iter().any(...)` -- **at least one**
+of an allomorph's declared environments must hold at a given run, evaluated independently per
+contiguous `MorphRecord` run, and `allomorphs_valid_impl` requires **every** run to pass (an AND
+across runs, an OR within one run's env list). A circumfix's combined allomorph produces exactly two
+runs (the leading insert, the trailing insert; W3.3's own per-contiguous-run split). So the correct
+encoding is **the union of both halves' environments on one allomorph**, not a single one-sided
+environment:
 
-Attaching the environment anyway would produce a rule that silently never fires: under-generation,
-which ADR-0001 forbids. So the loader refuses and says so.
+- At the prefix run, only the *prefix* half's own environment can ever hold (there is nothing to the
+  run's other side to satisfy a suffix-side environment) -- so the union's `.any()` reduces to
+  exactly the prefix's own condition there.
+- At the suffix run, symmetrically, only the suffix half's environment can hold.
+- Both runs must pass (the across-run AND), which is exactly "stem starts with X AND stem ends with
+  Y" -- the genuinely combinatorial semantics the Aweti pairing needs.
+
+Attempt 2's failure was authoring only **one** side's environment on the combined allomorph (e.g. a
+lone `RightEnvironment` meant to gate the prefix side) rather than the union of both. With only one
+environment declared, `.any()` has nothing else to fall back on at the *other* run, so it correctly
+(not backwards) reports no satisfier there -- the fixture's failure was real, but the conclusion
+drawn from it ("there is no way to declare this applies to only one piece") does not follow: the
+mechanism does not need a way to scope an environment to one piece, because each run already sees
+only its own neighboring context, and a union naturally partitions itself across runs by which side
+each piece touches. `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` now builds this
+union directly (calling the same guid-to-`EnvironmentDef` conversion `build_root_allomorph` already
+used, extracted into `compile/environment.rs::resolve_environment_defs`), and
+`conformance-staging/edge-cases/circumfix-conditioned-halves/` pins the corrected mechanism -- see
+its own STAGING.md for the differential-loading caveat (that fixture, and every
+`conformance-staging`/`machine/conformance` fixture, loads via `pg_grammar::load`'s native HC-XML
+path, which never reaches `build_circumfix_allomorphs` at all; that function is reachable only from
+`pg_grammar::compile_project`'s `Snapshot`/fwdata-import path, so the regression pin for this
+specific function lives in `pg-grammar/src/compile/tests.rs` instead).
+
+`positions` (`MoAffixAllomorph.PositionRS`) is unioned in exactly the same way: C#'s
+`HCLoader.GetAffixAllomorphEnvironments` (HCLoader.cs:1167-1170) concatenates `PositionRS` with
+`PhoneEnvRC` into one `Environments` collection before any of this checking happens, and the
+non-circumfix loader already does the same (`build_affix_allomorphs_for`'s `combined_env_guids`), so
+there is a real C# analog and no separate refusal is warranted for it.
 
 ## What the reference grammars actually contain
 
@@ -66,7 +91,7 @@ which ADR-0001 forbids. So the loader refuses and says so.
 |---|---|---|---|---|
 | Mbugwe | `577b6780` | `kaa` x `iyE` | no | **built**, 1x1 |
 | Mbugwe | `ebd1bcb7` | `a` x `iyE` | no | **built**, 1x1 |
-| Aweti | `1efc0d2b` | `t`,`i` x `tu`,`ytu` | **yes** | refused |
+| Aweti | `1efc0d2b` | `t`,`i` x `tu`,`ytu` | **yes** | **built**, 2x2 (union of per-side environments) |
 
 Aweti's is the interesting one, and it is genuinely the hard case -- each half is conditioned on the
 side that faces the stem:
@@ -79,19 +104,51 @@ side that faces the stem:
 | suffix | `ytu` | after consonant `/[C]_` |
 
 That is a 2x2 whose cells are not independent choices, exactly the "genuinely combinatorial" framing
-the fixture's own notes use. Representing it needs a way to scope an environment to one piece of a
-discontinuous morph, which W3.3 says does not exist today.
+the fixture's own notes use. Each cell's combined allomorph carries the union of its own prefix
+half's and suffix half's environments; per the corrected reading above, no scoping mechanism is
+needed because each of the two runs a cell produces only ever sees its own side's context.
 
 **Caution for the next reader:** these environments are NOT visible as `PhoneEnvRC` elements in a
 naive window-grep of the `MoAffixAllomorph` records in `aweti.fwdata` -- that search returns nothing
 and is misleading. Read the imported snapshot (`pangloss import`) instead; the loader reads the
 snapshot, so the snapshot is the authority.
 
-## The open gap
+## A separate, oracle-confirmed limitation: the disjunctive-allomorph re-check
 
-The refusal is a WARNING, and `Grammar` carries no record of what the loader dropped. So
-`pangloss fst-health` still reports `representability=WithinLimits` for Aweti while a morphological
-rule it needs is absent -- a control that cannot act, in the loader rather than the envelope.
+Fixing the refusal is necessary but **not sufficient** to make a full N-way cross product (N>1
+pairings sharing a literal half) analyze every cell correctly, in EITHER engine. `conformance-
+staging/edge-cases/circumfix-conditioned-halves/` pins this empirically: a 2x2 cross product (2
+prefixes x 2 suffixes, each pairing's combined allomorph correctly carrying the union of its own two
+environments) built from 4 sibling allomorphs of ONE rule only analyzes its FIRST-declared cell;
+oracle-checked (`rust/tools/oracle-conformance.ps1`) against the C# founding oracle, the other three
+cells fail **identically in C# and in `pg_parse::Morpher`** -- this is not a Rust bug.
+
+The mechanism is `pg-rules/src/validity.rs`'s disjunctive-allomorph re-check (W3.2, ported from
+`Allomorph.cs:127-152`): for each morph occurrence of the CHOSEN allomorph, every earlier-indexed
+"passed-over" allomorph of the same rule is rejected as a competing analysis unless it free-fluctuates
+with the chosen one OR its own environments fail to hold AT THAT SAME MORPH SPAN. Two cross-product
+cells that share a literal half (e.g. both use prefix "t") by construction share that half's own
+environment too, so at the shared half's run, the earlier-declared sibling's per-run check ALSO
+passes -- and since the two cells' FULL environment sets differ (their other, non-shared half
+differs), they do not free-fluctuate, so the later-declared cell is rejected. This is a real property
+of the algorithm, faithfully ported, not an anchoring bug: it fires per actual morph occurrence of the
+chosen candidate, and a multi-run (circumfix) allomorph's "other" run -- where the earlier sibling's
+own competing material would need to sit -- never actually exists in the analyzed word, so there is no
+way for that run to independently refute the earlier sibling.
+
+Whether the real Aweti FieldWorks entry actually hits this (i.e. whether the loader ever puts more
+than one T3.3-conditioned pairing sharing a literal half into the same rule, and in what declaration
+order) is **not yet verified** -- this finding is pinned on a synthetic grammar, per this repo's
+synthetic-data rule, and generalizing it to Aweti's specific data needs its own investigation.
+
+## The open gap (narrowed, not closed)
+
+The environment-carrying-half refusal this section used to describe is gone: `build_circumfix_
+allomorphs` no longer drops a conditioned pairing. The remaining refusal in that function --
+`prefixes.is_empty() || suffixes.is_empty()` (an entry with no loadable half on one side) -- is still
+a WARNING with no record on `Grammar` of what was dropped, so `pangloss fst-health` can still report
+`representability=WithinLimits` while a rule that needed a missing half is silently absent -- a
+control that cannot act, in the loader rather than the envelope.
 
 Closing it means giving `Grammar` a dropped-construct record the capability layer can read, and a
 predicate that turns it into `CannotRepresent`. `Grammar` has ~20 struct-literal construction sites

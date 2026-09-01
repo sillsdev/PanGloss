@@ -1,0 +1,63 @@
+# oracle-provenance: founding-oracle machine-commit=caa4ddde8782557c6fb58cac57e4761ffcafc2a6 verified-date=2026-08-31
+# rust/tools/oracle-conformance.ps1 ran hc-conformance.exe self-check (C# founding oracle) directly
+# against this fixture's grammar.xml + words.yaml: PASS -- every word's signature matched. See
+# STAGING.md "Oracle discipline" for the exact command and full output.
+language: CircumfixConditionedHalves
+inspired_by: ["synthetic circumfix cross-product with live per-side V/C conditioning (not modeling any real language)"]
+sources:
+  - "docs/research/circumfix-cross-product-loading.md"
+requires: []
+words:
+  - word: aa
+    note: "ROOTAA bare, no mrCirc applied -- a plain control."
+    parses:
+      - signature: "ROOTAA|aa"
+        rules: []
+
+  - word: puaamo
+    note: "ROOTAA + mrCirc's subVV (prefix pu-, suffix -mo) -- V-initial, V-final stem; subVV is declared first, so it has no earlier disjunctive sibling to conflict with."
+    parses:
+      - signature: "CIRC+ROOTAA|puaamo"
+        rules: [mrCirc]
+
+  - word: puabzo
+    note: >-
+      ROOTAB wrapped in subVC's literal affixes (pu-...-zo): a V-initial, C-final stem, satisfying
+      subVC's own two environments individually. Oracle-confirmed (both C# and pg_parse::Morpher)
+      that this still does NOT parse: subVC shares its literal prefix "pu" with subVV (declared
+      earlier), and at the prefix run subVV's own Right(V) environment is ALSO satisfied (the
+      stem's first segment is the only thing either environment inspects there) with a
+      non-free-fluctuating full environment set, so the disjunctive-allomorph re-check
+      (pg-rules/src/validity.rs, ported from Allomorph.cs:127-152) rejects it. See STAGING.md.
+    expect_fail: true
+
+  - word: kibamo
+    note: >-
+      ROOTBA wrapped in subCV's literal affixes (ki-...-mo): a C-initial, V-final stem. Same
+      oracle-confirmed disjunctive-allomorph rejection as 'puabzo', via its shared suffix "mo"
+      with the earlier-declared subVV. See STAGING.md.
+    expect_fail: true
+
+  - word: kibbzo
+    note: >-
+      ROOTBB wrapped in subCC's literal affixes (ki-...-zo): a C-initial, C-final stem. Same
+      oracle-confirmed disjunctive-allomorph rejection, via shared halves with the three
+      earlier-declared subrules. See STAGING.md.
+    expect_fail: true
+
+  - word: pubbmo
+    note: >-
+      Over-generation control: subVV's literal affixes (pu-...-mo) wrapped around a C-initial,
+      C-final stem, which satisfies neither of subVV's own environments -- must not parse.
+    expect_fail: true
+
+  - word: puabmo
+    note: >-
+      Over-generation control: subVV's literal affixes (pu-...-mo) wrapped around a V-initial,
+      C-final stem -- only ONE of subVV's two environments holds, so this must still fail (proves
+      the per-run AND, not merely "one side is enough").
+    expect_fail: true
+
+  - word: aamo
+    note: "Structurally invalid control -- missing the required leading prefix material entirely."
+    expect_fail: true

@@ -751,6 +751,22 @@ pub(crate) fn surface_variants(
     table: &CharDefTable,
     text: &str,
 ) -> Option<(Vec<String>, VariantLimit)> {
+    surface_variants_impl(table, text, false)
+}
+
+/// `surface_variants`, but a matched `Boundary`-kind character branches BOTH kept and dropped, mirroring `pg_shape`'s own OPTIONAL boundary-node flag.
+fn surface_variants_boundary_optional(
+    table: &CharDefTable,
+    text: &str,
+) -> Option<(Vec<String>, VariantLimit)> {
+    surface_variants_impl(table, text, true)
+}
+
+fn surface_variants_impl(
+    table: &CharDefTable,
+    text: &str,
+    boundaries_optional: bool,
+) -> Option<(Vec<String>, VariantLimit)> {
     let normalized = pg_grammar::nfd::nfd(text);
     let chars: Vec<char> = normalized.chars().collect();
     let mut variants: Vec<String> = vec![String::new()];
@@ -763,9 +779,18 @@ pub(crate) fn surface_variants(
             let candidate: String = chars[i..i + j].iter().collect();
             if let Some(cd_id) = table.lookup_nfd(&candidate) {
                 let cd = table.get(cd_id);
-                if cd.kind() == CharDefKind::Segment {
-                    let reps = cd.representations_nfd();
-                    if reps.len() <= 1 {
+                let branch_reps: Option<Vec<&str>> = if cd.kind() == CharDefKind::Segment {
+                    Some(cd.representations_nfd().iter().map(String::as_str).collect())
+                } else if cd.kind() == CharDefKind::Boundary && boundaries_optional {
+                    let mut reps: Vec<&str> =
+                        cd.representations_nfd().iter().map(String::as_str).collect();
+                    reps.push("");
+                    Some(reps)
+                } else {
+                    None
+                };
+                if let Some(reps) = branch_reps {
+                    if reps.len() == 1 && reps[0] == candidate {
                         // Common case: append in place, no reallocation of the variant set.
                         for v in &mut variants {
                             v.push_str(&candidate);
@@ -776,7 +801,7 @@ pub(crate) fn surface_variants(
                             Vec::with_capacity(variants.len().saturating_mul(reps.len()));
                         let mut grown = 0usize;
                         'grow: for v in &variants {
-                            for rep in reps {
+                            for rep in &reps {
                                 let mut nv = v.clone();
                                 nv.push_str(rep);
                                 grown = grown.saturating_add(nv.len());
@@ -822,10 +847,26 @@ fn surface_variants_concat(
     table: &CharDefTable,
     texts: &[&str],
 ) -> Option<(Vec<String>, VariantLimit)> {
+    surface_variants_concat_impl(table, texts, surface_variants)
+}
+
+/// `surface_variants_concat`, with every piece run through `surface_variants_boundary_optional` instead.
+fn surface_variants_concat_boundary_optional(
+    table: &CharDefTable,
+    texts: &[&str],
+) -> Option<(Vec<String>, VariantLimit)> {
+    surface_variants_concat_impl(table, texts, surface_variants_boundary_optional)
+}
+
+fn surface_variants_concat_impl(
+    table: &CharDefTable,
+    texts: &[&str],
+    per_piece: impl Fn(&CharDefTable, &str) -> Option<(Vec<String>, VariantLimit)>,
+) -> Option<(Vec<String>, VariantLimit)> {
     let mut variants: Vec<String> = vec![String::new()];
     let mut limit = VariantLimit::Complete { warn: false };
     for text in texts {
-        let (piece_variants, piece_limit) = surface_variants(table, text)?;
+        let (piece_variants, piece_limit) = per_piece(table, text)?;
         limit = limit.and(piece_limit);
         let mut next =
             Vec::with_capacity(variants.len().saturating_mul(piece_variants.len().max(1)));
@@ -2470,7 +2511,11 @@ fn emit_rule_allomorphs(
             && role == zone_role
             && !rhs_drops_lhs_material(allo);
         let target_for = |spelling: &str| {
-            if can_repeat && !spelling.is_empty() {
+            // A boundary-kept spelling (surface_variants_boundary_optional) can be non-empty text that still cleans up to nothing; treat it like the empty spelling this self-loop gate already guards against.
+            let cleans_to_nothing = spelling.is_empty()
+                || surface_variants(table, spelling)
+                    .is_some_and(|(variants, _)| variants.iter().all(String::is_empty));
+            if can_repeat && !cleans_to_nothing {
                 repeat_target.unwrap_or(next)
             } else {
                 next
@@ -2540,7 +2585,7 @@ fn emit_rule_allomorphs(
             }
             InsertText::Text { texts, .. } => {
                 let mut emitted_any = false;
-                match surface_variants_concat(table, &texts) {
+                match surface_variants_concat_boundary_optional(table, &texts) {
                     Some((variants, limit)) => {
                         if limit.drops_spellings() {
                             uncovered.push(UncoveredItem {

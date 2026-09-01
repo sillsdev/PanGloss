@@ -1,3 +1,8 @@
+# oracle-provenance: founding-oracle machine-commit=caa4ddde8782557c6fb58cac57e4761ffcafc2a6 verified-date=2026-08-31
+# RECONCILED 2026-08-31: rust/tools/oracle-conformance.ps1's hc-conformance.exe self-check PASSED
+# against every word below (signature AND traced rules: both matched). Any older "NOT the C#
+# founding oracle" / "Oracle: pangloss" sentence elsewhere in this file's own header describes how
+# it was originally authored, not its current verification status -- superseded by the marker above.
 # Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment. Oracle:
 # C# founding oracle (SIL.Machine.Morphology.HermitCrab.Tool / hc.dll, via
 # machine/conformance/adapters/hc-dotnet-wrapper.sh) AND pangloss (`pg_parse::Morpher`, driven

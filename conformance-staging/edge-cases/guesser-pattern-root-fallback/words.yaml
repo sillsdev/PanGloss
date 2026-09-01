@@ -1,3 +1,4 @@
+# oracle-provenance: rust-only
 language: GuesserPatternRootFallback
 inspired_by: ["synthetic guesser probe (not modeling any real language)"]
 sources:

@@ -1,4 +1,4 @@
-//! Builds one `AffixProcessRuleDef` per (entry, MSA) pair from concatenative and `MoAffixProcess`-style allomorphs; circumfix cross-products are not implemented (warned, no rule).
+//! Builds one `AffixProcessRuleDef` per (entry, MSA) pair from concatenative, `MoAffixProcess`-style, and circumfix-cross-product allomorphs.
 
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Msa, RuleMapping};
 use pg_snapshot::morphology::MorphType;
@@ -335,8 +335,7 @@ fn is_circumfix_suffix_half(mt: MorphType) -> bool {
     )
 }
 
-/// A circumfix entry's allomorph set: one per prefix-half x suffix-half pairing, or empty when a half is conditioned.
-/// See docs/research/circumfix-cross-product-loading.md.
+/// One allomorph per prefix-half x suffix-half pairing, environments/positions unioned from both halves; see docs/research/circumfix-cross-product-loading.md.
 fn build_circumfix_allomorphs(
     entry: &LexEntry,
     allos: &[&Allomorph],
@@ -368,18 +367,6 @@ fn build_circumfix_allomorphs(
         return Vec::new();
     }
 
-    let conditioned = |a: &Allomorph| !a.environments.is_empty() || !a.positions.is_empty();
-    if prefixes.iter().any(|a| conditioned(a)) || suffixes.iter().any(|a| conditioned(a)) {
-        warnings.push(format!(
-            "circumfix entry {:?}: a half carries a phonological environment, which cannot be \
-             represented -- a both-sides insert produces two MorphRecord runs and each is checked \
-             against its own span, so the environment would also be tested past the end of the \
-             suffix and never fire; no rule is built",
-            entry.guid
-        ));
-        return Vec::new();
-    }
-
     let mut out = Vec::new();
     for prefix in &prefixes {
         let prefix_form =
@@ -402,11 +389,24 @@ fn build_circumfix_allomorphs(
                     continue;
                 }
             };
+            // Union of both halves' conditioning, `positions` included per `combined_env_guids` below.
+            let mut environments = super::environment::resolve_environment_defs(
+                prefix.environments.iter().chain(&prefix.positions).map(String::as_str),
+                ctx,
+                &prefix.guid,
+                warnings,
+            );
+            environments.extend(super::environment::resolve_environment_defs(
+                suffix.environments.iter().chain(&suffix.positions).map(String::as_str),
+                ctx,
+                &suffix.guid,
+                warnings,
+            ));
             out.push((
                 prefix.guid.clone(),
                 AffixAllomorphDef {
                     id: AllomorphId(0),
-                    environments: Vec::new(),
+                    environments,
                     co_occurrence: Vec::new(),
                     required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
                     vars: crate::model::VarTable::default(),

@@ -1,3 +1,4 @@
+# oracle-provenance: rust-only
 # Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment.
 #
 # ORACLE: the C# FOUNDING ORACLE (hc.dll), not pangloss. This is the FIRST fixture in this repo whose

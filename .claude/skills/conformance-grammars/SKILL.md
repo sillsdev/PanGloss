@@ -135,11 +135,15 @@ or a second `words.yaml` parser — extend that crate instead.
      `parses:` list needs that same repeat count, or treat the repeat as a signal to make templates
      self-contained instead (probably the better fix — a fixture whose own words.yaml is full of
      triplicated identical entries is hard for a future reader to trust).
-4. **Oracle discipline** (`docs/conformance-staging-plan.md`): ground truth SHOULD come from the C#
-   founding oracle (`SIL.Machine.Morphology.HermitCrab.Tool`) when available. When you author against
-   `pangloss` instead, **say so explicitly** in the fixture's `STAGING.md` (staged fixtures) or PR
-   description (direct upstream contributions) — `pangloss` IS the oracle for that fixture until
-   re-verified. Never claim C#-oracle provenance you didn't actually run.
+4. **Oracle discipline** (`docs/conformance-staging-plan.md`; see CLAUDE.md's "The oracle hierarchy"
+   for why this is a hard rule, not a preference): the C# founding oracle
+   (`SIL.Machine.Morphology.HermitCrab.Tool`) is the only source of ground truth. `pangloss`
+   (`pg_parse::Morpher`, HC-Rust) is a port under test and a stand-in only when the founding oracle
+   is unavailable — never a source of truth in its own right. Ground truth SHOULD come from the C#
+   oracle when available. When you author against `pangloss` instead, **say so explicitly** in the
+   fixture's `STAGING.md` (staged fixtures) or PR description (direct upstream contributions) —
+   `pangloss` IS the fixture's oracle of record until re-verified, and that fixture proves nothing
+   about correctness until it is. Never claim C#-oracle provenance you didn't actually run.
 
    Authoring against `pangloss` is still the common case, but the reason has changed and the old one
    is worth un-learning: it is a CHECKOUT question now, not a toolchain question. This skill used to

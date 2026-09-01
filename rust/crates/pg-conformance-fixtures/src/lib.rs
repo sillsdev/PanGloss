@@ -90,6 +90,49 @@ impl FixtureRef {
         serde_yaml::from_str(&text)
             .unwrap_or_else(|e| panic!("{}: parse words.yaml: {e}", self.dir.display()))
     }
+
+    /// This fixture's `# oracle-provenance:` marker, if `words.yaml` carries one. `None` for
+    /// unreadable text or an absent/unrecognized marker — see [`OracleProvenance`] for why this
+    /// lives in a YAML comment rather than a schema field.
+    pub fn oracle_provenance(&self) -> Option<OracleProvenance> {
+        let text = std::fs::read_to_string(self.words_yaml_path()).ok()?;
+        parse_oracle_provenance_marker(&text)
+    }
+}
+
+/// Which oracle a staged fixture's `words.yaml` signatures were checked against — the provenance
+/// ratchet CLAUDE.md's "oracle hierarchy" section requires (`.claude/skills/conformance-grammars/
+/// SKILL.md`'s "Oracle discipline" step).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OracleProvenance {
+    /// Checked against `SIL.Machine.Morphology.HermitCrab`'s C# self-check (`hc-conformance.exe`,
+    /// see `rust/tools/oracle-conformance.ps1`) or its `hc-dotnet-wrapper.sh` adapter, and matched.
+    FoundingOracle,
+    /// Legacy: authored/verified only against `pg_parse::Morpher` (HC-Rust). Records HC-Rust's own
+    /// behavior, not correctness — never re-verified against the founding oracle.
+    RustOnly,
+}
+
+/// Parses a `# oracle-provenance: founding-oracle` / `# oracle-provenance: rust-only` marker line
+/// out of raw `words.yaml` text. This is a plain YAML comment, not a schema field, because the C#
+/// harness's `WordsYamlLoader` is a STRICT parser that hard-errors on any front-matter key outside
+/// its fixed vocabulary (`language`/`inspired_by`/`sources`/`requires`/`budget_ms`/`expect_crash`/
+/// `words`) — a new schema field would make every staged fixture unloadable by the founding oracle
+/// itself, the one thing this marker exists to let a gate check against. Comments are invisible to
+/// both that loader and this crate's own `serde_yaml` parsing, so this is the only channel available
+/// that doesn't break either one.
+pub fn parse_oracle_provenance_marker(words_yaml_text: &str) -> Option<OracleProvenance> {
+    for line in words_yaml_text.lines() {
+        let Some(rest) = line.trim_start().strip_prefix("# oracle-provenance:") else {
+            continue;
+        };
+        return match rest.trim().split_whitespace().next()? {
+            "founding-oracle" => Some(OracleProvenance::FoundingOracle),
+            "rust-only" => Some(OracleProvenance::RustOnly),
+            _ => None,
+        };
+    }
+    None
 }
 
 /// Repo root, two levels up from this crate's manifest dir (`rust/crates/pg-conformance-fixtures`).
@@ -110,27 +153,49 @@ fn scan_one_root(root_dir: &Path, root: Root, out: &mut Vec<FixtureRef>) {
         return;
     }
     for category in ["edge-cases", "languages"] {
-        let cat_dir = root_dir.join(category);
-        let Ok(read) = std::fs::read_dir(&cat_dir) else {
-            continue;
-        };
-        let mut entries: Vec<_> = read.filter_map(|e| e.ok()).collect();
-        entries.sort_by_key(|e| e.file_name());
-        for entry in entries {
-            let path = entry.path();
-            if path.is_dir()
-                && path.join("grammar.xml").is_file()
-                && path.join("words.yaml").is_file()
-            {
-                out.push(FixtureRef {
-                    root,
-                    category: category.to_string(),
-                    name: entry.file_name().to_string_lossy().into_owned(),
-                    dir: path,
-                });
-            }
+        scan_one_category(root_dir, root, category, out);
+    }
+}
+
+fn scan_one_category(root_dir: &Path, root: Root, category: &str, out: &mut Vec<FixtureRef>) {
+    let cat_dir = root_dir.join(category);
+    let Ok(read) = std::fs::read_dir(&cat_dir) else {
+        return;
+    };
+    let mut entries: Vec<_> = read.filter_map(|e| e.ok()).collect();
+    entries.sort_by_key(|e| e.file_name());
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() && path.join("grammar.xml").is_file() && path.join("words.yaml").is_file()
+        {
+            out.push(FixtureRef {
+                root,
+                category: category.to_string(),
+                name: entry.file_name().to_string_lossy().into_owned(),
+                dir: path,
+            });
         }
     }
+}
+
+/// `conformance-staging/filter-passes/**` — a THIRD staging-only category (candidate-filter-pass
+/// fixtures) that neither `discover`/`discover_scoped` nor the upstream C# harness's
+/// `Fixture.DiscoverAll` ever scans (both are fixed to `languages`/`edge-cases`). A caller needing
+/// every staged fixture regardless of category must combine this with [`discover_scoped`]; see
+/// [`all_staged_fixtures`].
+pub fn discover_filter_passes() -> Vec<FixtureRef> {
+    let mut out = Vec::new();
+    scan_one_category(&staging_root(), Root::Staging, "filter-passes", &mut out);
+    out
+}
+
+/// Every fixture under `conformance-staging/**`, across all three categories
+/// (`edge-cases`/`languages`/`filter-passes`) — the complete staged set a provenance/ratchet gate
+/// needs, which plain [`discover_scoped`] (`ConformanceScope::Local`) alone does not cover.
+pub fn all_staged_fixtures() -> Vec<FixtureRef> {
+    let mut fixtures = discover_scoped(ConformanceScope::Local);
+    fixtures.extend(discover_filter_passes());
+    fixtures
 }
 
 /// Which fixtures a conformance run covers. There is deliberately **no default**: see
@@ -537,5 +602,44 @@ words:
         assert_eq!(parsed.words.len(), 2);
         assert_eq!(parsed.words[0].expected_signature(), "M1|foo");
         assert_eq!(parsed.words[1].expected_signature(), "-");
+    }
+
+    #[test]
+    fn oracle_provenance_marker_parses_both_recognized_values() {
+        assert_eq!(
+            parse_oracle_provenance_marker("# oracle-provenance: founding-oracle machine-commit=abc\nlanguage: X\n"),
+            Some(OracleProvenance::FoundingOracle)
+        );
+        assert_eq!(
+            parse_oracle_provenance_marker("# oracle-provenance: rust-only\nlanguage: X\n"),
+            Some(OracleProvenance::RustOnly)
+        );
+    }
+
+    #[test]
+    fn oracle_provenance_marker_is_none_when_absent_or_unrecognized() {
+        assert_eq!(parse_oracle_provenance_marker("language: X\nwords: []\n"), None);
+        assert_eq!(
+            parse_oracle_provenance_marker("# oracle-provenance: something-else\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn discover_filter_passes_returns_only_the_staging_filter_passes_category() {
+        // Falsify by widening scan_one_category's category list to include edge-cases/languages.
+        for f in discover_filter_passes() {
+            assert_eq!(f.root, Root::Staging);
+            assert_eq!(f.category, "filter-passes");
+        }
+    }
+
+    #[test]
+    fn all_staged_fixtures_is_local_scope_union_filter_passes() {
+        let local = discover_scoped(ConformanceScope::Local);
+        let filter_passes = discover_filter_passes();
+        let combined = all_staged_fixtures();
+        assert_eq!(combined.len(), local.len() + filter_passes.len());
+        assert!(combined.iter().all(|f| f.root == Root::Staging));
     }
 }
