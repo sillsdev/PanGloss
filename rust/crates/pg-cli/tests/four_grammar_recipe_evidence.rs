@@ -156,7 +156,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     let mpr = run_fixture("edge-cases/mpr-gated-exception", &root);
     assert_eq!(mpr["termination"], "complete");
     assert_eq!(mpr["counts"]["feasible"]["kind"], "exact");
-    // 2 of the 5 evaluated: this fixture's baseline plan is marker-bearing, so its three plan-composed candidates are refused by `unbuildable_marker_reason` rather than under-generating, leaving the two whole-grammar compilers.
+    // 2 of the 6 evaluated (6 since the fixture gained `mrDelExclSrc`, its affix-conferred-exception rule): the marker-bearing plan-composed candidates are refused by `unbuildable_marker_reason` rather than under-generating, leaving the two whole-grammar compilers.
     assert_eq!(mpr["counts"]["feasible"]["value"], 2);
     assert_eq!(mpr["pruning"]["confirmed"], 2);
     assert!(mpr["usage"]["memory_peak"].as_u64().unwrap() > 0);
@@ -164,7 +164,7 @@ fn four_promoted_grammars_have_truthful_recipe_evidence() {
     assert_eq!(mpr["replay_parameters"]["pilot_candidate_cap"], "8");
     assert_eq!(mpr["replay_parameters"]["search_all_families"], "false");
     accounted_pruning(&mpr, "mpr-gated-exception");
-    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 5);
+    assert_eq!(mpr["candidates"].as_array().unwrap().len(), 6);
     // Pinned by id, not just count, so a swap to another plan permutation cannot pass vacuously.
     assert!(
         mpr["candidates"]

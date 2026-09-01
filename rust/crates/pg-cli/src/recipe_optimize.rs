@@ -213,8 +213,7 @@ struct Evaluator<'a> {
     grammar: &'a pg_grammar::model::Grammar,
     words: &'a [String],
     plans: BTreeMap<String, LoweredCandidate>,
-    /// What actually compiled each candidate, keyed by id; marker-bearing PlanComposed candidates
-    /// are rejected before measurement rather than rerouted to the tuned emitter.
+    /// What actually compiled each candidate, keyed by id; a marker-bearing PlanComposed candidate is rejected before measurement, never rerouted to the tuned emitter.
     realized: BTreeMap<String, &'static str>,
     capability: pg_foma::capability::PredicateRegistry,
     oracle_step_cap: Option<usize>,

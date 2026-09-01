@@ -1,8 +1,4 @@
-<#
-  Linux implementation of the managed-build platform seam.  The file is loaded by
-  Import-PanGlossPlatformAdapter.  Functions use the global function scope because the importer is
-  itself a function: a plain dot-source in that scope would discard the overrides on return.
-##>
+# Linux implementation of the managed-build platform seam, loaded by Import-PanGlossPlatformAdapter; functions use global scope because a dot-source inside that importer function would discard the overrides on return.
 
 function global:ConvertFrom-LinuxMountField {
     param([Parameter(Mandatory)][string]$Value)
@@ -184,8 +180,7 @@ function global:Get-LinuxHostCgroupPreflight {
         $current = $membership
         while ($true) {
             $mappedPath = Join-LinuxMappedCgroupPath -MountPoint $selected[0].MountPoint -MountRoot $selected[0].Root -CgroupPath $current
-            # These are Linux virtual paths, not host filesystem paths; Join-Path would emit '\\'
-            # when the fixture suite is run under Windows PowerShell.
+            # Linux virtual paths, not host filesystem paths: Join-Path would emit '\\' when the fixture suite runs under Windows PowerShell.
             $cap = Read-LinuxCgroupMemoryCap -Path ($mappedPath.TrimEnd('/') + '/memory.max') -ReadFile $ReadFile
             if ($null -ne $cap) { $caps += $cap }
             if ($current -eq $selected[0].Root) { break }

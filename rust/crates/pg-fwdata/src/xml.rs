@@ -11,8 +11,7 @@ use quick_xml::reader::Reader;
 use crate::node::Node;
 use crate::ImportError;
 
-/// One retained `<rt>` record. Ownership comes from walking the owner's named field rather than
-/// from the optional `ownerguid` XML attribute.
+/// One retained `<rt>` record; ownership comes from walking the owner's named field, not the optional `ownerguid` XML attribute.
 #[derive(Debug)]
 pub struct Record {
     pub class: String,

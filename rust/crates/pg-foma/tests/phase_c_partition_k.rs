@@ -1,8 +1,4 @@
-//! Partition-k / MPR-POS subrule gating: recall-parity. Calls the production
-//! `pg_foma::gate::compile_gated_grammar` entry point directly rather than a
-//! hand-assembled compose, and checks recall by generating each of the `2^k` bare-root entries,
-//! sweeping the real per-stratum phonological cascade for ground truth, then verifying the
-//! compiled net relates that same surface string to the same root tag.
+//! Partition-k / MPR-POS subrule gating recall-parity: calls the production `pg_foma::gate::compile_gated_grammar` directly, generates each of the `2^k` bare-root entries, sweeps the real per-stratum cascade for ground truth, and verifies the compiled net relates the same surface string to the same root tag.
 
 mod common;
 

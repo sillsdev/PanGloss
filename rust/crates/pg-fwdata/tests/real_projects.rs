@@ -38,9 +38,10 @@ fn sena3_imports_with_expected_counts() {
     // Counts anchored to `<rt class=`, not bare `class="X"`, since `<AdditionalFields>` also holds `<CustomField class="LexEntry">` elements that would otherwise double-count.
     assert_eq!(snap.lexicon.entries.len(), 1462, "LexEntry count");
     assert_eq!(snap.phonology.phonemes.len(), 44, "PhPhoneme count");
+    // 37 -> 40 re-pinned: the external FieldWorks project itself gained three POS entries; every other pinned count was unchanged.
     assert_eq!(
         count_pos_tree(&snap.morphology.parts_of_speech),
-        37,
+        40,
         "PartOfSpeech count"
     );
     assert_eq!(

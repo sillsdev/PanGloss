@@ -250,9 +250,7 @@ $script:TestOptProfile = 'pg-test-opt'
 $repoRoot = Get-RepoRoot
 $rustRoot = Get-RustRoot
 
-# Linux has no Windows job-object/procgov equivalent in this wrapper.  Establish the host's finite
-# cgroup bound before any formatting or Cargo path can run, then pass the proof through to the actual
-# process seam so the launch does not rediscover a mutable host state.
+# Linux has no job-object/procgov equivalent here: establish the host's finite cgroup bound before any Cargo path runs, then pass that proof to the process seam so the launch never rediscovers mutable host state.
 $linuxHostProof = $null
 if ($IsLinux -and $Mode -notin @('gc', 'new-worktree', 'remove-worktree')) {
     $linuxHostProof = Get-LinuxHostCgroupPreflight

@@ -11,9 +11,7 @@
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_common.ps1"
 
-# _common.ps1 dispatches the native adapter from the real platform. This test runs on Windows too,
-# so it uses the same importer with an explicit Linux platform for pure fixture tests. It never
-# dot-sources the adapter or lets the Windows implementation stand in for a missing Linux one.
+# Runs on Windows too: uses the same importer with an explicit Linux platform for pure fixture tests, never dot-sourcing the adapter or letting the Windows implementation stand in.
 $toolRoot = Split-Path $PSScriptRoot -Parent
 $commonPath = Join-Path $toolRoot '_common.ps1'
 $linuxImporter = Get-Command Import-PanGlossPlatformAdapter -CommandType Function -ErrorAction SilentlyContinue
@@ -145,8 +143,7 @@ Committed_AS:   2048 kB
     # --- Host cgroup proof: all input comes through an injected file reader. ---
 
     $selfCgroup = "0::/delegated/supervisor`n"
-    # The second record is the most-specific visible mount. A correct mapper must use its
-    # mountpoint plus the suffix below /delegated, not concatenate the raw hierarchy path.
+    # The second record is the most-specific visible mount: a correct mapper uses its mountpoint plus the suffix below /delegated, never the raw hierarchy path.
     $mountInfo = @'
 36 29 0:32 / /a/very/long/cgroup/mountpoint rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw
 37 29 0:33 /delegated /cg\040d rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw

@@ -2573,11 +2573,10 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
 /// # Cost stays a SEPARATE, per-grammar concern — never this predicate's own verdict
 /// `max_depth` is always finite but never guaranteed SMALL: `CompoundingRuleDef::max_apps` is a bare
 /// `u16` with no clamp enforced anywhere in this crate's own loader, so a grammar author could set
-/// `multipleApplication` far beyond the DTD's practical ceiling (9). `crate::emit`'s own
-/// `DEFAULT_COMPOUND_CHAIN_DEPTH_BUDGET` refuses an individual PATHOLOGICALLY
-/// deep grammar at COMPILE TIME with a typed, honest `FomaTier::Unsupported` outcome — this is a
-/// COST/resource-ceiling refusal, not a capability-layer one, exactly mirroring how
-/// `UnorderedOrderingUnionPredicate` stays `ConfirmOnly`. Unlike a capability predicate that
+/// `multipleApplication` far beyond the DTD's practical ceiling (9). A pathologically deep grammar
+/// is a COST/resource-ceiling concern owned by `crate::emit` (see its compound-chain depth budget's
+/// own doc for the compile-time refusal it makes), never a capability-layer one — exactly mirroring
+/// how `UnorderedOrderingUnionPredicate` stays `ConfirmOnly`. Unlike a capability predicate that
 /// closes a construction gap,
 /// `Compounding` was provable precisely because its classifying signal (`detail.recursive`) was a
 /// CONSTRUCTION gap, not a cost one — so once the construction exists, nothing about `Compounding`

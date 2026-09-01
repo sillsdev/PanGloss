@@ -1,6 +1,4 @@
-//! GATE: alpha-variable scale -- recall-parity, against an LHS+RHS identity rule that is
-//! unambiguous by construction; see `pg_grammar_gen::build::alpha`'s module doc for why that
-//! construction was chosen over two earlier ones that mismatched the real engine.
+//! GATE: alpha-variable scale recall-parity, against an LHS+RHS identity rule unambiguous by construction -- see `pg_grammar_gen::build::alpha`'s module doc for why that construction won.
 
 mod common;
 

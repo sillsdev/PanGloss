@@ -10,11 +10,9 @@ fn some_staged_fixture_separates_more_than_three_registry_transforms() {
     assert!(!fixtures.is_empty(), "no staged fixtures discovered");
 
     let mut best = (0usize, String::new());
-    // Tracked separately: marker-bearing `PlanComposed` candidates are rejected before measurement,
-    // so only a marker-free row guarantees a candidate network can be measured.
+    // Tracked separately: only a marker-free row guarantees a measurable candidate network.
     let mut best_marker_free = (0usize, String::new());
-    // `markers` matters as much as `distinct`: marker-bearing plans contain subtrees that
-    // `build_controllable` cannot build and are rejected before a partial candidate net is used.
+    // `markers` matters as much as `distinct`: a marker-bearing plan is rejected before a partial candidate net is used.
     eprintln!(
         "{:<58} {:>7} {:>8} {:>7}  families owning a distinct plan",
         "fixture", "entries", "distinct", "markers"

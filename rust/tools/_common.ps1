@@ -67,13 +67,7 @@ $script:MinFreeGBOnSsd = if ($env:PANGLOSS_MIN_FREE_SSD_GB) { [double]$env:PANGL
 $script:BuildSemaphoreName = 'Global\PanGlossCargoBuild'
 
 function Import-PanGlossPlatformAdapter {
-    <#
-      Install the platform-native implementation into the current PowerShell session.  The Linux
-      adapter declares its seam functions in global scope because this importer is a function and a
-      normal dot-source would otherwise leave those definitions in the importer's temporary scope.
-      An explicit -Platform is useful for fixture tests; load-time dispatch below only selects Linux
-      on an actual Linux host, so Windows keeps its existing implementation byte-for-byte.
-    #>
+    # Installs the platform-native seam functions (global scope, since a dot-source inside a function would discard them on return); -Platform exists for fixture tests, and load-time dispatch only selects Linux on a real Linux host.
     param(
         [ValidateSet('Windows', 'Linux')][string]$Platform = $(if ($IsLinux) { 'Linux' } else { 'Windows' }),
         [string]$ToolRoot = $PSScriptRoot
@@ -2400,9 +2394,7 @@ function Invoke-TargetGc {
     return [PSCustomObject]$result
 }
 
-# Load the native implementation only on the host that will execute it.  In particular, Windows
-# must never load the Linux adapter implicitly, while Linux must use this same importer as fixture
-# callers do so the production seam and contract seam cannot drift apart.
+# Load the native implementation only on the host that executes it: Windows never loads the Linux adapter implicitly, and Linux uses the same importer fixture callers do so the production and contract seams cannot drift.
 if ($IsLinux) {
     $script:PanGlossPlatformAdapter = Import-PanGlossPlatformAdapter -Platform Linux -ToolRoot $PSScriptRoot
 } elseif ($IsWindows) {
