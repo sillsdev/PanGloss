@@ -230,6 +230,41 @@ Test-Case 'the CPU rate ceiling leaves the interactive reserve free' {
     }
 }
 
+Test-Case 'the run pool is reserved out of the build job budget, not handed out twice' {
+    # Both pools draw on ONE core budget, so a build sized as if the run pool did not exist oversubscribes the machine.
+    $withRuns = Get-CargoJobBudget -MaxConcurrent 2 -RunSlots 4 -RunThreadsPerSlot 1
+    $withoutRuns = Get-CargoJobBudget -MaxConcurrent 2 -RunSlots 0
+    Assert-True ($withRuns -le $withoutRuns) "reserving a run pool must never RAISE the build budget ($withRuns vs $withoutRuns)"
+    if ([Environment]::ProcessorCount -ge 12) {
+        Assert-True ($withRuns -lt $withoutRuns) "on a machine with cores to spare the reserve must actually bite ($withRuns vs $withoutRuns)"
+    }
+}
+
+Test-Case 'per-job CPU ceilings sum to the machine-wide one instead of each requesting all of it' {
+    # The bug this fixes: two builds each asked for the whole usable width, so 2 x 70% was reachable.
+    $logical = [Environment]::ProcessorCount
+    $buildJobs = Get-CargoJobBudget -MaxConcurrent 2
+    $perBuild = Get-JobCpuRatePercent -Threads $buildJobs
+    $perRun = Get-JobCpuRatePercent -Threads $script:RunThreadsPerSlot
+    if ($null -ne $perBuild -and $null -ne $perRun) {
+        $total = (2 * $perBuild) + ($script:DefaultRunSlots * $perRun)
+        $machineWide = Get-JobCpuRatePercent
+        $ceiling = if ($null -ne $machineWide) { $machineWide } else { 100 }
+        # Rounding each share down can only lose percent, never gain it, so this is a one-sided bound.
+        Assert-True ($total -le $ceiling + $logical) "the shares must not sum past the machine-wide ceiling (sum=$total ceiling=$ceiling)"
+        Assert-True ($perRun -lt $perBuild) "a one-core run must get a smaller ceiling than a multi-job build (run=$perRun build=$perBuild)"
+    }
+}
+
+Test-Case 'the light-run memory cap is flat, not a share of installed RAM' {
+    # A runaway is recognizable by absolute size, so a share of the box would judge the same binary differently per machine.
+    # docs/research/build-resource-governance.md
+    $cap = Get-RunJobMemoryCapGB
+    Assert-True ($cap -ge 1) "a cap of ${cap}GB would refuse an ordinary parse"
+    Assert-True ($cap -lt (Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64)) 'a light run must be capped well below a build'
+    Assert-Equal $cap (Get-RunJobMemoryCapGB) 'the cap must not vary between calls'
+}
+
 Test-Case 'a reserve that would consume the whole machine still leaves the build runnable' {
     $pct = Get-JobCpuRatePercent -ReserveThreads ([Environment]::ProcessorCount + 10)
     if ($null -ne $pct) { Assert-True ($pct -ge 10) "expected a floor, got $pct%" }

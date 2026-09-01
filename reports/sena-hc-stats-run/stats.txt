@@ -1,0 +1,48 @@
+capability: ConfirmOnly [backend=tuned-surface-probed; advisory/preview -- gate not yet enforced, see ADR 0001]
+LOADTIME	engine=default	grammar_load_ms=294.415	morpher_build_ms=10.429	total_ms=304.844
+STEPS	0	mwana	410
+FSTPROF	0	mwana	run_calls=521	run_ms=0.608	run_max_ms=0.013	nondet_calls=509	nondet_ms=0.382	nondet_max_traversed=14	nondet_total_traversed=784	det_calls=12	det_ms=0.006	distinct_calls=509	distinct_ms=0.034	distinct_max_input_len=4	distinct_total_input_len=82
+DEDUPPROF	0	mwana	calls=26	ms=0.003	max_out_len=0	total_out_len=0
+STEPS	1	munthu	467
+FSTPROF	1	munthu	run_calls=1113	run_ms=1.228	run_max_ms=0.013	nondet_calls=1078	nondet_ms=0.770	nondet_max_traversed=14	nondet_total_traversed=1629	det_calls=35	det_ms=0.016	distinct_calls=1078	distinct_ms=0.068	distinct_max_input_len=4	distinct_total_input_len=165
+DEDUPPROF	1	munthu	calls=53	ms=0.004	max_out_len=0	total_out_len=0
+STEPS	2	anthu	451
+FSTPROF	2	anthu	run_calls=1672	run_ms=1.785	run_max_ms=0.013	nondet_calls=1633	nondet_ms=1.108	nondet_max_traversed=14	nondet_total_traversed=2226	det_calls=39	det_ms=0.019	distinct_calls=1633	distinct_ms=0.104	distinct_max_input_len=4	distinct_total_input_len=248
+DEDUPPROF	2	anthu	calls=84	ms=0.006	max_out_len=0	total_out_len=0
+STEPS	3	kupanga	503
+FSTPROF	3	kupanga	run_calls=2303	run_ms=2.883	run_max_ms=0.080	nondet_calls=2242	nondet_ms=1.915	nondet_max_traversed=27	nondet_total_traversed=3760	det_calls=61	det_ms=0.034	distinct_calls=2242	distinct_ms=0.151	distinct_max_input_len=6	distinct_total_input_len=371
+DEDUPPROF	3	kupanga	calls=111	ms=0.009	max_out_len=0	total_out_len=0
+STEPS	4	akhali	4379
+FSTPROF	4	akhali	run_calls=8565	run_ms=7.164	run_max_ms=0.080	nondet_calls=8489	nondet_ms=4.019	nondet_max_traversed=27	nondet_total_traversed=6947	det_calls=88	det_ms=0.048	distinct_calls=8489	distinct_ms=0.488	distinct_max_input_len=6	distinct_total_input_len=980
+DEDUPPROF	4	akhali	calls=404	ms=0.033	max_out_len=0	total_out_len=0
+STEPS	5	ndinabwera	2645
+FSTPROF	5	ndinabwera	run_calls=13172	run_ms=12.125	run_max_ms=0.080	nondet_calls=12235	nondet_ms=6.747	nondet_max_traversed=54	nondet_total_traversed=12005	det_calls=949	det_ms=0.690	distinct_calls=12235	distinct_ms=0.675	distinct_max_input_len=9	distinct_total_input_len=1324
+DEDUPPROF	5	ndinabwera	calls=568	ms=0.045	max_out_len=0	total_out_len=0
+STEPS	6	ndinaapanga	1568
+FSTPROF	6	ndinaapanga	run_calls=15444	run_ms=16.817	run_max_ms=0.080	nondet_calls=14345	nondet_ms=10.306	nondet_max_traversed=65	nondet_total_traversed=18305	det_calls=1111	det_ms=0.801	distinct_calls=14345	distinct_ms=0.836	distinct_max_input_len=10	distinct_total_input_len=1672
+DEDUPPROF	6	ndinaapanga	calls=708	ms=0.057	max_out_len=0	total_out_len=0
+STEPS	7	tinadikhira	252
+FSTPROF	7	tinadikhira	run_calls=15788	run_ms=17.984	run_max_ms=0.080	nondet_calls=14689	nondet_ms=11.292	nondet_max_traversed=65	nondet_total_traversed=19941	det_calls=1111	det_ms=0.801	distinct_calls=14689	distinct_ms=0.870	distinct_max_input_len=10	distinct_total_input_len=1790
+DEDUPPROF	7	tinadikhira	calls=718	ms=0.058	max_out_len=0	total_out_len=0
+STEPS	8	anadumbira	2133
+FSTPROF	8	anadumbira	run_calls=18898	run_ms=22.453	run_max_ms=0.080	nondet_calls=17771	nondet_ms=14.530	nondet_max_traversed=65	nondet_total_traversed=25366	det_calls=1139	det_ms=0.824	distinct_calls=17771	distinct_ms=1.065	distinct_max_input_len=10	distinct_total_input_len=2271
+DEDUPPROF	8	anadumbira	calls=823	ms=0.067	max_out_len=0	total_out_len=0
+STEPS	9	cinafuna	252
+FSTPROF	9	cinafuna	run_calls=19242	run_ms=23.316	run_max_ms=0.080	nondet_calls=18115	nondet_ms=15.234	nondet_max_traversed=65	nondet_total_traversed=26512	det_calls=1139	det_ms=0.824	distinct_calls=18115	distinct_ms=1.095	distinct_max_input_len=10	distinct_total_input_len=2365
+DEDUPPROF	9	cinafuna	calls=833	ms=0.068	max_out_len=0	total_out_len=0
+STEPS	10	cinakwanisa	252
+FSTPROF	10	cinakwanisa	run_calls=19586	run_ms=24.773	run_max_ms=0.080	nondet_calls=18459	nondet_ms=16.504	nondet_max_traversed=65	nondet_total_traversed=28391	det_calls=1139	det_ms=0.824	distinct_calls=18459	distinct_ms=1.134	distinct_max_input_len=10	distinct_total_input_len=2495
+DEDUPPROF	10	cinakwanisa	calls=843	ms=0.069	max_out_len=0	total_out_len=0
+STEPS	11	cinapangisa	252
+FSTPROF	11	cinapangisa	run_calls=19930	run_ms=26.273	run_max_ms=0.080	nondet_calls=18803	nondet_ms=17.812	nondet_max_traversed=65	nondet_total_traversed=30258	det_calls=1139	det_ms=0.824	distinct_calls=18803	distinct_ms=1.169	distinct_max_input_len=10	distinct_total_input_len=2625
+DEDUPPROF	11	cinapangisa	calls=853	ms=0.069	max_out_len=0	total_out_len=0
+STEPS	12	cinatawirira	252
+FSTPROF	12	cinatawirira	run_calls=20274	run_ms=27.901	run_max_ms=0.080	nondet_calls=19147	nondet_ms=19.224	nondet_max_traversed=77	nondet_total_traversed=32409	det_calls=1139	det_ms=0.824	distinct_calls=19147	distinct_ms=1.210	distinct_max_input_len=11	distinct_total_input_len=2767
+DEDUPPROF	12	cinatawirira	calls=863	ms=0.070	max_out_len=0	total_out_len=0
+STEPS	13	cinakupangani	7260
+FSTPROF	13	cinakupangani	run_calls=31612	run_ms=47.014	run_max_ms=0.134	nondet_calls=30485	nondet_ms=33.686	nondet_max_traversed=90	nondet_total_traversed=54863	det_calls=1139	det_ms=0.824	distinct_calls=30485	distinct_ms=1.940	distinct_max_input_len=12	distinct_total_input_len=4302
+DEDUPPROF	13	cinakupangani	calls=1190	ms=0.102	max_out_len=0	total_out_len=0
+STEPS	14	cinaphatanizwambo	1307
+FSTPROF	14	cinaphatanizwambo	run_calls=33557	run_ms=53.908	run_max_ms=0.170	nondet_calls=32430	nondet_ms=39.616	nondet_max_traversed=135	nondet_total_traversed=63713	det_calls=1139	det_ms=0.824	distinct_calls=32430	distinct_ms=2.106	distinct_max_input_len=15	distinct_total_input_len=4792
+DEDUPPROF	14	cinaphatanizwambo	calls=1244	ms=0.108	max_out_len=0	total_out_len=0
+batch complete: 15 words parsed (0 skipped), 0 hit the step cap, 0 timed out [memo=on, threads=1]

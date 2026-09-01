@@ -87,11 +87,15 @@ Three different weights, because the phases are not comparable:
 
 ## Job budget and concurrency resolution
 
-`Get-CargoJobBudget` derives `-j` from `(logical cores − thread reserve) / MaxConcurrent`: dividing
-by `MaxConcurrent` rather than handing out the whole budget is required because the build-slot
-mutex is machine-wide — if two worktrees can each hold a slot, each one's job count has to be sized
-for the case where both do. It floors at 2, not 1: a single-job cargo serializes codegen across the
-whole workspace, which in practice gets the cap disabled entirely rather than tuned.
+`Get-CargoJobBudget` derives `-j` from
+`(logical cores − thread reserve − run-pool allotment) / MaxConcurrent`: dividing by `MaxConcurrent`
+rather than handing out the whole budget is required because the build-slot mutex is machine-wide —
+if two worktrees can each hold a slot, each one's job count has to be sized for the case where both
+do. The run pool's allotment (`RunSlots × RunThreadsPerSlot`) comes off the top for exactly the same
+reason: it is a second machine-wide pool that can be fully occupied while both builds run, so a
+build sized as though it did not exist oversubscribes the machine precisely when every slot is busy.
+It floors at 2, not 1: a single-job cargo serializes codegen across the whole workspace, which in
+practice gets the cap disabled entirely rather than tuned.
 
 `Get-MemoryProcessBudget` performs the analogous derivation from available memory, and returns
 `$null` (not a fabricated number) when memory is unqueryable, so a caller combining it with the CPU
@@ -175,11 +179,11 @@ priority one run leaves on it persists into the next. A `Normal` early-out would
 `-Priority Normal` run — someone explicitly asking for full speed — compiling at Idle too. Setting it
 unconditionally makes the daemon track whichever priority was actually requested, in both directions.
 
-## Build slots: mutexes, not a counted semaphore
+## Resource slots: mutexes, not a counted semaphore
 
 See `CLAUDE.md`'s "What is scoped to the PC, and what is scoped to the worktree" section for the
-full incident history. The mechanism: N named Windows mutexes (`Global\PanGlossBuildSlot0..N-1`),
-not one counted semaphore. A semaphore's count is not restored when its holder dies, and in agent
+full incident history. The mechanism: N named Windows mutexes (`Global\PanGlossBuildSlot0..N-1` and
+`Global\PanGlossRunSlot0..M-1`), not one counted semaphore. A semaphore's count is not restored when its holder dies, and in agent
 workflows the holder dies constantly (tool timeouts, agent stop/resume, detached invocations whose
 parent conversation has gone) — any critical section between acquire and release will eventually be
 interrupted. A mutex cannot leak that way because the kernel owns the cleanup: a holder that exits
@@ -192,16 +196,87 @@ whichever process creates it first and cannot be queried or changed afterward. A
 count" is simply how many names a caller waits on, so a caller asking for 1 slot genuinely cannot
 take a second one, regardless of what any other caller believes the limit to be.
 
-The slot-holder ledger (`Write-BuildSlotHolder`/`Get-BuildSlotHolders`) is diagnostic only. It never
-decides whether a slot is free — the mutexes are the exclusion — and exists only so a waiter or
-`doctor` can name who holds each slot instead of blocking anonymously; a stale entry from a killed
-holder is expected and reported as NOT ALIVE rather than trusted.
+The slot-holder ledger (`Write-SlotHolder`/`Get-SlotHolders`, one directory per pool) is diagnostic
+only. It never decides whether a slot is free — the mutexes are the exclusion — and exists only so a
+waiter or `doctor` can name who holds each slot instead of blocking anonymously; a stale entry from a
+killed holder is expected and reported as NOT ALIVE rather than trusted. The pools keep separate
+ledger directories so a `run` is never reported as occupying a build slot, which is the confusion the
+split exists to end.
 
 Sizing `Get-JobMemoryCapGB` for `MaxConcurrent + 1`, not `MaxConcurrent`, is a correctness fix, not
 padding: it keeps the per-build memory bound true even through one slot of over-admission from a
 caller passing a different `-MaxConcurrent` than the mutex names actually in use (a semaphore-shaped
 failure mode that briefly recurred even after the mutex migration, since nothing stops two callers
 disagreeing on how many names to wait on).
+
+## Two pools: builds and runs queue separately
+
+`Enter-ResourceSlot -Pool build|run` replaces the single `Enter-BuildSlot` queue (which survives as a
+front end onto the build pool). One queue for both was measured costing real time for no resource
+reason: a 0.3s `pangloss parse` waited behind two multi-minute builds in another worktree, and six
+such parses queued six separate times.
+
+The split is justified by what each side is actually bounded by. A build is bounded by disk (a
+target dir) and by memory; a run writes no target dir, and — for the light shape this pool is sized
+for — barely moves memory either. What a run can genuinely exhaust is CPU. So the two pools share
+**one** machine-wide core budget and are otherwise independent.
+
+### The CPU budget is decomposed, not duplicated
+
+`Get-JobCpuRatePercent -Threads N` sizes procgov's `--cpurate` from *one slot's own width* instead of
+the whole machine's usable width. Without `-Threads`, every concurrent job requested the entire
+machine-wide figure, so two builds could request 140% between them — a live bug that predated the run
+pool, and the highest-value part of this change. With it the shares sum back to the same
+machine-wide figure they were each individually claiming:
+
+| | width | `--cpurate` | slots | total |
+|---|---|---|---|---|
+| build | `Get-CargoJobBudget` | ⌊width/logical × 100⌋ | 2 | — |
+| light run | 1 core | ⌊1/logical × 100⌋ | 4 | — |
+| | | | | ≤ machine-wide ceiling |
+
+The sum closing on the pre-existing global figure is the point: this is a decomposition of a number
+already in the design, not a new policy. `rust/tools/tests/memory-reserve.tests.ps1` pins the
+one-sided bound (per-slot rounding can only lose percent, never gain it).
+
+### The light-run memory cap is flat, and that is measured
+
+`Get-RunJobMemoryCapGB` returns a flat 2GB (`PANGLOSS_RUN_MEM_GB`), deliberately *not*
+`Get-JobMemoryCapGB`'s machine-proportional derivation. A runaway is recognizable by absolute size; a
+share of the box would make the same binary legal at 8GB on one machine and refused at 2GB on
+another.
+
+The number rests on a measurement of the HermitCrab engine over the Sena grammar
+(`--engine=default --threads 1`), rather than on the intuition that the search is a churn machine:
+
+| corpus | `--memo=on` peak | `--memo=off` peak | wall (on / off) |
+|---|---|---|---|
+| 1,000 words | 189 MB | 184 MB | 12s / 21s |
+| 3,000 words | 454 MB | 458 MB | 33s / 75s |
+| 6,146 words (all) | 454 MB | 458 MB | 62s / 132s |
+
+Three things this settles. **Peak does not grow with corpus size** — 3,000 → 6,146 words adds
+nothing, because peak is set by the hardest single word and the 3,000-word slice already contains it.
+So a flat cap is the right shape and not a corpus-size limit in disguise. **The memo table is not the
+driver**: disabling it moves memory by <1% while doubling the runtime, so `--memo=on` buys a 2.1×
+speedup on the full corpus for no measurable memory. And **peak committed ≈ peak working set** (190
+vs 186 MB on the 1,000-word run), so the general hazard that `--maxjobmem` bounds commit rather than
+live set — a Rust `Drop` returns pages to the allocator, not necessarily to the OS — does not bite
+here; this allocator is not hoarding decommitted pages. 2GB is ~4.5× the measured peak: headroom for
+an unmeasured grammar, tight enough that hitting it is a signal worth chasing with the
+`dead-end-census` skill.
+
+A run that legitimately needs more is not a light run. `-Heavy` puts it in the **build** pool with a
+build's ceilings — the right home for a `predict_census`-shaped probe — and `-RunMemoryGB` overrides
+the cap for one invocation without touching `PANGLOSS_JOB_MEM_GB`, which would change every ordinary
+build's cap for as long as it stayed set.
+
+### Transition hazard
+
+Same shape as the semaphore → mutex migration: while some worktrees still run the old code, their
+`run` takes a *build* slot while a new-code worktree's takes a *run* slot, so the two do not exclude
+each other for runs. Tolerable only because the per-job memory and CPU ceilings above are sized for
+the full six-slot worst case regardless.
 
 ## Orphan process reaping
 
@@ -301,12 +376,16 @@ sequence.
 *and* `pg.ps1 -Mode run` (an arbitrary already-built binary, or `cargo run --example`/`--bin`). This
 closes a real gap: every incident that took the machine to a frozen, unreachable state was a single
 PanGloss binary invoked *directly*, never through cargo, so nothing that only wrapped cargo could
-ever have bounded it. `run` still takes a build slot deliberately: the safety property the rest of
-this design relies on — at most `MaxConcurrent` heavy operations share the machine's headroom at
-once — only holds if every heavy operation, including a long-running probe, counts against the same
-slot count. The alternative (`run` not counting against the slot) would make it an unbounded extra
-consumer on top of `MaxConcurrent` full-cap builds — precisely the "several things assume they have
-the whole machine's headroom simultaneously" shape that caused the incidents in the first place. The
-cost is that a `run` can occupy a slot for hours, so a build queued behind it can hit
+ever have bounded it. `run` still takes a slot deliberately: the safety property the rest of this
+design relies on — at most `MaxConcurrent + RunSlots` operations share the machine's headroom at
+once — only holds if every one of them, including a long-running probe, counts against a slot. The
+alternative (`run` counting against nothing) would make it an unbounded extra consumer on top of
+`MaxConcurrent` full-cap builds — precisely the "several things assume they have the whole machine's
+headroom simultaneously" shape that caused the incidents in the first place.
+
+What changed is *which* slot: a light run takes one of the run pool's, not one of the two build
+slots, because the resource it competes for is CPU and that is now budgeted across both pools (see
+"Two pools" above). The cost this removes is a `run` occupying a *build* slot for hours; the cost it
+keeps is that a long `-Heavy` probe still can, so a build queued behind one can hit
 `-BuildSlotTimeoutSeconds` and exit needing a retry — a known, loud, recoverable cost, weighed
 deliberately against an unbounded machine-wide worst case.

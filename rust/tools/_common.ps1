@@ -158,15 +158,23 @@ function Get-PerJobMemoryGB {
 function Get-CargoJobBudget {
     <#
       .DESCRIPTION
-      Per-invocation `-j` such that ALL concurrently-permitted builds together still leave
+      Per-invocation `-j` such that ALL concurrently-permitted builds AND runs together still leave
       $script:InteractiveReserveThreads logical processors free. Divided by MaxConcurrent rather than
       handed out whole, because the build-slot mutex is machine-wide: if two worktrees can each hold a
-      slot, each one's job count has to be sized for the case where both do.
+      slot, each one's job count has to be sized for the case where both do. The run pool's allotment
+      comes off the top for exactly the same reason -- it can be fully occupied while both builds run.
     #>
-    param([int]$MaxConcurrent = 1)
+    param(
+        [int]$MaxConcurrent = 1,
+        # -1 means "the machine's configured run pool"; an explicit 0 models a machine with no run pool.
+        [int]$RunSlots = -1,
+        [int]$RunThreadsPerSlot = -1
+    )
     $logical = [Environment]::ProcessorCount
     if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
-    $budget = $logical - $script:InteractiveReserveThreads
+    if ($RunSlots -lt 0) { $RunSlots = $script:DefaultRunSlots }
+    if ($RunThreadsPerSlot -lt 0) { $RunThreadsPerSlot = $script:RunThreadsPerSlot }
+    $budget = $logical - $script:InteractiveReserveThreads - ($RunSlots * $RunThreadsPerSlot)
     # Floor of 2: a single-job cargo serializes codegen workspace-wide, which in practice gets the cap disabled rather than tuned.
     if ($budget -lt 2) { $budget = 2 }
     return [Math]::Max(2, [Math]::Floor($budget / $MaxConcurrent))
@@ -365,20 +373,48 @@ function Get-JobMemoryCapGB {
     return [int][Math]::Max(4, $cap)
 }
 
+# The light-run ceiling: flat and small, NOT machine-proportional; measured against a full Sena corpus.
+# docs/research/build-resource-governance.md
+$script:RunSlotMemoryGB = if ($env:PANGLOSS_RUN_MEM_GB) { [int]$env:PANGLOSS_RUN_MEM_GB } else { 2 }
+
+function Get-RunJobMemoryCapGB {
+    <#
+      .DESCRIPTION
+      Deliberately not Get-JobMemoryCapGB's derivation: this cap exists to catch a runaway, and a
+      runaway is recognizable by absolute size, not by a share of whichever box it is on. A run that
+      legitimately needs more is not a light run -- `-Heavy` gives it a build slot and a build's cap.
+    #>
+    return $script:RunSlotMemoryGB
+}
+
 function Get-JobCpuRatePercent {
     <#
       .DESCRIPTION
       Kernel-enforced ceiling sized from the same interactive reserve as the job budget, so the
       daemons this machine is administered through keep headroom no matter how many threads rustc
       decides to spawn. Returns $null when the reserve leaves nothing meaningful to cap.
+
+      -Threads sizes the ceiling from ONE slot's own width instead of the whole machine's usable
+      width. Without it every concurrent job requests the entire machine-wide figure and the requests
+      sum past 100%; with it they sum back to it. docs/research/build-resource-governance.md
     #>
-    param([int]$ReserveThreads = $script:InteractiveReserveThreads)
+    param(
+        [int]$ReserveThreads = $script:InteractiveReserveThreads,
+        [Nullable[int]]$Threads
+    )
     $logical = [Environment]::ProcessorCount
     if ($logical -le 0) { return $null }
-    $usable = $logical - $ReserveThreads
-    if ($usable -lt 1) { $usable = 1 }
+    if ($null -ne $Threads) {
+        $usable = [Math]::Max(1, $Threads)
+        # One core's worth: the whole-machine floor below would hand a single-threaded run several cores.
+        $floor = [int][math]::Ceiling(100 / $logical)
+    } else {
+        $usable = $logical - $ReserveThreads
+        if ($usable -lt 1) { $usable = 1 }
+        $floor = 10
+    }
     $pct = [int][math]::Floor(($usable / $logical) * 100)
-    if ($pct -lt 10) { $pct = 10 }
+    if ($pct -lt $floor) { $pct = $floor }
     if ($pct -ge 100) { return $null }   # nothing to enforce
     return $pct
 }
@@ -819,6 +855,24 @@ function Set-SccacheServerPriority {
 
 $script:BuildSlotMutexPrefix = 'Global\PanGlossBuildSlot'
 
+# A SECOND, independent pool -- deliberately not just more build slots; builds and runs bind on different resources.
+# docs/research/build-resource-governance.md
+$script:RunSlotMutexPrefix = 'Global\PanGlossRunSlot'
+$script:DefaultRunSlots = if ($env:PANGLOSS_RUN_SLOTS) { [int]$env:PANGLOSS_RUN_SLOTS } else { 4 }
+# One core per run slot: the light-run shape (`pangloss parse`, `batch --threads 1`) is single-threaded.
+$script:RunThreadsPerSlot = if ($env:PANGLOSS_RUN_THREADS_PER_SLOT) { [int]$env:PANGLOSS_RUN_THREADS_PER_SLOT } else { 1 }
+
+function Get-SlotMutexPrefix {
+    <#
+      .DESCRIPTION
+      Read through a function rather than inlined so the pool prefixes stay overridable at script scope
+      (rust/tools/tests/build-slot.tests.ps1 substitutes its own to isolate from the live machine).
+    #>
+    param([ValidateSet('build', 'run')][string]$Pool = 'build')
+    if ($Pool -eq 'run') { return $script:RunSlotMutexPrefix }
+    return $script:BuildSlotMutexPrefix
+}
+
 function New-BuildSlotMutex {
     param([Parameter(Mandatory)][string]$Name)
     try {
@@ -829,27 +883,35 @@ function New-BuildSlotMutex {
     }
 }
 
-function Enter-BuildSlot {
+function Enter-ResourceSlot {
     <#
       .DESCRIPTION
+      Waits for one slot in $Pool and returns a handle to hand back to Exit-ResourceSlot, or $null on
+      timeout. The two pools are separate kernel objects, so a run never queues behind a build.
+
       -TimeoutSeconds <= 0 waits indefinitely (kept for direct callers); pg.ps1 passes a real timeout
       so a genuinely long queue is reported rather than hung on forever.
     #>
-    param([int]$MaxConcurrent = 2, [int]$TimeoutSeconds = 0)
+    param(
+        [ValidateSet('build', 'run')][string]$Pool = 'build',
+        [int]$MaxConcurrent = 2,
+        [int]$TimeoutSeconds = 0
+    )
     if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
+    $prefix = Get-SlotMutexPrefix -Pool $Pool
 
     $mutexes = @()
     for ($i = 0; $i -lt $MaxConcurrent; $i++) {
-        $mutexes += New-BuildSlotMutex -Name "$($script:BuildSlotMutexPrefix)$i"
+        $mutexes += New-BuildSlotMutex -Name "$prefix$i"
     }
 
     # Report WHO holds the slots before blocking: a 20-minute anonymous wait is indistinguishable from a deadlock.
-    Write-Host "[build-env] waiting for a build slot ($MaxConcurrent concurrent across all worktrees)..." -ForegroundColor DarkGray
+    Write-Host "[build-env] waiting for a $Pool slot ($MaxConcurrent concurrent across all worktrees)..." -ForegroundColor DarkGray
     try {
-        $holders = @(Get-BuildSlotHolders)
+        $holders = @(Get-SlotHolders -Pool $Pool)
         foreach ($h in $holders) {
             $state = if ($h.Alive) { "alive since $($h.AcquiredAt)" } else { 'NOT ALIVE (kernel will hand this slot over)' }
-            Write-Host "[build-env]   slot $($h.Slot): pid $($h.Pid) ($($h.Mode) in $($h.Worktree)) -- $state" -ForegroundColor DarkGray
+            Write-Host "[build-env]   $Pool slot $($h.Slot): pid $($h.Pid) ($($h.Mode) in $($h.Worktree)) -- $state" -ForegroundColor DarkGray
         }
     } catch {}
 
@@ -860,7 +922,7 @@ function Enter-BuildSlot {
     } catch [System.Threading.AbandonedMutexException] {
         # The previous holder died without releasing; we now OWN that mutex -- the kernel's recovery, not ours.
         $index = $_.Exception.MutexIndex
-        Write-Host "[build-env] recovered an abandoned build slot ($index) -- its previous holder exited without releasing it." -ForegroundColor Yellow
+        Write-Host "[build-env] recovered an abandoned $Pool slot ($index) -- its previous holder exited without releasing it." -ForegroundColor Yellow
     }
 
     if ($index -eq [System.Threading.WaitHandle]::WaitTimeout -or $index -lt 0) {
@@ -868,44 +930,71 @@ function Enter-BuildSlot {
         return $null
     }
 
-    $slot = [PSCustomObject]@{ Mutexes = $mutexes; Index = $index }
-    try { Write-BuildSlotHolder -Slot $index } catch {}
+    $slot = [PSCustomObject]@{ Mutexes = $mutexes; Index = $index; Pool = $Pool }
+    try { Write-SlotHolder -Pool $Pool -Slot $index } catch {}
     return $slot
 }
 
-function Exit-BuildSlot {
+function Enter-BuildSlot {
+    <# .DESCRIPTION Build-pool front end onto Enter-ResourceSlot, kept because most callers want that pool. #>
+    param([int]$MaxConcurrent = 2, [int]$TimeoutSeconds = 0)
+    return Enter-ResourceSlot -Pool 'build' -MaxConcurrent $MaxConcurrent -TimeoutSeconds $TimeoutSeconds
+}
+
+function Exit-ResourceSlot {
     <#
       .DESCRIPTION
-      Accepts the object Enter-BuildSlot returned. Releasing only the mutex actually acquired matters:
+      Accepts the object Enter-ResourceSlot returned. Releasing only the mutex actually acquired matters:
       ReleaseMutex on one we do not own throws ApplicationException.
     #>
-    param($Semaphore)
-    if (-not $Semaphore) { return }
+    param($Slot)
+    if (-not $Slot) { return }
     try {
-        if ($null -ne $Semaphore.Index -and $Semaphore.Mutexes) {
-            try { $Semaphore.Mutexes[$Semaphore.Index].ReleaseMutex() } catch {}
-            try { Clear-BuildSlotHolder -Slot $Semaphore.Index } catch {}
-            foreach ($m in $Semaphore.Mutexes) { $m.Dispose() }
+        if ($null -ne $Slot.Index -and $Slot.Mutexes) {
+            try { $Slot.Mutexes[$Slot.Index].ReleaseMutex() } catch {}
+            # A handle from before the pools split carries no Pool; it can only have been a build slot.
+            $pool = if ($Slot.Pool) { $Slot.Pool } else { 'build' }
+            try { Clear-SlotHolder -Pool $pool -Slot $Slot.Index } catch {}
+            foreach ($m in $Slot.Mutexes) { $m.Dispose() }
             return
         }
         # Back-compat: a caller still holding a raw semaphore/mutex handle from older code.
-        $Semaphore.Release() | Out-Null
-        $Semaphore.Dispose()
+        $Slot.Release() | Out-Null
+        $Slot.Dispose()
     } catch {}
+}
+
+function Exit-BuildSlot {
+    <# .DESCRIPTION Back-compat front end; the pool travels on the handle, so this works for either. #>
+    param($Semaphore)
+    Exit-ResourceSlot -Slot $Semaphore
 }
 
 # Slot holder ledger -- DIAGNOSTIC ONLY; never consulted to decide whether a slot is free.
 # docs/research/build-resource-governance.md
 
-function Get-BuildSlotLedgerPath {
+function Get-SlotLedgerPath {
+    <#
+      .DESCRIPTION
+      One directory per pool, rather than one directory with prefixed filenames, so the build pool's
+      on-disk layout is exactly what it was before the run pool existed.
+    #>
+    param([ValidateSet('build', 'run')][string]$Pool = 'build')
     $root = if ($env:PANGLOSS_STATE_ROOT) { $env:PANGLOSS_STATE_ROOT } elseif ($env:ProgramData) { Join-Path $env:ProgramData 'PanGloss' } else { Join-Path ([System.IO.Path]::GetTempPath()) 'PanGloss' }
     if (-not (Test-Path $root)) { New-Item -ItemType Directory -Force -Path $root | Out-Null }
-    return (Join-Path $root 'build-slots')
+    return (Join-Path $root "$Pool-slots")
 }
 
-function Write-BuildSlotHolder {
-    param([Parameter(Mandatory)][int]$Slot, [string]$Mode = '', [string]$Worktree = '')
-    $dir = Get-BuildSlotLedgerPath
+function Get-BuildSlotLedgerPath { return (Get-SlotLedgerPath -Pool 'build') }
+
+function Write-SlotHolder {
+    param(
+        [ValidateSet('build', 'run')][string]$Pool = 'build',
+        [Parameter(Mandatory)][int]$Slot,
+        [string]$Mode = '',
+        [string]$Worktree = ''
+    )
+    $dir = Get-SlotLedgerPath -Pool $Pool
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
     if (-not $Mode) { $Mode = if ($script:CurrentPgMode) { $script:CurrentPgMode } else { 'build' } }
     if (-not $Worktree) { $Worktree = try { Split-Path (Get-RepoRoot) -Leaf } catch { 'unknown' } }
@@ -913,13 +1002,26 @@ function Write-BuildSlotHolder {
         ConvertTo-Json -Compress | Set-Content -Path (Join-Path $dir "slot$Slot.json") -Encoding UTF8
 }
 
-function Clear-BuildSlotHolder {
-    param([Parameter(Mandatory)][int]$Slot)
-    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path (Get-BuildSlotLedgerPath) "slot$Slot.json")
+function Write-BuildSlotHolder {
+    param([Parameter(Mandatory)][int]$Slot, [string]$Mode = '', [string]$Worktree = '')
+    Write-SlotHolder -Pool 'build' -Slot $Slot -Mode $Mode -Worktree $Worktree
 }
 
-function Get-BuildSlotHolders {
-    $dir = Get-BuildSlotLedgerPath
+function Clear-SlotHolder {
+    param([ValidateSet('build', 'run')][string]$Pool = 'build', [Parameter(Mandatory)][int]$Slot)
+    Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path (Get-SlotLedgerPath -Pool $Pool) "slot$Slot.json")
+}
+
+function Clear-BuildSlotHolder {
+    param([Parameter(Mandatory)][int]$Slot)
+    Clear-SlotHolder -Pool 'build' -Slot $Slot
+}
+
+function Get-BuildSlotHolders { return @(Get-SlotHolders -Pool 'build') }
+
+function Get-SlotHolders {
+    param([ValidateSet('build', 'run')][string]$Pool = 'build')
+    $dir = Get-SlotLedgerPath -Pool $Pool
     if (-not (Test-Path $dir)) { return @() }
     $out = @()
     foreach ($f in @(Get-ChildItem -Path $dir -Filter 'slot*.json' -ErrorAction SilentlyContinue)) {
@@ -928,6 +1030,7 @@ function Get-BuildSlotHolders {
             $alive = $false
             try { $alive = $null -ne (Get-Process -Id $e.Pid -ErrorAction Stop) } catch { $alive = $false }
             $out += [PSCustomObject]@{
+                Pool       = $Pool
                 Slot       = ($f.BaseName -replace '^slot', '')
                 Pid        = [int]$e.Pid
                 Mode       = [string]$e.Mode
@@ -1124,10 +1227,12 @@ function Invoke-CargoWithReaper {
         [string]$CaptureStdoutPath = '',
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
         # Only sizes the job object's memory ceiling; the build-slot mutex is what actually bounds concurrency.
-        [int]$JobMaxConcurrent = 2
+        [int]$JobMaxConcurrent = 2,
+        # This invocation's own width, so its CPU ceiling is its share rather than the whole machine's; 0 keeps the pre-split behavior.
+        [int]$Threads = 0
     )
     $jobMemGB = Get-JobMemoryCapGB -MaxConcurrent $JobMaxConcurrent
-    $cpuRate = Get-JobCpuRatePercent
+    $cpuRate = if ($Threads -gt 0) { Get-JobCpuRatePercent -Threads $Threads } else { Get-JobCpuRatePercent }
     return Invoke-ProcessInJobObject -Exe $Exe -CmdArgs $CmdArgs -WorkingDirectory $WorkingDirectory `
         -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority -JobMemoryGB $jobMemGB -CpuRatePercent $cpuRate -Subject 'build'
 }
@@ -2056,6 +2161,7 @@ function Write-Preflight {
         $CorpusState = $null,
         $ConformanceCheck = $null,
         [int]$MaxConcurrent,
+        [int]$RunSlots = 0,
         [int]$Jobs = 0,
         [switch]$JobsExplicit,
         $JobsBudget = $null,
@@ -2106,16 +2212,21 @@ function Write-Preflight {
         }
     }
     # Diagnostic only (the mutexes are the real exclusion); printed because an anonymous wait looks like a deadlock.
-    $slotHolders = @(Get-BuildSlotHolders)
-    if ($slotHolders.Count -gt 0) {
-        Write-Host 'build slots in use:'
-        $slotSnapshot = Get-ProcessSnapshot
+    $slotSnapshot = $null
+    foreach ($pool in @('build', 'run')) {
+        $slotHolders = @(Get-SlotHolders -Pool $pool)
+        if ($slotHolders.Count -eq 0) { continue }
+        # Lazy: a process snapshot is not cheap, and the common preflight has no holders to describe.
+        if ($null -eq $slotSnapshot) { $slotSnapshot = Get-ProcessSnapshot }
+        Write-Host "$pool slots in use:"
         foreach ($h in $slotHolders) {
+            # Reported for both pools, but only the build pool is ever reaped -- Remove-StaleBuildSlotHolders walks it alone.
             $stale = $h.Alive -and (Test-BuildSlotHolderStale -Holder $h -Snapshot $slotSnapshot)
             $state = if (-not $h.Alive) { 'NOT ALIVE -- stale ledger entry; the kernel hands this slot to the next waiter' }
-                elseif ($stale) { "alive since $($h.AcquiredAt) -- STALE: no compiler activity for 20+ min; 'pg.ps1 -Mode gc -Apply' will reap it" }
+                elseif ($stale -and $pool -eq 'build') { "alive since $($h.AcquiredAt) -- STALE: no compiler activity for 20+ min; 'pg.ps1 -Mode gc -Apply' will reap it" }
+                elseif ($stale) { "alive since $($h.AcquiredAt) -- no build-shaped activity for 20+ min (not reaped: run slots are not swept)" }
                 else { "alive since $($h.AcquiredAt)" }
-            Write-Host "  slot $($h.Slot): pid $($h.Pid) ($($h.Mode) in $($h.Worktree)) -- $state" -ForegroundColor $(if (-not $h.Alive -or $stale) { 'Yellow' } else { 'Gray' })
+            Write-Host "  $pool slot $($h.Slot): pid $($h.Pid) ($($h.Mode) in $($h.Worktree)) -- $state" -ForegroundColor $(if (-not $h.Alive -or $stale) { 'Yellow' } else { 'Gray' })
         }
     }
     Write-Host "sccache: $($SccacheHealth.State) -- $($SccacheHealth.Detail)" -ForegroundColor $(if ($SccacheHealth.Ok -or $SccacheHealth.State -eq 'disabled') { 'Gray' } else { 'Red' })
@@ -2133,7 +2244,8 @@ function Write-Preflight {
             foreach ($m in $CorpusState.Missing) { Write-Host "  $m" -ForegroundColor Red }
         }
     }
-    Write-Host "build slot limit: $MaxConcurrent (machine-wide convention -- see Enter-BuildSlot)"
+    $runSlotsShown = if ($RunSlots -gt 0) { $RunSlots } else { $script:DefaultRunSlots }
+    Write-Host "slot limits: $MaxConcurrent build, $runSlotsShown run (machine-wide convention -- see Enter-ResourceSlot)"
     if ($Jobs -gt 0) {
         # Printed with its provenance: a derivation is only shown when the number actually came FROM it.
         $why = if ($JobsExplicit) {
@@ -2144,7 +2256,7 @@ function Write-Preflight {
             $ltoNote = if ($perJob -eq $script:MemoryPerLtoLinkJobGB) { ' (fat-LTO link peak)' } else { '' }
             "$($JobsBudget.Detail); ${perJob}GB/job assumed${ltoNote} over a $(Get-InteractiveReserveGB)GB reserve, split across $MaxConcurrent slot(s)"
         } else {
-            "$([Environment]::ProcessorCount) logical - $script:InteractiveReserveThreads reserved for SSH/remote-desktop daemons, split across $MaxConcurrent slot(s)"
+            "$([Environment]::ProcessorCount) logical - $script:InteractiveReserveThreads reserved for SSH/remote-desktop daemons - $($runSlotsShown * $script:RunThreadsPerSlot) reserved for the run pool, split across $MaxConcurrent slot(s)"
         }
         Write-Host "cargo jobs: $Jobs per build ($why)"
     }

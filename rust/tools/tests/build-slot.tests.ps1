@@ -25,45 +25,48 @@
 . "$PSScriptRoot\..\_common.ps1"
 
 $script:BuildSlotMutexPrefix = "Global\PanGlossTestSlot$PID-"
+$script:RunSlotMutexPrefix = "Global\PanGlossTestSlot$PID--run-"
 $script:CommonPath = (Resolve-Path "$PSScriptRoot\..\_common.ps1").Path
 $script:ProbeDir = New-TestTempDir -Prefix 'pg-slot-probe'
 
 # A child that tries to take a slot and reports the outcome, then releases immediately.
 Set-Content -Path (Join-Path $script:ProbeDir 'probe.ps1') -Encoding UTF8 -Value @'
-param([string]$Common, [string]$Prefix, [int]$Slots, [int]$TimeoutSec)
+param([string]$Common, [string]$Prefix, [int]$Slots, [int]$TimeoutSec, [string]$Pool = 'build')
 . $Common
 $script:BuildSlotMutexPrefix = $Prefix
-$s = Enter-BuildSlot -MaxConcurrent $Slots -TimeoutSeconds $TimeoutSec
-if ($null -eq $s) { 'DENIED' } else { 'ACQUIRED'; Exit-BuildSlot -Semaphore $s }
+$script:RunSlotMutexPrefix = "$Prefix-run-"
+$s = Enter-ResourceSlot -Pool $Pool -MaxConcurrent $Slots -TimeoutSeconds $TimeoutSec
+if ($null -eq $s) { 'DENIED' } else { 'ACQUIRED'; Exit-ResourceSlot -Slot $s }
 '@
 
 # A child that takes a slot and then sits on it, so the test can kill it mid-hold.
 Set-Content -Path (Join-Path $script:ProbeDir 'holder.ps1') -Encoding UTF8 -Value @'
-param([string]$Common, [string]$Prefix, [int]$Slots)
+param([string]$Common, [string]$Prefix, [int]$Slots, [string]$Pool = 'build')
 . $Common
 $script:BuildSlotMutexPrefix = $Prefix
-$s = Enter-BuildSlot -MaxConcurrent $Slots -TimeoutSeconds 30
+$script:RunSlotMutexPrefix = "$Prefix-run-"
+$s = Enter-ResourceSlot -Pool $Pool -MaxConcurrent $Slots -TimeoutSeconds 30
 if ($null -eq $s) { 'DENIED'; exit 1 }
 'HOLDING'
 Start-Sleep -Seconds 180
 '@
 
 function Invoke-SlotProbe {
-    param([int]$Slots = 1, [int]$TimeoutSec = 2)
+    param([int]$Slots = 1, [int]$TimeoutSec = 2, [string]$Pool = 'build')
     $out = Join-Path $script:ProbeDir "probe-out-$([guid]::NewGuid().ToString('N')).txt"
     $p = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $out `
         -ArgumentList @('-NoProfile', '-File', (Join-Path $script:ProbeDir 'probe.ps1'),
-        $script:CommonPath, $script:BuildSlotMutexPrefix, "$Slots", "$TimeoutSec")
+        $script:CommonPath, $script:BuildSlotMutexPrefix, "$Slots", "$TimeoutSec", $Pool)
     $p.WaitForExit(60000) | Out-Null
     return ((Get-Content $out -Raw) -split "`n" | Where-Object { $_ -match 'ACQUIRED|DENIED' } | Select-Object -First 1).Trim()
 }
 
 function Start-SlotHolder {
-    param([int]$Slots = 1)
+    param([int]$Slots = 1, [string]$Pool = 'build')
     $out = Join-Path $script:ProbeDir "holder-out-$([guid]::NewGuid().ToString('N')).txt"
     $p = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $out `
         -ArgumentList @('-NoProfile', '-File', (Join-Path $script:ProbeDir 'holder.ps1'),
-        $script:CommonPath, $script:BuildSlotMutexPrefix, "$Slots")
+        $script:CommonPath, $script:BuildSlotMutexPrefix, "$Slots", $Pool)
     foreach ($attempt in 1..100) {
         Start-Sleep -Milliseconds 100
         if ((Test-Path $out) -and ((Get-Content $out -Raw) -match 'HOLDING')) { return $p }
@@ -114,6 +117,44 @@ Test-Case 'a slot whose holder is KILLED is reclaimed by the kernel, not leaked'
     Start-Sleep -Milliseconds 750
     Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 15) `
         'the slot MUST be reclaimable after its holder was killed -- this is the deadlock regression'
+}
+
+Test-Case 'the build and run pools do not exclude each other' {
+    # The whole reason the run pool exists: a 0.3s `pangloss parse` must not queue behind a build.
+    $holder = Start-SlotHolder -Slots 1 -Pool 'build'
+    try {
+        Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2 -Pool 'build') 'precondition: the build pool is genuinely full'
+        Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 5 -Pool 'run') 'a full build pool must leave the run pool free'
+    } finally { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
+
+    $runHolder = Start-SlotHolder -Slots 1 -Pool 'run'
+    try {
+        Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2 -Pool 'run') 'precondition: the run pool is genuinely full'
+        Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 5 -Pool 'build') 'a full run pool must leave the build pool free'
+    } finally { Stop-Process -Id $runHolder.Id -Force -ErrorAction SilentlyContinue }
+}
+
+Test-Case 'a killed run-slot holder is reclaimed by the kernel, same as a build slot' {
+    $holder = Start-SlotHolder -Slots 1 -Pool 'run'
+    Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2 -Pool 'run') 'precondition: the slot is genuinely held'
+    Stop-Process -Id $holder.Id -Force
+    Start-Sleep -Milliseconds 750
+    Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 15 -Pool 'run') `
+        'the run pool must self-heal on a dead holder exactly as the build pool does'
+}
+
+Test-Case 'the two pools keep separate ledgers' {
+    # A shared ledger would report a run as occupying a build slot, which is what the split exists to stop.
+    $env:PANGLOSS_STATE_ROOT = New-TestTempDir -Prefix 'pg-slots'
+    try {
+        Write-SlotHolder -Pool 'run' -Slot 0 -Mode 'run' -Worktree 'probe'
+        Assert-Equal 0 @(Get-SlotHolders -Pool 'build').Count 'a run holder must not appear in the build pool'
+        $r = @(Get-SlotHolders -Pool 'run')
+        Assert-Equal 1 $r.Count
+        Assert-Equal 'run' $r[0].Pool
+        Clear-SlotHolder -Pool 'run' -Slot 0
+        Assert-Equal 0 @(Get-SlotHolders -Pool 'run').Count
+    } finally { Remove-Item Env:\PANGLOSS_STATE_ROOT -ErrorAction SilentlyContinue }
 }
 
 Test-Case 'Exit-BuildSlot tolerates null and a double release without throwing' {

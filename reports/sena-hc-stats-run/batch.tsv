@@ -1,0 +1,30 @@
+0	mwana	STARTED
+0	mwana	1	ok	+++|[mn]w+?a+?[mn]+?a;+|[mn]w+?a[mn]a
+1	munthu	STARTED
+1	munthu	1	ok	++|[mn]u+?[(^0)(*0)(&0)∅]?+?[mn](th)u;+|[mn]u+?[mn](th)u
+2	anthu	STARTED
+2	anthu	1	ok	+|a+?[mn](th)u;+|a+?[mn](th)u
+3	kupanga	STARTED
+3	kupanga	2	ok	++|ku+?[(^0)(*0)(&0)∅]?+?pa[mn]ga;++|ku+?pa[mn]g+?a;+|ku+?pa[mn]ga
+4	akhali	STARTED
+4	akhali	11	ok	++|a+?(kh)al+?i
+5	ndinabwera	STARTED
+5	ndinabwera	14	ok	+++++|[mn]di+?[mn]a+?b+?w+?er+?a;+++|[mn]di+?[mn]a+?bwer+?a
+6	ndinaapanga	STARTED
+6	ndinaapanga	9	ok	++++|[mn]di+?[mn]a+?a+?pa[mn]g+?a
+7	tinadikhira	STARTED
+7	tinadikhira	1	ok	-
+8	anadumbira	STARTED
+8	anadumbira	8	ok	+++|a+?[mn]a+?du[mn]bir+?a;+++|a+?[mn]a+?du[mn]bir+?a
+9	cinafuna	STARTED
+9	cinafuna	1	ok	-
+10	cinakwanisa	STARTED
+10	cinakwanisa	2	ok	-
+11	cinapangisa	STARTED
+11	cinapangisa	2	ok	-
+12	cinatawirira	STARTED
+12	cinatawirira	2	ok	-
+13	cinakupangani	STARTED
+13	cinakupangani	41	ok	-
+14	cinaphatanizwambo	STARTED
+14	cinaphatanizwambo	11	ok	-

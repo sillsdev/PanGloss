@@ -1,0 +1,138 @@
+warning: phoneme "dbd6d116-b210-4dc0-9a0b-1d664751ca27": representation collides with an earlier phoneme/boundary; skipped
+warning: phoneme "f830273c-0834-475e-bad5-27087ad9e6ea": representation collides with an earlier phoneme/boundary; skipped
+warning: phoneme "f8f99596-cd40-4f7a-ab77-b89cce86a2e6": representation collides with an earlier phoneme/boundary; skipped
+warning: phoneme "fee040aa-7999-47a9-a822-87f5985daef4": representation collides with an earlier phoneme/boundary; skipped
+warning: natural class "0f785459-fdd5-4079-9c9c-1cf5ce8addb4" ("Lab"): member phoneme "f830273c-0834-475e-bad5-27087ad9e6ea" does not resolve; class skipped
+warning: natural class "35898d19-3e7b-445b-962f-53123ebe0fcf" ("C"): member phoneme "dbd6d116-b210-4dc0-9a0b-1d664751ca27" does not resolve; class skipped
+warning: natural class "8cb1a1c0-4f55-418f-b457-7de9ffbdb11f" ("Nas"): member phoneme "dbd6d116-b210-4dc0-9a0b-1d664751ca27" does not resolve; class skipped
+warning: natural class "04023d7f-65a3-425c-b07f-244a2c568984" ("-Nas"): member phoneme "f830273c-0834-475e-bad5-27087ad9e6ea" does not resolve; class skipped
+warning: natural class "f1050eb2-a416-4491-960c-6c4564543a7c" ("-Lab"): member phoneme "dbd6d116-b210-4dc0-9a0b-1d664751ca27" does not resolve; class skipped
+warning: natural class "a835a8de-62b1-4a8f-83d0-f8513e1dae88" ("-Lab-Lat-Nas"): member phoneme "fee040aa-7999-47a9-a822-87f5985daef4" does not resolve; class skipped
+warning: allomorph "61bacc82-8aad-4b82-8dbb-99e738fc427d": cannot segment "N+": cannot segment "N+": no character definition matches at position 0; one environment skipped
+warning: allomorph "91480c8b-ecea-43bf-8aeb-5992a83ae4c6": cannot segment "pakati_na_kati": cannot segment "pakati_na_kati": no character definition matches at position 6; skipped
+warning: allomorph "65dfe669-7687-4a04-86d7-c6a5379cbe88": cannot segment "ana-mobvi": cannot segment "ana-mobvi": no character definition matches at position 3; skipped
+warning: allomorph "9ac8c157-10cd-4c9c-a1bf-ba9d203b837f": cannot segment "m'+": cannot segment "m'+": no character definition matches at position 1; one environment skipped
+warning: allomorph "232422e3-40b1-4a95-b194-a273fa80bf39": cannot segment "n'+": cannot segment "n'+": no character definition matches at position 1; one environment skipped
+warning: invalid environment "d064c00e-c407-48c5-a3ac-b665130894b5" (/_[Nas]): unknown natural class "Nas"; treated as absent
+warning: allomorph "9ac8c157-10cd-4c9c-a1bf-ba9d203b837f": cannot segment "m'+": cannot segment "m'+": no character definition matches at position 1; one environment skipped
+warning: allomorph "232422e3-40b1-4a95-b194-a273fa80bf39": cannot segment "n'+": cannot segment "n'+": no character definition matches at position 1; one environment skipped
+warning: invalid environment "d064c00e-c407-48c5-a3ac-b665130894b5" (/_[Nas]): unknown natural class "Nas"; treated as absent
+warning: allomorph "2d86b614-bf2e-471b-8f8a-c0683f217887": cannot segment "Jorge": cannot segment "Jorge": no character definition matches at position 0; skipped
+warning: invalid environment "02132942-0ff7-45e8-8f09-f4918535a31e" (/[V+mid] ([preNas]) [C-nas] ([Mod]) _): unknown natural class "C-nas"; treated as absent
+warning: allomorph "52b53782-cf10-4e2b-afe8-46444a10e8d4": cannot segment "sábadu": cannot segment "sábadu": no character definition matches at position 2; skipped
+warning: invalid environment "a819cc6d-607f-42dd-af2a-de0d248c3339" (/ _ [C]): unknown natural class "C"; treated as absent
+warning: invalid environment "a819cc6d-607f-42dd-af2a-de0d248c3339" (/ _ [C]): unknown natural class "C"; treated as absent
+warning: allomorph "0f6af2ec-bfa9-4291-9a60-68d4e6845ccb": cannot segment "m'phole-m'phole": cannot segment "m'phole-m'phole": no character definition matches at position 1; skipped
+warning: allomorph "cdc82628-07a1-4190-9368-eda170db9eb1": cannot segment "m'+": cannot segment "m'+": no character definition matches at position 1; one environment skipped
+warning: allomorph "d182d062-19a3-4d3c-b05e-1f623e0602ba": cannot segment "n'+": cannot segment "n'+": no character definition matches at position 1; one environment skipped
+warning: invalid environment "f0a67a63-1840-4c3f-b361-3505783a5d37" (/ _ [Lab]): unknown natural class "Lab"; treated as absent
+warning: invalid environment "afe3adba-4301-4c5a-ba75-6895b1689678" (/ _ [C-lab-lat-nas]): unknown natural class "C-lab-lat-nas"; treated as absent
+warning: invalid environment "d064c00e-c407-48c5-a3ac-b665130894b5" (/_[Nas]): unknown natural class "Nas"; treated as absent
+warning: invalid environment "f0a67a63-1840-4c3f-b361-3505783a5d37" (/ _ [Lab]): unknown natural class "Lab"; treated as absent
+warning: allomorph "f769ce60-b889-40c7-bf42-591784025ed9": cannot segment "m'+": cannot segment "m'+": no character definition matches at position 1; one environment skipped
+warning: allomorph "f769ce60-b889-40c7-bf42-591784025ed9": cannot segment "m'+": cannot segment "m'+": no character definition matches at position 1; one environment skipped
+warning: invalid environment "125650c1-dfce-49bb-8a19-c3e0718e7994" (/_ [-Lab]): unknown natural class "-Lab"; treated as absent
+warning: allomorph "7793fe6b-61e1-4f7e-9c44-54e43a523ca2": cannot segment "n'+": cannot segment "n'+": no character definition matches at position 1; one environment skipped
+warning: invalid environment "a819cc6d-607f-42dd-af2a-de0d248c3339" (/ _ [C]): unknown natural class "C"; treated as absent
+warning: allomorph "065a753b-edc7-4aae-a587-9c558e105f24": cannot segment "bulángeti": cannot segment "bulángeti": no character definition matches at position 4; skipped
+warning: invalid environment "a819cc6d-607f-42dd-af2a-de0d248c3339" (/ _ [C]): unknown natural class "C"; treated as absent
+warning: allomorph "fd1cb75e-7780-4a21-8eb4-6c4e5fcf19d6": cannot segment "ng'ono-ng'ono": cannot segment "ng'ono-ng'ono": no character definition matches at position 6; skipped
+warning: allomorph "ad0b72e7-fec6-4488-85bb-c41ec7edcb79": cannot segment "menya-meny": cannot segment "menya-meny": no character definition matches at position 5; skipped
+warning: allomorph "a3b19ecf-a73e-4626-89d1-a50b23d283d2": cannot segment "m'boliboli": cannot segment "m'boliboli": no character definition matches at position 1; skipped
+warning: allomorph "8b7d0c23-cd95-4c67-8e31-08dd91913ee7": cannot segment "kuenda-na-kuenda": cannot segment "kuenda-na-kuenda": no character definition matches at position 6; skipped
+warning: allomorph "e7bf8b9b-ccb5-4248-a995-875f99c94007": cannot segment "N+": cannot segment "N+": no character definition matches at position 0; one environment skipped
+warning: allomorph "e7f5e3e0-0a82-4781-8a91-3c5c7e1c2820": cannot segment "nsanga-nsanga": cannot segment "nsanga-nsanga": no character definition matches at position 6; skipped
+warning: allomorph "41782ebe-39b7-4da6-b376-570d42d76c95": cannot segment "nakati-nakati": cannot segment "nakati-nakati": no character definition matches at position 6; skipped
+warning: invalid environment "02132942-0ff7-45e8-8f09-f4918535a31e" (/[V+mid] ([preNas]) [C-nas] ([Mod]) _): unknown natural class "C-nas"; treated as absent
+warning: invalid environment "1ae6eb4a-84a0-4134-b684-5b446ad83708" (/ [C] _): unknown natural class "C"; treated as absent
+warning: allomorph "389e8168-0a68-4882-a9e7-494d39e11a12": cannot segment "báulu": cannot segment "báulu": no character definition matches at position 2; skipped
+warning: allomorph "62acffc0-6cd9-4056-bb0e-3d2178a8af0a": cannot segment "tsákala": cannot segment "tsákala": no character definition matches at position 3; skipped
+warning: allomorph "b5fa8447-6616-4fa2-820c-ec15e62e41a1": cannot segment "ubodzi-bodzi": cannot segment "ubodzi-bodzi": no character definition matches at position 6; skipped
+warning: invalid environment "a819cc6d-607f-42dd-af2a-de0d248c3339" (/ _ [C]): unknown natural class "C"; treated as absent
+warning: invalid environment "a819cc6d-607f-42dd-af2a-de0d248c3339" (/ _ [C]): unknown natural class "C"; treated as absent
+warning: invalid environment "a819cc6d-607f-42dd-af2a-de0d248c3339" (/ _ [C]): unknown natural class "C"; treated as absent
+warning: allomorph "b4183de7-7bd0-438f-b51f-c061618fda82": cannot segment "+-ko": cannot segment "+-ko": no character definition matches at position 1; one environment skipped
+warning: allomorph "f39dd81a-3729-4ca7-bb61-b56b8ee5b425": cannot segment "n'khangaiwa": cannot segment "n'khangaiwa": no character definition matches at position 1; skipped
+warning: allomorph "5df897c3-7dc9-4f80-9de8-63bdf3c8d7f5": cannot segment "mwana-cinthu": cannot segment "mwana-cinthu": no character definition matches at position 5; skipped
+warning: allomorph "9601e1e9-678a-45a2-bd54-dfd6fb449bc8": cannot segment "ana-cinthu": cannot segment "ana-cinthu": no character definition matches at position 3; skipped
+warning: allomorph "5164a843-dda8-4a81-917d-03d7cd7da543": invalid environment "b7402c94-1f44-4f2e-8be9-18081a855510" (/ # ~_): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: allomorph "33bb4c48-cd7f-4371-b798-9e0e316769fb": cannot segment "pang'ono-pang'ono": cannot segment "pang'ono-pang'ono": no character definition matches at position 8; skipped
+warning: invalid environment "048b5c62-2988-4766-9de5-9b9780cbf246" (/ _~[V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "3eacba77-b996-4801-878f-b91b4b74dd29" (/ ~_ [V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: allomorph "9b8a59ce-e907-4d76-8e2e-a4413697ff1b": cannot segment "n'gano": cannot segment "n'gano": no character definition matches at position 1; skipped
+warning: allomorph "3c04e67e-0ee6-44fd-973a-efa5a4a5c855": cannot segment "maso-maso": cannot segment "maso-maso": no character definition matches at position 4; skipped
+warning: allomorph "d68b901f-eeb5-4212-b96e-fb0f0ac39f63": cannot segment "bodzi-bodzi": cannot segment "bodzi-bodzi": no character definition matches at position 5; skipped
+warning: invalid environment "a819cc6d-607f-42dd-af2a-de0d248c3339" (/ _ [C]): unknown natural class "C"; treated as absent
+warning: allomorph "ad92922a-42f9-43b2-ad17-bbc706b95dfc": cannot segment "bárigi": cannot segment "bárigi": no character definition matches at position 2; skipped
+warning: allomorph "3a7d24ac-f6fb-4fc8-9379-a49975ed2e41": cannot segment "toma-tom": cannot segment "toma-tom": no character definition matches at position 4; skipped
+warning: allomorph "1103a015-4143-4f46-b160-aa01e2bb6c96": cannot segment "nyakapherú-pheru": cannot segment "nyakapherú-pheru": no character definition matches at position 10; skipped
+warning: invalid environment "6f252993-389a-4284-8317-d638490f6d0c" (/ o ... _): cannot segment "...": cannot segment "...": no character definition matches at position 0; treated as absent
+warning: allomorph "94dd7a5b-6458-4439-96ae-a10e1bc47243": cannot segment "tálimba": cannot segment "tálimba": no character definition matches at position 2; skipped
+warning: invalid environment "02132942-0ff7-45e8-8f09-f4918535a31e" (/[V+mid] ([preNas]) [C-nas] ([Mod]) _): unknown natural class "C-nas"; treated as absent
+warning: allomorph "8edace0d-4ff6-4c8a-bd05-304f31d8eb3f": cannot segment "n'tsanga": cannot segment "n'tsanga": no character definition matches at position 1; skipped
+warning: invalid environment "048b5c62-2988-4766-9de5-9b9780cbf246" (/ _~[V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "3eacba77-b996-4801-878f-b91b4b74dd29" (/ ~_ [V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "048b5c62-2988-4766-9de5-9b9780cbf246" (/ _~[V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "3eacba77-b996-4801-878f-b91b4b74dd29" (/ ~_ [V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "048b5c62-2988-4766-9de5-9b9780cbf246" (/ _~[V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "3eacba77-b996-4801-878f-b91b4b74dd29" (/ ~_ [V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "048b5c62-2988-4766-9de5-9b9780cbf246" (/ _~[V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "3eacba77-b996-4801-878f-b91b4b74dd29" (/ ~_ [V]): cannot segment "~": cannot segment "~": no character definition matches at position 0; treated as absent
+warning: invalid environment "02132942-0ff7-45e8-8f09-f4918535a31e" (/[V+mid] ([preNas]) [C-nas] ([Mod]) _): unknown natural class "C-nas"; treated as absent
+warning: allomorph "3ee78d24-6c79-40bf-81b2-9222b4af04b6": cannot segment "m'bambakuca": cannot segment "m'bambakuca": no character definition matches at position 1; skipped
+warning: allomorph "93572b66-a63c-451a-acc7-1d24aab406e4": cannot segment "nkhundu-nkhundu": cannot segment "nkhundu-nkhundu": no character definition matches at position 7; skipped
+warning: allomorph "f66471d6-9c9c-4d36-9250-8b499aadd0ef": cannot segment "kati-na-kati": cannot segment "kati-na-kati": no character definition matches at position 4; skipped
+warning: allomorph "98f1c579-1437-4951-b522-39e22d9d4975": cannot segment "alt:.nkhundu-nkhundu": cannot segment "alt:.nkhundu-nkhundu": no character definition matches at position 3; skipped
+warning: allomorph "b1685654-256a-4dd6-a687-403699155d18": cannot segment "m'dzukwa": cannot segment "m'dzukwa": no character definition matches at position 1; skipped
+warning: allomorph "a68abcb7-cb01-4549-ab04-7559302f3be7": cannot segment "nkono-nkono": cannot segment "nkono-nkono": no character definition matches at position 5; skipped
+warning: allomorph "bd3bf3d6-d431-46bf-a612-fe1d999af341": cannot segment "dzulu-dzulu": cannot segment "dzulu-dzulu": no character definition matches at position 5; skipped
+warning: allomorph "7a764365-c09a-45e5-b0b2-019f587098ff": cannot segment "mbwera-mbwera": cannot segment "mbwera-mbwera": no character definition matches at position 6; skipped
+warning: allomorph "fb9e63dc-f1ef-49f8-b4c0-0fd20932476c": cannot segment "kusiana-sian": cannot segment "kusiana-sian": no character definition matches at position 7; skipped
+capability: ConfirmOnly [backend=tuned-surface-probed; advisory/preview -- gate not yet enforced, see ADR 0001]
+LOADTIME	engine=default	grammar_load_ms=294.415	morpher_build_ms=10.429	total_ms=304.844
+STEPS	0	mwana	410
+FSTPROF	0	mwana	run_calls=521	run_ms=0.608	run_max_ms=0.013	nondet_calls=509	nondet_ms=0.382	nondet_max_traversed=14	nondet_total_traversed=784	det_calls=12	det_ms=0.006	distinct_calls=509	distinct_ms=0.034	distinct_max_input_len=4	distinct_total_input_len=82
+DEDUPPROF	0	mwana	calls=26	ms=0.003	max_out_len=0	total_out_len=0
+STEPS	1	munthu	467
+FSTPROF	1	munthu	run_calls=1113	run_ms=1.228	run_max_ms=0.013	nondet_calls=1078	nondet_ms=0.770	nondet_max_traversed=14	nondet_total_traversed=1629	det_calls=35	det_ms=0.016	distinct_calls=1078	distinct_ms=0.068	distinct_max_input_len=4	distinct_total_input_len=165
+DEDUPPROF	1	munthu	calls=53	ms=0.004	max_out_len=0	total_out_len=0
+STEPS	2	anthu	451
+FSTPROF	2	anthu	run_calls=1672	run_ms=1.785	run_max_ms=0.013	nondet_calls=1633	nondet_ms=1.108	nondet_max_traversed=14	nondet_total_traversed=2226	det_calls=39	det_ms=0.019	distinct_calls=1633	distinct_ms=0.104	distinct_max_input_len=4	distinct_total_input_len=248
+DEDUPPROF	2	anthu	calls=84	ms=0.006	max_out_len=0	total_out_len=0
+STEPS	3	kupanga	503
+FSTPROF	3	kupanga	run_calls=2303	run_ms=2.883	run_max_ms=0.080	nondet_calls=2242	nondet_ms=1.915	nondet_max_traversed=27	nondet_total_traversed=3760	det_calls=61	det_ms=0.034	distinct_calls=2242	distinct_ms=0.151	distinct_max_input_len=6	distinct_total_input_len=371
+DEDUPPROF	3	kupanga	calls=111	ms=0.009	max_out_len=0	total_out_len=0
+STEPS	4	akhali	4379
+FSTPROF	4	akhali	run_calls=8565	run_ms=7.164	run_max_ms=0.080	nondet_calls=8489	nondet_ms=4.019	nondet_max_traversed=27	nondet_total_traversed=6947	det_calls=88	det_ms=0.048	distinct_calls=8489	distinct_ms=0.488	distinct_max_input_len=6	distinct_total_input_len=980
+DEDUPPROF	4	akhali	calls=404	ms=0.033	max_out_len=0	total_out_len=0
+STEPS	5	ndinabwera	2645
+FSTPROF	5	ndinabwera	run_calls=13172	run_ms=12.125	run_max_ms=0.080	nondet_calls=12235	nondet_ms=6.747	nondet_max_traversed=54	nondet_total_traversed=12005	det_calls=949	det_ms=0.690	distinct_calls=12235	distinct_ms=0.675	distinct_max_input_len=9	distinct_total_input_len=1324
+DEDUPPROF	5	ndinabwera	calls=568	ms=0.045	max_out_len=0	total_out_len=0
+STEPS	6	ndinaapanga	1568
+FSTPROF	6	ndinaapanga	run_calls=15444	run_ms=16.817	run_max_ms=0.080	nondet_calls=14345	nondet_ms=10.306	nondet_max_traversed=65	nondet_total_traversed=18305	det_calls=1111	det_ms=0.801	distinct_calls=14345	distinct_ms=0.836	distinct_max_input_len=10	distinct_total_input_len=1672
+DEDUPPROF	6	ndinaapanga	calls=708	ms=0.057	max_out_len=0	total_out_len=0
+STEPS	7	tinadikhira	252
+FSTPROF	7	tinadikhira	run_calls=15788	run_ms=17.984	run_max_ms=0.080	nondet_calls=14689	nondet_ms=11.292	nondet_max_traversed=65	nondet_total_traversed=19941	det_calls=1111	det_ms=0.801	distinct_calls=14689	distinct_ms=0.870	distinct_max_input_len=10	distinct_total_input_len=1790
+DEDUPPROF	7	tinadikhira	calls=718	ms=0.058	max_out_len=0	total_out_len=0
+STEPS	8	anadumbira	2133
+FSTPROF	8	anadumbira	run_calls=18898	run_ms=22.453	run_max_ms=0.080	nondet_calls=17771	nondet_ms=14.530	nondet_max_traversed=65	nondet_total_traversed=25366	det_calls=1139	det_ms=0.824	distinct_calls=17771	distinct_ms=1.065	distinct_max_input_len=10	distinct_total_input_len=2271
+DEDUPPROF	8	anadumbira	calls=823	ms=0.067	max_out_len=0	total_out_len=0
+STEPS	9	cinafuna	252
+FSTPROF	9	cinafuna	run_calls=19242	run_ms=23.316	run_max_ms=0.080	nondet_calls=18115	nondet_ms=15.234	nondet_max_traversed=65	nondet_total_traversed=26512	det_calls=1139	det_ms=0.824	distinct_calls=18115	distinct_ms=1.095	distinct_max_input_len=10	distinct_total_input_len=2365
+DEDUPPROF	9	cinafuna	calls=833	ms=0.068	max_out_len=0	total_out_len=0
+STEPS	10	cinakwanisa	252
+FSTPROF	10	cinakwanisa	run_calls=19586	run_ms=24.773	run_max_ms=0.080	nondet_calls=18459	nondet_ms=16.504	nondet_max_traversed=65	nondet_total_traversed=28391	det_calls=1139	det_ms=0.824	distinct_calls=18459	distinct_ms=1.134	distinct_max_input_len=10	distinct_total_input_len=2495
+DEDUPPROF	10	cinakwanisa	calls=843	ms=0.069	max_out_len=0	total_out_len=0
+STEPS	11	cinapangisa	252
+FSTPROF	11	cinapangisa	run_calls=19930	run_ms=26.273	run_max_ms=0.080	nondet_calls=18803	nondet_ms=17.812	nondet_max_traversed=65	nondet_total_traversed=30258	det_calls=1139	det_ms=0.824	distinct_calls=18803	distinct_ms=1.169	distinct_max_input_len=10	distinct_total_input_len=2625
+DEDUPPROF	11	cinapangisa	calls=853	ms=0.069	max_out_len=0	total_out_len=0
+STEPS	12	cinatawirira	252
+FSTPROF	12	cinatawirira	run_calls=20274	run_ms=27.901	run_max_ms=0.080	nondet_calls=19147	nondet_ms=19.224	nondet_max_traversed=77	nondet_total_traversed=32409	det_calls=1139	det_ms=0.824	distinct_calls=19147	distinct_ms=1.210	distinct_max_input_len=11	distinct_total_input_len=2767
+DEDUPPROF	12	cinatawirira	calls=863	ms=0.070	max_out_len=0	total_out_len=0
+STEPS	13	cinakupangani	7260
+FSTPROF	13	cinakupangani	run_calls=31612	run_ms=47.014	run_max_ms=0.134	nondet_calls=30485	nondet_ms=33.686	nondet_max_traversed=90	nondet_total_traversed=54863	det_calls=1139	det_ms=0.824	distinct_calls=30485	distinct_ms=1.940	distinct_max_input_len=12	distinct_total_input_len=4302
+DEDUPPROF	13	cinakupangani	calls=1190	ms=0.102	max_out_len=0	total_out_len=0
+STEPS	14	cinaphatanizwambo	1307
+FSTPROF	14	cinaphatanizwambo	run_calls=33557	run_ms=53.908	run_max_ms=0.170	nondet_calls=32430	nondet_ms=39.616	nondet_max_traversed=135	nondet_total_traversed=63713	det_calls=1139	det_ms=0.824	distinct_calls=32430	distinct_ms=2.106	distinct_max_input_len=15	distinct_total_input_len=4792
+DEDUPPROF	14	cinaphatanizwambo	calls=1244	ms=0.108	max_out_len=0	total_out_len=0
+batch complete: 15 words parsed (0 skipped), 0 hit the step cap, 0 timed out [memo=on, threads=1]

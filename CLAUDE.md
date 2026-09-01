@@ -338,18 +338,32 @@ a 10-minute kill on a hung test; read it before adding a knob here). So a capped
   `-RunMemoryGB` — e.g. a deliberate 40GB experiment — without touching `PANGLOSS_JOB_MEM_GB`,
   which would also change every ordinary build's cap for as long as the env var stayed set.
 
-  **`run` DOES take a build slot** (`Enter-BuildSlot`), weighed deliberately rather than assumed:
-  the alternative — a `run` that doesn't count against the semaphore — breaks the property the rest
-  of this file relies on to avoid a reservation ledger, namely that at most `-MaxConcurrent` heavy
+  **`run` DOES take a slot** (`Enter-ResourceSlot`), weighed deliberately rather than assumed: the
+  alternative — a `run` that counts against nothing — breaks the property the rest of this file
+  relies on to avoid a reservation ledger, namely that at most `-MaxConcurrent` + `-MaxConcurrentRuns`
   operations share the machine's headroom at once, so each one's job-object cap is safe *by
   construction*. A `run` outside that count is an unaccounted-for extra consumer on top of up to
   `-MaxConcurrent` full-cap builds — the exact "several things assume they have the whole machine's
-  headroom, simultaneously" shape that produced the table above. The cost of taking the slot is
-  that a probe can occupy it for hours (that is the whole point of `run` — a `predict_census`-shaped
-  binary is not a five-minute build), so a build queued behind a long `run` can hit
+  headroom, simultaneously" shape that produced the table above.
+
+  **But it takes a RUN slot, not a build slot** (4 wide by default, `PANGLOSS_RUN_SLOTS` /
+  `-MaxConcurrentRuns`). One queue for both was measured costing real time for no resource reason: a
+  0.3s `pangloss parse` waited behind two multi-minute builds in another worktree. A build is bounded
+  by disk and memory; a light run writes no target dir and — measured — barely moves memory either.
+  What it can exhaust is CPU, and CPU is now budgeted across both pools rather than per-pool (see the
+  scoping table below). A light run gets one core, a `--cpurate` share sized from that one core, and a
+  **flat 2GB** memory ceiling (`Get-RunJobMemoryCapGB`, `PANGLOSS_RUN_MEM_GB`) rather than a build's
+  machine-proportional cap — flat because a runaway is recognizable by absolute size, and 2GB because
+  the full 6,146-word Sena corpus through the HermitCrab engine peaks at **454MB**, a peak set by the
+  hardest single word rather than by accumulation, so corpus size does not move it. Measurements and
+  the `--memo` comparison are in `docs/research/build-resource-governance.md`.
+
+  **`-Heavy` is the other direction:** it puts a genuinely build-sized probe (`predict_census` and
+  friends) back in the **build** pool with a build's ceilings. The cost that remains is that such a
+  probe can occupy a build slot for hours, so a build queued behind it can hit
   `-BuildSlotTimeoutSeconds`'s 30-minute wait and exit needing a retry. That is a known, recoverable,
   loudly-reported cost; an unbounded machine-wide worst case is what this whole file exists to rule
-  out, so the slot is taken unconditionally. If procgov is absent, `run` degrades exactly like a
+  out, so a slot is taken unconditionally. If procgov is absent, `run` degrades exactly like a
   build does: a loud warning, but it still runs — an absent tool must never block the workflow.
 
 - **Reading the exhaustion log (`pg.ps1 -Mode doctor`).** Windows already diagnoses the low-memory
@@ -576,9 +590,9 @@ a machine-wide resource just multiplies by the number of worktrees. The rule is 
 
 | Concern | Scope | Mechanism |
 |---|---|---|
-| CPU cores | **per PC** | `Get-CargoJobBudget` (cores − reserve ÷ slots), `-TestThreads`, `BelowNormal` priority, and `procgov --cpurate` as the only hard ceiling |
-| Memory | **per PC** | spawn gate (machine-wide available memory) + `procgov --maxjobmem` per build |
-| Taking your turn | **per PC** | `Enter-BuildSlot` — N named **mutexes** (`Global\PanGlossBuildSlot0..N-1`), default 2 |
+| CPU cores | **per PC** | `Get-CargoJobBudget` (cores − reserve − run pool ÷ build slots), `-TestThreads`, `BelowNormal` priority, and `procgov --cpurate` — now sized from **one slot's own width**, so the per-job ceilings sum to the machine-wide one instead of each requesting all of it |
+| Memory | **per PC** | spawn gate (machine-wide available memory) + `procgov --maxjobmem` per build; a light run gets a flat 2GB instead (`Get-RunJobMemoryCapGB`) |
+| Taking your turn | **per PC** | `Enter-ResourceSlot` — two independent named-**mutex** pools: `Global\PanGlossBuildSlot0..N-1` (default 2) and `Global\PanGlossRunSlot0..M-1` (default 4) |
 | Killing old processes | **per worktree** | `gc`'s orphan sweeps: liveness by dead *parent*, never by name/age |
 | Disk / target dirs | **per worktree** | ownership markers; `gc` never deletes another worktree's target |
 
@@ -586,6 +600,19 @@ The build slot is the one people ask for by name — "don't start a third build 
 already exactly what `Enter-BuildSlot` does, and it binds across worktrees *and* across agents
 inside one worktree, because a Windows named semaphore is per-machine. A third `pg.ps1` waits, then
 exits 15 after 30 minutes rather than hanging forever.
+
+**Two pools, one core budget.** `pg.ps1 -Mode run` queues in the *run* pool, not the build pool,
+because a build is bounded by disk and memory while a run is bounded by CPU — and a 0.3s
+`pangloss parse` waiting behind a three-minute build served no resource purpose. What the two pools
+share is the **one** machine-wide core budget: the run pool's allotment (slots × 1 core) comes off
+the top of `Get-CargoJobBudget` before the remainder is divided among build slots, so builds pay for
+the run pool's existence rather than the machine being oversubscribed when every slot is busy. Same
+transition hazard as the semaphore→mutex migration below: while some worktrees still run the old
+code, their `run` takes a *build* slot while a new-code worktree's takes a *run* slot, so the two do
+not exclude each other for runs — tolerable only because the per-job CPU and memory ceilings are
+sized for the full six-slot worst case regardless. A run-slot timeout reuses exit **15**: the
+recovery (wait and retry) is identical, and this file's rule for a distinct code is that the recovery
+differs. The message names which pool timed out.
 
 **It is N mutexes, not a counted semaphore, and that was a bug fix — do not "simplify" it back.**
 The semaphore this replaced **deadlocked every worktree on this machine on 2026-07-31**: 4+ worktrees
