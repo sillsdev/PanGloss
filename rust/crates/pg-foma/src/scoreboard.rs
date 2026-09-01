@@ -4,29 +4,32 @@
 //! conf_matrix.rs computes the same thing inline, with no library seam a second caller could
 //! reuse."
 //!
-//! [`CellOutcome`] types what used to be a printed string. Every cell lands in exactly one of its
-//! four variants; [`measure`] is the one function that decides which, and it is also the only
-//! place `crate::strategy_coverage_join::envelope_refusal_predicates` is consulted for this
-//! measurement, so a [`CellOutcome::Refused`]'s predicate list can never drift from what that
+//! [`CellOutcome`](crate::scoreboard::CellOutcome) types what used to be a printed string. Every
+//! cell lands in exactly one of its four variants;
+//! [`measure`](crate::scoreboard::measure) is the one function that decides which, and it is also
+//! the only place `crate::strategy_coverage_join::envelope_refusal_predicates` is consulted for
+//! this measurement, so a `CellOutcome::Refused`'s predicate list can never drift from what that
 //! function reports elsewhere.
 //!
 //! # This module names no fixture-loading type
-//! [`measure`] and [`unmeasurable`] take a plain `label: &str`, an already-loaded `&Grammar`, and
-//! already-selected `words: &[String]` -- never `pg_conformance_fixtures::FixtureRef` or
-//! `WordsYaml`. The Compiler measures a (grammar, words) pair; discovering fixtures, loading their
-//! `words.yaml`, subsampling to [`MAX_WORDS_PER_FIXTURE`], and excluding an `expect_crash` fixture
-//! by name are all a CALLER'S concern (`examples/conf_matrix.rs`, `tests/
-//! backend_scoreboard_gate.rs`), which may depend on `pg-conformance-fixtures` freely because
-//! fixture discovery is how a caller finds grammars, not something the compiler needs to know
-//! about.
+//! [`measure`](crate::scoreboard::measure) and
+//! [`unmeasurable`](crate::scoreboard::unmeasurable) take a plain `label: &str`, an already-loaded
+//! `&Grammar`, and already-selected `words: &[String]` -- never
+//! `pg_conformance_fixtures::FixtureRef` or `WordsYaml`. The Compiler measures a (grammar, words)
+//! pair; discovering fixtures, loading their `words.yaml`, subsampling (the example's own
+//! `MAX_WORDS_PER_FIXTURE`), and excluding an `expect_crash` fixture by name are all a CALLER'S
+//! concern (`examples/conf_matrix.rs`, `tests/backend_scoreboard_gate.rs`), which may depend on
+//! `pg-conformance-fixtures` freely because fixture discovery is how a caller finds grammars, not
+//! something the compiler needs to know about.
 //!
 //! # `IdentityDivergence` is exposed, not recomputed
-//! `evaluate_plans_observed_with_cache` already threads a per-run [`IdentityDivergence`] through
-//! `RunEvaluationCache`; `examples/conf_matrix.rs` used to subtract the running total before/after
-//! each strategy purely to print two of its seven fields (`oracle_only_identities`,
-//! `candidate_only_identities`) and then discard the rest. [`CellMeasurement::divergence`] carries
-//! the same subtracted delta whole, so a caller can see `candidate_only_identities` (a soundness
-//! violation -- expected zero) without a second subtraction living in a second file.
+//! `evaluate_plans_observed_with_cache` already threads a per-run
+//! [`IdentityDivergence`](crate::parity::IdentityDivergence) through `RunEvaluationCache`;
+//! `examples/conf_matrix.rs` used to subtract the running total before/after each strategy purely
+//! to print two of its seven fields (`oracle_only_identities`, `candidate_only_identities`) and
+//! then discard the rest. [`CellMeasurement::divergence`](crate::scoreboard::CellMeasurement)
+//! carries the same subtracted delta whole, so a caller can see `candidate_only_identities` (a
+//! soundness violation -- expected zero) without a second subtraction living in a second file.
 
 use pg_grammar::model::Grammar;
 
