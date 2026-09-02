@@ -58,6 +58,12 @@ take hours; (b) revert `words.yaml` to HC-Rust's answers -- exactly the enshrine
 the oracle hierarchy section forbids; (c) `#[ignore]` the two fixtures -- silent, and it would hide a
 third divergence in either fixture.
 
+**Closed the same day.** The port fix landed (natural-class membership decided by table kind, and
+synthesis no longer reassigning the word's stratum), both words now agree with hc.dll, and the
+`KNOWN_HC_RUST_DIVERGENCES` list was removed rather than left empty -- an empty ratchet is a control
+that cannot act. Upstream fixtures pinning both constructs in `sillsdev/machine` are being authored so
+the regression is caught by the founding oracle's own suite, not only by PanGloss's staging.
+
 **To grill:** the `g` case is uncomfortable. The fixture was AUTHORED to prove a wrong-table
 natural-class collision cannot happen, and hc.dll says it does. Under the oracle hierarchy HC-Rust
 must reproduce it -- but is this a hc.dll behaviour to match, or a hc.dll bug to report upstream and
