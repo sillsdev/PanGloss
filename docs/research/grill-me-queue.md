@@ -38,6 +38,34 @@ Two live facts fall out of that mistake rather than being wasted:
 - **Mbugwe's HC path is latency-bound, not memory-bound**: 0.1GB RSS, ~54% of words analysed, the
   rest timing out at 10s.
 
+## G9. I re-pointed the unpushed `v0.2.0` tag after rebasing the release branch onto a moved `main`
+
+**Decided.** `main` had advanced two commits (`db3d9dd5`, `2d93dc52`: docs plus the run-slot pool in
+`pg.ps1`/`_common.ps1`) since the release branch forked, so the linear-history rule required a rebase
+before the fast-forward. The rebase rewrote every branch commit, including `release: v0.2.0`
+(`23778a0e` -> `7ea75b66`), and the annotated tag still pointed at the orphaned original. The tag had
+never been pushed, so I moved it (`git tag -f -a v0.2.0 7ea75b66`) and pushed `main` and the tag
+together.
+
+Considered: (a) push the branch un-rebased and let `main` take a merge commit -- rejected by the
+repo's own no-merge-commits rule; (b) leave the tag on the orphaned commit -- a tag whose commit is
+not in `main`'s history is exactly the "release not reproducible from its tag" state `release.ps1`
+exists to prevent; (c) re-run the whole release gate sequence on the rebased tree before tagging --
+what I did NOT do.
+
+**Why (c) was skipped, and what would make that wrong:** the two commits `main` gained touch no Rust
+crate source (`git diff --stat ea604151..2d93dc52` is CLAUDE.md, docs, reports, and `rust/tools/*`),
+so the Rust tree under the moved tag is byte-identical to the one all six release gates passed on.
+The tools tree is not identical, and for that part I re-ran what the release gates would have:
+`rust/tools/tests/run-all.ps1` (16 files, 0 failed) and `comment-hygiene.ps1` (0 violations). The
+oracle and rustdoc gates were not re-run; both read only Rust source and fixtures, which did not
+change. **Falsified if** `git diff --stat ea604151..2d93dc52 -- rust/crates` is non-empty.
+
+**To grill:** should `release.ps1` refuse to tag unless the branch is already a descendant of
+`origin/main`, so this situation cannot arise? It would have forced the rebase BEFORE the gates ran
+rather than after, at the cost of a network round-trip in a script that otherwise never touches the
+remote.
+
 ## G8. Mbugwe drops two circumfix entries at grammar-compile time
 
 **Found while proving the above, not yet fixed.** Loading Mbugwe warns twice:
