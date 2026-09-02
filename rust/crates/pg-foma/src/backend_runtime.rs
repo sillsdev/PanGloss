@@ -949,10 +949,31 @@ pub fn certify_corpus(
 /// failure: the verdict only needs one witness, whereas the soundness counter is a claim about the
 /// whole corpus and would be worthless if it stopped at the first disagreement. See
 /// `certify_word_measured` for why the count and the verdict share one projection pass.
+///
+/// Callers with no evidence that a real backend produced `actual` (every caller but
+/// `measure_and_certify_inner`) get the conservative reading of the vacuous-pass guard below: see
+/// `certify_corpus_with_execution_evidence`.
 pub fn certify_corpus_measured(
     grammar: &Grammar,
     expected: &[(String, Vec<WordAnalysis>)],
     actual: &[(String, Vec<WordAnalysis>)],
+) -> (Certification, IdentityDivergence) {
+    certify_corpus_with_execution_evidence(grammar, expected, actual, false)
+}
+
+/// `certify_corpus_measured` plus `backend_ran_for_real`: whether `actual` came from a real
+/// backend evaluating real words, as opposed to hand-constructed comparison data.
+///
+/// The vacuous-pass guard below cannot be answered from per-word proposal counts: a fixture may be
+/// an honest all-negative regression pin (every word `expect_fail`) where the correct proposer
+/// output is legitimately zero raw candidates for every word, exactly what a vacuous network would
+/// also produce. `Score::proposals` cannot tell the two apart -- only "did a real evaluation
+/// pipeline run at all" can, and only the caller running that pipeline knows it.
+pub fn certify_corpus_with_execution_evidence(
+    grammar: &Grammar,
+    expected: &[(String, Vec<WordAnalysis>)],
+    actual: &[(String, Vec<WordAnalysis>)],
+    backend_ran_for_real: bool,
 ) -> (Certification, IdentityDivergence) {
     if expected.len() != actual.len() {
         return (
@@ -991,9 +1012,9 @@ pub fn certify_corpus_measured(
     if let Some(failure) = failures.into_iter().next() {
         return (failure, divergence);
     }
-    // Agreeing about nothing is not agreement: if the HC oracle produced no analysis for any word, every per-word comparison is empty-set against empty-set, which certify_word calls equal, so an all-empty corpus would "confirm" any candidate, including one whose network is empty.
+    // Agreeing about nothing is not agreement: if the HC oracle produced no analysis for any word, every per-word comparison is empty-set against empty-set, which certify_word calls equal, so an all-empty corpus would "confirm" any candidate, including one whose network is empty. `backend_ran_for_real` is what tells a vacuous network apart from a real backend correctly finding nothing on an honest all-negative fixture (every word `expect_fail`), which must certify, not truncate.
     let analyses: usize = expected.iter().map(|(_, a)| a.len()).sum();
-    if analyses == 0 {
+    if analyses == 0 && !backend_ran_for_real {
         return (
             Certification::Truncated {
                 stage: "no-analyzable-words".into(),
@@ -1324,7 +1345,13 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
             IdentityDivergence::not_compared(expected.len() as u64),
         ),
         _ => {
-            let (verdict, divergence) = certify_corpus_measured(grammar, expected, &actual);
+            // Reaching here already proves a real backend built a network and evaluated every word in `words` -- that execution is the evidence, independent of how many raw candidates it happened to generate.
+            let (verdict, divergence) = certify_corpus_with_execution_evidence(
+                grammar,
+                expected,
+                &actual,
+                !words.is_empty(),
+            );
             let verdict = match verdict {
                 Certification::FullHcConfirmed {
                     words: word_count, ..
@@ -2371,6 +2398,22 @@ mod tests {
             certify_corpus(&g, &[("w".into(), vec![])], &[("w".into(), vec![])]),
             Certification::Truncated { ref stage, .. } if stage == "no-analyzable-words"
         ));
+    }
+
+    #[test]
+    fn an_honest_all_negative_fixture_certifies_when_a_real_backend_ran() {
+        // Same all-empty shape as the guard above, but a real backend evaluated the word.
+        let g = fixture();
+        let (verdict, _) = certify_corpus_with_execution_evidence(
+            &g,
+            &[("w".into(), vec![])],
+            &[("w".into(), vec![])],
+            true,
+        );
+        assert!(
+            verdict.selectable(),
+            "an all-negative fixture a real backend evaluated must certify: {verdict:?}"
+        );
     }
 
     #[test]
