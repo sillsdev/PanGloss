@@ -43,13 +43,13 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target: TSP gained two refusals-turned-exact from per-allomorph zone ownership and the dropped closure refusal (pinned by the outcome table below), TUT one from the same zone fix; a process-morphology refusal and two all-`expect_fail` "misses" (metathesis-comparison-crash) also became exact; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy) -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target: TSP gained two refusals-turned-exact from per-allomorph zone ownership and the dropped closure refusal (pinned by the outcome table below), TUT one from the same zone fix; a process-morphology refusal and two all-`expect_fail` "misses" (metathesis-comparison-crash) also became exact; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy) -- TSP also shows two misses the corrected HC-Rust oracle newly exposes rather than any backend change: segment-natural-class-table-binding "g" (a cross-table analysis hc.dll requires and the proposer never offers) and mpr-gated-exception "mentanukam" (two derivation orders under an unordered stratum, one proposal) -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 57,
-            compiles_but_misses: 1,
+            oracle_exact: 55,
+            compiles_but_misses: 3,
             refused: 3,
             unmeasurable: 0,
         },

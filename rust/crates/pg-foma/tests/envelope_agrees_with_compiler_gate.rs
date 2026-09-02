@@ -333,9 +333,8 @@ fn report_envelope_compiler_divergence() {
         strict_sorted, expected_sorted,
         "the too-strict inventory moved without this ratchet being updated to name the new set"
     );
-    // Staged: names every too-lax row so a NEW one fails here rather than joining an unnamed backlog.
-    const EXPECTED_TOO_LAX: &[&str] =
-        &["machine:edge-cases/process-morphology-in-place-mutation x tuned-surface-probed"];
+    // A too-lax row is an envelope admitting what the compiler then refuses; there is no backlog of those, so any one fails here by name.
+    const EXPECTED_TOO_LAX: &[&str] = &[];
     let mut lax_sorted: Vec<&str> = lax.iter().map(|(label, _)| label.as_str()).collect();
     lax_sorted.sort_unstable();
     let mut expected_lax_sorted = EXPECTED_TOO_LAX.to_vec();
