@@ -72,18 +72,40 @@ ratchet.
 
 ## `circumfix-non-first-allomorph-selection`
 
-Measured `Refused` on all three backends (0/3), each for a different, typed, cited reason:
+Was measured `Refused` on all three backends (0/3); now 2/3, `TunedSurfaceProbed` AND
+`TemplatedUnderlyingTokens` both `OracleExact`:
 
-- `TunedSurfaceProbed`: the capability envelope's own `surface-probe.circumfix-zone-exclusive-allomorph`
-  predicate refuses the build.
-- `TemplatedUnderlyingTokens`: `templated emission unsupported: Partial { uncovered: 1 }`.
-- `PlanComposed`: the plan's `StructuralCompositeMarker` subtree cannot be honoured by
-  `build_controllable`; the fixture needs a whole-grammar backend.
+- `TunedSurfaceProbed`/`TemplatedUnderlyingTokens`: both were refused by the same root cause,
+  because both routes' zone construction calls the SAME shared `emit.rs::emit_rule_allomorphs` /
+  `allomorph_zone_outcome`. Zone membership was assigned PER RULE (a circumfix allomorph widens
+  the whole rule into both the prefix and suffix zone), then the rule's plain suffix allomorph was
+  reported "uncovered" in the prefix zone it never owned -- for TSP that surfaced as the
+  `surface-probe.circumfix-zone-exclusive-allomorph` capability refusal, for TUT as `templated
+  emission unsupported: Partial { uncovered: 1 }`. Fixed by moving zone ownership to per-ALLOMORPH
+  (`AllomorphZoneOutcome::OwnZoneElsewhere`): a plain Prefix/Suffix allomorph absent from the zone
+  a circumfix sibling forced the rule into is routed by its OWN zone instead, not reported
+  uncovered. Both now `OracleExact` for `mits` and `kemitan`, zero soundness violations.
+- `PlanComposed`: still refused -- the plan's `StructuralCompositeMarker` subtree cannot be
+  honoured by `build_controllable`; the fixture needs a whole-grammar backend, unrelated to the
+  zone-ownership bug above.
 
 This does not contradict `tests/circumfix_candidate_selection.rs::non_first_allomorph_circumfix_recall_parity`,
 which proves proposer-to-confirm containment for the same grammar's `kemitan` word -- that test
 builds its plan directly via `crate::emit`, a route none of `ALL_STRATEGIES`'s three backends
 takes. The census C1 fix this fixture pins made the compiler correctly DETECT that the rule needs
-structural-composite handling; none of the three measured backends independently implements
-building one for this allomorph ordering, so all three fail closed with a named reason rather than
-silently under-proposing. Both facts are simultaneously true.
+structural-composite handling; `TunedSurfaceProbed` and `TemplatedUnderlyingTokens` now also
+correctly EMIT it (see above), while `PlanComposed` still fails closed with a named reason rather
+than under-proposing.
+
+## `suffixing-extension-slot-ordering` (upstream `machine:languages/...`)
+
+Was measured `Refused` on `TunedSurfaceProbed` (`surface-probe.finite-closure-bound`, over its
+`RealizationalRule rrRRealTest`, which has no `RealizationalFeatures` element); now `OracleExact`.
+Root cause: `preexpand::realizational_rule_is_semantically_unbounded` treated an empty
+`RealizationalFeatures` as proof of unbounded reapplication. Reading hc.dll's
+`SynthesisRealizationalAffixProcessRule.Apply` (`SynthesisRealizationalAffixProcessRule.cs:46-49`)
+shows the real bound: it checks `word.GetApplicationCount(rule) >= 1` before it ever looks at the
+rule's realizational feature structure, so EVERY `RealizationalRule` -- content aside -- applies at
+most once per word (the DTD's own `RealizationalRule` attribute list has no `multipleApplication`
+attribute, unlike `MorphologicalRule`/`CompoundingRule`). The function now always returns `false`.
+`TemplatedUnderlyingTokens`/`PlanComposed` still refuse this fixture for unrelated reasons.

@@ -43,23 +43,23 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target: latest moves are one TSP refusal becoming exact (process morphology routed through the structural composite path) and one TSP plus one TUT "miss" becoming exact when an all-`expect_fail` fixture stopped certifying `Truncated` for a proposer that ran and was pruned clean; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy, a larger denominator) -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target: TSP gained two refusals-turned-exact from per-allomorph zone ownership and the dropped closure refusal (pinned by the outcome table below), TUT one from the same zone fix; a process-morphology refusal and two all-`expect_fail` "misses" (metathesis-comparison-crash) also became exact; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy) -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 55,
+            oracle_exact: 57,
             compiles_but_misses: 1,
-            refused: 5,
+            refused: 3,
             unmeasurable: 0,
         },
     ),
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 35,
+            oracle_exact: 36,
             compiles_but_misses: 5,
-            refused: 21,
+            refused: 20,
             unmeasurable: 0,
         },
     ),
@@ -77,9 +77,30 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
 /// A ratchet on the NAMED set, not just the count -- a fixture gaining or losing `expect_crash` is reviewable, not just countable.
 const EXPECTED_EXCLUDED: &[&str] = &["machine:edge-cases/simultaneous-epenthesis-cascade"];
 
-/// See docs/research/backend-scoreboard-extraction-reconciliation.md's own section on this fixture for why 0/3 `Refused` here does not contradict `non_first_allomorph_circumfix_recall_parity`'s PRE-confirm containment proof.
+/// See docs/research/backend-scoreboard-extraction-reconciliation.md's own section on this fixture for why TSP now measures `OracleExact` here without contradicting `non_first_allomorph_circumfix_recall_parity`'s PRE-confirm containment proof.
 const CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE: &str =
     "staging:edge-cases/circumfix-non-first-allomorph-selection";
+
+/// See docs/research/backend-scoreboard-extraction-reconciliation.md's own section on this fixture for the hc.dll reading behind TSP's `refused` -> `oracle_exact` move.
+const REALIZATIONAL_UNBOUNDED_FIXTURE: &str = "machine:languages/suffixing-extension-slot-ordering";
+
+/// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.
+fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {
+    use EmissionStrategy::{PlanComposed, TemplatedUnderlyingTokens, TunedSurfaceProbed};
+    match (fixture, strategy) {
+        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
+            if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE =>
+        {
+            "oracle_exact"
+        }
+        (f, PlanComposed) if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE => "refused",
+        (f, TunedSurfaceProbed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => "oracle_exact",
+        (f, TemplatedUnderlyingTokens | PlanComposed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => {
+            "refused"
+        }
+        (f, s) => panic!("no pinned expectation for ({f}, {s:?})"),
+    }
+}
 
 fn outcome_label(outcome: &CellOutcome) -> &'static str {
     match outcome {
@@ -105,7 +126,7 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
     let mut excluded: Vec<String> = Vec::new();
     let mut scored_fixtures = 0usize;
     let mut soundness_violations: Vec<String> = Vec::new();
-    let mut circumfix_outcomes: Vec<(EmissionStrategy, &'static str)> = Vec::new();
+    let mut pinned_outcomes: Vec<(&'static str, EmissionStrategy, &'static str)> = Vec::new();
 
     for fixture in &fixtures {
         match load_and_measure(fixture) {
@@ -133,8 +154,15 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                             ));
                         }
                     }
-                    if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE {
-                        circumfix_outcomes.push((cell.strategy, outcome_label(&cell.outcome)));
+                    if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
+                        || row.label == REALIZATIONAL_UNBOUNDED_FIXTURE
+                    {
+                        let f = if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE {
+                            CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
+                        } else {
+                            REALIZATIONAL_UNBOUNDED_FIXTURE
+                        };
+                        pinned_outcomes.push((f, cell.strategy, outcome_label(&cell.outcome)));
                     }
                 }
             }
@@ -181,19 +209,18 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
     }
 
     assert_eq!(
-        circumfix_outcomes.len(),
-        ALL_STRATEGIES.len(),
-        "{CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE} was not measured on every strategy -- has it been \
-         renamed, removed, or excluded?"
+        pinned_outcomes.len(),
+        2 * ALL_STRATEGIES.len(),
+        "one of the two pinned fixtures was not measured on every strategy -- has it been renamed, \
+         removed, or excluded?"
     );
-    for (strategy, label) in &circumfix_outcomes {
+    for (fixture, strategy, label) in &pinned_outcomes {
+        let expected = expected_pinned_outcome(fixture, *strategy);
         assert_eq!(
-            *label, "refused",
-            "{CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE} [{strategy:?}]: expected a typed `Refused` \
-             cell (see this module's own doc on why this fixture's PRE-confirm containment proof \
-             and POST-confirm 0/3 measurement do not contradict); got {label} instead -- either a \
-             backend gained the ability to build this shape (update this test AND the fixture's own \
-             STAGING.md) or the refusal mechanism changed"
+            *label, expected,
+            "{fixture} [{strategy:?}]: expected `{expected}` (see this module's own doc) but got \
+             {label} instead -- either a backend's capability changed or the refusal mechanism did; \
+             update this test, `expected_pinned_outcome`, and the fixture's own STAGING.md together"
         );
     }
 }

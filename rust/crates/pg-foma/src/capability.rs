@@ -3207,6 +3207,11 @@ pub trait GrammarWideCheck {
 }
 
 /// `crate::emit::eager_route_refuses_unbounded_closure`, published for `TunedSurfaceProbed`.
+/// Currently vacuous (never refuses): the only rule shape this fact ever named -- a
+/// `RealizationalRule` with an empty `RealizationalFeatures` -- turned out to be bounded to one
+/// application by hc.dll regardless, so `crate::preexpand::realizational_rule_is_semantically_unbounded`
+/// is now unconditionally `false`. Left registered as the seam for a genuinely unbounded shape,
+/// should one turn up.
 pub struct TunedSurfaceClosureCheck;
 
 impl GrammarWideCheck for TunedSurfaceClosureCheck {

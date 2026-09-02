@@ -2409,12 +2409,15 @@ fn compound_extra_levels_checked_with_cap(
 enum AllomorphZoneOutcome {
     Routed,
     Circumfix(Vec<(String, String)>),
+    /// Owned by the OTHER zone `standalone_rule_zones` also assigned this rule into, so absence here is not a gap.
+    OwnZoneElsewhere,
     Uncovered,
 }
 
-/// The zone-fit decision `emit_rule_allomorphs` makes for one allomorph; called by both that function and `eager_route_refuses_mixed_circumfix_zone`.
+/// The zone-fit decision `emit_rule_allomorphs` makes for one allomorph; called by both that function and `eager_route_refuses_mixed_circumfix_zone`. `mid` lets a plain Prefix/Suffix allomorph be told apart from one truly unrepresentable in any zone.
 fn allomorph_zone_outcome(
     g: &Grammar,
+    mid: MRuleId,
     allo: &AffixAllomorphDef,
     zone_role: Role,
     mode: TextMode<'_>,
@@ -2433,6 +2436,10 @@ fn allomorph_zone_outcome(
         if let Some(texts) = texts {
             return AllomorphZoneOutcome::Circumfix(texts);
         }
+    }
+    // A circumfix sibling widens the whole rule into both zones, so a plain Prefix/Suffix allomorph's own zone is guaranteed present too.
+    if matches!(role, Role::Prefix | Role::Suffix) && any_allomorph_is_circumfix_prefix(g, mid) {
+        return AllomorphZoneOutcome::OwnZoneElsewhere;
     }
     AllomorphZoneOutcome::Uncovered
 }
@@ -2470,7 +2477,7 @@ fn emit_rule_allomorphs(
         }
         let role = classify_affix(&allo.rhs);
         // Only the Prefix-zone occurrence carries the tag (the oracle always orders a circumfix's morpheme before the root); the Suffix-zone occurrence is untagged literal text, or the morpheme would be double-counted.
-        match allomorph_zone_outcome(g, allo, zone_role, mode) {
+        match allomorph_zone_outcome(g, mid, allo, zone_role, mode) {
             AllomorphZoneOutcome::Routed => {}
             AllomorphZoneOutcome::Circumfix(texts) => {
                 let emitted = texts.len();
@@ -2492,6 +2499,7 @@ fn emit_rule_allomorphs(
                 counts.allomorphs_emitted += emitted;
                 continue;
             }
+            AllomorphZoneOutcome::OwnZoneElsewhere => continue,
             AllomorphZoneOutcome::Uncovered => {
                 uncovered.push(UncoveredItem {
                     kind: role.label().to_string(),
@@ -3369,11 +3377,14 @@ fn standalone_rule_zones(g: &Grammar, mid: MRuleId) -> (bool, bool) {
 }
 
 /// Whether `emit_rule_allomorphs` would report at least one `Role::Prefix`/`Role::Suffix`
-/// allomorph uncovered for a rule zone membership `standalone_rule_zones` assigns it into — the
-/// exact condition behind `staging:edge-cases/circumfix-non-first-allomorph-selection`'s mixed
-/// suffix+circumfix rule. Calls the SAME two decisions the surface route's own standalone loop and
-/// `emit_rule_allomorphs` make (`standalone_rule_zones`, `allomorph_zone_outcome`), rather than
-/// reconstructing an equivalent condition from lower-level primitives.
+/// allomorph genuinely `AllomorphZoneOutcome::Uncovered` for a rule zone membership
+/// `standalone_rule_zones` assigns it into. Calls the SAME two decisions the surface route's own
+/// standalone loop and `emit_rule_allomorphs` make (`standalone_rule_zones`,
+/// `allomorph_zone_outcome`), rather than reconstructing an equivalent condition from lower-level
+/// primitives — `allomorph_zone_outcome` itself now reports `OwnZoneElsewhere`, not `Uncovered`,
+/// for a plain allomorph whose own zone a circumfix sibling already widened this rule into (the
+/// shape `staging:edge-cases/circumfix-non-first-allomorph-selection` pins), so this predicate no
+/// longer fires on that case; it still fires when no sibling widening covers the mismatched zone.
 ///
 /// Deliberately excludes an `Infix`/`Reduplication`/`CircumfixPrefix` "other allomorph": those kinds
 /// can still be dropped from `uncovered` by the later composite-coverage retain (see
@@ -3388,7 +3399,7 @@ pub fn eager_route_refuses_mixed_circumfix_zone(g: &Grammar) -> bool {
             allomorphs.iter().any(|allo| {
                 matches!(classify_affix(&allo.rhs), Role::Prefix | Role::Suffix)
                     && matches!(
-                        allomorph_zone_outcome(g, allo, zone_role, TextMode::SurfaceProbed),
+                        allomorph_zone_outcome(g, mid, allo, zone_role, TextMode::SurfaceProbed),
                         AllomorphZoneOutcome::Uncovered
                     )
             })

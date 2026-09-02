@@ -159,7 +159,7 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
     );
 }
 
-/// The published closure fact must never claim a refusal the eager route does not make.
+/// The published closure fact must never claim a refusal the eager route does not make. `claimed == 0` is now the permanent expectation (see `TunedSurfaceClosureCheck`'s own doc), not an unexercised gate: any nonzero count needs a real fixture, never an inflated assertion here.
 #[test]
 fn the_published_closure_fact_never_over_claims_a_refusal() {
     let mut claimed = 0usize;
@@ -180,9 +180,11 @@ fn the_published_closure_fact_never_over_claims_a_refusal() {
             fixture.label()
         );
     }
-    assert!(
-        claimed > 0,
-        "no fixture exercised the closure fact, so this gate proves nothing"
+    assert_eq!(
+        claimed, 0,
+        "closure fact fired on {claimed} fixture(s) -- it was proven permanently false \
+         (`realizational_rule_is_semantically_unbounded` always returns `false`); if this is no \
+         longer 0, that fact regressed or a new grammar shape resurrected the condition"
     );
 }
 
@@ -219,7 +221,7 @@ fn the_published_unclaimed_standalone_rule_fact_never_over_claims_a_refusal() {
     );
 }
 
-/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make.
+/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make. `claimed == 0` is the currently-measured state (its one witness, `staging:edge-cases/circumfix-non-first-allomorph-selection`, now compiles), not a proof the condition can never recur -- a genuinely unowned zone mismatch on a future grammar can still trip it.
 #[test]
 fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
     let mut claimed = 0usize;
@@ -240,9 +242,11 @@ fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
             fixture.label()
         );
     }
-    assert!(
-        claimed > 0,
-        "no fixture exercised the mixed-circumfix-zone fact, so this gate proves nothing"
+    assert_eq!(
+        claimed, 0,
+        "mixed-circumfix-zone fact fired on {claimed} fixture(s) -- update this assertion \
+         deliberately (its stale value was 1, this fixture's own commit made it 0) rather than \
+         reverting to a bare non-vacuity check"
     );
 }
 

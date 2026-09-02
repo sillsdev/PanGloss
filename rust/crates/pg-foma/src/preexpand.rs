@@ -237,15 +237,16 @@ pub(crate) fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
     out
 }
 
-/// Whether a realizational rule lacks both an authored bound and the engine's feature-presence
-/// block. A non-empty realizational feature structure is written into the word's syntactic
-/// features and makes the same rule inapplicable on the next step; only an empty one can repeat
-/// without a semantic bound.
-pub(crate) fn realizational_rule_is_semantically_unbounded(g: &Grammar, mid: MRuleId) -> bool {
-    match &g.mrules[mid.0 as usize] {
-        MorphRuleDef::Realizational(rule) => g.fs_interner.get(rule.real_fs).is_empty(),
-        MorphRuleDef::AffixProcess(_) | MorphRuleDef::Compounding(_) => false,
-    }
+/// Whether a realizational rule can apply more than once to the same word. Always `false`:
+/// `RealizationalFeatures` emptiness was never the deciding fact. hc.dll's
+/// `SynthesisRealizationalAffixProcessRule.Apply` checks `word.GetApplicationCount(rule) >= 1`
+/// before it ever inspects the rule's realizational feature structure -- every `RealizationalRule`
+/// is capped at exactly one application per word regardless of that content, matching the DTD's own
+/// `RealizationalRule` attribute list, which (unlike `MorphologicalRule`/`CompoundingRule`) carries
+/// no `multipleApplication` attribute to author a different bound with. See
+/// `SynthesisRealizationalAffixProcessRule.cs:46-49` in the founding-oracle checkout.
+pub(crate) fn realizational_rule_is_semantically_unbounded(_g: &Grammar, _mid: MRuleId) -> bool {
+    false
 }
 
 /// Semantically unbounded realizational candidates whose stable ordinals let the caller refuse
