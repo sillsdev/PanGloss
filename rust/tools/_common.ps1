@@ -1077,15 +1077,36 @@ function Get-ProcessDescendants {
     return $out
 }
 
+function Test-ManagedProcessTreeIdle {
+    <#
+      .DESCRIPTION
+      True when $RootPid is alive but neither it nor any descendant (Get-ProcessDescendants) matches
+      $script:LiveBuildActivityNames plus $ExtraLiveNames -- "alive, but empty of real work". Shared by
+      Test-BuildSlotHolderStale below and Wait-ManagedProcessTree (this file's wedged-procgov
+      detector) so the two never re-derive the same question differently. $ExtraLiveNames exists for
+      `-Mode run`: the launched payload (predict_census.exe, hc-rs.exe, ...) is not a build tool, so
+      without naming it here a legitimate hours-long probe would read as idle and be killed.
+    #>
+    param([Parameter(Mandatory)][int]$RootPid, [Parameter(Mandatory)]$Snapshot, [string[]]$ExtraLiveNames = @())
+    $root = $Snapshot | Where-Object { $_.ProcessId -eq $RootPid } | Select-Object -First 1
+    if (-not $root) { return $false }
+    $tree = @($root) + @(Get-ProcessDescendants -RootPid $RootPid -Snapshot $Snapshot)
+    $liveNames = @($script:LiveBuildActivityNames) + @($ExtraLiveNames)
+    $active = @($tree | Where-Object { $_.Name -in $liveNames })
+    return $active.Count -eq 0
+}
+
 function Test-BuildSlotHolderStale {
     <#
       .DESCRIPTION
       A held slot is stale when the holder is alive but doing nothing: past a generous minimum age
       (a real `-Scope all` conformance run legitimately runs tens of minutes, so this must never fire
-      mid-build) AND no descendant process anywhere in its tree matches $script:LiveBuildActivityNames.
-      Root cause this exists for: `Invoke-ProcessInJobObject`'s wait is a bare `Wait-Process -Id
-      $psi.Id` with no timeout, so a procgov process that never exits after its own job empties out
-      is invisible to that function's own `finally` cleanup, which only runs once the wait returns.
+      mid-build) AND Test-ManagedProcessTreeIdle says its tree matches nothing in
+      $script:LiveBuildActivityNames. Root cause this exists for: `Invoke-ProcessInJobObject`'s wait
+      used to be a bare `Wait-Process -Id $psi.Id` with no timeout, so a procgov process that never
+      exits after its own job empties out was invisible to that function's own `finally` cleanup,
+      which only runs once the wait returns -- Wait-ManagedProcessTree below now closes that gap
+      directly, at the source, rather than leaving this ledger-only sweep as the sole recovery.
     #>
     param(
         $Holder, $Snapshot,
@@ -1096,9 +1117,7 @@ function Test-BuildSlotHolderStale {
     $proc = $Snapshot | Where-Object { $_.ProcessId -eq $Holder.Pid } | Select-Object -First 1
     if (-not $proc -or -not $proc.CreationDate) { return $false }
     if (($Now - $proc.CreationDate).TotalMinutes -lt $MinAgeMinutes) { return $false }
-    $descendants = Get-ProcessDescendants -RootPid $Holder.Pid -Snapshot $Snapshot
-    $alive = @($descendants | Where-Object { $_.Name -in $script:LiveBuildActivityNames })
-    return $alive.Count -eq 0
+    return Test-ManagedProcessTreeIdle -RootPid $Holder.Pid -Snapshot $Snapshot
 }
 
 function Remove-StaleBuildSlotHolders {
@@ -1124,6 +1143,60 @@ function Remove-StaleBuildSlotHolders {
             try { Clear-BuildSlotHolder -Slot $h.Slot } catch {}
         }
     }
+}
+
+function Wait-ManagedProcessTree {
+    <#
+      .DESCRIPTION
+      Bounded replacement for a bare `Wait-Process -Id $Process.Id`. Observed live: nextest printed
+      its full summary, every cargo/rustc/link/test process on the machine had exited, yet the outer
+      AND inner procgov.exe stayed alive with a completely empty job tree -- a bare wait on that PID
+      hangs forever, and every caller (pg.ps1, then release.ps1's test gate) hangs with it.
+
+      Liveness of the TREE is the discriminator, never a wall clock alone: this repo's own CLAUDE.md
+      already documents why a fixed deadline is the wrong instrument here (the 30-minute build-slot
+      timeout is arithmetically unreachable under load for exactly that reason, and a real -Scope all
+      run or a fat-LTO relink can legitimately run far longer). A real build keeps at least one
+      $script:LiveBuildActivityNames process alive continuously -- cargo.exe itself spans the whole
+      invocation -- so Test-ManagedProcessTreeIdle only starts reading "idle" the moment the real work
+      has already finished; $MaxIdleMinutes then bounds how long $Process may sit idle after that
+      before it is declared wedged, and is deliberately short (minutes, not the 20-minute ledger
+      threshold above) because nothing legitimate happens between "cargo returned" and "the wrapper
+      also returns".
+
+      Returns Wedged=$true rather than killing anything itself -- the caller already owns $Process's
+      cleanup (Invoke-ProcessInJobObject's existing `finally`) and must not gain a second copy of it.
+
+      $SnapshotProvider/$SleepAction/$NowProvider are injection seams so the polling loop is testable
+      against synthetic ticks with no real process, no real sleep, and no real clock -- see
+      rust/tools/tests/managed-process-wait.tests.ps1 -- never something production overrides.
+    #>
+    param(
+        [Parameter(Mandatory)]$Process,
+        [int]$PollSeconds = 10,
+        # double, not int: a real-process test needs a sub-minute threshold to stay fast without ever mocking the OS process tree.
+        [double]$MaxIdleMinutes = 3,
+        # Names beyond $script:LiveBuildActivityNames that count as real work in THIS tree -- the launched payload itself, for `-Mode run`.
+        [string[]]$ExtraLiveNames = @(),
+        [scriptblock]$SnapshotProvider = { Get-ProcessSnapshot },
+        [scriptblock]$SleepAction = { param($Seconds) Start-Sleep -Seconds $Seconds },
+        [scriptblock]$NowProvider = { Get-Date }
+    )
+    $idleSince = $null
+    while (-not $Process.HasExited) {
+        $snapshot = & $SnapshotProvider
+        $now = & $NowProvider
+        if (Test-ManagedProcessTreeIdle -RootPid $Process.Id -Snapshot $snapshot -ExtraLiveNames $ExtraLiveNames) {
+            if (-not $idleSince) { $idleSince = $now }
+            elseif (($now - $idleSince).TotalMinutes -ge $MaxIdleMinutes) {
+                return [PSCustomObject]@{ Wedged = $true; IdleSince = $idleSince; ExitCode = $null }
+            }
+        } else {
+            $idleSince = $null
+        }
+        & $SleepAction $PollSeconds
+    }
+    return [PSCustomObject]@{ Wedged = $false; IdleSince = $null; ExitCode = $Process.ExitCode }
 }
 
 function Invoke-ProcessInJobObject {
@@ -1152,7 +1225,12 @@ function Invoke-ProcessInJobObject {
         [Nullable[int]]$JobMemoryGB,
         [Nullable[int]]$CpuRatePercent,
         # Purely cosmetic word choice for the "no procgov" warning so it stays accurate for whichever pg.ps1 mode called in.
-        [string]$Subject = 'build'
+        [string]$Subject = 'build',
+        # Wait-ManagedProcessTree tuning; overridable so a caller (or a test) never has to wait on the production default.
+        [int]$WaitPollSeconds = 10,
+        [double]$WaitMaxIdleMinutes = 3,
+        # $null means "derive from $Exe" (the payload counts as live work); a test passes @() to simulate the payload having already exited, the incident's exact shape.
+        [string[]]$WaitExtraLiveNames = $null
     )
     # Wrap the whole process tree in a Windows job object (via procgov) so the kernel enforces the ceilings.
     # docs/research/build-resource-governance.md
@@ -1192,10 +1270,23 @@ function Invoke-ProcessInJobObject {
         Write-Host "[pg] note: could not set $Priority priority on $Exe (pid $($psi.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
     }
 
-    # A plain wait: no polling watchdog, since procgov enforces continuously; `finally`'s taskkill covers only this script's own Ctrl+C.
+    # Bounded, tree-liveness-aware wait -- see Wait-ManagedProcessTree's own doc for the wedge this replaced.
     try {
-        Wait-Process -Id $psi.Id
-        return $psi.ExitCode
+        if ($null -eq $WaitExtraLiveNames) {
+            # The payload IS the work for `-Mode run -Exe`: without this, an hours-long predict_census.exe would read as idle and be killed at the bound.
+            $payloadName = [System.IO.Path]::GetFileName($Exe)
+            if ($payloadName -and -not [System.IO.Path]::GetExtension($payloadName)) { $payloadName = "$payloadName.exe" }
+            $WaitExtraLiveNames = @($payloadName)
+        }
+        $wait = Wait-ManagedProcessTree -Process $psi -PollSeconds $WaitPollSeconds -MaxIdleMinutes $WaitMaxIdleMinutes -ExtraLiveNames $WaitExtraLiveNames
+        if ($wait.Wedged) {
+            $liveNames = @($script:LiveBuildActivityNames) + @($WaitExtraLiveNames)
+            Write-Host "[pg] REFUSING to wait any longer: pid $($psi.Id) ($launchExe) is alive but its process tree has matched none of {$($liveNames -join ', ')} for ${WaitMaxIdleMinutes}+ minute(s) (idle since $($wait.IdleSince))." -ForegroundColor Red
+            if ($jobName) { Write-Host "[pg]   job object: $jobName -- terminating it now, along with pid $($psi.Id)." -ForegroundColor Red }
+            Write-Host "[pg] exit $script:ExitCodeManagedProcessWedged means exactly this: the wrapper's own work already finished and it never returned on its own." -ForegroundColor Red
+            exit $script:ExitCodeManagedProcessWedged
+        }
+        return $wait.ExitCode
     } finally {
         if (-not $psi.HasExited) {
             & taskkill /T /F /PID $psi.Id 2>$null | Out-Null
@@ -1406,6 +1497,8 @@ $script:ExitCodeLinuxGcUnsupported = 24
 $script:ExitCodeOracleUnavailable = 25
 # oracle-conformance.ps1: a signature/load-failure mismatch outside the known-divergence baseline.
 $script:ExitCodeOracleDivergence = 26
+# Wait-ManagedProcessTree declared $Process (procgov, or the bare exe without it) wedged: alive, tree idle past the bound.
+$script:ExitCodeManagedProcessWedged = 27
 
 function Get-FilterZeroMatchHint {
     <#
