@@ -43,13 +43,13 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target: moves off the extraction baseline come from a boundary-character fix (one TSP miss became exact) and the new `circumfix-conditioned-halves` fixture (exact on TSP/TUT, refused by PlanComposed), so 60 -> 61 per strategy is a larger denominator, not a regression -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target: the latest move is one TSP and one TUT "miss" becoming exact when an all-`expect_fail` fixture (metathesis-comparison-crash) stopped certifying `Truncated` for a proposer that ran and was pruned clean; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy, a larger denominator) -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 53,
-            compiles_but_misses: 2,
+            oracle_exact: 54,
+            compiles_but_misses: 1,
             refused: 6,
             unmeasurable: 0,
         },
@@ -57,8 +57,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 34,
-            compiles_but_misses: 6,
+            oracle_exact: 35,
+            compiles_but_misses: 5,
             refused: 21,
             unmeasurable: 0,
         },

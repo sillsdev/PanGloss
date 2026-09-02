@@ -419,36 +419,75 @@ pub fn assert_matches_oracle(
     words_yaml: &WordsYaml,
     morpher: &pg_parse::Morpher,
 ) -> usize {
-    let mut checked = 0;
+    let replay = replay_against_oracle(words_yaml, morpher);
+    if let Some(m) = replay.mismatches.first() {
+        panic!(
+            "{fixture_label}: word {:?} {}\n  left (HC-Rust): {:?}\n right (oracle):  {:?}",
+            m.word, m.what, m.got, m.expected
+        );
+    }
+    replay.checked
+}
+
+/// One word where HC-Rust and the committed oracle expectation disagree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OracleMismatch {
+    pub word: String,
+    pub what: &'static str,
+    pub got: String,
+    pub expected: String,
+}
+
+/// The outcome of replaying every adapter-visible word: how many were compared, and every disagreement.
+#[derive(Debug, Default)]
+pub struct OracleReplay {
+    pub checked: usize,
+    pub mismatches: Vec<OracleMismatch>,
+}
+
+/// The non-panicking core of `assert_matches_oracle`: replays every adapter-visible word and collects
+/// each disagreement instead of stopping at the first, so a gate can compare the whole set against a
+/// declared known-divergence list and fail on a divergence that is missing as well as one that is new.
+pub fn replay_against_oracle(words_yaml: &WordsYaml, morpher: &pg_parse::Morpher) -> OracleReplay {
+    let mut replay = OracleReplay::default();
     for w in &words_yaml.words {
         if !w.adapter_visible() {
             continue; // self-check-only (guess:true parse), PROTOCOL.md section 3
         }
         let outcome = morpher.parse_word(&w.word);
+        replay.checked += 1;
         if w.expect_skip {
-            assert!(
-                outcome.invalid_shape,
-                "{fixture_label}: word {:?} expected SKIPPED (invalid shape) but engine produced a result",
-                w.word
-            );
-            checked += 1;
+            if !outcome.invalid_shape {
+                replay.mismatches.push(OracleMismatch {
+                    word: w.word.clone(),
+                    what: "expected SKIPPED (invalid shape) but engine produced a result",
+                    got: outcome.signature(),
+                    expected: "<skipped>".to_string(),
+                });
+            }
             continue;
         }
-        assert!(
-            !outcome.invalid_shape,
-            "{fixture_label}: word {:?} unexpectedly SKIPPED (invalid shape)",
-            w.word
-        );
+        if outcome.invalid_shape {
+            replay.mismatches.push(OracleMismatch {
+                word: w.word.clone(),
+                what: "unexpectedly SKIPPED (invalid shape)",
+                got: "<skipped>".to_string(),
+                expected: w.expected_signature(),
+            });
+            continue;
+        }
         let got = outcome.signature();
         let expected = w.expected_signature();
-        assert_eq!(
-            got, expected,
-            "{fixture_label}: word {:?} signature mismatch vs oracle",
-            w.word
-        );
-        checked += 1;
+        if got != expected {
+            replay.mismatches.push(OracleMismatch {
+                word: w.word.clone(),
+                what: "signature mismatch vs oracle",
+                got,
+                expected,
+            });
+        }
     }
-    checked
+    replay
 }
 
 #[cfg(test)]

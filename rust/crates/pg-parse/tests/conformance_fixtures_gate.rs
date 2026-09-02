@@ -3,9 +3,15 @@
 
 use pg_conformance_fixtures::{
     all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
-    OracleProvenance,
+    replay_against_oracle, OracleProvenance,
 };
 use pg_parse::Morpher;
+
+/// Words where HC-Rust is KNOWN to disagree with the C# founding oracle, as (fixture label, word). A ratchet, not a target: the gate below fails on a divergence missing from this list AND on a listed one that no longer diverges, so an entry can neither hide a regression nor outlive its fix. Both entries surfaced when their grammars first became loadable by hc.dll; `words.yaml` carries the oracle's answer.
+const KNOWN_HC_RUST_DIVERGENCES: &[(&str, &str)] = &[
+    ("staging:edge-cases/segment-natural-class-table-binding", "g"),
+    ("staging:edge-cases/two-table-shared-representation-recall", "y"),
+];
 
 /// Fails if the same `(category, name)` fixture identity exists under both roots, enforcing that a fixture accepted upstream has its staged copy deleted in the same change.
 #[test]
@@ -42,11 +48,36 @@ fn all_discovered_fixtures_match_oracle() {
         let grammar = pg_grammar::load(&xml)
             .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", f.label()));
         let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
-        let checked = assert_matches_oracle(&f.label(), &words_yaml, &morpher);
+        let label = f.label();
+        let known: Vec<&str> = KNOWN_HC_RUST_DIVERGENCES
+            .iter()
+            .filter(|(fixture, _)| *fixture == label)
+            .map(|(_, word)| *word)
+            .collect();
+        let checked = if known.is_empty() {
+            assert_matches_oracle(&label, &words_yaml, &morpher)
+        } else {
+            let replay = replay_against_oracle(&words_yaml, &morpher);
+            let mut diverging: Vec<&str> = replay.mismatches.iter().map(|m| m.word.as_str()).collect();
+            diverging.sort_unstable();
+            let mut expected = known.clone();
+            expected.sort_unstable();
+            for m in &replay.mismatches {
+                eprintln!(
+                    "KNOWN HC-Rust divergence {label} word {:?}: HC-Rust {:?} vs oracle {:?}",
+                    m.word, m.got, m.expected
+                );
+            }
+            assert_eq!(
+                diverging, expected,
+                "{label}: the words HC-Rust diverges on must equal KNOWN_HC_RUST_DIVERGENCES exactly \
+                 (a new one is a regression; a missing one means the fix landed -- remove its entry)"
+            );
+            replay.checked
+        };
         assert!(
             checked > 0,
-            "{}: replayed zero words (every word guess-only or the fixture is empty?)",
-            f.label()
+            "{label}: replayed zero words (every word guess-only or the fixture is empty?)"
         );
         total_checked += checked;
     }
@@ -55,6 +86,18 @@ fn all_discovered_fixtures_match_oracle() {
         fixtures.len() - total_skipped_fixtures,
         total_skipped_fixtures
     );
+}
+
+/// A divergence entry naming a fixture that is no longer discovered would never be checked, so it could outlive both the fixture and the fix.
+#[test]
+fn known_hc_rust_divergences_name_discovered_fixtures() {
+    let labels: Vec<String> = discover().iter().map(|f| f.label()).collect();
+    for (fixture, word) in KNOWN_HC_RUST_DIVERGENCES {
+        assert!(
+            labels.iter().any(|l| l == fixture),
+            "KNOWN_HC_RUST_DIVERGENCES names {fixture:?} (word {word:?}) but no such fixture is discovered"
+        );
+    }
 }
 
 /// Named regression pin for the four affix-shape constructs, so their coverage doesn't silently disappear if `all_discovered_fixtures_match_oracle` is ever narrowed.
