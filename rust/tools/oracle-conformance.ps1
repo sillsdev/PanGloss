@@ -59,6 +59,8 @@ param(
 . "$PSScriptRoot\_common.ps1"
 
 $repoRoot = Get-RepoRoot
+# Run from another worktree's cwd, this script would grade THAT tree's fixtures under this tree's name; refusing (exit 19) is the same rule pg.ps1 applies.
+Assert-ScriptAndCwdAgreeOnWorktree -ScriptRoot $PSScriptRoot
 
 function Find-OracleExe {
     param([string]$Explicit)
