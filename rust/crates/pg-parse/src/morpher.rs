@@ -815,7 +815,7 @@ impl<'g> Morpher<'g> {
         ok
     }
 
-    /// The signature's surface half, rendered against the word's own stratum table (= surface stratum once fully synthesized).
+    /// The signature's surface half, rendered against `w.stratum`'s table (never reassigned during synthesis).
     fn surface_of(&self, w: &Word) -> String {
         let g = self.g;
         let table = &g.char_tables[g.strata[w.stratum.0 as usize].table.0 as usize];

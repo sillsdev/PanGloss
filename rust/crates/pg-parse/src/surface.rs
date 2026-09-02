@@ -121,17 +121,21 @@ pub(crate) fn matching_reps_for_node(
         if !kind_matches(kind, cd) {
             continue;
         }
-        let member = if char_def != NO_CHAR_DEF {
-            // Identity equality stays the fast path; the miss path additionally consults the build-time unifiability closure (`None` for a zero-feature table, keeping identity-only behavior there bit-for-bit).
+        let member = if char_def == NO_CHAR_DEF {
+            match cd_set {
+                pg_shape::CdSet::Unrestricted => true,
+                pg_shape::CdSet::Members(b) => b.contains(id.0),
+            }
+        } else if lanes.is_empty() {
+            // Zero-phon-feature table: C# attaches `StrRep` only here, so identity/closure decides.
             id.0 == char_def
                 || table
                     .unifiable_cds(CharDefId(char_def))
                     .is_some_and(|b| b.contains(id.0))
         } else {
-            match cd_set {
-                pg_shape::CdSet::Unrestricted => true,
-                pg_shape::CdSet::Members(b) => b.contains(id.0),
-            }
+            // Feature-bearing table: hc.dll matches by `FeatureStruct.IsUnifiable` alone, never
+            // char_def identity -- `flat_unifiable` below decides; pinned by `all_discovered_fixtures_match_oracle`.
+            true
         };
         if !member {
             continue;
