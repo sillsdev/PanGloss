@@ -207,9 +207,15 @@ fn the_published_unclaimed_standalone_rule_fact_never_over_claims_a_refusal() {
             fixture.label()
         );
     }
-    assert!(
-        claimed > 0,
-        "no fixture exercised the unclaimed-standalone-rule fact, so this gate proves nothing"
+    // Role::Process always implies is_structural_rule now, so this fact is provably unwitnessable.
+    assert_eq!(
+        claimed, 0,
+        "the unclaimed-standalone-rule fact fired for {claimed} fixture(s), but \
+         `standalone_rule_unclaimed_role` defers every `Role::Process` rule to \
+         `is_structural_rule`, and `rule_role(g, mid) == Role::Process` requires allomorph 0 to \
+         carry an `OutputAction::Modify` -- which alone makes `is_structural_rule`'s \
+         `has_unemittable_action` check true, so this fact can never fire for any grammar unless \
+         that structural implication itself changed"
     );
 }
 

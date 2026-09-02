@@ -43,14 +43,14 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target: the latest move is one TSP and one TUT "miss" becoming exact when an all-`expect_fail` fixture (metathesis-comparison-crash) stopped certifying `Truncated` for a proposer that ran and was pruned clean; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy, a larger denominator) -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target: latest moves are one TSP refusal becoming exact (process morphology routed through the structural composite path) and one TSP plus one TUT "miss" becoming exact when an all-`expect_fail` fixture stopped certifying `Truncated` for a proposer that ran and was pruned clean; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy, a larger denominator) -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 54,
+            oracle_exact: 55,
             compiles_but_misses: 1,
-            refused: 6,
+            refused: 5,
             unmeasurable: 0,
         },
     ),

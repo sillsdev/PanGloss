@@ -3324,10 +3324,11 @@ pub fn eager_route_refuses_unbounded_closure(g: &Grammar) -> bool {
     !unbounded_closure_rule_ordinals(g, &struct_rules, decisions).is_empty()
 }
 
-/// Shared by the standalone-derivational loop and `eager_route_refuses_unclaimed_standalone_rule` so the two never drift on which rule is unclaimed.
+/// Shared by the standalone-derivational loop and `eager_route_refuses_unclaimed_standalone_rule`; `Role::Process` defers to `is_structural_rule`, `build_structural_composites`'s own gate.
 fn standalone_rule_unclaimed_role(g: &Grammar, mid: MRuleId) -> Option<Role> {
     match rule_role(g, mid) {
         Role::Prefix | Role::Suffix | Role::None | Role::CircumfixPrefix => None,
+        Role::Process if is_structural_rule(g, mid) => None,
         _ if reduplication_rule_is_peelable(g, mid) => None,
         other => Some(other),
     }
@@ -5099,7 +5100,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         }
     }
 
-    // Drops "infix"/"circumfix-prefix"/"reduplication" uncovered items for a rule that composites now cover; a rule that matched zero roots keeps its uncovered items, honestly.
+    // Drops "infix"/"circumfix-prefix"/"reduplication"/"process" uncovered items for a rule that composites now cover; a rule that matched zero roots keeps its uncovered items, honestly.
     uncovered.retain(|u| {
         let rule_idx = || {
             u.id.strip_prefix("mrule")
@@ -5111,7 +5112,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 composite_report.covered_infix_rules.contains(&idx)
                     || struct_covered_rules.contains(&idx)
             }))
-            || ((u.kind == "circumfix-prefix" || u.kind == "reduplication")
+            || ((u.kind == "circumfix-prefix" || u.kind == "reduplication" || u.kind == "process")
                 && rule_idx().is_some_and(|idx| struct_covered_rules.contains(&idx))))
     });
 

@@ -53,12 +53,20 @@ impl fmt::Display for TemplatedCompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::MissingCharacterTable => write!(f, "grammar has no character table"),
-            Self::Unsupported(report) => write!(
-                f,
-                "templated emission unsupported: {:?} ({} uncovered)",
-                report.tier,
-                report.uncovered.len()
-            ),
+            Self::Unsupported(report) => {
+                let items = report
+                    .uncovered
+                    .iter()
+                    .map(|item| format!("{}:{}", item.kind, item.id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(
+                    f,
+                    "templated emission unsupported: {:?} ({} uncovered: {items})",
+                    report.tier,
+                    report.uncovered.len()
+                )
+            }
             Self::LexcCompileFailed => write!(f, "templated lexc failed to compile"),
             Self::NoCompiledRules => write!(f, "no phonological rule compiled"),
             Self::CleanupCompileFailed(regex) => {
