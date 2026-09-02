@@ -60,6 +60,16 @@ accepted staging-time substitute; **machine acceptance must re-verify against
 under `conformance-staging/edge-cases/` it can actually be loaded by the C# oracle and is
 graduation-ready on that axis.
 
+## Oracle provenance (reconciled 2026-09-02)
+
+`rust/tools/oracle-conformance.ps1` ran `hc-conformance.exe` self-check (C# founding oracle, machine
+commit `caa4ddde8782557c6fb58cac57e4761ffcafc2a6`) against this fixture's `grammar.xml` + `words.yaml`,
+materialized under a throwaway `edge-cases/<name>` mirror since `Fixture.DiscoverAll` only scans
+`languages`/`edge-cases` (the real files here were never moved): PASS -- every word's signature and
+traced `rules:` list matched. `words.yaml` now carries `# oracle-provenance: founding-oracle`. The
+"Oracle discipline" section above describes how this fixture was originally authored, not its current
+verification status.
+
 ## Verification
 
 Replayed in `rust/crates/pg-foma/tests/candidate_filter_fixture_weight.rs`, which walks

@@ -26,6 +26,11 @@
   found, this exits nonzero naming exactly what is missing and how to get it -- never a silent skip
   that would read as "everything is fine".
 
+  `conformance-staging/filter-passes/**` fixtures are invisible to `Fixture.DiscoverAll` (it only
+  scans `languages`/`edge-cases`), so this script materializes a throwaway `edge-cases/<name>` mirror
+  of them under a temp directory for the run and maps results back to their real `filter-passes/<name>`
+  id -- see `Test-FilterPassesSelfCheckRun`. The real, committed fixtures are never moved.
+
   Usage:
     rust\tools\oracle-conformance.ps1                       # self-check over conformance-staging
     rust\tools\oracle-conformance.ps1 -Scope all             # + machine/conformance as a control
@@ -156,6 +161,123 @@ function ConvertFrom-SelfCheckOutput {
     return $results
 }
 
+function Get-FilterPassesOracleRoot {
+    <#
+      .DESCRIPTION
+      A deterministic, worktree-scoped scratch path for the materialized filter-passes root -- a
+      hash of $RepoRoot rather than a GUID, so re-running the script targets the same path (the
+      task's reproducibility requirement) while still not colliding with another worktree's run.
+    #>
+    param([string]$RepoRoot)
+    $hasher = [System.Security.Cryptography.MD5]::Create()
+    try {
+        $bytes = $hasher.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($RepoRoot))
+    } finally {
+        $hasher.Dispose()
+    }
+    $hash = ([System.BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant().Substring(0, 12)
+    return Join-Path ([System.IO.Path]::GetTempPath()) "pangloss-oracle-filter-passes-$hash"
+}
+
+function New-FilterPassesOracleRoot {
+    <#
+      .DESCRIPTION
+      hc-conformance.exe's `Fixture.DiscoverAll` (machine's Fixture.cs) only ever scans a fixtures
+      root's `languages` and `edge-cases` subdirectories -- `filter-passes` is a THIRD staging-only
+      category (see pg_conformance_fixtures::discover_filter_passes) that neither this repo's own
+      dual-root discovery nor the founding oracle's harness walks. Rather than moving the real,
+      committed fixtures (explicitly forbidden -- see candidate_filter_fixture_weight.rs), this
+      rebuilds a disposable root from scratch on every call, mirroring each filter-passes fixture's
+      `grammar.xml`/`words.yaml` under `edge-cases/<name>` so the harness can discover and self-check
+      it. Returns the mirrored fixture names.
+    #>
+    param([string]$FilterPassesRoot, [string]$DestRoot)
+
+    if (Test-Path $DestRoot) { Remove-Item $DestRoot -Recurse -Force }
+    $destEdgeCases = Join-Path $DestRoot 'edge-cases'
+    New-Item -ItemType Directory -Force -Path $destEdgeCases | Out-Null
+
+    $fixtureDirs = @(Get-ChildItem $FilterPassesRoot -Directory | Where-Object {
+        (Test-Path (Join-Path $_.FullName 'grammar.xml')) -and (Test-Path (Join-Path $_.FullName 'words.yaml'))
+    })
+    foreach ($d in $fixtureDirs) {
+        $dest = Join-Path $destEdgeCases $d.Name
+        New-Item -ItemType Directory -Force -Path $dest | Out-Null
+        Copy-Item (Join-Path $d.FullName 'grammar.xml') (Join-Path $dest 'grammar.xml') -Force
+        Copy-Item (Join-Path $d.FullName 'words.yaml') (Join-Path $dest 'words.yaml') -Force
+    }
+    return $fixtureDirs.Name
+}
+
+function Test-FilterPassesSelfCheckRun {
+    <#
+      .DESCRIPTION
+      Runs hc-conformance.exe self-check over a materialized mirror of conformance-staging/
+      filter-passes/** (see New-FilterPassesOracleRoot) and reports against the baseline, keyed by
+      the fixtures' REAL id (`filter-passes/<name>`, never the materialized `edge-cases/<name>`).
+      Mirrors Test-SelfCheckRun's shape and return contract ($null = harness could not run, $false =
+      new divergence, $true = clean or fully baselined) so the caller's exit-code logic is unchanged.
+    #>
+    param(
+        [string]$ExePath,
+        [string]$FilterPassesRoot,
+        [string]$TempRoot,
+        [hashtable]$Baseline,
+        [switch]$IncludePathological,
+        [switch]$Propose
+    )
+
+    Write-Host ""
+    Write-Host "[oracle-conformance] self-check: conformance-staging/filter-passes (materialized under $TempRoot as edge-cases/<name> for discovery; real fixtures are never moved)" -ForegroundColor Cyan
+
+    $fixtureNames = @(New-FilterPassesOracleRoot -FilterPassesRoot $FilterPassesRoot -DestRoot $TempRoot)
+    if ($fixtureNames.Count -eq 0) {
+        Write-Host "[oracle-conformance] no filter-passes fixtures with both grammar.xml and words.yaml found under $FilterPassesRoot -- nothing to self-check." -ForegroundColor Yellow
+        return $true
+    }
+
+    $run = Invoke-OracleSelfCheck -ExePath $ExePath -FixturesRoot $TempRoot -IncludePathological:$IncludePathological -Propose:$Propose
+    Write-Host $run.Output
+
+    if ($run.ExitCode -ne 0 -and $run.ExitCode -ne 1) {
+        Write-Host "[oracle-conformance] hc-conformance.exe could not run against the materialized filter-passes root (exit $($run.ExitCode)) -- see output above." -ForegroundColor Red
+        return $null
+    }
+
+    $results = ConvertFrom-SelfCheckOutput -Text $run.Output
+    foreach ($r in $results) {
+        if ($r.Fixture -like 'edge-cases/*') {
+            $r.Fixture = 'filter-passes/' + $r.Fixture.Substring('edge-cases/'.Length)
+        }
+    }
+
+    $fails = $results | Where-Object { $_.Status -eq 'FAIL' }
+    $newDivergences = @()
+    $baselined = @()
+    foreach ($f in $fails) {
+        if ($Baseline.ContainsKey($f.Fixture)) { $baselined += $f } else { $newDivergences += $f }
+    }
+
+    if ($baselined.Count -gt 0) {
+        Write-Host ""
+        Write-Host "[oracle-conformance] $($baselined.Count) known (baselined) divergence(s) under filter-passes -- tolerated, not gating:" -ForegroundColor Yellow
+        foreach ($f in $baselined) {
+            $entry = $Baseline[$f.Fixture]
+            Write-Host "  $($f.Fixture): [$($entry.kind)] $($f.Reason)" -ForegroundColor Yellow
+        }
+    }
+
+    if ($newDivergences.Count -gt 0) {
+        Write-Host ""
+        Write-Host "[oracle-conformance] *** $($newDivergences.Count) NEW divergence(s) under filter-passes (not in the known-divergence baseline) ***" -ForegroundColor Red
+        foreach ($f in $newDivergences) { Write-Host "  $($f.Fixture): $($f.Reason)" -ForegroundColor Red }
+        return $false
+    }
+
+    Write-Host "[oracle-conformance] filter-passes: no new divergence ($($results.Count) fixture(s) attempted, $($baselined.Count) known-baselined)." -ForegroundColor Green
+    return $true
+}
+
 function Get-Baseline {
     param([string]$Path)
     if (-not (Test-Path $Path)) {
@@ -275,17 +397,14 @@ if ($Scope -eq 'all') {
     $allOk = $allOk -and $controlOk
 }
 
-# hc-conformance.exe's Fixture.DiscoverAll only scans languages/edge-cases, so filter-passes is invisible to it.
+# Materialized under a throwaway edge-cases/<name> mirror; the real fixtures are never moved.
 $filterPassesRoot = Join-Path $stagingRoot 'filter-passes'
 if (Test-Path $filterPassesRoot) {
-    $filterPassesFixtures = Get-ChildItem $filterPassesRoot -Directory | Where-Object {
-        (Test-Path (Join-Path $_.FullName 'grammar.xml')) -and (Test-Path (Join-Path $_.FullName 'words.yaml'))
-    }
-    if ($filterPassesFixtures.Count -gt 0) {
-        Write-Host ""
-        Write-Host "[oracle-conformance] $($filterPassesFixtures.Count) filter-passes/** fixture(s) are NOT reachable by hc-conformance.exe (its Fixture.DiscoverAll only scans languages/edge-cases) -- their signature correctness against the founding oracle is not exercised by this gate:" -ForegroundColor Yellow
-        foreach ($d in $filterPassesFixtures) { Write-Host "  filter-passes/$($d.Name)" -ForegroundColor Yellow }
-    }
+    $filterPassesTempRoot = Get-FilterPassesOracleRoot -RepoRoot $repoRoot
+    $filterPassesOk = Test-FilterPassesSelfCheckRun -ExePath $exePath -FilterPassesRoot $filterPassesRoot `
+        -TempRoot $filterPassesTempRoot -Baseline $baseline -IncludePathological:$IncludePathological -Propose:$Propose
+    if ($null -eq $filterPassesOk) { exit $script:ExitCodeOracleUnavailable }
+    $allOk = $allOk -and $filterPassesOk
 }
 
 if (-not $allOk) {

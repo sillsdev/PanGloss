@@ -57,6 +57,22 @@ accepted staging-time substitute; **machine acceptance must re-verify against
 under `conformance-staging/edge-cases/` it can actually be loaded by the C# oracle and is
 graduation-ready on that axis.
 
+## Oracle provenance (reconciled 2026-09-02)
+
+`rust/tools/oracle-conformance.ps1` ran `hc-conformance.exe` self-check (C# founding oracle, machine
+commit `caa4ddde8782557c6fb58cac57e4761ffcafc2a6`) against this fixture's `grammar.xml` + `words.yaml`,
+materialized under a throwaway `edge-cases/<name>` mirror since `Fixture.DiscoverAll` only scans
+`languages`/`edge-cases` (the real files here were never moved). Every word's SIGNATURE matched on the
+first run -- no correctness divergence between HC-Rust and the founding oracle. The oracle's traced
+`rules:` for `membalo`/`mempaku`/`mentilo`/`menduka` additionally named the phonological
+place-assimilation rule (`prNasalBilabial`/`prNasalAlveolar`) alongside `mrNasalPfx`, which
+`words.yaml`'s `rules:` lists had omitted; `words.yaml` is corrected to the oracle's traced set (an
+HC-Rust-side authoring gap this reconciliation surfaced, not a signature divergence -- the Rust
+conformance suite never compares `rules:` at all, see `pg_conformance_fixtures::assert_matches_oracle`).
+After that correction: PASS, every word's signature and traced `rules:` list match. `words.yaml` now
+carries `# oracle-provenance: founding-oracle`. The "Oracle discipline" section above describes how
+this fixture was originally authored, not its current verification status.
+
 ## Verification
 
 Replayed in `rust/crates/pg-foma/tests/candidate_filter_fixture_weight.rs`, which walks

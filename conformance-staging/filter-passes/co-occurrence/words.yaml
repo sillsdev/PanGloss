@@ -1,4 +1,10 @@
-# oracle-provenance: rust-only
+# oracle-provenance: founding-oracle machine-commit=caa4ddde8782557c6fb58cac57e4761ffcafc2a6 verified-date=2026-09-02
+# RECONCILED 2026-09-02: rust/tools/oracle-conformance.ps1 ran hc-conformance.exe self-check (C#
+# founding oracle) against a materialized edge-cases/<name> mirror of this fixture (Fixture.DiscoverAll
+# only scans languages/edge-cases; the real files here were never moved) -- PASSED, every word's
+# signature and traced rules: list matched. Any older "NOT the C# founding oracle" / "Oracle: pangloss"
+# sentence below describes how this fixture was originally authored, not its current verification
+# status -- superseded by the marker above.
 # Candidate-filter per-pass fixture for symbolic.co_occurrence.v1 -- see STAGING.md and
 # grammar.xml's own header comment for the pathology and the isolation argument.
 #

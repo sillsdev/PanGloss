@@ -47,3 +47,15 @@ section, against this repo's own private, gitignored corpora -- not reproducible
 fixture (like every conformance-staging fixture) is synthetic-only per this repo's own hard rule. The
 measured private-corpus numbers there are the real-world counterpart to the single synthetic
 `(NILO, mrZ)` case this fixture pins.
+
+## Oracle provenance (reconciled 2026-09-02)
+
+Originally authored against `pangloss` (this repo's own Rust engine) only, per `# oracle-provenance:
+rust-only`: `words.yaml`'s signatures were captured by driving `pg_parse::Morpher::parse_word`
+directly and transcribed verbatim, never hand-derived, but never checked against the C# founding
+oracle either. `rust/tools/oracle-conformance.ps1` closed that gap: it ran `hc-conformance.exe`
+self-check (C# founding oracle, machine commit `caa4ddde8782557c6fb58cac57e4761ffcafc2a6`) against
+this fixture's `grammar.xml` + `words.yaml`, materialized under a throwaway `edge-cases/<name>`
+mirror since `Fixture.DiscoverAll` only scans `languages`/`edge-cases` (the real files here were
+never moved): PASS -- every word's signature and traced `rules:` list matched. `words.yaml` now
+carries `# oracle-provenance: founding-oracle`.
