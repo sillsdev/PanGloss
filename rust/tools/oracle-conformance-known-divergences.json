@@ -1,68 +1,13 @@
 {
-  "_comment": "Known-divergence baseline for rust/tools/oracle-conformance.ps1's hc-conformance.exe self-check gate. A ratchet, not a target (see CLAUDE.md 'Build the differential measurement before the change'): a fixture id listed here is tolerated when hc-conformance.exe reports it FAIL; any FAIL not listed here is a NEW divergence and fails the gate. Remove an entry once a fixture is fixed/reconciled -- never add one without recording why below. machine_commit is the conformance-framework branch TIP, chosen as oracle of record after a 3-way cross-check: a stale exe of uncertain provenance (no clean ancestry to either the tip or PanGloss's submodule pin 74351b80), a fresh build at the tip (caa4ddde), and a fresh build at the pin all produced byte-identical per-fixture PASS/FAIL outcomes and error text over every fixture in this file.",
-  "machine_commit": "caa4ddde8782557c6fb58cac57e4761ffcafc2a6",
-  "machine_branch": "conformance-framework",
-  "measured_date": "2026-08-31",
+  "_comment": "Known-divergence baseline for rust/tools/oracle-conformance.ps1's hc-conformance.exe self-check gate. A ratchet, not a target (see CLAUDE.md 'Build the differential measurement before the change'): a fixture id listed here is tolerated when hc-conformance.exe reports it FAIL; any FAIL not listed here is a NEW divergence and fails the gate. Remove an entry once a fixture is fixed/reconciled -- never add one without recording why below. machine_commit is the submodule pin PanGloss's own machine submodule carries (branch integrate-conformance-framework), chosen as oracle of record because the exe used to measure this baseline was built from that exact commit (verified: exe LastWriteTime postdates the commit's own commit time) in two independent worktrees (the main checkout and .worktrees/pin-<commit>), both producing byte-identical PASS/FAIL outcomes over every fixture in this file.",
+  "machine_commit": "f42d95919fdf9b384ce123786fc61c3f6b14476a",
+  "machine_branch": "integrate-conformance-framework",
+  "measured_date": "2026-09-02",
   "divergences": [
     {
-      "fixture": "edge-cases/guesser-pattern-root-fallback",
-      "kind": "grammar-load-failure",
-      "note": "hc.dll XmlLanguageLoader rejects grammar.xml: \"The element 'MorphologicalRule' has invalid child element 'MorphemeId'.\" Signature correctness against the founding oracle is UNKNOWN until the grammar is fixed to load."
-    },
-    {
       "fixture": "edge-cases/head-ambiguous-compounding",
-      "kind": "grammar-load-failure",
-      "note": "hc.dll XmlLanguageLoader rejects grammar.xml: \"The 'id' attribute has an invalid value according to its data type.\" Signature correctness UNKNOWN until the grammar is fixed to load."
-    },
-    {
-      "fixture": "edge-cases/optional-template-composite",
-      "kind": "grammar-load-failure",
-      "note": "hc.dll crashes compiling the grammar: \"Could not compile affix template named template3\". Signature correctness UNKNOWN until the grammar is fixed to load."
-    },
-    {
-      "fixture": "edge-cases/right-to-left-segments-environment",
-      "kind": "grammar-load-failure",
-      "note": "hc.dll crashes with a bare NullReferenceException while loading/compiling grammar.xml. Signature correctness UNKNOWN until the grammar is fixed to load."
-    },
-    {
-      "fixture": "edge-cases/segment-natural-class-table-binding",
-      "kind": "grammar-load-failure",
-      "note": "hc.dll XmlLanguageLoader rejects grammar.xml: PhonologicalFeatureSystem appears before PartsOfSpeech, which its schema requires first. Signature correctness UNKNOWN until the grammar is fixed to load."
-    },
-    {
-      "fixture": "edge-cases/two-table-shared-representation-recall",
-      "kind": "grammar-load-failure",
-      "note": "hc.dll XmlLanguageLoader rejects grammar.xml: PhonologicalFeatureSystem appears before PartsOfSpeech. Signature correctness UNKNOWN until the grammar is fixed to load."
-    },
-    {
-      "fixture": "edge-cases/multi-table-metathesis-shared-representation",
       "kind": "rules-attribution-only",
-      "note": "SIGNATURE matches the founding oracle exactly (Runner.cs checks signatureMatches before ever comparing rules:). The only mismatch is words.yaml's declared rules: [] vs the oracle's traced [mrCrossTableSwap] -- an incomplete rules: field (PROTOCOL.md section 4 does not compare it at all), not a correctness divergence."
-    },
-    {
-      "fixture": "edge-cases/right-to-left-bounded-quantifier-rewrite",
-      "kind": "rules-attribution-only",
-      "note": "SIGNATURE matches the founding oracle exactly; only words.yaml's rules: [] (vs traced [prRtlBq]) differs. Same rules-attribution-only shape as multi-table-metathesis-shared-representation."
-    },
-    {
-      "fixture": "edge-cases/right-to-left-cross-table-segments-environment",
-      "kind": "rules-attribution-only",
-      "note": "SIGNATURE matches the founding oracle exactly; only words.yaml's rules: [] (vs traced [prRtlCrossTableSegments]) differs."
-    },
-    {
-      "fixture": "edge-cases/right-to-left-metathesis-reversal",
-      "kind": "rules-attribution-only",
-      "note": "SIGNATURE matches the founding oracle exactly; only words.yaml's rules: [] (vs traced [mrRtlReversal]) differs."
-    },
-    {
-      "fixture": "edge-cases/simultaneous-subrule-genuine-overlap",
-      "kind": "rules-attribution-only",
-      "note": "This fixture's STAGING.md already documents an actual hc-dotnet-wrapper.sh (adapter-mode) oracle run whose signatures matched; the adapter contract never emits rule attribution at all (PROTOCOL.md section 2), so words.yaml's rules: [] was never filled in. Self-check's stricter trace comparison flags exactly that gap, not a signature divergence."
-    },
-    {
-      "fixture": "edge-cases/unbounded-iterative-quantifier-expansion",
-      "kind": "rules-attribution-only",
-      "note": "SIGNATURE matches the founding oracle exactly; only words.yaml's rules: [] (vs traced [prIterUnbounded]) differs."
+      "note": "SIGNATURE matches the founding oracle exactly for both of dakimo's two analyses. The rules: field cannot be verified by hc-conformance.exe's self-check for a structural reason: both declared parses render to the IDENTICAL signature \"DAK+IMO|dakimo\", and the self-check's per-signature rule-attribution check (Runner.cs) compares EVERY declared parse against EVERY actual result sharing that signature -- for two derivations with genuinely different rule sets under one shared signature, this always reports exactly one mismatch per declared entry, regardless of which of the two correct rule-set assignments is chosen (verified empirically: swapping the assignment only changes which mismatch is reported, not whether one is). words.yaml's rules: values instead follow this fixture's own documented semantics (crLeftHead ~ root_index 0 ~ DAK-headed; crRightHead ~ root_index 1 ~ IMO-headed), independently confirmed by cross_compiler_equivalence_gate.rs's RED-2 test."
     }
   ]
 }

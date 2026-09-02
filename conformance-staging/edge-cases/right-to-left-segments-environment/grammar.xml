@@ -8,13 +8,17 @@
          shape). Invented VC roots only, no natural-language lexemes. Structural shape: one
          PhonRuleDef, multipleApplicationOrder="rightToLeftIterative", whose subrule's own
          RightEnvironment is authored as an INLINE pre-segmented literal
-         (`<Segments><PhoneticShape>y</PhoneticShape></Segments>`) instead of an ordinary
-         `<SimpleContext>`/`<Segment>` reference - the `characterDefinitionTable` attribute is
-         OMITTED, so it defaults to this pattern's own table (`t1`, the SAME table the rule's own
-         stratum uses), the SAME-table case `crate::lower::PatternLowerScope::RewriteRuleCompile`
-         newly accepts (a `Segments` node referencing a DIFFERENT table stays refused - see
-         `rust/crates/pg-foma/src/capability.rs`'s own
-         `right_to_left_predicate_refuses_cross_table_segments_shaped_rule` unit test).
+         (`<Segments characterDefinitionTable="t1"><PhoneticShape>y</PhoneticShape></Segments>`)
+         instead of an ordinary `<SimpleContext>`/`<Segment>` reference - `characterDefinitionTable`
+         is set EXPLICITLY to `t1` (the SAME table the rule's own stratum uses); hc.dll's own
+         `XmlLanguageLoader.LoadRewriteSubrule` never threads a default table into an
+         Environment's `PhoneticTemplate` (unlike a rule's main LHS/RHS), so an environment-embedded
+         `<Segments>` with no explicit `characterDefinitionTable` resolves to a null table and
+         crashes the loader with a bare `NullReferenceException` (verified empirically: an earlier
+         draft omitting the attribute reproduced exactly that crash) - this is the SAME-table case
+         `crate::lower::PatternLowerScope::RewriteRuleCompile` newly accepts (a `Segments` node
+         referencing a DIFFERENT table stays refused - see `rust/crates/pg-foma/src/capability.rs`'s
+         own `right_to_left_predicate_refuses_cross_table_segments_shaped_rule` unit test).
 
          Before this task, `pg_foma::replace::pattern_slots` refused ANY `PatternNode::Segments`
          occurrence grammar-wide (`crate::lower::UnsupportedPatternNode::Segments`'s own doc) -
@@ -81,7 +85,7 @@
           <PhonologicalSubrule>
             <PhoneticOutput><PhoneticSequence><Segment segment="ce" /></PhoneticSequence></PhoneticOutput>
             <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
-              <Segments><PhoneticShape>y</PhoneticShape></Segments>
+              <Segments characterDefinitionTable="t1"><PhoneticShape>y</PhoneticShape></Segments>
             </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
           </PhonologicalSubrule>
         </PhonologicalSubrules>

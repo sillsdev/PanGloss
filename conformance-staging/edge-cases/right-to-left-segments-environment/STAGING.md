@@ -92,6 +92,23 @@ gates CI. The capability-gate `ConfirmOnly` verdict is additionally pinned direc
 direction-divergence proof (Segments-as-LHS) by `rust/crates/pg-foma/tests/
 phase_c_right_to_left.rs`'s `rtl_segments_lhs_differs_from_left_to_right_at_the_fst_level`.
 
+## Founding-oracle verification (update)
+
+hc.dll originally could not even LOAD this grammar: it crashed with a bare `NullReferenceException`.
+Root cause, found by reading `XmlLanguageLoader.LoadRewriteSubrule`
+(`src/SIL.Machine.Morphology.HermitCrab/XmlLanguageLoader.cs`): it calls `LoadPhoneticTemplate` for
+an `Environment`'s `LeftEnvironment`/`RightEnvironment` with NO `defaultTable` argument (unlike the
+main LHS/RHS load path), so `GetTable` resolves to `null` whenever the environment's own `<Segments>`
+element omits `characterDefinitionTable` -- contrary to this fixture's original assumption that the
+attribute would "default to the pattern's own table," there IS no such default for an
+environment-embedded `Segments` node; omitting it crashes the loader. Fixed by setting
+`characterDefinitionTable="t1"` explicitly (the grammar's own intent, now made explicit rather than
+assumed), with no linguistic content change; the header comment was corrected to describe the actual
+mechanism instead of the disproven assumption. Re-verified against the C# founding oracle (hc.dll,
+via `hc-conformance.exe` self-check): the `ey` signature matches exactly, and its `rules: []` field
+has been filled in from the oracle's own trace (`[prRtlSegEnv]`). `words.yaml`'s header now reads
+`oracle-provenance: founding-oracle`.
+
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:

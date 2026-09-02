@@ -42,7 +42,6 @@
         <MorphologicalRuleDefinitions>
           <MorphologicalRule id="mrPast" requiredPartsOfSpeech="posV">
             <Name>past_suffix</Name>
-            <MorphemeId>PAST</MorphemeId>
             <MorphologicalSubrules>
               <MorphologicalSubrule id="subPast">
                 <MorphologicalInput>
@@ -56,17 +55,18 @@
                 </MorphologicalOutput>
               </MorphologicalSubrule>
             </MorphologicalSubrules>
+            <MorphemeId>PAST</MorphemeId>
           </MorphologicalRule>
         </MorphologicalRuleDefinitions>
         <LexicalEntries>
           <LexicalEntry id="ePattern">
-            <MorphemeId>PATTERN</MorphemeId>
             <Allomorphs><Allomorph id="aPattern"><PhoneticShape>[Any]*</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>PATTERN</MorphemeId>
             <Gloss>pattern</Gloss>
           </LexicalEntry>
           <LexicalEntry id="eKad" partOfSpeech="posV">
-            <MorphemeId>KAD</MorphemeId>
             <Allomorphs><Allomorph id="aKad"><PhoneticShape>kad</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>KAD</MorphemeId>
             <Gloss>kad</Gloss>
           </LexicalEntry>
         </LexicalEntries>

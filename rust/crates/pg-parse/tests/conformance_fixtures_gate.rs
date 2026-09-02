@@ -123,8 +123,8 @@ fn staged_fixtures_carry_recognized_oracle_provenance() {
     );
 }
 
-/// Ratchet, not a target: the rust-only backlog may only shrink via `rust/tools/oracle-conformance.ps1` reconciliation, never grow with a newly staged, unverified fixture.
-const RUST_ONLY_ORACLE_PROVENANCE_BACKLOG: usize = 21;
+/// Ratchet, not a target: lowered from 21 to 10 by fixing 6 unloadable grammars (element order / DTD id rules) and oracle-verifying 5 more already-loadable ones; the 10 remaining are 9 filter-passes/** fixtures hc-conformance.exe cannot discover plus guesser-pattern-root-fallback (hc.dll has no guessRoot CLI). May only shrink via `rust/tools/oracle-conformance.ps1` reconciliation, never grow with a newly staged, unverified fixture.
+const RUST_ONLY_ORACLE_PROVENANCE_BACKLOG: usize = 10;
 
 #[test]
 fn rust_only_oracle_provenance_backlog_does_not_grow() {

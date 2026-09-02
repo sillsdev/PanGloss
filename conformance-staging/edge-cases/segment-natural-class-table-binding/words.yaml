@@ -1,8 +1,19 @@
-# oracle-provenance: rust-only
-# Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment. Oracle:
-# pangloss (`pg_parse::Morpher`, driven directly -- see STAGING.md's "Verification" section), NOT the
-# C# founding oracle -- authored and verified against this repo's own Rust engine only. Signatures
-# below are transcribed verbatim from that run, not hand-derived.
+# oracle-provenance: founding-oracle
+# Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment. Verified
+# against the C# founding oracle (hc.dll, via hc-conformance.exe self-check) after the grammar was
+# fixed to be loadable (PartsOfSpeech must precede PhonologicalFeatureSystem; PhonologicalSubrule
+# carries no `id` attribute in hc.dll's DTD).
+#
+# DIVERGENCE FROM HC-RUST FOUND HERE: word "g" was authored (against `pg_parse::Morpher`) with a
+# single expected analysis, "ROOT2|g". The founding oracle instead reports TWO analyses for "g":
+# "ROOT1|z" (in addition to "ROOT2|g") -- i.e. hc.dll's own SegmentNaturalClass resolution for the
+# Outer stratum's `prKtoG` rule ALSO fires on ROOT1's Inner-stratum material ("z"), exactly the
+# wrong-table collision this fixture was designed to prove COULD NEVER happen (ncK's member "k" sits
+# at t1 raw index 0, which t0's "z" also occupies, with the OPPOSITE feature value). Per this repo's
+# oracle hierarchy (CLAUDE.md), hc.dll is ground truth: `words.yaml` now records BOTH analyses, and
+# `pg_parse::Morpher`'s own single-analysis behavior for "g" is a divergence from the founding
+# oracle, not a correctness fix -- see `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs` for
+# whether HC-Rust reproduces this second analysis.
 
 language: SegmentNaturalClassTableBinding
 inspired_by: ["synthetic bistratal segment-natural-class-table-resolution probe (not modeling any real language)"]
@@ -29,10 +40,19 @@ words:
       rules from `FeatureNaturalClass` only, so none of them can detect a wrong-table char-def
       resolution -- see `rust/crates/pg-foma/tests/segment_natural_class_table_binding_discriminates.rs`
       for the direct demonstration that this fixture's own `SegmentNaturalClass` WOULD catch it.
+      FOUNDING-ORACLE FINDING (see this file's header): hc.dll itself ALSO produces the wrong-table
+      analysis "ROOT1|z" for this word, alongside the intended "ROOT2|g" -- the collision this
+      fixture set out to prove impossible is, per the founding oracle, a real ambiguity. Both
+      analyses are recorded below as ground truth.
     provenance: "rust/crates/pg-rules/src/cache.rs owning_table_tests module"
     parses:
+      - signature: "ROOT1|z"
+        rules: [prKtoG]
+        exercises:
+          - "CharacterDefinitionTable: more than one table, one per stratum"
+          - "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"
       - signature: "ROOT2|g"
-        rules: []
+        rules: [prKtoG]
         exercises:
           - "CharacterDefinitionTable: more than one table, one per stratum"
           - "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"

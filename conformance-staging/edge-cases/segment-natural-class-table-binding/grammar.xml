@@ -39,6 +39,9 @@
          rendering finding). ROOT1 (Inner stratum, t0, spelled "z") is a same-table, rule-untouched
          decoy proving the "more than one table, one per stratum" construct has genuine substance on
          BOTH tables, not merely a rule-bearing one. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featF">
         <Name>f</Name>
@@ -48,9 +51,6 @@
         </Symbols>
       </SymbolicFeature>
     </PhonologicalFeatureSystem>
-    <PartsOfSpeech>
-      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-    </PartsOfSpeech>
     <CharacterDefinitionTable id="t0">
       <Name>Inner</Name>
       <SegmentDefinitions>
@@ -82,7 +82,7 @@
         <Name>KtoG</Name>
         <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncK" /></PhoneticSequence></PhoneticInput>
         <PhonologicalSubrules>
-          <PhonologicalSubrule id="subKtoG">
+          <PhonologicalSubrule>
             <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncG" /></PhoneticSequence></PhoneticOutput>
           </PhonologicalSubrule>
         </PhonologicalSubrules>

@@ -87,6 +87,13 @@ FST-proposer containment (every oracle analysis above is a member of
 directly by `rust/crates/pg-foma/tests/phase_c_metathesis.rs`'s dedicated `Dir::RightToLeft`
 containment witness, which re-derives every word's oracle analysis as an explicit regression gate.
 
+## Founding-oracle verification (update)
+
+Re-verified against the C# founding oracle (hc.dll, via `hc-conformance.exe` self-check): both
+signatures match exactly, and the `rules: []` fields for `sq`/`tr` have been filled in from the
+oracle's own trace (`[mrRtlReversal]` for both). `words.yaml`'s header now reads
+`oracle-provenance: founding-oracle`.
+
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:

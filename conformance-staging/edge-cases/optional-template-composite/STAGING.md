@@ -93,6 +93,21 @@ above. Cross-checked in-repo by `rust/crates/pg-parse/tests/conformance_fixtures
 `all_discovered_fixtures_match_oracle` test (dual-root discovery, default `cargo test --workspace`
 suite) — that test is what actually gates CI; the throwaway dump test was deleted after transcription.
 
+## Founding-oracle verification (update)
+
+hc.dll originally could not even LOAD this grammar: `mrTrunc`'s `MorphologicalInput` had a second
+`PhoneticSequence` (the truncated `<Segment segment="cU" />`) with no `id` attribute. hc.dll's own
+`AnalysisMorphologicalTransform` constructor builds `lhs.ToDictionary(p => p.Name)`, and while a
+single `null`-named entry does not itself collide, the surrounding compile path
+(`AffixTemplate.CompileAnalysisRule` -> `AnalysisAffixTemplateRule`) threw with
+"Could not compile affix template named template3" for this shape; giving that `PhoneticSequence` an
+explicit `id="stemTruncDrop"` (matching `machine/conformance/edge-cases/truncate-morphotactic`'s own
+convention of naming every part of a multi-part `MorphologicalInput`, even ones never referenced by
+`MorphologicalOutput`) fixed it, with no linguistic content change. Re-verified against the C#
+founding oracle (hc.dll, via `hc-conformance.exe` self-check): every signature in this fixture
+matches exactly, including the `monu`/vacuous-slot double analysis and the truncation words --
+`words.yaml`'s header now reads `oracle-provenance: founding-oracle`.
+
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:

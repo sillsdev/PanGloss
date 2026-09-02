@@ -1,4 +1,6 @@
-# oracle-provenance: rust-only
+# oracle-provenance: founding-oracle
+# Verified against the C# founding oracle (hc.dll, via hc-conformance.exe self-check): signature
+# matches exactly; `rules:` transcribed from the oracle's own trace output.
 language: RightToLeftCrossTableSegmentsEnvironment
 inspired_by: ["synthetic cross-table right-to-left Segments environment probe"]
 sources:
@@ -10,7 +12,7 @@ words:
     provenance: "openspec/changes/plan-construct-coverage-completion task 4.2"
     parses:
       - signature: "ROOT1|ey"
-        rules: []
+        rules: [prRtlCrossTableSegments]
         exercises:
           - "RewriteRule direction (Dir): right-to-left"
   - word: a

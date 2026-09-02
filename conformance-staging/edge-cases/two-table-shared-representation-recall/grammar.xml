@@ -33,6 +33,9 @@
          index 0) - the same "deliberately misaligned" construction
          `tests/two_table_symbol_divergence.rs`/`tests/phase_c_multi_table.rs` already use for the
          DISJOINT-representation case, applied here to a SHARED representation instead. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featXY">
         <Name>xy</Name>
@@ -44,9 +47,6 @@
         </Symbols>
       </SymbolicFeature>
     </PhonologicalFeatureSystem>
-    <PartsOfSpeech>
-      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-    </PartsOfSpeech>
     <CharacterDefinitionTable id="t0">
       <Name>Inner</Name>
       <SegmentDefinitions>
@@ -93,7 +93,7 @@
         <Name>XtoY</Name>
         <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncBx" /></PhoneticSequence></PhoneticInput>
         <PhonologicalSubrules>
-          <PhonologicalSubrule id="subXtoY">
+          <PhonologicalSubrule>
             <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncBy" /></PhoneticSequence></PhoneticOutput>
           </PhonologicalSubrule>
         </PhonologicalSubrules>

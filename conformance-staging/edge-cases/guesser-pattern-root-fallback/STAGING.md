@@ -73,6 +73,18 @@ Cross-checked in-repo by `rust/crates/pg-parse/tests/conformance_fixtures_gate.r
 suite): that test replays `kad` normally and correctly SKIPS `gag`/`gagd` (every one of their
 parses carries `guess: true`) rather than asserting on them.
 
+## Grammar-loadability fix (update)
+
+hc.dll originally could not even LOAD this grammar: `mrPast`'s `<MorphemeId>` sat right after
+`<Name>`, but the DTD's `MorphologicalRule` content model is `(Name, MorphologicalSubrules, ...,
+MorphemeId?, Gloss?, Properties?)` -- `MorphemeId` must come AFTER `MorphologicalSubrules`. Both
+`LexicalEntry`s also had `<MorphemeId>` before `<Allomorphs>`, but `LexicalEntry`'s content model is
+`(Allomorphs, ..., MorphemeId?, Gloss?, Properties?)` -- `Allomorphs` must come first. Both were pure
+element-reordering fixes, no linguistic content change. This does not change the "Oracle discipline"
+section above (hc.dll still has no CLI surface for `guessRoot: true`, so it remains
+`oracle-provenance: rust-only`), but confirms the grammar itself is now valid HC XML, loadable and
+re-checkable by hc.dll's own loader/schema.
+
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:

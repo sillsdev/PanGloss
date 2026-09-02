@@ -89,11 +89,26 @@ ignore the `plan` field entirely, and only `PlanComposed` ever reads it.
 
 ## Oracle discipline
 
-**Oracle: `pangloss` (this repo's own Rust engine), NOT the C# founding oracle.** Authored fresh for
-this task; `words.yaml` signatures and the `root_morpheme_index` values above were captured by
-driving `pg_parse::Morpher::parse_word` directly (a throwaway in-repo test — see "Verification"
-below), matching every other fixture in this suite's own documented oracle-discipline note (machine
-acceptance must re-verify against the C# founding oracle before graduation).
+**Oracle: the C# founding oracle (hc.dll), via `hc-conformance.exe` self-check.** hc.dll originally
+could not even LOAD this grammar: the two `CompoundingRule`s each declared a `PhoneticSequence` with
+`id="h0"`/`id="n0"`, and XML's `ID` type requires document-wide uniqueness -- reusing the same two
+ids across both rules is a duplicate-ID violation, reported as "The 'id' attribute has an invalid
+value according to its data type." Fixed by renaming the second rule's ids to `h1`/`n1`, with no
+linguistic content change.
+
+Re-verified against the C# founding oracle: both `dakimo` signature strings match exactly. The
+`rules:` attribution CANNOT be verified by `hc-conformance.exe`'s self-check for a structural reason,
+not a grammar or transcription defect: both declared parses render to the IDENTICAL signature
+"DAK+IMO|dakimo", so the self-check's per-signature rule-attribution comparison
+(`Runner.cs`, which groups actual results by signature string and checks EVERY declared parse against
+EVERY actual result sharing that signature) always reports exactly one mismatch per declared entry
+when two derivations share a signature but have different rule sets -- verified empirically by trying
+both possible assignments; neither passes. `words.yaml`'s `rules:` values instead follow this
+fixture's own documented semantics (`crLeftHead` ~ `root_index` 0 ~ DAK-headed; `crRightHead` ~
+`root_index` 1 ~ IMO-headed), which is independently confirmed by `cross_compiler_equivalence_gate.rs`'s
+RED-2 test below. `words.yaml`'s header reads `oracle-provenance: founding-oracle` (the
+signatures — the only thing that DOES have a well-defined ground truth here — match); the
+known-divergences baseline records this specific tool limitation.
 
 ## Verification
 

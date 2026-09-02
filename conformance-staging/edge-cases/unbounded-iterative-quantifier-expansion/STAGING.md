@@ -79,6 +79,13 @@ Cross-checked in-repo by `rust/crates/pg-parse/tests/conformance_fixtures_gate.r
 `all_discovered_fixtures_match_oracle` test (dual-root discovery, default `cargo test --workspace`
 suite) -- that test is what actually gates CI going forward.
 
+## Founding-oracle verification (update)
+
+Re-verified against the C# founding oracle (hc.dll, via `hc-conformance.exe` self-check): all three
+signatures (`ect`/`ecct`/`eccccct`) match exactly, and their `rules: []` fields have been filled in
+from the oracle's own trace (`[prIterUnbounded]` for all three). `words.yaml`'s header now reads
+`oracle-provenance: founding-oracle`.
+
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:

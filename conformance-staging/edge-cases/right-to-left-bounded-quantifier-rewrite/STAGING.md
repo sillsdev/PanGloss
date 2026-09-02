@@ -75,6 +75,13 @@ Not yet proposed upstream. Candidate destination:
 `machine/conformance/edge-cases/right-to-left-bounded-quantifier-rewrite/`. On acceptance, delete this
 staged copy in the same change (graduation guard enforces this mechanically).
 
+## Founding-oracle verification (update)
+
+Re-verified against the C# founding oracle (hc.dll, via `hc-conformance.exe` self-check): both
+signatures match exactly, and the `rules: []` fields for `acet`/`ecct` have been filled in from the
+oracle's own trace (`[prRtlBq]` for both). `words.yaml`'s header now reads
+`oracle-provenance: founding-oracle`.
+
 ## Coverage-tag correction (post-G9)
 
 `constructs.txt` row 30 (`sillsdev/machine` PR #465, "G9") added

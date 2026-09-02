@@ -1,4 +1,4 @@
-# oracle-provenance: rust-only
+# oracle-provenance: founding-oracle
 # Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment.
 #
 # ORACLE: the C# FOUNDING ORACLE (hc.dll), not pangloss. This is the FIRST fixture in this repo whose
@@ -33,7 +33,7 @@ words:
     provenance: "hc.dll batch output, verbatim (ADR 0001's named unverified-oracle configuration)"
     parses:
       - signature: "|be"
-        rules: []
+        rules: [prOverlapDemo]
         exercises:
           - "RewriteRule Simultaneous"
 
@@ -55,7 +55,7 @@ words:
     provenance: "hc.dll batch output, verbatim"
     parses:
       - signature: "|bu"
-        rules: []
+        rules: [prOverlapDemo]
         exercises:
           - "RewriteRule Simultaneous"
 
@@ -67,7 +67,7 @@ words:
     provenance: "hc.dll batch output, verbatim"
     parses:
       - signature: "|di"
-        rules: []
+        rules: [prOverlapDemo]
         exercises:
           - "RewriteRule Simultaneous"
 

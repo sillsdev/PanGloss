@@ -145,6 +145,33 @@ DIFFERENT question from what `structural_witness_gate.rs` checks, and is instead
 `segment_natural_class_table_binding_discriminates.rs` above -- the right tool for this specific
 claim, not a forced fit into the witness-gate's own narrower contract.
 
+## Founding-oracle verification (update)
+
+hc.dll originally could not even LOAD this grammar: `PhonologicalFeatureSystem` was declared before
+`PartsOfSpeech`, but hc.dll's DTD requires `PartsOfSpeech` first (`Language`'s content model is
+`(Name, PartsOfSpeech, PhonologicalFeatureSystem*, ...)`), and `PhonologicalSubrule`'s own `id`
+attribute (`subKtoG`) is not declared in the DTD at all (`PhonologicalSubrule` carries
+`isActive`/`requiredPartsOfSpeech`/`requiredMPRFeatures`/`excludedMPRFeatures` only -- unlike
+`MorphologicalSubrule`). Both were structural XML fixes with no linguistic content change.
+
+Re-verified against the C# founding oracle (hc.dll, via `hc-conformance.exe` self-check): **hc.dll
+itself produces an ADDITIONAL analysis this fixture's own thesis expected to be impossible.** For
+word `g`, hc.dll reports TWO analyses -- `"ROOT2|g"` (as authored) AND `"ROOT1|z"` -- i.e. the
+wrong-table `SegmentNaturalClass` collision this fixture was built to prove could never happen (ncK's
+member "k" sits at t1 raw index 0, which t0's "z" also occupies, with the opposite feature value) is,
+per the founding oracle, a REAL ambiguity in hc.dll. Per this repo's oracle hierarchy (CLAUDE.md),
+hc.dll is ground truth for this suite regardless: `words.yaml` now records both analyses (both traced
+to `[prKtoG]`), and `pg_parse::Morpher`'s own single-analysis behavior for `g` is a divergence FROM
+the founding oracle, not a bug this task fixed -- see whether
+`rust/crates/pg-parse/tests/conformance_fixtures_gate.rs` reproduces the second analysis.
+`words.yaml`'s header now reads `oracle-provenance: founding-oracle`.
+
+This finding does not weaken the fixture's own discriminating-power argument (the "Discriminating
+power" section above, and `segment_natural_class_table_binding_discriminates.rs`): that argument is
+about the `PatternBridge`-level compiled-constraint difference between resolving `ncK` against the
+right vs. wrong table, and holds independent of whether hc.dll's OWN engine also happens to produce
+the cross-table analysis for an unrelated reason inside its own rule-cascade traversal.
+
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:

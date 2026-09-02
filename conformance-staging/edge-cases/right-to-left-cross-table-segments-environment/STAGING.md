@@ -8,4 +8,11 @@ identity lane. The FST construction must preserve that source table identity and
 union of feature-unifiable grammar tokens; it must never reinterpret `t0`'s raw id as a `t1` id.
 
 Pins `ey` as ROOT1's obligatory rewritten surface, rejects raw `ay`, and keeps `a` as ROOT2's
-same-table control. Oracle is this repository's `pg_parse::Morpher`, per the plan's D6 discipline.
+same-table control.
+
+## Founding-oracle verification (update)
+
+Re-verified against the C# founding oracle (hc.dll, via `hc-conformance.exe` self-check): the
+signature for `ey` matches exactly, and its `rules: []` field has been filled in from the oracle's
+own trace (`[prRtlCrossTableSegments]`). `words.yaml`'s header now reads
+`oracle-provenance: founding-oracle`.

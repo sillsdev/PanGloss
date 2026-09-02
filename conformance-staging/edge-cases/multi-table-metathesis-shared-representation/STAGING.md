@@ -183,6 +183,13 @@ demonstrates the fix over the real production compile path (`pg_foma::replace::
 compile_and_compose_rules_with_budget`), not a hand-rolled token-math simulation, for every claim
 that fixture-word's own oracle recall does NOT already block (the same-table ROOT2 case).
 
+## Founding-oracle verification (update)
+
+Re-verified against the C# founding oracle (hc.dll, via `hc-conformance.exe` self-check): both
+signatures match exactly, and the `rules: []` fields for `xw`/`xm` have been filled in from the
+oracle's own trace (`[mrCrossTableSwap]` for both). `words.yaml`'s header now reads
+`oracle-provenance: founding-oracle`.
+
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:

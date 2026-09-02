@@ -75,6 +75,24 @@ two_table_shared_representation_recall.rs`, which also demonstrates the pre-fix 
 closing it over the real production compile path (`pg_foma::replace`), not a hand-rolled token-math
 simulation.
 
+## Founding-oracle verification (update)
+
+hc.dll originally could not even LOAD this grammar: `PhonologicalFeatureSystem` was declared before
+`PartsOfSpeech` (hc.dll's DTD requires `PartsOfSpeech` first), and `PhonologicalSubrule`'s own `id`
+attribute (`subXtoY`) is not declared in the DTD at all. Both were structural XML fixes with no
+linguistic content change.
+
+Re-verified against the C# founding oracle (hc.dll, via `hc-conformance.exe` self-check): **hc.dll
+diverges from the "discovered finding, since fixed" section above.** For word `y`, hc.dll's own
+signature is `"ROOT1|"` (empty surface half), not `"ROOT1|y"`. The Rust-side fix described above
+(`pg_rules::stratum::synthesize_stratum_traced` assigning `.stratum` on synthesis entry) changed
+HC-Rust's own output from `"ROOT1|"` to `"ROOT1|y"` -- which is a divergence FROM the founding
+oracle, not the correctness fix it was believed to be at the time. Per this repo's oracle hierarchy
+(CLAUDE.md), hc.dll is ground truth: `words.yaml`'s `y` entry now reads `"ROOT1|"` (traced to
+`[prXtoY]`), and the Rust-side behavior needs re-examination -- see whether
+`rust/crates/pg-parse/tests/conformance_fixtures_gate.rs` reproduces `"ROOT1|"` or still produces
+`"ROOT1|y"`. `words.yaml`'s header now reads `oracle-provenance: founding-oracle`.
+
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:

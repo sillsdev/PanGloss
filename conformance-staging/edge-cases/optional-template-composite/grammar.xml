@@ -139,7 +139,7 @@
               <MorphologicalSubrule id="subTrunc">
                 <MorphologicalInput>
                   <PhoneticSequence id="stemTrunc"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
-                  <PhoneticSequence><Segment segment="cU" /></PhoneticSequence>
+                  <PhoneticSequence id="stemTruncDrop"><Segment segment="cU" /></PhoneticSequence>
                 </MorphologicalInput>
                 <MorphologicalOutput><CopyFromInput index="stemTrunc" /><InsertSegments><PhoneticShape>mo</PhoneticShape></InsertSegments></MorphologicalOutput>
               </MorphologicalSubrule>
