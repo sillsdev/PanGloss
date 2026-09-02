@@ -3286,30 +3286,6 @@ fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
         .any(|(_, kind)| matches!(kind, PlanNodeKind::Leaf { fragment: f, .. } if f == fragment))
 }
 
-/// Realizational rules whose closure the eager route cannot bound, given the plan topology.
-fn unbounded_closure_rule_ordinals(
-    g: &Grammar,
-    struct_rules: &[MRuleId],
-    (wants_composite_emission, wants_structural_composite): (bool, bool),
-) -> BTreeSet<u32> {
-    let mut rules = BTreeSet::new();
-    if wants_composite_emission {
-        rules.extend(
-            crate::preexpand::unbounded_candidate_rules(g)
-                .into_iter()
-                .map(|mid| mid.0),
-        );
-    }
-    if wants_structural_composite {
-        rules.extend(struct_rules.iter().filter_map(|mid| {
-            (crate::preexpand::loose_rule_is_active(g, *mid)
-                && crate::preexpand::realizational_rule_is_semantically_unbounded(g, *mid))
-            .then_some(mid.0)
-        }));
-    }
-    rules
-}
-
 /// Whether the surface route leaves root spellings OUT -- unbounded shape or byte budget, never mere breadth -- without emitting.
 pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
     g.strata.iter().any(|sd| {
@@ -3324,15 +3300,7 @@ pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
     })
 }
 
-/// Unbounded realizational closure, decided from `g` alone rather than from an emit attempt.
-pub fn eager_route_refuses_unbounded_closure(g: &Grammar) -> bool {
-    let phon = PhonologyProbe::new(g);
-    let decisions = plan_topology_decisions(g, phon.as_ref());
-    let struct_rules = structural_candidate_rules(g);
-    !unbounded_closure_rule_ordinals(g, &struct_rules, decisions).is_empty()
-}
-
-/// Shared by the standalone-derivational loop and `eager_route_refuses_unclaimed_standalone_rule`; `Role::Process` defers to `is_structural_rule`, `build_structural_composites`'s own gate.
+/// The standalone-derivational loop's own per-rule classification: `None` once a zone or the reduplication peel claims it, else `Some(role)`.
 fn standalone_rule_unclaimed_role(g: &Grammar, mid: MRuleId) -> Option<Role> {
     match rule_role(g, mid) {
         Role::Prefix | Role::Suffix | Role::None | Role::CircumfixPrefix => None,
@@ -3340,25 +3308,6 @@ fn standalone_rule_unclaimed_role(g: &Grammar, mid: MRuleId) -> Option<Role> {
         _ if reduplication_rule_is_peelable(g, mid) => None,
         other => Some(other),
     }
-}
-
-/// Whether the eager route's standalone-rule loop would report at least one `Role::Process`
-/// `UncoveredItem` — the exact condition that turns `FomaProposer::new` into `Err(Incomplete)` for
-/// `machine:edge-cases/process-morphology-in-place-mutation`. Decided from `g` alone, mirroring
-/// `eager_route_refuses_unbounded_closure`'s shape.
-///
-/// Deliberately narrower than `standalone_rule_unclaimed_role`'s full range: that function's
-/// `Infix`/`Reduplication` outcomes can still be DROPPED from `uncovered` by the later
-/// composite-coverage retain (`emit_with_budget_profiled_with_strategy_and_trace`'s `uncovered.retain`
-/// on `kind == "infix" | "circumfix-prefix" | "reduplication"`, keyed on
-/// `composite_report.covered_infix_rules`/`struct_covered_rules`) — measured to over-claim a refusal
-/// on `languages/suffixing-vowel-harmony`'s infix rule, which compiles. `Role::Process` is the one
-/// outcome that retain step never drops, so it alone is safe to publish as an unconditional refusal.
-pub fn eager_route_refuses_unclaimed_standalone_rule(g: &Grammar) -> bool {
-    g.strata
-        .iter()
-        .flat_map(|sd| sd.mrules.iter())
-        .any(|&mid| standalone_rule_unclaimed_role(g, mid) == Some(Role::Process))
 }
 
 /// The `(in_prefix, in_suffix)` derivational-zone membership the standalone loop assigns one rule, shared with `eager_route_refuses_mixed_circumfix_zone` so the two never drift.
@@ -3387,10 +3336,13 @@ fn standalone_rule_zones(g: &Grammar, mid: MRuleId) -> (bool, bool) {
 /// longer fires on that case; it still fires when no sibling widening covers the mismatched zone.
 ///
 /// Deliberately excludes an `Infix`/`Reduplication`/`CircumfixPrefix` "other allomorph": those kinds
-/// can still be dropped from `uncovered` by the later composite-coverage retain (see
-/// `eager_route_refuses_unclaimed_standalone_rule`'s own doc for the measured over-claim this
-/// mirrors). `Prefix`/`Suffix` are never touched by that retain, so restricting to them keeps this
-/// fact one-way-safe without needing the retain's own `struct_covered_rules` set.
+/// can still be dropped from `uncovered` by the later composite-coverage retain
+/// (`emit_with_budget_profiled_with_strategy_and_trace`'s `uncovered.retain` on
+/// `kind == "infix" | "circumfix-prefix" | "reduplication"`, keyed on
+/// `composite_report.covered_infix_rules`/`struct_covered_rules`) -- measured to over-claim a
+/// refusal on `languages/suffixing-vowel-harmony`'s infix rule, which compiles. `Prefix`/`Suffix`
+/// are never touched by that retain, so restricting to them keeps this fact one-way-safe without
+/// needing the retain's own `struct_covered_rules` set.
 pub fn eager_route_refuses_mixed_circumfix_zone(g: &Grammar) -> bool {
     g.strata.iter().flat_map(|sd| sd.mrules.iter()).any(|&mid| {
         let (in_prefix, in_suffix) = standalone_rule_zones(g, mid);
@@ -4299,48 +4251,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // A Plan leaf is an opaque marker with no rule content, so the candidate rule list is still computed directly; plan_wants_structural_composite, not !struct_rules.is_empty(), is what gates the heavier Morpher/RuleCache machinery below.
     let struct_rules = structural_candidate_rules(g);
-    let unbounded_closure_rules = unbounded_closure_rule_ordinals(
-        g,
-        &struct_rules,
-        (
-            plan_wants_composite_emission,
-            plan_wants_structural_composite,
-        ),
-    );
-    if !unbounded_closure_rules.is_empty() {
-        if let Some(trace) = closure_trace {
-            trace.refuse(crate::characterization::ClosureStopReason::UnboundedTransition);
-        }
-        let rules = unbounded_closure_rules
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        let reason = format!(
-            "the eager Foma composite route cannot prove finite closure because RealizationalRule \
-             grammar ordinal(s) [{rules}] have no authored application bound. No partial FST was \
-             generated. Use the full morphological-parser engine, or re-express the construction \
-             with language-valid ordered/slot-bounded affix rules; do not make any change that \
-             would make your language invalid."
-        );
-        return EmitResult {
-            lexc_source: String::new(),
-            report: EmitReport {
-                uncovered,
-                counts,
-                tier: FomaTier::Unsupported { reason },
-                enum_budget_exceeded: None,
-                closure_refusal: Some(ClosureRefusal {
-                    code: ClosureRefusalCode::UnboundedRuleApplication,
-                    affected_rule_ordinals: unbounded_closure_rules.into_iter().collect(),
-                    depth_limit: None,
-                    pending_successors: None,
-                    remedy_backend: ClosureFallbackBackend::FullMorphologicalParser,
-                }),
-                closure_evidence: closure_trace.map(|trace| trace.result()),
-            },
-        };
-    }
     let rule_cache = RuleCache::build(g);
     let morpher = if phon.is_some() || plan_wants_structural_composite {
         Some(Morpher::new(g, usize::MAX))

@@ -1,8 +1,6 @@
-//! Fail-closed gate for an unbounded realizational rule entering eager composite closure.
+//! Realizational-rule self-loop emission, and the eager composite closure-depth budget.
 
-use std::path::PathBuf;
-
-use pg_foma::analyzer::{FomaError, FomaProposer};
+use pg_foma::analyzer::FomaProposer;
 use pg_foma::characterization::{ClosureStopReason, ClosureTerminal};
 use pg_foma::emit::{self, ClosureRefusalCode, FomaTier};
 use pg_foma::replace::SegAlphabet;
@@ -106,101 +104,6 @@ fn boundary_only_realizational_output_does_not_form_an_epsilon_self_loop() {
         tagged_self_loops(&underlying.lexc_source).is_empty(),
         "underlying emission formed a tagged self-loop whose boundary tokens clean up to epsilon: {:?}",
         tagged_self_loops(&underlying.lexc_source)
-    );
-}
-
-#[test]
-fn unbounded_realizational_composite_route_returns_no_artifact() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/pangloss/fst-completeness/late-structural-anchor-five-rule-chain/grammar.xml");
-    let xml = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    let realizational = r#"
-      <RealizationalRule id="rrUnbounded">
-        <Name>unbounded-realizational-circumfix</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="srUnbounded">
-            <MorphologicalInput><PhoneticSequence id="stemR"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-            <MorphologicalOutput><InsertSegments><PhoneticShape>b</PhoneticShape></InsertSegments><CopyFromInput index="stemR" /><InsertSegments><PhoneticShape>c</PhoneticShape></InsertSegments></MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-      </RealizationalRule>
-    </MorphologicalRuleDefinitions>"#;
-    let xml = xml.replacen("</MorphologicalRuleDefinitions>", realizational, 1);
-    let xml = xml.replacen(
-        "morphologicalRules=\"mr1 mr2 mr3 mr4 mr5\"",
-        "morphologicalRules=\"mr1 mr2 mr3 mr4 mr5 rrUnbounded\"",
-        1,
-    );
-    let grammar = pg_grammar::load(&xml).expect("fixture with realizational rule must load");
-
-    let result = emit::emit(&grammar);
-    let reason = match &result.report.tier {
-        FomaTier::Unsupported { reason } => reason,
-        tier => panic!("unbounded composite closure must refuse, got {tier:?}"),
-    };
-    assert!(
-        reason.contains("cannot prove finite closure") && reason.contains("RealizationalRule"),
-        "refusal must identify the unbounded cause: {reason}"
-    );
-    assert!(
-        result.lexc_source.is_empty(),
-        "refusal must return no FST source"
-    );
-    assert!(result.report.enum_budget_exceeded.is_none());
-    let refusal = result
-        .report
-        .closure_refusal
-        .as_ref()
-        .expect("unbounded closure refusal must be structured");
-    assert_eq!(refusal.code, ClosureRefusalCode::UnboundedRuleApplication);
-    assert_eq!(refusal.affected_rule_ordinals, vec![5]);
-    assert_eq!(refusal.depth_limit, None);
-    assert_eq!(refusal.pending_successors, None);
-    // The constructor refuses earlier than emit: selection carries the closure fact.
-    assert!(matches!(
-        FomaProposer::new(&grammar),
-        Err(FomaError::CapabilityRefused(_))
-    ));
-
-    let traced = emit::emit_tuned_surface(&grammar);
-    assert!(traced.lexc_source.is_empty());
-    let evidence = traced
-        .report
-        .closure_evidence
-        .expect("the fixed-limit path must retain terminal evidence");
-    assert_eq!(
-        evidence.terminal,
-        ClosureTerminal::Refused(ClosureStopReason::UnboundedTransition)
-    );
-}
-
-#[test]
-fn unreferenced_realizational_definition_does_not_refuse_closure() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/pangloss/fst-completeness/late-structural-anchor-five-rule-chain/grammar.xml");
-    let xml = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    let dead_definition = r#"
-      <RealizationalRule id="rrDead">
-        <Name>unreferenced</Name>
-        <MorphologicalSubrules><MorphologicalSubrule id="srDead">
-          <MorphologicalInput><PhoneticSequence id="stemDead"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-          <MorphologicalOutput><CopyFromInput index="stemDead" /><InsertSegments><PhoneticShape>b</PhoneticShape></InsertSegments></MorphologicalOutput>
-        </MorphologicalSubrule></MorphologicalSubrules>
-      </RealizationalRule>
-    </MorphologicalRuleDefinitions>"#;
-    let grammar =
-        pg_grammar::load(&xml.replacen("</MorphologicalRuleDefinitions>", dead_definition, 1))
-            .expect("fixture with an unreferenced definition must load");
-
-    let result = emit::emit(&grammar);
-    assert!(
-        !matches!(
-            result.report.closure_refusal.as_ref().map(|r| r.code),
-            Some(ClosureRefusalCode::UnboundedRuleApplication)
-        ),
-        "an unreferenced rule definition does not participate in eager closure"
     );
 }
 

@@ -237,33 +237,6 @@ pub(crate) fn candidate_rules(g: &Grammar) -> Vec<(MRuleId, Role)> {
     out
 }
 
-/// Whether a realizational rule can apply more than once to the same word. Always `false`:
-/// `RealizationalFeatures` emptiness was never the deciding fact. hc.dll's
-/// `SynthesisRealizationalAffixProcessRule.Apply` checks `word.GetApplicationCount(rule) >= 1`
-/// before it ever inspects the rule's realizational feature structure -- every `RealizationalRule`
-/// is capped at exactly one application per word regardless of that content, matching the DTD's own
-/// `RealizationalRule` attribute list, which (unlike `MorphologicalRule`/`CompoundingRule`) carries
-/// no `multipleApplication` attribute to author a different bound with. See
-/// `SynthesisRealizationalAffixProcessRule.cs:46-49` in the founding-oracle checkout.
-pub(crate) fn realizational_rule_is_semantically_unbounded(_g: &Grammar, _mid: MRuleId) -> bool {
-    false
-}
-
-/// Semantically unbounded realizational candidates whose stable ordinals let the caller refuse
-/// eager closure before it mistakes `u16::MAX` for a finite proof.
-pub(crate) fn unbounded_candidate_rules(g: &Grammar) -> Vec<MRuleId> {
-    candidate_rules(g)
-        .into_iter()
-        .map(|(mid, _)| mid)
-        .filter(|&mid| loose_rule_is_active(g, mid))
-        .filter(|&mid| realizational_rule_is_semantically_unbounded(g, mid))
-        .collect()
-}
-
-pub(crate) fn loose_rule_is_active(g: &Grammar, mid: MRuleId) -> bool {
-    g.strata.iter().any(|stratum| stratum.mrules.contains(&mid))
-}
-
 /// `(required_syn_fs, out_syn_fs, owning morpheme)` for the two rule kinds that carry allomorphs; `candidate_rules` filters `Compounding` out before this is ever reached.
 pub(crate) fn rule_fs_and_morpheme(rule: &MorphRuleDef) -> (FsId, MorphemeId) {
     match rule {

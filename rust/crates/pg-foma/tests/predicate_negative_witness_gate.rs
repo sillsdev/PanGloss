@@ -13,8 +13,6 @@ const WITHOUT_NEGATIVE_WITNESS: &[&str] = &[
     "epenthesis.structural-composite-route",
     // Fixed: this predicate's only witness now compiles under TunedSurfaceProbed; see `AllomorphZoneOutcome::OwnZoneElsewhere`.
     "surface-probe.circumfix-zone-exclusive-allomorph",
-    // Fixed: `realizational_rule_is_semantically_unbounded` is now always `false`; see `TunedSurfaceClosureCheck`'s own doc.
-    "surface-probe.finite-closure-bound",
     "metathesis.faithful-swap-construction",
     "mpr-group.append-output",
     "mpr-group.overwrite-output",

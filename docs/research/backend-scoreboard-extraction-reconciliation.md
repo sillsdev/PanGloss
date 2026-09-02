@@ -107,5 +107,10 @@ Root cause: `preexpand::realizational_rule_is_semantically_unbounded` treated an
 shows the real bound: it checks `word.GetApplicationCount(rule) >= 1` before it ever looks at the
 rule's realizational feature structure, so EVERY `RealizationalRule` -- content aside -- applies at
 most once per word (the DTD's own `RealizationalRule` attribute list has no `multipleApplication`
-attribute, unlike `MorphologicalRule`/`CompoundingRule`). The function now always returns `false`.
+attribute, unlike `MorphologicalRule`/`CompoundingRule`). The predicate could therefore never fire
+again, so it was deleted outright rather than left registered as a permanently-vacuous check:
+`realizational_rule_is_semantically_unbounded`, `preexpand::unbounded_candidate_rules`,
+`emit::unbounded_closure_rule_ordinals`, `emit::eager_route_refuses_unbounded_closure`, and
+`capability::TunedSurfaceClosureCheck` (`surface-probe.finite-closure-bound`) are all gone, along
+with the tests that existed only to exercise them.
 `TemplatedUnderlyingTokens`/`PlanComposed` still refuse this fixture for unrelated reasons.

@@ -47,12 +47,13 @@ plan-topology flag the caller had skipped. So:
 
 1. **Call the owning module's function.** If the fact is not exposed, **extract** it — factor the
    condition out of the owner so the owner and the new caller share one computation and cannot
-   drift. `crate::emit::eager_route_refuses_unbounded_closure` and
-   `unbounded_closure_rule_ordinals` are the worked example: the emitter's body is now a call to the
-   same function the envelope reads.
-2. **A published fact gets a one-way gate.** `the_published_closure_fact_never_over_claims_a_refusal`
-   asserts only that a claimed refusal really refuses — the direction a caller gates on, where a
-   false positive costs a working capability.
+   drift. `crate::emit::eager_route_refuses_mixed_circumfix_zone` is the worked example: it and
+   the emitter's own `emit_rule_allomorphs` both call the same `standalone_rule_zones`/
+   `allomorph_zone_outcome` pair, so the published fact and the real refusal cannot drift apart.
+2. **A published fact gets a one-way gate.**
+   `the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal` asserts only that a
+   claimed refusal really refuses — the direction a caller gates on, where a false positive costs
+   a working capability.
 3. **Check the seam before the condition.** The same condition that failed as a `CapabilityPredicate`
    (7 failures against ratified `ConfirmOnly` contracts) passed with 0 at
    `backend_selection`'s existing per-strategy refusal seam, beside `plan_composed_marker_refusal`.

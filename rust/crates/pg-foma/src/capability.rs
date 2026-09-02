@@ -3194,7 +3194,7 @@ pub fn inert_predicates(registry: &PredicateRegistry) -> Vec<PredicateId> {
 /// `plan_node`/nothing permanently unused by every implementor of one of the two kinds — the
 /// "control that cannot act" shape `inert_predicates` exists to catch on the predicate side.
 pub trait GrammarWideCheck {
-    /// e.g. `"surface-probe.finite-closure-bound"`.
+    /// e.g. `"surface-probe.circumfix-zone-exclusive-allomorph"`.
     fn id(&self) -> PredicateId;
     /// The one `EmissionStrategy` this fact's proposer shape is about.
     fn strategy(&self) -> EmissionStrategy;
@@ -3204,73 +3204,6 @@ pub trait GrammarWideCheck {
     /// `None` when the fact does not apply to `semantics`/`plan`; `Some(Refuse(..))` when it does.
     /// Never `Some(Admit)`/`Some(ConfirmOnly)` — a grammar-wide fact only ever narrows.
     fn evaluate(&self, semantics: &GrammarSemantics<'_>, plan: &Plan) -> Option<CompileDecision>;
-}
-
-/// `crate::emit::eager_route_refuses_unbounded_closure`, published for `TunedSurfaceProbed`.
-/// Currently vacuous (never refuses): the only rule shape this fact ever named -- a
-/// `RealizationalRule` with an empty `RealizationalFeatures` -- turned out to be bounded to one
-/// application by hc.dll regardless, so `crate::preexpand::realizational_rule_is_semantically_unbounded`
-/// is now unconditionally `false`. Left registered as the seam for a genuinely unbounded shape,
-/// should one turn up.
-pub struct TunedSurfaceClosureCheck;
-
-impl GrammarWideCheck for TunedSurfaceClosureCheck {
-    fn id(&self) -> PredicateId {
-        "surface-probe.finite-closure-bound"
-    }
-    fn strategy(&self) -> EmissionStrategy {
-        EmissionStrategy::TunedSurfaceProbed
-    }
-    fn shape_key(&self) -> &'static str {
-        "nonregular-process-morphology"
-    }
-    fn provenance(&self) -> EvidenceProvenance {
-        EvidenceProvenance::Structural
-    }
-    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
-        crate::emit::eager_route_refuses_unbounded_closure(semantics.grammar()).then(|| {
-            CompileDecision::Refuse(vec![CapabilityDiagnostic {
-                predicate: self.id(),
-                construct: "realizational rule with no authored application bound".to_string(),
-                witness: "EmissionStrategy::TunedSurfaceProbed's eager route cannot prove finite \
-                          closure for this grammar and generates no partial FST, so selecting it \
-                          would promise a proposer the compiler does not produce"
-                    .to_string(),
-            }])
-        })
-    }
-}
-
-/// `crate::emit::eager_route_refuses_unclaimed_standalone_rule`, published for `TunedSurfaceProbed`.
-pub struct TunedSurfaceUnclaimedStandaloneCheck;
-
-impl GrammarWideCheck for TunedSurfaceUnclaimedStandaloneCheck {
-    fn id(&self) -> PredicateId {
-        "surface-probe.standalone-rule-claimed"
-    }
-    fn strategy(&self) -> EmissionStrategy {
-        EmissionStrategy::TunedSurfaceProbed
-    }
-    fn shape_key(&self) -> &'static str {
-        "nonregular-process-morphology"
-    }
-    fn provenance(&self) -> EvidenceProvenance {
-        EvidenceProvenance::Structural
-    }
-    fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
-        crate::emit::eager_route_refuses_unclaimed_standalone_rule(semantics.grammar()).then(|| {
-            CompileDecision::Refuse(vec![CapabilityDiagnostic {
-                predicate: self.id(),
-                construct: "standalone rule whose primary allomorph no derivational zone routes"
-                    .to_string(),
-                witness: "EmissionStrategy::TunedSurfaceProbed's standalone-rule loop only routes \
-                          Prefix/Suffix/None/CircumfixPrefix classifications and peelable \
-                          reduplication; every other classification is reported uncovered and \
-                          refuses the build"
-                    .to_string(),
-            }])
-        })
-    }
 }
 
 /// `crate::emit::eager_route_refuses_mixed_circumfix_zone`, published for `TunedSurfaceProbed`.
@@ -3534,8 +3467,6 @@ impl GrammarWideCheck for UntokenizableRootShapeCheck {
 /// applies, named and strategy-scoped rather than threaded as a growing positional argument list.
 pub fn default_grammar_wide_checks() -> Vec<Box<dyn GrammarWideCheck>> {
     vec![
-        Box::new(TunedSurfaceClosureCheck),
-        Box::new(TunedSurfaceUnclaimedStandaloneCheck),
         Box::new(TunedSurfaceMixedCircumfixZoneCheck),
         Box::new(TemplatedRouteUncoveredCheck),
         Box::new(RuleCascadeUncompilableCheck),
@@ -6373,40 +6304,6 @@ mod tests {
             ReduplicationPeelSupportedPredicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
             PredicateVerdict::ConfirmOnly
         );
-    }
-
-    #[test]
-    fn structurally_owned_realizational_reduplication_passes_capability_then_refuses_unbounded_closure(
-    ) {
-        let xml = REDUP_REALIZATIONAL_XML.replacen(
-            "<CopyFromInput index=\"qA\" />",
-            "<InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>\n                     <CopyFromInput index=\"qA\" />",
-            1,
-        );
-        let g = load(&xml);
-        let profile = characterize(&g);
-        let detail = profile
-            .reduplication_details()
-            .find(|d| d.rule == MRuleId(0) && d.allomorph_index == 0)
-            .expect("edge-inserted realizational reduplication must be characterized");
-        assert!(!detail.peel_eligible_rule_kind);
-        assert!(!detail.peel_attempted);
-        assert!(detail.structural_composite_attempted);
-        assert_eq!(
-            ReduplicationPeelSupportedPredicate.evaluate(&g, &profile, &mrule_leaf(MRuleId(0))),
-            PredicateVerdict::ConfirmOnly
-        );
-
-        let emitted = crate::emit::emit(&g);
-        assert!(matches!(
-            emitted.report.tier,
-            crate::emit::FomaTier::Unsupported { .. }
-        ));
-        assert_eq!(
-            emitted.report.closure_refusal.as_ref().map(|r| r.code),
-            Some(crate::emit::ClosureRefusalCode::UnboundedRuleApplication)
-        );
-        assert!(emitted.lexc_source.is_empty());
     }
 
     /// Positive witness: the predicate returns `ConfirmOnly`, never `Admit`, for the in-scope shape.
