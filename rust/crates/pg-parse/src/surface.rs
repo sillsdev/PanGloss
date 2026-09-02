@@ -116,6 +116,10 @@ pub(crate) fn matching_reps_for_node(
         }
         return Vec::new();
     }
+    // `None` iff the grammar declared zero authored phon features; pinned by `zero_feat_grammar_phon_features_len_is_one_not_zero`.
+    let feature_bearing_table = char_def != NO_CHAR_DEF
+        && (char_def as usize) < table.len()
+        && table.unifiable_cds(CharDefId(char_def)).is_some();
     let mut out = Vec::new();
     for (id, cd) in table.iter() {
         if !kind_matches(kind, cd) {
@@ -126,16 +130,13 @@ pub(crate) fn matching_reps_for_node(
                 pg_shape::CdSet::Unrestricted => true,
                 pg_shape::CdSet::Members(b) => b.contains(id.0),
             }
-        } else if lanes.is_empty() {
-            // Zero-phon-feature table: C# attaches `StrRep` only here, so identity/closure decides.
-            id.0 == char_def
-                || table
-                    .unifiable_cds(CharDefId(char_def))
-                    .is_some_and(|b| b.contains(id.0))
-        } else {
+        } else if feature_bearing_table {
             // Feature-bearing table: hc.dll matches by `FeatureStruct.IsUnifiable` alone, never
             // char_def identity -- `flat_unifiable` below decides; pinned by `all_discovered_fixtures_match_oracle`.
             true
+        } else {
+            // Zero-feature table, or `char_def` names a foreign index this table can't resolve at all: identity is the only signal available.
+            id.0 == char_def
         };
         if !member {
             continue;
