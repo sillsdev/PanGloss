@@ -109,7 +109,7 @@
 </rt>
 <rt class="MoMorphData" guid="00000000-0000-0000-0000-000000000003" ownerguid="00000000-0000-0000-0000-000000000001">
 <ParserParameters>
-<Uni>&lt;ParserParameters&gt;&lt;HC&gt;&lt;NotOnClitics&gt;false&lt;/NotOnClitics&gt;&lt;Strata /&gt;&lt;/HC&gt;&lt;/ParserParameters&gt;</Uni>
+<Uni>&lt;ParserParameters&gt;&lt;HC&gt;&lt;NotOnClitics&gt;false&lt;/NotOnClitics&gt;&lt;Strata /&gt;&lt;/HC&gt;&lt;XAmple&gt;&lt;MaxNulls&gt;1&lt;/MaxNulls&gt;&lt;MaxPrefixes&gt;2&lt;/MaxPrefixes&gt;&lt;MaxAnalysesToReturn&gt;10&lt;/MaxAnalysesToReturn&gt;&lt;/XAmple&gt;&lt;ActiveParser&gt;HC&lt;/ActiveParser&gt;&lt;/ParserParameters&gt;</Uni>
 </ParserParameters>
 <ProdRestrict>
 <objsur guid="00000000-0000-0000-0000-00000000001f" t="o" />
