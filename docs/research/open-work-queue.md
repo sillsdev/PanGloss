@@ -21,21 +21,29 @@ hc.dll on every replayed word. Two upstream fixtures pinning the port divergence
 `sillsdev/machine` branch `conformance/hc-rust-port-divergences` at `898b321f`; PanGloss's submodule
 pin moves to it once that branch is pushed.
 
-**Backend side, TunedSurfaceProbed** (the shipping backend): 55 exact / 3 miss / 3 refused of 61.
-- Misses (ADR-0001's forbidden direction), the recall-miss queue:
-  `morphotactic-attribute-breadth` (kuldede, all three backends), `segment-natural-class-table-binding`
-  "g" (the cross-table `ROOT1|z` analysis hc.dll requires; exposed by the port fix),
-  `two-table-shared-representation-recall` "y" (an emitter regression from the same port fix: root
-  spelling synthesis relied on the stratum reassignment hc.dll never does -- fix in flight), and, seen
-  only by the multiplicity-aware faithfulness gate, `mpr-gated-exception` "mentanukam" (two derivation
-  orders under an unordered stratum, one proposal). TUT misses: `feature-system-breadth` isk,
-  `mpr-overwrite-order-dependence` daboyuxa, `strrep-identity` imat, `truncate-morphotactic` gas,
-  plus kuldede. PC: `feature-gating-breadth` kalid, kuldede.
-- Refused: `polysynthetic-stratal-derivation-chain` and `backend-strata-generic` (`[Any]*` pattern
-  root; a regex-emission route is in flight), `guesser-pattern-root-fallback` (same shape).
-- Fixed today: `process-morphology-in-place-mutation`, `circumfix-non-first-allomorph-selection`,
-  `suffixing-extension-slot-ordering`, `metathesis-comparison-crash` (an instrument defect: an
-  all-`expect_fail` fixture could never certify).
+**Per fixture, at `9c5e38e9` (62 fixtures, `conf_matrix`):** 16 exact on all three backends, 25 on
+two, 20 on one, **1 on none** -- `segment-natural-class-table-binding`. That one is the whole
+remaining "at least one backend" gap.
+
+**Backend side, TunedSurfaceProbed** (the shipping backend): 60 exact / 1 miss / 1 refused of 62.
+- The miss (ADR-0001's forbidden direction): `segment-natural-class-table-binding` "g" -- the
+  cross-table `ROOT1|z` analysis hc.dll requires, which the emitter's phonological-rule lowering never
+  offers because it resolves the natural class against its own stratum's table.
+- The refusal is deliberate and witnessed: `pattern-root-required-environment`, an unbounded root
+  with required environments, the one shape the regex route excludes.
+- Seen only by the multiplicity-aware faithfulness gate: `mpr-gated-exception` "mentanukam" (two
+  derivation orders under an unordered stratum, one proposal) -- open question whether confirm already
+  recovers both and the instrument should measure confirmed multiplicity.
+- TUT misses: `feature-system-breadth` isk (alpha variable with `polarity="minus"`),
+  `mpr-overwrite-order-dependence` daboyuxa (the templated route fixes two standalone rules' order to
+  document order, by design), `strrep-identity` imat, `truncate-morphotactic` gas. PC misses:
+  `feature-gating-breadth` kalid and `morphotactic-attribute-breadth` kulru -- `build.rs` emits no
+  material for a `RealizationalRule`'s own allomorphs at all.
+- Fixed in this campaign: `process-morphology-in-place-mutation`, `circumfix-non-first-allomorph-
+  selection`, `suffixing-extension-slot-ordering`, `metathesis-comparison-crash` (an instrument
+  defect), `morphotactic-attribute-breadth` on TSP/TUT (a repeated application decoded as an extra
+  morpheme), `two-table-shared-representation-recall` "y", and the three `[Any]*` pattern-root
+  fixtures via the regex route.
 
 **Backend side, the other two.** PlanComposed refuses 36 of 61 for one shape (a
 `CompositeEmissionMarker`/`StructuralCompositeMarker` subtree `build_controllable` does not build);
