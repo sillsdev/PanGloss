@@ -69,6 +69,11 @@ Three honest options, and only you can pick:
 analyse a word (a cross-table ambiguity a linguist wants). None of the five reference grammars has two
 character tables, so nothing measured today can settle that.
 
+**Now two fixtures, one phenomenon.** The upstream witness authored for the HC-Rust port fix,
+`rewrite-analysis-feature-neutralization` (word `d`, oracle `ROOT1|b;ROOT2|d`), lands in the same
+cell for the same reason once the submodule pin moved: TSP misses `ROOT1|b`, TUT and PC refuse the
+bistratal root. Whichever option you pick applies to both.
+
 ## G10. Two HC-Rust divergences from hc.dll are baselined in the pg-parse gate rather than blocking the merge
 
 **Decided.** Making six staged grammars loadable by hc.dll exposed two places where HC-Rust

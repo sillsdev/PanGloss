@@ -21,15 +21,17 @@ hc.dll on every replayed word. Two upstream fixtures pinning the port divergence
 `sillsdev/machine` branch `conformance/hc-rust-port-divergences` at `898b321f`; PanGloss's submodule
 pin moves to it once that branch is pushed.
 
-**Per fixture, at `37c222f8` (62 fixtures, `conf_matrix`):** 24 exact on all three backends, 26 on
-two, 11 on one, **1 on none** -- `segment-natural-class-table-binding`. That one is the whole
-remaining "at least one backend" gap. At v0.2.0 the same headline read 16 / 21 / 17 / 7. Soundness is
-0 on every cell; every miss listed below is the ADR-0001 direction and named in a ratchet.
+**Per fixture, at `63a81cfc` (64 fixtures, `conf_matrix`; the pin moved to `25ddf914` and brought two
+upstream witnesses for this week's port fixes):** 24 exact on all three backends, 26 on two, 12 on
+one, **2 on none** -- `segment-natural-class-table-binding` and its upstream twin
+`rewrite-analysis-feature-neutralization`, one phenomenon (grill-me G11). Those two are the whole
+remaining "at least one backend" gap. At v0.2.0 the headline over 62 read 16 / 21 / 17 / 7. Soundness
+is 0 on every cell; every miss listed below is the ADR-0001 direction and named in a ratchet.
 
-**Backend side, TunedSurfaceProbed** (the shipping backend): 60 exact / 1 miss / 1 refused of 62.
-- The miss (ADR-0001's forbidden direction): `segment-natural-class-table-binding` "g" -- the
-  cross-table `ROOT1|z` analysis hc.dll requires, which the emitter's phonological-rule lowering never
-  offers because it resolves the natural class against its own stratum's table.
+**Backend side, TunedSurfaceProbed** (the shipping backend): 61 exact / 2 miss / 1 refused of 64.
+- The misses (ADR-0001's forbidden direction): `segment-natural-class-table-binding` "g" and
+  `rewrite-analysis-feature-neutralization` "d" -- the cross-table second analysis hc.dll's
+  analysis-side feature erasure yields, which no forward composition produces (G11).
 - The refusal is deliberate and witnessed: `pattern-root-required-environment`, an unbounded root
   with required environments, the one shape the regex route excludes.
 - `mpr-gated-exception` "mentanukam" (two derivation orders, one proposal) is NOT a miss: confirm's
@@ -49,13 +51,13 @@ remaining "at least one backend" gap. At v0.2.0 the same headline read 16 / 21 /
   morpheme), `two-table-shared-representation-recall` "y", and the three `[Any]*` pattern-root
   fixtures via the regex route.
 
-**Backend side, the other two.** TemplatedUnderlyingTokens: 45 exact / 0 miss / 17 refused. Its
+**Backend side, the other two.** TemplatedUnderlyingTokens: 45 exact / 0 miss / 19 refused of 64. Its
 refusals are typed `Partial { uncovered }` items, named one by one: infix, reduplication and
 circumfix-prefix shapes (13 fixtures; no root-splitting or copying construction exists on the token
 route, and two prior attempts to bypass the classification broke working fixtures), process
-morphology, two bistratal roots whose segment has no representation in the final table, and two
+morphology, four bistratal roots whose segment has no representation in the final table, and two
 rewrite-cascade refusals (one deliberate: simultaneous-subrule overlap, unsupported by definition).
-PlanComposed: 30 exact / 0 miss / 29 refused / 3 unmeasurable. It now builds a composite marker
+PlanComposed: 30 exact / 0 miss / 31 refused / 3 unmeasurable of 64. It now builds a composite marker
 subtree by calling the tuned route's own construction, but only when that material is provably
 complete (no other rule or template can wrap the stem); every other marker plan keeps its typed
 refusal, because a bare-word union that could under-generate must never be admitted. Widening that
