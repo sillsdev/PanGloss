@@ -15,24 +15,27 @@ these numbers (`backend_scoreboard_gate`, `faithfulness_coverage_gate`, `conform
 
 **Oracle side.** 38 of 39 staged fixtures are `founding-oracle`; the one `rust-only` is `guesser-pattern-root-fallback`, whose guessed words hc.dll exposes no CLI surface for. Upstream 34/34 (the pin sits at `25ddf914`, which carries the two witnesses for this week's port divergences, `rewrite-analysis-feature-neutralization` and `synthesis-stratum-render-stale-table`), filter-passes 9/9 (mirrored into the harness by `oracle-conformance.ps1`). HC-Rust agrees with hc.dll on every replayed word, compared as a multiset.
 
-**Per fixture, at `63a81cfc` (64 fixtures, `conf_matrix`; the pin moved to `25ddf914` and brought two
-upstream witnesses for this week's port fixes):** 24 exact on all three backends, 26 on two, 12 on
-one, **2 on none** -- `segment-natural-class-table-binding` and its upstream twin
-`rewrite-analysis-feature-neutralization`, one phenomenon (grill-me G11). Those two are the whole
-remaining "at least one backend" gap. At v0.2.0 the headline over 62 read 16 / 21 / 17 / 7. Soundness
-is 0 on every cell; every miss listed below is the ADR-0001 direction and named in a ratchet.
+**Per fixture, after the cross-table respelling fix (65 fixtures; the pin moved to `100d7bef` and
+brought the isolating upstream fixture `cross-table-root-respelling`):** every fixture has at least
+one oracle-exact backend, and the shipping backend has **zero misses**. The two that had none,
+`segment-natural-class-table-binding` and `rewrite-analysis-feature-neutralization`, were one
+phenomenon (grill-me G11), now a named characteristic, `CrossTableRespelling`. At `63a81cfc` over 64
+the headline read 24 / 26 / 12 / **2 on none**; at v0.2.0 over 62 it read 16 / 21 / 17 / 7. Soundness
+is 0 on every cell.
 
-**Backend side, TunedSurfaceProbed** (the shipping backend): 61 exact / 2 miss / 1 refused of 64.
-- The misses (ADR-0001's forbidden direction): `segment-natural-class-table-binding` "g" and
-  `rewrite-analysis-feature-neutralization` "d" -- the cross-table second analysis hc.dll's
-  analysis-side feature erasure yields, which no forward composition produces (G11).
+**Backend side, TunedSurfaceProbed** (the shipping backend): 64 exact / 0 miss / 1 refused of 65.
+- The former misses were cross-table respelling: an inner-stratum root surfaces spelled by whichever
+  final-table segment carries the same bundle, rule or no rule (hc.dll
+  `CharacterDefinitionTable.GetMatchingStrReps`; proven by deleting the rule and re-running the
+  oracle). `emit::collect_roots` now unions that spelling for every inner-stratum root, and
+  `characterize` calls the same function, so the observed construct and the emitted spelling cannot
+  drift. Gate: `cross_table_root_respelling_gate.rs`, four fixtures, both directions.
 - The refusal is deliberate and witnessed: `pattern-root-required-environment`, an unbounded root
   with required environments, the one shape the regex route excludes.
 - `mpr-gated-exception` "mentanukam" (two derivation orders, one proposal) is NOT a miss: confirm's
   multiplicity recovery returns both derivations from the one proposal (measured 1 proposed, 2
   confirmed, 2 in the oracle), so the faithfulness instrument now checks that each distinct oracle
   identity is proposed at least once. Faithfulness ratchet 5.
-- The "g" cell above is a decision, not a patch -- see grill-me G11.
 - TUT and PC have no misses left (figures below): the alpha-variable polarity flip, the document-order limitation under an unordered stratum (an order lattice for small unordered zones), the insert-then-truncate-leading rule (its deletion now anchors to the rule's marker, not the word edge), and PC's wholesale skip of realizational rules are all fixed.
 - Fixed in this campaign: `process-morphology-in-place-mutation`, `circumfix-non-first-allomorph-
   selection`, `suffixing-extension-slot-ordering`, `metathesis-comparison-crash` (an instrument
@@ -40,13 +43,17 @@ is 0 on every cell; every miss listed below is the ADR-0001 direction and named 
   morpheme), `two-table-shared-representation-recall` "y", and the three `[Any]*` pattern-root
   fixtures via the regex route.
 
-**Backend side, the other two.** TemplatedUnderlyingTokens: 45 exact / 0 miss / 19 refused of 64. Its
+**Backend side, the other two.** TemplatedUnderlyingTokens: 45 exact / 0 miss / 20 refused of 65. Its
 refusals are typed `Partial { uncovered }` items, named one by one: infix, reduplication and
 circumfix-prefix shapes (13 fixtures; no root-splitting or copying construction exists on the token
 route, and two prior attempts to bypass the classification broke working fixtures), process
-morphology, four bistratal roots whose segment has no representation in the final table, and two
-rewrite-cascade refusals (one deliberate: simultaneous-subrule overlap, unsupported by definition).
-PlanComposed: 30 exact / 0 miss / 31 refused / 3 unmeasurable of 64. It now builds a composite marker
+morphology, the cross-table respelling roots (`unsegmentable-root`: the token route re-encodes a
+root against the final table by its own spelling, so `CrossTableRespelling` is `CannotRepresent`
+there), and two rewrite-cascade refusals (one deliberate: simultaneous-subrule overlap, unsupported
+by definition). PlanComposed: 31 exact / 0 miss / 31 refused / 3 unmeasurable of 65. It represents
+cross-table respelling (exact on the isolating fixture, and still exact with that fixture's final
+table reordered, so by bundle rather than by index); its refusals on the three rule-bearing
+respelling fixtures are the composite-marker subtree below. It now builds a composite marker
 subtree by calling the tuned route's own construction, but only when that material is provably
 complete (no other rule or template can wrap the stem); every other marker plan keeps its typed
 refusal, because a bare-word union that could under-generate must never be admitted. Widening that
@@ -64,7 +71,10 @@ matches hc.dll there. The scoreboard, by contrast, compares deduplicated identit
 proposer offering one candidate for two derivations is visible only to the faithfulness gate.
 
 **Done when:** the miss lists above are empty, every fixture has an exact backend, and the submodule
-pin carries the two upstream fixtures.
+pin carries the upstream fixtures. **Reached at the respelling fix.** What remains open under this
+goal is upstream: the machine branch `conformance/respelling-fixture-notes` (100d7bef) asks the team
+whether cross-table respelling, and the empty-suffix rendering pinned in its word `tu`, are intended
+behaviour; a "no" reopens both fixtures' ground truth.
 
 ## 2. Merge `fix/env-repvariant`
 

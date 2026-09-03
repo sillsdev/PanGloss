@@ -54,6 +54,24 @@ in the emitter, and the fixture comments (staged and upstream) are being correct
 this file: two agents and I reasoned from the C# source to a mechanism without running the one
 experiment that discriminates it; the experiment took thirty seconds.
 
+**Closed as a named capability.** The user's direction: hc.dll is right, fix our side, cover it
+with a conformance grammar, and make it a specific backend capability because it is tricky. Done as
+`CharacteristicKind::CrossTableRespelling` (ConfirmOnly; observed per root allomorph through the
+emitter's own `cross_table_respelling`, the final table's pre-rule rendering, so a root both tables
+spell alike is not flagged however a later rule changes it), one `strategy_coverage` row per
+backend, its own `constructs.txt` row upstream so coverage cannot be inherited from the multi-table
+row, and `cross_table_root_respelling_gate.rs` pinning four fixtures in both directions. The
+isolating upstream fixture `cross-table-root-respelling` has no phonological rule at all.
+
+**The same lesson, a second time in one day.** PlanComposed measured oracle-exact on the isolating
+fixture while its row said `CannotRepresent`. I reasoned that uflexc tokenizes by raw char-def index
+and the inner root's index happened to coincide with the same-bundle final segment's, and I wrote
+the ratchets to say so. Then I ran the discriminating experiment (reorder the final table so the
+index moves and no bundle changes): PlanComposed stayed exact. The row is `Represents`, the
+experiment is now the positive gate `plan_composed_spells_by_bundle_not_by_index`, and the ratchets
+went back down. Reasoning from source to mechanism was wrong twice on the same construct; the
+experiment was right twice and cost a minute each time.
+
 **Superseded text follows, kept for the record.**
 
 **Not decided; left as the one measured miss.** `segment-natural-class-table-binding` word `g`: hc.dll
