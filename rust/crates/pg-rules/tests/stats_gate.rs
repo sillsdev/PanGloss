@@ -202,7 +202,9 @@ fn morph_rule_row<'a>(
 
 #[test]
 fn prune_rows_are_separate_and_deterministic() {
-    let g = load_alpha_grammar();
+    let mut g = load_alpha_grammar();
+    push_stratum(&mut g, MorphRuleOrder::Linear, vec![]);
+    push_stratum(&mut g, MorphRuleOrder::Linear, vec![]);
     let stats = StatsCollector::new(&g);
     stats.record_template_entry(StratumId(1), Direction::Analysis);
     stats.record_final_template_skipped(StratumId(0), Direction::Analysis);
