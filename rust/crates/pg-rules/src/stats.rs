@@ -264,10 +264,13 @@ impl StatsCollector {
 
     fn prune_cell(&self, stratum: StratumId, direction: Direction) -> std::cell::RefMut<'_, PruneCounters> {
         let index = Self::prune_index(stratum, direction);
-        let mut rows = self.prune.borrow_mut();
-        if index >= rows.len() {
-            rows.resize(index + 1, PruneCounters::default());
-        }
+        let rows = self.prune.borrow_mut();
+        assert!(
+            index < rows.len(),
+            "prune stratum {} is outside the grammar's {} strata",
+            stratum.0,
+            rows.len() / 2
+        );
         std::cell::RefMut::map(rows, |rows| &mut rows[index])
     }
 
