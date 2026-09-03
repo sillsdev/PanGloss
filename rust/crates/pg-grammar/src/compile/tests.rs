@@ -20,6 +20,19 @@ use crate::model::{MorphRuleDef, TemplateSlotZone};
 
 use super::{compile_project, environment};
 
+const MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>WellFormed</Name>
+  <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+  </CharacterDefinitionTable>
+</Language></HermitCrabInput>"#;
+
+#[test]
+fn xml_loaded_grammars_carry_no_analysis_caps() {
+    let g = crate::load::load(MINIMAL_XML).expect("load");
+    assert!(g.analysis_caps.is_none());
+}
+
 fn ws(ws: &str, form: &str) -> WsForm {
     WsForm {
         ws: ws.to_string(),
