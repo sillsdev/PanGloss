@@ -38,6 +38,37 @@ Two live facts fall out of that mistake rather than being wasted:
 - **Mbugwe's HC path is latency-bound, not memory-bound**: 0.1GB RSS, ~54% of words analysed, the
   rest timing out at 10s.
 
+## G11. The last fixture without a backend needs a decision, not a patch
+
+**Not decided; left as the one measured miss.** `segment-natural-class-table-binding` word `g`: hc.dll
+(and now HC-Rust) return two analyses, `ROOT2|g` and `ROOT1|z`. The second exists only through the
+ANALYSIS direction: `FeatureAnalysisRewriteRuleSpec`'s anti-feature-struct subtraction erases the
+rule's changed feature outright, and `GetMatchingStrReps` then unifies the reconstructed segment with
+any table's char def that shares the surviving features -- here ROOT1's `z`, from the other stratum's
+table, which cannot even be tokenized at the surface. No forward derivation produces `g` from `ROOT1`;
+the fixture's own discriminating test confirms `prKtoG` never applies to `z` going forward.
+
+Every PanGloss backend composes forward, so the proposer would have to reproduce a general form of
+HC's backward analysis -- for every feature-changing rule, an escape offering any entry from any
+reachable stratum compatible with the erased lanes -- to offer this candidate. A patch scoped to this
+fixture's shape (bare root, single segment, no environment) would fix one instance and leave the
+mechanism unaddressed. The agent that measured this stopped rather than ship that, and I agree.
+
+Three honest options, and only you can pick:
+1. **Treat it as hc.dll behaviour to match**, and build the backward-erasure emulation in the
+   emitter. Costly, general, and it makes the proposer over-generate on purpose for every
+   feature-changing rule.
+2. **Treat it as a hc.dll defect**: the fixture was AUTHORED to prove this collision cannot happen.
+   Report upstream; pin the current output as the oracle's answer (already done) and mark the cell an
+   honest typed refusal (`CannotRepresent`, class Representability) rather than a miss, until hc.dll
+   changes. This leaves one fixture with zero backends, by decision.
+3. **Leave it as the single ratcheted miss** (today's state): scoreboard TSP `60/1/1/0`, faithfulness
+   `14`, both naming it.
+
+**What would falsify option 2:** a real FieldWorks grammar that RELIES on this reconstruction to
+analyse a word (a cross-table ambiguity a linguist wants). None of the five reference grammars has two
+character tables, so nothing measured today can settle that.
+
 ## G10. Two HC-Rust divergences from hc.dll are baselined in the pg-parse gate rather than blocking the merge
 
 **Decided.** Making six staged grammars loadable by hc.dll exposed two places where HC-Rust

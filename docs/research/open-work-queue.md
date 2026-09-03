@@ -31,9 +31,11 @@ remaining "at least one backend" gap.
   offers because it resolves the natural class against its own stratum's table.
 - The refusal is deliberate and witnessed: `pattern-root-required-environment`, an unbounded root
   with required environments, the one shape the regex route excludes.
-- Seen only by the multiplicity-aware faithfulness gate: `mpr-gated-exception` "mentanukam" (two
-  derivation orders under an unordered stratum, one proposal) -- open question whether confirm already
-  recovers both and the instrument should measure confirmed multiplicity.
+- `mpr-gated-exception` "mentanukam" (two derivation orders, one proposal) is NOT a miss: confirm's
+  multiplicity recovery returns both derivations from the one proposal (measured 1 proposed, 2
+  confirmed, 2 in the oracle), so the faithfulness instrument now checks that each distinct oracle
+  identity is proposed at least once. Faithfulness ratchet 14.
+- The "g" cell above is a decision, not a patch -- see grill-me G11.
 - TUT misses: `feature-system-breadth` isk (alpha variable with `polarity="minus"`),
   `mpr-overwrite-order-dependence` daboyuxa (the templated route fixes two standalone rules' order to
   document order, by design), `strrep-identity` imat, `truncate-morphotactic` gas. PC misses:
