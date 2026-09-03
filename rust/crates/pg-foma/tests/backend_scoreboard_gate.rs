@@ -43,14 +43,14 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target: TSP's latest move is three fixtures' `[Any]*` pattern root going refused -> exact, now that a regex entry represents an unbounded shape; before that, a repeated-application decode fix (morphotactic-attribute-breadth, TSP and TUT), per-allomorph zone ownership and the dropped closure refusal, the process-morphology route, two all-`expect_fail` "misses" becoming exact, and the two-table cross-table emitter fix; the one remaining TSP miss is segment-natural-class-table-binding "g" -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target, over 62 fixtures: `pattern-root-required-environment` joined as TSP's one deliberate refusal (an unbounded root with required environments, outside the regex route) and TUT's twenty-first; TSP's other moves were three `[Any]*` pattern roots going refused -> exact under the regex route, a repeated-application decode fix (morphotactic-attribute-breadth, TSP and TUT), per-allomorph zone ownership and the dropped closure refusal, the process-morphology route, two all-`expect_fail` "misses" becoming exact, and the two-table cross-table emitter fix; the one remaining TSP miss is segment-natural-class-table-binding "g" -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
             oracle_exact: 60,
             compiles_but_misses: 1,
-            refused: 0,
+            refused: 1,
             unmeasurable: 0,
         },
     ),
@@ -59,14 +59,14 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 37,
             compiles_but_misses: 4,
-            refused: 20,
+            refused: 21,
             unmeasurable: 0,
         },
     ),
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 20,
+            oracle_exact: 21,
             compiles_but_misses: 2,
             refused: 36,
             unmeasurable: 3,

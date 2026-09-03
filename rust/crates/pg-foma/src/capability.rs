@@ -3383,16 +3383,21 @@ impl GrammarWideCheck for PlanComposedMarkerCheck {
 
 /// `crate::emit::eager_route_drops_root_spellings`, published for `TunedSurfaceProbed`.
 ///
-/// The oracle-backed witness this fact rests on: for each of the three fixtures this check moves
-/// from too-lax to agree (`languages/polysynthetic-stratal-derivation-chain`,
-/// `edge-cases/backend-strata-generic`, `edge-cases/guesser-pattern-root-fallback`), the ARTIFACT
-/// the eager route actually produces is not a faithful proposer for the affected entry — confirmed
-/// by `FomaProposer::new` itself refusing to trust it (`envelope_agrees_with_compiler_gate`'s own
-/// `the_published_root_spelling_fact_never_over_claims_a_drop`, which asserts exactly that for
-/// every fixture this fact fires on): `[rep-variant-overflow] ... root shape "[Any]*" exceeds 64
-/// representation variants; excess spellings dropped`. That is not "the fact fired" alone -- it is
-/// the compiler's own emission report naming a real spelling it silently could not represent, which
-/// is what separates a correct refusal from an over-refusal.
+/// Two live witnesses, distinguished by which `VariantLimit` fires. `VariantLimit::BytesExhausted`
+/// is unconditional; the `VariantLimit::Unbounded` branch additionally requires a non-empty
+/// `allo.environments`, since commit 620863f6 made `collect_roots` route an environment-free
+/// unbounded shape to a compiled regex entry instead of dropping it -- retiring the historical
+/// `Unbounded`-branch witnesses (`languages/polysynthetic-stratal-derivation-chain`,
+/// `edge-cases/backend-strata-generic`, `edge-cases/guesser-pattern-root-fallback` all now compile
+/// clean under `TunedSurfaceProbed`; see `tests/pattern_root_regex_route_gate.rs`). The current
+/// `Unbounded`-branch witness is `staging:edge-cases/pattern-root-required-environment`, whose
+/// pattern root carries a `<RequiredEnvironments>` the regex route cannot honour. Either way the
+/// ARTIFACT the eager route would produce is not a faithful proposer for the affected entry —
+/// confirmed by `FomaProposer::new` itself refusing to trust it
+/// (`envelope_agrees_with_compiler_gate`'s own `the_published_root_spelling_fact_never_over_claims_a_drop`,
+/// which asserts exactly that for every fixture this fact fires on). That is not "the fact fired"
+/// alone -- it is the compiler's own emission report naming a real spelling it silently could not
+/// represent, which is what separates a correct refusal from an over-refusal.
 pub struct EagerRouteDropsRootSpellingsCheck;
 
 impl GrammarWideCheck for EagerRouteDropsRootSpellingsCheck {
