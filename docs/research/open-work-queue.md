@@ -61,6 +61,12 @@ complete (no other rule or template can wrap the stem); every other marker plan 
 refusal, because a bare-word union that could under-generate must never be admitted. Widening that
 admission (affix wrapping around composite stems) is the next PlanComposed lever.
 
+**Tooling gap found while bumping the pin.** `Initialize-ConformanceSubmodule`'s fast path tests only
+the sentinel file, so an existing checkout whose pin has MOVED keeps its old submodule tree and
+`oracle-conformance.ps1` then picks the control exe for the old pin. A fresh worktree is fine (it
+fetches the pin); an existing one silently lags. The fast path should compare the checked-out
+submodule commit to `git ls-tree HEAD -- machine` and re-fetch on drift.
+
 **Instrument note.** The pg-parse replay gate compares parse MULTISETS (PROTOCOL.md section 4 rule
 3): a doubled derivation such as `mpr-gated-exception` "mentanukam" is compared by count, and HC-Rust
 matches hc.dll there. The scoreboard, by contrast, compares deduplicated identity sets, so a
