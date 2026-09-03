@@ -3894,6 +3894,13 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
                     if role_floor_refusals.contains(&(rule_index, allomorph_index)) {
                         continue;
                     }
+                    // `emit_rule_allomorphs`'s ordinary literal-insert branch already handles a plain Prefix/Suffix/None role regardless of this classifier's verdict; consulting it here would over-claim a refusal the real emission path never makes (see `pattern_root_token_route_gate.rs`'s `guesser-pattern-root-fallback` case).
+                    if matches!(
+                        crate::emit::classify_affix(&allomorph.rhs),
+                        crate::emit::Role::Prefix | crate::emit::Role::Suffix | crate::emit::Role::None
+                    ) {
+                        continue;
+                    }
                     let crate::structural_allomorph::MorphologyRewrite::Unsupported {
                         shape_id,
                         reason_id,

@@ -43,7 +43,7 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target, over 62 fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route) and segment-natural-class-table-binding "g" the one miss. TUT: no miss left after the order lattice, flip-polarity alpha variables, and the marker-adjacent leading drop. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 29 typed refusals -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target, over 62 fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route) and segment-natural-class-table-binding "g" the one miss. TUT: no miss left after the order lattice, flip-polarity alpha variables and the marker-adjacent leading drop; the token-space pattern-root route turned four more refusals exact. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 29 typed refusals -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
@@ -57,9 +57,9 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 41,
+            oracle_exact: 45,
             compiles_but_misses: 0,
-            refused: 21,
+            refused: 17,
             unmeasurable: 0,
         },
     ),

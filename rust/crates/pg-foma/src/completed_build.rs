@@ -744,12 +744,12 @@ mod tests {
         );
     }
 
-    /// A too-strict fixture (envelope refuses, emitter still builds) must now refuse here too.
+    /// A `Role::Process` allomorph is `CannotRepresent` for Templated by architecture (`strrep-identity`'s plain-Prefix no longer fits this pin -- it compiles now).
     #[test]
     fn templated_route_refuses_before_emitting_when_the_envelope_refuses() {
         let fixture = pg_conformance_fixtures::discover()
             .into_iter()
-            .find(|f| f.label() == "machine:edge-cases/strrep-identity")
+            .find(|f| f.label() == "machine:edge-cases/process-morphology-in-place-mutation")
             .expect("fixture must be discoverable");
         let grammar =
             pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");

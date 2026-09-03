@@ -549,20 +549,32 @@ impl<'t> SegAlphabet<'t> {
 }
 
 /// True when some root allomorph in `g`'s lexicon carries a shape
-/// [`SegAlphabet::shape_is_tokenizable`] declines — the pattern-language `[ClassName]` construct
+/// [`SegAlphabet::shape_is_tokenizable`] declines AND `crate::emit::pattern_root_token_route`
+/// also declines it — the pattern-language `[ClassName]` construct
 /// (`machine:edge-cases/loader-pattern-shapes`'s `b[Vowel]t`) segments to an abstract node even
 /// when it is not `RootAllomorphDef::is_pattern` (that flag only fires for an optional/iterative
 /// node, never a mandatory class reference), so `crate::uflexc`/`crate::emit`'s own `is_pattern`
-/// guard alone lets one through into `SegAlphabet::encode_shape`. Names
-/// `TemplatedUnderlyingTokens`'s own refusal condition specifically — too weak a claim for
-/// `PlanComposed` (below), which tolerates a partial lexicon; pinned by
-/// `the_published_untokenizable_root_shape_fact_never_over_claims_a_refusal`.
+/// guard alone lets one through into `SegAlphabet::encode_shape` -- but `collect_roots` may still
+/// route it through the token-space pattern route, so this calls that SAME decision rather than
+/// re-deriving a wider one. Names `TemplatedUnderlyingTokens`'s own refusal condition
+/// specifically — too weak a claim for `PlanComposed` (below), which tolerates a partial
+/// lexicon; pinned by `the_published_untokenizable_root_shape_fact_never_over_claims_a_refusal`.
 pub fn grammar_has_untokenizable_root_shape(g: &Grammar) -> bool {
-    g.entries.iter().any(|entry| {
-        entry
-            .allomorphs
-            .iter()
-            .any(|allo| !SegAlphabet::shape_is_tokenizable(&allo.shape.shape))
+    let alphabet = SegAlphabet::new(crate::emit::surface_table(g));
+    g.strata.iter().any(|stratum| {
+        let stratum_table = &g.char_tables[stratum.table.0 as usize];
+        stratum.entries.iter().any(|&entry_id| {
+            g.entries[entry_id.0 as usize].allomorphs.iter().any(|allo| {
+                !SegAlphabet::shape_is_tokenizable(&allo.shape.shape)
+                    && crate::emit::pattern_root_token_route(
+                        &alphabet,
+                        stratum_table,
+                        &allo.shape.shape,
+                        allo.environments.is_empty(),
+                    )
+                    .is_none()
+            })
+        })
     })
 }
 

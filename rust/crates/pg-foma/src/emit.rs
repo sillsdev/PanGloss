@@ -1245,6 +1245,187 @@ fn pattern_shape_regex_body(table: &CharDefTable, shape: &Shape) -> String {
     }
 }
 
+/// `node_base_alternatives`'s member-id twin: which final-table `CharDefId`s one interior node names, before either flag applies.
+fn node_base_member_ids(
+    table: &CharDefTable,
+    shape: &Shape,
+    i: usize,
+    char_def: u32,
+) -> Vec<CharDefId> {
+    if char_def != pg_shape::NO_CHAR_DEF {
+        return vec![CharDefId(char_def)];
+    }
+    let cd_set = shape.node_cd_set(i);
+    let mut out = Vec::new();
+    for (id, cd) in table.iter() {
+        if cd.kind() != CharDefKind::Segment {
+            continue;
+        }
+        let member = match cd_set {
+            EffectiveCdSet::Singleton(s) => s == id.0,
+            EffectiveCdSet::Unrestricted => true,
+            EffectiveCdSet::Members(b) => b.contains(id.0),
+        };
+        if member {
+            out.push(id);
+        }
+    }
+    out
+}
+
+/// `node_alternatives`'s underlying-token twin: same shape, tokens from `alphabet.table()` instead of representations.
+fn node_token_alternatives(
+    alphabet: &SegAlphabet<'_>,
+    shape: &Shape,
+    i: usize,
+    char_def: u32,
+    flags: pg_shape::NodeFlags,
+) -> Vec<String> {
+    let mut reps: Vec<String> = node_base_member_ids(alphabet.table(), shape, i, char_def)
+        .iter()
+        .map(|id| alphabet.token(*id).to_string())
+        .collect();
+    if reps.is_empty() {
+        reps.push(String::new());
+    }
+    if flags.is_iterative() {
+        let base = reps.clone();
+        let mut repeated = base.clone();
+        for _ in 0..PATTERN_ITER_CAP {
+            let mut next = Vec::with_capacity(repeated.len() * base.len());
+            for prev in &repeated {
+                for r in &base {
+                    next.push(format!("{prev}{r}"));
+                }
+            }
+            reps.extend(next.iter().cloned());
+            repeated = next;
+        }
+    }
+    if flags.is_optional() {
+        reps.push(String::new());
+    }
+    reps.sort_unstable();
+    reps.dedup();
+    reps
+}
+
+/// `pattern_variants`'s underlying-token twin, in `alphabet`'s own token space.
+fn token_pattern_variants(alphabet: &SegAlphabet<'_>, shape: &Shape) -> (Vec<String>, VariantLimit) {
+    let mut variants: Vec<String> = vec![String::new()];
+    let mut exhausted = None;
+    let mut unbounded = false;
+    for (i, kind, char_def, flags) in shape.interior() {
+        if exhausted.is_some() {
+            break;
+        }
+        if kind == NodeKind::Boundary {
+            continue;
+        }
+        unbounded |= flags.is_iterative();
+        let reps = node_token_alternatives(alphabet, shape, i, char_def, flags);
+
+        let mut next = Vec::with_capacity(variants.len().saturating_mul(reps.len().max(1)));
+        let mut grown = 0usize;
+        'grow: for v in &variants {
+            for r in &reps {
+                let joined = format!("{v}{r}");
+                grown = grown.saturating_add(joined.len());
+                if grown > REP_VARIANT_BYTE_BUDGET {
+                    exhausted = Some(grown);
+                    break 'grow;
+                }
+                next.push(joined);
+            }
+        }
+        variants = next;
+    }
+    variants.sort_unstable();
+    variants.dedup();
+    let limit = if unbounded {
+        VariantLimit::Unbounded
+    } else if let Some(bytes) = exhausted {
+        VariantLimit::BytesExhausted { bytes }
+    } else {
+        VariantLimit::Complete {
+            warn: variants.len() > REP_VARIANT_WARN_THRESHOLD,
+        }
+    };
+    (variants, limit)
+}
+
+/// `node_regex_fragment`'s underlying-token twin: tokens need no XRE escaping, unioned via `" | "`.
+fn token_node_regex_fragment(
+    alphabet: &SegAlphabet<'_>,
+    shape: &Shape,
+    i: usize,
+    char_def: u32,
+    flags: pg_shape::NodeFlags,
+) -> String {
+    let ids = node_base_member_ids(alphabet.table(), shape, i, char_def);
+    let tokens: Vec<String> = if ids.is_empty() {
+        vec!["0".to_string()]
+    } else {
+        ids.iter().map(|id| alphabet.token(*id).to_string()).collect()
+    };
+    let union = if tokens.len() == 1 {
+        tokens.into_iter().next().expect("checked len == 1")
+    } else {
+        format!("[{}]", tokens.join(" | "))
+    };
+    if flags.is_iterative() {
+        format!("{union}*")
+    } else if flags.is_optional() {
+        format!("({union})")
+    } else {
+        union
+    }
+}
+
+/// `pattern_shape_regex_body`'s underlying-token twin, feeding the same `write_pattern_root_entry`.
+fn token_pattern_shape_regex_body(alphabet: &SegAlphabet<'_>, shape: &Shape) -> String {
+    let mut nodes = Vec::new();
+    for (i, kind, char_def, flags) in shape.interior() {
+        if kind == NodeKind::Boundary {
+            continue;
+        }
+        nodes.push(token_node_regex_fragment(alphabet, shape, i, char_def, flags));
+    }
+    if nodes.is_empty() {
+        "[0]".to_string()
+    } else {
+        format!("[{}]", nodes.join(" "))
+    }
+}
+
+/// The one `collect_roots` grants an otherwise-untokenizable pattern root's shape.
+pub(crate) enum PatternRootTokenRoute {
+    Regex(String),
+    Enumerated(Vec<String>),
+}
+
+/// Whether the token-space pattern route admits an otherwise-untokenizable root shape: `collect_roots`'s own decision, published for `crate::replace::grammar_has_untokenizable_root_shape` to call rather than re-derive.
+pub(crate) fn pattern_root_token_route(
+    alphabet: &SegAlphabet<'_>,
+    stratum_table: &CharDefTable,
+    shape: &Shape,
+    environments_empty: bool,
+) -> Option<PatternRootTokenRoute> {
+    if !std::ptr::eq(stratum_table, alphabet.table()) {
+        return None;
+    }
+    let (variants, limit) = token_pattern_variants(alphabet, shape);
+    match limit {
+        VariantLimit::Unbounded if environments_empty => Some(PatternRootTokenRoute::Regex(
+            token_pattern_shape_regex_body(alphabet, shape),
+        )),
+        _ if !limit.drops_spellings() && !variants.is_empty() => {
+            Some(PatternRootTokenRoute::Enumerated(variants))
+        }
+        _ => None,
+    }
+}
+
 /// Writes one pattern root's regex-routed entry (`TAG:0 0:body`, lexc's `< regex >` syntax) -- one physical line for the shape's whole language, replacing one `write_tag_entry` line per spelling; `body` must already be bracketed (foma XRE's `:` binds tighter than concatenation).
 fn write_pattern_root_entry(
     out: &mut String,
@@ -2072,15 +2253,50 @@ fn collect_roots(
                     if allo.is_pattern
                         || !crate::replace::SegAlphabet::shape_is_tokenizable(&allo.shape.shape)
                     {
-                        uncovered.push(UncoveredItem {
-                            kind: "pattern-allomorph".to_string(),
-                            id: label,
-                            reason:
-                                "lexical pattern root shapes are not representable as a single \
-                                     underlying token string (P6 templated emitter, v1)"
-                                    .to_string(),
-                        });
-                        counts.allomorphs_skipped += 1;
+                        match pattern_root_token_route(
+                            alphabet,
+                            stratum_table,
+                            &allo.shape.shape,
+                            allo.environments.is_empty(),
+                        ) {
+                            Some(PatternRootTokenRoute::Regex(body)) => {
+                                roots.push(RootRec {
+                                    id: allo.id,
+                                    morpheme: entry.morpheme,
+                                    category: entry.syn_fs,
+                                    variants: Vec::new(),
+                                    stripped: Vec::new(),
+                                    never_valid_bare: entry.allomorphs.len() == 1
+                                        && allo.is_bound,
+                                    pattern_regex_body: Some(body),
+                                });
+                                counts.allomorphs_emitted += 1;
+                            }
+                            Some(PatternRootTokenRoute::Enumerated(variants)) => {
+                                roots.push(RootRec {
+                                    id: allo.id,
+                                    morpheme: entry.morpheme,
+                                    category: entry.syn_fs,
+                                    variants,
+                                    stripped: Vec::new(),
+                                    never_valid_bare: entry.allomorphs.len() == 1
+                                        && allo.is_bound,
+                                    pattern_regex_body: None,
+                                });
+                                counts.allomorphs_emitted += 1;
+                            }
+                            None => {
+                                uncovered.push(UncoveredItem {
+                                    kind: "pattern-allomorph".to_string(),
+                                    id: label,
+                                    reason:
+                                        "lexical pattern root shapes are not representable as a single \
+                                             underlying token string (P6 templated emitter, v1)"
+                                            .to_string(),
+                                });
+                                counts.allomorphs_skipped += 1;
+                            }
+                        }
                         continue;
                     }
                     let variants =

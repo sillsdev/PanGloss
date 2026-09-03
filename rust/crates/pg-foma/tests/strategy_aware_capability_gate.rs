@@ -458,6 +458,7 @@ fn templated_static_floor_keeps_process_morphology_unrepresentable_until_realiza
     );
 }
 
+/// The real emitter now names this refusal (`templated-route.emission-uncovered`), not the classifier -- `templated_shape_floor` no longer runs a `Role::None` allomorph past it.
 #[test]
 fn templated_capability_translates_from_owner_to_final_active_table() {
     let grammar = load(CROSS_TABLE_UNTRANSLATABLE_XML);
@@ -466,22 +467,17 @@ fn templated_capability_translates_from_owner_to_final_active_table() {
         .report_for(EmissionStrategy::TemplatedUnderlyingTokens)
         .expect("templated backend must be reported");
     assert!(templated.declined_on().iter().any(|diagnostic| {
-        diagnostic.predicate == TEMPLATED_UNSUPPORTED_SHAPE_PREDICATE
-            && diagnostic.witness.contains("untranslatable-output-table")
+        diagnostic.predicate == "templated-route.emission-uncovered"
+            && diagnostic
+                .witness
+                .contains("no representation in the final surface character-definition table")
     }));
 }
 
-/// Refuses a morphology-relation-classifier shape and self-opaquing epenthesis shapes for Templated.
+/// Refuses self-opaquing epenthesis shapes for Templated (`strrep-identity`'s plain-Prefix `rulePfx` moved to admitted -- see `templated_shape_floor`).
 #[test]
 fn templated_selector_refuses_structural_and_self_opaquing_fixture_shapes() {
     let fixtures = [
-        (
-            Root::Machine,
-            "edge-cases",
-            "strrep-identity",
-            "ndpat",
-            "morphology relation",
-        ),
         (
             Root::Machine,
             "languages",
