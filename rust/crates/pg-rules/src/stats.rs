@@ -235,8 +235,7 @@ pub struct StatsCollector {
     sparse: RefCell<HashMap<SparseKey, Counters>>,
     /// `Self::time_enter`'s open-region stack, empty until entered.
     obj_time_stack: RefCell<Vec<ObjTimeFrame>>,
-    /// Dense `(stratum, direction)` cells. Zero cells are omitted by `prune_rows`, so storage
-    /// remains bounded by the compiled grammar while output still reports only actual seams.
+    /// Dense grammar-bounded `(stratum, direction)` cells; `prune_rows` omits zero cells.
     prune: RefCell<Vec<PruneCounters>>,
 }
 

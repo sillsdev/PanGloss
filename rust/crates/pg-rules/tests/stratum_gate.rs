@@ -296,8 +296,8 @@ fn unordered_combination_reaches_root_linear_permutation_misses() {
 
 // (c) Affix template with an optional slot → both slot-filled and slot-skipped analyses.
 
-/// A stratum with one two-slot template: slot 0 = suffix "p" (optionality is the parameter), slot 1 = mandatory suffix "k".
-fn template_stratum(slot0_optional: bool) -> (Grammar, StratumId) {
+/// A stratum with two suffix slots whose optionality is explicit.
+fn template_stratum_with_optionality(slot0_optional: bool, slot1_optional: bool) -> (Grammar, StratumId) {
     let mut g = load_alpha_grammar();
     let (ra, rb) = (suffix_rule(&g, 200, "p"), suffix_rule(&g, 300, "k"));
     let a = push_mrule(&mut g, ra); // slot 0
@@ -316,7 +316,7 @@ fn template_stratum(slot0_optional: bool) -> (Grammar, StratumId) {
             },
             SlotDef {
                 name: None,
-                optional: false,
+                optional: slot1_optional,
                 zone: TemplateSlotZone::LegacyUnspecified,
                 rules: vec![b],
             },
@@ -324,6 +324,10 @@ fn template_stratum(slot0_optional: bool) -> (Grammar, StratumId) {
     });
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![], vec![tid]);
     (g, s)
+}
+
+fn template_stratum(slot0_optional: bool) -> (Grammar, StratumId) {
+    template_stratum_with_optionality(slot0_optional, false)
 }
 
 #[test]
@@ -358,6 +362,29 @@ fn optional_template_slot_yields_both_filled_and_skipped() {
         v.sort();
         v
     });
+}
+
+#[test]
+fn all_optional_final_template_does_not_duplicate_the_unapplied_seed() {
+    let (g, s) = template_stratum_with_optionality(true, true);
+    let out = analyze_stratum(
+        &g,
+        s,
+        word(&g, "apk", s),
+        &AnalyzerConfig::default(),
+        &StepBudget::new(usize::MAX),
+    );
+    assert!(!out.capped);
+    // Four fill/skip choices converge to three singular shapes after ordinary dedup.
+    assert_eq!(out.words.len(), 3, "optional choices must not duplicate convergent shapes");
+    let mut shapes = out
+        .words
+        .iter()
+        .map(|w| char_defs(&w.shape))
+        .collect::<Vec<_>>();
+    shapes.sort();
+    shapes.dedup();
+    assert_eq!(shapes.len(), 3, "each convergent shape has one candidate");
 }
 
 #[test]
@@ -409,7 +436,8 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         required_syn_fs: pg_featstruct::FsId(0),
         slots: vec![SlotDef {
             name: None,
-            optional: false,
+            // This optional slot exercises the all-skipped final-template path.
+            optional: true,
             zone: TemplateSlotZone::LegacyUnspecified,
             rules: vec![template_rule],
         }],
@@ -436,6 +464,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     );
     assert!(baseline_histories.contains(&vec![template_rule, ordinary]));
 
+    let stats = pg_rules::stats::StatsCollector::new(&g);
     let enforced = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
         &g,
         s,
@@ -453,7 +482,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
             enforce: true,
             all_templates_final: true,
         },
-        None,
+        Some(&stats),
         &NoopSink,
         TraceHandle::DUMMY,
     );
@@ -464,6 +493,53 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         .collect();
     assert!(!enforced_histories.contains(&vec![ordinary, template_rule]));
     assert!(enforced_histories.contains(&vec![template_rule, ordinary]));
+    assert_eq!(
+        enforced_histories
+            .iter()
+            .filter(|history| history.as_slice() == [ordinary])
+            .count(),
+        1,
+        "the skipped final template must not duplicate the ordinary-only result"
+    );
+    let prune_rows = stats.prune_rows();
+    assert!(
+        prune_rows
+            .iter()
+            .any(|row| row.counters.template_batteries_skipped > 0),
+        "the all-final battery must be skipped before template entry"
+    );
+}
+
+#[test]
+fn enforced_stratum_exit_clears_final_template_state_before_output_dedup() {
+    let mut g = load_alpha_grammar();
+    let ordinary_rule = suffix_rule(&g, 200, "p");
+    let ordinary = push_mrule(&mut g, ordinary_rule);
+    let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![ordinary], vec![]);
+    let out = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        s,
+        word(&g, "ap", s),
+        &AnalyzerConfig::default(),
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy {
+            enforce: true,
+            all_templates_final: false,
+        },
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(
+        out.words
+            .iter()
+            .all(|w| w.flags.final_template_state == pg_rules::word::FinalTemplateState::None),
+        "stratum outputs must not leak the internal final-template state"
+    );
 }
 
 // Synthesis template battery (forward direction) — SynthesisAffixTemplateRule.ApplySlots.

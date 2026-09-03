@@ -325,6 +325,7 @@ fn memo_preserves_nonfinal_template_state_transition_before_final_template() {
         enforce: true,
         all_templates_final: false,
     };
+    let stats = pg_rules::stats::StatsCollector::new(&g);
     let off = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
         &g,
         s,
@@ -336,7 +337,7 @@ fn memo_preserves_nonfinal_template_state_transition_before_final_template() {
         None,
         &StepBudget::new(usize::MAX),
         policy,
-        None,
+        Some(&stats),
         &NoopSink,
         TraceHandle::DUMMY,
     );
@@ -368,5 +369,18 @@ fn memo_preserves_nonfinal_template_state_transition_before_final_template() {
     assert!(
         on_histories.contains(&vec![ordinary, nonfinal_rule]),
         "ordinary -> nonfinal template must remain legal after the template clears state; got {on_histories:?}"
+    );
+    let prune_rows = stats.prune_rows();
+    assert!(
+        prune_rows
+            .iter()
+            .any(|row| row.counters.final_templates_skipped > 0),
+        "a mixed-finality battery must skip individual final templates"
+    );
+    assert!(
+        prune_rows
+            .iter()
+            .any(|row| row.counters.template_entries > 0),
+        "the nonfinal templates in a mixed battery must still be entered"
     );
 }
