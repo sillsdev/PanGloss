@@ -217,6 +217,7 @@ mod tests {
             name: "Test Project".to_string(),
             vernacular_writing_systems: vec!["sen".to_string()],
             analysis_writing_systems: vec!["en".to_string()],
+            exemplar_characters: Vec::new(),
         };
 
         let feature_systems = FeatureSystems {
