@@ -3,23 +3,17 @@
 What is genuinely owed, with what "done" means for each. Delete an entry when it lands; this file is
 a queue, not a history.
 
-Audited against the code at `5da65e44`. A queue that misreports its own state is worse than no
+Audited against the code at `cb42ab92`. A queue that misreports its own state is worse than no
 queue, so each entry below carries the evidence its status rests on.
 
 ## 0. Full, accurate conformance coverage -- the standing goal
 
 Every fixture oracle-verified against hc.dll, every fixture with at least one oracle-exact backend,
-zero compile-but-miss cells, soundness zero. Where it stands at `5da65e44`, per the gates that hold
+zero compile-but-miss cells, soundness zero. Where it stands at `cb42ab92`, per the gates that hold
 these numbers (`backend_scoreboard_gate`, `faithfulness_coverage_gate`, `conformance_fixtures_gate`,
 `rust/tools/oracle-conformance.ps1`):
 
-**Oracle side.** 37 of 38 staged fixtures are `founding-oracle`; the one `rust-only` is
-`guesser-pattern-root-fallback`, whose guessed words hc.dll exposes no CLI surface for. Upstream
-32/32, filter-passes 9/9 (mirrored into the harness by `oracle-conformance.ps1`). HC-Rust agrees with
-hc.dll on every replayed word. Two upstream fixtures pinning the port divergences fixed today
-(`rewrite-analysis-feature-neutralization`, `synthesis-stratum-render-stale-table`) sit on
-`sillsdev/machine` branch `conformance/hc-rust-port-divergences` at `898b321f`; PanGloss's submodule
-pin moves to it once that branch is pushed.
+**Oracle side.** 38 of 39 staged fixtures are `founding-oracle`; the one `rust-only` is `guesser-pattern-root-fallback`, whose guessed words hc.dll exposes no CLI surface for. Upstream 34/34 (the pin sits at `25ddf914`, which carries the two witnesses for this week's port divergences, `rewrite-analysis-feature-neutralization` and `synthesis-stratum-render-stale-table`), filter-passes 9/9 (mirrored into the harness by `oracle-conformance.ps1`). HC-Rust agrees with hc.dll on every replayed word, compared as a multiset.
 
 **Per fixture, at `63a81cfc` (64 fixtures, `conf_matrix`; the pin moved to `25ddf914` and brought two
 upstream witnesses for this week's port fixes):** 24 exact on all three backends, 26 on two, 12 on
@@ -37,14 +31,9 @@ is 0 on every cell; every miss listed below is the ADR-0001 direction and named 
 - `mpr-gated-exception` "mentanukam" (two derivation orders, one proposal) is NOT a miss: confirm's
   multiplicity recovery returns both derivations from the one proposal (measured 1 proposed, 2
   confirmed, 2 in the oracle), so the faithfulness instrument now checks that each distinct oracle
-  identity is proposed at least once. Faithfulness ratchet 14.
+  identity is proposed at least once. Faithfulness ratchet 5.
 - The "g" cell above is a decision, not a patch -- see grill-me G11.
-- TUT has no misses left (41 exact / 0 miss / 21 refused): the alpha-variable polarity flip, the
-  document-order limitation under an unordered stratum (an order lattice for small unordered zones),
-  and the insert-then-truncate-leading rule (its deletion now anchors to the rule's marker, not the
-  word edge) are all fixed. PC has no misses
-  left (23 exact / 0 miss / 36 refused / 3 unmeasurable): its underlying-filter emitter skipped
-  realizational rules wholesale, and now treats their allomorphs like any affix rule's.
+- TUT and PC have no misses left (figures below): the alpha-variable polarity flip, the document-order limitation under an unordered stratum (an order lattice for small unordered zones), the insert-then-truncate-leading rule (its deletion now anchors to the rule's marker, not the word edge), and PC's wholesale skip of realizational rules are all fixed.
 - Fixed in this campaign: `process-morphology-in-place-mutation`, `circumfix-non-first-allomorph-
   selection`, `suffixing-extension-slot-ordering`, `metathesis-comparison-crash` (an instrument
   defect), `morphotactic-attribute-breadth` on TSP/TUT (a repeated application decoded as an extra
