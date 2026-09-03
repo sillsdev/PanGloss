@@ -24,6 +24,7 @@
 #![forbid(unsafe_code)]
 
 mod extract;
+mod fwbackup;
 mod morphtype;
 mod node;
 mod parser_params;
