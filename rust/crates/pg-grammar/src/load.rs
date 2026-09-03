@@ -2545,12 +2545,55 @@ mod tests {
         if let MorphRuleDef::AffixProcess(def) = &mut facts_grammar.mrules[0] {
             def.partial = true;
         }
+        facts_grammar.morphemes[0].stratum = StratumId(1);
+        let table = facts_grammar.strata[0].table;
         facts_grammar.strata[0].mrules.clear();
+        facts_grammar.strata.extend((1..3).map(|i| StratumDef {
+            name: Some(format!("S{i}")),
+            table,
+            mrule_order: MorphRuleOrder::Unordered,
+            prules: Vec::new(),
+            mrules: Vec::new(),
+            templates: Vec::new(),
+            entries: Vec::new(),
+        }));
+        facts_grammar.templates.push(AffixTemplateDef {
+            name: Some("template-only".into()),
+            is_final: true,
+            required_syn_fs: pg_featstruct::FsId(0),
+            slots: vec![SlotDef {
+                name: Some("slot".into()),
+                optional: false,
+                zone: TemplateSlotZone::LegacyUnspecified,
+                rules: vec![MRuleId(0)],
+            }],
+        });
+        facts_grammar.strata[1].templates.push(TemplateId(0));
         let facts = facts_grammar.final_template_prune_facts().unwrap();
         assert_eq!(facts.partial_rule_count(), 1);
-        assert_eq!(facts.partial_rule_at_or_below(), &[true]);
-        assert_eq!(facts.all_templates_final(), &[false]);
-        assert_eq!(facts.disabled_strata(), &[StratumId(0)]);
+        assert_eq!(facts.partial_rule_at_or_below(), &[false, true, true]);
+        assert_eq!(facts.all_templates_final(), &[false, true, false]);
+        assert_eq!(
+            facts.disabled_strata(),
+            &[StratumId(1), StratumId(2)]
+        );
+
+        let mut mismatch = load(XML).unwrap();
+        let table = mismatch.strata[0].table;
+        mismatch.strata.push(StratumDef {
+            name: Some("Other".into()),
+            table,
+            mrule_order: MorphRuleOrder::Linear,
+            prules: Vec::new(),
+            mrules: vec![MRuleId(0)],
+            templates: Vec::new(),
+            entries: Vec::new(),
+        });
+        mismatch.strata[0].mrules.clear();
+        let err = mismatch
+            .final_template_prune_facts()
+            .expect_err("ordinary mrule owner mismatch must be rejected");
+        assert!(err.to_string().contains("ordinary mrule 0"));
     }
 
     #[test]
@@ -2789,7 +2832,7 @@ mod tests {
       </PhonologicalRule>
     </PhonologicalRuleDefinitions>
     <Strata>
-      <Stratum characterDefinitionTable="t1" phonologicalRules="pr1" morphologicalRules="mr1">
+      <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
         <Name>S</Name>
         <MorphologicalRuleDefinitions>
           <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
