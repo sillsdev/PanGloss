@@ -370,8 +370,8 @@ fn null_role_structural_drop_recall_parity() {
     );
 }
 
-/// Synthetic fixture (OUT-OF-SCOPE): the same 2-part-LHS drop shape, but RHS uses `ModifyFromInput` instead of `CopyFromInput`, so it must stay honestly unsupported rather than silently compiled.
-/// See `docs/research/pg-foma-phase-c-circumfix-gate-notes.md` for the classification path that excludes it.
+/// Synthetic fixture (IN-SCOPE since `emit: stop refusing process-morphology rules the structural route already builds`): the same 2-part-LHS drop shape, but RHS uses `ModifyFromInput` instead of `CopyFromInput` -- a standalone `Role::Process` rule `build_structural_composites` now routes.
+/// See `docs/research/pg-foma-phase-c-circumfix-gate-notes.md` for the classification path.
 const PROCESS_ROLE_DROP_XML: &str = r#"<HermitCrabInput><Language><Name>ProcessRoleDrop</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -414,30 +414,49 @@ const PROCESS_ROLE_DROP_XML: &str = r#"<HermitCrabInput><Language><Name>ProcessR
   </Strata>
 </Language></HermitCrabInput>"#;
 
-/// OUT-OF-SCOPE negative witness: stays honestly unsupported, never silently (mis)compiled.
+/// IN-SCOPE positive witness: a standalone `Role::Process` rule leaves no "process" uncovered item, and its own oracle-produced word is proposable.
 #[test]
-fn process_role_drop_stays_honestly_unsupported() {
+fn process_role_drop_is_routed_through_the_structural_composite_path() {
     let g = load(PROCESS_ROLE_DROP_XML);
+    let root = entry_id_of(&g, "eRoot");
+    let mid = mrule_id_of(&g, "mrDropProcess");
 
     let emit_result = emit::emit(&g);
     assert!(
-        emit_result
-            .report
-            .uncovered
-            .iter()
-            .any(|u| u.kind == "process"),
-        "a Role::Process standalone rule must be reported uncovered, never silently compiled: {:?}",
+        !emit_result.report.uncovered.iter().any(|u| u.kind == "process"),
+        "a Role::Process standalone rule build_structural_composites covers must not be reported \
+         uncovered: {:?}",
         emit_result.report.uncovered
     );
-
-    // The grammar must still compile cleanly: an uncovered construct simply contributes no candidates, never a build failure.
     let opts = FomaOptions::default();
-    let _net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source).unwrap_or_else(|| {
-        panic!(
-            "emitted lexc must still compile:\n{}",
-            emit_result.lexc_source
-        )
-    });
+    let net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source)
+        .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
+
+    // --- Oracle: the REAL synthesis engine, not a hand re-derivation of the Modify semantics. ---
+    let morpher = Morpher::new(&g, 20_000);
+    let words = morpher.generate_words(root, &[GenMorpheme::Rule(mid)], FeatureStruct::EMPTY);
+    assert_eq!(
+        words,
+        vec!["a".to_string()],
+        "the real engine must modify pA in place while dropping pB"
+    );
+    let surface = &words[0];
+
+    let tag_sequences = tag_sequences_for(&g, &morpher, surface);
+    assert!(
+        !tag_sequences.is_empty(),
+        "the oracle's own surface {surface:?} must parse against its own grammar"
+    );
+    let normalized = pg_grammar::nfd::nfd(surface);
+    let any_reachable = tag_sequences
+        .iter()
+        .any(|tags| recall_reachable(&net, &normalized, tags));
+    assert!(
+        any_reachable,
+        "the Role::Process surface {surface:?} must be reachable with its own real tag sequence \
+         -- only build_structural_composites's oracle-backed resynthesis can produce a \
+         Modify-in-place surface at all"
+    );
 }
 
 /// Synthetic fixture (IN-SCOPE, census C4): a genuinely `Infix`-classified allomorph that drops LHS material, reachable only via `build_structural_composites`.

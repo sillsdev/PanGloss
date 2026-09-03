@@ -43,13 +43,13 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target: TSP gained two refusals-turned-exact from per-allomorph zone ownership and the dropped closure refusal (pinned by the outcome table below), TUT one from the same zone fix; a process-morphology refusal and two all-`expect_fail` "misses" (metathesis-comparison-crash) also became exact; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy) -- TSP also shows two misses the corrected HC-Rust oracle newly exposes rather than any backend change: segment-natural-class-table-binding "g" (a cross-table analysis hc.dll requires and the proposer never offers) and mpr-gated-exception "mentanukam" (two derivation orders under an unordered stratum, one proposal) -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target: TSP gained two refusals-turned-exact from per-allomorph zone ownership and the dropped closure refusal (pinned by the outcome table below), TUT one from the same zone fix; a process-morphology refusal and two all-`expect_fail` "misses" (metathesis-comparison-crash) also became exact; earlier moves were a boundary-character fix and the `circumfix-conditioned-halves` fixture (60 -> 61 per strategy) -- `two-table-shared-representation-recall`'s own cross-table emitter fix (`crate::emit::collect_roots`'s bare-root-phonology probe now renders against `surface_table`, not the root's own home-stratum table) turned its one remaining TSP miss into `oracle_exact`, 55/3 -> 56/2. TSP's two REMAINING misses are unrelated to that fix: `morphotactic-attribute-breadth` and `segment-natural-class-table-binding` "g" (a cross-table analysis hc.dll requires that the proposer still never offers, a distinct gap from the one just closed) -- `mpr-gated-exception` is NOT one of the two: it measures `OracleExact` here because the scoreboard compares identity SETS, and its "mentanukam" multiplicity gap (two derivation orders collapsing to one proposal) never shows up as a set-level miss -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 55,
-            compiles_but_misses: 3,
+            oracle_exact: 56,
+            compiles_but_misses: 2,
             refused: 3,
             unmeasurable: 0,
         },

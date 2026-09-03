@@ -2022,13 +2022,14 @@ fn collect_roots(
                         stratum_table,
                         &allo.shape.text,
                     ) {
+                        // `.find(!empty)`, not `.next()`: an empty `generate_words` answer must still fall through to `probe_surface`.
                         let extra = morpher
                             .and_then(|m| {
                                 m.generate_words(entry_id, &[], FeatureStruct::EMPTY)
                                     .into_iter()
-                                    .next()
+                                    .find(|s| !s.is_empty())
                             })
-                            .or_else(|| probe_surface(g, stratum_table, &feat_shape, cache));
+                            .or_else(|| probe_surface(g, surface_table(g), &feat_shape, cache));
                         if let Some(s) = extra {
                             if !s.is_empty() && !variants.contains(&s) {
                                 variants.push(s);
