@@ -6,14 +6,19 @@ mod common;
 use common::load_alpha_grammar;
 use pg_featstruct::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, FsId, SymbolBits};
 use pg_grammar::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, Grammar, MRuleId,
-    MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
-    ReduplicationHint, SimpleContext, StratumDef, StratumId, TableId, VarTable,
+    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, CompoundingRuleDef,
+    CompoundingSubruleDef, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet,
+    OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint, SimpleContext, StratumDef,
+    StratumId, TableId, VarTable,
 };
 use pg_rules::cache::RuleCache;
-use pg_rules::stratum::{synthesize_stratum, synthesize_stratum_traced, StepBudget};
+use pg_rules::morph::synthesize_with_policy;
+use pg_rules::stratum::{
+    synthesize_stratum, synthesize_stratum_traced, synthesize_stratum_traced_with_policy,
+    FinalTemplateSynthesisPolicy, StepBudget,
+};
 use pg_rules::trace::{
-    FailureReason, TraceHandle, TraceSink, TraceSource, TraceType, TreeTraceSink,
+    FailureReason, NoopSink, TraceHandle, TraceSink, TraceSource, TraceType, TreeTraceSink,
 };
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
@@ -238,5 +243,102 @@ fn syn_fs_gate_still_applies_when_every_gate_actually_passes() {
     assert_eq!(
         chars, expected,
         "the suffix must still be produced correctly"
+    );
+}
+
+#[test]
+fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
+    let (g, s, _r, mut input, cache) = build_fixture();
+    input.syn_fs = one_feature_fs(0b01);
+    input.flags.is_partial = true;
+    let baseline = synthesize_stratum(&g, s, input.clone(), 10_000, &cache);
+    assert_eq!(baseline.len(), 1, "partial-word rescue allows the final gate");
+    let out = synthesize_stratum_traced_with_policy(
+        &g,
+        s,
+        input,
+        10_000,
+        &cache,
+        &StepBudget::new(10_000),
+        FinalTemplateSynthesisPolicy {
+            always_enforce: true,
+        },
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(out.is_empty(), "override must enforce the final-template prohibition");
+
+    let (mut g, s, r, mut input, cache) = build_fixture();
+    if let MorphRuleDef::AffixProcess(def) = &mut g.mrules[r.0 as usize] {
+        def.partial = true;
+    }
+    input.syn_fs = one_feature_fs(0b01);
+    input.flags.is_partial = false;
+    let baseline = synthesize_stratum(&g, s, input.clone(), 10_000, &cache);
+    assert_eq!(baseline.len(), 1, "partial-rule rescue allows the final gate");
+    let out = synthesize_stratum_traced_with_policy(
+        &g,
+        s,
+        input,
+        10_000,
+        &cache,
+        &StepBudget::new(10_000),
+        FinalTemplateSynthesisPolicy {
+            always_enforce: true,
+        },
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(out.is_empty(), "override must bypass the partial-rule rescue");
+}
+
+#[test]
+fn synthesis_override_bypasses_partial_word_rescue_for_compounding() {
+    let g = load_alpha_grammar();
+    let rule = MorphRuleDef::Compounding(CompoundingRuleDef {
+        xml_id: "compound".into(),
+        name: None,
+        blockable: false,
+        max_apps: 1,
+        head_required_syn_fs: pg_featstruct::FsId(0),
+        non_head_required_syn_fs: pg_featstruct::FsId(0),
+        out_syn_fs: pg_featstruct::FsId(0),
+        head_prod_restrictions_mpr: MprSet::EMPTY,
+        non_head_prod_restrictions_mpr: MprSet::EMPTY,
+        output_prod_restrictions_mpr: MprSet::EMPTY,
+        obligatory_features: vec![],
+        subrules: vec![CompoundingSubruleDef {
+            vars: VarTable::default(),
+            required_mpr: MprSet::EMPTY,
+            excluded_mpr: MprSet::EMPTY,
+            out_mpr: MprSet::EMPTY,
+            head_lhs: vec![one_or_more("nc_any", &g)],
+            non_head_lhs: vec![one_or_more("nc_any", &g)],
+            rhs: vec![
+                OutputAction::Copy(PartRef::Head(0)),
+                OutputAction::Copy(PartRef::NonHead(0)),
+            ],
+        }],
+    });
+    let mut input = word(&g, "a", StratumId(0));
+    input.non_head_unapplied(word(&g, "a", StratumId(0)));
+    input.flags.is_last_applied_rule_final = Some(true);
+    input.flags.is_partial = true;
+
+    let baseline = synthesize_with_policy(&g, &input, &rule, FinalTemplateSynthesisPolicy::default());
+    assert_eq!(baseline.len(), 1, "partial-word rescue allows compounding");
+    let enforced = synthesize_with_policy(
+        &g,
+        &input,
+        &rule,
+        FinalTemplateSynthesisPolicy {
+            always_enforce: true,
+        },
+    );
+    assert!(
+        enforced.is_empty(),
+        "override must bypass compounding's partial-word rescue"
     );
 }
