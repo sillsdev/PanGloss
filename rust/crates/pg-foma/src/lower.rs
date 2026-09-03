@@ -86,7 +86,7 @@ fn class_members(
 pub(crate) enum PatternLowerScope {
     /// The floor: `Segments`/`Anchor` still refuse unconditionally — `lower_span`'s callers and `compile_metathesis_rule` stay on this tier permanently, since widening either's own admitted set is a separately closed question this scope doesn't get to reopen.
     Baseline,
-    /// The widening for the rewrite-rule compile path: additionally accepts a same- or cross-table `Segments` (lowering to `Slot::Fixed`/`Slot::ForeignFixed`) and any `Anchor` (to `Slot::Anchor`); a disagree-polarity alpha var or malformed `Quantifier` is unaffected and stays unsupported — strictly additive, never a blanket accept-everything switch.
+    /// The widening for the rewrite-rule compile path: additionally accepts a same- or cross-table `Segments` (lowering to `Slot::Fixed`/`Slot::ForeignFixed`) and any `Anchor` (to `Slot::Anchor`); a malformed `Quantifier` is unaffected and stays unsupported — strictly additive, never a blanket accept-everything switch.
     RewriteRuleCompile,
 }
 
@@ -109,9 +109,9 @@ pub(crate) enum Slot {
     ForeignFixed { table: TableId, cd: CharDefId },
     /// A natural class with no alpha binding at this occurrence: renders as a `[c1|c2|...]` union.
     Union(Vec<CharDefId>),
-    /// A natural class occurrence bound to one or more alpha variables, resolved per-tuple by `resolve_alpha_tuples`; `occurrence` is this slot instance's own id (unique per occurrence, not per variable, since two occurrences of the same `VarId` can draw from different classes that must only agree on feature value).
+    /// A natural class occurrence bound to one or more alpha variables, resolved per-tuple by `resolve_alpha_tuples`; `occurrence` is this slot instance's own id (unique per occurrence, not per variable, since two occurrences of the same `VarId` can draw from different classes that must only agree on feature value). The `bool` is `AlphaVar::plus` (`true` == agree/`+`, `false` == disagree/`-`).
     Alpha {
-        vars: Vec<(VarId, pg_grammar::featsys::FlatIndex)>,
+        vars: Vec<(VarId, pg_grammar::featsys::FlatIndex, bool)>,
         occurrence: usize,
         base_members: Vec<CharDefId>,
     },
@@ -138,8 +138,11 @@ fn slots_contain_alpha(slots: &[Slot]) -> bool {
 /// Walk `pattern`'s nodes into `Slot`s, numbering each `Alpha` occurrence sequentially from
 /// `*next_occurrence` (shared across LHS/RHS/left-env/right-env for one subrule — see
 /// `replace.rs`'s `compile_rewrite_rule`, or this module's own `lower_span`, which resets its own
-/// FRESH counter per span). Returns `None` (uncovered) on a disagree-polarity `Context`; an
-/// out-of-scope `Quantifier` (inverted/alpha-nested/empty-children — see
+/// FRESH counter per span). A `Context` carrying an `AlphaVar` lowers to `Slot::Alpha`; an
+/// agree-polarity occurrence unconditionally, a disagree-polarity one only when
+/// `class_feature_partition_is_unambiguous` holds for its own feature (its own doc has the reason).
+/// Returns `None` (uncovered) on that ambiguous-disagree shape; an out-of-scope `Quantifier`
+/// (inverted/alpha-nested/empty-children — see
 /// `Slot::Repeat`'s own doc; a genuinely UNBOUNDED quantifier is not, by itself, out of
 /// scope); or, when `scope` is
 /// `PatternLowerScope::Baseline`, any `Segments`/`Anchor` node at all (when `scope` is
@@ -172,6 +175,25 @@ pub(crate) fn pattern_slots(
     slots_from_nodes(g, table, &pattern.nodes, next_occurrence, scope)
 }
 
+/// `true` iff `feature`'s value uniquely determines a member of `nat_class`; pinned by `replace::owning_table_tests::two_var_ambiguous_disagree_stays_refused`.
+fn class_feature_partition_is_unambiguous(
+    g: &Grammar,
+    table: &CharDefTable,
+    nat_class: pg_grammar::model::NatClassId,
+    feature: pg_grammar::featsys::FlatIndex,
+) -> bool {
+    let members = class_members(g, table, nat_class, &HashSet::new());
+    let mut seen_values: Vec<u64> = Vec::with_capacity(members.len());
+    for cd in members {
+        let value = table.get(cd).feature_lanes()[feature.0 as usize];
+        if seen_values.contains(&value) {
+            return false;
+        }
+        seen_values.push(value);
+    }
+    true
+}
+
 /// `pattern_slots`'s own per-node walk, factored over a bare node slice so a `Quantifier`'s own `children` recurse through the identical per-node semantics, with `next_occurrence`/`scope` both threaded through unchanged.
 fn slots_from_nodes(
     g: &Grammar,
@@ -189,8 +211,9 @@ fn slots_from_nodes(
                     let members = class_members(g, table, sc.nat_class, &HashSet::new());
                     out.push(Slot::Union(members));
                 } else {
-                    if sc.vars.iter().any(|v| !v.plus) {
-                        // "disagree" polarity — documented gap, never seen in the reference grammars.
+                    if sc.vars.iter().any(|v| {
+                        !v.plus && !class_feature_partition_is_unambiguous(g, table, sc.nat_class, v.feature)
+                    }) {
                         return None;
                     }
                     let excl: HashSet<usize> =
@@ -198,7 +221,7 @@ fn slots_from_nodes(
                     let base = class_members(g, table, sc.nat_class, &excl);
                     let occurrence = *next_occurrence;
                     *next_occurrence += 1;
-                    let vars = sc.vars.iter().map(|v| (v.var, v.feature)).collect();
+                    let vars = sc.vars.iter().map(|v| (v.var, v.feature, v.plus)).collect();
                     out.push(Slot::Alpha {
                         vars,
                         occurrence,
@@ -285,13 +308,16 @@ pub struct TupleReport {
 /// LHS, RHS, left-env, right-env — in that order, any of which may be empty), and enumerate the
 /// surviving tuple-indexed cross product: the FULL product of every occurrence's OWN candidate
 /// set (never a same-var intersection — see `AlphaAssignment`'s doc for why that shortcut is
-/// wrong), filtered to combinations where every pair of occurrences sharing a `VarId` AGREES —
-/// unify (bitwise-overlap, matching this codebase's own natural-class-membership idiom, not
-/// strict equality, since an underspecified segment's lane can carry more than one live bit) — at
-/// that variable's feature lane. This bounds the count of segment tuples satisfying
-/// the joint constraint (Amharic's 20-var CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never v^20),
-/// implemented generically over N variables and N occurrences per variable. Returns
-/// `(assignments, report)`; a rule with zero alpha slots returns one trivial
+/// wrong), filtered to combinations where every pair of occurrences sharing a `VarId` satisfies
+/// its own joint polarity (`AlphaVar::plus`) at that variable's feature lane: same polarity (`+`/`+`
+/// or `-`/`-`) requires the two chosen segments to unify (bitwise overlap, matching this codebase's
+/// own natural-class-membership idiom, not strict equality, since an underspecified segment's lane
+/// can carry more than one live bit); opposite polarity (`+`/`-`) requires them to be disjoint
+/// (bitwise non-overlap — the general "different value" test regardless of how many symbols the
+/// feature has, since each fully-specified segment pins exactly one value bit per lane). This
+/// bounds the count of segment tuples satisfying the joint constraint (Amharic's 20-var CV-merger:
+/// nc15=59 × nc16=6 ⇒ ≤354, never v^20), implemented generically over N variables and N occurrences
+/// per variable. Returns `(assignments, report)`; a rule with zero alpha slots returns one trivial
 /// `AlphaAssignment { values: {} }` and a `raw_product`/`surviving` of 1 (nothing to expand).
 ///
 /// `table`: every alpha occurrence's feature-lane agreement test (`lane_value`, below) resolves
@@ -310,10 +336,10 @@ pub(crate) fn resolve_alpha_tuples(
     table: &CharDefTable,
     slot_lists: &[&[Slot]],
 ) -> (Vec<AlphaAssignment>, TupleReport) {
-    // Flatten to (occurrence, vars, members) in document order, plus the var-group membership needed for the filter step; one occurrence may carry many (var, feature) pairs, all constraining the same concrete segment.
+    // Flatten to (occurrence, vars, members) in document order, plus the var-group membership needed for the filter step; one occurrence may carry many (var, feature, polarity) triples, all constraining the same concrete segment.
     struct Occ {
         id: usize,
-        vars: Vec<(VarId, pg_grammar::featsys::FlatIndex)>,
+        vars: Vec<(VarId, pg_grammar::featsys::FlatIndex, bool)>,
         members: Vec<CharDefId>,
     }
     let mut occs: Vec<Occ> = Vec::new();
@@ -363,14 +389,14 @@ pub(crate) fn resolve_alpha_tuples(
         assignments = next;
     }
 
-    // Joint-agreement filter: for every pair of occurrences sharing a VarId, the two chosen segments must unify (bitwise overlap) at that variable's feature lane.
+    // Joint-polarity filter: same polarity requires the pair to unify (overlap); opposite requires disjoint.
     let mut var_pairs: std::collections::HashMap<
         VarId,
-        Vec<(usize, pg_grammar::featsys::FlatIndex)>,
+        Vec<(usize, pg_grammar::featsys::FlatIndex, bool)>,
     > = std::collections::HashMap::new();
     for occ in &occs {
-        for &(var, feature) in &occ.vars {
-            var_pairs.entry(var).or_default().push((occ.id, feature));
+        for &(var, feature, plus) in &occ.vars {
+            var_pairs.entry(var).or_default().push((occ.id, feature, plus));
         }
     }
     let lane_value = |cd: CharDefId, feature: pg_grammar::featsys::FlatIndex| -> u64 {
@@ -380,11 +406,15 @@ pub(crate) fn resolve_alpha_tuples(
         .into_iter()
         .filter(|asg| {
             var_pairs.values().all(|occs_for_var| {
-                occs_for_var.iter().all(|&(id_a, feat)| {
-                    occs_for_var.iter().all(|&(id_b, _)| {
+                occs_for_var.iter().all(|&(id_a, feat, plus_a)| {
+                    occs_for_var.iter().all(|&(id_b, _, plus_b)| {
                         let a = lane_value(asg[&id_a], feat);
                         let b = lane_value(asg[&id_b], feat);
-                        a & b != 0
+                        if plus_a == plus_b {
+                            a & b != 0
+                        } else {
+                            a & b == 0
+                        }
                     })
                 })
             })
@@ -486,9 +516,10 @@ pub(crate) fn render_slots(
 /// `Slot::Anchor`), so those two variants become baseline-scope-only refusals. `Quantifier` covers
 /// an inverted, alpha-nested, or empty-children quantifier — a finitely bounded
 /// or genuinely unbounded, alpha-free quantifier never reaches this variant, since `pattern_slots`
-/// accepts it directly as a `Slot::Repeat`. `AlphaDisagreePolarity` is not a distinct node kind but
-/// the same "cannot lower faithfully" outcome for a disagree-polarity alpha variable, refused under
-/// every `PatternLowerScope` tier — an orthogonal, pre-existing gap unrelated to direction/reversal.
+/// accepts it directly as a `Slot::Repeat`. A disagree-polarity `AlphaVar` occurrence now lowers and
+/// resolves like any other alpha occurrence, UNLESS its own feature does not uniquely determine a
+/// class member (`AlphaAmbiguousDisagree` — `class_feature_partition_is_unambiguous`'s own doc has
+/// the reason).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedPatternNode {
     /// An inverted, alpha-nested, or empty-children `Quantifier`; pinned by `inverted_finite_quantifier_still_unsupported`.
@@ -497,8 +528,8 @@ pub enum UnsupportedPatternNode {
     Segments,
     /// A word-boundary `Anchor` condition, under `PatternLowerScope::Baseline` only.
     Anchor,
-    /// A disagree-polarity `AlphaVar` occurrence, refused under every scope.
-    AlphaDisagreePolarity,
+    /// A disagree-polarity `AlphaVar` whose own natural class has two members sharing that feature's value -- disagreement is genuinely one-to-many, which `resolve_alpha_tuples`' branch-union construction does not represent faithfully.
+    AlphaAmbiguousDisagree,
 }
 
 impl std::fmt::Display for UnsupportedPatternNode {
@@ -507,8 +538,8 @@ impl std::fmt::Display for UnsupportedPatternNode {
             UnsupportedPatternNode::Quantifier => "Quantifier (OptionalSegmentSequence)",
             UnsupportedPatternNode::Segments => "Segments (inline PhoneticShape group)",
             UnsupportedPatternNode::Anchor => "Anchor (word-boundary condition)",
-            UnsupportedPatternNode::AlphaDisagreePolarity => {
-                "Context with a disagree-polarity AlphaVariable"
+            UnsupportedPatternNode::AlphaAmbiguousDisagree => {
+                "Context with a disagree-polarity AlphaVariable whose feature does not uniquely determine a class member"
             }
         };
         f.write_str(label)
@@ -552,18 +583,19 @@ fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
 
 /// `diagnose_unsupported`'s recursive walk, mirroring `slots_from_nodes`'s exact accept/reject decisions node-by-node so the reason it reports is always the real one; `None` means fully lowerable, which the caller treats as a caller-bug panic.
 fn diagnose_unsupported_nodes(
-    _g: &Grammar,
-    _table: &CharDefTable,
+    g: &Grammar,
+    table: &CharDefTable,
     nodes: &[PatternNode],
     scope: PatternLowerScope,
 ) -> Option<UnsupportedPatternNode> {
-    // `_g`/`_table` thread through only to match this recursion's caller signature; never inspected here.
     for node in nodes {
         match node {
             PatternNode::CharDef(_) => {}
             PatternNode::Context(sc) => {
-                if sc.vars.iter().any(|v| !v.plus) {
-                    return Some(UnsupportedPatternNode::AlphaDisagreePolarity);
+                if sc.vars.iter().any(|v| {
+                    !v.plus && !class_feature_partition_is_unambiguous(g, table, sc.nat_class, v.feature)
+                }) {
+                    return Some(UnsupportedPatternNode::AlphaAmbiguousDisagree);
                 }
             }
             PatternNode::Quantifier { min, max, children } => {
@@ -576,7 +608,7 @@ fn diagnose_unsupported_nodes(
                     return Some(UnsupportedPatternNode::Quantifier);
                 }
                 // A well-formed quantifier's own children might still hide the true failing node, so recurse rather than assume this quantifier is the culprit just because it is the first one seen.
-                if let Some(reason) = diagnose_unsupported_nodes(_g, _table, children, scope) {
+                if let Some(reason) = diagnose_unsupported_nodes(g, table, children, scope) {
                     return Some(reason);
                 }
                 // Children lower cleanly, but an alpha-bound occurrence anywhere inside them still makes the outer Slot::Repeat unbuildable, so the true reason here is this quantifier.

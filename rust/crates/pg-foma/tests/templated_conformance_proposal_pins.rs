@@ -164,6 +164,94 @@ fn polysynthetic_stratal_derivation_chain_rejects_pattern_but_proposes_raised_su
     assert_proposes_oracle_identity(&label, &grammar, &words, "kuuukuuu");
 }
 
+fn assert_proposes_all_oracle_identities(
+    label: &str,
+    grammar: &Grammar,
+    words: &pg_conformance_fixtures::WordsYaml,
+    surface: &str,
+) {
+    let entry = word(words, surface);
+    let morpher = Morpher::new(grammar, usize::MAX);
+    let outcome = morpher.parse_word_opts(surface, &ParseOptions::default());
+    assert!(
+        !outcome.invalid_shape,
+        "{label}: {surface:?} unexpectedly has invalid shape"
+    );
+    assert_eq!(
+        outcome.signature(),
+        entry.expected_signature(),
+        "{label}: oracle drift for {surface:?}"
+    );
+    assert!(
+        !outcome.structured.is_empty(),
+        "{label}: expected at least one oracle identity for {surface:?}"
+    );
+
+    let mut compiled = compile_templated_morphotactics(grammar)
+        .unwrap_or_else(|e| panic!("{label}: templated compile failed: {e}"));
+    let candidates = compiled.proposer.propose(surface);
+
+    for analysis in &outcome.structured {
+        let expected: (Vec<MorphemeId>, i32) = (
+            analysis
+                .morpheme_ids
+                .iter()
+                .copied()
+                .map(MorphemeId)
+                .collect(),
+            analysis.root_morpheme_index,
+        );
+        assert!(
+            candidates
+                .iter()
+                .any(|candidate| (candidate.morphemes.clone(), candidate.root_index) == expected),
+            "{label}: templated proposer must contain oracle identity for {surface:?}; expected \
+             {:?}, got {:?}",
+            expected,
+            candidates
+        );
+    }
+}
+
+/// `mrSetX`/`mrSetY` are Unordered siblings, so both relative orders ("daboxayu"/"daboyuxa") must propose.
+#[test]
+fn mpr_overwrite_order_dependence_proposes_both_relative_orders() {
+    let (label, grammar, words) = open(
+        Root::Machine,
+        "edge-cases",
+        "mpr-overwrite-order-dependence",
+    );
+    assert_proposes_oracle_identity(&label, &grammar, &words, "daboxayu");
+    assert_proposes_oracle_identity(&label, &grammar, &words, "daboyuxa");
+}
+
+/// `rulePfx`/`ruleObj` are Unordered siblings, so "imat" must propose all 3 oracle identities (either stacking order, or `ruleObj` alone).
+#[test]
+fn strrep_identity_proposes_every_stacking_order() {
+    let (label, grammar, words) = open(Root::Machine, "edge-cases", "strrep-identity");
+    assert_proposes_all_oracle_identities(&label, &grammar, &words, "imat");
+    assert_proposes_all_oracle_identities(&label, &grammar, &words, "ndpat");
+}
+
+/// `prAlpha` flips featHigh on the output vowel (polarity="minus"); "isk" needs the disagree-polarity resolution `resolve_alpha_tuples` now implements.
+#[test]
+fn feature_system_breadth_proposes_alpha_polarity_flip() {
+    let (label, grammar, words) = open(Root::Machine, "edge-cases", "feature-system-breadth");
+    assert_proposes_oracle_identity(&label, &grammar, &words, "isk");
+}
+
+/// `prDoubleAlpha`'s ambiguous two-feature disagreement must stay an honest refusal, never a silent miscompile.
+#[test]
+fn alpha_variable_name_collision_stays_an_honest_refusal() {
+    let (label, grammar, _words) = open(Root::Machine, "edge-cases", "alpha-variable-name-collision");
+    match compile_templated_morphotactics(&grammar) {
+        Err(_) => {}
+        Ok(_) => panic!(
+            "{label}: an ambiguous disagree-polarity alpha rule must not silently compile"
+        ),
+    }
+}
+
 #[test]
 fn truncate_morphotactic_proposes_successful_truncation_controls() {
     let (label, grammar, words) = open(Root::Machine, "edge-cases", "truncate-morphotactic");
@@ -172,3 +260,4 @@ fn truncate_morphotactic_proposes_successful_truncation_controls() {
     assert_proposes_oracle_identity(&label, &grammar, &words, "ag");
     assert_proposes_oracle_identity(&label, &grammar, &words, "as");
 }
+

@@ -34,13 +34,19 @@
 //! A rule's alpha-bound slots (RHS/LHS/environment `pg_grammar::model::PatternNode::Context` nodes carrying
 //! `pg_grammar::model::AlphaVar`s) are resolved by `resolve_alpha_tuples`: gather every slot referencing a given
 //! `pg_grammar::model::VarId`, enumerate the CROSS PRODUCT of each slot's own (non-alpha-feature) candidate
-//! members, then keep only the combinations where every pair of same-`VarId` slots agrees (same
-//! symbolic-feature value at that variable's lane — `AlphaVar::plus` polarity; `minus`/"disagree"
-//! is unimplemented, see the doc on `AlphaOccurrence`). This bounds the count of segment tuples
+//! members, then keep only the combinations where every pair of same-`VarId` slots satisfies its
+//! own joint `AlphaVar::plus` polarity: `+`/`+` or `-`/`-` must overlap (same symbolic-feature
+//! value) at that variable's lane, `+`/`-` must be disjoint (a different value). This bounds the
+//! count of segment tuples
 //! satisfying the joint constraint (Amharic's 20-variable CV-merger: nc15=59 × nc16=6 ⇒ ≤354, never
 //! v^20) — implemented once, generically over N variables and N slots-per-variable, so the same
 //! code path that resolves Indonesian's single-variable prule4 is what would resolve Amharic's
 //! rule without modification.
+//!
+//! A disagree-polarity occurrence is refused instead when its own natural class does not make
+//! disagreement a FUNCTION -- `crate::lower::class_feature_partition_is_unambiguous`'s own doc has
+//! the reason (a genuine one-to-many relation this branch-union construction was measured
+//! collapsing to a single, often wrong, branch).
 //!
 //! ## What this module does NOT attempt
 //! - `pg_grammar::model::PatternNode::Quantifier` (`OptionalSegmentSequence`) that is inverted (`min > max`, `max`
@@ -53,7 +59,6 @@
 //!   (`max: Option<u32>`), rendered with foma's native `E*`/`E^>N` operator instead of `E^{min,max}`
 //!   — see that variant's own doc for the construction, and "Bounded quantifiers" below for the
 //!   compiled-vs-still-unsupported line and the confirm-engine finding that motivates it.
-//! - `pg_grammar::model::AlphaVar::plus` == `false` ("disagree" polarity) — no reference-grammar rule needs it.
 //! - `RewriteMode::Simultaneous` whose subrules the `simultaneous.subrule-overlap` predicate
 //!   (`crate::capability`) cannot prove pairwise non-overlapping (self-opaquing, an unresolved
 //!   overlap, or an unsupported pattern node in a lowered span) — see "`RewriteMode::Simultaneous`:
@@ -255,9 +260,10 @@
 //!
 //! ## Additional `RightToLeftRewrite` pattern shapes
 //! `pattern_slots` used to refuse `PatternNode::Segments`/`PatternNode::Anchor`
-//! unconditionally, for EVERY caller alike — the RTL predicate's own witness listed them alongside
-//! a malformed `Quantifier`/a disagree-polarity alpha var as the shapes `compile_rtl_branch_net`
-//! excludes. Re-examining each one at the reversal construction's own level (`crate::lower::
+//! unconditionally, for EVERY caller alike — the RTL predicate's own witness used to list them
+//! alongside a malformed `Quantifier`/a disagree-polarity alpha var as the shapes
+//! `compile_rtl_branch_net` excludes; the latter is admitted too now (below). Re-examining each
+//! one at the reversal construction's own level (`crate::lower::
 //! PatternLowerScope`'s own doc has the full per-consumer boundary this section only summarizes):
 //! - **`Segments` (same or different table).** Same-table literals lower to ordinary
 //!   `crate::lower::Slot::Fixed` atoms. Cross-table literals lower to table-qualified
@@ -277,15 +283,13 @@
 //!   reversed strings gives back a network operating on normal strings" argument this file's own
 //!   RTL section above already makes for ordinary content. Pinned empirically (not just argued):
 //!   `tests/phase_c_right_to_left.rs`'s `rtl_anchor_reversal_swaps_the_correct_edge`.
-//! - **A disagree-polarity alpha var** (`AlphaVar::plus == false`) stays refused, deliberately, on
-//!   BOTH `Dir`s and EVERY caller — this is genuinely orthogonal to reversal (it is a gap in
-//!   `resolve_alpha_tuples`' own joint-agreement filter, which only ever implements "agree" via
-//!   bitwise overlap, never "disagree" via bitwise non-overlap/complement — the SAME gap for an
-//!   ordinary `LeftToRight` rule), not something the mirror-and-reverse construction has any
-//!   bearing on; building "disagree" semantics is a standalone `resolve_alpha_tuples` feature, out
-//!   of this task's own scope (`crate::lower::UnsupportedPatternNode::AlphaDisagreePolarity`'s own
-//!   doc; `crate::capability::RightToLeftRewriteFaithfulReversalPredicate`'s own tests pin this
-//!   refusal with this specific named witness).
+//! - **A disagree-polarity alpha var** (`AlphaVar::plus == false`) now lowers to a `Slot::Alpha`
+//!   like any other occurrence, unless its own class makes disagreement ambiguous
+//!   (`crate::lower::class_feature_partition_is_unambiguous`) — this was always orthogonal to
+//!   reversal (`resolve_alpha_tuples`' own joint-polarity filter, the SAME gap for an ordinary
+//!   `LeftToRight` rule, not something the mirror-and-reverse construction has any bearing on
+//!   either way), so admitting it here is exactly as safe under `Dir::RightToLeft` as under
+//!   `Dir::LeftToRight`.
 //! - **This widening is scope-gated** (`crate::lower::PatternLowerScope`), not a blanket change:
 //!   `crate::lower::lower_span`'s own callers are unaffected, still passing
 //!   `crate::lower::PatternLowerScope::Baseline`.
@@ -1715,6 +1719,71 @@ mod owning_table_tests {
         assert_eq!(
             reports[0].raw_product, 3,
             "a single alpha occurrence's raw product equals its own candidate set size"
+        );
+    }
+
+    /// Two VariableFeatures disagreeing over a 4-member class varying on both features -- `featBack` alone does not uniquely determine a member (`cI`/`cY` share `bkMinus`).
+    const TWO_VAR_AMBIGUOUS_DISAGREE_XML: &str = r#"<HermitCrabInput><Language><Name>AmbiguousDisagree</Name>
+      <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+      <PhonologicalFeatureSystem>
+        <SymbolicFeature id="featBack"><Name>back</Name><Symbols><Symbol id="bkPlus">+bk</Symbol><Symbol id="bkMinus">-bk</Symbol></Symbols></SymbolicFeature>
+        <SymbolicFeature id="featRound"><Name>round</Name><Symbols><Symbol id="rdMinus">-rd</Symbol><Symbol id="rdPlus">+rd</Symbol></Symbols></SymbolicFeature>
+      </PhonologicalFeatureSystem>
+      <CharacterDefinitionTable id="tbl"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
+          <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
+          <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
+          <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncVowel"><Name>vowels</Name><Segment segment="cI" /><Segment segment="cY" /><Segment segment="cA" /><Segment segment="cU" /></SegmentNaturalClass></NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prDoubleAlpha">
+          <Name>doubleAlphaFlip</Name>
+          <VariableFeatures>
+            <VariableFeature id="varBack" name="a" phonologicalFeature="featBack" />
+            <VariableFeature id="varRound" name="b" phonologicalFeature="featRound" />
+          </VariableFeatures>
+          <PhoneticInput><PhoneticSequence>
+            <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varBack" polarity="plus" /></AlphaVariables></SimpleContext>
+            <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varRound" polarity="plus" /></AlphaVariables></SimpleContext>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence>
+                <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varBack" polarity="minus" /></AlphaVariables></SimpleContext>
+                <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varRound" polarity="minus" /></AlphaVariables></SimpleContext>
+              </PhoneticSequence></PhoneticOutput>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+      <Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="prDoubleAlpha"><Name>Main</Name>
+        <LexicalEntries><LexicalEntry id="eAu" partOfSpeech="posN"><Allomorphs><Allomorph id="aAu"><PhoneticShape>au</PhoneticShape></Allomorph></Allomorphs><MorphemeId>AU</MorphemeId><Gloss>au</Gloss></LexicalEntry></LexicalEntries>
+      </Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// FALSIFICATION: unguarded, this shape's 64 surviving tuples collapse to one wrong branch (`down("au")` produced `"ii"`, never the oracle-facing set) -- must stay refused.
+    #[test]
+    fn two_var_ambiguous_disagree_stays_refused() {
+        let g = pg_grammar::load(TWO_VAR_AMBIGUOUS_DISAGREE_XML).unwrap_or_else(|e| panic!("{e}"));
+        let rule = rewrite_rule_by_xml_id(&g, "prDoubleAlpha");
+        let opts = FomaOptions::default();
+        assert!(
+            compile_rewrite_rule_subset(&opts, &g, rule, &|_| true).is_none(),
+            "an ambiguous disagree-polarity class must stay refused, not silently miscompile"
+        );
+        let table = owning_table(&g, rule).expect("rule resolves to a real owning table");
+        assert_eq!(
+            crate::lower::diagnose_unsupported(
+                &g,
+                table,
+                &rule.subrules[0].rhs,
+                crate::lower::PatternLowerScope::RewriteRuleCompile,
+            ),
+            crate::lower::UnsupportedPatternNode::AlphaAmbiguousDisagree,
+            "the witness must name the ambiguous-disagree shape specifically"
         );
     }
 }

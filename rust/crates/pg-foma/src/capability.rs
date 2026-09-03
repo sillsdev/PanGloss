@@ -348,7 +348,7 @@ pub struct MultiTableDetail {
 /// ATTEMPTED for this specific `Dir::RightToLeft` rule — computed once here, a grammar fact in a
 /// self-contained projection, by re-running the SAME structural
 /// pattern-shape check `crate::replace::compile_rewrite_rule_subset` itself gates on: every
-/// LHS/RHS/environment pattern must avoid a disagree-polarity alpha var and a malformed `Quantifier`
+/// LHS/RHS/environment pattern must avoid a malformed `Quantifier`
 /// (non-inverted and non-empty, alpha-free in its own children; a genuinely UNBOUNDED quantifier,
 /// `max=-1`, is no longer by itself
 /// disqualifying), and `Segments`/`Anchor` no longer disqualify EITHER, provided any `Segments`
@@ -367,7 +367,7 @@ pub struct RightToLeftRewriteDetail {
     pub rule: PRuleId,
     /// `true` iff every LHS/RHS/environment pattern in this rule's subrules is a shape
     /// `crate::replace::pattern_slots` accepts under `PatternLowerScope::RewriteRuleCompile` (no
-    /// disagree-polarity alpha var, no malformed `Quantifier`, no cross-table `Segments` -- see this
+    /// malformed `Quantifier`, no cross-table `Segments` -- see this
     /// struct's own top doc for exactly which shapes that excludes) AND the rule resolves to a real
     /// owning `pg_grammar::chardef::CharDefTable` — i.e. exactly the construct-shape floor
     /// `compile_rewrite_rule_subset` itself requires before it ever calls [`fsm_reverse`
@@ -446,9 +446,9 @@ pub struct QuantifierPatternDetail {
     /// structural probe (that function's own doc: it is Dir-agnostic, a generic "is this rule's
     /// pattern shape compilable at all" check), not re-derived, since it is EXACTLY the question
     /// this detail also needs: even a rule whose every quantifier is individually bounded can still
-    /// be blocked from compiling by some OTHER unsupported construct in the SAME rule (`Segments`/
-    /// `Anchor`/disagree-polarity alpha var elsewhere in its patterns, or an unresolvable owning
-    /// table) — `false` in that case, so the predicate never claims more than the real compiler
+    /// be blocked from compiling by some OTHER unsupported construct in the SAME rule (an ambiguous
+    /// disagree-polarity alpha var, a malformed `Quantifier` elsewhere in its patterns, or an
+    /// unresolvable owning table) — `false` in that case, so the predicate never claims more than the real compiler
     /// actually attempts.
     pub compile_attempted: bool,
 }
@@ -2031,7 +2031,8 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
 ///   reversed branch only ever ADDS candidates, never drops one), but no PROVEN no-false-positive
 ///   admission-filter argument exists — so this is confirm-only-by-default, never `Admit`.
 /// - **Pattern shape outside scope** (`reversal_construction_attempted == false` — the REMAINING
-///   reasons are: the rule's own LHS/RHS/environment needs a disagree-polarity alpha var, contains
+///   reasons are: the rule's own LHS/RHS/environment carries an ambiguous disagree-polarity alpha
+///   var (`crate::lower::UnsupportedPatternNode::AlphaAmbiguousDisagree`'s own doc), contains
 ///   a malformed `Quantifier` (inverted, alpha-nested, or empty-children -- a genuinely UNBOUNDED
 ///   quantifier is no longer out of scope), or has no resolvable owning table. Same-table or
 ///   table-qualified cross-table `Segments` and any `Anchor` no longer trigger `Refuse` at all
@@ -2121,7 +2122,7 @@ impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
 /// and unions with the plain net -- the SAME construction `compile_rtl_branch_net` uses for RTL
 /// rewrite rules (that function's own module doc, "`Dir::RightToLeft`" section, has the full
 /// derivation this predicate's disposition below relies on). Any pattern needing
-/// `Quantifier`/`Segments`/`Anchor`/a disagree-polarity alpha var/`Slot::Alpha`/`Slot::Repeat`
+/// `Quantifier`/`Segments`/`Anchor`/`Slot::Alpha`/`Slot::Repeat`
 /// anywhere, or with no resolvable owning table, stays unsupported
 /// (`crate::replace::compile_metathesis_rule` itself returns `None`, honestly skipped) --
 /// direction was never what made those shapes unsupported.
@@ -2216,8 +2217,8 @@ impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
                 predicate: self.id(),
                 construct: format!("prule {} (MetathesisRule)", rule.0),
                 witness: "this rule's own pattern needs a construct crate::replace::pattern_slots \
-                          does not support (Quantifier/Segments/Anchor/disagree-polarity alpha \
-                          var), carries a Slot::Repeat occurrence (DTD-legal inside a \
+                          does not support (Quantifier/Segments/Anchor), carries a Slot::Repeat \
+                          occurrence (DTD-legal inside a \
                           MetathesisRule's own PhoneticSequence, though never attested in any \
                           fixture this crate has authored -- Slot::Alpha is additionally \
                           structurally IMPOSSIBLE here, not merely unsupported: \
@@ -2892,9 +2893,9 @@ impl CapabilityPredicate for MprGroupOverwritePredicate {
 ///   quantifier regardless of shape; now that `pattern_slots` actually accepts a well-formed
 ///   unbounded quantifier, refusing it here too would just be a SECOND, redundant conservative
 ///   check the real compiler's own `compile_attempted` fact already supersedes.
-/// - **The rule's pattern shape does not compile at all** (`!compile_attempted` — an inverted or
-///   alpha-nested or empty-children quantifier, or some OTHER unsupported construct,
-///   `Segments`/`Anchor`/disagree-polarity alpha var, elsewhere in the rule's own patterns, or an
+/// - **The rule's pattern shape does not compile at all** (`!compile_attempted` — an ambiguous
+///   disagree-polarity alpha var, an inverted or
+///   alpha-nested or empty-children quantifier elsewhere in the rule's own patterns, or an
 ///   unresolvable owning table): `PredicateVerdict::Refuse` — this predicate never claims more
 ///   than the real compiler actually attempts.
 ///
@@ -2949,7 +2950,7 @@ impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
                 predicate: self.id(),
                 construct: format!("prule {} (Quantifier/OptionalSegmentSequence)", rule.0),
                 witness: "some LHS/RHS/environment construct this rule's own patterns use -- \
-                          Segments/Anchor/disagree-polarity alpha var, an inverted (min > max, \
+                          an ambiguous disagree-polarity alpha var, an inverted (min > max, \
                           both concrete), alpha-nested, or empty-children quantifier, or an \
                           unresolvable owning character-definition \
                           table -- blocks crate::replace::pattern_slots from accepting this rule's \
@@ -5195,7 +5196,7 @@ mod tests {
         );
     }
 
-    // ---- `Anchor`/same-table `Segments` do not disqualify; cross-table/disagree-polarity still do ----
+    // ---- `Anchor`/same-table `Segments` do not disqualify; an unambiguous disagree-polarity alpha var no longer does either ----
 
     /// Positive witness: an `Anchor`-shaped `Dir::RightToLeft` rule characterizes `reversal_construction_attempted == true`, and the predicate `ConfirmOnly`s it.
     #[test]
@@ -5381,9 +5382,9 @@ mod tests {
         );
     }
 
-    /// Negative witness: a disagree-polarity `AlphaVariable` stays refused, but not for anything reversal-specific — an orthogonal, pre-existing gap unrelated to direction.
+    /// Positive witness: a disagree-polarity `AlphaVariable` now lowers and resolves like any other alpha occurrence, so an otherwise-in-scope `Dir::RightToLeft` rule carrying one characterizes `reversal_construction_attempted == true` and the predicate `ConfirmOnly`s it — this was never reversal-specific (`resolve_alpha_tuples`' own joint-polarity filter, shared by every `Dir`).
     #[test]
-    fn right_to_left_predicate_refuses_disagree_polarity_alpha_var_shaped_rule() {
+    fn right_to_left_predicate_confirm_only_for_disagree_polarity_alpha_var_shaped_rule() {
         const XML: &str = r#"<HermitCrabInput><Language><Name>RtlDisagree</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
           <PhonologicalFeatureSystem>
@@ -5430,34 +5431,22 @@ mod tests {
             .right_to_left_detail(PRuleId(0))
             .expect("RightToLeftRewrite must carry a RightToLeftRewriteDetail");
         assert!(
-            !detail.reversal_construction_attempted,
-            "a disagree-polarity alpha var must stay refused -- resolve_alpha_tuples only \
-             implements agree (bitwise overlap), never disagree"
+            detail.reversal_construction_attempted,
+            "a disagree-polarity alpha var must now be admitted -- resolve_alpha_tuples' \
+             joint-polarity filter implements both agree (bitwise overlap) and disagree (bitwise \
+             non-overlap)"
         );
         assert_eq!(
-            detail.unsupported_reason,
-            Some(crate::lower::UnsupportedPatternNode::AlphaDisagreePolarity),
-            "the witness must name the disagree-polarity alpha var specifically, not a generic \
-             unsupported-pattern reason"
+            detail.unsupported_reason, None,
+            "nothing left to diagnose once reversal_construction_attempted is true"
         );
 
         let predicate = RightToLeftRewriteFaithfulReversalPredicate;
-        match predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))) {
-            PredicateVerdict::Refuse(diag) => {
-                assert_eq!(
-                    diag.predicate,
-                    "right-to-left-rewrite.faithful-reversal-construction"
-                );
-                assert!(
-                    diag.witness.contains("disagree-polarity"),
-                    "witness must name the specific failing shape (disagree-polarity alpha var): \
-                     {diag:?}"
-                );
-            }
-            other => {
-                panic!("expected Refuse naming the disagree-polarity alpha var, got {other:?}")
-            }
-        }
+        assert_eq!(
+            predicate.evaluate(&g, &profile, &leaf_for(PRuleId(0))),
+            PredicateVerdict::ConfirmOnly,
+            "a disagree-polarity-shaped RTL rule must be ConfirmOnly, never Refuse or Admit"
+        );
     }
 
     // ---- Metathesis ----

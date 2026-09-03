@@ -195,7 +195,7 @@ use pg_featstruct::{is_unifiable, priority_union, unify, FeatureStruct, FsId};
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef,
-    MorphemeId, OutputAction, PartRef, PhonRuleDef, SlotDef, TableId,
+    MorphRuleOrder, MorphemeId, OutputAction, PartRef, PhonRuleDef, SlotDef, TableId,
 };
 use pg_parse::{GenMorpheme, Morpher};
 use pg_rules::cache::RuleCache;
@@ -249,6 +249,9 @@ pub const DERIV_DEPTH_MIN: usize = 2;
 
 /// Cap on consecutive dedicated levels one rule gets; keeps an uncapped `Realizational` rule (which reports `max_apps() == u16::MAX`) from inflating a chain's depth unboundedly.
 const MAX_DEDICATED_LEVELS_PER_RULE: usize = 4;
+
+/// Cap on `unordered_reorderable_rule_set`'s lattice-expanded rule count (`2^N` states): 6 covers the largest observed zone (`mpr-overwrite-order-dependence`, 64 states) without an unbounded blowup.
+const MAX_UNORDERED_POWERSET_RULES: usize = 6;
 
 /// Advisory threshold on the representation-variant product per emitted morph surface: crossing it
 /// DROPS NOTHING and refuses nothing.
@@ -2810,7 +2813,77 @@ fn emit_rule_allomorphs(
 
 // --- Derivation layer chain (trie.rs::build_derivation_layer) -------------------------------------
 
-/// Emits a chain of optional derivation layers ending at `exit`, always defining `{prefix}0`; `TextMode::UnderlyingTokens` gives each rule application its own dedicated level to kill the cross-level nondeterminism `SurfaceProbed` has, at the cost of fixing two standalone rules' relative order to document order. `phon` unions phonology spellings at every level; junction routing to `{exit}Stripped` fires only at the final, root-adjacent level.
+/// The stratum index owning `mid` as a standalone rule (`StratumDef::mrules`); mirrors `origin_table_for_mrule`'s search but for stratum identity rather than its table.
+fn owning_stratum_index_for_mrule(g: &Grammar, mid: MRuleId) -> Option<usize> {
+    g.strata.iter().position(|stratum| stratum.mrules.contains(&mid))
+}
+
+/// Admits `rules` for `build_unordered_powerset_chain` when every rule applies at most once, shares one `Unordered` stratum, and the count is within `MAX_UNORDERED_POWERSET_RULES`; pinned by `mpr_overwrite_order_dependence_proposes_both_relative_orders` and `strrep_identity_proposes_every_stacking_order`.
+fn unordered_reorderable_rule_set(g: &Grammar, rules: &[MRuleId]) -> Option<Vec<MRuleId>> {
+    if rules.len() < 2 || rules.len() > MAX_UNORDERED_POWERSET_RULES {
+        return None;
+    }
+    let stratum_index = owning_stratum_index_for_mrule(g, rules[0])?;
+    if g.strata[stratum_index].mrule_order != MorphRuleOrder::Unordered {
+        return None;
+    }
+    for &mid in rules {
+        if owning_stratum_index_for_mrule(g, mid) != Some(stratum_index) {
+            return None;
+        }
+        let reps = (g.mrules[mid.0 as usize].max_apps() as usize).clamp(1, MAX_DEDICATED_LEVELS_PER_RULE);
+        if reps != 1 {
+            return None;
+        }
+    }
+    Some(rules.to_vec())
+}
+
+/// State `mask` names which of `order_free`'s rules have already applied, so every root-to-full-mask walk realizes a genuinely distinct application order rather than `build_deriv_chain`'s single fixed document order; `phon` is always `None` on this path, so there is no junction routing to thread through.
+#[allow(clippy::too_many_arguments)]
+fn build_unordered_powerset_chain(
+    out: &mut String,
+    g: &Grammar,
+    table: &CharDefTable,
+    prefix: &str,
+    zone_role: Role,
+    order_free: &[MRuleId],
+    width: usize,
+    exit: &str,
+    uncovered: &mut Vec<UncoveredItem>,
+    counts: &mut EmitCounts,
+    pk: &mut PrecisionEmit,
+    mode: TextMode<'_>,
+) -> String {
+    let n = order_free.len();
+    let full: u32 = (1u32 << n) - 1;
+    let state_name = |mask: u32| -> String {
+        if mask == 0 {
+            format!("{prefix}0")
+        } else {
+            format!("{prefix}P{mask}")
+        }
+    };
+    for mask in 0..=full {
+        let name = state_name(mask);
+        write_lexicon_header(out, &name);
+        write_bare(out, exit, counts);
+        for (i, &mid) in order_free.iter().enumerate() {
+            let bit = 1u32 << i;
+            if mask & bit != 0 {
+                continue;
+            }
+            let next_name = state_name(mask | bit);
+            emit_rule_allomorphs(
+                out, g, table, mid, zone_role, width, &next_name, None, uncovered, counts, None,
+                None, pk, mode,
+            );
+        }
+    }
+    state_name(0)
+}
+
+/// Emits a chain of optional derivation layers ending at `exit`, always defining `{prefix}0`; `TextMode::UnderlyingTokens` gives each rule application its own dedicated level to kill the cross-level nondeterminism `SurfaceProbed` has, at the cost of fixing two standalone rules' relative order to document order — UNLESS `unordered_reorderable_rule_set` admits the zone, in which case `build_unordered_powerset_chain` replaces the fixed-order chain with the full order lattice. `phon` unions phonology spellings at every level; junction routing to `{exit}Stripped` fires only at the final, root-adjacent level.
 #[allow(clippy::too_many_arguments)]
 fn build_deriv_chain(
     out: &mut String,
@@ -2833,6 +2906,15 @@ fn build_deriv_chain(
         write_lexicon_header(out, &entry_name);
         write_bare(out, exit, counts);
         return entry_name;
+    }
+    if let TextMode::UnderlyingTokens(_) = mode {
+        if let Some(order_free) = unordered_reorderable_rule_set(g, rules) {
+            build_unordered_powerset_chain(
+                out, g, table, prefix, zone_role, &order_free, width, exit, uncovered, counts, pk,
+                mode,
+            );
+            return entry_name;
+        }
     }
     let junction_target = if zone_role == Role::Prefix && exit_is_roots && phon.is_some() {
         Some(format!("{exit}Stripped"))
