@@ -80,12 +80,18 @@ pub fn result_signature(analyses: &[(String, String)]) -> String {
     if analyses.is_empty() {
         return "-".to_string();
     }
+    result_multiset(analyses).join(";")
+}
+
+/// The sorted, non-deduped entries `result_signature` joins — exposed separately so a caller (the
+/// conformance replay) can compare multiplicities directly instead of re-parsing the joined string.
+pub fn result_multiset(analyses: &[(String, String)]) -> Vec<String> {
     let mut sigs: Vec<String> = analyses
         .iter()
         .map(|(morphs, surface)| format!("{morphs}|{surface}"))
         .collect();
     sigs.sort();
-    sigs.join(";")
+    sigs
 }
 
 #[cfg(test)]

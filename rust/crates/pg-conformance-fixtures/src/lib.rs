@@ -386,9 +386,18 @@ impl WordEntry {
         if self.parses.is_empty() {
             return "-".to_string();
         }
-        let mut sigs: Vec<&str> = self.parses.iter().map(|p| p.signature.as_str()).collect();
-        sigs.sort_unstable();
-        sigs.join(";")
+        self.expected_multiset().join(";")
+    }
+
+    /// The sorted, non-deduped multiset `expected_signature` joins — declared parses are never
+    /// deduped (two `parses` entries with the identical `signature` string, e.g.
+    /// `edge-cases/mpr-gated-exception`'s `mentanukam`, mean the oracle really produced two
+    /// analyses, per `PROTOCOL.md` section 4 rule 3), so exposing this separately lets a caller
+    /// compare COUNTS, not just the joined string.
+    pub fn expected_multiset(&self) -> Vec<String> {
+        let mut sigs: Vec<String> = self.parses.iter().map(|p| p.signature.clone()).collect();
+        sigs.sort();
+        sigs
     }
 }
 
@@ -448,6 +457,16 @@ pub struct OracleReplay {
 /// The non-panicking core of `assert_matches_oracle`: replays every adapter-visible word and collects
 /// each disagreement instead of stopping at the first, so a gate can compare the whole set against a
 /// declared known-divergence list and fail on a divergence that is missing as well as one that is new.
+///
+/// The signature check compares the produced and declared analyses as **multisets**, not as the
+/// joined signature string: two `parses` entries (or two produced analyses) with the identical
+/// rendered signature are two distinct analyses, not one repeated twice —
+/// `machine/conformance/PROTOCOL.md` section 4 rule 3 ("a genuine difference ... in how many times
+/// a given entry appears IS a failure"), witnessed by `edge-cases/mpr-gated-exception`'s
+/// `mentanukam` and `edge-cases/head-ambiguous-compounding`'s `dakimo`. `pg_parse::result_multiset`
+/// and [`WordEntry::expected_multiset`] are the same sort-without-dedup each side's `signature()`
+/// already joins, called directly here rather than reparsed out of the joined string, so this
+/// cannot drift from what `signature()`/`expected_signature()` report.
 pub fn replay_against_oracle(words_yaml: &WordsYaml, morpher: &pg_parse::Morpher) -> OracleReplay {
     let mut replay = OracleReplay::default();
     for w in &words_yaml.words {
@@ -476,14 +495,16 @@ pub fn replay_against_oracle(words_yaml: &WordsYaml, morpher: &pg_parse::Morpher
             });
             continue;
         }
-        let got = outcome.signature();
-        let expected = w.expected_signature();
-        if got != expected {
+        // See this function's doc comment: multiset, not joined-string, comparison.
+        let got_multiset = pg_parse::result_multiset(&outcome.analyses);
+        let expected_multiset = w.expected_multiset();
+        if got_multiset != expected_multiset {
             replay.mismatches.push(OracleMismatch {
                 word: w.word.clone(),
-                what: "signature mismatch vs oracle",
-                got,
-                expected,
+                what: "analysis multiset mismatch vs oracle (HC-Rust must reproduce the oracle's \
+                       exact derivation count per entry, not only its set of distinct analyses)",
+                got: format!("{got_multiset:?}"),
+                expected: format!("{expected_multiset:?}"),
             });
         }
     }
