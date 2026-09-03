@@ -18,7 +18,7 @@ pub mod trace;
 pub mod validity;
 pub mod word;
 
-pub use word::{MorphRecord, Word, WordFlags, WordKey};
+pub use word::{FinalTemplateState, MorphRecord, Word, WordFlags, WordKey};
 
 /// Flat index of a rule in the grammar's rule tables (plan §5.5).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]

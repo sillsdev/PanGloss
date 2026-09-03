@@ -61,6 +61,21 @@ pub enum RuleRef {
 /// "every rule admitted", byte-identical to C#'s default `rule => true`.
 pub type RuleFilter<'a> = &'a (dyn Fn(RuleRef) -> bool + Sync);
 
+/// Decided per stratum by the parse owner from grammar facts. The analyzer receives this decision
+/// rather than inspecting grammar-wide partiality or template ownership itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FinalTemplateAnalysisPolicy {
+    pub enforce: bool,
+    pub all_templates_final: bool,
+}
+
+/// Synthesis-side override for the final-template rescue gate. Kept separate from analysis policy
+/// because synthesis decides against each candidate's own partiality and rule metadata.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FinalTemplateSynthesisPolicy {
+    pub always_enforce: bool,
+}
+
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
@@ -321,6 +336,18 @@ mod step_budget_timeout_tests {
     }
 }
 
+#[cfg(test)]
+mod final_template_policy_tests {
+    use super::*;
+
+    #[test]
+    fn policy_defaults_to_pruning_off() {
+        let policy = FinalTemplateAnalysisPolicy::default();
+        assert!(!policy.enforce);
+        assert!(!policy.all_templates_final);
+    }
+}
+
 /// Configuration for a stratum (un)application run. C# reads these off the `Morpher`; here they are
 /// explicit so callers/tests can pin them.
 #[derive(Clone, Copy, Debug)]
@@ -468,6 +495,42 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> StratumAnalysis {
+    analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        g,
+        stratum,
+        input,
+        cfg,
+        scope,
+        non_head_root_filter,
+        rule_filter,
+        cache,
+        budget,
+        FinalTemplateAnalysisPolicy::default(),
+        stats,
+        trace,
+        parent,
+    )
+}
+
+/// Policy-aware sibling of `analyze_stratum_scoped_filtered_ruled_traced`. Existing wrappers keep
+/// pruning disabled for API compatibility; production parse callers use this sibling after
+/// selecting a policy from the grammar's precomputed facts.
+#[allow(clippy::too_many_arguments)]
+pub fn analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    g: &Grammar,
+    stratum: StratumId,
+    input: Word,
+    cfg: &AnalyzerConfig,
+    scope: Option<&MemoScope>,
+    non_head_root_filter: Option<NonHeadRootFilter>,
+    rule_filter: Option<RuleFilter>,
+    cache: Option<&RuleCache>,
+    budget: &StepBudget,
+    policy: FinalTemplateAnalysisPolicy,
+    stats: Option<&StatsCollector>,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> StratumAnalysis {
     StratumAnalyzer::new(
         g,
         stratum,
@@ -477,6 +540,7 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
         rule_filter,
         cache,
         budget,
+        policy,
         stats,
         trace,
         parent,
@@ -504,6 +568,8 @@ struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     cache: Option<&'c RuleCache>,
     /// The gated `--stats` collector, or `None` when stats collection is off; see `crate::stats`.
     stats: Option<&'b StatsCollector>,
+    /// Caller-decided final-template prune policy for this stratum.
+    policy: FinalTemplateAnalysisPolicy,
     /// The analysis-side trace sink; every entry point but `analyze_stratum_scoped_filtered_ruled_traced` passes `NoopSink`.
     trace: &'t dyn TraceSink,
     /// The ambient trace cursor; call sites resolve `word.trace.unwrap_or(parent)` so successful (un)applications nest under the deepest event on that branch.
@@ -521,6 +587,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         rule_filter: Option<RuleFilter<'r>>,
         cache: Option<&'c RuleCache>,
         budget: &'b StepBudget,
+        policy: FinalTemplateAnalysisPolicy,
         stats: Option<&'b StatsCollector>,
         trace: &'t dyn TraceSink,
         parent: TraceHandle,
@@ -540,6 +607,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             rule_filter,
             cache,
             stats,
+            policy,
             trace,
             parent,
         }
@@ -553,13 +621,14 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// The order-independent memo key for `w`; clones the same fields `WordKey` already clones per dedup.
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
-        AnalysisStateKey::new(
+        AnalysisStateKey::new_with_state(
             w.shape.clone(),
             w.stratum,
             w.syn_fs.clone(),
             w.real_fs.clone(),
             w.non_heads.len() as u32,
             w.unapplied_rule_counts.clone(),
+            w.flags.final_template_state as u8,
         )
     }
 
@@ -650,6 +719,17 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             o.record_unapplication(id);
             // `morph::ana_compound` already pushed the split-off non-head; this pairs that push with the index bump.
             o.non_head_app_index = o.non_heads.len() as i32 - 1;
+            if self.policy.enforce {
+                o.flags.final_template_state = match rule {
+                    MorphRuleDef::Compounding(_) => crate::word::FinalTemplateState::NonTemplate,
+                    MorphRuleDef::AffixProcess(def) if !def.is_template_rule => {
+                        crate::word::FinalTemplateState::NonTemplate
+                    }
+                    MorphRuleDef::AffixProcess(_) | MorphRuleDef::Realizational(_) => {
+                        crate::word::FinalTemplateState::None
+                    }
+                };
+            }
         }
         outs
     }
@@ -789,6 +869,16 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         if self.over_budget() {
             return Vec::new();
         }
+        // When every template is final, an ordinary rule cannot be followed by any template
+        // under the decided policy. Reject at the battery seam, before memo lookup or template
+        // entry/walk/tick, so the unchanged mrule result is retained exactly once by the caller.
+        if self.policy.enforce
+            && input.flags.final_template_state
+                == crate::word::FinalTemplateState::NonTemplate
+            && self.policy.all_templates_final
+        {
+            return Vec::new();
+        }
         let in_key = input.dedup_key();
         let mut result = Vec::new();
         for t in self.run_template_batch(input) {
@@ -877,6 +967,15 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         let tmpl = &self.g.templates[tid.0 as usize];
+        // In mixed-finality strata only final templates are pruned after an ordinary rule. This
+        // check intentionally precedes required-FS admission and the slot walk.
+        if self.policy.enforce
+            && input.flags.final_template_state
+                == crate::word::FinalTemplateState::NonTemplate
+            && tmpl.is_final
+        {
+            return Vec::new();
+        }
         let req = self.g.fs_interner.get(tmpl.required_syn_fs);
         if !is_unifiable(&input.syn_fs, req) {
             return Vec::new();
@@ -954,6 +1053,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// Port of `AnalysisStratumRule.Apply`.
     fn analyze(&self, mut input: Word) -> StratumAnalysis {
+        // A stratum starts with a clean interleaving state; any previous stratum's state is
+        // intentionally not observable by this analyzer.
+        input.flags.final_template_state = crate::word::FinalTemplateState::None;
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
         let node_parent = input.trace.unwrap_or(self.parent);
         if self.trace.is_tracing() {
@@ -1045,7 +1147,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         output_keys.insert(input.dedup_key(), ());
         words.push(input);
 
-        for w in mrule_out {
+        for mut w in mrule_out {
+            // The state describes interleaving within this stratum only. Clear it before any
+            // output merge/dedup key is computed, preventing a poison from crossing a boundary.
+            w.flags.final_template_state = crate::word::FinalTemplateState::None;
             if self.cfg.merge_equivalent {
                 // A repeat shape folds into the canonical word's alternatives instead of entering the output.
                 if let Some(&idx) = shape_word.get(&w.shape) {
@@ -1127,11 +1232,12 @@ fn guided_template_apply(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     budget: &StepBudget,
+    policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
-        guided_synth(g, stratum, rid, w, cache, stats, trace, parent)
+        guided_synth(g, stratum, rid, w, cache, stats, trace, parent, policy)
     };
     if trace.is_tracing() {
         let node_parent = input.trace.unwrap_or(parent);
@@ -1236,6 +1342,7 @@ fn guided_synth(
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     if w.mrule_app_index < 0 {
         return Vec::new();
@@ -1261,7 +1368,7 @@ fn guided_synth(
     });
     // Threaded INTO `synthesize_cached_traced` rather than applied after: it fires applied/not-applied events at its own internal gates and sets each output's `.trace`.
     let node_parent = w.trace.unwrap_or(parent);
-    let mut outs = morph::synthesize_cached_traced(
+    let mut outs = morph::synthesize_cached_traced_with_policy(
         g,
         id,
         w,
@@ -1270,6 +1377,7 @@ fn guided_synth(
         mstats,
         trace,
         node_parent,
+        policy,
     );
     for o in &mut outs {
         o.mrule_app_index -= 1;
@@ -1353,6 +1461,36 @@ pub fn synthesize_stratum_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
+    synthesize_stratum_traced_with_policy(
+        g,
+        stratum,
+        input,
+        cap,
+        cache,
+        budget,
+        FinalTemplateSynthesisPolicy::default(),
+        stats,
+        trace,
+        parent,
+    )
+}
+
+/// Policy-aware sibling of `synthesize_stratum_traced`; the compatibility wrapper preserves the
+/// historical partial-word rescue behavior.
+#[allow(clippy::too_many_arguments)]
+pub fn synthesize_stratum_traced_with_policy(
+    g: &Grammar,
+    stratum: StratumId,
+    mut input: Word,
+    cap: usize,
+    cache: &RuleCache,
+    budget: &StepBudget,
+    policy: FinalTemplateSynthesisPolicy,
+    stats: Option<&StatsCollector>,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+) -> Vec<Word> {
+    input.flags.final_template_state = crate::word::FinalTemplateState::None;
     // Entry gate. C# has no trace call here either, so this stays untraced to match.
     if (input.stratum.0 as usize) > (stratum.0 as usize) {
         return vec![input];
@@ -1378,6 +1516,7 @@ pub fn synthesize_stratum_traced(
         trace,
         node_parent,
         budget,
+        policy,
     );
     candidates.extend(synth_apply_templates(
         g,
@@ -1391,6 +1530,7 @@ pub fn synthesize_stratum_traced(
         trace,
         node_parent,
         budget,
+        policy,
     ));
 
     let mut out: HashMap<WordKey, Word> = HashMap::default();
@@ -1464,6 +1604,7 @@ fn synth_apply_mrules(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     budget: &StepBudget,
+    policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     if steps.get() >= cap {
         return Vec::new();
@@ -1481,7 +1622,7 @@ fn synth_apply_mrules(
             return Vec::new();
         }
         steps.set(steps.get() + 1);
-        guided_synth(g, stratum, sd.mrules[i], w, cache, stats, trace, parent)
+        guided_synth(g, stratum, sd.mrules[i], w, cache, stats, trace, parent, policy)
     };
     let casc = Cascade::new(true, usize::MAX);
     let n = sd.mrules.len();
@@ -1497,7 +1638,7 @@ fn synth_apply_mrules(
             result.push(w);
         } else {
             result.extend(synth_apply_templates(
-                g, stratum, sd, &w, cap, steps, cache, stats, trace, parent, budget,
+                g, stratum, sd, &w, cap, steps, cache, stats, trace, parent, budget, policy,
             ));
         }
     }
@@ -1573,6 +1714,7 @@ fn synth_apply_templates(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     budget: &StepBudget,
+    policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     if steps.get() >= cap {
         return Vec::new();
@@ -1600,7 +1742,7 @@ fn synth_apply_templates(
         }
         applicable = true;
         for w in guided_template_apply(
-            g, stratum, tid, input, cap, steps, cache, stats, trace, parent, budget,
+            g, stratum, tid, input, cap, steps, cache, stats, trace, parent, budget, policy,
         ) {
             let final_flag = w.flags.is_partial || tmpl.is_final;
             let mut w = w;
@@ -1631,7 +1773,7 @@ fn synth_apply_templates(
             for t in templated {
                 if t.dedup_key() != in_key {
                     for m in synth_apply_mrules(
-                        g, stratum, sd, &t, cap, steps, cache, stats, trace, parent, budget,
+                        g, stratum, sd, &t, cap, steps, cache, stats, trace, parent, budget, policy,
                     ) {
                         out.entry(m.dedup_key()).or_insert(m);
                     }
