@@ -114,12 +114,6 @@ pub struct PruneRow {
     pub counters: PruneCounters,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-struct PruneKey {
-    stratum: StratumId,
-    direction: Direction,
-}
-
 impl StatsRow {
     /// This row's reproducible projection: identical across repeated runs and thread counts, because
     /// the one non-deterministic field is zeroed. Pinned by `repeated_runs_produce_identical_rows`.
@@ -241,7 +235,9 @@ pub struct StatsCollector {
     sparse: RefCell<HashMap<SparseKey, Counters>>,
     /// `Self::time_enter`'s open-region stack, empty until entered.
     obj_time_stack: RefCell<Vec<ObjTimeFrame>>,
-    prune: RefCell<HashMap<PruneKey, PruneCounters>>,
+    /// Dense `(stratum, direction)` cells. Zero cells are omitted by `prune_rows`, so storage
+    /// remains bounded by the compiled grammar while output still reports only actual seams.
+    prune: RefCell<Vec<PruneCounters>>,
 }
 
 impl StatsCollector {
@@ -251,32 +247,35 @@ impl StatsCollector {
             phon: DenseTable::new(g.strata.len(), g.prules.len()),
             sparse: RefCell::new(HashMap::default()),
             obj_time_stack: RefCell::new(Vec::new()),
-            prune: RefCell::new(HashMap::default()),
+            prune: RefCell::new(vec![
+                PruneCounters::default();
+                g.strata.len().saturating_mul(2)
+            ]),
         }
+    }
+
+    fn prune_index(stratum: StratumId, direction: Direction) -> usize {
+        stratum.0 as usize * 2
+            + match direction {
+                Direction::Analysis => 0,
+                Direction::Synthesis => 1,
+            }
     }
 
     /// Record entry into a template battery after its policy gates admitted the battery.
     pub fn record_template_entry(&self, stratum: StratumId, direction: Direction) {
-        let mut rows = self.prune.borrow_mut();
-        rows.entry(PruneKey { stratum, direction })
-            .or_default()
-            .template_entries += 1;
+        self.prune.borrow_mut()[Self::prune_index(stratum, direction)].template_entries += 1;
     }
 
     /// Record an entire template battery rejected at the pre-memoization seam.
     pub fn record_template_battery_skipped(&self, stratum: StratumId, direction: Direction) {
-        let mut rows = self.prune.borrow_mut();
-        rows.entry(PruneKey { stratum, direction })
-            .or_default()
+        self.prune.borrow_mut()[Self::prune_index(stratum, direction)]
             .template_batteries_skipped += 1;
     }
 
     /// Record one final template rejected before template entry/walk.
     pub fn record_final_template_skipped(&self, stratum: StratumId, direction: Direction) {
-        let mut rows = self.prune.borrow_mut();
-        rows.entry(PruneKey { stratum, direction })
-            .or_default()
-            .final_templates_skipped += 1;
+        self.prune.borrow_mut()[Self::prune_index(stratum, direction)].final_templates_skipped += 1;
     }
 
     /// Enter a per-object self-time region, booked at `(kind, stratum, object_index, allomorph,
@@ -646,18 +645,22 @@ impl StatsCollector {
 
     /// Deterministic per-stratum prune facts, independent of ordinary stats-row ordering.
     pub fn prune_rows(&self) -> Vec<PruneRow> {
-        let mut out: Vec<PruneRow> = self
-            .prune
+        self.prune
             .borrow()
             .iter()
-            .map(|(k, counters)| PruneRow {
-                stratum: k.stratum,
-                direction: k.direction,
-                counters: *counters,
+            .enumerate()
+            .filter_map(|(index, counters)| {
+                (*counters != PruneCounters::default()).then_some(PruneRow {
+                    stratum: StratumId((index / 2) as u8),
+                    direction: if index % 2 == 0 {
+                        Direction::Analysis
+                    } else {
+                        Direction::Synthesis
+                    },
+                    counters: *counters,
+                })
             })
-            .collect();
-        out.sort_by_key(|row| (row.stratum.0, row.direction));
-        out
+            .collect()
     }
 }
 
