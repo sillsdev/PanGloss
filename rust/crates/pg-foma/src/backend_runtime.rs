@@ -680,8 +680,8 @@ pub struct WordEvidence {
     pub actual_identities: Option<OccurrenceIdentities>,
 }
 
-/// One oracle-required analysis identity that `WordEvidence::proposals` did not offer at
-/// sufficient multiplicity for `WordEvidence::word`.
+/// One oracle-required analysis identity that `WordEvidence::proposals` did not offer at all for
+/// `WordEvidence::word`.
 ///
 /// The identity is the same `(morpheme id sequence, root index)` pair
 /// `tests/cross_compiler_equivalence_gate.rs`'s `candidate_key`/`analysis_key` already compared by
@@ -711,41 +711,54 @@ impl std::fmt::Display for ContainmentGap {
 impl std::error::Error for ContainmentGap {}
 
 /// Does `evidence.proposals` (the final, deduplicated candidate vector confirmation received)
-/// CONTAIN every oracle identity `evidence.expected` names, at the oracle's own multiplicity?
+/// CONTAIN every DISTINCT oracle identity `evidence.expected` names, at least once?
 ///
-/// This is containment, not equality: a proposal set may offer MORE than the oracle found (over-
-/// generation) and still pass here -- `check_proposal_ratio` is the separate, existing guard against
-/// that. It is also the honest question for a propose+confirm pipeline: confirmation can only ever
-/// select from what was proposed, so an emitter that silently drops a construct's material makes the
-/// proposal set under-generate, and this is where that failure first becomes visible -- before
-/// confirmation, which would otherwise just report a smaller `actual` with no way to tell "the oracle
-/// found less" apart from "the proposer never offered it".
+/// This is presence, not multiplicity: a pre-confirm identity offered once and an oracle identity
+/// required twice (the same `(morphemes, root_index)` key reached by two derivation orders under an
+/// unordered stratum, e.g. `mpr-gated-exception`'s "mentanukam") both read HELD here.
+/// `crate::confirm::confirm_all`'s own doc names this "D4 multiplicity recovery": it re-parses each
+/// proposed candidate against the UNRESTRICTED oracle engine and collects every matching analysis
+/// the engine's own outcome contains, so a single deduplicated pre-confirm candidate can and does
+/// expand back to the oracle's own multiplicity at confirm time -- measured for "mentanukam" (both
+/// `TunedSurfaceProbed` and `TemplatedUnderlyingTokens`: `evidence.proposals.len() == 1`,
+/// `evidence.actual.len() == 2`, matching `evidence.expected.len() == 2` exactly, certified
+/// `Certification::FullHcConfirmed`). Requiring pre-confirm multiplicity to already equal the
+/// oracle's own would fail a pipeline that is, end to end, exact -- see
+/// `tests/mentanukam_multiplicity_recovered_by_confirm.rs`.
+///
+/// This is still containment, not equality, along the other axis: a proposal set may offer MORE
+/// than the oracle found (over-generation) and still pass here -- `check_proposal_ratio` is the
+/// separate, existing guard against that. It is also the honest recall question for a
+/// propose+confirm pipeline: confirmation can only ever select from what was proposed, so an
+/// emitter that silently drops a construct's material entirely (offers ZERO candidates for an
+/// identity the oracle requires) makes the proposal set under-generate, and this is where that
+/// failure first becomes visible -- before confirmation, which would otherwise just report a
+/// smaller `actual` with no way to tell "the oracle found less" apart from "the proposer never
+/// offered it at all".
 pub fn word_proposal_containment(evidence: &WordEvidence) -> Result<(), ContainmentGap> {
-    let mut proposed = std::collections::BTreeMap::<(Vec<u32>, i32), usize>::new();
-    for candidate in &evidence.proposals {
-        let key = (
-            candidate.morphemes.iter().map(|m| m.0).collect(),
-            candidate.root_index,
-        );
-        *proposed.entry(key).or_default() += 1;
-    }
-    let mut oracle = std::collections::BTreeMap::<(Vec<u32>, i32), usize>::new();
-    for analysis in &evidence.expected {
-        let key = (analysis.morpheme_ids.clone(), analysis.root_morpheme_index);
-        *oracle.entry(key).or_default() += 1;
-    }
-    for ((morpheme_ids, root_morpheme_index), required) in oracle {
-        let offered = proposed
-            .get(&(morpheme_ids.clone(), root_morpheme_index))
-            .copied()
-            .unwrap_or_default();
-        if offered < required {
+    let proposed: std::collections::BTreeSet<(Vec<u32>, i32)> = evidence
+        .proposals
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.morphemes.iter().map(|m| m.0).collect(),
+                candidate.root_index,
+            )
+        })
+        .collect();
+    let oracle: std::collections::BTreeSet<(Vec<u32>, i32)> = evidence
+        .expected
+        .iter()
+        .map(|analysis| (analysis.morpheme_ids.clone(), analysis.root_morpheme_index))
+        .collect();
+    for (morpheme_ids, root_morpheme_index) in oracle {
+        if !proposed.contains(&(morpheme_ids.clone(), root_morpheme_index)) {
             return Err(ContainmentGap {
                 word: evidence.word.clone(),
                 morpheme_ids,
                 root_morpheme_index,
-                required,
-                offered,
+                required: 1,
+                offered: 0,
             });
         }
     }
@@ -2423,5 +2436,49 @@ mod tests {
             certify_corpus(&g, &[("w".into(), vec![])], &[]),
             Certification::Truncated { .. }
         ));
+    }
+
+    fn evidence_for_containment(
+        expected: Vec<WordAnalysis>,
+        proposals: Vec<crate::tags::Candidate>,
+    ) -> WordEvidence {
+        WordEvidence {
+            word: "w".to_string(),
+            expected,
+            actual: Vec::new(),
+            proposals,
+            expected_identities: None,
+            actual_identities: None,
+        }
+    }
+
+    fn candidate(morphemes: &[u32], root_index: i32) -> crate::tags::Candidate {
+        crate::tags::Candidate {
+            morphemes: morphemes.iter().map(|&m| pg_grammar::model::MorphemeId(m)).collect(),
+            root_index,
+        }
+    }
+
+    /// Presence, not multiplicity, is what `word_proposal_containment` checks -- see its own doc.
+    #[test]
+    fn an_identity_required_twice_but_proposed_once_still_holds_containment() {
+        let evidence = evidence_for_containment(
+            vec![wa(0), wa(0)],
+            vec![candidate(&[0], wa(0).root_morpheme_index)],
+        );
+        assert_eq!(
+            word_proposal_containment(&evidence),
+            Ok(()),
+            "presence, not multiplicity, is the pre-confirm containment question"
+        );
+    }
+
+    /// A dropped identity (offered zero times) must still fail containment.
+    #[test]
+    fn an_identity_never_proposed_at_all_still_fails_containment() {
+        let evidence = evidence_for_containment(vec![wa(0), wa(1)], vec![candidate(&[0], 0)]);
+        let gap = word_proposal_containment(&evidence)
+            .expect_err("a dropped identity must still fail containment");
+        assert_eq!(gap.morpheme_ids, vec![1]);
     }
 }

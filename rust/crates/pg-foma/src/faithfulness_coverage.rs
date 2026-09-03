@@ -62,9 +62,10 @@ pub use crate::coverage_seam::NotAttemptedReason;
 /// comparison; `NotAttempted` covers every reason the comparison could not run at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContainmentOutcome {
-    /// Every comparable word's proposal set contained every oracle identity at the oracle's own multiplicity.
+    /// Every comparable word's proposal set contained every distinct oracle identity at least once
+    /// (presence, not the oracle's own multiplicity -- see `backend_runtime::word_proposal_containment`'s doc).
     Held,
-    /// At least one comparable word's proposal set was missing an oracle identity or offered it too few times; carries the first such gap, human-readable.
+    /// At least one comparable word's proposal set never offered some oracle identity at all; carries the first such gap, human-readable.
     Failed { word: String, detail: String },
     /// The comparison never ran for this fixture/backend pair; names why.
     NotAttempted { reason: NotAttemptedReason },
@@ -307,8 +308,8 @@ pub fn observe_fixture_containment(
 }
 
 /// Classifies one backend's already-observed evidence for one fixture: `Held` if every comparable
-/// word's proposal set contained the oracle's identities at the oracle's own multiplicity, `Failed`
-/// at the first word that did not, or `NotAttempted` if there is no comparable evidence at all (an
+/// word's proposal set contained every one of the oracle's distinct identities at least once,
+/// `Failed` at the first word that did not, or `NotAttempted` if there is no comparable evidence at all (an
 /// empty corpus after oracle exclusions -- an evaluation that failed outright never reaches this
 /// function; `observe_fixture_containment` classifies that case itself, from the certification,
 /// before calling this).
