@@ -140,36 +140,12 @@ fn with_confirmation_work(tag: &str, allowance: u64) -> Run {
     )
 }
 
-/// `false` once a candidate confirms -- restore the three ratchets' real bodies; see
-/// docs/research/conformance-containment-inventory.md's "What this blocks" section.
-fn fixture_confirms_nothing(confirmations: &[u64]) -> bool {
-    confirmations.iter().all(|&value| value == 0)
-}
-
-/// A ratchet predicate that can never fail gates nothing.
-#[test]
-fn fixture_confirms_nothing_detects_a_non_zero_vector() {
-    assert!(fixture_confirms_nothing(&[0, 0, 0, 0]));
-    assert!(!fixture_confirms_nothing(&[0, 0, 3, 0]));
-}
-
 /// The continuation property in its purest form, with no resource bound in force: a candidate that disagrees with the oracle sits mid-sequence, and the candidates after it must still be evaluated, banked, and eligible to win.
 #[test]
 fn a_failing_candidate_neither_stops_the_run_nor_vanishes_from_progress() {
     let run = unbounded();
     assert!(run.worker_succeeded, "an unbounded run must not fail");
 
-    // RATCHET, not the real assertion -- see docs/research/conformance-containment-inventory.md's
-    // "What this blocks" section; the real body sits dead but verbatim past the `return` below.
-    let confirmations = run.confirmations();
-    assert!(
-        fixture_confirms_nothing(&confirmations),
-        "FIXTURE now confirms a candidate ({confirmations:?}) -- restore this test's real \
-         assertions, preserved verbatim below, as its body"
-    );
-    return;
-
-    #[allow(unreachable_code)]
     {
         let report = run
             .report
@@ -240,16 +216,6 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
     let baseline = unbounded();
     let confirmations = baseline.confirmations();
 
-    // RATCHET, not the real assertion -- see docs/research/conformance-containment-inventory.md's
-    // "What this blocks" section; the real body sits dead but verbatim past the `return` below.
-    assert!(
-        fixture_confirms_nothing(&confirmations),
-        "FIXTURE now confirms a candidate ({confirmations:?}) -- restore this test's real \
-         assertions, preserved verbatim below, as its body"
-    );
-    return;
-
-    #[allow(unreachable_code)]
     {
         let statuses = baseline.statuses();
 
@@ -356,12 +322,12 @@ fn a_final_candidate_that_overruns_an_aggregate_bound_still_writes_a_report() {
     let confirmations = baseline.confirmations();
     let total: u64 = confirmations.iter().sum();
 
-    // RATCHET, not a real assertion -- see the identical guard's doc on this file's first test,
-    // and docs/research/conformance-containment-inventory.md's "What this blocks" section.
-    assert!(
-        fixture_confirms_nothing(&confirmations),
-        "FIXTURE now confirms a candidate ({confirmations:?}, total {total}) -- restore this \
-         test's real assertions, preserved verbatim below, as its body"
+    // RATCHET, not the real assertion: "one unit under the total" only reaches every candidate when the LAST one carries cost, and the fixture's last candidate is a refused plan-composed one today (see docs/research/conformance-containment-inventory.md, "What this blocks").
+    assert_eq!(
+        confirmations.last().copied(),
+        Some(0),
+        "FIXTURE's last candidate now carries confirmation cost ({confirmations:?}, total {total}) \
+         -- restore this test's real assertions, preserved verbatim below, as its body"
     );
     return;
 

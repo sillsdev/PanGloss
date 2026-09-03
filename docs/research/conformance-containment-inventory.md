@@ -325,9 +325,16 @@ sole remaining non-capability reasons a compile stops (`DEFAULT_EXECUTION_LIMITS
 
 ## What this blocks
 
+**Mostly unblocked.** `backend-strata-generic`'s profile is now `[0,0,0,44,44,0]`: two candidates
+confirm with real cost and a non-confirmed one sits mid-sequence, so the first two tests run their
+real bodies. The third still needs the LAST candidate to carry cost -- "one unit under the total"
+only reaches every candidate then -- and the last one is a refused plan-composed candidate, so that
+test alone keeps a ratchet, now asserting exactly that (`confirmations.last() == Some(0)`) rather than
+the old "nothing confirms". The history below is kept because it explains the ratchet shape.
+
 `recipe_optimize_continuation`'s three tests derive their bounds from a baseline run's per-candidate
-confirmation cost, and need a fixture whose profile has a non-confirmed candidate mid-sequence AND a
-final candidate carrying cost. Measured profiles:
+confirmation cost, and originally needed a fixture whose profile has a non-confirmed candidate
+mid-sequence AND a final candidate carrying cost. Profiles measured when nothing confirmed:
 
 | fixture | statuses | confirmation cost |
 |---|---|---|
@@ -357,15 +364,14 @@ regardless of the fixture question, since a silent wraparound is a real bug in t
 `#[ignore]` is the wrong mechanism here: `pg.ps1 -Mode corpus-test` passes `--run-ignored all`
 (needed because every corpus-backed suite is `#[ignore]`d for exactly that reason), so an ignored
 test that is NOT corpus-backed still runs there and still fails, permanently -- it only relocates the
-red from `-Mode test` to the stronger gate. All three tests in
-`rust/crates/pg-cli/tests/recipe_optimize_continuation.rs` are instead a `NoMoreThan`-style ratchet:
-each keeps its real assertions verbatim (dead code behind a `return`, `#[allow(unreachable_code)]`,
+red from `-Mode test` to the stronger gate. The waiting test in
+`rust/crates/pg-cli/tests/recipe_optimize_continuation.rs` is instead a `NoMoreThan`-style ratchet:
+it keeps its real assertions verbatim (dead code behind a `return`, `#[allow(unreachable_code)]`,
 still type-checked by `cargo check` on every ordinary run) and, in front of them, asserts today's
-known-blocked reality via a shared `fixture_confirms_nothing` predicate. That assertion is green
-today and turns red -- in whichever mode runs pg-cli's tests, no relocation possible -- the moment a
-fixture reaches confirmation, naming exactly what to do next (delete the ratchet, keep the body).
-`fixture_confirms_nothing_detects_a_non_zero_vector` proves the predicate can actually turn red,
-per this file's own rule that a ratchet which cannot fail gates nothing.
+known-blocked reality. That assertion is green today and turns red -- in whichever mode runs pg-cli's
+tests, no relocation possible -- the moment the fixture's last candidate carries cost, naming exactly
+what to do next (delete the ratchet, keep the body). The first two tests went through exactly that
+cycle when the fixture started confirming.
 
 ## A budget the surface probe accepts and ignores
 
