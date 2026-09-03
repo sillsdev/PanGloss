@@ -286,7 +286,20 @@ backends are measured on this shape, not just Sena.
 - It does not touch FST refusal thresholds or capability verdicts. Environments are confirm-only
   and recall-safe; the only FST-side work is measurement on the new fixtures.
 
-## 6. Open questions for the user
+## 6a. Decisions (2026-09-03)
+
+1. **Input is FieldWorks projects only.** No standalone AMPLE `.ad/.dic` importer.
+2. **If a project is XAmple-configured, treat it exactly as XAmple would, and warn loudly.**
+   Consequences for §5.3: phonological rules are dropped (loud warning with the count, not a line
+   in a report nobody reads); analysis caps from the `<XAmple>` block are **enforced**, not merely
+   reported (§4.3 is revised: a parser-side bound on nulls/prefixes/infixes/suffixes/roots and on
+   analyses returned, because "as XAmple would" means the same analysis set, not a superset).
+3. Defaults adopted for the remaining questions, pending objection: XAmple is oracle of record for
+   XAmple-shape fixtures and `hc.dll` for everything else, disagreements recorded not resolved;
+   `.fwbackup` input is pulled forward so the letter-vs-separator decision for invented segments is
+   read from LDML, with a Unicode-category guess plus loud warning as the bare-`.fwdata` fallback.
+
+## 6. Open questions for the user (original list, kept for the record)
 
 1. **What is the input?** FLEx projects whose active parser is XAmple (`.fwdata`/`.fwbackup`), or
    also standalone AMPLE/XAmple control and dictionary files from outside FLEx? The former is fully
