@@ -15,6 +15,7 @@ use pg_memo::AnalysisScope;
 use pg_rules::cache::RuleCache;
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
+use pg_rules::stratum::{FinalTemplateAnalysisPolicy, FinalTemplateSynthesisPolicy};
 use pg_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
 use pg_rules::word::{
     MorphRecord, ResolvedRoot, RuntimeRoot, SuppliedAuthorityData, Word, WordKey,
@@ -29,6 +30,8 @@ use crate::{result_signature, surface, AnalysisProvenance, SuppliedRootOverlay, 
 /// tries (C# `Morpher`, built once, parses many words).
 pub struct Morpher<'g> {
     g: &'g Grammar,
+    final_template_facts: pg_grammar::model::FinalTemplatePruneFacts,
+    always_enforce_final_templates: bool,
     root_index: RootAllomorphIndex,
     overlay: Option<&'g SuppliedRootOverlay>,
     /// Every `IsPattern` root allomorph across every stratum, in document order; read only by guess.
@@ -176,8 +179,13 @@ impl ParseOptions {
 impl<'g> Morpher<'g> {
     /// Build the parser: one root-allomorph trie per stratum (C# `Morpher` ctor, Morpher.cs:35-48).
     pub fn new(g: &'g Grammar, cap: usize) -> Self {
+        let final_template_facts = g
+            .final_template_prune_facts()
+            .unwrap_or_else(|err| panic!("invalid Grammar for Morpher::new: {err}"));
         Morpher {
             g,
+            final_template_facts,
+            always_enforce_final_templates: false,
             root_index: RootAllomorphIndex::build(g),
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
@@ -220,6 +228,12 @@ impl<'g> Morpher<'g> {
     /// Toggle the order-invariant analysis memo (default on). `false` = the unmemoized baseline (`--memo=off`).
     pub fn with_memo(mut self, memo: bool) -> Self {
         self.memo = memo;
+        self
+    }
+
+    /// Enforce final-template ordering even in strata with partial-rule rescue paths.
+    pub fn with_always_enforce_final_templates(mut self, enforce: bool) -> Self {
+        self.always_enforce_final_templates = enforce;
         self
     }
 
@@ -306,10 +320,24 @@ impl<'g> Morpher<'g> {
         word: &str,
         opts: &ParseOptions,
     ) -> (ParseOutcome, Vec<pg_rules::stats::StatsRow>) {
+        let (outcome, rows, _prunes) = self.parse_word_with_stats_and_prunes(word, opts);
+        (outcome, rows)
+    }
+
+    /// Stats-enabled parse returning both ordinary rows and actual final-template prune effects.
+    pub fn parse_word_with_stats_and_prunes(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+    ) -> (
+        ParseOutcome,
+        Vec<pg_rules::stats::StatsRow>,
+        Vec<pg_rules::stats::PruneRow>,
+    ) {
         let stats = pg_rules::stats::StatsCollector::new(self.g);
         let sink = NoopSink;
         let outcome = self.parse_word_core_selected(word, opts, &sink, None, None, Some(&stats));
-        (outcome, stats.rows())
+        (outcome, stats.rows(), stats.prune_rows())
     }
 
     /// Shared body behind `Self::parse_word_opts`/`Self::parse_word_traced`; every trace call here must be guarded by `trace.is_tracing()`, since `NoopSink` panics otherwise.
@@ -384,7 +412,13 @@ impl<'g> Morpher<'g> {
             for w in input_set.values() {
                 // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
                 let node_parent = w.trace.unwrap_or(root);
-                let res = pg_rules::stratum::analyze_stratum_scoped_filtered_ruled_traced(
+                let enforce = self.always_enforce_final_templates
+                    || !self.final_template_facts.partial_rule_at_or_below()[s];
+                let policy = FinalTemplateAnalysisPolicy {
+                    enforce,
+                    all_templates_final: self.final_template_facts.all_templates_final()[s],
+                };
+                let res = pg_rules::stratum::analyze_stratum_scoped_filtered_ruled_traced_with_policy(
                     g,
                     StratumId(s as u8),
                     w.clone(),
@@ -394,6 +428,7 @@ impl<'g> Morpher<'g> {
                     rule_filter,
                     Some(&self.cache),
                     &budget,
+                    policy,
                     stats,
                     trace,
                     node_parent,
@@ -423,13 +458,16 @@ impl<'g> Morpher<'g> {
                 for syn_word in looked_up {
                     // Recovers the shape-equivalent candidates `merge_equivalent` folded away; skipping this loses real analyses whenever merging is on (the default).
                     for alt in syn_word.expand_alternatives() {
-                        for vw in self.synthesis_pipeline_selected(
+                        for vw in self.synthesis_pipeline_selected_with_policy(
                             alt,
                             trace,
                             root,
                             rule_filter,
                             &budget,
                             stats,
+                            FinalTemplateSynthesisPolicy {
+                                always_enforce: self.always_enforce_final_templates,
+                            },
                             None,
                         ) {
                             candidates_generated += 1;
@@ -461,7 +499,16 @@ impl<'g> Morpher<'g> {
                     guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
                 {
                     for alt in synthesis_word.expand_alternatives() {
-                        for vw in self.synthesis_pipeline_traced(alt, trace, root, &budget, stats) {
+                        for vw in self.synthesis_pipeline_traced(
+                            alt,
+                            trace,
+                            root,
+                            &budget,
+                            stats,
+                            FinalTemplateSynthesisPolicy {
+                                always_enforce: self.always_enforce_final_templates,
+                            },
+                        ) {
                             candidates_generated += 1;
                             if self.is_word_valid_traced(&vw, trace, root)
                                 && self.is_match_traced(&vw, word, trace, root)
@@ -689,13 +736,16 @@ impl<'g> Morpher<'g> {
     fn synthesis_pipeline(&self, syn_word: Word) -> Vec<Word> {
         let sink = NoopSink;
         let budget = pg_rules::stratum::StepBudget::new(self.cap);
-        self.synthesis_pipeline_selected(
+        self.synthesis_pipeline_selected_with_policy(
             syn_word,
             &sink,
             TraceHandle::DUMMY,
             None,
             &budget,
             None,
+            FinalTemplateSynthesisPolicy {
+                always_enforce: self.always_enforce_final_templates,
+            },
             None,
         )
     }
@@ -708,8 +758,11 @@ impl<'g> Morpher<'g> {
         parent: TraceHandle,
         budget: &pg_rules::stratum::StepBudget,
         stats: Option<&pg_rules::stats::StatsCollector>,
+        policy: FinalTemplateSynthesisPolicy,
     ) -> Vec<Word> {
-        self.synthesis_pipeline_selected(syn_word, trace, parent, None, budget, stats, None)
+        self.synthesis_pipeline_selected_with_policy(
+            syn_word, trace, parent, None, budget, stats, policy, None,
+        )
     }
 
     /// `Self::synthesis_pipeline_traced`'s selector-restricted sibling; a rejected stratum passes the word through unchanged, and `budget` enforces only the wall-clock deadline.
@@ -722,6 +775,32 @@ impl<'g> Morpher<'g> {
         rule_filter: Option<pg_rules::stratum::RuleFilter>,
         budget: &pg_rules::stratum::StepBudget,
         stats: Option<&pg_rules::stats::StatsCollector>,
+        work_budget: Option<&SynthesisBudget>,
+    ) -> Vec<Word> {
+        self.synthesis_pipeline_selected_with_policy(
+            syn_word,
+            trace,
+            parent,
+            rule_filter,
+            budget,
+            stats,
+            FinalTemplateSynthesisPolicy {
+                always_enforce: self.always_enforce_final_templates,
+            },
+            work_budget,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn synthesis_pipeline_selected_with_policy(
+        &self,
+        syn_word: Word,
+        trace: &dyn TraceSink,
+        parent: TraceHandle,
+        rule_filter: Option<pg_rules::stratum::RuleFilter>,
+        budget: &pg_rules::stratum::StepBudget,
+        stats: Option<&pg_rules::stats::StatsCollector>,
+        policy: FinalTemplateSynthesisPolicy,
         work_budget: Option<&SynthesisBudget>,
     ) -> Vec<Word> {
         let g = self.g;
@@ -742,13 +821,14 @@ impl<'g> Morpher<'g> {
                     continue;
                 }
                 let node_parent = w.trace.unwrap_or(parent);
-                for o in pg_rules::stratum::synthesize_stratum_traced(
+                for o in pg_rules::stratum::synthesize_stratum_traced_with_policy(
                     g,
                     StratumId(s as u8),
                     w.clone(),
                     self.cap,
                     &self.cache,
                     budget,
+                    policy,
                     stats,
                     trace,
                     node_parent,

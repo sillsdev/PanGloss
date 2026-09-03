@@ -12,7 +12,9 @@ use pg_grammar::model::{
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{
-    analyze_stratum, synthesize_stratum_traced, synthesize_template, AnalyzerConfig, StepBudget,
+    analyze_stratum, analyze_stratum_scoped_filtered_ruled_traced_with_policy,
+    synthesize_stratum_traced, synthesize_template, AnalyzerConfig, FinalTemplateAnalysisPolicy,
+    StepBudget,
 };
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::{MorphRecord, Word};
@@ -379,6 +381,89 @@ fn mandatory_slot_suppresses_the_skipped_analysis() {
         got.contains(&vec![cd(&g, "char_a")]),
         "the filled [a] analysis survives; got {got:?}"
     );
+}
+
+fn prefix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
+    let mut rule = suffix_rule(g, morpheme, seg);
+    if let MorphRuleDef::AffixProcess(def) = &mut rule {
+        def.allomorphs[0].redup_hint = ReduplicationHint::Prefix;
+        def.allomorphs[0].rhs.swap(0, 1);
+    }
+    rule
+}
+
+#[test]
+fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
+    let mut g = load_alpha_grammar();
+    let ordinary_rule = prefix_rule(&g, 200, "p");
+    let ordinary = push_mrule(&mut g, ordinary_rule);
+    let mut template_rule = suffix_rule(&g, 300, "k");
+    if let MorphRuleDef::AffixProcess(def) = &mut template_rule {
+        def.is_template_rule = true;
+    }
+    let template_rule = push_mrule(&mut g, template_rule);
+    let tid = TemplateId(g.templates.len() as u32);
+    g.templates.push(AffixTemplateDef {
+        name: None,
+        is_final: true,
+        required_syn_fs: pg_featstruct::FsId(0),
+        slots: vec![SlotDef {
+            name: None,
+            optional: false,
+            zone: TemplateSlotZone::LegacyUnspecified,
+            rules: vec![template_rule],
+        }],
+    });
+    let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![ordinary], vec![tid]);
+    let baseline = analyze_stratum(
+        &g,
+        s,
+        word(&g, "pak", s),
+        &AnalyzerConfig {
+            merge_equivalent: false,
+            ..AnalyzerConfig::default()
+        },
+        &StepBudget::new(usize::MAX),
+    );
+    let baseline_histories: Vec<Vec<MRuleId>> = baseline
+        .words
+        .iter()
+        .map(|w| w.mrule_apps.iter().flatten().copied().collect())
+        .collect();
+    assert!(
+        baseline_histories.contains(&vec![ordinary, template_rule]),
+        "histories: {baseline_histories:?}"
+    );
+    assert!(baseline_histories.contains(&vec![template_rule, ordinary]));
+
+    let enforced = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        s,
+        word(&g, "pak", s),
+        &AnalyzerConfig {
+            merge_equivalent: false,
+            ..AnalyzerConfig::default()
+        },
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy {
+            enforce: true,
+            all_templates_final: true,
+        },
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    let enforced_histories: Vec<Vec<MRuleId>> = enforced
+        .words
+        .iter()
+        .map(|w| w.mrule_apps.iter().flatten().copied().collect())
+        .collect();
+    assert!(!enforced_histories.contains(&vec![ordinary, template_rule]));
+    assert!(enforced_histories.contains(&vec![template_rule, ordinary]));
 }
 
 // Synthesis template battery (forward direction) — SynthesisAffixTemplateRule.ApplySlots.
