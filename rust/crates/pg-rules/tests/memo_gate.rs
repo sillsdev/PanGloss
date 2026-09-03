@@ -12,8 +12,10 @@ use pg_grammar::model::{
 };
 use pg_memo::AnalysisScope;
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_scoped, AnalyzerConfig, MemoScope, StepBudget,
+    analyze_stratum, analyze_stratum_scoped, analyze_stratum_scoped_filtered_ruled_traced_with_policy,
+    AnalyzerConfig, FinalTemplateAnalysisPolicy, MemoScope, StepBudget,
 };
+use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
 use std::cell::RefCell;
@@ -108,6 +110,15 @@ fn suffix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
     })
 }
 
+fn prefix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
+    let mut rule = suffix_rule(g, morpheme, seg);
+    if let MorphRuleDef::AffixProcess(def) = &mut rule {
+        def.allomorphs[0].redup_hint = ReduplicationHint::Prefix;
+        def.allomorphs[0].rhs.swap(0, 1);
+    }
+    rule
+}
+
 fn push_mrule(g: &mut Grammar, rule: MorphRuleDef) -> MRuleId {
     let id = MRuleId(g.mrules.len() as u32);
     g.mrules.push(rule);
@@ -115,11 +126,19 @@ fn push_mrule(g: &mut Grammar, rule: MorphRuleDef) -> MRuleId {
 }
 
 fn push_template(g: &mut Grammar, slots: Vec<SlotDef>) -> TemplateId {
+    push_template_with_final(g, slots, true)
+}
+
+fn push_template_with_final(
+    g: &mut Grammar,
+    slots: Vec<SlotDef>,
+    is_final: bool,
+) -> TemplateId {
     let id = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
         name: None,
         required_syn_fs: pg_featstruct::FsId(0),
-        is_final: true,
+        is_final,
         slots,
     });
     id
@@ -254,5 +273,100 @@ fn memo_on_equals_memo_off_with_template() {
     assert!(
         !scope.borrow().template_memo.is_empty(),
         "template memo must hold entries"
+    );
+}
+
+#[test]
+fn memo_preserves_nonfinal_template_state_transition_before_final_template() {
+    let mut g = load_alpha_grammar();
+    let ordinary_def = suffix_rule(&g, 200, "p");
+    let ordinary = push_mrule(&mut g, ordinary_def);
+    let mut nonfinal_rule = prefix_rule(&g, 300, "p");
+    if let MorphRuleDef::AffixProcess(def) = &mut nonfinal_rule {
+        def.is_template_rule = true;
+    }
+    let nonfinal_rule = push_mrule(&mut g, nonfinal_rule);
+    let mut final_rule = suffix_rule(&g, 400, "k");
+    if let MorphRuleDef::AffixProcess(def) = &mut final_rule {
+        def.is_template_rule = true;
+    }
+    let final_rule = push_mrule(&mut g, final_rule);
+    let nonfinal_template = push_template_with_final(
+        &mut g,
+        vec![SlotDef {
+            name: None,
+            optional: false,
+            zone: TemplateSlotZone::LegacyUnspecified,
+            rules: vec![nonfinal_rule],
+        }],
+        false,
+    );
+    let final_template = push_template_with_final(
+        &mut g,
+        vec![SlotDef {
+            name: None,
+            optional: false,
+            zone: TemplateSlotZone::LegacyUnspecified,
+            rules: vec![final_rule],
+        }],
+        true,
+    );
+    let s = push_stratum(
+        &mut g,
+        MorphRuleOrder::Unordered,
+        vec![ordinary],
+        vec![nonfinal_template, final_template],
+    );
+    let cfg = AnalyzerConfig {
+        merge_equivalent: false,
+        ..AnalyzerConfig::default()
+    };
+    let policy = FinalTemplateAnalysisPolicy {
+        enforce: true,
+        all_templates_final: false,
+    };
+    let off = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        s,
+        word(&g, "pakp", s),
+        &cfg,
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        policy,
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    let scope: MemoScope = RefCell::new(AnalysisScope::new());
+    let on = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        s,
+        word(&g, "pakp", s),
+        &cfg,
+        Some(&scope),
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        policy,
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    let histories = |words: &[Word]| {
+        words
+            .iter()
+            .map(|w| w.mrule_apps.iter().flatten().copied().collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+    };
+    let off_histories = histories(&off.words);
+    let on_histories = histories(&on.words);
+    assert_eq!(off_histories, on_histories, "memo must preserve state transitions");
+    assert!(
+        on_histories.contains(&vec![ordinary, nonfinal_rule]),
+        "ordinary -> nonfinal template must remain legal after the template clears state; got {on_histories:?}"
     );
 }
