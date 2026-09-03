@@ -255,7 +255,7 @@ fn the_published_no_tokenizable_root_fact_never_over_claims_a_refusal() {
     );
 }
 
-/// The root-spelling fact must never claim a drop the surface route does not make.
+/// The root-spelling fact must never claim a drop the surface route does not make -- currently 0 claims, since the regex route retired the fact's only live cause; the one-way check still runs if that changes.
 #[test]
 fn the_published_root_spelling_fact_never_over_claims_a_drop() {
     let mut claimed = 0usize;
@@ -276,9 +276,10 @@ fn the_published_root_spelling_fact_never_over_claims_a_drop() {
             fixture.label()
         );
     }
-    assert!(
-        claimed > 0,
-        "no fixture exercised the root-spelling fact, so this gate proves nothing"
+    assert_eq!(
+        claimed, 0,
+        "the root-spelling fact is claimed by {claimed} fixture(s) now, where the regex route left \
+         none -- a real result, not a bug: update this ratchet to re-enable the non-vacuity check"
     );
 }
 

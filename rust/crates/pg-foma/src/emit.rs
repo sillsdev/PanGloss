@@ -1014,13 +1014,12 @@ fn class_node_representations(table: &CharDefTable, cd_set: EffectiveCdSet<'_>) 
     out
 }
 
-/// One interior shape node's alternatives, shared by [`pattern_variants`] and [`root_variant_census`] so the census cannot drift from the emitter it measures.
-fn node_alternatives(
+/// One interior shape node's own alternatives before either flag is applied -- shared by `node_alternatives` and the pattern-route regex builder so neither re-derives what a node's segment/class means.
+fn node_base_alternatives(
     table: &CharDefTable,
     shape: &Shape,
     i: usize,
     char_def: u32,
-    flags: pg_shape::NodeFlags,
 ) -> Vec<String> {
     let mut reps: Vec<String> = if char_def != pg_shape::NO_CHAR_DEF {
         table
@@ -1034,6 +1033,18 @@ fn node_alternatives(
         // Defensive: neither case occurs in practice, but treat as silent epsilon rather than dropping the whole allomorph.
         reps.push(String::new());
     }
+    reps
+}
+
+/// One interior shape node's alternatives, shared by [`pattern_variants`] and [`root_variant_census`] so the census cannot drift from the emitter it measures.
+fn node_alternatives(
+    table: &CharDefTable,
+    shape: &Shape,
+    i: usize,
+    char_def: u32,
+    flags: pg_shape::NodeFlags,
+) -> Vec<String> {
+    let mut reps = node_base_alternatives(table, shape, i, char_def);
     if flags.is_iterative() {
         let base = reps.clone();
         let mut repeated = base.clone();
@@ -1127,6 +1138,126 @@ pub(crate) fn pattern_variants(
         }
     };
     (variants, limit)
+}
+
+/// Escapes literal text for a foma XRE `< regex >` lexc entry body, mirroring `nfst_xre`'s own reserved-character set (a wider set than `escape_lexc_text`'s plain-entry escaping).
+fn escape_xre_text(s: &str) -> String {
+    fn needs_escape(c: char) -> bool {
+        matches!(
+            c,
+            '-' | ' '
+                | '\t'
+                | '\r'
+                | '\n'
+                | '|'
+                | '<'
+                | '>'
+                | '%'
+                | '!'
+                | ','
+                | '.'
+                | '^'
+                | ':'
+                | '"'
+                | ';'
+                | '@'
+                | '0'
+                | '~'
+                | '\\'
+                | '&'
+                | '?'
+                | '$'
+                | '+'
+                | '*'
+                | '/'
+                | '_'
+                | '('
+                | ')'
+                | '{'
+                | '}'
+                | ']'
+                | '['
+                | '#'
+                | '`'
+                | '\''
+                | '='
+        )
+    }
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if needs_escape(c) {
+            out.push('%');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// One shape node's own XRE fragment (identity plane): a bracketed union of `node_base_alternatives`, `*`-starred when iterative or `(...)`-optional when merely optional, genuinely unbounded rather than `PATTERN_ITER_CAP`-truncated.
+fn node_regex_fragment(
+    table: &CharDefTable,
+    shape: &Shape,
+    i: usize,
+    char_def: u32,
+    flags: pg_shape::NodeFlags,
+) -> String {
+    let reps = node_base_alternatives(table, shape, i, char_def);
+    let escaped: Vec<String> = reps
+        .iter()
+        .map(|r| {
+            if r.is_empty() {
+                "0".to_string()
+            } else {
+                escape_xre_text(r)
+            }
+        })
+        .collect();
+    let union = if escaped.len() == 1 {
+        escaped.into_iter().next().unwrap()
+    } else {
+        format!("[{}]", escaped.join("|"))
+    };
+    if flags.is_iterative() {
+        format!("{union}*")
+    } else if flags.is_optional() {
+        format!("({union})")
+    } else {
+        union
+    }
+}
+
+/// The pattern route's bracketed concatenation of every non-`Boundary` interior node's own `node_regex_fragment`, in shape order.
+fn pattern_shape_regex_body(table: &CharDefTable, shape: &Shape) -> String {
+    let mut nodes = Vec::new();
+    for (i, kind, char_def, flags) in shape.interior() {
+        if kind == NodeKind::Boundary {
+            continue;
+        }
+        nodes.push(node_regex_fragment(table, shape, i, char_def, flags));
+    }
+    if nodes.is_empty() {
+        "[0]".to_string()
+    } else {
+        format!("[{}]", nodes.join(" "))
+    }
+}
+
+/// Writes one pattern root's regex-routed entry (`TAG:0 0:body`, lexc's `< regex >` syntax) -- one physical line for the shape's whole language, replacing one `write_tag_entry` line per spelling; `body` must already be bracketed (foma XRE's `:` binds tighter than concatenation).
+fn write_pattern_root_entry(
+    out: &mut String,
+    tag_lexc: &str,
+    body: &str,
+    continuation: &str,
+    counts: &mut EmitCounts,
+) {
+    out.push_str("< ");
+    out.push_str(tag_lexc);
+    out.push_str(":0 0:");
+    out.push_str(body);
+    out.push_str(" > ");
+    out.push_str(continuation);
+    out.push_str(" ;\n");
+    counts.lexc_lines += 1;
 }
 
 /// What one root allomorph's shape would cost to enumerate, measured WITHOUT enumerating it.
@@ -1871,6 +2002,10 @@ fn write_root_entries_with_width(
 ) {
     for r in roots {
         let tag_lexc = tags::root_tag_lexc(r.morpheme, width);
+        if let Some(body) = &r.pattern_regex_body {
+            write_pattern_root_entry(out, &tag_lexc, body, continuation, counts);
+            continue;
+        }
         for v in &r.variants {
             write_tag_entry(out, &tag_lexc, v, continuation, counts, pk, Some(r.id));
         }
@@ -1884,12 +2019,14 @@ struct RootRec {
     id: AllomorphId,
     morpheme: MorphemeId,
     category: FsId,
-    /// Every accepted spelling (`surface_variants`), each emitted as its own lexc entry line sharing this morpheme's tag symbol.
+    /// Every accepted spelling (`surface_variants`), each emitted as its own lexc entry line sharing this morpheme's tag symbol. Empty when `pattern_regex_body` is `Some` (the regex entry represents the whole language instead).
     variants: Vec<String>,
     /// Every accepted spelling with the first segment removed (`stripped_variants`); used only by a roots lexicon's `Stripped` sibling, empty when there is no phonology or nothing to strip.
     stripped: Vec<String>,
     /// True iff the owning entry has exactly one allomorph and it is `is_bound` — compile-time-provable dead weight for a bare-root candidate. Callers must omit such a `RootRec` from the `"#"`-continuation bare-root write only; every other continuation still offers it.
     never_valid_bare: bool,
+    /// `Some(pattern_shape_regex_body(...))` for a root whose shape `pattern_variants` reports `VariantLimit::Unbounded` for -- written as one `< regex >` lexc entry (`write_pattern_root_entry`) instead of an enumerated `variants` list.
+    pattern_regex_body: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1961,14 +2098,19 @@ fn collect_roots(
                         variants,
                         stripped: Vec::new(),
                         never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
+                        pattern_regex_body: None,
                     });
                     counts.allomorphs_emitted += 1;
                     continue;
                 }
                 // Routes every root uniformly through the Shape-based `pattern_variants` path rather than re-segmenting literal text: a mandatory (non-optional) `[ClassName]` node doesn't set `is_pattern`, but its literal text (e.g. `"b[Vowel]t"`) still can't re-segment, so text-based re-segmentation alone would miss it.
                 let (variants, limit) = pattern_variants(stratum_table, &allo.shape.shape);
-                // Only an incomplete set is an uncovered item. Breadth above the advisory threshold is reported as its own kind, so a size note can never be read as a recall gap.
-                if limit.drops_spellings() {
+                // Unbounded shapes route to a regex entry instead of an enumerated list, scoped to allomorphs with no `<RequiredEnvironments>` (`crate::precision`'s owner-require flags need a literal surface, which an unbounded pattern has none of).
+                let pattern_regex_body = (limit == VariantLimit::Unbounded
+                    && allo.environments.is_empty())
+                .then(|| pattern_shape_regex_body(stratum_table, &allo.shape.shape));
+                // Only an incomplete, UNREPRESENTED set is an uncovered item; breadth alone is its own advisory kind below.
+                if limit.drops_spellings() && pattern_regex_body.is_none() {
                     uncovered.push(UncoveredItem {
                         kind: "rep-variant-overflow".to_string(),
                         id: label.clone(),
@@ -1989,7 +2131,7 @@ fn collect_roots(
                         ),
                     });
                 }
-                if variants.is_empty() {
+                if pattern_regex_body.is_none() && variants.is_empty() {
                     uncovered.push(UncoveredItem {
                         kind: if allo.is_pattern {
                             "pattern-allomorph".to_string()
@@ -2016,7 +2158,7 @@ fn collect_roots(
                 let mut variants = variants;
                 // Bare-root phonology: unions in the root's real post-cascade surface, tried via `generate_words` first since `probe_surface` is POS-blind and gets a same-stratum, POS-scoped rule wrong on a bare root.
                 // See docs/research/pg-foma-emit-design-notes.md for the empirical counter-example.
-                if phon.is_some() && !allo.is_pattern {
+                if phon.is_some() && !allo.is_pattern && pattern_regex_body.is_none() {
                     if let Ok(feat_shape) = pg_rules::shape_feat::segment_with_features(
                         g,
                         stratum_table,
@@ -2037,6 +2179,10 @@ fn collect_roots(
                         }
                     }
                 }
+                // A regex-routed root's whole language is already represented in `pattern_regex_body`; the literal (truncated) `variants` list would only add redundant, harmless-but-noisy entries, so it is dropped here.
+                if pattern_regex_body.is_some() {
+                    variants = Vec::new();
+                }
                 roots.push(RootRec {
                     id: allo.id,
                     morpheme: entry.morpheme,
@@ -2044,6 +2190,7 @@ fn collect_roots(
                     variants,
                     stripped,
                     never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
+                    pattern_regex_body,
                 });
                 counts.allomorphs_emitted += 1;
             }
@@ -3287,16 +3434,22 @@ fn plan_has_leaf(plan: &Plan, fragment: &FragmentSpec) -> bool {
         .any(|(_, kind)| matches!(kind, PlanNodeKind::Leaf { fragment: f, .. } if f == fragment))
 }
 
-/// Whether the surface route leaves root spellings OUT -- unbounded shape or byte budget, never mere breadth -- without emitting.
+/// Whether the surface route leaves root spellings OUT without emitting -- byte budget always;
+/// an unbounded (`*`) shape only when `collect_roots`' regex route does not apply to it (a
+/// `<RequiredEnvironments>` constraint on the allomorph, `pattern_regex_body`'s own scope limit),
+/// since every OTHER unbounded shape is now represented as a regex entry, not dropped. Mirrors
+/// `collect_roots`' own `pattern_regex_body` gate exactly so the two can never drift.
 pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
     g.strata.iter().any(|sd| {
         let table = &g.char_tables[sd.table.0 as usize];
         sd.entries.iter().any(|entry_id| {
-            g.entries[entry_id.0 as usize]
-                .allomorphs
-                .iter()
-                // Gates on spellings genuinely ABSENT, never on breadth: a complete enumeration drops nothing however large, so this no longer fires for a merely broad root.
-                .any(|allo| pattern_variants(table, &allo.shape.shape).1.drops_spellings())
+            g.entries[entry_id.0 as usize].allomorphs.iter().any(|allo| {
+                match pattern_variants(table, &allo.shape.shape).1 {
+                    VariantLimit::BytesExhausted { .. } => true,
+                    VariantLimit::Unbounded => !allo.environments.is_empty(),
+                    VariantLimit::Complete { .. } => false,
+                }
+            })
         })
     })
 }
@@ -6070,6 +6223,25 @@ mod structural_and_pattern_tests {
         let mut sorted = variants.clone();
         sorted.sort();
         assert_eq!(sorted, vec!["bat".to_string(), "bet".to_string()]);
+    }
+
+    /// The compiled TSP network accepts a NOVEL spelling through an unbounded (`[Any]*`) pattern root via its regex entry, and decodes to that pattern entry's own tag identity -- the point of a guesser pattern: representing a language, not a spelling list.
+    #[test]
+    fn pattern_route_accepts_a_novel_spelling_under_the_pattern_entrys_own_tag() {
+        let g = load("languages/polysynthetic-stratal-derivation-chain/grammar.xml");
+        let pattern_entry = entry_id_of(&g, "eGuessPat");
+        let pattern_morpheme = g.entries[pattern_entry.0 as usize].morpheme;
+        let mut proposer =
+            crate::analyzer::FomaProposer::new(&g).expect("TunedSurfaceProbed must compile");
+        let novel_word = "kivu";
+        let candidates = proposer.propose(novel_word);
+        assert!(
+            candidates
+                .iter()
+                .any(|c| c.morphemes == vec![pattern_morpheme]),
+            "expected a bare-root candidate tagged with the pattern entry's own morpheme for a \
+             novel word; got {candidates:?}"
+        );
     }
 
     /// An optional class node like `b([Vowel])t` must also admit the vowel-absent branch ("bt"), on top of "bat"/"bet".

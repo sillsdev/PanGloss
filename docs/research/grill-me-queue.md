@@ -230,6 +230,21 @@ the measured max -- on five grammars. A sixth language with a fourteen-segment t
 needs 16384. Should this be a budget derived from the grammar rather than a constant? (c) is
 `PATTERN_ITER_CAP` now dead weight, given a star is refused before its expansion can matter?
 
+**(a) answered.** Built: `crate::emit::pattern_shape_regex_body`/`write_pattern_root_entry` lower a
+pattern root's shape to ONE lexc `< regex >` entry -- `TAG:0 0:[node1 node2 ...]`, each node its own
+bracketed union of `node_base_alternatives` (`*`-starred iff iterative, `(...)`-optional iff merely
+optional) -- reusing the same per-node alternative computation `node_alternatives`/`root_variant_census`
+already share, rather than re-deriving it. This is linear in the shape's node count, not a spelling
+list, so it represents the star's true (infinite) language instead of truncating it: `[Any]*` becomes
+one self-looping arc set, not `PATTERN_ITER_CAP` repetitions. Cost, measured on the two `[Any]*`
+fixtures this unblocks (`languages/polysynthetic-stratal-derivation-chain`,
+`edge-cases/backend-strata-generic`): both compile at 174/535 and 171/510 (states/arcs) respectively
+under `TunedSurfaceProbed`, where before there was no network at all (refused). Scope limit: an
+allomorph carrying a `<RequiredEnvironments>` constraint still refuses (the precision knob's
+set-y/set-n flags need a literal surface a pattern has none of) -- `eager_route_drops_root_spellings`
+narrows to exactly that case plus `BytesExhausted`, so `PATTERN_ITER_CAP`'s truncated enumeration
+stays the recall floor only there; every plain unbounded root now compiles exact. (b)/(c) remain open.
+
 **Older, now-corrected framing follows for the record.**
 
 `pattern_variants` (`emit.rs`) takes the cartesian product of every shape node's alternative
