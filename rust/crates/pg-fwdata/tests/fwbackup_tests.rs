@@ -1,5 +1,4 @@
-//! `.fwbackup` zip import: the embedded `.fwdata` extracts identically to importing it directly,
-//! and the default vernacular writing system's LDML exemplar set is picked up.
+//! Verifies `.fwbackup` imports preserve embedded project data and vernacular exemplars.
 
 use std::io::Write;
 
@@ -33,8 +32,7 @@ fn fwbackup_imports_the_embedded_fwdata_and_exemplars() {
     // Same lexicon as importing the .fwdata directly.
     let (direct, _) = pg_fwdata::import_file(&fixture_fwdata()).unwrap();
     assert_eq!(snapshot.lexicon, direct.lexicon);
-    // The fixture's default vernacular writing system is "fx" (see fixture_tests.rs
-    // extracts_project_writing_systems), matching the LDML entry write_backup wrote.
+    // The fixture's default vernacular writing system is "fx", matching the LDML entry.
     assert_eq!(direct.project.vernacular_writing_systems.first().map(String::as_str), Some("fx"));
     assert_eq!(
         snapshot.project.exemplar_characters,
@@ -55,5 +53,5 @@ fn fwbackup_without_fwdata_entry_is_a_hard_error() {
     z.write_all(b"<BackupSettings/>").unwrap();
     z.finish().unwrap();
     let err = pg_fwdata::import_file(&out).unwrap_err();
-    assert!(err.to_string().contains(".fwdata"), "{err}");
+    assert!(matches!(err, pg_fwdata::ImportError::Backup(_)));
 }
