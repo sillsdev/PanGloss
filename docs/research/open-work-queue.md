@@ -21,9 +21,10 @@ hc.dll on every replayed word. Two upstream fixtures pinning the port divergence
 `sillsdev/machine` branch `conformance/hc-rust-port-divergences` at `898b321f`; PanGloss's submodule
 pin moves to it once that branch is pushed.
 
-**Per fixture, at `9c5e38e9` (62 fixtures, `conf_matrix`):** 16 exact on all three backends, 25 on
-two, 20 on one, **1 on none** -- `segment-natural-class-table-binding`. That one is the whole
-remaining "at least one backend" gap.
+**Per fixture, at `37c222f8` (62 fixtures, `conf_matrix`):** 24 exact on all three backends, 26 on
+two, 11 on one, **1 on none** -- `segment-natural-class-table-binding`. That one is the whole
+remaining "at least one backend" gap. At v0.2.0 the same headline read 16 / 21 / 17 / 7. Soundness is
+0 on every cell; every miss listed below is the ADR-0001 direction and named in a ratchet.
 
 **Backend side, TunedSurfaceProbed** (the shipping backend): 60 exact / 1 miss / 1 refused of 62.
 - The miss (ADR-0001's forbidden direction): `segment-natural-class-table-binding` "g" -- the
@@ -48,10 +49,17 @@ remaining "at least one backend" gap.
   morpheme), `two-table-shared-representation-recall` "y", and the three `[Any]*` pattern-root
   fixtures via the regex route.
 
-**Backend side, the other two.** PlanComposed refuses 36 of 61 for one shape (a
-`CompositeEmissionMarker`/`StructuralCompositeMarker` subtree `build_controllable` does not build);
-TemplatedUnderlyingTokens refuses ~20 as `Partial { uncovered }` (now named item by item in its
-error). Neither is needed for "at least one backend", so both follow the recall-miss queue.
+**Backend side, the other two.** TemplatedUnderlyingTokens: 45 exact / 0 miss / 17 refused. Its
+refusals are typed `Partial { uncovered }` items, named one by one: infix, reduplication and
+circumfix-prefix shapes (13 fixtures; no root-splitting or copying construction exists on the token
+route, and two prior attempts to bypass the classification broke working fixtures), process
+morphology, two bistratal roots whose segment has no representation in the final table, and two
+rewrite-cascade refusals (one deliberate: simultaneous-subrule overlap, unsupported by definition).
+PlanComposed: 30 exact / 0 miss / 29 refused / 3 unmeasurable. It now builds a composite marker
+subtree by calling the tuned route's own construction, but only when that material is provably
+complete (no other rule or template can wrap the stem); every other marker plan keeps its typed
+refusal, because a bare-word union that could under-generate must never be admitted. Widening that
+admission (affix wrapping around composite stems) is the next PlanComposed lever.
 
 **Instrument note.** The pg-parse replay gate compares parse MULTISETS (PROTOCOL.md section 4 rule
 3): a doubled derivation such as `mpr-gated-exception` "mentanukam" is compared by count, and HC-Rust
