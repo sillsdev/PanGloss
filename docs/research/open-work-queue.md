@@ -38,9 +38,9 @@ remaining "at least one backend" gap.
 - The "g" cell above is a decision, not a patch -- see grill-me G11.
 - TUT misses: `feature-system-breadth` isk (alpha variable with `polarity="minus"`),
   `mpr-overwrite-order-dependence` daboyuxa (the templated route fixes two standalone rules' order to
-  document order, by design), `strrep-identity` imat, `truncate-morphotactic` gas. PC misses:
-  `feature-gating-breadth` kalid and `morphotactic-attribute-breadth` kulru -- `build.rs` emits no
-  material for a `RealizationalRule`'s own allomorphs at all.
+  document order, by design), `strrep-identity` imat, `truncate-morphotactic` gas. PC has no misses
+  left (23 exact / 0 miss / 36 refused / 3 unmeasurable): its underlying-filter emitter skipped
+  realizational rules wholesale, and now treats their allomorphs like any affix rule's.
 - Fixed in this campaign: `process-morphology-in-place-mutation`, `circumfix-non-first-allomorph-
   selection`, `suffixing-extension-slot-ordering`, `metathesis-comparison-crash` (an instrument
   defect), `morphotactic-attribute-breadth` on TSP/TUT (a repeated application decoded as an extra
