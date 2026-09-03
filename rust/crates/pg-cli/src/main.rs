@@ -1,7 +1,7 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--threads N]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--threads N] [--always-enforce-final-templates]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--step-cap N` bounds the unmemoized analysis cascade (memoization removes the need).
 //!
@@ -223,7 +223,7 @@ fn run() -> ExitCode {
         _ => {
             eprintln!(
                 "pangloss {} — HermitCrab Rust engine CLI\n\
-                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>]\n\
+                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
                  usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
                  usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
                  usage: pangloss import <project.fwdata> <out.json>\n\
@@ -247,7 +247,9 @@ fn run() -> ExitCode {
                  analysis is empty is retried via the lexical-pattern guesser (P11,\n\
                  docs/p11-guesser-api-design.md); a resulting analysis is always clearly marked\n\
                  guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
-                 `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.",
+                 `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.\n\
+                 --always-enforce-final-templates is result-changing: enforce template order even\n\
+                 when partial-rule rescue would otherwise allow an interleaving.",
                 env!("CARGO_PKG_VERSION"),
                 REPORT_DEVELOPER_HELP
             );
@@ -570,6 +572,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut guess = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
+    let mut always_enforce_final_templates = false;
     let mut cache_path_arg: Option<String> = None;
     let parse_memo = |v: &str| match v {
         "on" | "true" | "1" => Ok(true),
@@ -626,6 +629,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             }
             "--guess" => guess = true,
             "--stats" => stats_requested = true,
+            "--always-enforce-final-templates" => always_enforce_final_templates = true,
             "--cache" => {
                 let v = it.next().ok_or("--cache requires a value")?;
                 cache_path_arg = Some(v.clone());
@@ -644,7 +648,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
                 .into(),
         );
     };
@@ -681,7 +685,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let t_morpher = Instant::now();
     let morpher = Morpher::new(&grammar, step_cap)
         .with_memo(memo)
-        .with_word_timeout(word_timeout_ms.map(Duration::from_millis));
+        .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
+        .with_always_enforce_final_templates(always_enforce_final_templates);
     let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
     eprintln!(
         "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
@@ -837,6 +842,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             word_timeout_ms,
             memo,
             guess,
+            always_enforce_final_templates,
             cache_path_arg.as_deref(),
         )?;
     }
