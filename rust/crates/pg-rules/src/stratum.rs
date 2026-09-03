@@ -877,6 +877,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 == crate::word::FinalTemplateState::NonTemplate
             && self.policy.all_templates_final
         {
+            if let Some(stats) = self.stats {
+                stats.record_template_battery_skipped(
+                    self.stratum_id,
+                    crate::stats::Direction::Analysis,
+                );
+            }
             return Vec::new();
         }
         let in_key = input.dedup_key();
@@ -974,7 +980,16 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 == crate::word::FinalTemplateState::NonTemplate
             && tmpl.is_final
         {
+            if let Some(stats) = self.stats {
+                stats.record_final_template_skipped(
+                    self.stratum_id,
+                    crate::stats::Direction::Analysis,
+                );
+            }
             return Vec::new();
+        }
+        if let Some(stats) = self.stats {
+            stats.record_template_entry(self.stratum_id, crate::stats::Direction::Analysis);
         }
         let req = self.g.fs_interner.get(tmpl.required_syn_fs);
         if !is_unifiable(&input.syn_fs, req) {
