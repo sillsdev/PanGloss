@@ -152,8 +152,9 @@ fn take(p: *const c_char) -> String {
 }
 
 fn check(s: String) -> Result<String, XAmpleError> {
-    // XAmpleDLLWrapper.ThrowIfError: an error reply starts with "<error".
-    if s.trim_start().starts_with("<error") { Err(XAmpleError::Engine(s)) } else { Ok(s) }
+    // XAmpleDLLWrapper.ThrowIfError (verified 2026-09-03): an error is any reply containing
+    // "<error" other than the SGML-ish success marker "<error code=none>".
+    if s.contains("<error") && !s.contains("<error code=none>") { Err(XAmpleError::Engine(s)) } else { Ok(s) }
 }
 
 impl XAmple {
@@ -226,7 +227,7 @@ Read `XAmpleDLLWrapper.cs` lines 440-500 (`SetOptions`) and the `ParseString` me
 
 **Files:** `src/result.rs`
 
-FieldWorks' `XAmpleParser.ParseWord` (`XAmpleParser.cs:168-230`) parses the result: a `<Wordform ...>` root with `<WfiAnalysis>` children each holding `<Morphs><Morph><MoForm DbRef="…"/><MSI DbRef="…"/>…`. The `\lx` field in FLEx-generated lexicons is the MSA hvo and `\a form {alloId}` carries the allomorph id, so `DbRef`s are those ids. Read `XAmpleParser.cs:168-330` first and match its element names exactly; the parser below is the shape, the names come from that file.
+FieldWorks' `XAmpleParser.ProcessParseResults` (`XAmpleParser.cs:178-230`, verified 2026-09-03) first rewrites the raw reply: `DB_REF_HERE` → `'0'` and `<...>` → `[...]`, then parses it as XML. Root `<Wordform DbRef=... Form="...">`; a `<Exception code="ReachedMaxAnalyses" totalAnalyses="N"/>` child means XAmple stopped at `MaxAnalysesToReturn` (record this — the two-oracle gate compares as a subset when it is present); an `<Error>` child carries a failure message; analyses are every descendant `<WfiAnalysis>`, each with descendant `<Morph>` elements holding `<MoForm DbRef="…"/>` (the allomorph id from `\a form {id}`) and `<MSI DbRef="…"/>` (the `\lx` morpheme id). Do the same two string rewrites before parsing.
 
 - [ ] **Step 1: Failing test** with a literal result string captured from Task 2's `StemName3` run (paste the actual XML the engine returned for one word into the test as the fixture, so the parser is tested against a real reply):
 
