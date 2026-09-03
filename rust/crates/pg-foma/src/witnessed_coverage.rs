@@ -731,7 +731,7 @@ mod tests {
             .check(CompletenessRequirement::NonVacuity)
             .expect_err("an empty collection must not pass");
         assert_eq!(violations.len(), 3, "{violations:?}");
-        assert_eq!(report.gaps.len(), 67, "every representable pair is a gap");
+        assert_eq!(report.gaps.len(), 69, "every representable pair is a gap");
     }
 
     /// The strict requirement is live code, not a comment: it must reject exactly what the lenient one tolerates.

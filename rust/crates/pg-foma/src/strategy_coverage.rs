@@ -225,6 +225,14 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
              compilation), shared by every strategy; uflexc encodes shapes through \
              replace::SegAlphabet",
         ),
+        // Measured, not reasoned: the isolating fixture is oracle-exact and stays exact when the final table is reordered, so the token resolution is by bundle, not by raw index.
+        CrossTableRespelling => (
+            Represents,
+            "uflexc::emit_underlying_filtered encodes an inner-stratum root through \
+             replace::SegAlphabet tokens that the final table resolves by bundle; \
+             tests/cross_table_root_respelling_gate.rs holds it oracle-exact on the isolating \
+             fixture and unmoved by reordering that fixture's final table",
+        ),
         // Every root allomorph is emitted bare and unconditionally; the restriction is confirm's.
         StemName => (
             Represents,
@@ -274,6 +282,12 @@ fn tuned_surface_probed(kind: CharacteristicKind) -> (StrategyRepresentation, &'
         | QuantifierPattern
         | StemName
         | FreeFluctuation => (Represents, mainline),
+        CrossTableRespelling => (
+            Represents,
+            "emit::collect_roots unions emit::cross_table_root_surface's final-table spelling of \
+             every inner-stratum root into the root's lexc variants, rule or no rule; \
+             tests/cross_table_root_respelling_gate.rs holds it oracle-exact",
+        ),
         ProcessMorphology => (
             Represents,
             "emit::is_structural_rule admits Role::Process unconditionally (emit.rs), routing it \n             through build_structural_composites, which replays pg_rules::morph::synthesize -- the \n             real engine -- so the mutated surface is faithful rather than spliced",
@@ -339,6 +353,14 @@ fn templated_underlying_tokens(kind: CharacteristicKind) -> (StrategyRepresentat
         MultiTable => (
             Represents,
             "per-rule owning-table threading lives in crate::replace, shared by every strategy",
+        ),
+        // The templated TextMode re-encodes a root against the final table's alphabet and files `unsegmentable-root` when its own spelling is absent there, which templated_route_uncovered_refusal publishes as a refusal.
+        CrossTableRespelling => (
+            CannotRepresent,
+            "emit::collect_roots's templated branch routes a root through \
+             underlying_shape_variants over the final table and skips it as `unsegmentable-root` \
+             when its own spelling has no final-table token; emit::cross_table_root_surface is \
+             only unioned on the mainline branch",
         ),
     }
 }
@@ -495,7 +517,11 @@ mod tests {
         );
         assert_eq!(
             unrepresentable_kinds(EmissionStrategy::TemplatedUnderlyingTokens),
-            vec![CharacteristicKind::ProcessMorphology],
+            vec![
+                // A root whose own spelling the final table lacks is filed `unsegmentable-root` and skipped.
+                CharacteristicKind::CrossTableRespelling,
+                CharacteristicKind::ProcessMorphology
+            ],
             "the templated emitter's own doc says it has no composite pipeline, so it cannot \
              realize an in-place mutation"
         );

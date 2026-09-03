@@ -658,6 +658,35 @@ pub(crate) fn surface_table(g: &Grammar) -> &CharDefTable {
     &g.char_tables[surface_stratum.table.0 as usize]
 }
 
+/// The final-table spelling of a root entered on a stratum whose table is not the final one, run through the probe cascade like any bare shape; `None` on the final stratum, for an unsegmentable text, or when the cascade refuses.
+/// A segment is its feature bundle and a table only spells it for one stratum, so the root reaches the surface spelled by whichever final-table segment carries the same bundle (hc.dll `CharacterDefinitionTable.GetMatchingStrReps`).
+pub(crate) fn cross_table_root_surface(
+    g: &Grammar,
+    stratum_table: &CharDefTable,
+    text: &str,
+    cache: &RuleCache,
+) -> Option<String> {
+    if std::ptr::eq(stratum_table, surface_table(g)) {
+        return None;
+    }
+    let feat_shape = pg_rules::shape_feat::segment_with_features(g, stratum_table, text).ok()?;
+    probe_surface(g, surface_table(g), &feat_shape, cache).filter(|s| !s.is_empty())
+}
+
+/// The final table's own spelling of an inner-stratum root's bundles, before any rule runs, when it differs from the root's text: the respelling proper, as distinct from a root both tables spell alike (whatever a later rule then does to it).
+pub(crate) fn cross_table_respelling(
+    g: &Grammar,
+    stratum_table: &CharDefTable,
+    text: &str,
+) -> Option<String> {
+    if std::ptr::eq(stratum_table, surface_table(g)) {
+        return None;
+    }
+    let feat_shape = pg_rules::shape_feat::segment_with_features(g, stratum_table, text).ok()?;
+    pg_rules::surface_probe::render_shape(surface_table(g), &feat_shape)
+        .filter(|s| !s.is_empty() && s != text)
+}
+
 /// Re-encode a shape into final-table tokens, expanding foreign-table NFD representation variants.
 pub(crate) fn underlying_shape_variants(
     alphabet: &SegAlphabet<'_>,
@@ -2375,14 +2404,16 @@ fn collect_roots(
                         .unwrap_or_default()
                 };
                 let mut variants = variants;
+                let feat_shape = (!allo.is_pattern && pattern_regex_body.is_none())
+                    .then(|| {
+                        pg_rules::shape_feat::segment_with_features(g, stratum_table, &allo.shape.text)
+                            .ok()
+                    })
+                    .flatten();
                 // Bare-root phonology: unions in the root's real post-cascade surface, tried via `generate_words` first since `probe_surface` is POS-blind and gets a same-stratum, POS-scoped rule wrong on a bare root.
                 // See docs/research/pg-foma-emit-design-notes.md for the empirical counter-example.
-                if phon.is_some() && !allo.is_pattern && pattern_regex_body.is_none() {
-                    if let Ok(feat_shape) = pg_rules::shape_feat::segment_with_features(
-                        g,
-                        stratum_table,
-                        &allo.shape.text,
-                    ) {
+                if phon.is_some() {
+                    if let Some(feat_shape) = &feat_shape {
                         // `.find(!empty)`, not `.next()`: an empty `generate_words` answer must still fall through to `probe_surface`.
                         let extra = morpher
                             .and_then(|m| {
@@ -2390,11 +2421,21 @@ fn collect_roots(
                                     .into_iter()
                                     .find(|s| !s.is_empty())
                             })
-                            .or_else(|| probe_surface(g, surface_table(g), &feat_shape, cache));
+                            .or_else(|| probe_surface(g, surface_table(g), feat_shape, cache));
                         if let Some(s) = extra {
                             if !s.is_empty() && !variants.contains(&s) {
                                 variants.push(s);
                             }
+                        }
+                    }
+                }
+                // Cross-table respelling, rule or no rule; the characterizer calls the same function, so the observed construct and the emitted spelling cannot drift.
+                if feat_shape.is_some() {
+                    if let Some(s) =
+                        cross_table_root_surface(g, stratum_table, &allo.shape.text, cache)
+                    {
+                        if !variants.contains(&s) {
+                            variants.push(s);
                         }
                     }
                 }

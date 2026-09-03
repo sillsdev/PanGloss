@@ -453,7 +453,10 @@ fn templated_selector_refuses_each_known_unsupported_shape_with_per_allomorph_di
 fn templated_static_floor_keeps_process_morphology_unrepresentable_until_realization() {
     assert_eq!(
         unrepresentable_kinds(EmissionStrategy::TemplatedUnderlyingTokens),
-        vec![CharacteristicKind::ProcessMorphology],
+        vec![
+            CharacteristicKind::CrossTableRespelling,
+            CharacteristicKind::ProcessMorphology
+        ],
         "recognizing a recipe cannot select Templated until its real emission path exists"
     );
 }

@@ -469,6 +469,29 @@
       ]
     },
     {
+      "kind": "cross_table_respelling",
+      "disposition": "confirm_only",
+      "discharging_predicates": [],
+      "construct_ids": [
+        "CharacterDefinitionTable: cross-table respelling (an inner-stratum root surfaces spelled by the final stratum's table)"
+      ],
+      "conformance_status": "covered",
+      "containment": {
+        "kind": "dedicated",
+        "citation": "tests/cross_table_root_respelling_gate.rs::every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere",
+        "strategies": [
+          "tuned-surface-probed"
+        ],
+        "note": "Propose-then-confirm containment for a root entered on an inner stratum and spelled by the final stratum's table, over every conformance fixture that exhibits it; the plan-composed backend is exact where it builds at all and the templated one refuses typed rather than misses."
+      },
+      "strategies_cannot_represent": [
+        "templated-underlying-tokens"
+      ],
+      "strategies_unwitnessed": [
+        "plan-composed"
+      ]
+    },
+    {
       "kind": "quantifier_pattern",
       "disposition": "config_predicate",
       "discharging_predicates": [

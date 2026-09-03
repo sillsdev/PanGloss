@@ -144,6 +144,7 @@ fn kind_wire_name(kind: CharacteristicKind) -> &'static str {
         CoOccurrenceConstraint => "co_occurrence_constraint",
         NaturalClassDefinition => "natural_class_definition",
         MultiTable => "multi_table",
+        CrossTableRespelling => "cross_table_respelling",
         QuantifierPattern => "quantifier_pattern",
         StemName => "stem_name",
         FreeFluctuation => "free_fluctuation",
@@ -499,6 +500,16 @@ pub fn containment_evidence_for(kind: CharacteristicKind) -> Option<ContainmentE
             &[EmissionStrategy::PlanComposed],
             "Faithful per-stratum table threading, proven for one stratum's own rule and, more \
              strongly, for two strata whose tables disagree about the same symbol index.",
+        ),
+        CrossTableRespelling => ev(
+            Dedicated,
+            "tests/cross_table_root_respelling_gate.rs::\
+             every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere",
+            &[EmissionStrategy::TunedSurfaceProbed],
+            "Propose-then-confirm containment for a root entered on an inner stratum and spelled \
+             by the final stratum's table, over every conformance fixture that exhibits it; the \
+             plan-composed backend is exact where it builds at all and the templated one refuses \
+             typed rather than misses.",
         ),
         QuantifierPattern => ev(
             Dedicated,

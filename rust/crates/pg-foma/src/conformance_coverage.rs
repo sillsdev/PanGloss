@@ -208,6 +208,10 @@ pub fn construct_ids_for(kind: CharacteristicKind) -> &'static [&'static str] {
         }
         // G9: the two pre-existing rows mentioning CharacterDefinitionTable are about constructs within one table, not multi-table stratification, so this pair was added upstream.
         MultiTable => &["CharacterDefinitionTable: more than one table, one per stratum"],
+        // Its own row, not MultiTable's: a multi-table fixture whose inner roots both tables spell alike would otherwise inherit coverage for a construct it never exhibits.
+        CrossTableRespelling => &[
+            "CharacterDefinitionTable: cross-table respelling (an inner-stratum root surfaces spelled by the final stratum's table)",
+        ],
         // Unlike MultiTable/LeftToRightRewrite above, "optional group / Kleene star" already had a distinctly-tagged coverage identifier before G9.
         QuantifierPattern => {
             &["CharacterDefinitionTable pattern shapes: optional group / Kleene star"]

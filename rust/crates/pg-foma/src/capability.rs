@@ -154,6 +154,15 @@ pub enum CharacteristicKind {
     /// `MultiTableFaithfulThreadingPredicate`. See that predicate's own doc for the
     /// admit/confirm-only/refuse split.
     MultiTable,
+    /// A root allomorph entered on a non-final stratum whose bundles the final table spells
+    /// differently than its own text does, before any rule runs
+    /// (`crate::emit::cross_table_respelling`, the emitter's own computation): a segment is its
+    /// feature bundle and a table only spells it for one stratum, so the root surfaces spelled by
+    /// whichever final-table segment carries the same bundle (hc.dll
+    /// `CharacterDefinitionTable.GetMatchingStrReps`). Distinct from `MultiTable`, which every
+    /// two-table grammar raises, and from a shared representation, where both tables spell the
+    /// root alike and only a later rule can change it.
+    CrossTableRespelling,
     /// A `PatternNode::Quantifier` (`<OptionalSegmentSequence min max>`) occurrence anywhere in a
     /// `RewriteRuleDef`'s own LHS, or any of its subrules' RHS/left-env/right-env patterns. NOT
     /// one variant of `RewriteMode`/`Dir` (those already have their own characteristics) — a
@@ -223,6 +232,7 @@ impl CharacteristicKind {
         CharacteristicKind::CoOccurrenceConstraint,
         CharacteristicKind::NaturalClassDefinition,
         CharacteristicKind::MultiTable,
+        CharacteristicKind::CrossTableRespelling,
         CharacteristicKind::QuantifierPattern,
         CharacteristicKind::StemName,
         CharacteristicKind::FreeFluctuation,
@@ -260,6 +270,8 @@ impl CharacteristicKind {
             CharacteristicKind::NaturalClassDefinition => Disposition::Proven,
             // Threads each rule's own owning table faithfully but unproven; see `MultiTableFaithfulThreadingPredicate`'s own doc.
             CharacteristicKind::MultiTable => Disposition::ConfigPredicate,
+            // The mainline proposes the respelled surface as one more variant and confirm keeps or prunes it; no admission-filter proof exists.
+            CharacteristicKind::CrossTableRespelling => Disposition::ConfirmOnly,
             // Bounded or unbounded alpha-free quantifiers compile faithfully but unproven; see `QuantifierBoundedExpansionPredicate`'s own doc.
             CharacteristicKind::QuantifierPattern => Disposition::ConfigPredicate,
             // `crate::emit` has no stem-name-aware admission filter; `pg_rules::validity::stem_name_gate_reason` discharges it only at confirm time.
@@ -295,9 +307,10 @@ pub enum ModelLocation {
     MorphemeCoOccurrence(usize),
     AllomorphCoOccurrence(AllomorphId),
     /// A `RootAllomorphDef` (`pg_grammar::model::LexEntryDef::allomorphs`) whose own fields
-    /// induced the observation directly -- `StemName` (its `stem_name` is `Some`) or
+    /// induced the observation directly -- `StemName` (its `stem_name` is `Some`),
     /// `FreeFluctuation` (it compares `root_constraints_equal` to a sibling allomorph of the same
-    /// entry). Distinct from `AllomorphCoOccurrence`: that variant is keyed by a co-occurrence
+    /// entry), or `CrossTableRespelling` (the final table spells it differently than its own).
+    /// Distinct from `AllomorphCoOccurrence`: that variant is keyed by a co-occurrence
     /// *rule* attached to the allomorph, not a property of the allomorph itself.
     RootAllomorph(AllomorphId),
 }
@@ -562,6 +575,14 @@ pub struct UnorderedStratumDetail {
     pub rule_count: usize,
 }
 
+/// `ObservationDetail::CrossTableRespelling`'s payload: one inner-stratum root and the two spellings it has, its own and the final table's.
+#[derive(Debug, Clone)]
+pub struct CrossTableRespellingDetail {
+    pub allomorph: AllomorphId,
+    pub own_spelling: String,
+    pub surface_spelling: String,
+}
+
 /// Extra structured data an observation needs beyond `kind`/`disposition`/`location`, for the
 /// characteristics that a predicate must inspect at finer grain than "did this occur at all".
 /// Most characteristics carry `None` — [`CharacteristicKind::
@@ -577,6 +598,7 @@ pub enum ObservationDetail {
     None,
     SimultaneousRewrite(SimultaneousRewriteDetail),
     MultiTable(MultiTableDetail),
+    CrossTableRespelling(CrossTableRespellingDetail),
     RightToLeftRewrite(RightToLeftRewriteDetail),
     QuantifierPattern(QuantifierPatternDetail),
     Metathesis(MetathesisDetail),
@@ -655,6 +677,16 @@ impl CharacteristicsProfile {
     pub fn multi_table_detail(&self) -> Option<&MultiTableDetail> {
         self.observations.iter().find_map(|o| match &o.detail {
             ObservationDetail::MultiTable(d) => Some(d),
+            _ => None,
+        })
+    }
+
+    /// Every inner-stratum root the final table respells, one per `CrossTableRespelling` observation.
+    pub fn cross_table_respelling_details(
+        &self,
+    ) -> impl Iterator<Item = &CrossTableRespellingDetail> {
+        self.observations.iter().filter_map(|o| match &o.detail {
+            ObservationDetail::CrossTableRespelling(d) => Some(d),
             _ => None,
         })
     }
@@ -1539,6 +1571,37 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
             location,
             ObservationDetail::MultiTable(detail),
         ));
+    }
+
+    // One root per observation, through the emitter's own `cross_table_respelling`: the final table's rendering of the root's own bundles, no cascade, so a root both tables spell alike is not flagged however a later rule changes it.
+    if g.char_tables.len() > 1 {
+        let surface = crate::emit::surface_table(g);
+        for sd in &g.strata {
+            let table = &g.char_tables[sd.table.0 as usize];
+            if std::ptr::eq(table, surface) {
+                continue;
+            }
+            for &entry_id in &sd.entries {
+                for allo in &g.entries[entry_id.0 as usize].allomorphs {
+                    if allo.is_pattern {
+                        continue;
+                    }
+                    if let Some(surface_spelling) =
+                        crate::emit::cross_table_respelling(g, table, &allo.shape.text)
+                    {
+                        observations.push(CharacteristicObservation::new(
+                            CharacteristicKind::CrossTableRespelling,
+                            ModelLocation::RootAllomorph(allo.id),
+                            ObservationDetail::CrossTableRespelling(CrossTableRespellingDetail {
+                                allomorph: allo.id,
+                                own_spelling: allo.shape.text.clone(),
+                                surface_spelling,
+                            }),
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     let cardinality = GrammarCardinality {
@@ -7212,10 +7275,12 @@ mod tests {
         }
         assert_eq!(
             CharacteristicKind::ALL.len(),
-            23,
+            24,
             "20 -> 22 by research report 13 (StemName/FreeFluctuation); 22 -> 23 by \
              ProcessMorphology, which NOTHING observed -- a pure-ablaut grammar reported \
-             Affixation/Ordered/NaturalClass all Proven and nothing about the mutation"
+             Affixation/Ordered/NaturalClass all Proven and nothing about the mutation; 23 -> 24 \
+             by CrossTableRespelling, which two fixtures exhibited for months under MultiTable's \
+             inherited coverage while every backend missed the respelled analysis"
         );
     }
 

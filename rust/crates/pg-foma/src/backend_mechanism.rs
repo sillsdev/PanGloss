@@ -453,6 +453,9 @@ pub fn mechanism_kind_for(kind: CharacteristicKind) -> MechanismKind {
 
         // Judgment call: MultiTable is assigned to BoundaryCleanup, not OrderedPhonology, because cleanup is the only mechanism that is table-parameterized (its contract IS table identity), while ordered-phonology is stratum-parameterized.
         MultiTable => MechanismKind::BoundaryCleanup,
+
+        // Which surface spellings a root offers is lexicon material, decided before any phonological lowering.
+        CrossTableRespelling => MechanismKind::Morphotactics,
     }
 }
 

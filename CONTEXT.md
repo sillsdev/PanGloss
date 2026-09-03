@@ -413,6 +413,10 @@ _Avoid_: Feature list, supported flag
 An oracle-verified proof obligation that discharges one characteristic (or an interaction of several) at a plan node, returning `Admit`, `ConfirmOnly`, or `Refuse`. It is conservative: it may over-refuse but must never admit a configuration that could omit a valid analysis. Predicates are what the capability envelope is composed from.
 _Avoid_: Check, rule (unqualified)
 
+**Cross-table respelling**:
+A root entered on a non-final stratum surfacing spelled by the final stratum's character table, because a segment is its feature bundle and each table only spells that bundle for its own stratum. No phonological rule is involved; the final-table segment carrying the same bundle is the spelling. Distinct from a shared representation (two tables spelling a segment alike) and from rewrite-rule feature erasure, which was once wrongly blamed for it.
+_Avoid_: Feature neutralization, wrong-table resolution, analysis-side erasure
+
 **Confirm-only by default**:
 The standing rule that a construct's proposer over-approximates (proposes the superset) and confirm prunes, unless a proven no-false-negative argument licenses the FST to admission-filter. Admission-filtering is an optimization with a proof obligation; absent the proof the verdict is `ConfirmOnly`. This makes "never under-propose" structural rather than a matter of per-author diligence.
 _Avoid_: FST filtering as the default, propose-narrow

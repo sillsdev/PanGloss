@@ -82,27 +82,47 @@ pub fn render_nodes(table: &CharDefTable, segs: &[ProbeSeg]) -> Option<String> {
     Some(out)
 }
 
-/// Every char-def whose representation this SEGMENT node currently matches, first-match, table document order; a deliberate duplicate of `pg_parse::surface::matching_reps_for_node`'s Segment branch, since pg-parse depends on pg-rules and the reverse dependency is unavailable.
-fn matching_reps(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
+/// `render_nodes` over a shape as it stands, no cascade: what `table` spells each SEGMENT node's bundle as, which is how a final table spells a root entered on an inner stratum (hc.dll `CharacterDefinitionTable.GetMatchingStrReps`).
+pub fn render_shape(table: &CharDefTable, shape: &Shape) -> Option<String> {
+    let segs: Vec<ProbeSeg> = shape
+        .interior()
+        .filter(|&(_, kind, _, _)| kind == NodeKind::Segment)
+        .map(|(i, _, char_def, _)| ProbeSeg {
+            char_def,
+            lanes: shape.node_lanes(i).to_vec(),
+            deleted: false,
+        })
+        .collect();
+    render_nodes(table, &segs)
+}
+
+/// Every SEGMENT char-def in `table` whose bundle unifies with `lanes`: identity-gated only when `table` carries no features at all, so a `char_def` declared by ANOTHER table is matched by bundle, never by its foreign index.
+/// Mirrors `pg_parse::surface::matching_reps_for_node`'s Segment branch (pg-parse depends on pg-rules, not the reverse).
+fn matching_cd_ids(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<CharDefId> {
+    let feature_bearing_table = char_def != NO_CHAR_DEF
+        && (char_def as usize) < table.len()
+        && table.unifiable_cds(CharDefId(char_def)).is_some();
     let mut out = Vec::new();
     for (id, cd) in table.iter() {
         if cd.kind() != CharDefKind::Segment {
             continue;
         }
-        let member = if char_def != NO_CHAR_DEF {
-            id.0 == char_def
-                || table
-                    .unifiable_cds(CharDefId(char_def))
-                    .is_some_and(|b| b.contains(id.0))
-        } else {
+        let member = if char_def == NO_CHAR_DEF {
             true // NO_CHAR_DEF (post-rewrite abstract node): pure lane unification, no identity gate.
+        } else {
+            feature_bearing_table || id.0 == char_def
         };
-        if !member {
-            continue;
-        }
-        if flat_unifiable(lanes, cd.feature_lanes()) {
-            out.extend(cd.representations().iter().cloned());
+        if member && flat_unifiable(lanes, cd.feature_lanes()) {
+            out.push(id);
         }
     }
     out
+}
+
+/// Every representation of every char-def `matching_cd_ids` selects, in table document order.
+fn matching_reps(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
+    matching_cd_ids(table, char_def, lanes)
+        .into_iter()
+        .flat_map(|id| table.get(id).representations().iter().cloned())
+        .collect()
 }

@@ -50,6 +50,7 @@ words:
         rules: [prKtoG]
         exercises:
           - "CharacterDefinitionTable: more than one table, one per stratum"
+          - "CharacterDefinitionTable: cross-table respelling (an inner-stratum root surfaces spelled by the final stratum's table)"
           - "NaturalClass: Segments vs FeatureNaturalClass/SegmentNaturalClass precision"
       - signature: "ROOT2|g"
         rules: [prKtoG]
