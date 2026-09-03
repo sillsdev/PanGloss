@@ -1,6 +1,60 @@
 //! `.fwbackup` zip support: the embedded `.fwdata` plus its `WritingSystemStore/*.ldml` exemplars.
 
+use std::io::Read;
+use std::path::Path;
+
 use unicode_normalization::UnicodeNormalization;
+
+use pg_snapshot::Snapshot;
+
+use crate::{extract, xml, ImportError, ImportReport};
+
+pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+    let file = std::fs::File::open(path).map_err(ImportError::Io)?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| ImportError::Backup(format!("{}: {e}", path.display())))?;
+
+    let mut fwdata_name: Option<String> = None;
+    let mut ldml: Vec<(String, String)> = Vec::new();
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| ImportError::Backup(e.to_string()))?;
+        let name = entry.name().to_string();
+        if name.ends_with(".fwdata") && !name.contains('/') {
+            fwdata_name = Some(name);
+        } else if let Some(tag) = name
+            .strip_prefix("WritingSystemStore/")
+            .and_then(|n| n.strip_suffix(".ldml"))
+            .filter(|n| !n.contains('/'))
+        {
+            let mut text = String::new();
+            entry
+                .read_to_string(&mut text)
+                .map_err(|e| ImportError::Backup(format!("{name}: {e}")))?;
+            ldml.push((tag.to_string(), text));
+        }
+    }
+    let fwdata_name = fwdata_name.ok_or_else(|| {
+        ImportError::Backup(format!("{}: no top-level .fwdata entry", path.display()))
+    })?;
+
+    let graph = {
+        let entry = archive
+            .by_name(&fwdata_name)
+            .map_err(|e| ImportError::Backup(e.to_string()))?;
+        xml::parse_fwdata_reader(std::io::BufReader::new(entry))?
+    };
+    let stem = crate::file_stem(Path::new(&fwdata_name));
+    let (mut snapshot, warnings) = extract::extract(&graph, &stem);
+
+    if let Some(default_ws) = snapshot.project.vernacular_writing_systems.first().cloned() {
+        if let Some((_, text)) = ldml.iter().find(|(tag, _)| *tag == default_ws) {
+            snapshot.project.exemplar_characters = exemplar_characters_from_ldml(text);
+        }
+    }
+    Ok((snapshot, ImportReport { warnings }))
+}
 
 /// Text elements of the LDML main exemplar set (UnicodeSet syntax), NFD.
 pub(crate) fn exemplar_characters_from_ldml(ldml: &str) -> Vec<String> {

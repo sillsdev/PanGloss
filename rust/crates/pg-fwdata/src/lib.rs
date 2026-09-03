@@ -46,6 +46,8 @@ pub enum ImportError {
     Xml(String),
     #[error("not a .fwdata file: no <rt> records found")]
     NotFwdata,
+    #[error("not a .fwbackup: {0}")]
+    Backup(String),
 }
 
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.
@@ -62,11 +64,21 @@ pub struct ImportReport {
 /// `project.name`, matching how FieldWorks itself derives `LcmCache.ProjectId.Name` from the
 /// project folder/file name rather than anything stored in the XML.
 pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("fwbackup"))
+    {
+        return fwbackup::import_fwbackup(path);
+    }
     let graph = xml::parse_fwdata(path)?;
-    let filename_stem = path
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let filename_stem = file_stem(path);
     let (snapshot, warnings) = extract::extract(&graph, &filename_stem);
     Ok((snapshot, ImportReport { warnings }))
+}
+
+pub(crate) fn file_stem(path: &Path) -> String {
+    path.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
