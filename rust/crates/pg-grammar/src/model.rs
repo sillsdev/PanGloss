@@ -1114,7 +1114,147 @@ pub struct Grammar {
     pub strata: Vec<StratumDef>,
 }
 
+/// Grammar-owned facts used by the final-template interleaving policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinalTemplatePruneFacts {
+    partial_rule_at_or_below: Vec<bool>,
+    all_templates_final: Vec<bool>,
+    partial_rule_count: usize,
+    disabled_strata: Vec<StratumId>,
+}
+
+impl FinalTemplatePruneFacts {
+    pub fn partial_rule_at_or_below(&self) -> &[bool] {
+        &self.partial_rule_at_or_below
+    }
+
+    pub fn all_templates_final(&self) -> &[bool] {
+        &self.all_templates_final
+    }
+
+    pub fn partial_rule_count(&self) -> usize {
+        self.partial_rule_count
+    }
+
+    pub fn disabled_strata(&self) -> &[StratumId] {
+        &self.disabled_strata
+    }
+}
+
 impl Grammar {
+    /// Compute and validate the single grammar-wide source of final-template prune facts.
+    pub fn final_template_prune_facts(&self) -> Result<FinalTemplatePruneFacts, crate::GrammarError> {
+        let strata_len = self.strata.len();
+        let mut rule_owner = vec![None; self.mrules.len()];
+        for (id, rule) in self.mrules.iter().enumerate() {
+            let Some(morpheme) = (match rule {
+                MorphRuleDef::AffixProcess(def) => Some(def.morpheme),
+                MorphRuleDef::Realizational(def) => Some(def.morpheme),
+                MorphRuleDef::Compounding(_) => None,
+            }) else {
+                continue;
+            };
+            let Some(info) = self.morphemes.get(morpheme.0 as usize) else {
+                return Err(crate::GrammarError::Semantic(format!(
+                    "mrule {id} references unknown morpheme {}",
+                    morpheme.0
+                )));
+            };
+            rule_owner[id] = Some(info.stratum);
+        }
+
+        let mut ordinary_ids = std::collections::HashSet::new();
+        for (si, sd) in self.strata.iter().enumerate() {
+            for &id in &sd.mrules {
+                if id.0 as usize >= self.mrules.len() {
+                    return Err(crate::GrammarError::Semantic(format!(
+                        "stratum {si} ordinary mrule id {} is out of range",
+                        id.0
+                    )));
+                }
+                ordinary_ids.insert(id);
+                if let Some(owner) = rule_owner[id.0 as usize] {
+                    if owner.0 as usize != si {
+                        return Err(crate::GrammarError::Semantic(format!(
+                            "ordinary mrule {} uses morpheme-owned stratum {} from stratum {}",
+                            id.0, owner.0, si
+                        )));
+                    }
+                }
+            }
+        }
+
+        for (si, sd) in self.strata.iter().enumerate() {
+            for &tid in &sd.templates {
+                let Some(template) = self.templates.get(tid.0 as usize) else {
+                    return Err(crate::GrammarError::Semantic(format!(
+                        "stratum {si} template id {} is out of range",
+                        tid.0
+                    )));
+                };
+                for slot in &template.slots {
+                    for &id in &slot.rules {
+                        if id.0 as usize >= self.mrules.len() {
+                            return Err(crate::GrammarError::Semantic(format!(
+                                "template slot rule id {} is out of range",
+                                id.0
+                            )));
+                        }
+                        if ordinary_ids.contains(&id) {
+                            return Err(crate::GrammarError::Semantic(format!(
+                                "template {} slot mrule {} overlaps an ordinary mrule list",
+                                tid.0, id.0
+                            )));
+                        }
+                        if let Some(owner) = rule_owner[id.0 as usize] {
+                            if owner.0 as usize != si {
+                                return Err(crate::GrammarError::Semantic(format!(
+                                    "template slot mrule {} uses morpheme-owned stratum {} from stratum {}",
+                                    id.0, owner.0, si
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut first_partial = None;
+        let mut partial_rule_count = 0;
+        for (id, rule) in self.mrules.iter().enumerate() {
+            let MorphRuleDef::AffixProcess(def) = rule else { continue };
+            if !def.partial { continue }
+            partial_rule_count += 1;
+            let Some(owner) = rule_owner[id] else { continue };
+            first_partial = Some(first_partial.map_or(owner.0 as usize, |p: usize| p.min(owner.0 as usize)));
+        }
+        let partial_rule_at_or_below = (0..strata_len)
+            .map(|i| first_partial.is_some_and(|p| i >= p))
+            .collect::<Vec<_>>();
+        let disabled_strata = partial_rule_at_or_below
+            .iter()
+            .enumerate()
+            .filter_map(|(i, disabled)| disabled.then_some(StratumId(i as u8)))
+            .collect();
+        let all_templates_final = self
+            .strata
+            .iter()
+            .map(|sd| {
+                !sd.templates.is_empty()
+                    && sd
+                        .templates
+                        .iter()
+                        .all(|&tid| self.templates[tid.0 as usize].is_final)
+            })
+            .collect::<Vec<_>>();
+        Ok(FinalTemplatePruneFacts {
+            disabled_strata,
+            partial_rule_at_or_below,
+            all_templates_final,
+            partial_rule_count,
+        })
+    }
+
     /// Resolve a dense MPR id to its stable authored identity and current display label.
     #[inline]
     pub fn mpr_feature(&self, id: MprId) -> Option<&MprFeatureDef> {

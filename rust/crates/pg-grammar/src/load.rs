@@ -547,7 +547,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     // All borrows of `phon` (via `ro`) have ended; the grammar takes ownership of its phonology so ids stay resolvable downstream.
     let (phon_features, char_tables) = phon.into_parts();
 
-    Ok(Grammar {
+    let grammar = Grammar {
         name: lang.text_of("Name").map(str::to_string),
         phon_features,
         char_tables,
@@ -566,7 +566,9 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         templates: acc.templates,
         entries: acc.entries,
         strata,
-    })
+    };
+    grammar.final_template_prune_facts()?;
+    Ok(grammar)
 }
 
 // Syntactic feature system.
@@ -2538,6 +2540,39 @@ mod tests {
             a.allomorphs[0].rhs[0],
             OutputAction::Copy(PartRef::Input(0))
         ));
+
+        let mut facts_grammar = g;
+        if let MorphRuleDef::AffixProcess(def) = &mut facts_grammar.mrules[0] {
+            def.partial = true;
+        }
+        facts_grammar.strata[0].mrules.clear();
+        let facts = facts_grammar.final_template_prune_facts().unwrap();
+        assert_eq!(facts.partial_rule_count(), 1);
+        assert_eq!(facts.partial_rule_at_or_below(), &[true]);
+        assert_eq!(facts.all_templates_final(), &[false]);
+        assert_eq!(facts.disabled_strata(), &[StratumId(0)]);
+    }
+
+    #[test]
+    fn final_template_facts_reject_template_overlap_with_both_ids() {
+        const XML: &str = r#"<HermitCrabInput><Language>
+          <Name>Overlap</Name>
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+            <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+          </SegmentDefinitions></CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
+          <Strata><Stratum characterDefinitionTable="t" morphologicalRules="mr">
+            <Name>S</Name><MorphologicalRuleDefinitions><MorphologicalRule id="mr" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>mr</Name>
+              <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+            </MorphologicalRule></MorphologicalRuleDefinitions>
+            <AffixTemplates><AffixTemplate id="tpl" final="true"><Name>Tpl</Name><Slot morphologicalRules="mr" /></AffixTemplate></AffixTemplates>
+          </Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let err = load(XML).expect_err("overlapping template rule must be rejected");
+        let text = err.to_string();
+        assert!(text.contains("template 0"), "diagnostic: {text}");
+        assert!(text.contains("mrule 0"), "diagnostic: {text}");
     }
 
     /// A root-allomorph `<PhoneticShape>` whose text doesn't literally match a character definition must fall back to the `[NatClass]` pattern language instead of erroring the whole allomorph out; a regression here drops not just the allomorph but the whole entry, since this fixture's entry has only that one allomorph.
