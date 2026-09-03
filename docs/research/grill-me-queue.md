@@ -40,6 +40,22 @@ Two live facts fall out of that mistake rather than being wasted:
 
 ## G11. The last fixture without a backend needs a decision, not a patch
 
+**RESOLVED BY MEASUREMENT, and the entry below was wrong about the mechanism.** The user chose
+option 2 (report an hc.dll defect). Before opening a branch I ran the founding oracle on the same
+grammar with the phonological rule deleted: hc.dll still analyses `g` as `ROOT1|z`. So the second
+analysis has nothing to do with analysis-side feature erasure. It is HermitCrab's basic model: a
+segment IS its feature bundle, and a character table only spells that bundle for one stratum. Inner
+`z` and outer `g` are both `{f=+}`, so they are one segment, and ROOT1 surfaces as `g` on the outer
+stratum with no rule involved (the second fixture's `b`/`d` pair is the same). hc.dll is correct; both
+fixtures' XML comments misattribute the cause; the miss is a proposer gap -- an inner-stratum root no
+rule touches is never spelled through the surface table -- and the templated route's
+`unsegmentable-root` refusals on the bistratal fixtures are the same missing translation. The fix is
+in the emitter, and the fixture comments (staged and upstream) are being corrected. The lesson for
+this file: two agents and I reasoned from the C# source to a mechanism without running the one
+experiment that discriminates it; the experiment took thirty seconds.
+
+**Superseded text follows, kept for the record.**
+
 **Not decided; left as the one measured miss.** `segment-natural-class-table-binding` word `g`: hc.dll
 (and now HC-Rust) return two analyses, `ROOT2|g` and `ROOT1|z`. The second exists only through the
 ANALYSIS direction: `FeatureAnalysisRewriteRuleSpec`'s anti-feature-struct subtraction erases the

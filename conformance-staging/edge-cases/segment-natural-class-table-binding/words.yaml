@@ -4,16 +4,15 @@
 # fixed to be loadable (PartsOfSpeech must precede PhonologicalFeatureSystem; PhonologicalSubrule
 # carries no `id` attribute in hc.dll's DTD).
 #
-# DIVERGENCE FROM HC-RUST FOUND HERE: word "g" was authored (against `pg_parse::Morpher`) with a
-# single expected analysis, "ROOT2|g". The founding oracle instead reports TWO analyses for "g":
-# "ROOT1|z" (in addition to "ROOT2|g") -- i.e. hc.dll's own SegmentNaturalClass resolution for the
-# Outer stratum's `prKtoG` rule ALSO fires on ROOT1's Inner-stratum material ("z"), exactly the
-# wrong-table collision this fixture was designed to prove COULD NEVER happen (ncK's member "k" sits
-# at t1 raw index 0, which t0's "z" also occupies, with the OPPOSITE feature value). Per this repo's
-# oracle hierarchy (CLAUDE.md), hc.dll is ground truth: `words.yaml` now records BOTH analyses, and
-# `pg_parse::Morpher`'s own single-analysis behavior for "g" is a divergence from the founding
-# oracle, not a correctness fix -- see `rust/crates/pg-parse/tests/conformance_fixtures_gate.rs` for
-# whether HC-Rust reproduces this second analysis.
+# DIVERGENCE FROM HC-RUST FOUND HERE (since fixed): word "g" was authored (against
+# `pg_parse::Morpher`) with a single expected analysis, "ROOT2|g". The founding oracle reports TWO:
+# "ROOT1|z" as well. That is not the wrong-table natural-class collision this fixture was designed
+# around, and it is not the rule's doing at all -- deleting `prKtoG` leaves hc.dll analysing "g" as
+# ROOT1|z. In HermitCrab a segment is its feature bundle and a table only spells it for one stratum:
+# t0's "z" and t1's "g" are both {f=+}, one segment, so ROOT1 (Inner stratum) surfaces as "g" on the
+# Outer stratum. The rule makes the word ambiguous by also deriving "g" from ROOT2's "k". Per this
+# repo's oracle hierarchy (CLAUDE.md), hc.dll is ground truth: `words.yaml` records BOTH analyses, and
+# HC-Rust now matches (`rust/crates/pg-parse/tests/conformance_fixtures_gate.rs`).
 
 language: SegmentNaturalClassTableBinding
 inspired_by: ["synthetic bistratal segment-natural-class-table-resolution probe (not modeling any real language)"]
@@ -40,10 +39,11 @@ words:
       rules from `FeatureNaturalClass` only, so none of them can detect a wrong-table char-def
       resolution -- see `rust/crates/pg-foma/tests/segment_natural_class_table_binding_discriminates.rs`
       for the direct demonstration that this fixture's own `SegmentNaturalClass` WOULD catch it.
-      FOUNDING-ORACLE FINDING (see this file's header): hc.dll itself ALSO produces the wrong-table
-      analysis "ROOT1|z" for this word, alongside the intended "ROOT2|g" -- the collision this
-      fixture set out to prove impossible is, per the founding oracle, a real ambiguity. Both
-      analyses are recorded below as ground truth.
+      FOUNDING-ORACLE FINDING (see this file's header): hc.dll ALSO analyses this word as
+      "ROOT1|z", not through the rule but because t0's "z" and t1's "g" are the same feature bundle
+      spelled by two tables -- cross-table respelling, a different construct from the wrong-table
+      class resolution this fixture set out to catch. Both analyses are recorded below as ground
+      truth.
     provenance: "rust/crates/pg-rules/src/cache.rs owning_table_tests module"
     parses:
       - signature: "ROOT1|z"
