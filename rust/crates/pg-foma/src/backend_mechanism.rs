@@ -1174,7 +1174,7 @@ mod tests {
             }],
             symbol_space: SymbolSpace::Surface(TableId(0).into()),
             stratum: None,
-            construct_requirements: [CharacteristicKind::RealizationalMorphology]
+            construct_requirements: [CharacteristicKind::ProcessMorphology]
                 .into_iter()
                 .collect(),
             body: MechanismBody::Morphotactics(MorphotacticsSpec {

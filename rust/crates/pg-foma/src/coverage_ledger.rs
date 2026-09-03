@@ -858,16 +858,19 @@ mod tests {
         );
     }
 
-    /// The per-row `CannotRepresent` list makes the live `PlanComposed` x `RealizationalMorphology` hole visible in the ledger, not only in the selection path.
+    /// The per-row `CannotRepresent` list makes the live `PlanComposed`/`TemplatedUnderlyingTokens` x `ProcessMorphology` hole visible in the ledger, not only in the selection path.
     #[test]
     fn the_ledger_reports_the_live_whole_construct_hole() {
         let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
         let row = ledger
-            .row(CharacteristicKind::RealizationalMorphology)
+            .row(CharacteristicKind::ProcessMorphology)
             .expect("row must exist");
         assert_eq!(
             row.strategies_cannot_represent,
-            vec![EmissionStrategy::PlanComposed.label().to_string()]
+            vec![
+                EmissionStrategy::PlanComposed.label().to_string(),
+                EmissionStrategy::TemplatedUnderlyingTokens.label().to_string(),
+            ]
         );
         assert!(
             ledger

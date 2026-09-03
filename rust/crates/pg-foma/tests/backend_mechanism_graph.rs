@@ -385,11 +385,11 @@ fn backend_mechanism_accepts_composable_morphotactics_cleanup_graph() {
 
 // --- Bindings: the only place a disposition exists, and it always names its compiler. ---
 
-/// A mechanism requiring `RealizationalMorphology` is refused by `PlanComposed` (its only lexicon emitter writes no line for a realizational rule) yet exact for the whole-grammar compilers -- same node, same graph, three different answers, each carrying its compiler's name.
+/// A mechanism requiring `ProcessMorphology` is refused by `PlanComposed` AND `TemplatedUnderlyingTokens` (neither runs a composite pipeline for an in-place mutation) yet exact for `TunedSurfaceProbed` -- same node, same graph, per-compiler answers, each carrying its compiler's name.
 #[test]
 fn backend_mechanism_binding_answers_per_compiler_and_never_anonymously() {
     let mut node = morphotactics("morph");
-    node.construct_requirements = [CharacteristicKind::RealizationalMorphology]
+    node.construct_requirements = [CharacteristicKind::ProcessMorphology]
         .into_iter()
         .collect();
     let g = graph(
@@ -399,29 +399,31 @@ fn backend_mechanism_binding_answers_per_compiler_and_never_anonymously() {
     g.validate()
         .expect("graph is composable regardless of compiler");
 
-    let refused = g.refusals(EmissionStrategy::PlanComposed);
-    assert_eq!(refused.len(), 1);
-    assert_eq!(refused[0].mechanism(), &MechanismId("morph".to_owned()));
-    assert_eq!(refused[0].strategy(), EmissionStrategy::PlanComposed);
-    assert!(
-        !refused[0].limiting_rows().is_empty(),
-        "a refusal must carry strategy_coverage's own citation"
-    );
-
     for strategy in [
-        EmissionStrategy::TunedSurfaceProbed,
+        EmissionStrategy::PlanComposed,
         EmissionStrategy::TemplatedUnderlyingTokens,
     ] {
+        let refused = g.refusals(strategy);
+        assert_eq!(refused.len(), 1, "{strategy:?}");
+        assert_eq!(refused[0].mechanism(), &MechanismId("morph".to_owned()));
+        assert_eq!(refused[0].strategy(), strategy);
         assert!(
-            g.refusals(strategy).is_empty(),
-            "{strategy:?} represents RealizationalMorphology"
+            !refused[0].limiting_rows().is_empty(),
+            "a refusal must carry strategy_coverage's own citation"
         );
-        let bindings = g.bind(strategy);
-        assert!(bindings
-            .iter()
-            .all(|b| b.disposition() == ExecutionDisposition::ExactFst));
-        assert!(bindings.iter().all(|b| b.strategy() == strategy));
     }
+
+    assert!(
+        g.refusals(EmissionStrategy::TunedSurfaceProbed).is_empty(),
+        "TunedSurfaceProbed represents ProcessMorphology"
+    );
+    let bindings = g.bind(EmissionStrategy::TunedSurfaceProbed);
+    assert!(bindings
+        .iter()
+        .all(|b| b.disposition() == ExecutionDisposition::ExactFst));
+    assert!(bindings
+        .iter()
+        .all(|b| b.strategy() == EmissionStrategy::TunedSurfaceProbed));
 }
 
 /// A documented partial gap is confirm-gated, never silently exact and never a refusal.

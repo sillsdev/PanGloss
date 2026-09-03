@@ -128,24 +128,6 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
         .ok_or_else(|| "grammar has no character table".to_string())?;
     let alphabet = SegAlphabet::new(table);
     let semantics = GrammarSemantics::derive(g);
-    // uflexc skips every Realizational rule wholesale, so a network can build while silently missing it.
-    if semantics
-        .characteristics()
-        .observations()
-        .iter()
-        .any(|o| o.kind == CharacteristicKind::RealizationalMorphology)
-    {
-        let row = crate::strategy_coverage::representation_of(
-            EmissionStrategy::PlanComposed,
-            CharacteristicKind::RealizationalMorphology,
-        );
-        if row.representation == crate::strategy_coverage::StrategyRepresentation::CannotRepresent {
-            return Err(format!(
-                "plan-composed cannot honour a grammar exercising RealizationalMorphology: {}",
-                row.evidence
-            ));
-        }
-    }
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let plan = enumerate_default(g, semantics.prules_in_order(), phonology.as_ref());
     let markers = crate::build::unbuildable_markers(&plan);
@@ -749,7 +731,7 @@ mod tests {
             .check(CompletenessRequirement::NonVacuity)
             .expect_err("an empty collection must not pass");
         assert_eq!(violations.len(), 3, "{violations:?}");
-        assert_eq!(report.gaps.len(), 66, "every representable pair is a gap");
+        assert_eq!(report.gaps.len(), 67, "every representable pair is a gap");
     }
 
     /// The strict requirement is live code, not a comment: it must reject exactly what the lenient one tolerates.

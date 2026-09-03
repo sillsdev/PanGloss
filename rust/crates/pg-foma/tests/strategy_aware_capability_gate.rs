@@ -68,26 +68,26 @@ fn load_conformance_fixture(root: Root, category: &str, name: &str) -> (FixtureR
     (fixture, grammar)
 }
 
-/// A minimal grammar whose only morphological rule is a `RealizationalRule`, reused verbatim from `capability.rs`'s own fixture so this file is not litigating a second, differently-shaped grammar.
-const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone</Name>
+/// Pure-ablaut `MorphologicalRule` (`Role::Process`); replaces this file's old `RealizationalRule` fixture now that `uflexc` represents `RealizationalMorphology` too.
+const ABLAUT_XML: &str = r#"<HermitCrabInput><Language><Name>AblautAlone</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
   </CharacterDefinitionTable>
   <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
   <Strata>
-    <Stratum characterDefinitionTable="t1">
+    <Stratum characterDefinitionTable="t1" morphologicalRules="mrAblaut">
       <Name>S</Name>
       <MorphologicalRuleDefinitions>
-        <RealizationalRule id="rr1">
-          <Name>Realiz</Name>
+        <MorphologicalRule id="mrAblaut">
+          <Name>ablaut</Name>
           <MorphologicalSubrules>
-            <MorphologicalSubrule id="sub1">
-              <MorphologicalInput><PhoneticSequence id="s0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
-              <MorphologicalOutput><CopyFromInput index="s0" /></MorphologicalOutput>
+            <MorphologicalSubrule id="subAblaut">
+              <MorphologicalInput><PhoneticSequence id="pA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><ModifyFromInput index="pA"><SimpleContext naturalClass="ncAll" /></ModifyFromInput></MorphologicalOutput>
             </MorphologicalSubrule>
           </MorphologicalSubrules>
-        </RealizationalRule>
+        </MorphologicalRule>
       </MorphologicalRuleDefinitions>
       <LexicalEntries>
         <LexicalEntry id="e1">
@@ -99,7 +99,7 @@ const REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>RealizAlone<
 </Language></HermitCrabInput>"#;
 
 /// The negative control: nothing here is strategy-conditional, so every strategy must reach the identical verdict and the strategy-aware filter must be a no-op.
-const NO_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>PlainAlone</Name>
+const NO_ABLAUT_XML: &str = r#"<HermitCrabInput><Language><Name>PlainAlone</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t1"><Name>Main</Name>
     <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
@@ -149,10 +149,10 @@ fn two_strategy_candidates(plan: &Plan) -> Vec<LoweredCandidate> {
 /// A grammar whose only rule is one `PlanComposed`'s proposer emits nothing for must not offer a `PlanComposed` candidate as selectable, and must still offer the compiler that can represent it.
 #[test]
 fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_using_it() {
-    let g = load(REALIZATIONAL_XML);
+    let g = load(ABLAUT_XML);
     assert!(
-        matches!(g.mrules[0], MorphRuleDef::Realizational(_)),
-        "fixture must actually declare a RealizationalRule"
+        matches!(g.mrules[0], MorphRuleDef::AffixProcess(_)),
+        "fixture must actually declare an AffixProcess rule"
     );
 
     let plan = enumerated_plan(&g);
@@ -173,15 +173,15 @@ fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_
 
     assert!(
         !plan_composed.is_admissible(),
-        "PlanComposed's proposer (uflexc) emits no lexc line for a RealizationalRule, so it cannot \
-         propose the construct at all -- it must not be selectable. Decision was {:?}",
+        "PlanComposed's proposer (uflexc) emits no lexc line for a Role::Process (ablaut) \
+         allomorph, so it cannot propose the construct at all -- it must not be selectable. \
+         Decision was {:?}",
         plan_composed.decision
     );
     assert!(
         tuned.is_admissible(),
-        "TunedSurfaceProbed handles RealizationalRule through emit.rs's shared rule accessors and \
-         must stay selectable -- the account is per-strategy, not a blanket refusal. Decision was \
-         {:?}",
+        "TunedSurfaceProbed handles Role::Process through build_structural_composites and must \
+         stay selectable -- the account is per-strategy, not a blanket refusal. Decision was {:?}",
         tuned.decision
     );
     // The refusal has to be legible, not just a bool: it names the strategy, the construct, and the account that produced it.
@@ -192,7 +192,7 @@ fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_
         .iter()
         .find(|d| d.predicate == "strategy-coverage.construct-not-representable")
         .expect("the refusal must come from the strategy-coverage account");
-    assert_eq!(hit.construct, "RealizationalMorphology");
+    assert_eq!(hit.construct, "ProcessMorphology");
     assert!(
         hit.witness.contains("PlanComposed"),
         "the diagnostic must name the strategy that cannot represent the construct: {}",
@@ -203,7 +203,7 @@ fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_
 /// The "before" half of the evidence: the strategy-blind envelope reaches `ConfirmOnly` on this same grammar and plan, so the old accounting genuinely could not see the hole.
 #[test]
 fn the_strategy_blind_envelope_cannot_see_the_hole() {
-    let g = load(REALIZATIONAL_XML);
+    let g = load(ABLAUT_XML);
     let plan = enumerated_plan(&g);
 
     assert_eq!(
@@ -217,7 +217,7 @@ fn the_strategy_blind_envelope_cannot_see_the_hole() {
 /// The memo trap: `GrammarSemantics` memoizes `characteristics()` per grammar, so a second strategy reading the same owner could silently inherit the first one's answer. One shared owner must still give two different answers.
 #[test]
 fn two_strategies_get_their_own_answers_from_one_shared_semantics() {
-    let g = load(REALIZATIONAL_XML);
+    let g = load(ABLAUT_XML);
     let plan = enumerated_plan(&g);
     let registry = default_registry();
 
@@ -269,7 +269,7 @@ fn two_strategies_get_their_own_answers_from_one_shared_semantics() {
 /// The negative control: with no strategy-conditional construct, the filter must be a no-op -- otherwise the test above would be satisfied by a filter that simply refused `PlanComposed` always.
 #[test]
 fn a_grammar_using_no_strategy_conditional_construct_is_unaffected() {
-    let g = load(NO_REALIZATIONAL_XML);
+    let g = load(NO_ABLAUT_XML);
     assert!(
         g.mrules.is_empty(),
         "control fixture must declare no morphological rules"
@@ -319,7 +319,7 @@ fn the_strategy_account_never_raises_a_decision() {
     }
 
     let registry = default_registry();
-    for xml in [REALIZATIONAL_XML, NO_REALIZATIONAL_XML] {
+    for xml in [ABLAUT_XML, NO_ABLAUT_XML] {
         let g = load(xml);
         let plan = enumerated_plan(&g);
         let semantics = GrammarSemantics::derive(&g);
@@ -338,27 +338,29 @@ fn the_strategy_account_never_raises_a_decision() {
     }
 }
 
-/// The hole is per-strategy: a table answering `CannotRepresent` for every strategy would pass the selection test above while being just as blind as what it replaced.
+/// The hole is per-strategy: `PlanComposed` and `TemplatedUnderlyingTokens` both cannot represent `ProcessMorphology`, while `TunedSurfaceProbed` can.
 #[test]
 fn the_account_is_per_strategy_not_a_blanket_refusal() {
-    assert_eq!(
-        representation_of(
-            EmissionStrategy::PlanComposed,
-            CharacteristicKind::RealizationalMorphology
-        )
-        .representation,
-        StrategyRepresentation::CannotRepresent
-    );
     for strategy in [
-        EmissionStrategy::TunedSurfaceProbed,
+        EmissionStrategy::PlanComposed,
         EmissionStrategy::TemplatedUnderlyingTokens,
     ] {
         assert_eq!(
-            representation_of(strategy, CharacteristicKind::RealizationalMorphology).representation,
-            StrategyRepresentation::Represents,
+            representation_of(strategy, CharacteristicKind::ProcessMorphology).representation,
+            StrategyRepresentation::CannotRepresent,
             "{strategy:?}"
         );
     }
+    assert_eq!(
+        representation_of(
+            EmissionStrategy::TunedSurfaceProbed,
+            CharacteristicKind::ProcessMorphology
+        )
+        .representation,
+        StrategyRepresentation::Represents,
+        "TunedSurfaceProbed must still represent what the other two cannot -- the account is \
+         per-strategy, not a blanket refusal"
+    );
 }
 
 /// Refuses each unsupported allomorph shape without attributing that capability gap to Tuned.

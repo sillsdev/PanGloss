@@ -40,10 +40,9 @@
         ],
         "note": "Proposer-to-confirm containment for MorphRuleDef::Realizational's real_fs head-wrapped presence-blocking."
       },
-      "strategies_cannot_represent": [
-        "plan-composed"
-      ],
+      "strategies_cannot_represent": [],
       "strategies_unwitnessed": [
+        "plan-composed",
         "templated-underlying-tokens"
       ]
     },

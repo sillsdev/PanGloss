@@ -150,13 +150,12 @@ fn plan_composed(kind: CharacteristicKind) -> (StrategyRepresentation, &'static 
             "uflexc::emit_underlying_filtered -- Role::Prefix/Role::Suffix allomorphs become \
              prefix/suffix continuation-chain lines",
         ),
-        // A live hole: `uflexc` skips every `MorphRuleDef::Realizational` rule wholesale, so no lexc line is ever written and the proposer returns zero candidates for any word requiring it.
+        // `MorphRuleDef::AffixProcess` and `::Realizational` share one allomorph shape (`MorphRuleDef::affix_allomorphs`), and uflexc now walks both through the same Role::Prefix/Role::Suffix classification -- the rule's own gate (RealizationalFeatures/RequiredHeadFeatures) is left to confirm, same as every other ConfirmOnly characteristic this emitter proposes a superset for.
         RealizationalMorphology => (
-            CannotRepresent,
-            "uflexc::emit_underlying_filtered -- MorphRuleDef::Realizational is reported in \
-             `skipped` as `kind=realizational-rule` and `continue`d past; no lexc line is emitted \
-             for the rule at all (uflexc module doc: it never attempts the syntactic \
-             feature-realization mechanism RealizationalRuleDef needs)",
+            Represents,
+            "uflexc::emit_underlying_filtered -- MorphRuleDef::affix_allomorphs() walks \
+             Realizational allomorphs through the same Role::Prefix/Role::Suffix classification \
+             AffixProcess allomorphs get, becoming prefix/suffix continuation-chain lines",
         ),
         // Now a real, budget-bounded, unrolled compound chain over `emit::compound_license`'s head/non-head split.
         Compounding => (
@@ -428,26 +427,10 @@ mod tests {
         );
     }
 
-    /// The row this module exists for: `PlanComposed` never writes a line for a `Realizational` rule, so it cannot propose one -- exactly what a strategy-blind account cannot say.
+    /// Pinned so a regression in `uflexc`'s `affix_allomorphs()`-based walk is a reviewed table edit.
     #[test]
-    fn plan_composed_cannot_represent_realizational_morphology() {
-        assert_eq!(
-            representation_of(
-                EmissionStrategy::PlanComposed,
-                CharacteristicKind::RealizationalMorphology
-            )
-            .representation,
-            StrategyRepresentation::CannotRepresent
-        );
-    }
-
-    /// The two whole-grammar compilers CAN, which is why a strategy-blind account read the construct as covered: the union of abilities is not any one compiler's ability.
-    #[test]
-    fn the_whole_grammar_compilers_can_represent_realizational_morphology() {
-        for &strategy in &[
-            EmissionStrategy::TunedSurfaceProbed,
-            EmissionStrategy::TemplatedUnderlyingTokens,
-        ] {
+    fn realizational_morphology_is_representable_by_every_strategy_now() {
+        for &strategy in ALL_STRATEGIES {
             assert_eq!(
                 representation_of(strategy, CharacteristicKind::RealizationalMorphology)
                     .representation,
@@ -506,7 +489,6 @@ mod tests {
         assert_eq!(
             unrepresentable_kinds(EmissionStrategy::PlanComposed),
             vec![
-                CharacteristicKind::RealizationalMorphology,
                 // uflexc lists Role::Process in its own skipped set; no lexc line is emitted at all.
                 CharacteristicKind::ProcessMorphology
             ]
@@ -521,13 +503,10 @@ mod tests {
     }
 
     #[test]
-    fn strategies_that_represent_excludes_only_the_holed_compiler() {
+    fn strategies_that_represent_excludes_every_holed_compiler() {
         assert_eq!(
-            strategies_that_represent(CharacteristicKind::RealizationalMorphology),
-            vec![
-                EmissionStrategy::TunedSurfaceProbed,
-                EmissionStrategy::TemplatedUnderlyingTokens
-            ]
+            strategies_that_represent(CharacteristicKind::ProcessMorphology),
+            vec![EmissionStrategy::TunedSurfaceProbed]
         );
         assert_eq!(
             strategies_that_represent(CharacteristicKind::Affixation).len(),

@@ -26,19 +26,21 @@
 //! - Root allomorphs: every non-pattern allomorph accepted bare (module doc "Deliberate
 //!   supersets" convention `emit.rs` already uses — `is_pattern` allomorphs stay uncovered, zero
 //!   in Indonesian).
-//! - Affix allomorphs: classified via `crate::emit::classify_affix` on each allomorph's own RHS
-//!   (not just the rule's first allomorph, matching `emit.rs`'s per-allomorph granularity).
-//!   `Role::Prefix` → prefix chain; `Role::Suffix` → suffix chain. Everything else
+//! - Affix allomorphs: `MorphRuleDef::AffixProcess` and `MorphRuleDef::Realizational` share one
+//!   allomorph shape (`MorphRuleDef::affix_allomorphs`'s own doc), so both are walked uniformly
+//!   and classified via `crate::emit::classify_affix` on each allomorph's own RHS (not just the
+//!   rule's first allomorph, matching `emit.rs`'s per-allomorph granularity). `Role::Prefix` →
+//!   prefix chain; `Role::Suffix` → suffix chain. Everything else
 //!   (`Reduplication`/`Infix`/`CircumfixPrefix`/`CircumfixSuffix`/`Process`/`None`) is skipped and
 //!   reported — `emit.rs`'s own recall gate for this exact corpus (`f2_indonesian_gate.rs`) proves
 //!   3 such allomorphs (2 reduplication-classified, all routed to its `uncovered` list) cost zero
 //!   recall on these 121 words, which is why this prototype doesn't chase circumfix/null-morph
 //!   support up front — the parity gate (this module's own driver) is the source of truth on
-//!   whether that holds for the underlying-form path too.
-//! - Compounding: **covered** as of the bounded compound loop below. Every
-//!   `MorphRuleDef::Realizational` rule is still reported via `skipped` (never a silent drop, this
-//!   doc's own heading) rather than enumerated — this module never attempts the syntactic
-//!   feature-realization mechanism `RealizationalRuleDef` needs.
+//!   whether that holds for the underlying-form path too. A `Realizational` rule's gate
+//!   (`RealizationalFeatures`/`RequiredHeadFeatures`) is not evaluated here at all — confirm
+//!   enforces it, same as every other `ConfirmOnly` characteristic this module proposes a
+//!   superset for.
+//! - Compounding: **covered** as of the bounded compound loop below.
 //!
 //! ## Bounded compound loop
 //! Until this loop existed, this module's continuation graph was structurally single-root — no arc
@@ -124,12 +126,12 @@
 
 use std::collections::HashSet;
 
-use pg_grammar::model::{Grammar, LexEntryId, MorphRuleDef, OutputAction, SegmentedText};
+use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef, OutputAction, SegmentedText};
 
 use crate::compose_budget::ComposeError;
 use crate::emit::{
     build_compound_chain, classify_affix, compound_extra_levels_checked, compound_license,
-    write_bare, write_lexicon_header, EmitCounts, Role,
+    owning_morpheme, write_bare, write_lexicon_header, EmitCounts, Role,
 };
 use crate::replace::SegAlphabet;
 use crate::tags;
@@ -156,11 +158,11 @@ impl TokenEntry {
 #[derive(Debug)]
 pub struct UEmitReport {
     pub lexc_source: String,
-    /// One line per skipped allomorph, e.g. `"mrule14#allo1 role=reduplication"` -- or, for an
-    /// entire `MorphRuleDef::Compounding`/`MorphRuleDef::Realizational` rule this module never
-    /// implements at all, one line per rule, e.g. `"mrule9(cmp1) kind=compounding-rule"` /
-    /// `"mrule12/RL(-) kind=realizational-rule"` (module doc's "what's covered / skipped" section).
-    /// Never a silent drop (module doc).
+    /// One line per skipped allomorph, e.g. `"mrule14#allo1 role=reduplication"` (an
+    /// `AffixProcess`/`Realizational` allomorph this module's role classifier does not cover) --
+    /// or, for a `MorphRuleDef::Compounding` rule with no licensed non-head root to attach, one
+    /// line per rule, e.g. `"mrule9(cmp1) kind=compounding-rule reason=no-licensed-non-head-root"`
+    /// (module doc's "what's covered / skipped" section). Never a silent drop (module doc).
     pub skipped: Vec<String>,
     pub root_entries: usize,
     pub prefix_entries: usize,
@@ -313,32 +315,20 @@ pub fn emit_underlying_filtered(
     }
 
     for (mid, mrule) in g.mrules.iter().enumerate() {
-        let def = match mrule {
-            MorphRuleDef::AffixProcess(def) => def,
-            MorphRuleDef::Compounding(_) => {
-                // Handled structurally by the bounded compound loop below, not as an affix chain: a `CompoundingRuleDef` has no `MorphemeId` and no flat allomorph list, so there is nothing for this loop to emit.
-                continue;
-            }
-            MorphRuleDef::Realizational(def) => {
-                // Reported by morpheme identity rather than by allomorph: this module never attempts the syntactic feature-realization mechanism `RealizationalRuleDef` needs at all (module doc).
-                let morph_name = g
-                    .morphemes
-                    .get(def.morpheme.0 as usize)
-                    .map(|mi| format!("{}({})", mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
-                    .unwrap_or_else(|| format!("mrules[{mid}]"));
-                skipped.push(format!("{morph_name} kind=realizational-rule"));
-                continue;
-            }
+        // `AffixProcess`/`Realizational` share one allomorph shape (`MorphRuleDef::affix_allomorphs`'s own doc); a `CompoundingRuleDef` has no `MorphemeId` and no flat allomorph list, so it is handled structurally by the bounded compound loop below instead.
+        let Some(allomorphs) = mrule.affix_allomorphs() else {
+            continue;
         };
-        let tag = tags::morph_tag_lexc(def.morpheme, width);
+        let morpheme = owning_morpheme(g, MRuleId(mid as u32));
+        let tag = tags::morph_tag_lexc(morpheme, width);
         // Report by the morpheme's own XML identity, not the raw 0-based index into `g.mrules`, which also counts `CompoundingRuleDef` entries and so does not line up with the grammar's "mruleN" ids.
         let morph_name = g
             .morphemes
-            .get(def.morpheme.0 as usize)
+            .get(morpheme.0 as usize)
             .map(|mi| format!("{}({})", mi.xml_key, mi.gloss.as_deref().unwrap_or("-")))
             .unwrap_or_else(|| format!("mrules[{mid}]"));
         let mut declared = false;
-        for (ai, allo) in def.allomorphs.iter().enumerate() {
+        for (ai, allo) in allomorphs.iter().enumerate() {
             let role = classify_affix(&allo.rhs);
             match role {
                 Role::Prefix => {
