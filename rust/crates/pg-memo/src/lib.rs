@@ -64,8 +64,7 @@ pub struct AnalysisStateKey {
     non_head_count: u32,
     /// The per-rule unapplication multiset; a `BTreeMap` so equal multisets built up in different orders compare and hash identically.
     rule_counts: BTreeMap<MRuleId, u32>,
-    /// Final-template interleaving state. Kept as a byte at this crate boundary so pg-memo does
-    /// not depend on pg-rules (which depends on pg-memo).
+    /// Final-template interleaving state, opaque at this crate boundary to avoid a dependency cycle.
     state: u8,
 }
 
