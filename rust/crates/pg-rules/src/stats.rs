@@ -262,20 +262,28 @@ impl StatsCollector {
             }
     }
 
+    fn prune_cell(&self, stratum: StratumId, direction: Direction) -> std::cell::RefMut<'_, PruneCounters> {
+        let index = Self::prune_index(stratum, direction);
+        let mut rows = self.prune.borrow_mut();
+        if index >= rows.len() {
+            rows.resize(index + 1, PruneCounters::default());
+        }
+        std::cell::RefMut::map(rows, |rows| &mut rows[index])
+    }
+
     /// Record entry into a template battery after its policy gates admitted the battery.
     pub fn record_template_entry(&self, stratum: StratumId, direction: Direction) {
-        self.prune.borrow_mut()[Self::prune_index(stratum, direction)].template_entries += 1;
+        self.prune_cell(stratum, direction).template_entries += 1;
     }
 
     /// Record an entire template battery rejected at the pre-memoization seam.
     pub fn record_template_battery_skipped(&self, stratum: StratumId, direction: Direction) {
-        self.prune.borrow_mut()[Self::prune_index(stratum, direction)]
-            .template_batteries_skipped += 1;
+        self.prune_cell(stratum, direction).template_batteries_skipped += 1;
     }
 
     /// Record one final template rejected before template entry/walk.
     pub fn record_final_template_skipped(&self, stratum: StratumId, direction: Direction) {
-        self.prune.borrow_mut()[Self::prune_index(stratum, direction)].final_templates_skipped += 1;
+        self.prune_cell(stratum, direction).final_templates_skipped += 1;
     }
 
     /// Enter a per-object self-time region, booked at `(kind, stratum, object_index, allomorph,

@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MRuleId, PRuleId};
 use serde::Serialize;
+use serde_json::Value;
 
 /// Bounds one `StatsCache::flush` transaction so a 10k-word run never holds every row in memory at once.
 const STATS_FLUSH_BATCH: usize = 500;
@@ -190,6 +191,53 @@ fn refuse_if_cache_engine_differs(
     Ok(())
 }
 
+fn refuse_if_final_template_policy_differs(
+    cache: &pg_stats::StatsCache,
+    cache_path: &std::path::Path,
+    requested: bool,
+) -> Result<(), String> {
+    let mut stmt = cache
+        .connection()
+        .prepare("SELECT options_json FROM run ORDER BY run_id")
+        .map_err(|e| e.to_string())?;
+    let prior: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    for options_json in prior {
+        let value = serde_json::from_str::<Value>(&options_json).map_err(|err| {
+            format!(
+                "stats: cache at {} has malformed prior options JSON ({err})",
+                cache_path.display()
+            )
+        })?;
+        let object = value.as_object().ok_or_else(|| {
+            format!(
+                "stats: cache at {} has prior options JSON that is not an object",
+                cache_path.display()
+            )
+        })?;
+        let recorded = match object.get("always_enforce_final_templates") {
+            None => false,
+            Some(Value::Bool(value)) => *value,
+            Some(_) => {
+                return Err(format!(
+                    "stats: cache at {} has non-boolean always_enforce_final_templates",
+                    cache_path.display()
+                ));
+            }
+        };
+        if recorded != requested {
+            return Err(format!(
+                "stats: cache at {} records always_enforce_final_templates={} but requested {}; use a separate cache",
+                cache_path.display(), recorded, requested
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct StatsOptionsRecord {
     engine: &'static str,
@@ -197,6 +245,16 @@ struct StatsOptionsRecord {
     word_timeout_ms: Option<u64>,
     memo: Option<bool>,
     guess: bool,
+    always_enforce_final_templates: bool,
+}
+
+fn final_template_stats_line(counters: pg_rules::stats::PruneCounters) -> String {
+    format!(
+        "FINAL_TEMPLATE_STATS\ttemplate_entries={}\ttemplate_batteries_skipped={}\tfinal_templates_skipped={}",
+        counters.template_entries,
+        counters.template_batteries_skipped,
+        counters.final_templates_skipped,
+    )
 }
 
 /// Flushes HC `batch --stats` records in batches and prints the one summary line it promises.
@@ -238,7 +296,7 @@ fn finish_stats_flush(
     Ok(())
 }
 
-/// `batch --stats`'s default-engine path: skips cached words, parses the rest via `Morpher::parse_word_with_stats`, and accumulates the result.
+/// `batch --stats`'s default-engine path: skips cached words, parses the rest via the stats-enabled Morpher entry point, and accumulates the result.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_batch_stats_hc(
     grammar: &Grammar,
@@ -250,6 +308,7 @@ pub(crate) fn run_batch_stats_hc(
     word_timeout_ms: Option<u64>,
     memo: bool,
     guess: bool,
+    always_enforce_final_templates: bool,
     cache_override: Option<&str>,
 ) -> Result<(), String> {
     let grammar_hash = grammar_hash_for(grammar_path)?;
@@ -263,6 +322,11 @@ pub(crate) fn run_batch_stats_hc(
         );
     }
     refuse_if_cache_engine_differs(&outcome.cache, "hc", &cache_path)?;
+    refuse_if_final_template_policy_differs(
+        &outcome.cache,
+        &cache_path,
+        always_enforce_final_templates,
+    )?;
 
     let refs: Vec<&str> = words.iter().map(String::as_str).collect();
     let existing = outcome
@@ -276,12 +340,19 @@ pub(crate) fn run_batch_stats_hc(
 
     let start = Instant::now();
     let mut records = Vec::new();
+    let mut prune_totals = pg_rules::stats::PruneCounters::default();
     for word in words {
         if existing.contains(word.as_str()) {
             continue;
         }
         let word_start = Instant::now();
-        let (parse_outcome, rows) = morpher.parse_word_with_stats(word, opts);
+        let (parse_outcome, rows, prune_rows) =
+            morpher.parse_word_with_stats_and_prunes(word, opts);
+        for row in prune_rows {
+            prune_totals.template_entries += row.counters.template_entries;
+            prune_totals.template_batteries_skipped += row.counters.template_batteries_skipped;
+            prune_totals.final_templates_skipped += row.counters.final_templates_skipped;
+        }
         let word_elapsed = word_start.elapsed();
         let facts = rows
             .iter()
@@ -306,6 +377,7 @@ pub(crate) fn run_batch_stats_hc(
         word_timeout_ms,
         memo: Some(memo),
         guess,
+        always_enforce_final_templates,
     };
     finish_stats_flush(
         &mut outcome.cache,
@@ -315,7 +387,9 @@ pub(crate) fn run_batch_stats_hc(
         records,
         skipped,
         total_elapsed,
-    )
+    )?;
+    println!("{}", final_template_stats_line(prune_totals));
+    Ok(())
 }
 
 // The `stats` subcommand: read-only, no grammar loaded.
@@ -1774,6 +1848,22 @@ mod tests {
         fixture_grammar_and_word("languages", "metathesis-phase-isolation")
     }
 
+    #[test]
+    fn final_template_stats_line_is_deterministic_for_empty_and_nonempty_rows() {
+        assert_eq!(
+            final_template_stats_line(pg_rules::stats::PruneCounters::default()),
+            "FINAL_TEMPLATE_STATS\ttemplate_entries=0\ttemplate_batteries_skipped=0\tfinal_templates_skipped=0"
+        );
+        assert_eq!(
+            final_template_stats_line(pg_rules::stats::PruneCounters {
+                template_entries: 2,
+                template_batteries_skipped: 3,
+                final_templates_skipped: 5,
+            }),
+            "FINAL_TEMPLATE_STATS\ttemplate_entries=2\ttemplate_batteries_skipped=3\tfinal_templates_skipped=5"
+        );
+    }
+
     /// A second, structurally different fixture, for the grammar-change/wipe test.
     fn secondary_fixture() -> (String, String) {
         fixture_grammar_and_word("edge-cases", "truncate-morphotactic")
@@ -1874,6 +1964,34 @@ mod tests {
             word_count, 1,
             "the same word run twice must accumulate to exactly one word row, not two"
         );
+    }
+
+    #[test]
+    fn stats_cache_rejects_switching_final_template_policy() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("policy-switch");
+        let cache_path = dir.join("cache.sqlite3");
+        let (first, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--cache", cache_path.to_str().unwrap()],
+        );
+        crate::run_batch(&first).expect("initial stats run");
+        let (second, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &[
+                "--stats",
+                "--always-enforce-final-templates",
+                "--cache",
+                cache_path.to_str().unwrap(),
+            ],
+        );
+        let err = crate::run_batch(&second).expect_err("policy switch must be rejected");
+        assert!(err.contains(cache_path.to_str().unwrap()), "error: {err}");
+        assert!(err.contains("false") && err.contains("true"), "error: {err}");
     }
 
     #[test]
