@@ -264,9 +264,9 @@ fn truncate_morphotactic_proposes_successful_truncation_controls() {
     assert_proposes_oracle_identity(&label, &grammar, &words, "gbubibi");
 }
 
-/// "gas" has a direct one-rule oracle identity (now proposed) and a chained two-rule one (not yet).
+/// "gas" has a direct one-rule oracle identity and a chained two-rule one; the templated route proposes both.
 #[test]
-fn truncate_morphotactic_proposes_the_direct_gas_analysis_but_not_yet_the_chained_one() {
+fn truncate_morphotactic_proposes_both_gas_analyses() {
     let (label, grammar, words) = open(Root::Machine, "edge-cases", "truncate-morphotactic");
     let entry = word(&words, "gas");
     let morpher = Morpher::new(&grammar, usize::MAX);
@@ -329,16 +329,17 @@ fn truncate_morphotactic_proposes_the_direct_gas_analysis_but_not_yet_the_chaine
         chained.root_morpheme_index,
     );
     assert!(
-        !candidates
+        candidates
             .iter()
             .any(|candidate| (candidate.morphemes.clone(), candidate.root_index)
                 == expected_chained),
-        "{label}: the chained oracle identity {expected_chained:?} for \"gas\" is now proposed -- \
-         update this test (and its doc comment) to reflect the closed gap"
+        "{label}: templated proposer must contain the chained oracle identity {expected_chained:?} \
+         for \"gas\" (the order lattice reaches the truncating rule after the inserting one); got \
+         {candidates:?}"
     );
 }
 
-/// Ratchets this fixture's scoreboard cell at `CompilesButMisses { recall_deficit: 1 }` (see the pin above).
+/// Pins this fixture's scoreboard cell at `OracleExact` under the templated route (see the pin above).
 #[test]
 fn truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens() {
     let (label, grammar, words) = open(Root::Machine, "edge-cases", "truncate-morphotactic");
@@ -356,10 +357,10 @@ fn truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens() {
         .expect("TemplatedUnderlyingTokens must have a scoreboard cell");
     assert_eq!(
         cell.outcome,
-        CellOutcome::CompilesButMisses { recall_deficit: 1 },
-        "{label} [TemplatedUnderlyingTokens]: got {:?} (cert={}) -- an IMPROVEMENT means the \
-         chained \"gas\" identity is now reachable, update this ratchet deliberately; a \
-         WORSENING is a regression",
+        CellOutcome::OracleExact,
+        "{label} [TemplatedUnderlyingTokens]: got {:?} (cert={}) -- both \"gas\" analyses were \
+         reachable once the leading drop anchored to its marker and the order lattice landed; \
+         anything else is a regression",
         cell.outcome,
         cell.certification_debug
     );

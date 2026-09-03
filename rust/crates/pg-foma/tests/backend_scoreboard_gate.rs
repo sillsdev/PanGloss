@@ -43,7 +43,7 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target, over 62 fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route) and segment-natural-class-table-binding "g" the one miss; earlier moves were three `[Any]*` pattern roots under the regex route, a repeated-application decode fix, per-allomorph zone ownership, the dropped closure refusal, the process-morphology route, two all-`expect_fail` "misses", and the two-table cross-table emitter fix. TUT: an order lattice for small unordered rule sets and flip-polarity alpha variables turned three misses exact, leaving truncate-morphotactic "gas". PC: realizational allomorphs emitted like any affix rule's turned its two misses exact -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target, over 62 fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route) and segment-natural-class-table-binding "g" the one miss; earlier moves were three `[Any]*` pattern roots under the regex route, a repeated-application decode fix, per-allomorph zone ownership, the dropped closure refusal, the process-morphology route, two all-`expect_fail` "misses", and the two-table cross-table emitter fix. TUT: an order lattice for small unordered rule sets and flip-polarity alpha variables turned three misses exact, and a marker-adjacent leading-drop deletion closed truncate-morphotactic "gas", the last one. PC: realizational allomorphs emitted like any affix rule's turned its two misses exact -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
@@ -57,8 +57,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 40,
-            compiles_but_misses: 1,
+            oracle_exact: 41,
+            compiles_but_misses: 0,
             refused: 21,
             unmeasurable: 0,
         },
