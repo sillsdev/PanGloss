@@ -64,6 +64,9 @@ pub struct AnalysisStateKey {
     non_head_count: u32,
     /// The per-rule unapplication multiset; a `BTreeMap` so equal multisets built up in different orders compare and hash identically.
     rule_counts: BTreeMap<MRuleId, u32>,
+    /// Final-template interleaving state. Kept as a byte at this crate boundary so pg-memo does
+    /// not depend on pg-rules (which depends on pg-memo).
+    state: u8,
 }
 
 impl AnalysisStateKey {
@@ -78,6 +81,28 @@ impl AnalysisStateKey {
         non_head_count: u32,
         rule_counts: BTreeMap<MRuleId, u32>,
     ) -> Self {
+        Self::new_with_state(
+            shape,
+            stratum,
+            syntactic_fs,
+            realizational_fs,
+            non_head_count,
+            rule_counts,
+            0,
+        )
+    }
+
+    /// Build a key including the final-template interleaving state. The state is intentionally
+    /// opaque here; pg-rules owns its meaning and supplies its stable `repr(u8)` value.
+    pub fn new_with_state(
+        shape: Shape,
+        stratum: StratumId,
+        syntactic_fs: FeatureStruct,
+        realizational_fs: FeatureStruct,
+        non_head_count: u32,
+        rule_counts: BTreeMap<MRuleId, u32>,
+        state: u8,
+    ) -> Self {
         AnalysisStateKey {
             shape,
             stratum,
@@ -85,6 +110,7 @@ impl AnalysisStateKey {
             realizational_fs,
             non_head_count,
             rule_counts,
+            state,
         }
     }
 }
@@ -235,6 +261,29 @@ mod tests {
     #[test]
     fn key_distinguishes_non_head_count() {
         assert_ne!(key_with(BTreeMap::new(), 0), key_with(BTreeMap::new(), 1));
+    }
+
+    #[test]
+    fn key_distinguishes_final_template_state() {
+        let a = AnalysisStateKey::new_with_state(
+            shape(),
+            StratumId(0),
+            FeatureStruct::EMPTY,
+            FeatureStruct::EMPTY,
+            0,
+            BTreeMap::new(),
+            0,
+        );
+        let b = AnalysisStateKey::new_with_state(
+            shape(),
+            StratumId(0),
+            FeatureStruct::EMPTY,
+            FeatureStruct::EMPTY,
+            0,
+            BTreeMap::new(),
+            1,
+        );
+        assert_ne!(a, b);
     }
 
     #[test]

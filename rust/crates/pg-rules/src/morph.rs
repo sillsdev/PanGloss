@@ -38,6 +38,7 @@ use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_
 use crate::bridge::{BridgeError, PatternBridge};
 use crate::stats::{MRuleStatsCtx, ObjectKind};
 use crate::stratum::NonHeadRootFilter;
+use crate::stratum::FinalTemplateSynthesisPolicy;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
@@ -105,19 +106,41 @@ fn record_mrule_invocation_end(
 /// called on standalone, non-grammar-resident rule fixtures that have no stable index into a
 /// `crate::cache::RuleCache`. The real per-word pipeline calls `synthesize_cached` instead.
 pub fn synthesize(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
-    synthesize_stats(g, word, rule, None)
+    synthesize_with_policy(g, word, rule, FinalTemplateSynthesisPolicy::default())
+}
+
+/// Policy-aware sibling of `synthesize`; the compatibility wrapper above keeps the historical
+/// rescue behavior unless the parse owner opts into the result-changing override.
+pub fn synthesize_with_policy(
+    g: &Grammar,
+    word: &Word,
+    rule: &MorphRuleDef,
+    policy: FinalTemplateSynthesisPolicy,
+) -> Vec<Word> {
+    synthesize_stats_with_policy(g, word, rule, None, policy)
 }
 
 /// `synthesize`'s `--stats`-carrying sibling; `pub(crate)` since only `crate::stratum` needs the ctx.
+#[allow(dead_code)]
 pub(crate) fn synthesize_stats(
     g: &Grammar,
     word: &Word,
     rule: &MorphRuleDef,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    synthesize_stats_with_policy(g, word, rule, mstats, FinalTemplateSynthesisPolicy::default())
+}
+
+pub(crate) fn synthesize_stats_with_policy(
+    g: &Grammar,
+    word: &Word,
+    rule: &MorphRuleDef,
+    mstats: Option<MRuleStatsCtx>,
+    policy: FinalTemplateSynthesisPolicy,
+) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def, mstats),
-        MorphRuleDef::Compounding(def) => synth_compound(g, word, def, mstats),
+        MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def, mstats, policy),
+        MorphRuleDef::Compounding(def) => synth_compound(g, word, def, mstats, policy),
         MorphRuleDef::Realizational(def) => synth_realizational(g, word, def, mstats),
     };
     apply_blocking(g, out, rule.blockable())
@@ -137,12 +160,37 @@ pub(crate) fn synthesize_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
+    synthesize_cached_traced_with_policy(
+        g,
+        mrid,
+        word,
+        rule,
+        cache,
+        mstats,
+        trace,
+        parent,
+        FinalTemplateSynthesisPolicy::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn synthesize_cached_traced_with_policy(
+    g: &Grammar,
+    mrid: MRuleId,
+    word: &Word,
+    rule: &MorphRuleDef,
+    cache: &crate::cache::RuleCache,
+    mstats: Option<MRuleStatsCtx>,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    policy: FinalTemplateSynthesisPolicy,
+) -> Vec<Word> {
     let out = match rule {
         MorphRuleDef::AffixProcess(def) => {
-            synth_affix_cached(g, word, def, mrid, cache, mstats, trace, parent)
+            synth_affix_cached(g, word, def, mrid, cache, mstats, trace, parent, policy)
         }
         MorphRuleDef::Compounding(def) => {
-            synth_compound_cached(g, word, def, mrid, cache, mstats, trace, parent)
+            synth_compound_cached(g, word, def, mrid, cache, mstats, trace, parent, policy)
         }
         MorphRuleDef::Realizational(def) => {
             synth_realizational_cached(g, word, def, mrid, cache, mstats, trace, parent)
@@ -1329,14 +1377,14 @@ fn synth_affix(
     word: &Word,
     rule: &AffixProcessRuleDef,
     mstats: Option<MRuleStatsCtx>,
+    policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     // Gate order matches C#: template prohibitions, then `RequiredStemName`, then the syn-FS unify; independent gates, so order only picks which `FailureReason` is reported first. Both template checks are guarded on `!is_template_rule`, since a template's own slot rules are never subject to them.
 
     // After a *final* template, prohibit a non-partial rule.
     if !rule.is_template_rule
         && matches!(word.flags.is_last_applied_rule_final, Some(true))
-        && !word.flags.is_partial
-        && !rule.partial
+        && (policy.always_enforce || (!word.flags.is_partial && !rule.partial))
     {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
@@ -1432,6 +1480,7 @@ fn synth_affix_cached(
     mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     macro_rules! not_applied {
         ($reason:expr) => {{
@@ -1447,8 +1496,7 @@ fn synth_affix_cached(
     // Final-template prohibition.
     if !rule.is_template_rule
         && matches!(word.flags.is_last_applied_rule_final, Some(true))
-        && !word.flags.is_partial
-        && !rule.partial
+        && (policy.always_enforce || (!word.flags.is_partial && !rule.partial))
     {
         not_applied!(FailureReason::NonPartialRuleProhibitedAfterFinalTemplate);
     }
@@ -2530,6 +2578,7 @@ fn synth_compound(
     word: &Word,
     rule: &CompoundingRuleDef,
     mstats: Option<MRuleStatsCtx>,
+    policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     let Some(nh) = word.current_non_head().cloned() else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2544,7 +2593,9 @@ fn synth_compound(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
-    if matches!(word.flags.is_last_applied_rule_final, Some(true)) && !word.flags.is_partial {
+    if matches!(word.flags.is_last_applied_rule_final, Some(true))
+        && (policy.always_enforce || !word.flags.is_partial)
+    {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -2619,6 +2670,7 @@ fn synth_compound_cached(
     mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     let Some(nh) = word.current_non_head().cloned() else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2650,7 +2702,9 @@ fn synth_compound_cached(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
-    if matches!(word.flags.is_last_applied_rule_final, Some(true)) && !word.flags.is_partial {
+    if matches!(word.flags.is_last_applied_rule_final, Some(true))
+        && (policy.always_enforce || !word.flags.is_partial)
+    {
         if trace.is_tracing() {
             trace.morphological_rule_not_applied(
                 parent,

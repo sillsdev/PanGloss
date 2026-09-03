@@ -18,6 +18,17 @@ use pg_featstruct::{FeatId, FeatureStruct};
 use pg_grammar::model::{AllomorphId, LexEntryId, MRuleId, MorphemeId, MprSet, StratumId};
 use pg_shape::Shape;
 
+/// State used by the final-template interleaving prune. `None` means the most recently applied
+/// rule was a template/realizational rule (or that no ordinary rule has established a poisoned
+/// state); `NonTemplate` means an ordinary affix or compounding rule was applied.
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FinalTemplateState {
+    #[default]
+    None,
+    NonTemplate,
+}
+
 /// Per-word gating flags (subset of C# `Word`'s flags that this milestone can compute without the
 /// deferred rule-count/trail machinery).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -26,6 +37,8 @@ pub struct WordFlags {
     pub is_partial: bool,
     /// C# `Word.IsLastAppliedRuleFinal` (`bool?`): `None` = no template applied yet.
     pub is_last_applied_rule_final: Option<bool>,
+    /// Whether the latest successful rule application was an ordinary non-template rule.
+    pub final_template_state: FinalTemplateState,
 }
 
 /// One applied allomorph, recorded in **morph order** (the batch signature is
@@ -299,6 +312,7 @@ pub struct WordKey {
     mrule_apps: Vec<Option<MRuleId>>,
     mrule_app_index: i32,
     is_last_applied_rule_final: Option<bool>,
+    final_template_state: FinalTemplateState,
 }
 
 impl Word {
@@ -433,6 +447,7 @@ impl Word {
             mrule_apps: self.mrule_apps.clone(),
             mrule_app_index: self.mrule_app_index,
             is_last_applied_rule_final: self.flags.is_last_applied_rule_final,
+            final_template_state: self.flags.final_template_state,
         }
     }
 
@@ -589,6 +604,30 @@ mod tests {
 
     fn w() -> Word {
         Word::new(ShapeBuilder::new().finish(), StratumId(0))
+    }
+
+    #[test]
+    fn final_template_state_is_a_two_value_copyable_key_component() {
+        let mut a = w();
+        let mut b = w();
+        a.flags.final_template_state = FinalTemplateState::None;
+        b.flags.final_template_state = FinalTemplateState::NonTemplate;
+        assert_ne!(a.dedup_key(), b.dedup_key());
+        assert_eq!(FinalTemplateState::default(), FinalTemplateState::None);
+        let copied = FinalTemplateState::NonTemplate;
+        assert_eq!(copied, FinalTemplateState::NonTemplate);
+    }
+
+    #[test]
+    fn replay_keeps_subtree_final_template_state() {
+        let mut stored = w();
+        stored.flags.final_template_state = FinalTemplateState::NonTemplate;
+        let query = w();
+        let replayed = stored.replay_onto(&query, 0, 0);
+        assert_eq!(
+            replayed.flags.final_template_state,
+            FinalTemplateState::NonTemplate
+        );
     }
 
     #[test]
