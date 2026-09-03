@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use quick_xml::events::{BytesStart, Event};
@@ -124,7 +124,12 @@ fn get_attr(e: &BytesStart, name: &str) -> Result<Option<String>, ImportError> {
 /// Parse `path` into a `RawGraph`; hard errors are reserved for I/O and malformed/non-`.fwdata` XML, everything else is the extractor's job to warn on.
 pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
     let file = File::open(path).map_err(ImportError::Io)?;
-    let mut reader = Reader::from_reader(BufReader::new(file));
+    parse_fwdata_reader(BufReader::new(file))
+}
+
+/// As `parse_fwdata`, but from any buffered byte source, so a zip entry needs no temp file.
+pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportError> {
+    let mut reader = Reader::from_reader(reader);
     reader.config_mut().trim_text(true);
 
     let mut buf = Vec::new();
@@ -188,7 +193,7 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
 }
 
 /// Parse up to and including the matching `</rt>` into a `Node`, whose `children` are the record's property elements.
-fn parse_rt_body(reader: &mut Reader<BufReader<File>>) -> Result<Node, ImportError> {
+fn parse_rt_body<R: BufRead>(reader: &mut Reader<R>) -> Result<Node, ImportError> {
     let mut stack: Vec<Node> = vec![Node::empty()];
     let mut buf = Vec::new();
     loop {
@@ -259,4 +264,16 @@ fn node_from_start(e: &BytesStart) -> Result<Node, ImportError> {
         text: String::new(),
         children: Vec::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_fwdata_reader_accepts_in_memory_bytes() {
+        let xml = br#"<?xml version="1.0"?><languageproject><rt class="LangProject" guid="00000000-0000-0000-0000-000000000001"/></languageproject>"#;
+        let graph = parse_fwdata_reader(std::io::Cursor::new(&xml[..])).unwrap();
+        assert!(graph.get("00000000-0000-0000-0000-000000000001").is_some());
+    }
 }
