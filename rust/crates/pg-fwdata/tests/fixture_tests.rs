@@ -218,6 +218,15 @@ fn import_warning_prose_is_unchanged() {
 }
 
 #[test]
+fn fixture_reports_active_parser_and_xample_caps() {
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let pp = &snapshot.morphology.parser_parameters;
+    assert_eq!(pp.active_parser, pg_snapshot::ActiveParser::Hc);
+    assert_eq!(pp.xample.max_prefixes, Some(2));
+    assert_eq!(pp.xample.max_analyses_to_return, Some(10));
+}
+
+#[test]
 fn import_is_deterministic() {
     let (snap1, report1) = pg_fwdata::import_file(&fixture_path()).unwrap();
     let (snap2, report2) = pg_fwdata::import_file(&fixture_path()).unwrap();
