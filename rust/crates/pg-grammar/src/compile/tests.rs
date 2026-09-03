@@ -172,6 +172,7 @@ fn fixture() -> (Snapshot, Fixture) {
             name: "Test".to_string(),
             vernacular_writing_systems: vec!["sen".to_string()],
             analysis_writing_systems: vec!["en".to_string()],
+            exemplar_characters: Vec::new(),
         },
         FeatureSystems::default(),
         base_phonology(),
