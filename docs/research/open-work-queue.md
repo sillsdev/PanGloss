@@ -42,12 +42,13 @@ pin moves to it once that branch is pushed.
 TemplatedUnderlyingTokens refuses ~20 as `Partial { uncovered }` (now named item by item in its
 error). Neither is needed for "at least one backend", so both follow the recall-miss queue.
 
-**Instrument gap.** The pg-parse replay gate compares sorted, joined signatures, which collapse two
-identical parses into one, so an HC-Rust multiplicity divergence (one derivation where hc.dll finds
-two) is invisible to it. Comparing parse counts alongside signatures closes that.
+**Instrument note.** The pg-parse replay gate compares parse MULTISETS (PROTOCOL.md section 4 rule
+3): a doubled derivation such as `mpr-gated-exception` "mentanukam" is compared by count, and HC-Rust
+matches hc.dll there. The scoreboard, by contrast, compares deduplicated identity sets, so a
+proposer offering one candidate for two derivations is visible only to the faithfulness gate.
 
-**Done when:** the miss lists above are empty, every fixture has an exact backend, the submodule pin
-carries the two upstream fixtures, and the replay gate compares multiplicities.
+**Done when:** the miss lists above are empty, every fixture has an exact backend, and the submodule
+pin carries the two upstream fixtures.
 
 ## 2. Merge `fix/env-repvariant`
 
