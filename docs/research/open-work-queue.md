@@ -36,10 +36,10 @@ remaining "at least one backend" gap.
   confirmed, 2 in the oracle), so the faithfulness instrument now checks that each distinct oracle
   identity is proposed at least once. Faithfulness ratchet 14.
 - The "g" cell above is a decision, not a patch -- see grill-me G11.
-- TUT misses: only `truncate-morphotactic` gas remains (an insert-then-truncate-leading rule; the
-  leading-drop deletion is anchored to the word edge and cannot follow inserted material). The
-  alpha-variable polarity flip and the document-order limitation under an unordered stratum are fixed
-  (an order lattice for small unordered zones). PC has no misses
+- TUT has no misses left (41 exact / 0 miss / 21 refused): the alpha-variable polarity flip, the
+  document-order limitation under an unordered stratum (an order lattice for small unordered zones),
+  and the insert-then-truncate-leading rule (its deletion now anchors to the rule's marker, not the
+  word edge) are all fixed. PC has no misses
   left (23 exact / 0 miss / 36 refused / 3 unmeasurable): its underlying-filter emitter skipped
   realizational rules wholesale, and now treats their allomorphs like any affix rule's.
 - Fixed in this campaign: `process-morphology-in-place-mutation`, `circumfix-non-first-allomorph-
