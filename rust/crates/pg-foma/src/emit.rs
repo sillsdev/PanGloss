@@ -2689,7 +2689,8 @@ fn emit_rule_allomorphs(
                         g,
                         allo,
                         origin_table,
-                        zone_role == Role::Prefix,
+                        // Only a Role::None rule reaches both zone chains and needs the mark-once suppression.
+                        zone_role == Role::Prefix && role == Role::None,
                     ) {
                         write_tag_entry(
                             out,
@@ -2736,7 +2737,8 @@ fn emit_rule_allomorphs(
                     g,
                     allo,
                     origin_table,
-                    zone_role == Role::Prefix,
+                    // See the InsertText::None call site above for why this is `&& role == Role::None`.
+                    zone_role == Role::Prefix && role == Role::None,
                 ) {
                     write_tag_entry(out, &tag_lexc, &marker.to_string(), next, counts, pk, owner);
                 }

@@ -1,6 +1,8 @@
 //! Focused templated conformance proposal pins.
 
 use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, Root, WordEntry};
+use pg_foma::enumerate::EmissionStrategy;
+use pg_foma::scoreboard::{self, CellOutcome};
 use pg_foma::templated_compile::{compile_templated_morphotactics, TemplatedCompileError};
 use pg_grammar::model::{Grammar, MorphemeId};
 use pg_parse::{Morpher, ParseOptions};
@@ -259,5 +261,107 @@ fn truncate_morphotactic_proposes_successful_truncation_controls() {
     assert_proposes_oracle_identity(&label, &grammar, &words, "sa");
     assert_proposes_oracle_identity(&label, &grammar, &words, "ag");
     assert_proposes_oracle_identity(&label, &grammar, &words, "as");
+    assert_proposes_oracle_identity(&label, &grammar, &words, "gbubibi");
+}
+
+/// "gas" has a direct one-rule oracle identity (now proposed) and a chained two-rule one (not yet).
+#[test]
+fn truncate_morphotactic_proposes_the_direct_gas_analysis_but_not_yet_the_chained_one() {
+    let (label, grammar, words) = open(Root::Machine, "edge-cases", "truncate-morphotactic");
+    let entry = word(&words, "gas");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let outcome = morpher.parse_word_opts("gas", &ParseOptions::default());
+    assert!(
+        !outcome.invalid_shape,
+        "{label}: \"gas\" unexpectedly has invalid shape"
+    );
+    assert_eq!(
+        outcome.signature(),
+        entry.expected_signature(),
+        "{label}: oracle drift for \"gas\""
+    );
+    assert_eq!(
+        outcome.structured.len(),
+        2,
+        "{label}: this focused pin requires both oracle identities for \"gas\""
+    );
+
+    let mut compiled = compile_templated_morphotactics(&grammar)
+        .unwrap_or_else(|e| panic!("{label}: templated compile failed: {e}"));
+    let candidates = compiled.proposer.propose("gas");
+    // `WordAnalysis` has no rule-name field, so the two analyses are told apart by morpheme count.
+    let identity_of = |morpheme_count: usize| {
+        outcome
+            .structured
+            .iter()
+            .find(|analysis| analysis.morpheme_ids.len() == morpheme_count)
+            .unwrap_or_else(|| {
+                panic!("{label}: oracle must report a {morpheme_count}-morpheme analysis for \"gas\"")
+            })
+    };
+    let direct = identity_of(2);
+    let expected_direct = (
+        direct
+            .morpheme_ids
+            .iter()
+            .copied()
+            .map(MorphemeId)
+            .collect::<Vec<_>>(),
+        direct.root_morpheme_index,
+    );
+    assert!(
+        candidates
+            .iter()
+            .any(|candidate| (candidate.morphemes.clone(), candidate.root_index)
+                == expected_direct),
+        "{label}: templated proposer must contain the direct oracle identity {expected_direct:?} \
+         for \"gas\"; got {candidates:?}"
+    );
+
+    let chained = identity_of(3);
+    let expected_chained = (
+        chained
+            .morpheme_ids
+            .iter()
+            .copied()
+            .map(MorphemeId)
+            .collect::<Vec<_>>(),
+        chained.root_morpheme_index,
+    );
+    assert!(
+        !candidates
+            .iter()
+            .any(|candidate| (candidate.morphemes.clone(), candidate.root_index)
+                == expected_chained),
+        "{label}: the chained oracle identity {expected_chained:?} for \"gas\" is now proposed -- \
+         update this test (and its doc comment) to reflect the closed gap"
+    );
+}
+
+/// Ratchets this fixture's scoreboard cell at `CompilesButMisses { recall_deficit: 1 }` (see the pin above).
+#[test]
+fn truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens() {
+    let (label, grammar, words) = open(Root::Machine, "edge-cases", "truncate-morphotactic");
+    let words: Vec<String> = words
+        .words
+        .iter()
+        .filter(|entry| !entry.expect_fail)
+        .map(|entry| entry.word.clone())
+        .collect();
+    let scored = scoreboard::measure(&label, &grammar, &words);
+    let cell = scored
+        .cells
+        .iter()
+        .find(|cell| cell.strategy == EmissionStrategy::TemplatedUnderlyingTokens)
+        .expect("TemplatedUnderlyingTokens must have a scoreboard cell");
+    assert_eq!(
+        cell.outcome,
+        CellOutcome::CompilesButMisses { recall_deficit: 1 },
+        "{label} [TemplatedUnderlyingTokens]: got {:?} (cert={}) -- an IMPROVEMENT means the \
+         chained \"gas\" identity is now reachable, update this ratchet deliberately; a \
+         WORSENING is a regression",
+        cell.outcome,
+        cell.certification_debug
+    );
 }
 

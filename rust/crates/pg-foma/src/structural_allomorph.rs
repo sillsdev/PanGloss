@@ -2987,6 +2987,15 @@ mod circumfix_text_tests {
 }
 
 fn class_members(g: &Grammar, table: TableId, node: &PatternNode) -> Option<Vec<CharDefId>> {
+    // Only a min=0/max=1 quantifier reduces to its single child's own member class.
+    if let PatternNode::Quantifier { min, max, children } = node {
+        let [only] = children.as_slice() else {
+            return None;
+        };
+        return (*min == 0 && *max == Some(1))
+            .then(|| class_members(g, table, only))
+            .flatten();
+    }
     let table_ref = g.char_tables.get(table.0 as usize)?;
     let mut members = match node {
         PatternNode::CharDef(id) => vec![*id],
@@ -3033,6 +3042,9 @@ fn recipe_for(
         [OutputAction::Copy(PartRef::Input(0)), rest @ ..] => (false, &allomorph.lhs[1], rest),
         [OutputAction::Copy(PartRef::Input(1))] => {
             (true, &allomorph.lhs[0], &[] as &[OutputAction])
+        }
+        [rest @ .., OutputAction::Copy(PartRef::Input(1))] if !rest.is_empty() => {
+            (true, &allomorph.lhs[0], rest)
         }
         _ => return None,
     };
@@ -3246,7 +3258,8 @@ pub fn compile_layer(
             } else {
                 spaced(&recipe.inserted)
             };
-            let regex = if recipe.leading {
+            let regex = if recipe.leading && recipe.inserted.is_empty() {
+                // No insert means an ambiguous-zone marker: anchor the drop to `.#.` instead of the marker.
                 let segments: Vec<char> = g
                     .char_tables
                     .get(recipe.table.0 as usize)
@@ -3266,6 +3279,11 @@ pub fn compile_layer(
                 let marker_delete = fsm_parse_regex(opts, &format!("{} -> 0", marker), None, None)
                     .unwrap_or_else(|| panic!("foma rejected structural allomorph marker cleanup"));
                 fsm_compose(opts, drop, marker_delete)
+            } else if recipe.leading {
+                // An inserted prefix means the marker sits immediately before the dropped material.
+                let regex = format!("{marker} {} -> {output}", atom(&tails));
+                fsm_parse_regex(opts, &regex, None, None)
+                    .unwrap_or_else(|| panic!("foma rejected structural allomorph regex {regex:?}"))
             } else {
                 let regex = format!("{} {} -> {}", atom(&tails), marker, output);
                 fsm_parse_regex(opts, &regex, None, None)
@@ -4279,5 +4297,94 @@ mod relation_tests {
             CompiledMorphologyRelation::from_classified([first, second, duplicate]),
             Err(MorphologyRelationError::DuplicateBinding { .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod leading_insert_drop_tests {
+    use super::*;
+    use foma::apply::{apply_down, apply_init};
+
+    fn truncate_morphotactic_grammar() -> Grammar {
+        let fixture = pg_conformance_fixtures::discover()
+            .into_iter()
+            .find(|f| {
+                f.root == pg_conformance_fixtures::Root::Machine
+                    && f.category == "edge-cases"
+                    && f.name == "truncate-morphotactic"
+            })
+            .expect("machine:edge-cases/truncate-morphotactic must be discoverable");
+        pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar must load")
+    }
+
+    fn affix_process<'a>(g: &'a Grammar, index: usize) -> &'a AffixAllomorphDef {
+        match &g.mrules[index] {
+            MorphRuleDef::AffixProcess(def) => &def.allomorphs[0],
+            other => panic!("mrule[{index}] must be affix-process, got {other:?}"),
+        }
+    }
+
+    /// `[InsertSegments, Copy(Input(1))]` over an optional leading part -- the shape `recipe_for` used to miss.
+    #[test]
+    fn recipe_for_matches_insert_then_leading_drop() {
+        let g = truncate_morphotactic_grammar();
+        let allomorph = affix_process(&g, 2);
+        assert_eq!(
+            crate::emit::classify_affix(&allomorph.rhs),
+            crate::emit::Role::Prefix
+        );
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let recipe = recipe_for(&g, allomorph, table)
+            .expect("insert-then-leading-drop shape must be recognized");
+        assert!(recipe.leading);
+        assert_eq!(
+            recipe.inserted,
+            alphabet.encode_query("g").expect("'g' must tokenize")
+        );
+        assert_eq!(recipe.tail_members.len(), 1);
+    }
+
+    /// Control: the two shapes `recipe_for` already matched before this fix must still match.
+    #[test]
+    fn recipe_for_still_matches_the_pre_existing_shapes() {
+        let g = truncate_morphotactic_grammar();
+        let table = &g.char_tables[0];
+        let trail = recipe_for(&g, affix_process(&g, 0), table).expect("trailing-drop recipe");
+        assert!(!trail.leading);
+        assert!(trail.inserted.is_empty());
+        let lead = recipe_for(&g, affix_process(&g, 1), table).expect("leading-drop recipe");
+        assert!(lead.leading);
+        assert!(lead.inserted.is_empty());
+    }
+
+    /// The deletion must be anchored to the marker, not `.#.`, once material (`ba`) precedes it.
+    #[test]
+    fn compile_layer_leading_insert_drop_anchors_to_marker_not_word_edge() {
+        let g = truncate_morphotactic_grammar();
+        let table = &g.char_tables[0];
+        let alphabet = SegAlphabet::new(table);
+        let opts = FomaOptions::default();
+        let net = compile_layer(&opts, &g, &alphabet).expect("structural layer must compile");
+        let allomorph = affix_process(&g, 2);
+        // The real call site's `prefix_zone` for this rule's one reachable call is `false` (`role != None`).
+        let marker = structural_marker_for_zone(&g, allomorph, table, false)
+            .expect("a Role::Prefix-only rule's marker must not be suppressed");
+
+        let encode = |word: &str| alphabet.encode_query(word).expect("word must tokenize");
+
+        let mut handle = apply_init(&net);
+        assert_eq!(
+            apply_down(&mut handle, Some(&format!("{marker}{}", encode("sas")))),
+            Some(encode("gas")),
+            "marker + leading-tail root must truncate and insert, matching the direct oracle analysis"
+        );
+        let mut handle = apply_init(&net);
+        assert_eq!(
+            apply_down(&mut handle, Some(&format!("{}{marker}{}", encode("ba"), encode("sas")))),
+            Some(encode("bagas")),
+            "material preceding the marker must survive untouched -- proves the deletion is \
+             anchored to the marker, not to `.#.`"
+        );
     }
 }
