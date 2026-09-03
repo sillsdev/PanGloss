@@ -89,6 +89,10 @@ ed25519-dalek = "2"
 # optimizer. Compile-worker execution limits are enforced independently of this dependency.
 sysinfo = "0.32"
 libc = "0.2"
+# `.fwbackup` is a zip archive holding a `.fwdata` plus per-writing-system LDML; deflate is the
+# only compression method FieldWorks itself writes.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+tempfile = "3"
 
 # `pg-stats`' per-project statistics cache. `bundled` compiles SQLite from vendored C source so
 # there is no system libsqlite3 to install or version-match across machines and worktrees.
