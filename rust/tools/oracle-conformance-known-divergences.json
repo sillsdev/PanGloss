@@ -1,8 +1,8 @@
 {
   "_comment": "Known-divergence baseline for rust/tools/oracle-conformance.ps1's hc-conformance.exe self-check gate. A ratchet, not a target (see CLAUDE.md 'Build the differential measurement before the change'): a fixture id listed here is tolerated when hc-conformance.exe reports it FAIL; any FAIL not listed here is a NEW divergence and fails the gate. Remove an entry once a fixture is fixed/reconciled -- never add one without recording why below. machine_commit is the submodule pin PanGloss's own machine submodule carries (branch integrate-conformance-framework), chosen as oracle of record because the exe used to measure this baseline was built from that exact commit (verified: exe LastWriteTime postdates the commit's own commit time) in two independent worktrees (the main checkout and .worktrees/pin-<commit>), both producing byte-identical PASS/FAIL outcomes over every fixture in this file.",
-  "machine_commit": "f42d95919fdf9b384ce123786fc61c3f6b14476a",
+  "machine_commit": "25ddf914c0edb739a4445f9a088f7e06492a808d",
   "machine_branch": "integrate-conformance-framework",
-  "measured_date": "2026-09-02",
+  "measured_date": "2026-09-03",
   "divergences": [
     {
       "fixture": "edge-cases/head-ambiguous-compounding",
