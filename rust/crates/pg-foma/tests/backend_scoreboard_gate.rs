@@ -43,13 +43,13 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target, over 62 fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route) and segment-natural-class-table-binding "g" the one miss. TUT: no miss left after the order lattice, flip-polarity alpha variables and the marker-adjacent leading drop; the token-space pattern-root route turned four more refusals exact. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 29 typed refusals -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target, over 64 fixtures (the submodule pin added two upstream witnesses for the port divergences fixed this week). TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route); the two misses are segment-natural-class-table-binding "g" and rewrite-analysis-feature-neutralization "d", one phenomenon -- hc.dll's analysis-side feature erasure yields a cross-table analysis no forward composition produces. TUT: no miss left after the order lattice, flip-polarity alpha variables and the marker-adjacent leading drop; the token-space pattern-root route turned four more refusals exact; both new fixtures refuse as bistratal roots. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 31 typed refusals -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 60,
-            compiles_but_misses: 1,
+            oracle_exact: 61,
+            compiles_but_misses: 2,
             refused: 1,
             unmeasurable: 0,
         },
@@ -59,7 +59,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 45,
             compiles_but_misses: 0,
-            refused: 17,
+            refused: 19,
             unmeasurable: 0,
         },
     ),
@@ -68,7 +68,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             oracle_exact: 30,
             compiles_but_misses: 0,
-            refused: 29,
+            refused: 31,
             unmeasurable: 3,
         },
     ),
