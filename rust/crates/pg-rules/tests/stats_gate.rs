@@ -200,6 +200,23 @@ fn morph_rule_row<'a>(
         .find(|r| r.kind == ObjectKind::MorphRule && r.object_index == rid.0)
 }
 
+#[test]
+fn prune_rows_are_separate_and_deterministic() {
+    let g = load_alpha_grammar();
+    let stats = StatsCollector::new(&g);
+    stats.record_template_entry(StratumId(1), Direction::Analysis);
+    stats.record_final_template_skipped(StratumId(0), Direction::Analysis);
+    stats.record_template_battery_skipped(StratumId(1), Direction::Analysis);
+
+    let rows = stats.prune_rows();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].stratum, StratumId(0));
+    assert_eq!(rows[0].counters.final_templates_skipped, 1);
+    assert_eq!(rows[1].stratum, StratumId(1));
+    assert_eq!(rows[1].counters.template_entries, 1);
+    assert_eq!(rows[1].counters.template_batteries_skipped, 1);
+}
+
 /// A rule invoked and rejected by `max_apps` on the same candidate trail must not add to `attempts`.
 #[test]
 fn max_apps_rejection_contributes_no_attempt() {

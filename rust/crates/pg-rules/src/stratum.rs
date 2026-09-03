@@ -869,9 +869,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         if self.over_budget() {
             return Vec::new();
         }
-        // When every template is final, an ordinary rule cannot be followed by any template
-        // under the decided policy. Reject at the battery seam, before memo lookup or template
-        // entry/walk/tick, so the unchanged mrule result is retained exactly once by the caller.
+        // Reject an all-final battery before memo lookup or template work.
         if self.policy.enforce
             && input.flags.final_template_state
                 == crate::word::FinalTemplateState::NonTemplate
@@ -973,8 +971,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         let tmpl = &self.g.templates[tid.0 as usize];
-        // In mixed-finality strata only final templates are pruned after an ordinary rule. This
-        // check intentionally precedes required-FS admission and the slot walk.
+        // In mixed strata, reject final templates before required-FS admission and slot walking.
         if self.policy.enforce
             && input.flags.final_template_state
                 == crate::word::FinalTemplateState::NonTemplate
@@ -1068,8 +1065,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// Port of `AnalysisStratumRule.Apply`.
     fn analyze(&self, mut input: Word) -> StratumAnalysis {
-        // A stratum starts with a clean interleaving state; any previous stratum's state is
-        // intentionally not observable by this analyzer.
+        // A stratum starts with a clean interleaving state.
         input.flags.final_template_state = crate::word::FinalTemplateState::None;
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
         let node_parent = input.trace.unwrap_or(self.parent);
@@ -1163,8 +1159,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         words.push(input);
 
         for mut w in mrule_out {
-            // The state describes interleaving within this stratum only. Clear it before any
-            // output merge/dedup key is computed, preventing a poison from crossing a boundary.
+            // Clear the stratum-local state before output merge/dedup.
             w.flags.final_template_state = crate::word::FinalTemplateState::None;
             if self.cfg.merge_equivalent {
                 // A repeat shape folds into the canonical word's alternatives instead of entering the output.
