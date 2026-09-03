@@ -358,6 +358,41 @@ pub struct LexEntryInflType {
     pub inflection_features: Option<FeatureStructure>,
 }
 
+/// Which parser FieldWorks runs for this project, from `/ParserParameters/ActiveParser`.
+/// liblcm reports `"XAmple"` when the element is absent or the XML is unparsable
+/// (`OverridesLing_MoClasses.cs`, `MoMorphData.ActiveParser` getter), so that is the default here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ActiveParser {
+    #[default]
+    XAmple,
+    Hc,
+}
+
+/// The `<ParserParameters><XAmple>` block: XAmple's analysis caps. `None` means the element
+/// was absent; FieldWorks' transform defaults (`FxtM3ParserCommon.xsl`) are applied by the
+/// grammar compiler, not here, because two of them depend on the rest of the project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct XAmpleParameters {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_nulls: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_prefixes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_infixes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_suffixes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_interfixes: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_roots: Option<u32>,
+    /// `MaxAnalysesToReturn`; FieldWorks treats a value below 1 as "no limit"
+    /// (`XAmpleParser.cs:126-133`). Stored raw; interpretation belongs to the compiler.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_analyses_to_return: Option<i32>,
+}
+
 /// The `<ParserParameters><HC>` block plus per-compound-rule `maxApps`.
 /// ← `MorphologicalDataOA.ParserParameters` (a raw XML string LCM stores verbatim; parsed by
 /// `HCLoader`'s constructor, HCLoader.cs:92-112).
@@ -385,6 +420,10 @@ pub struct ParserParameters {
     /// (HCLoader.cs:1894, `int maxApps = 1;`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub compound_rule_max_applications: Vec<CompoundRuleMaxApplications>,
+    #[serde(default)]
+    pub active_parser: ActiveParser,
+    #[serde(default)]
+    pub xample: XAmpleParameters,
 }
 
 impl Default for ParserParameters {
@@ -396,6 +435,8 @@ impl Default for ParserParameters {
             no_default_compounding: false,
             strata: None,
             compound_rule_max_applications: Vec::new(),
+            active_parser: ActiveParser::XAmple,
+            xample: XAmpleParameters::default(),
         }
     }
 }
@@ -405,4 +446,33 @@ impl Default for ParserParameters {
 pub struct CompoundRuleMaxApplications {
     pub compound_rule: Guid,
     pub max_applications: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parser_parameters_default_is_xample_with_fieldworks_default_caps() {
+        let p = ParserParameters::default();
+        assert_eq!(p.active_parser, ActiveParser::XAmple);
+        assert_eq!(p.xample, XAmpleParameters::default());
+        assert_eq!(p.xample.max_nulls, None);
+        assert_eq!(p.xample.max_analyses_to_return, None);
+    }
+
+    #[test]
+    fn parser_parameters_round_trips_through_json_and_old_json_still_loads() {
+        let mut p = ParserParameters::default();
+        p.active_parser = ActiveParser::Hc;
+        p.xample.max_prefixes = Some(3);
+        let json = serde_json::to_string(&p).unwrap();
+        let back: ParserParameters = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, p);
+        // A snapshot written before these fields existed must still deserialize.
+        let old = r#"{"notOnClitics":true,"acceptUnspecifiedGraphemes":false,"noDefaultCompounding":false}"#;
+        let back: ParserParameters = serde_json::from_str(old).unwrap();
+        assert_eq!(back.active_parser, ActiveParser::XAmple);
+        assert_eq!(back.xample, XAmpleParameters::default());
+    }
 }

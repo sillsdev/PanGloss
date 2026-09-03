@@ -56,5 +56,7 @@ pub fn parse(raw: Option<&str>) -> ParserParameters {
         no_default_compounding,
         strata,
         compound_rule_max_applications,
+        active_parser: pg_snapshot::ActiveParser::XAmple,
+        xample: pg_snapshot::XAmpleParameters::default(),
     }
 }

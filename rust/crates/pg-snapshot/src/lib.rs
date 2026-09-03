@@ -60,9 +60,10 @@ pub use feature::{
 };
 pub use lexicon::{AffixProcess, Allomorph, EntryRef, LexEntry, Lexicon, Msa, RuleMapping, Sense};
 pub use morphology::{
-    AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
-    CompoundOutcome, CompoundRule, CompoundRuleMaxApplications, ExceptionFeature, InflectionClass,
-    LexEntryInflType, MorphType, Morphology, ParserParameters, PartOfSpeech, StemName,
+    ActiveParser, AdhocProhibition, Adjacency, AffixSlot, AffixTemplate,
+    CompoundConstituentRequirement, CompoundOutcome, CompoundRule, CompoundRuleMaxApplications,
+    ExceptionFeature, InflectionClass, LexEntryInflType, MorphType, Morphology, ParserParameters,
+    PartOfSpeech, StemName, XAmpleParameters,
 };
 pub use phonology::{
     BoundaryMarker, Environment, FeatureConstraint, MetathesisRule, NaturalClass, PhonContext,
