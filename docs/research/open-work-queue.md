@@ -3,17 +3,51 @@
 What is genuinely owed, with what "done" means for each. Delete an entry when it lands; this file is
 a queue, not a history.
 
-Audited against the code at `9d1a9d76`, because the previous revision cited a stale backend-matrix
-commit and a `REP_VARIANT_CAP` constant that no longer exists. A queue that misreports its own state
-is worse than no queue, so each entry below carries the evidence its status rests on.
+Audited against the code at `5da65e44`. A queue that misreports its own state is worse than no
+queue, so each entry below carries the evidence its status rests on.
 
-## 1. Re-run the backend matrix -- DONE
+## 0. Full, accurate conformance coverage -- the standing goal
 
-`docs/research/conformance-backend-matrix.md` now reads "measured at `9d1a9d76`", with fresh
-per-backend and per-fixture numbers. See that doc directly rather than duplicating the figures here.
-One thing surfaced by this re-run that is NOT yet resolved: the doc's own per-backend "compile but
-miss" totals do not sum to its itemized 9-cell list (flagged prominently in the doc itself, not
-silently corrected) -- worth reconciling next time `conf_matrix` runs.
+Every fixture oracle-verified against hc.dll, every fixture with at least one oracle-exact backend,
+zero compile-but-miss cells, soundness zero. Where it stands at `5da65e44`, per the gates that hold
+these numbers (`backend_scoreboard_gate`, `faithfulness_coverage_gate`, `conformance_fixtures_gate`,
+`rust/tools/oracle-conformance.ps1`):
+
+**Oracle side.** 37 of 38 staged fixtures are `founding-oracle`; the one `rust-only` is
+`guesser-pattern-root-fallback`, whose guessed words hc.dll exposes no CLI surface for. Upstream
+32/32, filter-passes 9/9 (mirrored into the harness by `oracle-conformance.ps1`). HC-Rust agrees with
+hc.dll on every replayed word. Two upstream fixtures pinning the port divergences fixed today
+(`rewrite-analysis-feature-neutralization`, `synthesis-stratum-render-stale-table`) sit on
+`sillsdev/machine` branch `conformance/hc-rust-port-divergences` at `898b321f`; PanGloss's submodule
+pin moves to it once that branch is pushed.
+
+**Backend side, TunedSurfaceProbed** (the shipping backend): 55 exact / 3 miss / 3 refused of 61.
+- Misses (ADR-0001's forbidden direction), the recall-miss queue:
+  `morphotactic-attribute-breadth` (kuldede, all three backends), `segment-natural-class-table-binding`
+  "g" (the cross-table `ROOT1|z` analysis hc.dll requires; exposed by the port fix),
+  `two-table-shared-representation-recall` "y" (an emitter regression from the same port fix: root
+  spelling synthesis relied on the stratum reassignment hc.dll never does -- fix in flight), and, seen
+  only by the multiplicity-aware faithfulness gate, `mpr-gated-exception` "mentanukam" (two derivation
+  orders under an unordered stratum, one proposal). TUT misses: `feature-system-breadth` isk,
+  `mpr-overwrite-order-dependence` daboyuxa, `strrep-identity` imat, `truncate-morphotactic` gas,
+  plus kuldede. PC: `feature-gating-breadth` kalid, kuldede.
+- Refused: `polysynthetic-stratal-derivation-chain` and `backend-strata-generic` (`[Any]*` pattern
+  root; a regex-emission route is in flight), `guesser-pattern-root-fallback` (same shape).
+- Fixed today: `process-morphology-in-place-mutation`, `circumfix-non-first-allomorph-selection`,
+  `suffixing-extension-slot-ordering`, `metathesis-comparison-crash` (an instrument defect: an
+  all-`expect_fail` fixture could never certify).
+
+**Backend side, the other two.** PlanComposed refuses 36 of 61 for one shape (a
+`CompositeEmissionMarker`/`StructuralCompositeMarker` subtree `build_controllable` does not build);
+TemplatedUnderlyingTokens refuses ~20 as `Partial { uncovered }` (now named item by item in its
+error). Neither is needed for "at least one backend", so both follow the recall-miss queue.
+
+**Instrument gap.** The pg-parse replay gate compares sorted, joined signatures, which collapse two
+identical parses into one, so an HC-Rust multiplicity divergence (one derivation where hc.dll finds
+two) is invisible to it. Comparing parse counts alongside signatures closes that.
+
+**Done when:** the miss lists above are empty, every fixture has an exact backend, the submodule pin
+carries the two upstream fixtures, and the replay gate compares multiplicities.
 
 ## 2. Merge `fix/env-repvariant`
 
@@ -91,13 +125,6 @@ for this audit; the entry stands on the prior finding, not a fresh re-check.
 
 ## Future, not queued
 
-- **`PlanComposed`'s marker-subtree gap.** All of its refusals are one shape: a plan requiring a
-  `CompositeEmissionMarker` / `StructuralCompositeMarker` subtree `build_controllable` cannot build.
-  The cheapest route to broader coverage whenever coverage becomes the goal. Now re-measured (item 1,
-  DONE): 36 of `PlanComposed`'s refusals are this one shape, per the fresh `9d1a9d76` run.
-- **The silently-wrong cells**, starting with `morphotactic-attribute-breadth` -- the only fixture
-  where all three backends miss analyses. Still true after the re-run; see
-  `docs/research/conformance-backend-matrix.md`.
 - **Circumfix cross-product loading** (a FieldWorks/LCM `MoAffixProcess`-shaped entry, prefix-typed x
   suffix-typed halves) is now IMPLEMENTED for unconditioned entries; an environment-bearing half is
   refused rather than silently dropped or mis-combined. See
