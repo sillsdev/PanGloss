@@ -264,6 +264,8 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     // `pg-fwdata` extracts every declared natural class unconditionally, so compact to only those actually referenced now that every other compile step has had its chance to resolve one (see `natclass::compact_to_referenced`'s own doc).
     natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
 
+    grammar.final_template_prune_facts()?;
+
     Ok((grammar, warnings))
 }
 
