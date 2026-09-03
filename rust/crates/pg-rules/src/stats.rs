@@ -98,6 +98,28 @@ pub struct StatsRow {
     pub counters: Counters,
 }
 
+/// Effect counters for final-template interleaving decisions, kept separate from morphological
+/// rule rows because a skipped template is not a rule attempt.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct PruneCounters {
+    pub template_entries: u64,
+    pub template_batteries_skipped: u64,
+    pub final_templates_skipped: u64,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PruneRow {
+    pub stratum: StratumId,
+    pub direction: Direction,
+    pub counters: PruneCounters,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+struct PruneKey {
+    stratum: StratumId,
+    direction: Direction,
+}
+
 impl StatsRow {
     /// This row's reproducible projection: identical across repeated runs and thread counts, because
     /// the one non-deterministic field is zeroed. Pinned by `repeated_runs_produce_identical_rows`.
@@ -219,6 +241,7 @@ pub struct StatsCollector {
     sparse: RefCell<HashMap<SparseKey, Counters>>,
     /// `Self::time_enter`'s open-region stack, empty until entered.
     obj_time_stack: RefCell<Vec<ObjTimeFrame>>,
+    prune: RefCell<HashMap<PruneKey, PruneCounters>>,
 }
 
 impl StatsCollector {
@@ -228,7 +251,32 @@ impl StatsCollector {
             phon: DenseTable::new(g.strata.len(), g.prules.len()),
             sparse: RefCell::new(HashMap::default()),
             obj_time_stack: RefCell::new(Vec::new()),
+            prune: RefCell::new(HashMap::default()),
         }
+    }
+
+    /// Record entry into a template battery after its policy gates admitted the battery.
+    pub fn record_template_entry(&self, stratum: StratumId, direction: Direction) {
+        let mut rows = self.prune.borrow_mut();
+        rows.entry(PruneKey { stratum, direction })
+            .or_default()
+            .template_entries += 1;
+    }
+
+    /// Record an entire template battery rejected at the pre-memoization seam.
+    pub fn record_template_battery_skipped(&self, stratum: StratumId, direction: Direction) {
+        let mut rows = self.prune.borrow_mut();
+        rows.entry(PruneKey { stratum, direction })
+            .or_default()
+            .template_batteries_skipped += 1;
+    }
+
+    /// Record one final template rejected before template entry/walk.
+    pub fn record_final_template_skipped(&self, stratum: StratumId, direction: Direction) {
+        let mut rows = self.prune.borrow_mut();
+        rows.entry(PruneKey { stratum, direction })
+            .or_default()
+            .final_templates_skipped += 1;
     }
 
     /// Enter a per-object self-time region, booked at `(kind, stratum, object_index, allomorph,
@@ -593,6 +641,22 @@ impl StatsCollector {
             )
         });
         out.extend(sparse_rows);
+        out
+    }
+
+    /// Deterministic per-stratum prune facts, independent of ordinary stats-row ordering.
+    pub fn prune_rows(&self) -> Vec<PruneRow> {
+        let mut out: Vec<PruneRow> = self
+            .prune
+            .borrow()
+            .iter()
+            .map(|(k, counters)| PruneRow {
+                stratum: k.stratum,
+                direction: k.direction,
+                counters: *counters,
+            })
+            .collect();
+        out.sort_by_key(|row| (row.stratum.0, row.direction));
         out
     }
 }
