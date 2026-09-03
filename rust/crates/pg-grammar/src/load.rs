@@ -2578,6 +2578,13 @@ mod tests {
             &[StratumId(1), StratumId(2)]
         );
 
+        let mut entry_only = load(XML).unwrap();
+        entry_only.entries[0].partial = true;
+        let entry_only_facts = entry_only.final_template_prune_facts().unwrap();
+        assert_eq!(entry_only_facts.partial_rule_count(), 0);
+        assert_eq!(entry_only_facts.partial_rule_at_or_below(), &[false]);
+        assert!(entry_only_facts.disabled_strata().is_empty());
+
         let mut mismatch = load(XML).unwrap();
         let table = mismatch.strata[0].table;
         mismatch.strata.push(StratumDef {

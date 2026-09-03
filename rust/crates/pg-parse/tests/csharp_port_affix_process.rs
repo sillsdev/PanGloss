@@ -585,6 +585,10 @@ fn partial_rule() {
     assert_morphs_eq(&m.parse_word("sagvu"), &["32 DERIV PART_NOUN"]);
     assert_morphs_eq(&m.parse_word("sagvup"), &["32 DERIV PART_NOUN TEMP_NOUN"]);
 
+    // The explicit policy bypasses the default path's inner partial-rule rescue.
+    let enforced = Morpher::new(&g, usize::MAX).with_always_enforce_final_templates(true);
+    assert_empty(&enforced.parse_word("sagds"));
+
     let templates_nonfinal = r#"
       <AffixTemplate requiredPartsOfSpeech="posV" final="false"><Name>verb</Name><Slot morphologicalRules="mrEd" optional="true"><Name>Sl1</Name></Slot></AffixTemplate>
       <AffixTemplate requiredPartsOfSpeech="posN"><Name>noun</Name><Slot morphologicalRules="mrP" optional="true"><Name>Sl2</Name></Slot></AffixTemplate>
