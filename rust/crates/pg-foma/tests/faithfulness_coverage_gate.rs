@@ -11,8 +11,8 @@ use pg_foma::faithfulness_coverage::{
     FixtureContainmentObservation, SoundnessRequirement,
 };
 
-/// THE PLACE THIS ACCOUNT BECOMES STRICT (lower as causes are fixed; `NoFailures` at zero): 18 -> 22 re-measured at submodule pin f42d9591, where the upstream suite grew 61 -> 62 fixtures with several grammars extended -- soundness stayed 0, a larger denominator rather than a regression. 22 -> 23 when HC-Rust started matching hc.dll on cross-table natural-class membership: MultiTable x tuned-surface-probed now misses the second analysis of segment-natural-class-table-binding "g" that the oracle requires, a proposer gap the corrected ground truth exposed.
-const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NoMoreThan { failures: 23 };
+/// THE PLACE THIS ACCOUNT BECOMES STRICT (lower as causes are fixed; `NoFailures` at zero): 18 -> 22 re-measured at submodule pin f42d9591, where the upstream suite grew 61 -> 62 fixtures with several grammars extended -- soundness stayed 0, a larger denominator rather than a regression. 22 -> 23 when HC-Rust started matching hc.dll on cross-table natural-class membership: MultiTable x tuned-surface-probed now misses the second analysis of segment-natural-class-table-binding "g" that the oracle requires, a proposer gap the corrected ground truth exposed. 23 -> 17 once `crate::tags::collapse_adjacent_repeats` fixed the `multipleApplication > 1` candidate-decode gap that `morphotactic-attribute-breadth` exhibited; six (construct, backend) pairs stopped failing, some others' printed example fixture shifted to a still-failing one exhibiting the same construct.
+const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NoMoreThan { failures: 17 };
 
 // The SOUNDNESS gate (candidate-only identities), the direction `REQUIREMENT` cannot see; measured 0 across all 61 fixtures / 3 backends, so this is a strict floor, not a backlog ratchet -- see `docs/research/backend-measurement-instruments.md` defect 3.
 const SOUNDNESS_REQUIREMENT: SoundnessRequirement = SoundnessRequirement::NoOverGeneration;

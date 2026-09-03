@@ -198,8 +198,21 @@ pub struct Candidate {
     pub root_index: i32,
 }
 
+/// Collapses adjacent-repeated tags (one rule reapplied N times) to one, matching how `pg_parse::Morpher::allomorphs_in_morph_order` counts a reused allomorph once; see `to_candidates_collapses_adjacent_repeated_rule_application`.
+fn collapse_adjacent_repeats(path: &RawPath) -> RawPath {
+    let mut out: RawPath = Vec::with_capacity(path.len());
+    for &item in path {
+        if out.last() != Some(&item) {
+            out.push(item);
+        }
+    }
+    out
+}
+
 /// Splits one decoded path into one `Candidate` per `<R:...>` occurrence: 0 or 1 roots yields exactly one candidate; 2+ roots (a compound) yields one candidate per root position, ascending, each sharing the same full morpheme sequence -- headedness is left for confirm to resolve.
 pub fn to_candidates(path: &RawPath) -> Vec<Candidate> {
+    let path = collapse_adjacent_repeats(path);
+    let path = &path;
     let morphemes: Vec<MorphemeId> = path.iter().map(|&(_, m)| m).collect();
     let root_indices: Vec<usize> = path
         .iter()
@@ -341,6 +354,41 @@ mod tests {
             vec![Candidate {
                 morphemes: vec![MorphemeId(1), MorphemeId(2), MorphemeId(3)],
                 root_index: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn to_candidates_collapses_adjacent_repeated_rule_application() {
+        let path: RawPath = vec![
+            (true, MorphemeId(15)),
+            (false, MorphemeId(1)),
+            (false, MorphemeId(1)),
+        ];
+        let cands = to_candidates(&path);
+        assert_eq!(
+            cands,
+            vec![Candidate {
+                morphemes: vec![MorphemeId(15), MorphemeId(1)],
+                root_index: 0,
+            }]
+        );
+    }
+
+    #[test]
+    fn to_candidates_does_not_collapse_non_adjacent_repeats() {
+        let path: RawPath = vec![
+            (true, MorphemeId(15)),
+            (false, MorphemeId(1)),
+            (false, MorphemeId(2)),
+            (false, MorphemeId(1)),
+        ];
+        let cands = to_candidates(&path);
+        assert_eq!(
+            cands,
+            vec![Candidate {
+                morphemes: vec![MorphemeId(15), MorphemeId(1), MorphemeId(2), MorphemeId(1)],
+                root_index: 0,
             }]
         );
     }
