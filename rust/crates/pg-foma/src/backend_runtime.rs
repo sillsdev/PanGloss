@@ -1642,8 +1642,8 @@ enum RealizedPlanComposed {
     },
 }
 
-fn unbuildable_marker_reason(candidate: &LoweredCandidate) -> Option<String> {
-    let markers = crate::build::unbuildable_markers(&candidate.plan);
+fn unbuildable_marker_reason(candidate: &LoweredCandidate, grammar: &Grammar) -> Option<String> {
+    let markers = crate::build::unbuildable_marker_material(&candidate.plan, grammar);
     (!markers.is_empty()).then(|| {
         format!(
             "plan structure cannot be honoured by the plan-composed compiler: its plan requires \
@@ -1733,7 +1733,7 @@ pub fn finished_net_digests(
                     candidate.adapter
                 ));
             }
-            if let Some(reason) = unbuildable_marker_reason(candidate) {
+            if let Some(reason) = unbuildable_marker_reason(candidate, grammar) {
                 return Err(reason);
             }
             match realize_plan_composed(candidate, grammar, &opts, &alphabet, &prules) {
@@ -1803,7 +1803,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
         .iter()
         .map(|candidate| {
             if candidate.adapter.interprets_plan() {
-                if let Some(reason) = unbuildable_marker_reason(candidate) {
+                if let Some(reason) = unbuildable_marker_reason(candidate, grammar) {
                     return failed_evaluated_over(
                         EmissionStrategy::PlanComposed,
                         Certification::Unsupported { reason },
@@ -2055,7 +2055,7 @@ fn realize_accuracy_proposer(
     _cache: &mut RunEvaluationCache,
 ) -> Result<(EmissionStrategy, FomaProposer), (EmissionStrategy, String)> {
     if candidate.adapter.interprets_plan() {
-        if let Some(reason) = unbuildable_marker_reason(candidate) {
+        if let Some(reason) = unbuildable_marker_reason(candidate, grammar) {
             return Err((EmissionStrategy::PlanComposed, reason));
         }
     }

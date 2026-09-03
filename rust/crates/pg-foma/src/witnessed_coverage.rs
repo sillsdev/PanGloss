@@ -130,7 +130,7 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
     let semantics = GrammarSemantics::derive(g);
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let plan = enumerate_default(g, semantics.prules_in_order(), phonology.as_ref());
-    let markers = crate::build::unbuildable_markers(&plan);
+    let markers = crate::build::unbuildable_marker_material(&plan, g);
     if !markers.is_empty() {
         return Err(format!(
             "plan-composed cannot honour this plan: it requires subtrees build_controllable does \

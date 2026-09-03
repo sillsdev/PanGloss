@@ -3357,8 +3357,8 @@ impl GrammarWideCheck for PlanComposedMarkerCheck {
     fn provenance(&self) -> EvidenceProvenance {
         EvidenceProvenance::Structural
     }
-    fn evaluate(&self, _semantics: &GrammarSemantics<'_>, plan: &Plan) -> Option<CompileDecision> {
-        let markers = crate::build::unbuildable_markers(plan);
+    fn evaluate(&self, semantics: &GrammarSemantics<'_>, plan: &Plan) -> Option<CompileDecision> {
+        let markers = crate::build::unbuildable_marker_material(plan, semantics.grammar());
         if markers.is_empty() {
             return None;
         }

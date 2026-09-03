@@ -297,7 +297,7 @@ fn the_evaluator_confirms_a_wholly_in_scope_grammar() {
     }
 }
 
-/// A plan that advertises subtrees its compiler cannot build is refused before measurement.
+/// A plan whose marker material `unbuildable_marker_material` still names is refused before measurement; one it admits reports a real result instead.
 #[test]
 fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
     let fixtures = discover();
@@ -318,6 +318,8 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
         if markers.is_empty() {
             continue;
         }
+        // The real decision, not the structural presence check above: a marker `unbuildable_markers` finds may still be admitted by `unbuildable_marker_material`.
+        let still_unbuildable = pg_foma::build::unbuildable_marker_material(&plan, &grammar);
         let words: Vec<String> = fixture
             .load_words_yaml()
             .words
@@ -332,11 +334,12 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
             materialize_and_evaluate(&grammar, &words, RuntimeBudget::default())
         {
             // Checked before the marker-attribution assertion: a whole-grammar strategy's own compiler builds the marker material rather than skipping it, so there is no compiler limitation to attribute here.
-            if strategy.is_whole_grammar() {
+            if strategy.is_whole_grammar() || still_unbuildable.is_empty() {
                 assert!(
                     !matches!(e.certification, Certification::Unsupported { .. }),
-                    "{}: {strategy:?} builds the whole grammar, so its verdict must be the real \
-                     measurement rather than an `Unsupported` limitation notice, got {:?}",
+                    "{}: {strategy:?}'s marker material is not genuinely unbuildable, so its verdict \
+                     must be the real measurement rather than an `Unsupported` limitation notice, \
+                     got {:?}",
                     fixture.label(),
                     e.certification
                 );
@@ -344,8 +347,8 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
             }
             assert!(
                 matches!(e.certification, Certification::Unsupported { .. }),
-                "{}: a PlanComposed candidate whose plan requires {markers:?} must be refused before \
-                 build_controllable can silently omit those subtrees, got {:?}",
+                "{}: a PlanComposed candidate whose plan requires {still_unbuildable:?} must be \
+                 refused before build_controllable can silently omit those subtrees, got {:?}",
                 fixture.label(),
                 e.certification
             );

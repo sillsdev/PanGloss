@@ -53,6 +53,8 @@ fn every_distinct_plan_fully_confirms_or_refuses_markers_explicitly() {
         .collect::<Vec<_>>();
     let phon = PhonologyProbe::new(&g);
     let baseline = enumerate_default(&g, &rules, phon.as_ref());
+    // The real per-marker computation, not the structural presence check: see crate::build::unbuildable_marker_material's own doc.
+    let genuinely_unbuildable = pg_foma::build::unbuildable_marker_material(&baseline, &g);
     let registry = Registry::seeded();
     let candidates = registry
         .materialize_distinct(&MaterializerContext {
@@ -103,8 +105,16 @@ fn every_distinct_plan_fully_confirms_or_refuses_markers_explicitly() {
             ref other => panic!("non-certifying evidence must remain explicit: {other:?}"),
         }
     }
-    assert!(
-        marker_refusals > 0,
-        "the composite-emission marker refusal must engage on this fixture"
-    );
+    if genuinely_unbuildable.is_empty() {
+        assert_eq!(
+            marker_refusals, 0,
+            "this fixture's marker material is buildable ({genuinely_unbuildable:?} empty), so \
+             every plan-composed candidate is expected to confirm, not refuse on the marker boundary"
+        );
+    } else {
+        assert!(
+            marker_refusals > 0,
+            "the composite-emission marker refusal must engage on this fixture ({genuinely_unbuildable:?})"
+        );
+    }
 }

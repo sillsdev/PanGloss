@@ -322,6 +322,8 @@ fn report_envelope_compiler_divergence() {
     // Staged: names every too-strict row so a NEW one fails here rather than joining an unnamed backlog.
     const EXPECTED_TOO_STRICT: &[&str] = &[
         "machine:edge-cases/loader-isactive-breadth x templated-underlying-tokens",
+        // strategy_coverage.rs's ProcessMorphology row is a static, grammar-independent claim, unrelated to crate::build::unbuildable_marker_material (which now correctly admits this one grammar); see strategy_coverage_join_gate.rs's own CONTRADICTION_RATCHET note.
+        "machine:edge-cases/process-morphology-in-place-mutation x plan-composed",
         "machine:edge-cases/strrep-identity x templated-underlying-tokens",
         "machine:edge-cases/truncate-morphotactic x templated-underlying-tokens",
     ];

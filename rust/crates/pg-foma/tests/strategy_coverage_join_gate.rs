@@ -73,8 +73,9 @@ fn cannot_represent_rows() -> Vec<(EmissionStrategy, CharacteristicKind)> {
     rows
 }
 
-/// Today's ratcheted contradiction count (measured zero) -- see `docs/research/strategy-coverage-join-report.md`.
-const CONTRADICTION_RATCHET: usize = 0;
+/// Today's ratcheted contradiction count -- see `docs/research/strategy-coverage-join-report.md`.
+/// 0 -> 1: the structural-composite union now covers process-morphology-in-place-mutation's Process-role construct even though strategy_coverage.rs's own grammar-independent ProcessMorphology row still says PlanComposed cannot; making that row grammar-aware is out of scope here.
+const CONTRADICTION_RATCHET: usize = 1;
 
 #[test]
 fn cannot_represent_rows_are_not_contradicted_by_measurement() {

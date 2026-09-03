@@ -43,7 +43,7 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target, over 62 fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route) and segment-natural-class-table-binding "g" the one miss; earlier moves were three `[Any]*` pattern roots under the regex route, a repeated-application decode fix, per-allomorph zone ownership, the dropped closure refusal, the process-morphology route, two all-`expect_fail` "misses", and the two-table cross-table emitter fix. TUT: an order lattice for small unordered rule sets and flip-polarity alpha variables turned three misses exact, and a marker-adjacent leading-drop deletion closed truncate-morphotactic "gas", the last one. PC: realizational allomorphs emitted like any affix rule's turned its two misses exact -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target, over 62 fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route) and segment-natural-class-table-binding "g" the one miss. TUT: no miss left after the order lattice, flip-polarity alpha variables, and the marker-adjacent leading drop. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 29 typed refusals -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
@@ -66,9 +66,9 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 23,
+            oracle_exact: 30,
             compiles_but_misses: 0,
-            refused: 36,
+            refused: 29,
             unmeasurable: 3,
         },
     ),
@@ -93,7 +93,7 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
         {
             "oracle_exact"
         }
-        (f, PlanComposed) if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE => "refused",
+        (f, PlanComposed) if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE => "oracle_exact",
         (f, TunedSurfaceProbed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => "oracle_exact",
         (f, TemplatedUnderlyingTokens | PlanComposed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => {
             "refused"

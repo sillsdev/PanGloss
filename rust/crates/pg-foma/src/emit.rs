@@ -3633,6 +3633,149 @@ pub(crate) fn plan_topology_decisions(g: &Grammar, phon: Option<&PhonologyProbe>
     (wants_composite_emission, wants_structural_composite)
 }
 
+/// The real material behind `FragmentSpec::CompositeEmissionMarker`, computed by calling the SAME
+/// function the tuned route calls (`preexpand::build_composites_with_mode_and_trace`, this module's
+/// own "Composite entries" doc) rather than re-deriving `preexpand::should_run`'s own conservative
+/// candidate pre-check. `should_run` answers "could this grammar possibly need composites at all"
+/// (its own doc); the real answer can still be zero records once the builder actually runs (e.g.
+/// every junction this grammar has is already reachable through a DIFFERENT backend's own
+/// phonological-rule-cascade compose step). `crate::build::unbuildable_marker_material` and
+/// `crate::build::compile_marker_material` are the two callers, so the published refusal and what
+/// gets built can never drift apart.
+///
+/// `Err` when the closure did not finish within its resource boundary (mirrors the tuned route's own
+/// `FomaTier::Unsupported` for the identical condition) -- a caller must treat that the same as
+/// "genuinely unbuildable", never as empty.
+pub(crate) fn composite_emission_marker_material(
+    g: &Grammar,
+) -> Result<Vec<crate::preexpand::CompositeRec>, String> {
+    let phon = PhonologyProbe::new(g);
+    if !crate::preexpand::should_run(g, phon.as_ref()) {
+        return Ok(Vec::new());
+    }
+    let width = tags::tag_width(g.morphemes.len());
+    let mt = crate::morphotactics::MorphotacticIndex::build(g);
+    let mode = crate::morphotactics::explore_mode_from_env();
+    let probe_counter = std::sync::atomic::AtomicUsize::new(0);
+    let probe_budget = crate::morphotactics::probe_cap_from_env().map(|cap| ProbeBudget {
+        cap,
+        counter: &probe_counter,
+    });
+    let (composites, report) = crate::preexpand::build_composites_with_mode_and_trace(
+        g,
+        width,
+        phon.as_ref(),
+        &mt,
+        mode,
+        probe_budget,
+        None,
+    );
+    if report.pending_successors != 0 {
+        return Err(format!(
+            "composite-emission closure incomplete: {} successor(s) beyond the resource boundary",
+            report.pending_successors
+        ));
+    }
+    Ok(composites)
+}
+
+/// The real material behind `FragmentSpec::StructuralCompositeMarker` -- mirrors
+/// `composite_emission_marker_material`'s own doc, for `build_structural_composites_with_trace`.
+/// `structural_candidate_rules` is likewise a conservative candidate set (that function's own doc:
+/// "an uncovered item naming one of these is an emitter OVER-REPORT rather than a capability gap"),
+/// not the real decision.
+pub(crate) fn structural_composite_marker_material(
+    g: &Grammar,
+) -> Result<Vec<crate::preexpand::CompositeRec>, String> {
+    let rules = structural_candidate_rules(g);
+    if rules.is_empty() {
+        return Ok(Vec::new());
+    }
+    let phon = PhonologyProbe::new(g);
+    let width = tags::tag_width(g.morphemes.len());
+    let cache = RuleCache::build(g);
+    let morpher = Morpher::new(g, usize::MAX);
+    let mt = crate::morphotactics::MorphotacticIndex::build(g);
+    let mode = crate::morphotactics::explore_mode_from_env();
+    let probe_counter = std::sync::atomic::AtomicUsize::new(0);
+    let probe_budget = crate::morphotactics::probe_cap_from_env().map(|cap| ProbeBudget {
+        cap,
+        counter: &probe_counter,
+    });
+    let (composites, _covered, pending_successors, _pending_rules, _pruned) =
+        build_structural_composites_with_trace(
+            g,
+            width,
+            &rules,
+            &cache,
+            &morpher,
+            &mt,
+            mode,
+            probe_budget,
+            phon.as_ref(),
+            None,
+        );
+    if pending_successors != 0 {
+        return Err(format!(
+            "structural-composite closure incomplete: {pending_successors} successor(s) beyond the \
+             resource boundary"
+        ));
+    }
+    Ok(composites)
+}
+
+/// Whether NO derivational material could attach outside a composite/structural stem for `g` under
+/// `marker` -- the completeness precondition `crate::build::unbuildable_marker_material` requires
+/// before admitting a marker's bare-word union (`crate::build::compile_marker_material`'s own doc:
+/// that union cannot represent a further affix wrapped around a composite/structural stem, only a
+/// complete standalone word). Computed the SAME way the tuned route already classifies which rules
+/// wrap a root (`standalone_rule_zones`, this module's own standalone-derivation-layer zone
+/// membership): if every stratum-listed rule OTHER THAN ones `marker`'s own material already claims
+/// classifies outside both derivation zones, and the grammar declares no `AffixTemplate` at all,
+/// there is no OTHER affixation mechanism anywhere in this grammar that could ever wrap a root --
+/// ordinary or composite -- beyond what the marker's own material already encodes. The excluded set
+/// is `structural_candidate_rules` for `StructuralCompositeMarker` (exactly the rules that route to
+/// structural composite INSTEAD OF ordinary derivation, `is_structural_rule`'s own partition) and
+/// `preexpand::candidate_rules` for `CompositeEmissionMarker` (the same Prefix/Suffix/Infix
+/// candidate set `preexpand::build_composites` itself probes) -- without this exclusion, a rule
+/// that produces the marker's OWN material would count against its own admission, since
+/// `standalone_rule_zones` classifies by `Role` alone and does not know which route claims a rule.
+///
+/// Conservative by construction, deliberately: a template or a genuinely EXTERNAL standalone
+/// Prefix/Suffix rule refuses admission even where it provably could never reach a composite/
+/// structural stem (no per-slot or per-category reachability proof is attempted), which is the safe
+/// direction. This is also why an EMPTY marker result is never treated as vacuously complete by its
+/// caller: two grammars can be structurally identical under this fact (zero external standalone
+/// rules, zero templates) while one has an unrelated, pre-existing PlanComposed defect this fact
+/// cannot see (e.g. `SymbolicFeature@defaultSymbol`/UseDefaults not honoured by the compiled
+/// rewrite-rule cascade) -- admitting on emptiness alone would expose that defect as a new miss, so
+/// the caller only ever consults this function for a marker whose material is genuinely non-empty.
+pub(crate) fn marker_admission_is_complete(g: &Grammar, marker: &FragmentSpec) -> bool {
+    let claimed: std::collections::BTreeSet<u32> = match marker {
+        FragmentSpec::StructuralCompositeMarker => {
+            structural_candidate_rules(g).into_iter().map(|m| m.0).collect()
+        }
+        FragmentSpec::CompositeEmissionMarker => crate::preexpand::candidate_rules(g)
+            .into_iter()
+            .map(|(m, _)| m.0)
+            .collect(),
+        other => panic!(
+            "marker_admission_is_complete only ever runs on CompositeEmissionMarker/\
+             StructuralCompositeMarker, got {other:?}"
+        ),
+    };
+    let no_external_affixation = g
+        .strata
+        .iter()
+        .flat_map(|s| s.mrules.iter())
+        .filter(|mid| !claimed.contains(&mid.0))
+        .all(|&mid| {
+            let (in_prefix, in_suffix) = standalone_rule_zones(g, mid);
+            !in_prefix && !in_suffix
+        });
+    no_external_affixation && g.templates.is_empty()
+}
+
 /// Stack size `probe_surface` runs on (module doc below): generous enough that a deep
 /// feature-struct-unification/rewrite-rule recursion over a large char-def table (Amharic: 418
 /// `<SegmentDefinition>`s) never overflows a caller's default thread stack (Windows test-harness
@@ -4211,7 +4354,7 @@ fn build_structural_composites(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_structural_composites_with_trace(
+pub(crate) fn build_structural_composites_with_trace(
     g: &Grammar,
     width: usize,
     rules: &[MRuleId],

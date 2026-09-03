@@ -99,6 +99,7 @@ use crate::enumerate::rule_id_of;
 use crate::gate::GatedCompileResult;
 use crate::plan::{FragmentSpec, GatedSubruleRef, NodeId, Plan, PlanNodeKind, ReplaceCascadeSpec};
 use crate::replace::{compile_and_compose_rules_gated, SegAlphabet, TupleReport};
+use crate::tags;
 use crate::uflexc::{emit_underlying_filtered, UEmitReport};
 
 /// The two marker fragments `crate::enumerate::enumerate_default` places alongside the `Gate` node
@@ -129,6 +130,148 @@ pub fn unbuildable_markers(plan: &Plan) -> Vec<FragmentSpec> {
         }
     }
     found
+}
+
+/// Refines `unbuildable_markers`'s structural pre-check against the REAL per-marker computation
+/// (`crate::emit::composite_emission_marker_material` / `structural_composite_marker_material` --
+/// the SAME functions `build_controllable` itself calls via `marker_material` below, so this
+/// published refusal and what actually gets built can never drift apart, per this crate's own rule
+/// against re-deriving a decision another module already makes).
+///
+/// A marker `unbuildable_markers` finds is taken back out of the returned (refused) list ONLY when
+/// BOTH hold: its real computation is non-empty (there is genuine material to union), AND
+/// `crate::emit::marker_admission_is_complete(g)` proves no other derivational/template material in
+/// this grammar could ever attach outside the composite/structural stem the union admits as a
+/// COMPLETE, STANDALONE word (`compile_marker_material`'s own doc explains why the union cannot
+/// also be wrapped by a further affix: that material is already phonology-resolved surface text
+/// from a real per-word synthesis pass, and feeding it back through `crate::replace`'s compiled
+/// rewrite-rule cascade a second time would be an unverified, possibly unsound double application
+/// of a different phonology implementation).
+///
+/// A marker stays in the returned (refused) list for every OTHER outcome: `Err` (the real
+/// computation itself could not finish within its resource boundary), non-empty-but-incomplete
+/// (some other affix/template could still wrap the stem -- admitting would under-generate), and,
+/// deliberately, EMPTY TOO. Two grammars can be structurally identical under both this function and
+/// `marker_admission_is_complete` (zero records, zero standalone rules, zero templates) while one
+/// has an entirely unrelated, pre-existing PlanComposed defect neither fact can see -- measured
+/// directly: `machine:edge-cases/right-to-left-anchor-environment` (empty material, no other
+/// defect, safe to admit) and `machine:edge-cases/loader-default-symbol` /
+/// `machine:edge-cases/mpr-gated-exception` (also empty material, but each exposes a real,
+/// unrelated rewrite-cascade/MPR-gating gap once no longer blanket-refused) are indistinguishable
+/// by any fact this module can compute from the marker alone. Since admitting an EMPTY result never
+/// gains anything (there is nothing to union), never admitting on emptiness is the only sound
+/// choice available without a broader, out-of-scope capability predicate for those other gaps.
+pub fn unbuildable_marker_material(plan: &Plan, g: &Grammar) -> Vec<FragmentSpec> {
+    unbuildable_markers(plan)
+        .into_iter()
+        .filter(|marker| match marker_material(g, marker) {
+            Ok(records) if records.is_empty() => true,
+            Ok(_non_empty) => !crate::emit::marker_admission_is_complete(g, marker),
+            Err(_) => true,
+        })
+        .collect()
+}
+
+/// Dispatches one marker to its real computation, shared by `unbuildable_marker_material` and `build_controllable`.
+fn marker_material(
+    g: &Grammar,
+    marker: &FragmentSpec,
+) -> Result<Vec<crate::preexpand::CompositeRec>, String> {
+    match marker {
+        FragmentSpec::CompositeEmissionMarker => crate::emit::composite_emission_marker_material(g),
+        FragmentSpec::StructuralCompositeMarker => {
+            crate::emit::structural_composite_marker_material(g)
+        }
+        other => panic!(
+            "enumerate_default only ever places CompositeEmissionMarker/StructuralCompositeMarker \
+             leaves at the plan root, got {other:?}"
+        ),
+    }
+}
+
+/// The marker leaves `find_gate_node` skips at a `Union` plan root (module doc "Scope: controllable subtree only"), reused here rather than re-scanning.
+fn union_root_markers(plan: &Plan, root: NodeId) -> Vec<FragmentSpec> {
+    match plan
+        .get(root)
+        .unwrap_or_else(|| panic!("plan root NodeId {root} is not interned in this Plan"))
+    {
+        PlanNodeKind::Gate { .. } => Vec::new(),
+        PlanNodeKind::Union { children } => children
+            .iter()
+            .filter_map(|&child| match plan.get(child) {
+                Some(PlanNodeKind::Leaf { fragment, .. })
+                    if matches!(
+                        fragment,
+                        FragmentSpec::CompositeEmissionMarker
+                            | FragmentSpec::StructuralCompositeMarker
+                    ) =>
+                {
+                    Some(fragment.clone())
+                }
+                _ => None,
+            })
+            .collect(),
+        other => panic!(
+            "build_controllable's own find_gate_node already validated the plan root is a Gate or \
+             Union, got {} here",
+            other.kind_name()
+        ),
+    }
+}
+
+/// Compiles one marker's real material into a standalone, bare word `Fsm` in `alphabet`'s own PUA-token space (see `unbuildable_marker_material`'s own doc for why standalone-only); `skipped` records any variant `SegAlphabet::encode_query` cannot re-segment, and `None` comes back when nothing was encodable.
+fn compile_marker_material(
+    opts: &FomaOptions,
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    marker: &FragmentSpec,
+    records: &[crate::preexpand::CompositeRec],
+    skipped: &mut Vec<String>,
+) -> Option<Fsm> {
+    if records.is_empty() {
+        return None;
+    }
+    let width = tags::tag_width(g.morphemes.len());
+    let mut symbols: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut entries: Vec<(String, String)> = Vec::new();
+    for rec in records {
+        for &(is_root, m) in &rec.chain_morphemes {
+            symbols.insert(if is_root {
+                tags::root_tag_lexc(m, width)
+            } else {
+                tags::morph_tag_lexc(m, width)
+            });
+        }
+        for v in &rec.variants {
+            match alphabet.encode_query(v) {
+                Some(tokens) => entries.push((rec.tag_lexc.clone(), tokens)),
+                None => skipped.push(format!(
+                    "{marker:?} entry {:?} variant {v:?} unrepresentable in this backend's token \
+                     alphabet",
+                    rec.tag_lexc
+                )),
+            }
+        }
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    let mut src = String::from("Multichar_Symbols\n");
+    for sym in &symbols {
+        src.push_str(sym);
+        src.push('\n');
+    }
+    src.push_str("\nLEXICON Root\nComposites ;\n\nLEXICON Composites\n");
+    for (tag_lexc, tokens) in &entries {
+        src.push_str(tag_lexc);
+        src.push(':');
+        src.push_str(tokens);
+        src.push_str(" # ;\n");
+    }
+    Some(
+        foma::lexcread::fsm_lexc_parse_string(opts, None, &src)
+            .unwrap_or_else(|| panic!("marker material lexc failed to compile for {marker:?}:\n{src}")),
+    )
 }
 
 /// Every token character standing for a `Boundary`-kind char-def in `table` -- the shared
@@ -464,6 +607,33 @@ pub fn build_controllable(
         });
     }
 
+    // Marker material is grammar-wide, ungated (enumerate_default's own doc), so it is built once here, never per-group.
+    let root = plan
+        .root()
+        .expect("build_controllable requires a Plan with a root set");
+    for marker in union_root_markers(plan, root) {
+        let records = marker_material(g, &marker).unwrap_or_else(|reason| {
+            panic!(
+                "plan carries {marker:?} but its real material could not be built: {reason} -- the \
+                 caller should have refused via crate::build::unbuildable_marker_material before \
+                 invoking build_controllable"
+            )
+        });
+        if let Some(marker_net) = compile_marker_material(
+            opts,
+            g,
+            alphabet,
+            &marker,
+            &records,
+            &mut skipped_allomorphs,
+        ) {
+            final_net = Some(match final_net {
+                None => marker_net,
+                Some(prev) => fsm_union(opts, prev, marker_net),
+            });
+        }
+    }
+
     let final_net = match final_net {
         Some(net) => Some(fsm_minimize(opts, net)),
         None => None,
@@ -500,7 +670,7 @@ fn find_gate_node(plan: &Plan) -> NodeId {
                     PlanNodeKind::Leaf { fragment, .. } => match fragment {
                         FragmentSpec::CompositeEmissionMarker
                         | FragmentSpec::StructuralCompositeMarker => {
-                            // Resolves via a separate path into a lexc `String`, not an `Fsm` this interpreter builds.
+                            // Built separately by union_root_markers/compile_marker_material, not by this Gate walk.
                         }
                         other => panic!(
                             "unexpected Union-root Leaf fragment for build_controllable: {other:?} \
