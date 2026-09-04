@@ -1101,20 +1101,6 @@ pub enum AllomorphOwner {
     Affix(MRuleId, u16),
 }
 
-/// XAmple's per-word analysis caps, present only on a grammar compiled under the XAmple parser
-/// profile (`crate::compile::options::ParserProfile::XAmple`). Counting rules are positional and
-/// live in `pg_rules`/`pg_parse`; this is data. `max_analyses_to_return == None` means unlimited.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AnalysisCaps {
-    pub max_nulls: u32,
-    pub max_prefixes: u32,
-    pub max_infixes: u32,
-    pub max_suffixes: u32,
-    pub max_interfixes: u32,
-    pub max_roots: u32,
-    pub max_analyses_to_return: Option<u32>,
-}
-
 /// The complete immutable grammar (plan §6.1 grammar tier): built once by the loader,
 /// wrapped in `Arc` behind the FFI, `Send + Sync`.
 #[derive(Debug)]
@@ -1153,7 +1139,6 @@ pub struct Grammar {
     pub templates: Vec<AffixTemplateDef>,
     pub entries: Vec<LexEntryDef>,
     pub strata: Vec<StratumDef>,
-    pub analysis_caps: Option<AnalysisCaps>,
 }
 
 /// Grammar-owned facts used by the final-template interleaving policy.

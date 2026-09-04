@@ -10,7 +10,10 @@ pub(crate) mod codes;
 
 use pg_snapshot::{Snapshot, Warning};
 
-use crate::xml::{RawGraph, Record};
+use crate::{
+    xml::{RawGraph, Record},
+    ImportError,
+};
 
 /// Shared extraction context: the raw object graph, accumulating warnings, and writing-system priority lists that only become known once the `project` section has been read.
 pub struct Ctx<'a> {
@@ -83,7 +86,10 @@ fn best_alt(forms: &[pg_snapshot::WsForm], priority: &[String]) -> String {
 }
 
 /// Extract a whole `Snapshot` from a parsed object graph. `filename_stem` is the `.fwdata` file's stem, used as `project.name` since FieldWorks derives the project name from the file, never from the XML.
-pub fn extract(graph: &RawGraph, filename_stem: &str) -> (Snapshot, Vec<Warning>) {
+pub fn extract(
+    graph: &RawGraph,
+    filename_stem: &str,
+) -> Result<(Snapshot, Vec<Warning>), ImportError> {
     let mut ctx = Ctx::new(graph);
 
     let lang_project = project::find_lang_project(&mut ctx);
@@ -93,11 +99,11 @@ pub fn extract(graph: &RawGraph, filename_stem: &str) -> (Snapshot, Vec<Warning>
 
     let feature_systems = features::extract_feature_systems(&mut ctx, lang_project);
     let phonology = phonology::extract_phonology(&mut ctx, lang_project, &feature_systems);
-    let morphology = morphology::extract_morphology(&mut ctx, lang_project, &feature_systems);
+    let morphology = morphology::extract_morphology(&mut ctx, lang_project, &feature_systems)?;
     let lexicon = lexicon::extract_lexicon(&mut ctx, &feature_systems, &morphology);
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
 
     let snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
-    (snapshot, ctx.warnings)
+    Ok((snapshot, ctx.warnings))
 }

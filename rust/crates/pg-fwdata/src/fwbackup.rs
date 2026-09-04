@@ -46,7 +46,7 @@ pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), I
         xml::parse_fwdata_reader(std::io::BufReader::new(entry))?
     };
     let stem = crate::file_stem(Path::new(&fwdata_name));
-    let (mut snapshot, warnings) = extract::extract(&graph, &stem);
+    let (mut snapshot, warnings) = extract::extract(&graph, &stem)?;
 
     if let Some(default_ws) = snapshot.project.vernacular_writing_systems.first().cloned() {
         if let Some((_, text)) = ldml.iter().find(|(tag, _)| *tag == default_ws) {

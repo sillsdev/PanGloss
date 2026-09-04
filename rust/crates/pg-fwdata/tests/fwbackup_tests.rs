@@ -7,13 +7,20 @@ fn fixture_fwdata() -> std::path::PathBuf {
 }
 
 fn write_backup(dir: &std::path::Path) -> std::path::PathBuf {
+    let fwdata = std::fs::read(fixture_fwdata()).unwrap();
+    write_backup_with_fwdata(dir, &fwdata)
+}
+
+fn write_backup_with_fwdata(
+    dir: &std::path::Path,
+    fwdata: &[u8],
+) -> std::path::PathBuf {
     let out = dir.join("Proj 1.fwbackup");
     let file = std::fs::File::create(&out).unwrap();
     let mut z = zip::ZipWriter::new(file);
     let opts = zip::write::SimpleFileOptions::default();
     z.start_file("Proj 1.fwdata", opts).unwrap();
-    z.write_all(&std::fs::read(fixture_fwdata()).unwrap())
-        .unwrap();
+    z.write_all(fwdata).unwrap();
     z.start_file("WritingSystemStore/fx.ldml", opts).unwrap();
     z.write_all(br#"<ldml><identity><language type="fx"/></identity><characters><exemplarCharacters>[a-c{ch}]</exemplarCharacters></characters></ldml>"#).unwrap();
     z.start_file("BackupSettings/BackupSettings.xml", opts)
@@ -54,4 +61,34 @@ fn fwbackup_without_fwdata_entry_is_a_hard_error() {
     z.finish().unwrap();
     let err = pg_fwdata::import_file(&out).unwrap_err();
     assert!(matches!(err, pg_fwdata::ImportError::Backup(_)));
+}
+
+#[test]
+fn malformed_xample_cap_reaches_fwbackup_import_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_fwdata()).unwrap();
+    let needle = "&lt;MaxPrefixes&gt;2&lt;/MaxPrefixes&gt;";
+    assert!(source.contains(needle), "fixture text to replace must be present");
+    let variant = source.replacen(
+        needle,
+        "&lt;MaxPrefixes&gt;many&lt;/MaxPrefixes&gt;",
+        1,
+    );
+    let backup = write_backup_with_fwdata(dir.path(), variant.as_bytes());
+    let (snapshot, report) = pg_fwdata::import_file(&backup).unwrap();
+    assert_eq!(snapshot.morphology.parser_parameters.xample.max_prefixes, None);
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "fwdata.invalid-parser-parameter")
+        .expect("invalid cap must be reported from a backup import");
+    assert!(warning.message.contains("MaxPrefixes"));
+    assert_eq!(
+        report
+            .warnings
+            .iter()
+            .filter(|warning| warning.code == "fwdata.invalid-parser-parameter")
+            .count(),
+        1
+    );
 }
