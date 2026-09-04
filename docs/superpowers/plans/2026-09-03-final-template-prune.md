@@ -27,7 +27,7 @@ The change is accepted only when:
 
 ## File responsibility map
 
-- `rust/crates/pg-grammar/src/model.rs`: define and compute `FinalTemplatePruneFacts`; validate global template-slot/ordinary-rule disjointness and rule-owner/use-stratum consistency.
+- `rust/crates/pg-grammar/src/model.rs`: define and compute `FinalTemplatePruneFacts`; publish global template-slot/ordinary-rule disjointness and the resulting per-stratum default decision, while validating rule-owner/use-stratum consistency.
 - `rust/crates/pg-grammar/src/load.rs`: validate the completed XML grammar before returning it.
 - `rust/crates/pg-grammar/src/compile/mod.rs`: validate after reachability compaction, so returned facts match final rule IDs.
 - `rust/crates/pg-memo/src/lib.rs`: carry an opaque state discriminant in `AnalysisStateKey` without depending on `pg-rules`.
@@ -60,7 +60,7 @@ assert_eq!(facts.all_templates_final(), &[false, true, false]);
 assert_eq!(facts.partial_rule_count(), 1);
 ```
 
-The sole partial rule is at stratum index 1 and must be a template-only rule absent from `StratumDef::mrules`, so the test fails if ownership is re-derived from the candidate list. Add fixtures with the sole partial rule at every index and assert the monotone prefix-OR masks. Add another fixture where the same `MRuleId` appears in any template slot and any stratum `mrules`; assert a `GrammarError::Semantic` whose text names both the template and rule IDs.
+The sole partial rule is at stratum index 1 and must be a template-only rule absent from `StratumDef::mrules`, so the test fails if ownership is re-derived from the candidate list. Add fixtures with the sole partial rule at every index and assert the monotone prefix-OR masks. Add another fixture where the same `MRuleId` appears in any template slot and any stratum `mrules`; assert that the grammar remains loadable but its grammar-owned `default_prune_enabled` mask is false. This is the handoff's conservative fallback for representable overlap grammars found in the conformance inventory.
 
 - [ ] **Step 2: Run the focused tests and verify RED**
 
@@ -81,6 +81,8 @@ Implement this public interface in `model.rs`:
 pub struct FinalTemplatePruneFacts {
     partial_rule_at_or_below: Vec<bool>,
     all_templates_final: Vec<bool>,
+    slot_rules_disjoint_from_mrules: bool,
+    default_prune_enabled: Vec<bool>,
     partial_rule_count: usize,
     disabled_strata: Vec<StratumId>,
 }
@@ -96,7 +98,7 @@ For every `MorphRuleDef::AffixProcess` with `partial == true`, resolve its ownin
 
 - [ ] **Step 4: Validate completed grammars at both construction paths**
 
-In XML load, construct the `Grammar`, call `grammar.final_template_prune_facts()?`, then return it. In FWData compile, run reachability compaction first, call the same method on the final grammar, then return it. Do not duplicate the overlap or partiality logic in either path. Because public callers can still hand-construct `Grammar`, `Morpher::new` calls the same method and panics with the full semantic-error text if invariants fail; loaded/compiled grammars receive the typed error earlier.
+In XML load, construct the `Grammar`, call `grammar.final_template_prune_facts()?`, then return it. In FWData compile, run reachability compaction first, call the same method on the final grammar, then return it. Do not duplicate the overlap fallback, partiality logic, or final per-stratum decision in either path. Because public callers can still hand-construct `Grammar`, `Morpher::new` calls the same method and panics with the full semantic-error text if ownership/range invariants fail; loaded/compiled grammars receive the typed error earlier.
 
 - [ ] **Step 5: Run focused tests and managed check**
 
@@ -284,7 +286,7 @@ pub fn with_always_enforce_final_templates(mut self, enabled: bool) -> Self {
 }
 ```
 
-For each stratum, decide `enforce = always_enforce || !facts.partial_rule_at_or_below()[k]`, pair it with `all_templates_final[k]`, and pass the policy to the new analysis sibling. Reset analysis state at parse/lexical/synthesis entry.
+For each stratum, consume the grammar-owned decision as `enforce = always_enforce || facts.default_prune_enabled()[k]`, pair it with `all_templates_final[k]`, and pass the policy to the new analysis sibling. `Morpher` must not reconstruct that decision from partiality and disjointness component facts. Reset analysis state at parse/lexical/synthesis entry.
 
 - [ ] **Step 4: Thread a narrow synthesis option**
 
@@ -460,7 +462,7 @@ git commit -m "docs: record final-template prune benchmarks"
 
 ## Self-review
 
-- Spec coverage: grammar guard, overlap assertion, owner/use consistency, partial-rule ownership, state transitions, D1/D2, memo/replay, battery hoist, synthesis override, counters, CLI, five-grammar parity, and advice wording each have an owning task.
+- Spec coverage: grammar guard, conservative overlap fallback, owner/use consistency, partial-rule ownership, state transitions, D1/D2, memo/replay, battery hoist, synthesis override, counters, CLI, five-grammar parity, and advice wording each have an owning task.
 - Scope control: the lexical-lookup poisoned-candidate micro-optimization is omitted because the handoff calls it low priority and it does not drive the measured search cost.
 - Interface consistency: `FinalTemplatePruneFacts` belongs to `pg-grammar`; `FinalTemplateAnalysisPolicy` and `FinalTemplateState` belong to `pg-rules`; `Morpher` alone combines facts with override policy.
 - Attribution: prune counters are a separate in-memory per-stratum family, never synthetic morph-rule facts and never persisted without a longitudinal consumer.

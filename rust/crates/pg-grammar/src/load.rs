@@ -2573,6 +2573,8 @@ mod tests {
         assert_eq!(facts.partial_rule_count(), 1);
         assert_eq!(facts.partial_rule_at_or_below(), &[false, true, true]);
         assert_eq!(facts.all_templates_final(), &[false, true, false]);
+        assert!(facts.slot_rules_disjoint_from_mrules());
+        assert_eq!(facts.default_prune_enabled(), &[true, false, false]);
         assert_eq!(
             facts.disabled_strata(),
             &[StratumId(1), StratumId(2)]
@@ -2583,6 +2585,7 @@ mod tests {
         let entry_only_facts = entry_only.final_template_prune_facts().unwrap();
         assert_eq!(entry_only_facts.partial_rule_count(), 0);
         assert_eq!(entry_only_facts.partial_rule_at_or_below(), &[false]);
+        assert_eq!(entry_only_facts.default_prune_enabled(), &[true]);
         assert!(entry_only_facts.disabled_strata().is_empty());
 
         let mut mismatch = load(XML).unwrap();
@@ -2604,7 +2607,7 @@ mod tests {
     }
 
     #[test]
-    fn final_template_facts_reject_template_overlap_with_both_ids() {
+    fn final_template_facts_disable_default_pruning_for_template_overlap() {
         const XML: &str = r#"<HermitCrabInput><Language>
           <Name>Overlap</Name>
           <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
@@ -2619,10 +2622,11 @@ mod tests {
             <AffixTemplates><AffixTemplate id="tpl" final="true"><Name>Tpl</Name><Slot morphologicalRules="mr" /></AffixTemplate></AffixTemplates>
           </Stratum></Strata>
         </Language></HermitCrabInput>"#;
-        let err = load(XML).expect_err("overlapping template rule must be rejected");
-        let text = err.to_string();
-        assert!(text.contains("template 0"), "diagnostic: {text}");
-        assert!(text.contains("mrule 0"), "diagnostic: {text}");
+        let grammar = load(XML).expect("overlap remains representable when pruning is disabled");
+        let facts = grammar.final_template_prune_facts().unwrap();
+        assert!(!facts.slot_rules_disjoint_from_mrules());
+        assert_eq!(facts.default_prune_enabled(), &[false]);
+        assert_eq!(facts.disabled_strata(), &[StratumId(0)]);
     }
 
     /// A root-allomorph `<PhoneticShape>` whose text doesn't literally match a character definition must fall back to the `[NatClass]` pattern language instead of erroring the whole allomorph out; a regression here drops not just the allomorph but the whole entry, since this fixture's entry has only that one allomorph.

@@ -1864,6 +1864,72 @@ mod tests {
         );
     }
 
+    fn seed_policy_cache(path: &std::path::Path, options_json: &str) -> pg_stats::StatsCache {
+        let mut outcome = pg_stats::StatsCache::open(path, "policy-hash").unwrap();
+        let run = pg_stats::RunMetadata {
+            build_info: "test".to_string(),
+            fwdata_path: "fixture.xml".to_string(),
+            grammar_hash: "policy-hash".to_string(),
+            engine: "hc".to_string(),
+            options_hash: "options".to_string(),
+            options_json: options_json.to_string(),
+            created_utc: "unix:0".to_string(),
+        };
+        outcome.cache.flush(&run, &[]).unwrap();
+        outcome.cache
+    }
+
+    #[test]
+    fn final_template_policy_cache_treats_legacy_missing_field_as_false() {
+        let dir = scratch_dir("policy-legacy");
+        let path = dir.join("cache.sqlite3");
+        let cache = seed_policy_cache(&path, "{}");
+        refuse_if_final_template_policy_differs(&cache, &path, false)
+            .expect("legacy rows must remain compatible with the default policy");
+        let err = refuse_if_final_template_policy_differs(&cache, &path, true)
+            .expect_err("legacy rows must refuse the result-changing policy");
+        assert!(err.contains(path.to_str().unwrap()), "error: {err}");
+        assert!(err.contains("false") && err.contains("true"), "error: {err}");
+    }
+
+    #[test]
+    fn final_template_policy_cache_rejects_malformed_prior_options() {
+        for (name, json, expected) in [
+            ("syntax", "{", "malformed prior options JSON"),
+            ("non-object", "[]", "not an object"),
+            (
+                "non-boolean",
+                r#"{"always_enforce_final_templates":"yes"}"#,
+                "non-boolean always_enforce_final_templates",
+            ),
+        ] {
+            let dir = scratch_dir(&format!("policy-malformed-{name}"));
+            let path = dir.join("cache.sqlite3");
+            let cache = seed_policy_cache(&path, json);
+            let err = refuse_if_final_template_policy_differs(&cache, &path, false)
+                .expect_err("invalid cached options must fail loudly");
+            assert!(err.contains(path.to_str().unwrap()), "error: {err}");
+            assert!(err.contains(expected), "error: {err}");
+        }
+    }
+
+    #[test]
+    fn final_template_policies_accept_separate_caches() {
+        let dir = scratch_dir("policy-separate");
+        let default_path = dir.join("default.sqlite3");
+        let override_path = dir.join("override.sqlite3");
+        let default_cache = seed_policy_cache(
+            &default_path,
+            r#"{"always_enforce_final_templates":false}"#,
+        );
+        let override_cache = seed_policy_cache(
+            &override_path,
+            r#"{"always_enforce_final_templates":true}"#,
+        );
+        refuse_if_final_template_policy_differs(&default_cache, &default_path, false).unwrap();
+        refuse_if_final_template_policy_differs(&override_cache, &override_path, true).unwrap();
+    }
+
     /// A second, structurally different fixture, for the grammar-change/wipe test.
     fn secondary_fixture() -> (String, String) {
         fixture_grammar_and_word("edge-cases", "truncate-morphotactic")

@@ -4,7 +4,8 @@ mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar, lex_entry_id, mrule_id};
 use pg_featstruct::{FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits};
 use pg_grammar::model::{Grammar, MorphRuleDef};
-use pg_parse::{GenMorpheme, Morpher};
+use pg_parse::{GenMorpheme, Morpher, ParseOptions};
+use pg_rules::trace::TreeTraceSink;
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
 
@@ -588,6 +589,61 @@ fn partial_rule() {
     // The explicit policy bypasses the default path's inner partial-rule rescue.
     let enforced = Morpher::new(&g, usize::MAX).with_always_enforce_final_templates(true);
     assert_empty(&enforced.parse_word("sagds"));
+
+    // Rule-level partial markers protect rescue paths; lexical-entry partial markers do not.
+    let nonpartial_rules = mrules.replace(" partial=\"true\"", "");
+    let mut nonpartial = build_grammar(
+        "",
+        "",
+        &nonpartial_rules,
+        "mrS mrNom mrU",
+        templates_final,
+    );
+    for entry in &mut nonpartial.entries {
+        entry.partial = true;
+    }
+    let default_unmemoized = Morpher::new(&nonpartial, usize::MAX).with_memo(false);
+    let default_memoized = Morpher::new(&nonpartial, usize::MAX).with_memo(true);
+    let unmemoized = default_unmemoized.parse_word("sagds");
+    let memoized = default_memoized.parse_word("sagds");
+    assert_empty(&unmemoized);
+    assert_eq!(unmemoized.signature(), memoized.signature());
+
+    let (with_stats, _, prune_rows) = default_memoized
+        .parse_word_with_stats_and_prunes("sagds", &ParseOptions::default());
+    assert_eq!(with_stats.signature(), memoized.signature());
+    assert_eq!(
+        prune_rows
+            .iter()
+            .map(|row| row.counters.template_batteries_skipped)
+            .sum::<u64>(),
+        1,
+        "the all-final battery must be rejected before template entry"
+    );
+    assert_eq!(
+        prune_rows
+            .iter()
+            .map(|row| row.counters.template_entries)
+            .sum::<u64>(),
+        2,
+        "only legal template-first paths enter the battery"
+    );
+    assert_eq!(
+        prune_rows
+            .iter()
+            .map(|row| row.counters.final_templates_skipped)
+            .sum::<u64>(),
+        0,
+        "the rejected all-final battery must be hoisted before per-template selection"
+    );
+
+    let sink = TreeTraceSink::new();
+    let traced = default_memoized.parse_word_traced("sagds", &ParseOptions::default(), &sink);
+    assert_eq!(
+        traced.signature(),
+        memoized.signature(),
+        "tracing must not change the enforced prune result"
+    );
 
     let templates_nonfinal = r#"
       <AffixTemplate requiredPartsOfSpeech="posV" final="false"><Name>verb</Name><Slot morphologicalRules="mrEd" optional="true"><Name>Sl1</Name></Slot></AffixTemplate>

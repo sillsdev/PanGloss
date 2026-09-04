@@ -413,7 +413,7 @@ impl<'g> Morpher<'g> {
                 // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
                 let node_parent = w.trace.unwrap_or(root);
                 let enforce = self.always_enforce_final_templates
-                    || !self.final_template_facts.partial_rule_at_or_below()[s];
+                    || self.final_template_facts.default_prune_enabled()[s];
                 let policy = FinalTemplateAnalysisPolicy {
                     enforce,
                     all_templates_final: self.final_template_facts.all_templates_final()[s],

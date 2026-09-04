@@ -1119,6 +1119,8 @@ pub struct Grammar {
 pub struct FinalTemplatePruneFacts {
     partial_rule_at_or_below: Vec<bool>,
     all_templates_final: Vec<bool>,
+    slot_rules_disjoint_from_mrules: bool,
+    default_prune_enabled: Vec<bool>,
     partial_rule_count: usize,
     disabled_strata: Vec<StratumId>,
 }
@@ -1130,6 +1132,14 @@ impl FinalTemplatePruneFacts {
 
     pub fn all_templates_final(&self) -> &[bool] {
         &self.all_templates_final
+    }
+
+    pub fn slot_rules_disjoint_from_mrules(&self) -> bool {
+        self.slot_rules_disjoint_from_mrules
+    }
+
+    pub fn default_prune_enabled(&self) -> &[bool] {
+        &self.default_prune_enabled
     }
 
     pub fn partial_rule_count(&self) -> usize {
@@ -1164,6 +1174,7 @@ impl Grammar {
         }
 
         let mut ordinary_ids = std::collections::HashSet::new();
+        let mut slot_rules_disjoint_from_mrules = true;
         for (si, sd) in self.strata.iter().enumerate() {
             for &id in &sd.mrules {
                 if id.0 as usize >= self.mrules.len() {
@@ -1200,12 +1211,7 @@ impl Grammar {
                                 id.0
                             )));
                         }
-                        if ordinary_ids.contains(&id) {
-                            return Err(crate::GrammarError::Semantic(format!(
-                                "template {} slot mrule {} overlaps an ordinary mrule list",
-                                tid.0, id.0
-                            )));
-                        }
+                        slot_rules_disjoint_from_mrules &= !ordinary_ids.contains(&id);
                         if let Some(owner) = rule_owner[id.0 as usize] {
                             if owner.0 as usize != si {
                                 return Err(crate::GrammarError::Semantic(format!(
@@ -1231,10 +1237,14 @@ impl Grammar {
         let partial_rule_at_or_below = (0..strata_len)
             .map(|i| first_partial.is_some_and(|p| i >= p))
             .collect::<Vec<_>>();
-        let disabled_strata = partial_rule_at_or_below
+        let default_prune_enabled = partial_rule_at_or_below
+            .iter()
+            .map(|partial_rule| !partial_rule && slot_rules_disjoint_from_mrules)
+            .collect::<Vec<_>>();
+        let disabled_strata = default_prune_enabled
             .iter()
             .enumerate()
-            .filter_map(|(i, disabled)| disabled.then_some(StratumId(i as u8)))
+            .filter_map(|(i, enabled)| (!enabled).then_some(StratumId(i as u8)))
             .collect();
         let all_templates_final = self
             .strata
@@ -1251,6 +1261,8 @@ impl Grammar {
             disabled_strata,
             partial_rule_at_or_below,
             all_templates_final,
+            slot_rules_disjoint_from_mrules,
+            default_prune_enabled,
             partial_rule_count,
         })
     }

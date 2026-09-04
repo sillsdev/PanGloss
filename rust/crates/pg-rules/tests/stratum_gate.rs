@@ -5,10 +5,11 @@ mod common;
 use common::load_alpha_grammar;
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner, Grammar,
-    MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern,
-    PatternNode, ReduplicationHint, SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId,
-    TableId, TemplateId, TemplateSlotZone, VarTable,
+    AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner,
+    CompoundingRuleDef, CompoundingSubruleDef, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder,
+    MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint,
+    SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId,
+    TemplateSlotZone, VarTable,
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{
@@ -16,7 +17,7 @@ use pg_rules::stratum::{
     synthesize_stratum_traced, synthesize_template, AnalyzerConfig, FinalTemplateAnalysisPolicy,
     StepBudget,
 };
-use pg_rules::trace::{NoopSink, TraceHandle};
+use pg_rules::trace::{NoopSink, TraceHandle, TraceSink, TreeTraceSink};
 use pg_rules::{MorphRecord, Word};
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
 use std::time::Duration;
@@ -419,6 +420,34 @@ fn prefix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
     rule
 }
 
+fn compounding_rule(g: &Grammar) -> MorphRuleDef {
+    MorphRuleDef::Compounding(CompoundingRuleDef {
+        xml_id: "compound".into(),
+        name: None,
+        blockable: false,
+        max_apps: 1,
+        head_required_syn_fs: pg_featstruct::FsId(0),
+        non_head_required_syn_fs: pg_featstruct::FsId(0),
+        out_syn_fs: pg_featstruct::FsId(0),
+        head_prod_restrictions_mpr: MprSet::EMPTY,
+        non_head_prod_restrictions_mpr: MprSet::EMPTY,
+        output_prod_restrictions_mpr: MprSet::EMPTY,
+        obligatory_features: vec![],
+        subrules: vec![CompoundingSubruleDef {
+            vars: VarTable::default(),
+            required_mpr: MprSet::EMPTY,
+            excluded_mpr: MprSet::EMPTY,
+            out_mpr: MprSet::EMPTY,
+            head_lhs: vec![one_or_more("nc_any", g)],
+            non_head_lhs: vec![one_or_more("nc_any", g)],
+            rhs: vec![
+                OutputAction::Copy(PartRef::Head(0)),
+                OutputAction::Copy(PartRef::NonHead(0)),
+            ],
+        }],
+    })
+}
+
 #[test]
 fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     let mut g = load_alpha_grammar();
@@ -464,6 +493,48 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     );
     assert!(baseline_histories.contains(&vec![template_rule, ordinary]));
 
+    let disabled_stats = pg_rules::stats::StatsCollector::new(&g);
+    let disabled = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        s,
+        word(&g, "pak", s),
+        &AnalyzerConfig {
+            merge_equivalent: false,
+            ..AnalyzerConfig::default()
+        },
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy::default(),
+        Some(&disabled_stats),
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert_eq!(
+        disabled
+            .words
+            .iter()
+            .map(|w| w.mrule_apps.iter().flatten().copied().collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+        baseline_histories
+    );
+    let disabled_rows = disabled_stats.prune_rows();
+    assert!(
+        disabled_rows
+            .iter()
+            .all(|row| row.counters.template_batteries_skipped == 0
+                && row.counters.final_templates_skipped == 0),
+        "disabled policy must record exactly zero skips"
+    );
+    assert!(
+        disabled_rows
+            .iter()
+            .any(|row| row.counters.template_entries > 0),
+        "template entry is diagnostic traffic, not a prune effect"
+    );
+
     let stats = pg_rules::stats::StatsCollector::new(&g);
     let enforced = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
         &g,
@@ -491,6 +562,41 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
         .iter()
         .map(|w| w.mrule_apps.iter().flatten().copied().collect())
         .collect();
+
+    let trace_sink = TreeTraceSink::new();
+    let mut trace_input = word(&g, "pak", s);
+    let trace_root = trace_sink.analyze_word(&trace_input);
+    trace_input.trace = Some(trace_root);
+    let traced = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        s,
+        trace_input,
+        &AnalyzerConfig {
+            merge_equivalent: false,
+            ..AnalyzerConfig::default()
+        },
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy {
+            enforce: true,
+            all_templates_final: true,
+        },
+        None,
+        &trace_sink,
+        trace_root,
+    );
+    let traced_histories = traced
+        .words
+        .iter()
+        .map(|w| w.mrule_apps.iter().flatten().copied().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        traced_histories, enforced_histories,
+        "traced and untraced enforcement must preserve complete rule histories"
+    );
     assert!(!enforced_histories.contains(&vec![ordinary, template_rule]));
     assert!(enforced_histories.contains(&vec![template_rule, ordinary]));
     assert_eq!(
@@ -539,6 +645,188 @@ fn enforced_stratum_exit_clears_final_template_state_before_output_dedup() {
             .iter()
             .all(|w| w.flags.final_template_state == pg_rules::word::FinalTemplateState::None),
         "stratum outputs must not leak the internal final-template state"
+    );
+}
+
+#[test]
+fn final_template_state_resets_between_outer_and_inner_strata() {
+    let mut g = load_alpha_grammar();
+    let mut final_rule = suffix_rule(&g, 300, "k");
+    if let MorphRuleDef::AffixProcess(def) = &mut final_rule {
+        def.is_template_rule = true;
+    }
+    let final_rule = push_mrule(&mut g, final_rule);
+    let template = TemplateId(g.templates.len() as u32);
+    g.templates.push(AffixTemplateDef {
+        name: None,
+        is_final: true,
+        required_syn_fs: pg_featstruct::FsId(0),
+        slots: vec![SlotDef {
+            name: None,
+            optional: false,
+            zone: TemplateSlotZone::LegacyUnspecified,
+            rules: vec![final_rule],
+        }],
+    });
+    let inner = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![], vec![template]);
+
+    let outer_rule = prefix_rule(&g, 200, "p");
+    let outer_rule = push_mrule(&mut g, outer_rule);
+    let outer = push_stratum(
+        &mut g,
+        MorphRuleOrder::Unordered,
+        vec![outer_rule],
+        vec![],
+    );
+    let cfg = AnalyzerConfig {
+        merge_equivalent: false,
+        ..AnalyzerConfig::default()
+    };
+    let outer_result = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        outer,
+        word(&g, "pak", outer),
+        &cfg,
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy {
+            enforce: true,
+            all_templates_final: false,
+        },
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    let mut after_outer = outer_result
+        .words
+        .into_iter()
+        .find(|w| {
+            char_defs(&w.shape) == vec![cd(&g, "char_a"), cd(&g, "char_k")]
+                && w.mrule_apps.iter().flatten().copied().eq([outer_rule])
+        })
+        .expect("outer ordinary rule must unapply before crossing the stratum boundary");
+    assert_eq!(
+        after_outer.flags.final_template_state,
+        pg_rules::word::FinalTemplateState::None
+    );
+    after_outer.stratum = inner;
+
+    let inner_result = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        inner,
+        after_outer,
+        &cfg,
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy {
+            enforce: true,
+            all_templates_final: true,
+        },
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(inner_result.words.iter().any(|w| {
+        char_defs(&w.shape) == vec![cd(&g, "char_a")]
+            && w
+                .mrule_apps
+                .iter()
+                .flatten()
+                .copied()
+                .eq([outer_rule, final_rule])
+    }));
+}
+
+#[test]
+fn compounding_analysis_marks_non_template_before_final_template_selection() {
+    let mut g = load_alpha_grammar();
+    let compound = compounding_rule(&g);
+    let compound = push_mrule(&mut g, compound);
+    let mut final_rule = prefix_rule(&g, 300, "p");
+    if let MorphRuleDef::AffixProcess(def) = &mut final_rule {
+        def.is_template_rule = true;
+    }
+    let final_rule = push_mrule(&mut g, final_rule);
+    let template = TemplateId(g.templates.len() as u32);
+    g.templates.push(AffixTemplateDef {
+        name: None,
+        is_final: true,
+        required_syn_fs: pg_featstruct::FsId(0),
+        slots: vec![SlotDef {
+            name: None,
+            optional: false,
+            zone: TemplateSlotZone::LegacyUnspecified,
+            rules: vec![final_rule],
+        }],
+    });
+    let s = push_stratum(
+        &mut g,
+        MorphRuleOrder::Unordered,
+        vec![compound],
+        vec![template],
+    );
+    let cfg = AnalyzerConfig {
+        merge_equivalent: false,
+        ..AnalyzerConfig::default()
+    };
+    let histories = |words: &[Word]| {
+        words
+            .iter()
+            .map(|w| w.mrule_apps.iter().flatten().copied().collect::<Vec<_>>())
+            .collect::<Vec<_>>()
+    };
+    let off = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        s,
+        word(&g, "pak", s),
+        &cfg,
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy::default(),
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(
+        histories(&off.words).contains(&vec![compound, final_rule]),
+        "the fixture must reach compound -> final-template when enforcement is disabled"
+    );
+
+    let stats = pg_rules::stats::StatsCollector::new(&g);
+    let on = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+        &g,
+        s,
+        word(&g, "pak", s),
+        &cfg,
+        None,
+        None,
+        None,
+        None,
+        &StepBudget::new(usize::MAX),
+        FinalTemplateAnalysisPolicy {
+            enforce: true,
+            all_templates_final: true,
+        },
+        Some(&stats),
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(!histories(&on.words).contains(&vec![compound, final_rule]));
+    assert!(histories(&on.words).contains(&vec![final_rule, compound]));
+    assert!(
+        stats
+            .prune_rows()
+            .iter()
+            .any(|row| row.counters.template_batteries_skipped > 0)
     );
 }
 
