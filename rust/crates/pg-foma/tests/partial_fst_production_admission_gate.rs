@@ -213,6 +213,104 @@ fn the_control_measures_and_stays_publishable_on_every_strategy() {
     );
 }
 
+/// The recall question behind classing the partial policy as READINESS rather than
+/// representability: every backend must still PROPOSE the analyses that exist only because a rule
+/// is partial.
+///
+/// `Readiness` asserts the grammar is representable and only unshippable. That is a claim about
+/// recall, so it is measured here rather than assumed: partial-dependent words are identified
+/// structurally (they lose every analysis when the partial flags are cleared), and each backend's
+/// proposal set must contain the oracle's analyses for them. A `NotAttempted` outcome fails this
+/// test — an unmeasured backend cannot support the weaker classification.
+#[test]
+fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial() {
+    let fixture = pg_conformance_fixtures::discover()
+        .into_iter()
+        .find(|f| f.name == "final-template-partial-discriminators")
+        .expect("the partial-discriminator fixture must be discoverable");
+    let label = fixture.label();
+    let grammar = load(&fixture.load_grammar_xml());
+    let words: Vec<String> = fixture
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|entry| entry.word)
+        .collect();
+    assert!(!words.is_empty(), "{label}: fixture must have words");
+
+    // Structural, not hardcoded: clearing every partial flag must cost these words their analyses.
+    let mut cleared = load(&fixture.load_grammar_xml());
+    for rule in &mut cleared.mrules {
+        if let pg_grammar::model::MorphRuleDef::AffixProcess(def) = rule {
+            def.partial = false;
+        }
+    }
+    for entry in &mut cleared.entries {
+        entry.partial = false;
+    }
+
+    let oracle = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let without_partials = pg_parse::Morpher::new(&cleared, usize::MAX);
+    let mut partial_dependent = Vec::new();
+    for word in &words {
+        let with = oracle.parse_word(word).structured.len();
+        let without = without_partials.parse_word(word).structured.len();
+        if with > 0 && without == 0 {
+            partial_dependent.push((word.clone(), with));
+        }
+    }
+    for (word, count) in &partial_dependent {
+        eprintln!("{label}: {word:?} has {count} analysis/analyses ONLY because a rule is partial");
+    }
+    assert!(
+        partial_dependent.len() >= 2,
+        "{label}: this gate needs at least two words whose parse DEPENDS on a partial rule, or a \
+         backend that silently under-proposes on partials would pass it; found {:?}",
+        partial_dependent
+    );
+
+    // Containment restricted to the partial-dependent words: a failure on some OTHER word in the
+    // same fixture is a real gap but a different question, and must not be read as a partial-recall
+    // miss. The whole-fixture account is printed below and owned by `faithfulness_coverage_gate`.
+    let only_partial_dependent: Vec<String> =
+        partial_dependent.iter().map(|(word, _)| word.clone()).collect();
+    let observation = pg_foma::faithfulness_coverage::observe_fixture_containment(
+        &label,
+        &grammar,
+        &only_partial_dependent,
+    );
+    let whole_fixture =
+        pg_foma::faithfulness_coverage::observe_fixture_containment(&label, &grammar, &words);
+
+    for &strategy in ALL_STRATEGIES {
+        let outcome_for = |observation: &pg_foma::faithfulness_coverage::FixtureContainmentObservation| {
+            observation
+                .outcomes
+                .iter()
+                .find(|(observed, _)| *observed == strategy)
+                .map(|(_, outcome)| outcome.clone())
+                .unwrap_or_else(|| panic!("{label}: no containment outcome for {strategy:?}"))
+        };
+        let partial_outcome = outcome_for(&observation);
+        eprintln!(
+            "{label} x {}: partial-dependent containment {} | whole-fixture containment {}",
+            strategy.label(),
+            partial_outcome.label(),
+            outcome_for(&whole_fixture).label(),
+        );
+        match partial_outcome {
+            pg_foma::faithfulness_coverage::ContainmentOutcome::Held => {}
+            other => panic!(
+                "{label} x {strategy:?}: partial-dependent recall is {}, so this backend cannot \
+                 keep the READINESS classification -- its partial refusal must become \
+                 CannotRepresent (representability) and refuse the build, not just publication. \
+                 Outcome: {other:?}",
+                other.label()
+            ),
+        }
+    }
+}
+
 /// A readiness verdict must never be reachable from the representability axis, whatever the tier.
 #[test]
 fn the_partial_policy_code_answers_readiness_and_nothing_else() {

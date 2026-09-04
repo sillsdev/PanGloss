@@ -10,8 +10,8 @@
      SynthesisStratumRule.cs (see morphotactic-attribute-breadth's own header comment for the same
      finding), so Main below is Unordered, not Linear.
 
-     Two independent branches, isolated by PartsOfSpeech so a mutation to one branch's construct can
-     never change the other branch's words:
+     Three independent branches, isolated by PartsOfSpeech so a mutation to one branch's construct
+     can never change another branch's words:
 
      Branch A (posX, root dak) pins NonPartialRuleProhibitedAfterFinalTemplate:
        - finalTemplateA (final="true") tags "fa"; mrGate1 (ordinary, non-partial) tags "ga".
@@ -23,7 +23,10 @@
          morphotactic-attribute-breadth's finding that a non-final-only stratum admits no complete
          word at all).
 
-     Branch B (posY, root pil) pins NonPartialRuleRequiredAfterNonFinalTemplate:
+     Branch B (posY, root pil) pins NonPartialRuleRequiredAfterNonFinalTemplate, and also carries
+     the fixture's first POSITIVE, partial-dependent word (pilfbvb, a parse that exists only
+     because a rule is partial, needed to let FST recall be measured against a backend that could
+     silently under-propose on partial-bearing grammars):
        - finalTemplateB (final="true") tags "fb"; nonFinalTemplateB (final="false") tags "nb".
        - mrGate2Partial (ordinary, partial="true") tags "vb"; mrGate2Complete (ordinary, NOT
          partial) tags "tb".
@@ -31,22 +34,38 @@
          partial ordinary rule cannot complete a non-final-template derivation.
        - pilnbtbfb: mrGate2Complete (non-partial) tried in the identical position. Permitted,
          because the gate only fires when the rule ITSELF is partial.
+       - pilfbvb: mrGate2Partial tried right after finalTemplateB instead (the mirror of dakfaga,
+         but with a partial rule). NonPartialRuleProhibitedAfterFinalTemplate does not fire because
+         mrGate2Partial is partial, so unlike dakfaga this one parses.
 
-     Every tag rule (mrFinTagA/mrNonFinTagA/mrFinTagB/mrNonFinTagB) is listed ONLY inside its own
-     AffixTemplate Slot, never on the Stratum's own morphologicalRules attribute, so it stays
-     IsTemplateRule=true and is exempt from both gates by construction (see
+     Branch C (posZ, root nib) pins the OTHER arm of SynthesisAffixTemplatesRule.cs's line-59
+     pass-through: a partial WORD survives an applicable template battery that applies nothing,
+     where a non-partial word would die with ApplicableTemplatesNotApplied instead. mrGate3Partial
+     (ordinary, partial="true") tags "gi", making the word partial; templateZ is applicable to posZ
+     (so applicableTemplate=true) but its one mandatory slot's rule (mrZTagSlot) can never match
+     the word it is tried against, so the battery yields zero output regardless. nibgi is the
+     second POSITIVE, partial-dependent word: it parses only because the word is partial when the
+     empty battery is reached, per line 59's `!input.IsPartial && applicableTemplate` test.
+
+     Every tag/slot rule (mrFinTagA/mrNonFinTagA/mrFinTagB/mrNonFinTagB/mrZTagSlot) is listed ONLY
+     inside its own AffixTemplate Slot, never on the Stratum's own morphologicalRules attribute, so
+     it stays IsTemplateRule=true and is exempt from both gates by construction (see
      template-category-sharing's own Stratum comment for the mechanism: a rule reachable ONLY
      through its own template's Slot must be omitted from the Stratum's morphologicalRules
      attribute, or it stays freely combinable and is no longer exclusive to that template). mrGate1/
-     mrGate2Partial/mrGate2Complete are the reverse: listed on the Stratum's morphologicalRules
-     attribute and never a Slot member, so they are "ordinary" and squarely inside both gates'
-     scope. -->
+     mrGate2Partial/mrGate2Complete/mrGate3Partial are the reverse: listed on the Stratum's
+     morphologicalRules attribute and never a Slot member, so they are "ordinary" and squarely
+     inside both gates' scope. (mrGate3Partial is never actually refused by either gate here: it is
+     always the first rule tried, with no template applied before it. But it stays stratum-listed
+     rather than template-only so its own IsPartial flag, not IsTemplateRule, is what the line-59
+     pass-through cares about.) -->
 <HermitCrabInput>
   <Language>
     <Name>FinalTemplatePartialDiscriminators</Name>
     <PartsOfSpeech>
       <PartOfSpeech id="posX"><Name>x</Name></PartOfSpeech>
       <PartOfSpeech id="posY"><Name>y</Name></PartOfSpeech>
+      <PartOfSpeech id="posZ"><Name>z</Name></PartOfSpeech>
     </PartsOfSpeech>
     <CharacterDefinitionTable id="tbl">
       <Name>Main</Name>
@@ -67,10 +86,14 @@
     </CharacterDefinitionTable>
     <NaturalClasses>
       <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <!-- Branch C's mrZTagSlot requires this to prove the mandatory slot's rule is applicable
+           (POS matches) but never actually fires on Branch C's own root or its partial rule's
+           output: neither "nib" nor "nibgi" ends in "k", the class's only member. -->
+      <SegmentNaturalClass id="ncOnlyK"><Name>OnlyK</Name><Segment segment="sK" /></SegmentNaturalClass>
     </NaturalClasses>
     <Strata>
       <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="unordered"
-               morphologicalRules="mrGate1 mrGate2Partial mrGate2Complete"
+               morphologicalRules="mrGate1 mrGate2Partial mrGate2Complete mrGate3Partial"
                isActive="yes">
         <Name>Main</Name>
         <MorphologicalRuleDefinitions>
@@ -158,6 +181,42 @@
             <MorphemeId>GATE2COMPLETE</MorphemeId>
             <Gloss>gate2complete</Gloss>
           </MorphologicalRule>
+          <!-- Branch C, isolated by posZ: pins the SynthesisAffixTemplatesRule.cs line-59
+               pass-through (`!input.IsPartial && applicableTemplate`). mrGate3Partial (ordinary,
+               partial="true", stratum-listed only) is tried on the root, making the WORD partial;
+               templateZ (below) is applicable to posZ but its one mandatory slot's rule can never
+               match the result, so the template battery yields zero output. Because the word is
+               partial, line 59's `!input.IsPartial` is false and the ELSE branch runs: the word
+               passes through unchanged with IsLastAppliedRuleFinal=true, closing the derivation
+               with no template morpheme contributed. -->
+          <MorphologicalRule id="mrGate3Partial" partial="true" requiredPartsOfSpeech="posZ" outputPartOfSpeech="posZ">
+            <Name>gate3Partial</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subGate3Partial">
+                <MorphologicalInput><PhoneticSequence id="stemGate3Partial"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemGate3Partial" /><InsertSegments><PhoneticShape>gi</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>GATE3PARTIAL</MorphemeId>
+            <Gloss>gate3partial</Gloss>
+          </MorphologicalRule>
+          <!-- templateZ's only slot, template-only (never stratum-listed, so IsTemplateRule=true,
+               exempt from both gates: irrelevant here since it never actually applies, but kept
+               consistent with the tag-rule convention above). Its MorphologicalInput requires the
+               LAST segment to be in ncOnlyK ("k"), which mrGate3Partial's own tag ("gi") never
+               satisfies, and neither does the bare root ("nib"), so this rule can never match
+               either input state templateZ is tried against. -->
+          <MorphologicalRule id="mrZTagSlot" requiredPartsOfSpeech="posZ" outputPartOfSpeech="posZ">
+            <Name>zTagSlot</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subZTagSlot">
+                <MorphologicalInput><PhoneticSequence id="stemZTagSlot"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence><SimpleContext naturalClass="ncOnlyK" /></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemZTagSlot" /><InsertSegments><PhoneticShape>kv</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>ZTAGSLOT</MorphemeId>
+            <Gloss>ztagslot</Gloss>
+          </MorphologicalRule>
         </MorphologicalRuleDefinitions>
         <AffixTemplates>
           <!-- Branch A: final="true" is explicit (matches the default) so the red-on-revert mutation
@@ -179,6 +238,13 @@
             <Name>nonFinalTemplateB</Name>
             <Slot morphologicalRules="mrNonFinTagB"><Name>nonFinTagSlotB</Name></Slot>
           </AffixTemplate>
+          <!-- Branch C, isolated from A/B by requiredPartsOfSpeech="posZ". A single MANDATORY slot
+               (no optional="true") so its rule's failure to match makes the whole template battery
+               yield zero output for this template. -->
+          <AffixTemplate requiredPartsOfSpeech="posZ" final="true">
+            <Name>templateZ</Name>
+            <Slot morphologicalRules="mrZTagSlot"><Name>zTagSlot</Name></Slot>
+          </AffixTemplate>
         </AffixTemplates>
         <LexicalEntries>
           <LexicalEntry id="eDak" partOfSpeech="posX">
@@ -194,6 +260,13 @@
             </Allomorphs>
             <MorphemeId>PIL</MorphemeId>
             <Gloss>pil</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eNib" partOfSpeech="posZ">
+            <Allomorphs>
+              <Allomorph id="aNib"><PhoneticShape>nib</PhoneticShape></Allomorph>
+            </Allomorphs>
+            <MorphemeId>NIB</MorphemeId>
+            <Gloss>nib</Gloss>
           </LexicalEntry>
         </LexicalEntries>
       </Stratum>
