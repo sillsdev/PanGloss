@@ -250,7 +250,7 @@ struct StatsOptionsRecord {
 
 fn final_template_stats_line(counters: pg_rules::stats::PruneCounters) -> String {
     format!(
-        "FINAL_TEMPLATE_STATS\ttemplate_entries={}\ttemplate_batteries_skipped={}\tfinal_templates_skipped={}",
+        "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries={}\ttemplate_batteries_skipped={}\tfinal_templates_skipped={}",
         counters.template_entries,
         counters.template_batteries_skipped,
         counters.final_templates_skipped,
@@ -310,7 +310,7 @@ pub(crate) fn run_batch_stats_hc(
     guess: bool,
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
-) -> Result<(), String> {
+) -> Result<pg_rules::stats::PruneCounters, String> {
     let grammar_hash = grammar_hash_for(grammar_path)?;
     let cache_path = resolve_cache_path(grammar_path, cache_override)?;
     let mut outcome =
@@ -389,7 +389,7 @@ pub(crate) fn run_batch_stats_hc(
         total_elapsed,
     )?;
     println!("{}", final_template_stats_line(prune_totals));
-    Ok(())
+    Ok(prune_totals)
 }
 
 // The `stats` subcommand: read-only, no grammar loaded.
@@ -1852,7 +1852,7 @@ mod tests {
     fn final_template_stats_line_is_deterministic_for_empty_and_nonempty_rows() {
         assert_eq!(
             final_template_stats_line(pg_rules::stats::PruneCounters::default()),
-            "FINAL_TEMPLATE_STATS\ttemplate_entries=0\ttemplate_batteries_skipped=0\tfinal_templates_skipped=0"
+            "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=0\ttemplate_batteries_skipped=0\tfinal_templates_skipped=0"
         );
         assert_eq!(
             final_template_stats_line(pg_rules::stats::PruneCounters {
@@ -1860,7 +1860,7 @@ mod tests {
                 template_batteries_skipped: 3,
                 final_templates_skipped: 5,
             }),
-            "FINAL_TEMPLATE_STATS\ttemplate_entries=2\ttemplate_batteries_skipped=3\tfinal_templates_skipped=5"
+            "FINAL_TEMPLATE_STATS_NEWLY_ANALYZED\ttemplate_entries=2\ttemplate_batteries_skipped=3\tfinal_templates_skipped=5"
         );
     }
 
@@ -2044,6 +2044,103 @@ mod tests {
         assert_eq!(
             word_count, 1,
             "the same word run twice must accumulate to exactly one word row, not two"
+        );
+    }
+
+    /// A grammar whose default final-template prune can actually fire: one ordinary stratum-listed rule, one `final` template whose slot rule is NOT stratum-listed, and no `partial` marker anywhere (any partial rule disables default pruning grammar-wide).
+    const PRUNE_FIRING_GRAMMAR: &str = r#"<HermitCrabInput><Language><Name>PruneCounterFixture</Name>
+  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions>
+      <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /><Segment segment="cs" /><Segment segment="ct" /></SegmentNaturalClass></NaturalClasses>
+  <Strata><Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrOrd">
+    <Name>S</Name>
+    <MorphologicalRuleDefinitions>
+      <MorphologicalRule id="mrOrd" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>ordSuffix</Name>
+        <MorphologicalSubrules><MorphologicalSubrule id="subOrd">
+          <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+          <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
+        </MorphologicalSubrule></MorphologicalSubrules>
+      </MorphologicalRule>
+      <MorphologicalRule id="mrTpl" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>tplSuffix</Name>
+        <MorphologicalSubrules><MorphologicalSubrule id="subTpl">
+          <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+          <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>t</PhoneticShape></InsertSegments></MorphologicalOutput>
+        </MorphologicalSubrule></MorphologicalSubrules>
+      </MorphologicalRule>
+    </MorphologicalRuleDefinitions>
+    <AffixTemplates>
+      <AffixTemplate requiredPartsOfSpeech="posV" final="true"><Name>tpl</Name>
+        <Slot optional="true" morphologicalRules="mrTpl"><Name>tplSlot</Name></Slot>
+      </AffixTemplate>
+    </AffixTemplates>
+    <LexicalEntries><LexicalEntry id="e1" partOfSpeech="posV"><Allomorphs>
+      <Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph>
+    </Allomorphs></LexicalEntry></LexicalEntries>
+  </Stratum></Strata>
+</Language></HermitCrabInput>"#;
+
+    /// Drives `run_batch_stats_hc` twice against the same cache; the first run must measure real pruning and the second must read zero, so "newly analyzed" is proven to be the line's actual scope rather than a counter that is always zero.
+    #[test]
+    fn run_batch_stats_hc_second_run_on_fully_cached_words_reports_zero_prune_counters() {
+        // A hand-built grammar, not a conformance fixture: no fixture in either root satisfies all three preconditions at once, so a fixture-based first run measures zero and cannot tell the two claims apart.
+        let (grammar_xml, word) = (PRUNE_FIRING_GRAMMAR.to_string(), "ats".to_string());
+        let dir = scratch_dir("prune-counters-newly-analyzed");
+        let grammar_path = dir.join("grammar.xml");
+        fs::write(&grammar_path, &grammar_xml).expect("write grammar");
+        let grammar_path_str = grammar_path.to_str().unwrap().to_string();
+        let cache_path = dir.join("cache.sqlite3");
+        let cache_path_str = cache_path.to_str().unwrap().to_string();
+
+        let (grammar, _warnings) = crate::load_grammar(&grammar_path_str).expect("load grammar");
+        let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+        let opts = pg_parse::ParseOptions::default();
+        let words = vec![word];
+
+        let first = run_batch_stats_hc(
+            &grammar,
+            &grammar_path_str,
+            &morpher,
+            &opts,
+            &words,
+            usize::MAX,
+            None,
+            true,
+            false,
+            false,
+            Some(cache_path_str.as_str()),
+        )
+        .expect("first stats run");
+        assert_ne!(
+            first,
+            pg_rules::stats::PruneCounters::default(),
+            "the first run must measure real pruning, or the second run's zero proves nothing about \
+             scope; measured {first:?}"
+        );
+
+        let second = run_batch_stats_hc(
+            &grammar,
+            &grammar_path_str,
+            &morpher,
+            &opts,
+            &words,
+            usize::MAX,
+            None,
+            true,
+            false,
+            false,
+            Some(cache_path_str.as_str()),
+        )
+        .expect("second stats run");
+        assert_eq!(
+            second,
+            pg_rules::stats::PruneCounters::default(),
+            "every word was already cached, so counters must read zero, not the accumulated first-run total"
         );
     }
 

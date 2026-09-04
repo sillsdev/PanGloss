@@ -832,7 +832,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         threads,
     );
     if stats_requested {
-        stats_cmd::run_batch_stats_hc(
+        let _ = stats_cmd::run_batch_stats_hc(
             &grammar,
             grammar_path,
             &morpher,
