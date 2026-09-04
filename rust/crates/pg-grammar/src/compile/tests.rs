@@ -229,6 +229,15 @@ fn stem_and_inflectional_affix_and_template_compile_into_expected_grammar() {
         TemplateSlotZone::Suffix,
         "snapshot compilation must preserve the physical slot occurrence side"
     );
+    let slot_rules = grammar.templates[0].slots[0].rules.clone();
+    assert!(grammar
+        .strata
+        .iter()
+        .flat_map(|stratum| stratum.mrules.iter())
+        .all(|ordinary| !slot_rules.contains(ordinary)));
+    grammar
+        .final_template_prune_facts()
+        .expect("post-compaction snapshot output must satisfy final-template ownership");
     let _ = f.template;
 }
 
