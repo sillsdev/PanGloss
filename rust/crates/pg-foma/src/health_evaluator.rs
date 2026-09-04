@@ -960,7 +960,7 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 7,
+  "schema_version": 8,
   "findings": [
     {
       "code": "PGF0001",

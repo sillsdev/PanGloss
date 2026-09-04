@@ -92,8 +92,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
 ///
-/// Bumped to 7 when producerless health labels and value variants were removed.
-pub const HEALTH_SCHEMA_VERSION: u32 = 7;
+/// Bumped to 8 when the partial-morpheme production-policy code and its metric were registered.
+pub const HEALTH_SCHEMA_VERSION: u32 = 8;
 
 // Severity + payload-size threshold
 
@@ -218,6 +218,8 @@ pub enum Metric {
     CompositeRulePairCount,
     /// Required grammar constructs or plan subtrees the named backend cannot represent completely.
     BackendCoverageGapCount,
+    /// Partial lexical entries plus partial affix-process rules the compiled grammar declares.
+    PartialMorphemeCount,
 }
 
 /// Whether a `HealthFinding`'s `MetricValue` is a heuristic estimate, a trustworthy proof, or
@@ -236,7 +238,7 @@ pub enum ValueProvenance {
 /// A finding's measured/predicted value, or `MetricValue::Unbounded` when the compiler cannot
 /// state one. Adjacently tagged (`"kind"`/`"value"`) so `MetricValue::Unbounded` serializes as
 /// `{"kind":"unbounded"}` with no dangling `null` value field.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum MetricValue {
     /// A plain count (candidates, paths, states, arcs, ...).
@@ -273,6 +275,9 @@ pub enum FindingCode {
     /// Distinct from [`FindingCode::UnknownUnboundedConstruct`]: this cost IS bounded ahead of
     /// time, just large.
     RuleInteractionProduct,
+    /// A completed FST was built from a grammar declaring partial morphemes. HermitCrab semantics
+    /// are unaffected and the compile itself is not blocked; only publication is.
+    PartialMorphemeProductionPolicy,
 }
 
 /// Which of the three independent admission questions a `FindingCode` answers. A finding never
@@ -305,6 +310,7 @@ impl FindingCode {
         FindingCode::BuildProcessFailed,
         FindingCode::BackendCoverageIncomplete,
         FindingCode::RuleInteractionProduct,
+        FindingCode::PartialMorphemeProductionPolicy,
     ];
 
     /// The current `PGFdddd` wire code. Exhaustive match, no catch-all arm — adding a variant
@@ -318,6 +324,7 @@ impl FindingCode {
             FindingCode::BuildProcessFailed => "PGF0012",
             FindingCode::BackendCoverageIncomplete => "PGF0013",
             FindingCode::RuleInteractionProduct => "PGF0015",
+            FindingCode::PartialMorphemeProductionPolicy => "PGF0016",
         }
     }
 
@@ -350,6 +357,10 @@ impl FindingCode {
                 "An exact morphological x phonological rule-count product is large; this cost is \
                  bounded ahead of time, not unknown."
             }
+            FindingCode::PartialMorphemeProductionPolicy => {
+                "A completed FST was built from a grammar containing partial morphemes and is not \
+                 eligible for production publication."
+            }
         }
     }
 
@@ -371,6 +382,7 @@ impl FindingCode {
             FindingCode::BackendCompilationFailed => FindingClass::Process,
             FindingCode::BuildProcessFailed => FindingClass::Process,
             FindingCode::RuleInteractionProduct => FindingClass::Readiness,
+            FindingCode::PartialMorphemeProductionPolicy => FindingClass::Readiness,
         }
     }
 }
@@ -399,7 +411,7 @@ impl<'de> Deserialize<'de> for FindingCode {
 /// edit the grammar (reordering, constraining, decomposing a rule) must set
 /// `requires_linguistic_equivalence` and SHOULD carry a `caveat`, since the compiler cannot
 /// verify linguistic equivalence on its own.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Remedy {
     /// 1-based rank among this finding's remedies; lower ranks are recommended first.
     pub rank: u32,
@@ -419,7 +431,7 @@ pub struct Remedy {
 /// One stable compiler diagnostic: code, severity, phase, metric, predicted/observed value,
 /// effective threshold, affected grammar/rule/construct identifiers, a concise explanation, zero
 /// or more ranked remedies.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HealthFinding {
     /// The current `PGFdddd` code (`FindingCode`).
     pub code: FindingCode,
@@ -540,7 +552,7 @@ fn severity_axis(severity: Severity) -> Option<FindingClass> {
 
 /// The aggregated report for one grammar compilation. See `HealthReport::admission` for the
 /// raw-severity aggregation rule.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[must_use = "a health report that is computed and dropped reports nothing"]
 pub struct HealthReport {
     /// This schema's version (`HEALTH_SCHEMA_VERSION`) at the time this report was produced.
@@ -815,7 +827,7 @@ mod tests {
 
     #[test]
     fn dead_health_labels_bump_health_schema_version() {
-        assert_eq!(HEALTH_SCHEMA_VERSION, 7);
+        assert_eq!(HEALTH_SCHEMA_VERSION, 8);
     }
 
     /// An exhaustive `match` with no catch-all arm over every `Severity` variant, so adding a variant stops this from compiling until every exhaustive match in this file is updated.
@@ -865,7 +877,7 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = r#"{
-  "schema_version": 7,
+  "schema_version": 8,
   "findings": [
     {
       "code": "PGF0001",
@@ -920,10 +932,10 @@ mod tests {
 
     #[test]
     fn fst_health_schema_rejects_stale_v6_reports() {
-        let stale = GOLDEN_JSON.replacen("\"schema_version\": 7", "\"schema_version\": 6", 1);
+        let stale = GOLDEN_JSON.replacen("\"schema_version\": 8", "\"schema_version\": 6", 1);
         let error = HealthReport::from_json(&stale).expect_err("schema v6 must be rejected");
         assert!(error.to_string().contains("schema version 6"));
-        assert!(error.to_string().contains("expected 7"));
+        assert!(error.to_string().contains("expected 8"));
     }
 
     // fst_health_finding_class: FindingCode -> FindingClass, the four-question vocabulary.

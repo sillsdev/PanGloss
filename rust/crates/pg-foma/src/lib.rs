@@ -279,6 +279,10 @@ pub mod plan_diagram;
 pub mod plan_interaction_coverage;
 pub mod precision;
 pub(crate) mod preexpand;
+/// The one post-compile FST production-admission decision —
+/// [`production_admission::assess_completed_fst`] — that every strategy consults instead of
+/// re-deriving grammar partiality for itself.
+pub mod production_admission;
 /// The compile-time
 /// **profile** type -- `profile::CompileProfile`/`profile::CompileStage`/[`profile::
 /// GroupLineCount`] -- collected from the PRODUCTION
