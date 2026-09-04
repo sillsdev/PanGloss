@@ -86,7 +86,7 @@ use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
-use crate::word::{Word, WordKey};
+use crate::word::{FinalTemplateState, Word, WordKey};
 use crate::{metathesis, morph, rewrite};
 
 /// The per-parse memo carrier this module threads through the analysis cascade. `pg-parse` owns one
@@ -351,6 +351,41 @@ mod final_template_policy_tests {
         let policy = FinalTemplateAnalysisPolicy::default();
         assert!(!policy.enforce);
         assert!(!policy.all_templates_final);
+    }
+
+    #[test]
+    fn analysis_state_uses_the_actual_invocation_role() {
+        assert_eq!(
+            analysis_state_after_mrule(RuleInvocationRole::Ordinary, false),
+            FinalTemplateState::NonTemplate
+        );
+        assert_eq!(
+            analysis_state_after_mrule(RuleInvocationRole::TemplateSlot, false),
+            FinalTemplateState::None
+        );
+    }
+
+    #[test]
+    fn realizational_rules_clear_the_analysis_state_in_either_role() {
+        assert_eq!(
+            analysis_state_after_mrule(RuleInvocationRole::Ordinary, true),
+            FinalTemplateState::None
+        );
+        assert_eq!(
+            analysis_state_after_mrule(RuleInvocationRole::TemplateSlot, true),
+            FinalTemplateState::None
+        );
+    }
+}
+
+#[inline]
+fn analysis_state_after_mrule(
+    role: RuleInvocationRole,
+    is_realizational: bool,
+) -> FinalTemplateState {
+    match (role, is_realizational) {
+        (_, true) | (RuleInvocationRole::TemplateSlot, false) => FinalTemplateState::None,
+        (RuleInvocationRole::Ordinary, false) => FinalTemplateState::NonTemplate,
     }
 }
 
@@ -726,17 +761,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             // `morph::ana_compound` already pushed the split-off non-head; this pairs that push with the index bump.
             o.non_head_app_index = o.non_heads.len() as i32 - 1;
             if self.policy.enforce {
-                o.flags.final_template_state = match rule {
-                    MorphRuleDef::AffixProcess(_) | MorphRuleDef::Compounding(_) => {
-                        match role {
-                            RuleInvocationRole::Ordinary => {
-                                crate::word::FinalTemplateState::NonTemplate
-                            }
-                            RuleInvocationRole::TemplateSlot => crate::word::FinalTemplateState::None,
-                        }
-                    }
-                    MorphRuleDef::Realizational(_) => crate::word::FinalTemplateState::None,
-                };
+                o.flags.final_template_state = analysis_state_after_mrule(
+                    role,
+                    matches!(rule, MorphRuleDef::Realizational(_)),
+                );
             }
         }
         outs

@@ -119,6 +119,16 @@ pub fn synthesize_with_policy(
     synthesize_stats_with_policy(g, word, rule, None, policy)
 }
 
+#[inline]
+fn legacy_invocation_role(rule: &MorphRuleDef) -> RuleInvocationRole {
+    match rule {
+        MorphRuleDef::AffixProcess(def) if def.is_template_rule => {
+            RuleInvocationRole::TemplateSlot
+        }
+        _ => RuleInvocationRole::Ordinary,
+    }
+}
+
 /// `synthesize`'s `--stats`-carrying sibling; `pub(crate)` since only `crate::stratum` needs the ctx.
 #[allow(dead_code)]
 pub(crate) fn synthesize_stats(
@@ -137,13 +147,15 @@ pub(crate) fn synthesize_stats_with_policy(
     mstats: Option<MRuleStatsCtx>,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
+    // Callers without a call-site role retain the affix metadata interpretation.
+    let role = legacy_invocation_role(rule);
     synthesize_stats_with_policy_and_role(
         g,
         word,
         rule,
         mstats,
         policy,
-        RuleInvocationRole::Ordinary,
+        role,
     )
 }
 
@@ -212,6 +224,8 @@ pub(crate) fn synthesize_cached_traced_with_policy(
     parent: TraceHandle,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
+    // Callers without a role retain metadata semantics; guided synthesis passes one.
+    let role = legacy_invocation_role(rule);
     synthesize_cached_traced_with_policy_and_role(
         g,
         mrid,
@@ -222,7 +236,7 @@ pub(crate) fn synthesize_cached_traced_with_policy(
         trace,
         parent,
         policy,
-        RuleInvocationRole::Ordinary,
+        role,
     )
 }
 

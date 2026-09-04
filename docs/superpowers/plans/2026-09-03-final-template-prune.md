@@ -94,7 +94,7 @@ impl Grammar {
 }
 ```
 
-For every `MorphRuleDef::AffixProcess` with `partial == true`, resolve its owning `MorphemeInfo.stratum`; do not scan only `StratumDef::mrules`, and do not count lexical entries. Fold the partial flags as a monotone prefix OR over stored stratum indices `0..=k`: a rule at index `p` disables conservative pruning for `k >= p`. Set `all_templates_final[k]` only when the stratum has at least one template and every referenced template is final. Validate that each ordinary-rule or template-slot use has the same stratum as its owning morpheme. Reject any global intersection between template slot rule IDs and every stratum ordinary-rule ID; this deliberate compatibility break follows the repository's fail-loud control rule and the theorem's stated precondition.
+For every `MorphRuleDef::AffixProcess` with `partial == true`, resolve its owning `MorphemeInfo.stratum`; do not scan only `StratumDef::mrules`, and do not count lexical entries. Fold the partial flags as a monotone prefix OR over stored stratum indices `0..=k`: a rule at index `p` disables conservative pruning for `k >= p`. Set `all_templates_final[k]` only when the stratum has at least one template and every referenced template is final. Validate that each ordinary-rule or template-slot use has the same stratum as its owning morpheme. Publish any global intersection between template-slot and ordinary-rule IDs as a conservative fact that disables default pruning. The explicit override remains available because analysis and synthesis classify the actual invocation at the ordinary/template-slot seam instead of re-reading global rule metadata.
 
 - [ ] **Step 4: Validate completed grammars at both construction paths**
 

@@ -6,16 +6,16 @@ mod common;
 use common::load_alpha_grammar;
 use pg_featstruct::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, FsId, SymbolBits};
 use pg_grammar::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, CompoundingRuleDef,
-    CompoundingSubruleDef, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet,
-    OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint, SimpleContext, StratumDef,
-    StratumId, TableId, VarTable,
+    AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner,
+    CompoundingRuleDef, CompoundingSubruleDef, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder,
+    MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint,
+    SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId, TemplateSlotZone, VarTable,
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::morph::synthesize_with_policy;
 use pg_rules::stratum::{
     synthesize_stratum, synthesize_stratum_traced, synthesize_stratum_traced_with_policy,
-    FinalTemplateSynthesisPolicy, StepBudget,
+    synthesize_template, FinalTemplateSynthesisPolicy, StepBudget,
 };
 use pg_rules::trace::{
     FailureReason, NoopSink, TraceHandle, TraceSink, TraceSource, TraceType, TreeTraceSink,
@@ -340,5 +340,110 @@ fn synthesis_override_bypasses_partial_word_rescue_for_compounding() {
     assert!(
         enforced.is_empty(),
         "override must bypass compounding's partial-word rescue"
+    );
+}
+
+#[test]
+fn ordinary_synthesis_uses_the_call_site_role_for_a_shared_affix_id() {
+    let mut g = load_alpha_grammar();
+    let r = push_suffix_rule_with_syn_fs(&mut g, 200, "p", pg_featstruct::FsId(0));
+    if let MorphRuleDef::AffixProcess(def) = &mut g.mrules[r.0 as usize] {
+        def.is_template_rule = true;
+    }
+    let s = push_stratum(&mut g, vec![r]);
+    let cache = RuleCache::build(&g);
+    let mut input = word(&g, "a", s);
+    input.flags.is_last_applied_rule_final = Some(true);
+    input.mrule_apps = vec![Some(r)];
+    input.mrule_app_index = 0;
+
+    let out = synthesize_stratum_traced_with_policy(
+        &g,
+        s,
+        input,
+        10_000,
+        &cache,
+        &StepBudget::new(10_000),
+        FinalTemplateSynthesisPolicy {
+            always_enforce: true,
+        },
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(
+        out.is_empty(),
+        "ordinary invocation must remain prohibited after a final template"
+    );
+}
+
+#[test]
+fn compounding_in_a_template_slot_bypasses_the_ordinary_synthesis_gate() {
+    let mut g = load_alpha_grammar();
+    let r = MRuleId(g.mrules.len() as u32);
+    g.mrules.push(MorphRuleDef::Compounding(CompoundingRuleDef {
+        xml_id: "template-compound".into(),
+        name: None,
+        blockable: false,
+        max_apps: 1,
+        head_required_syn_fs: pg_featstruct::FsId(0),
+        non_head_required_syn_fs: pg_featstruct::FsId(0),
+        out_syn_fs: pg_featstruct::FsId(0),
+        head_prod_restrictions_mpr: MprSet::EMPTY,
+        non_head_prod_restrictions_mpr: MprSet::EMPTY,
+        output_prod_restrictions_mpr: MprSet::EMPTY,
+        obligatory_features: vec![],
+        subrules: vec![CompoundingSubruleDef {
+            vars: VarTable::default(),
+            required_mpr: MprSet::EMPTY,
+            excluded_mpr: MprSet::EMPTY,
+            out_mpr: MprSet::EMPTY,
+            head_lhs: vec![one_or_more("nc_any", &g)],
+            non_head_lhs: vec![one_or_more("nc_any", &g)],
+            rhs: vec![
+                OutputAction::Copy(PartRef::Head(0)),
+                OutputAction::Copy(PartRef::NonHead(0)),
+            ],
+        }],
+    }));
+    let tid = TemplateId(g.templates.len() as u32);
+    g.templates.push(AffixTemplateDef {
+        name: None,
+        is_final: true,
+        required_syn_fs: pg_featstruct::FsId(0),
+        slots: vec![SlotDef {
+            name: None,
+            optional: false,
+            zone: TemplateSlotZone::LegacyUnspecified,
+            rules: vec![r],
+        }],
+    });
+    let mut input = word(&g, "a", StratumId(0));
+    input.non_head_unapplied(word(&g, "a", StratumId(0)));
+    input.flags.is_last_applied_rule_final = Some(true);
+
+    let out = synthesize_template(&g, tid, &input, 100);
+    assert_eq!(
+        out.len(),
+        1,
+        "a template-slot compounding invocation is not an ordinary-after-final rule"
+    );
+}
+
+#[test]
+fn direct_template_affix_synthesis_preserves_legacy_metadata_role() {
+    let mut g = load_alpha_grammar();
+    let r = push_suffix_rule_with_syn_fs(&mut g, 200, "p", pg_featstruct::FsId(0));
+    if let MorphRuleDef::AffixProcess(def) = &mut g.mrules[r.0 as usize] {
+        def.is_template_rule = true;
+    }
+    let mut input = word(&g, "a", StratumId(0));
+    input.flags.is_last_applied_rule_final = Some(true);
+
+    let out = pg_rules::morph::synthesize(&g, &input, &g.mrules[r.0 as usize]);
+    assert_eq!(
+        out.len(),
+        1,
+        "the context-free compatibility API must retain template metadata semantics"
     );
 }
