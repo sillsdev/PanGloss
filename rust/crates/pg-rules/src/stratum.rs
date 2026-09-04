@@ -76,12 +76,6 @@ pub struct FinalTemplateSynthesisPolicy {
     pub always_enforce: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum RuleInvocationRole {
-    Ordinary,
-    TemplateSlot,
-}
-
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
@@ -648,7 +642,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     }
 
     /// Unapply a single morphological rule and record the bookkeeping on every output; `morph::analyze` stays semantics-pure.
-    fn apply_one_mrule(&self, id: MRuleId, w: &Word, role: RuleInvocationRole) -> Vec<Word> {
+    fn apply_one_mrule(&self, id: MRuleId, w: &Word) -> Vec<Word> {
         // Checked before the budget tick: a rejected-by-gate rule was never attempted.
         if !self.rule_admitted(RuleRef::MRule(id)) {
             return Vec::new();
@@ -727,15 +721,13 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             o.non_head_app_index = o.non_heads.len() as i32 - 1;
             if self.policy.enforce {
                 o.flags.final_template_state = match rule {
-                    MorphRuleDef::AffixProcess(_) | MorphRuleDef::Compounding(_) => {
-                        match role {
-                            RuleInvocationRole::Ordinary => {
-                                crate::word::FinalTemplateState::NonTemplate
-                            }
-                            RuleInvocationRole::TemplateSlot => crate::word::FinalTemplateState::None,
-                        }
+                    MorphRuleDef::Compounding(_) => crate::word::FinalTemplateState::NonTemplate,
+                    MorphRuleDef::AffixProcess(def) if !def.is_template_rule => {
+                        crate::word::FinalTemplateState::NonTemplate
                     }
-                    MorphRuleDef::Realizational(_) => crate::word::FinalTemplateState::None,
+                    MorphRuleDef::AffixProcess(_) | MorphRuleDef::Realizational(_) => {
+                        crate::word::FinalTemplateState::None
+                    }
                 };
             }
         }
@@ -748,9 +740,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         if let (MorphRuleOrder::Unordered, Some(scope)) = (self.order, self.scope) {
             return self.mrule_cascade_memoized(input, scope);
         }
-        let apply_rule = |i: usize, w: &Word| {
-            self.apply_one_mrule(self.reversed_mrules[i], w, RuleInvocationRole::Ordinary)
-        };
+        let apply_rule = |i: usize, w: &Word| self.apply_one_mrule(self.reversed_mrules[i], w);
         let key = |w: &Word| w.dedup_key();
         let casc = Cascade::new(true, usize::MAX);
         let n = self.reversed_mrules.len();
@@ -841,11 +831,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let mut local = Vec::new();
         let in_key = input.dedup_key();
         for i in 0..self.reversed_mrules.len() {
-            for result in self.apply_one_mrule(
-                self.reversed_mrules[i],
-                input,
-                RuleInvocationRole::Ordinary,
-            ) {
+            for result in self.apply_one_mrule(self.reversed_mrules[i], input) {
                 local.push(result.clone());
                 out.add(result.clone());
                 // Self-loop guard. Always false here — every unapplication changes the key.
@@ -1068,7 +1054,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let mut seen: HashMap<WordKey, ()> = HashMap::default();
         let mut out = Vec::new();
         for &rid in &slot.rules {
-            for w in self.apply_one_mrule(rid, in_word, RuleInvocationRole::TemplateSlot) {
+            for w in self.apply_one_mrule(rid, in_word) {
                 if seen.insert(w.dedup_key(), ()).is_none() {
                     out.push(w);
                 }
@@ -1221,15 +1207,8 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
     let tmpl = &g.templates[tid.0 as usize];
     let steps = Cell::new(0usize);
     let mut out: HashMap<WordKey, Word> = HashMap::default();
-    let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
-        morph::synthesize_with_policy_and_role(
-            g,
-            w,
-            &g.mrules[rid.0 as usize],
-            FinalTemplateSynthesisPolicy::default(),
-            RuleInvocationRole::TemplateSlot,
-        )
-    };
+    let apply =
+        |g: &Grammar, rid: MRuleId, w: &Word| morph::synthesize(g, w, &g.mrules[rid.0 as usize]);
     // Builds its own budget with none armed, so this entry point stays cap-only.
     let budget = StepBudget::new(cap);
     synth_slots_generic(
@@ -1268,18 +1247,7 @@ fn guided_template_apply(
     let tmpl = &g.templates[tid.0 as usize];
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
-        guided_synth(
-            g,
-            stratum,
-            rid,
-            w,
-            cache,
-            stats,
-            trace,
-            parent,
-            policy,
-            RuleInvocationRole::TemplateSlot,
-        )
+        guided_synth(g, stratum, rid, w, cache, stats, trace, parent, policy)
     };
     if trace.is_tracing() {
         let node_parent = input.trace.unwrap_or(parent);
@@ -1385,7 +1353,6 @@ fn guided_synth(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     policy: FinalTemplateSynthesisPolicy,
-    role: RuleInvocationRole,
 ) -> Vec<Word> {
     if w.mrule_app_index < 0 {
         return Vec::new();
@@ -1411,7 +1378,7 @@ fn guided_synth(
     });
     // Threaded INTO `synthesize_cached_traced` rather than applied after: it fires applied/not-applied events at its own internal gates and sets each output's `.trace`.
     let node_parent = w.trace.unwrap_or(parent);
-    let mut outs = morph::synthesize_cached_traced_with_policy_and_role(
+    let mut outs = morph::synthesize_cached_traced_with_policy(
         g,
         id,
         w,
@@ -1421,7 +1388,6 @@ fn guided_synth(
         trace,
         node_parent,
         policy,
-        role,
     );
     for o in &mut outs {
         o.mrule_app_index -= 1;
@@ -1666,18 +1632,7 @@ fn synth_apply_mrules(
             return Vec::new();
         }
         steps.set(steps.get() + 1);
-        guided_synth(
-            g,
-            stratum,
-            sd.mrules[i],
-            w,
-            cache,
-            stats,
-            trace,
-            parent,
-            policy,
-            RuleInvocationRole::Ordinary,
-        )
+        guided_synth(g, stratum, sd.mrules[i], w, cache, stats, trace, parent, policy)
     };
     let casc = Cascade::new(true, usize::MAX);
     let n = sd.mrules.len();

@@ -37,7 +37,8 @@ use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_
 
 use crate::bridge::{BridgeError, PatternBridge};
 use crate::stats::{MRuleStatsCtx, ObjectKind};
-use crate::stratum::{FinalTemplateSynthesisPolicy, NonHeadRootFilter, RuleInvocationRole};
+use crate::stratum::NonHeadRootFilter;
+use crate::stratum::FinalTemplateSynthesisPolicy;
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
@@ -137,37 +138,9 @@ pub(crate) fn synthesize_stats_with_policy(
     mstats: Option<MRuleStatsCtx>,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
-    synthesize_stats_with_policy_and_role(
-        g,
-        word,
-        rule,
-        mstats,
-        policy,
-        RuleInvocationRole::Ordinary,
-    )
-}
-
-pub(crate) fn synthesize_with_policy_and_role(
-    g: &Grammar,
-    word: &Word,
-    rule: &MorphRuleDef,
-    policy: FinalTemplateSynthesisPolicy,
-    role: RuleInvocationRole,
-) -> Vec<Word> {
-    synthesize_stats_with_policy_and_role(g, word, rule, None, policy, role)
-}
-
-fn synthesize_stats_with_policy_and_role(
-    g: &Grammar,
-    word: &Word,
-    rule: &MorphRuleDef,
-    mstats: Option<MRuleStatsCtx>,
-    policy: FinalTemplateSynthesisPolicy,
-    role: RuleInvocationRole,
-) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def, mstats, policy, role),
-        MorphRuleDef::Compounding(def) => synth_compound(g, word, def, mstats, policy, role),
+        MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def, mstats, policy),
+        MorphRuleDef::Compounding(def) => synth_compound(g, word, def, mstats, policy),
         MorphRuleDef::Realizational(def) => synth_realizational(g, word, def, mstats),
     };
     apply_blocking(g, out, rule.blockable())
@@ -212,39 +185,12 @@ pub(crate) fn synthesize_cached_traced_with_policy(
     parent: TraceHandle,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
-    synthesize_cached_traced_with_policy_and_role(
-        g,
-        mrid,
-        word,
-        rule,
-        cache,
-        mstats,
-        trace,
-        parent,
-        policy,
-        RuleInvocationRole::Ordinary,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn synthesize_cached_traced_with_policy_and_role(
-    g: &Grammar,
-    mrid: MRuleId,
-    word: &Word,
-    rule: &MorphRuleDef,
-    cache: &crate::cache::RuleCache,
-    mstats: Option<MRuleStatsCtx>,
-    trace: &dyn TraceSink,
-    parent: TraceHandle,
-    policy: FinalTemplateSynthesisPolicy,
-    role: RuleInvocationRole,
-) -> Vec<Word> {
     let out = match rule {
         MorphRuleDef::AffixProcess(def) => {
-            synth_affix_cached(g, word, def, mrid, cache, mstats, trace, parent, policy, role)
+            synth_affix_cached(g, word, def, mrid, cache, mstats, trace, parent, policy)
         }
         MorphRuleDef::Compounding(def) => {
-            synth_compound_cached(g, word, def, mrid, cache, mstats, trace, parent, policy, role)
+            synth_compound_cached(g, word, def, mrid, cache, mstats, trace, parent, policy)
         }
         MorphRuleDef::Realizational(def) => {
             synth_realizational_cached(g, word, def, mrid, cache, mstats, trace, parent)
@@ -1412,23 +1358,6 @@ fn free_fluctuates_with(g: &Grammar, cur: &AffixAllomorphDef, next: &AffixAllomo
     constraints_equal(g, cur, next)
 }
 
-#[inline]
-fn ordinary_invocation(role: RuleInvocationRole) -> bool {
-    role == RuleInvocationRole::Ordinary
-}
-
-#[inline]
-fn final_template_prohibits(
-    role: RuleInvocationRole,
-    word: &Word,
-    rule_partial: bool,
-    policy: FinalTemplateSynthesisPolicy,
-) -> bool {
-    ordinary_invocation(role)
-        && matches!(word.flags.is_last_applied_rule_final, Some(true))
-        && (policy.always_enforce || (!word.flags.is_partial && !rule_partial))
-}
-
 // Affix process — synthesis.
 
 /// Resolves `word`'s root allomorph to its stem name; `None` for a missing root, no stem name, or a guessed root (conservative — this synthesis-time gate does not consult the guess's pattern).
@@ -1449,17 +1378,19 @@ fn synth_affix(
     rule: &AffixProcessRuleDef,
     mstats: Option<MRuleStatsCtx>,
     policy: FinalTemplateSynthesisPolicy,
-    role: RuleInvocationRole,
 ) -> Vec<Word> {
     // Gate order matches C#: template prohibitions, then `RequiredStemName`, then the syn-FS unify; independent gates, so order only picks which `FailureReason` is reported first. Both template checks are guarded on `!is_template_rule`, since a template's own slot rules are never subject to them.
 
     // After a *final* template, prohibit a non-partial rule.
-    if final_template_prohibits(role, word, rule.partial, policy) {
+    if !rule.is_template_rule
+        && matches!(word.flags.is_last_applied_rule_final, Some(true))
+        && (policy.always_enforce || (!word.flags.is_partial && !rule.partial))
+    {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     // (b) After a *non-final* template, prohibit a partial rule unless the input is itself partial.
-    if ordinary_invocation(role)
+    if !rule.is_template_rule
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
         && !word.flags.is_partial
         && rule.partial
@@ -1550,7 +1481,6 @@ fn synth_affix_cached(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     policy: FinalTemplateSynthesisPolicy,
-    role: RuleInvocationRole,
 ) -> Vec<Word> {
     macro_rules! not_applied {
         ($reason:expr) => {{
@@ -1564,11 +1494,14 @@ fn synth_affix_cached(
     // Gate order and `!is_template_rule` guards mirror `synth_affix`; order matters only because the first failing gate is the reported reason.
 
     // Final-template prohibition.
-    if final_template_prohibits(role, word, rule.partial, policy) {
+    if !rule.is_template_rule
+        && matches!(word.flags.is_last_applied_rule_final, Some(true))
+        && (policy.always_enforce || (!word.flags.is_partial && !rule.partial))
+    {
         not_applied!(FailureReason::NonPartialRuleProhibitedAfterFinalTemplate);
     }
     // (b) Non-final-template prohibition.
-    if ordinary_invocation(role)
+    if !rule.is_template_rule
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
         && !word.flags.is_partial
         && rule.partial
@@ -2646,7 +2579,6 @@ fn synth_compound(
     rule: &CompoundingRuleDef,
     mstats: Option<MRuleStatsCtx>,
     policy: FinalTemplateSynthesisPolicy,
-    role: RuleInvocationRole,
 ) -> Vec<Word> {
     let Some(nh) = word.current_non_head().cloned() else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2661,7 +2593,9 @@ fn synth_compound(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
-    if final_template_prohibits(role, word, false, policy) {
+    if matches!(word.flags.is_last_applied_rule_final, Some(true))
+        && (policy.always_enforce || !word.flags.is_partial)
+    {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -2737,7 +2671,6 @@ fn synth_compound_cached(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     policy: FinalTemplateSynthesisPolicy,
-    role: RuleInvocationRole,
 ) -> Vec<Word> {
     let Some(nh) = word.current_non_head().cloned() else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2769,7 +2702,9 @@ fn synth_compound_cached(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
-    if final_template_prohibits(role, word, false, policy) {
+    if matches!(word.flags.is_last_applied_rule_final, Some(true))
+        && (policy.always_enforce || !word.flags.is_partial)
+    {
         if trace.is_tracing() {
             trace.morphological_rule_not_applied(
                 parent,
