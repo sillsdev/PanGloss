@@ -2629,6 +2629,100 @@ mod tests {
         assert_eq!(facts.disabled_strata(), &[StratumId(0)]);
     }
 
+    /// One partial lexical entry plus one partial affix-process rule, alongside a plain entry and rule of each kind, proves the two counters never leak into each other.
+    #[test]
+    fn partial_morpheme_facts_counts_entries_and_rules_independently() {
+        fn grammar(entry_partial: bool, rule_partial: bool) -> Grammar {
+            let xml = format!(
+                r#"<HermitCrabInput><Language>
+              <Name>PartialFacts</Name>
+              <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+              <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+                <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+              </SegmentDefinitions></CharacterDefinitionTable>
+              <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
+              <Strata><Stratum characterDefinitionTable="t" morphologicalRules="rule-plain rule-partial">
+                <Name>S</Name>
+                <MorphologicalRuleDefinitions>
+                  <MorphologicalRule id="rule-plain" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>plain</Name>
+                    <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem1" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+                  </MorphologicalRule>
+                  <MorphologicalRule id="rule-partial" requiredPartsOfSpeech="p" outputPartOfSpeech="p" partial="{rule_partial}"><Name>partial</Name>
+                    <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem2" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+                  </MorphologicalRule>
+                </MorphologicalRuleDefinitions>
+                <LexicalEntries>
+                  <LexicalEntry id="entry-plain" partOfSpeech="p"><Allomorphs><Allomorph id="a1"><PhoneticShape>c</PhoneticShape></Allomorph></Allomorphs><Gloss>plain</Gloss></LexicalEntry>
+                  <LexicalEntry id="entry-partial" partOfSpeech="p" partial="{entry_partial}"><Allomorphs><Allomorph id="a2"><PhoneticShape>c</PhoneticShape></Allomorph></Allomorphs><Gloss>partial</Gloss></LexicalEntry>
+                </LexicalEntries>
+              </Stratum></Strata>
+            </Language></HermitCrabInput>"#
+            );
+            load(&xml).expect("valid partial-facts fixture")
+        }
+
+        let both = grammar(true, true);
+        let facts = both.partial_morpheme_facts().expect("valid partial inventory");
+        assert_eq!(facts.partial_entry_count(), 1);
+        assert_eq!(facts.partial_rule_count(), 1);
+        assert_eq!(facts.total_count(), 2);
+        assert!(facts.has_partials());
+        assert!(facts.authored_ids().any(|id| id == "entry-partial"));
+        assert!(facts.authored_ids().any(|id| id == "rule-partial"));
+
+        let control = grammar(false, false);
+        let control_facts = control
+            .partial_morpheme_facts()
+            .expect("valid partial inventory");
+        assert_eq!(control_facts.total_count(), 0);
+        assert!(!control_facts.has_partials());
+
+        let entry_only = grammar(true, false);
+        let entry_only_facts = entry_only
+            .partial_morpheme_facts()
+            .expect("valid partial inventory");
+        assert_eq!(entry_only_facts.partial_entry_count(), 1);
+        assert_eq!(entry_only_facts.partial_rule_count(), 0);
+
+        let rule_only = grammar(false, true);
+        let rule_only_facts = rule_only
+            .partial_morpheme_facts()
+            .expect("valid partial inventory");
+        assert_eq!(rule_only_facts.partial_entry_count(), 0);
+        assert_eq!(rule_only_facts.partial_rule_count(), 1);
+    }
+
+    /// A morpheme-owned stratum outside the grammar's declared strata must fail loudly, not silently drop the owning rule from the partial inventory.
+    #[test]
+    fn partial_morpheme_facts_rejects_invalid_owner_stratum() {
+        const XML: &str = r#"<HermitCrabInput><Language>
+          <Name>InvalidStratum</Name>
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+            <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+          </SegmentDefinitions></CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
+          <Strata><Stratum characterDefinitionTable="t" morphologicalRules="rule-partial">
+            <Name>S</Name>
+            <MorphologicalRuleDefinitions>
+              <MorphologicalRule id="rule-partial" requiredPartsOfSpeech="p" outputPartOfSpeech="p" partial="true"><Name>partial</Name>
+                <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+              </MorphologicalRule>
+            </MorphologicalRuleDefinitions>
+          </Stratum></Strata>
+        </Language></HermitCrabInput>"#;
+        let mut grammar = load(XML).expect("valid grammar before corruption");
+        let MorphRuleDef::AffixProcess(def) = &grammar.mrules[0] else {
+            panic!("expected affix process rule");
+        };
+        let rule_morpheme = def.morpheme;
+        grammar.morphemes[rule_morpheme.0 as usize].stratum = StratumId(255);
+        let error = grammar
+            .partial_morpheme_facts()
+            .expect_err("invalid owner stratum must fail");
+        assert!(error.to_string().contains("stratum 255"));
+    }
+
     /// A root-allomorph `<PhoneticShape>` whose text doesn't literally match a character definition must fall back to the `[NatClass]` pattern language instead of erroring the whole allomorph out; a regression here drops not just the allomorph but the whole entry, since this fixture's entry has only that one allomorph.
     #[test]
     fn root_allomorph_shape_falls_back_to_pattern_language_natural_class_reference() {

@@ -1151,10 +1151,49 @@ impl FinalTemplatePruneFacts {
     }
 }
 
+/// Every partial lexical entry and partial affix-process rule the grammar declares, by authored identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartialMorphemeFacts {
+    partial_entry_ids: Vec<String>,
+    partial_rule_ids: Vec<String>,
+}
+
+impl PartialMorphemeFacts {
+    pub fn partial_entry_count(&self) -> usize {
+        self.partial_entry_ids.len()
+    }
+
+    pub fn partial_rule_count(&self) -> usize {
+        self.partial_rule_ids.len()
+    }
+
+    pub fn total_count(&self) -> usize {
+        self.partial_entry_ids.len() + self.partial_rule_ids.len()
+    }
+
+    pub fn has_partials(&self) -> bool {
+        self.total_count() != 0
+    }
+
+    pub fn authored_ids(&self) -> impl Iterator<Item = &str> {
+        self.partial_entry_ids
+            .iter()
+            .chain(&self.partial_rule_ids)
+            .map(String::as_str)
+    }
+
+    pub fn partial_entry_ids(&self) -> &[String] {
+        &self.partial_entry_ids
+    }
+
+    pub fn partial_rule_ids(&self) -> &[String] {
+        &self.partial_rule_ids
+    }
+}
+
 impl Grammar {
-    /// Compute and validate the single grammar-wide source of final-template prune facts.
-    pub fn final_template_prune_facts(&self) -> Result<FinalTemplatePruneFacts, crate::GrammarError> {
-        let strata_len = self.strata.len();
+    /// Per-mrule owning stratum; an unknown morpheme or an out-of-range stratum is an error, never a silently skipped rule.
+    fn validated_rule_owner_strata(&self) -> Result<Vec<Option<StratumId>>, crate::GrammarError> {
         let mut rule_owner = vec![None; self.mrules.len()];
         for (id, rule) in self.mrules.iter().enumerate() {
             let Some(morpheme) = (match rule {
@@ -1170,8 +1209,52 @@ impl Grammar {
                     morpheme.0
                 )));
             };
+            if info.stratum.0 as usize >= self.strata.len() {
+                return Err(crate::GrammarError::Semantic(format!(
+                    "mrule {id}'s morpheme {} declares stratum {}, but the grammar has {} strata",
+                    morpheme.0,
+                    info.stratum.0,
+                    self.strata.len()
+                )));
+            }
             rule_owner[id] = Some(info.stratum);
         }
+        Ok(rule_owner)
+    }
+
+    /// The single partial-affix-rule predicate: dense mrule id plus owning morpheme.
+    fn partial_affix_process_rules(&self) -> impl Iterator<Item = (usize, MorphemeId)> + '_ {
+        self.mrules.iter().enumerate().filter_map(|(id, rule)| {
+            let MorphRuleDef::AffixProcess(def) = rule else {
+                return None;
+            };
+            def.partial.then_some((id, def.morpheme))
+        })
+    }
+
+    /// The one validated inventory of partial morphemes; every FST production-admission decision reads this.
+    pub fn partial_morpheme_facts(&self) -> Result<PartialMorphemeFacts, crate::GrammarError> {
+        self.validated_rule_owner_strata()?;
+        let partial_entry_ids = self
+            .entries
+            .iter()
+            .filter(|e| e.partial)
+            .map(|e| e.authored_id.clone())
+            .collect();
+        let partial_rule_ids = self
+            .partial_affix_process_rules()
+            .map(|(_, morpheme)| self.morphemes[morpheme.0 as usize].xml_key.clone())
+            .collect();
+        Ok(PartialMorphemeFacts {
+            partial_entry_ids,
+            partial_rule_ids,
+        })
+    }
+
+    /// Compute and validate the single grammar-wide source of final-template prune facts.
+    pub fn final_template_prune_facts(&self) -> Result<FinalTemplatePruneFacts, crate::GrammarError> {
+        let strata_len = self.strata.len();
+        let rule_owner = self.validated_rule_owner_strata()?;
 
         let mut ordinary_ids = std::collections::HashSet::new();
         let mut slot_rules_disjoint_from_mrules = true;
@@ -1226,11 +1309,8 @@ impl Grammar {
         }
 
         let mut first_partial = None;
-        let mut partial_rule_count = 0;
-        for (id, rule) in self.mrules.iter().enumerate() {
-            let MorphRuleDef::AffixProcess(def) = rule else { continue };
-            if !def.partial { continue }
-            partial_rule_count += 1;
+        let partial_rule_count = self.partial_morpheme_facts()?.partial_rule_count();
+        for (id, _) in self.partial_affix_process_rules() {
             let Some(owner) = rule_owner[id] else { continue };
             first_partial = Some(first_partial.map_or(owner.0 as usize, |p: usize| p.min(owner.0 as usize)));
         }
