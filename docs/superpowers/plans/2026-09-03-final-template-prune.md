@@ -10,6 +10,49 @@
 
 ---
 
+## Status
+
+Landed on `feat/final-template-prune-final`. All six tasks' behaviour is implemented and committed;
+the evidence is `docs/superpowers/plans/2026-09-03-final-template-prune-results.md` for the
+measurement and `docs/superpowers/plans/2026-09-04-reject-partial-fst-builds-results.md` for the
+landing verification, which names the exact commit and the authoritative suite counts.
+
+**The per-step checkboxes below are left unticked deliberately, and that is not an oversight.**
+They are the authoring artifact of a plan written before the work, and ticking forty of them now
+would assert per-step verification nobody performed step by step. What was actually verified is the
+resulting behaviour, by named tests, at the commits recorded in the two results documents — read
+those, not the boxes. Two specific things the boxes would over-claim if ticked:
+
+- Task 6's five-grammar figures are five-word, private, local evidence on gitignored exports; no
+  gate re-derives them and CI cannot.
+- Task 1's grammar-owned facts were subsequently reworked: the partial-rule predicate and the
+  owner-stratum validator were extracted so `final_template_prune_facts` and the newer
+  `Grammar::partial_morpheme_facts` share one computation instead of each having its own. The
+  extraction is what the file map here describes as "`pg-rules` never re-derives the grammar
+  decision", now also true between the two grammar-owned facts.
+
+### Remaining limitations
+
+- **Iterative epenthesis remains an HC-Rust divergence.** `pg-parse`'s
+  `tests/csharp_port_rewrite.rs` still `#[ignore]`s it: `syn_epenthesis` is structurally
+  Simultaneous-shaped whatever mode a rule declares, so two composed Iterative epenthesis rules
+  over-fire against the C# oracle. Out of scope for final templates, and untouched.
+- **Partial-bearing grammars are intentionally ineligible for a production FST artifact.** That is
+  a readiness verdict (`Severity::NotProductionReady`, `FindingClass::Readiness`), not a compiler
+  failure and not `CannotRepresent`; every strategy still compiles them under containment. The
+  default HC policy's conservatism on the reference grammars and this FST ineligibility have the
+  same cause — those grammars declare partial morphemes — but they are separate boundaries.
+- **The upstream obligation ledgers are not moved.** Both arms of both final-template gates are now
+  witnessed by `conformance-staging/edge-cases/final-template-partial-discriminators/`, verified
+  against the C# founding oracle, but `machine/conformance/gate-obligations.tsv` and
+  `obligation-triage.tsv` are generated files inside the submodule and still read
+  `NotEvidenced`/`Open`. Closing them needs the fixture graduated upstream first.
+- **The five-grammar backend gate is local-only.** `five_language_backend_reports_gate` is
+  `#[ignore]`d and needs private corpus exports, so its per-grammar production-status assertion is
+  only as verified as the last local `corpus-test` run.
+
+---
+
 ## Classification and acceptance
 
 This is a **correctness/representability** optimization: analysis mirrors an existing synthesis ordering rule. It is not a production-readiness refusal, retry, threshold increase, or resource-containment mechanism.

@@ -24,6 +24,15 @@ The implementation mirrors the essential behavior of SIL Machine PR #491:
 - dense counters report template entries, batteries skipped, and individual final templates
   skipped.
 
+## Scope of the timing evidence
+
+Everything in the two timing sections below is **five-word, private, local evidence**: five words
+per grammar, on gitignored exports that exist only on this machine, measured by hand rather than by
+a gate. It is corroboration for a policy decision, never a reproducible result and never a
+correctness claim. Nothing in CI can re-derive any figure here. Read the step counts as the
+substantive part and the milliseconds as the weaker part; a step count is deterministic, a
+millisecond figure on a machine with a live build pool is not.
+
 ## Stable three-run timings
 
 These are medians of three warmed five-word batches. Each run used the same input and options,
@@ -104,3 +113,26 @@ representability.
 
 Private grammars, word slices, binaries, raw result TSVs, and stdout records remain under the
 gitignored `.tmp/final-template-prune-benchmark` directory and are not committed.
+
+## The same partial facts make these grammars FST-production-ineligible
+
+Read the numbers above as HermitCrab evidence only. They say the default policy is conservative on
+these grammars **because** those grammars declare partial morphemes, and they say nothing about
+whether an FST built from them may be shipped. That second question was answered separately, and
+the answer is no: a grammar declaring any partial lexical entry or partial affix-process rule is
+`Severity::NotProductionReady` / `FindingClass::Readiness` for **every** FST strategy, so no
+selectable, serialized, published or reconstructable production artifact comes out of one. See
+`docs/superpowers/plans/2026-09-04-reject-partial-fst-builds-results.md`.
+
+Three things that verdict is NOT, because each has been mistaken for it before:
+
+- it is not `CannotRepresent` — the grammar is representable, and HC-Rust analyses it normally;
+- it is not a compiler failure — the contained attempt really does compile, and a gate asserts it;
+- it is not a resource-containment event — no monitor fired and no limit was reached.
+
+So "all five reference grammars keep an accepted backend" (which
+`five_language_backend_reports_gate.rs` still asserts, and which remains true) and "an FST built
+from them may be published" are different claims, and only the first one holds. The per-grammar
+partial inventory is now derived from `Grammar::partial_morpheme_facts` inside that gate rather
+than from a hardcoded grammar-name list, so a grammar that gains or loses a partial morpheme moves
+its own verdict.
