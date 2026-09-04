@@ -566,7 +566,6 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         templates: acc.templates,
         entries: acc.entries,
         strata,
-        analysis_caps: None,
     })
 }
 

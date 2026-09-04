@@ -16,7 +16,8 @@
 //!
 //! This crate tolerates stale or dangling data in otherwise-valid projects: dangling `objsur`
 //! targets, unrecognized morph-type GUIDs, and missing expected fields become warnings in the
-//! returned `ImportReport`. Hard errors cover I/O failures and invalid XML or non-`.fwdata` input.
+//! returned `ImportReport`. Hard errors cover I/O failures, invalid XML, non-`.fwdata` input,
+//! and malformed parser-source metadata that cannot be represented safely.
 //! Backup archive structure and member-access failures are reported separately as `Backup`.
 #![forbid(unsafe_code)]
 
@@ -32,10 +33,11 @@ use std::path::Path;
 use pg_snapshot::{Snapshot, Warning};
 use thiserror::Error;
 
-/// Hard errors from `import_file`: I/O failures and invalid XML or non-`.fwdata` input. Data
-/// quality issues within an otherwise-valid project become `ImportReport` warnings. `Backup`
-/// covers malformed ZIP structure, member lookup, and LDML/member access failures; parsing the
-/// embedded `.fwdata` can instead return `Xml` or `NotFwdata`.
+/// Hard errors from `import_file`: I/O failures, invalid XML or non-`.fwdata` input, and source
+/// metadata whose parser selector is malformed or unsupported. Data quality issues within an
+/// otherwise-valid project become `ImportReport` warnings. `Backup` covers malformed ZIP
+/// structure, member lookup, and LDML/member access failures; parsing the embedded `.fwdata` can
+/// instead return `Xml`, `NotFwdata`, or `InvalidSource`.
 #[derive(Debug, Error)]
 pub enum ImportError {
     #[error("failed to read {0}")]
@@ -46,6 +48,8 @@ pub enum ImportError {
     NotFwdata,
     #[error("not a .fwbackup: {0}")]
     Backup(String),
+    #[error("{code}: {message}")]
+    InvalidSource { code: &'static str, message: String },
 }
 
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.
@@ -72,7 +76,7 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
     }
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
-    let (snapshot, warnings) = extract::extract(&graph, &filename_stem);
+    let (snapshot, warnings) = extract::extract(&graph, &filename_stem)?;
     Ok((snapshot, ImportReport { warnings }))
 }
 

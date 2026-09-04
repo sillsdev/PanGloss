@@ -359,8 +359,8 @@ pub struct LexEntryInflType {
 }
 
 /// Which parser FieldWorks runs for this project, from `/ParserParameters/ActiveParser`.
-/// liblcm reports `"XAmple"` when the element is absent or the XML is unparsable
-/// (`OverridesLing_MoClasses.cs`, `MoMorphData.ActiveParser` getter), so that is the default here.
+/// An absent element is represented as `XAmple`; malformed source metadata is rejected by the
+/// importer rather than represented as a parser choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ActiveParser {
@@ -369,9 +369,9 @@ pub enum ActiveParser {
     Hc,
 }
 
-/// The `<ParserParameters><XAmple>` block: XAmple's analysis caps. `None` means the element
-/// was absent; FieldWorks' transform defaults (`FxtM3ParserCommon.xsl`) are applied by the
-/// grammar compiler, not here, because two of them depend on the rest of the project.
+/// The `<ParserParameters><XAmple>` block, retained as source provenance for migration and
+/// comparison tooling. `None` means the source element was absent. HC applies no XAMPLE defaults
+/// to these values, and this data-only layer never interprets or fills them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct XAmpleParameters {
@@ -387,8 +387,7 @@ pub struct XAmpleParameters {
     pub max_interfixes: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_roots: Option<u32>,
-    /// `MaxAnalysesToReturn`; FieldWorks treats a value below 1 as "no limit"
-    /// (`XAmpleParser.cs:126-133`). Stored raw; interpretation belongs to the compiler.
+    /// `MaxAnalysesToReturn`, retained raw for migration/comparison tooling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_analyses_to_return: Option<i32>,
 }

@@ -8,6 +8,62 @@ fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/fixture.fwdata")
 }
 
+fn fixture_variant(dir: &Path, old: &str, new: &str) -> PathBuf {
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    assert!(source.contains(old), "fixture variant replacement must match");
+    let variant = source.replacen(old, new, 1);
+    let path = dir.join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    path
+}
+
+fn parser_parameters_variant(dir: &Path, replacement: &str) -> PathBuf {
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let opening = "<ParserParameters>";
+    let closing = "</ParserParameters>";
+    let start = source
+        .find(opening)
+        .expect("fixture ParserParameters opening needle must be present");
+    let end = start
+        + source[start..]
+            .find(closing)
+            .expect("fixture ParserParameters closing needle must be present")
+        + closing.len();
+    let mut variant = source;
+    variant.replace_range(start..end, replacement);
+    let path = dir.join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    path
+}
+
+fn omitted_parser_parameters_variant(dir: &Path) -> PathBuf {
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let opening = "<ParserParameters>";
+    let closing = "</ParserParameters>";
+    let start = source
+        .find(opening)
+        .expect("fixture ParserParameters opening needle must be present");
+    let end = start
+        + source[start..]
+            .find(closing)
+            .expect("fixture ParserParameters closing needle must be present")
+            + closing.len();
+    let mut variant = source;
+    variant.replace_range(start..end, "");
+    let path = dir.join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    path
+}
+
+fn assert_invalid_active_parser_source(path: &Path) {
+    match pg_fwdata::import_file(path).unwrap_err() {
+        pg_fwdata::ImportError::InvalidSource { code, .. } => {
+            assert_eq!(code, "invalid-source.active-parser")
+        }
+        other => panic!("expected invalid parser source error, got {other:?}"),
+    }
+}
+
 #[test]
 fn imports_without_error() {
     let (_, report) = pg_fwdata::import_file(&fixture_path()).expect("fixture must import");
@@ -224,6 +280,101 @@ fn fixture_reports_active_parser_and_xample_caps() {
     assert_eq!(pp.active_parser, pg_snapshot::ActiveParser::Hc);
     assert_eq!(pp.xample.max_prefixes, Some(2));
     assert_eq!(pp.xample.max_analyses_to_return, Some(10));
+}
+
+#[test]
+fn malformed_xample_cap_is_a_nonfatal_import_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        "&lt;MaxPrefixes&gt;2&lt;/MaxPrefixes&gt;",
+        "&lt;MaxPrefixes&gt;many&lt;/MaxPrefixes&gt;",
+    );
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
+    assert_eq!(snapshot.morphology.parser_parameters.xample.max_prefixes, None);
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "fwdata.invalid-parser-parameter")
+        .expect("invalid cap must be reported");
+    assert!(warning.message.contains("MaxPrefixes"));
+    assert_eq!(
+        report
+            .warnings
+            .iter()
+            .filter(|warning| warning.code == "fwdata.invalid-parser-parameter")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn omitted_parser_parameters_field_defaults_to_xample() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = omitted_parser_parameters_variant(dir.path());
+    let (snapshot, _) = pg_fwdata::import_file(&path).unwrap();
+    assert_eq!(
+        snapshot.morphology.parser_parameters.active_parser,
+        pg_snapshot::ActiveParser::XAmple
+    );
+}
+
+#[test]
+fn present_parser_parameters_without_uni_is_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = parser_parameters_variant(dir.path(), "<ParserParameters/>");
+    assert_invalid_active_parser_source(&path);
+}
+
+#[test]
+fn present_empty_uni_is_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = parser_parameters_variant(dir.path(), "<ParserParameters><Uni/></ParserParameters>");
+    assert_invalid_active_parser_source(&path);
+}
+
+#[test]
+fn present_whitespace_uni_is_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = parser_parameters_variant(
+        dir.path(),
+        "<ParserParameters><Uni> \n\t</Uni></ParserParameters>",
+    );
+    assert_invalid_active_parser_source(&path);
+}
+
+#[test]
+fn invalid_active_parser_is_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        "&lt;ActiveParser&gt;HC&lt;/ActiveParser&gt;",
+        "&lt;ActiveParser&gt;Toneparser&lt;/ActiveParser&gt;",
+    );
+    let error = pg_fwdata::import_file(&path).unwrap_err();
+    match error {
+        pg_fwdata::ImportError::InvalidSource { code, .. } => {
+            assert_eq!(code, "invalid-source.active-parser")
+        }
+        other => panic!("expected invalid active parser error, got {other:?}"),
+    }
+}
+
+#[test]
+fn malformed_parser_parameters_are_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        "&lt;ActiveParser&gt;HC&lt;/ActiveParser&gt;",
+        "&lt;ActiveParser&gt;XAmple",
+    );
+    let error = pg_fwdata::import_file(&path).unwrap_err();
+    match error {
+        pg_fwdata::ImportError::InvalidSource { code, .. } => {
+            assert_eq!(code, "invalid-source.active-parser")
+        }
+        other => panic!("expected malformed parser parameters error, got {other:?}"),
+    }
 }
 
 #[test]

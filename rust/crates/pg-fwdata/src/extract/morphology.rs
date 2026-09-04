@@ -8,14 +8,14 @@ use pg_snapshot::{
 
 use super::features::extract_feature_structure;
 use super::Ctx;
-use crate::parser_params;
 use crate::xml::Record;
+use crate::{parser_params, ImportError};
 
 pub fn extract_morphology(
     ctx: &mut Ctx,
     lang_project: Option<&Record>,
     _feature_systems: &FeatureSystems,
-) -> Morphology {
+) -> Result<Morphology, ImportError> {
     let parts_of_speech = lang_project
         .and_then(|lp| lp.node.objsur_one("PartsOfSpeech"))
         .map(|list_guid| extract_pos_forest(ctx, &list_guid))
@@ -45,20 +45,26 @@ pub fn extract_morphology(
         .map(|db| extract_lex_entry_infl_types(ctx, db))
         .unwrap_or_default();
 
-    let parser_parameters = parser_params::parse(
-        morph_data
-            .and_then(|md| md.node.uni_text("ParserParameters"))
-            .as_deref(),
-    );
+    let parser_raw = morph_data.and_then(|md| {
+        md.node.child("ParserParameters").map(|field| {
+            field
+                .child("Uni")
+                .map(|uni| uni.text.clone())
+                .unwrap_or_default()
+        })
+    });
+    let (parser_parameters, parser_issues) =
+        parser_params::parse_with_issues(parser_raw.as_deref())?;
+    ctx.warnings.extend(parser_issues);
 
-    Morphology {
+    Ok(Morphology {
         parts_of_speech,
         compound_rules,
         adhoc_prohibitions,
         exception_features,
         lex_entry_infl_types,
         parser_parameters,
-    }
+    })
 }
 
 // Parts of speech

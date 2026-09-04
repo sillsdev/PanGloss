@@ -4,6 +4,17 @@ use pg_snapshot::WsForm;
 use quick_xml::events::Event;
 use quick_xml::reader::Reader;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentError(String);
+
+impl std::fmt::Display for DocumentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for DocumentError {}
+
 /// A generic element node: tag name, attributes, direct text, and child elements, enough to represent the handful of `.fwdata` field shapes this crate cares about.
 #[derive(Debug, Clone, Default)]
 pub struct Node {
@@ -123,65 +134,165 @@ fn concat_runs(rich_text_elem: &Node) -> String {
     s
 }
 
-/// Parses a small, complete XML document into a synthetic root `Node`; unlike `crate::xml::parse_fwdata` this builds a full DOM, safe since the input is always small.
-pub fn parse_full_document(xml: &str) -> Option<Node> {
+fn document_error(message: impl Into<String>) -> DocumentError {
+    DocumentError(message.into())
+}
+
+fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node, DocumentError> {
+    let tag = String::from_utf8_lossy(e.local_name().as_ref()).into_owned();
+    let mut attrs = Vec::new();
+    for attr in e.attributes() {
+        let attr = attr.map_err(|error| document_error(error.to_string()))?;
+        let key = String::from_utf8_lossy(attr.key.local_name().as_ref()).into_owned();
+        let value = attr
+            .unescape_value()
+            .map_err(|error| document_error(error.to_string()))?
+            .into_owned();
+        attrs.push((key, value));
+    }
+    Ok(Node {
+        tag,
+        attrs,
+        text: String::new(),
+        children: Vec::new(),
+    })
+}
+
+/// Parses a small, complete XML document into a synthetic root `Node`; unlike
+/// `crate::xml::parse_fwdata` this builds a full DOM, safe since the input is always small. The
+/// result is strict: exactly one element root is required, all tags must balance, and only
+/// whitespace/comments/declarations may occur outside it.
+pub fn parse_full_document(xml: &str) -> Result<Node, DocumentError> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
+    reader.config_mut().trim_text(false);
+    reader.config_mut().check_comments = true;
     let mut stack: Vec<Node> = vec![Node::empty()];
     loop {
-        match reader.read_event().ok()? {
+        let event = reader
+            .read_event()
+            .map_err(|error| document_error(error.to_string()))?;
+        match event {
             Event::Start(e) => {
-                let tag = String::from_utf8_lossy(e.local_name().into_inner()).into_owned();
-                stack.push(Node {
-                    tag,
-                    attrs: e
-                        .attributes()
-                        .filter_map(|a| a.ok())
-                        .map(|a| {
-                            (
-                                String::from_utf8_lossy(a.key.local_name().into_inner())
-                                    .into_owned(),
-                                a.unescape_value().unwrap_or_default().into_owned(),
-                            )
-                        })
-                        .collect(),
-                    text: String::new(),
-                    children: Vec::new(),
-                });
+                if stack.len() == 1 && stack[0].children.len() == 1 {
+                    return Err(document_error("multiple root elements"));
+                }
+                stack.push(node_from_start(&e)?);
             }
             Event::Empty(e) => {
-                let tag = String::from_utf8_lossy(e.local_name().into_inner()).into_owned();
-                let node = Node {
-                    tag,
-                    attrs: e
-                        .attributes()
-                        .filter_map(|a| a.ok())
-                        .map(|a| {
-                            (
-                                String::from_utf8_lossy(a.key.local_name().into_inner())
-                                    .into_owned(),
-                                a.unescape_value().unwrap_or_default().into_owned(),
-                            )
-                        })
-                        .collect(),
-                    text: String::new(),
-                    children: Vec::new(),
-                };
-                stack.last_mut()?.children.push(node);
+                if stack.len() == 1 && stack[0].children.len() == 1 {
+                    return Err(document_error("multiple root elements"));
+                }
+                let node = node_from_start(&e)?;
+                stack
+                    .last_mut()
+                    .ok_or_else(|| document_error("parser stack is empty"))?
+                    .children
+                    .push(node);
             }
             Event::Text(t) => {
-                let s = t.unescape().ok()?;
-                stack.last_mut()?.text.push_str(&s);
+                let s = t
+                    .unescape()
+                    .map_err(|error| document_error(error.to_string()))?;
+                if stack.len() == 1 && !s.trim().is_empty() {
+                    return Err(document_error("non-whitespace text outside root"));
+                }
+                stack
+                    .last_mut()
+                    .ok_or_else(|| document_error("parser stack is empty"))?
+                    .text
+                    .push_str(&s);
             }
-            Event::End(_) => {
-                let node = stack.pop()?;
-                stack.last_mut()?.children.push(node);
+            Event::CData(data) => {
+                let s = std::str::from_utf8(data.as_ref())
+                    .map_err(|error| document_error(error.to_string()))?;
+                if stack.len() == 1 && !s.trim().is_empty() {
+                    return Err(document_error("non-whitespace CDATA outside root"));
+                }
+                stack
+                    .last_mut()
+                    .ok_or_else(|| document_error("parser stack is empty"))?
+                    .text
+                    .push_str(s);
             }
-            Event::Eof => break,
-            _ => {}
+            Event::End(end) => {
+                if stack.len() == 1 {
+                    return Err(document_error("unexpected closing tag"));
+                }
+                let node = stack
+                    .pop()
+                    .ok_or_else(|| document_error("parser stack is empty"))?;
+                if node.tag.as_bytes() != end.local_name().as_ref() {
+                    return Err(document_error(format!(
+                        "closing tag {:?} does not match {:?}",
+                        end.local_name().as_ref(),
+                        node.tag
+                    )));
+                }
+                stack
+                    .last_mut()
+                    .ok_or_else(|| document_error("parser stack is empty"))?
+                    .children
+                    .push(node);
+            }
+            Event::Eof => {
+                if stack.len() != 1 {
+                    return Err(document_error("unclosed element"));
+                }
+                if stack[0].children.len() != 1 {
+                    return Err(document_error("document must have exactly one root element"));
+                }
+                return Ok(stack
+                    .pop()
+                    .ok_or_else(|| document_error("parser stack is empty"))?);
+            }
+            Event::Comment(_) | Event::Decl(_) | Event::PI(_) => {}
+            Event::DocType(_) => return Err(document_error("DOCTYPE is not supported")),
         }
     }
-    stack.pop()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_and_whitespace_documents_are_rejected() {
+        assert!(parse_full_document("").is_err());
+        assert!(parse_full_document(" \n\t").is_err());
+    }
+
+    #[test]
+    fn second_root_and_trailing_junk_are_rejected() {
+        assert!(parse_full_document("<a/><b/>").is_err());
+        assert!(parse_full_document("<a/>junk").is_err());
+    }
+
+    #[test]
+    fn malformed_attributes_are_rejected_but_valid_attributes_are_kept() {
+        assert!(parse_full_document(r#"<a bad="x></a>"#).is_err());
+        let root = parse_full_document(r#"<a answer="1" note="a&amp;b"/>"#).unwrap();
+        let node = &root.children[0];
+        assert_eq!(node.attr("answer"), Some("1"));
+        assert_eq!(node.attr("note"), Some("a&b"));
+    }
+
+    #[test]
+    fn text_and_cdata_are_preserved() {
+        let root = parse_full_document("<a>text<![CDATA[<raw>]]>tail</a>").unwrap();
+        assert_eq!(root.children[0].text, "text<raw>tail");
+    }
+
+    #[test]
+    fn comments_do_not_change_document_contents() {
+        let root =
+            parse_full_document("<!-- before --><a><!-- inside -->ok</a><!-- after -->").unwrap();
+        assert_eq!(root.children[0].text, "ok");
+    }
+
+    #[test]
+    fn malformed_comments_are_rejected() {
+        assert!(parse_full_document("<a><!-- invalid -- comment --></a>").is_err());
+    }
 }
 
 /// Strips the FieldWorks placeholder dotted-circle (U+25CC), used to mark a diacritic-only grapheme's "base" position.
