@@ -358,6 +358,15 @@ pub enum CompletedBuildError {
     },
     RequestedRouteMissing(EmissionStrategy),
     NoMatchingCompletedBuild,
+    /// The contained attempt completed, and production admission refuses to publish the result.
+    /// Carries no build, payload or payload fingerprint: there is deliberately nothing here a
+    /// caller could reassemble into a trusted artifact.
+    NotProductionReady {
+        strategy: EmissionStrategy,
+        health: crate::health::HealthReport,
+    },
+    /// Production admission could not be decided, so nothing is admitted.
+    PartialFactsUnavailable(String),
 }
 
 impl fmt::Display for CompletedBuildError {
@@ -423,14 +432,55 @@ impl fmt::Display for CompletedBuildError {
                 )
             }
             Self::NoMatchingCompletedBuild => f.write_str("no matching completed backend build"),
+            Self::NotProductionReady { strategy, health } => write!(
+                f,
+                "{strategy:?} completed a contained compile and is not eligible for production \
+                 publication: admission={:?} ({}); {}",
+                health.admission(),
+                health.admission_by_class().render(),
+                health
+                    .findings
+                    .iter()
+                    .map(|finding| format!("{}: {}", finding.code.code(), finding.explanation))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            Self::PartialFactsUnavailable(error) => write!(
+                f,
+                "production admission could not be decided, so nothing is admitted: {error}"
+            ),
         }
     }
 }
 
 impl std::error::Error for CompletedBuildError {}
 
-/// Compile one explicitly requested backend exactly once and retain its finalized binary payload.
+/// Compile one explicitly requested backend exactly once, then admit or refuse its finalized
+/// payload for production.
+///
+/// The compile runs FIRST and unconditionally: a production refusal here is a readiness verdict
+/// about a result that really was built, never a claim that the backend could not build it. On a
+/// refusal the payload is dropped inside this function and no fingerprint of it escapes.
 pub fn compile_completed_backend(
+    grammar: &Grammar,
+    requested_strategy: EmissionStrategy,
+    request: &CompileAttempt,
+) -> Result<CompletedBackendBuild, CompletedBuildError> {
+    let measured = compile_completed_backend_for_measurement(grammar, requested_strategy, request)?;
+    let admission = crate::production_admission::assess_completed_fst(grammar, requested_strategy)
+        .map_err(|error| CompletedBuildError::PartialFactsUnavailable(error.to_string()))?;
+    if admission.blocks_publication() {
+        drop(measured);
+        return Err(CompletedBuildError::NotProductionReady {
+            strategy: requested_strategy,
+            health: admission.health().clone(),
+        });
+    }
+    Ok(measured)
+}
+
+/// The backend-specific compile with no admission decision attached; private so the worker's finite execution envelope stays the only outside way to run it.
+fn compile_completed_backend_for_measurement(
     grammar: &Grammar,
     requested_strategy: EmissionStrategy,
     request: &CompileAttempt,
@@ -742,6 +792,63 @@ mod tests {
             ),
             "expected UnsupportedStrategy(PlanComposed); got {result:?}"
         );
+    }
+
+    /// The measurement half must COMPLETE on the very grammar admission refuses, or the refusal reads as a backend that cannot build it.
+    #[test]
+    fn a_partial_grammar_compiles_under_containment_and_is_then_refused_publication() {
+        let mut grammar = pg_grammar::load(MINIMAL_XML).expect("fixture must load");
+        grammar.entries[0].partial = true;
+        let strategy = EmissionStrategy::TunedSurfaceProbed;
+        let attempt = CompileAttempt::try_new().expect("attempt id must construct");
+
+        let measured =
+            compile_completed_backend_for_measurement(&grammar, strategy, &attempt)
+                .expect("the contained measurement attempt must complete for a partial grammar");
+        assert!(
+            !measured.payload_bytes().is_empty(),
+            "the measurement attempt must really produce a payload"
+        );
+
+        let error = compile_completed_backend(&grammar, strategy, &attempt)
+            .expect_err("a partial grammar must not yield a production artifact");
+        match &error {
+            CompletedBuildError::NotProductionReady {
+                strategy: refused,
+                health,
+            } => {
+                assert_eq!(*refused, strategy);
+                assert_eq!(
+                    health.admission(),
+                    crate::health::Severity::NotProductionReady
+                );
+                assert_eq!(
+                    health.admission_by_class().representability,
+                    crate::health::Severity::WithinLimits,
+                    "a readiness refusal must not claim the grammar is unrepresentable"
+                );
+            }
+            other => panic!("expected NotProductionReady; got {other:?}"),
+        }
+        let rendered = error.to_string();
+        assert!(
+            !rendered.contains(measured.evidence().payload_fingerprint()),
+            "the refusal must not leak a payload fingerprint: {rendered}"
+        );
+    }
+
+    /// The same grammar without the partial marker keeps its ordinary production path.
+    #[test]
+    fn the_non_partial_control_still_returns_a_completed_build() {
+        let grammar = pg_grammar::load(MINIMAL_XML).expect("fixture must load");
+        let attempt = CompileAttempt::try_new().expect("attempt id must construct");
+        let build = compile_completed_backend(
+            &grammar,
+            EmissionStrategy::TunedSurfaceProbed,
+            &attempt,
+        )
+        .expect("a non-partial grammar must still produce a completed build");
+        assert!(!build.payload_bytes().is_empty());
     }
 
     /// A `Role::Process` allomorph is `CannotRepresent` for Templated by architecture (`strrep-identity`'s plain-Prefix no longer fits this pin -- it compiles now).

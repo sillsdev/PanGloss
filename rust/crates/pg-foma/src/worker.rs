@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use crate::analyzer::FomaError;
 use crate::completed_build::{
     compile_completed_backend, sha256_hex, CompileAttempt, CompletedBackendBuildWire,
+    CompletedBuildError,
 };
 use crate::enumerate::EmissionStrategy;
 use crate::health::{
@@ -258,6 +259,10 @@ pub enum CompileWorkerOutcome {
     SelectedExecutionLimitExceeded { actual_bytes: u64, limit_bytes: u64 },
     /// A selected-backend compile failed before a trusted payload could be returned.
     SelectedCompileFailed { detail: String },
+    /// The selected backend's contained compile COMPLETED and production admission refused to
+    /// publish it. Typed apart from `SelectedCompileFailed` because it is a readiness verdict about
+    /// a real result, not a compile failure; no raw payload frame follows it.
+    SelectedNotProductionReady { health: HealthReport },
 }
 
 /// Additional request material for the selected-payload seam.
@@ -440,6 +445,13 @@ fn compile_selected_from_request(
             compile_completed_backend(&grammar, strategy, &private_request)
         })) {
             Ok(Ok(build)) => build,
+            // Only the readiness refusal maps to the typed readiness outcome; every other failure stays a compile failure.
+            Ok(Err(CompletedBuildError::NotProductionReady { health, .. })) => {
+                return WorkerChildOutput {
+                    outcome: CompileWorkerOutcome::SelectedNotProductionReady { health },
+                    selected_payload: None,
+                }
+            }
             Ok(Err(error)) => {
                 return WorkerChildOutput {
                     outcome: CompileWorkerOutcome::SelectedCompileFailed {
@@ -677,6 +689,47 @@ mod tests {
                 selected_payload: None,
             }
         ));
+    }
+
+    /// The readiness outcome must write exactly ONE frame; a second frame would BE the artifact.
+    #[test]
+    fn selected_not_production_ready_writes_no_raw_payload_frame() {
+        let health = HealthReport::new(vec![HealthFinding::new(
+            FindingCode::PartialMorphemeProductionPolicy,
+            Severity::NotProductionReady,
+            Phase::Compile,
+            Metric::PartialMorphemeCount,
+            MetricValue::Count(2),
+            ValueProvenance::Observed,
+            "synthetic partial-morpheme readiness refusal".to_string(),
+        )]);
+        let mut output = Vec::new();
+        write_child_output(
+            &mut output,
+            WorkerChildOutput {
+                outcome: CompileWorkerOutcome::SelectedNotProductionReady {
+                    health: health.clone(),
+                },
+                selected_payload: None,
+            },
+        )
+        .expect("writing to an in-memory buffer must not fail");
+
+        let mut cursor = std::io::Cursor::new(output);
+        let metadata = read_frame(&mut cursor, WORKER_PROTOCOL_LIMITS.max_request_bytes)
+            .expect("the metadata frame must be present");
+        let result: CompileWorkerResult =
+            serde_json::from_slice(&metadata).expect("result must deserialize");
+        match result.outcome {
+            CompileWorkerOutcome::SelectedNotProductionReady { health: reported } => {
+                assert_eq!(reported, health, "the typed readiness report must survive the wire");
+            }
+            other => panic!("expected SelectedNotProductionReady; got {other:?}"),
+        }
+        assert!(
+            read_frame(&mut cursor, WORKER_PROTOCOL_LIMITS.max_request_bytes).is_err(),
+            "no raw payload frame may escape a readiness refusal"
+        );
     }
 
     #[test]

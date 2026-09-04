@@ -116,6 +116,38 @@ fn selected_templated_underlying_tokens_payload_reconstructs_exact_analysis_pipe
     );
 }
 
+/// At the PUBLIC boundary, a partial-bearing grammar yields no build to select at all.
+///
+/// `select_completed_build` is never even reached: the refusal is an absence, not a filter, so
+/// there is no payload, fingerprint or evidence value a caller could route around.
+#[test]
+fn a_partial_bearing_grammar_yields_no_selectable_build() {
+    let mut grammar = pg_grammar::load(TUNED_FIXTURE).expect("synthetic fixture must load");
+    grammar.entries[0].partial = true;
+    let request = CompileAttempt::try_new().expect("compile attempt");
+
+    let error = compile_completed_backend(&grammar, EmissionStrategy::TunedSurfaceProbed, &request)
+        .expect_err("a partial-bearing grammar must not produce a completed build");
+    let rendered = error.to_string();
+    assert!(
+        rendered.contains("not eligible for production publication"),
+        "the refusal must name the production policy, got: {rendered}"
+    );
+
+    // Nothing to select, so the ordinary selection path has no input at all.
+    let grammar_id = grammar_identity(&grammar);
+    assert!(
+        select_completed_build(
+            EmissionStrategy::TunedSurfaceProbed,
+            Vec::new(),
+            &request,
+            &grammar_id,
+        )
+        .is_err(),
+        "selection must fail closed when the production boundary produced no build"
+    );
+}
+
 #[test]
 fn stale_completed_build_evidence_is_rejected_before_runtime() {
     let grammar = pg_grammar::load(TUNED_FIXTURE).expect("synthetic fixture must load");
