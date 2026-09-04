@@ -4,10 +4,36 @@ mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar, lex_entry_id, mrule_id};
 use pg_featstruct::{FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits};
 use pg_grammar::model::{Grammar, MorphRuleDef};
+use pg_parse::identity::AnalysisIdentity;
 use pg_parse::{GenMorpheme, Morpher, ParseOptions};
 use pg_rules::trace::TreeTraceSink;
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
+
+/// Projects every surviving analysis in `outcome` to its `AnalysisIdentity` and returns the sorted multiset (duplicates kept) -- unlike `assert_morphs_eq`'s gloss-string `BTreeSet`, two analyses with the same gloss join but different identities (or the same identity twice) stay distinguishable here.
+fn identity_multiset(g: &Grammar, outcome: &pg_parse::ParseOutcome) -> Vec<AnalysisIdentity> {
+    let mut ids: Vec<AnalysisIdentity> = outcome
+        .structured
+        .iter()
+        .map(|a| AnalysisIdentity::project(a, g).expect("stable identity"))
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// Asserts `outcome`'s identity multiset equals `expected`, order-insensitive but duplicate-sensitive.
+#[track_caller]
+fn assert_identity_multiset_eq(
+    g: &Grammar,
+    outcome: &pg_parse::ParseOutcome,
+    expected: &[AnalysisIdentity],
+    msg: &str,
+) {
+    let got = identity_multiset(g, outcome);
+    let mut want: Vec<AnalysisIdentity> = expected.to_vec();
+    want.sort();
+    assert_eq!(got, want, "{msg} (got {got:?}, want {want:?})");
+}
 
 /// `{pos: symbol}` for the given POS xml id -- the syntactic FS a bare category symbol produces, built the same way `pg_grammar::load`'s `intern_syn_fs` would.
 fn pos_fs(g: &Grammar, xml_id: &str) -> FeatureStruct {
@@ -590,7 +616,81 @@ fn partial_rule() {
     let enforced = Morpher::new(&g, usize::MAX).with_always_enforce_final_templates(true);
     assert_empty(&enforced.parse_word("sagds"));
 
-    // Rule-level partial markers protect rescue paths; lexical-entry partial markers do not.
+    // Identity multisets pin the actual difference: enforced suppresses both final-slot rescues (sagds, sagstv) but agrees with default where no rescue is ever reached (sagst, sags).
+    let sagds_identity = vec![AnalysisIdentity {
+        morphemes: vec![
+            Some("e32".to_string()),
+            Some("mrEd".to_string()),
+            Some("mrS".to_string()),
+        ],
+        root_index: 0,
+        category: Some("posV".to_string()),
+    }];
+    let sagst_identity = vec![AnalysisIdentity {
+        morphemes: vec![
+            Some("e32".to_string()),
+            Some("mrS".to_string()),
+            Some("mrEd".to_string()),
+        ],
+        root_index: 0,
+        category: Some("posV".to_string()),
+    }];
+    let sags_identity = vec![AnalysisIdentity {
+        morphemes: vec![Some("e32".to_string()), Some("mrS".to_string())],
+        root_index: 0,
+        category: Some("posV".to_string()),
+    }];
+    let sagstv_identity = vec![AnalysisIdentity {
+        morphemes: vec![
+            Some("e32".to_string()),
+            Some("mrS".to_string()),
+            Some("mrEd".to_string()),
+            Some("mrNom".to_string()),
+        ],
+        root_index: 0,
+        category: Some("posN".to_string()),
+    }];
+    assert_identity_multiset_eq(&g, &m.parse_word("sagds"), &sagds_identity, "default sagds identity");
+    assert_identity_multiset_eq(&g, &enforced.parse_word("sagds"), &[], "enforced sagds identity");
+    assert_identity_multiset_eq(&g, &m.parse_word("sagst"), &sagst_identity, "default sagst identity");
+    assert_identity_multiset_eq(
+        &g,
+        &enforced.parse_word("sagst"),
+        &sagst_identity,
+        "enforced sagst identity (the final slot is already filled, so no rescue is needed)",
+    );
+    assert_identity_multiset_eq(&g, &m.parse_word("sags"), &sags_identity, "default sags identity");
+    assert_identity_multiset_eq(
+        &g,
+        &enforced.parse_word("sags"),
+        &sags_identity,
+        "enforced sags identity (the optional slot is left empty, so no rescue is needed)",
+    );
+    assert_identity_multiset_eq(&g, &m.parse_word("sagstv"), &sagstv_identity, "default sagstv identity");
+    assert_identity_multiset_eq(
+        &g,
+        &enforced.parse_word("sagstv"),
+        &[],
+        "enforced sagstv identity (same inner rescue dependency as sagds)",
+    );
+
+    // Memoized and unmemoized runs must agree on full identity, not just `signature()`, which a memo bug swapping two same-signature analyses could still pass.
+    let unmemoized_default = Morpher::new(&g, usize::MAX).with_memo(false);
+    for (word, expected) in [
+        ("sagds", &sagds_identity),
+        ("sagst", &sagst_identity),
+        ("sags", &sags_identity),
+        ("sagstv", &sagstv_identity),
+    ] {
+        assert_identity_multiset_eq(
+            &g,
+            &unmemoized_default.parse_word(word),
+            expected,
+            &format!("unmemoized {word} identity must match the memoized default"),
+        );
+    }
+
+    // Rule-level partial markers protect rescue paths; lexical-entry partial markers do not, proven below by identity multiset rather than emptiness alone.
     let nonpartial_rules = mrules.replace(" partial=\"true\"", "");
     let mut nonpartial = build_grammar(
         "",
@@ -608,6 +708,23 @@ fn partial_rule() {
     let memoized = default_memoized.parse_word("sagds");
     assert_empty(&unmemoized);
     assert_eq!(unmemoized.signature(), memoized.signature());
+    assert_identity_multiset_eq(
+        &nonpartial,
+        &unmemoized,
+        &[],
+        "entry-partial sagds must stay empty (unmemoized)",
+    );
+    assert_identity_multiset_eq(
+        &nonpartial,
+        &memoized,
+        &[],
+        "entry-partial sagds must stay empty (memoized)",
+    );
+    assert_ne!(
+        identity_multiset(&nonpartial, &unmemoized),
+        identity_multiset(&g, &m.parse_word("sagds")),
+        "a lexical-entry partial marker must not stand in for the rule-partial rescue that lets the rule-partial grammar's sagds succeed"
+    );
 
     let (with_stats, _, prune_rows) = default_memoized
         .parse_word_with_stats_and_prunes("sagds", &ParseOptions::default());
