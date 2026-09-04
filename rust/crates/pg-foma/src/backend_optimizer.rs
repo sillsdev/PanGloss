@@ -747,6 +747,11 @@ pub struct ConfirmationEvidence {
     pub certification: Certification,
     pub score: Option<Score>,
     pub usage: BudgetUsage,
+    /// Orthogonal to `certification`: true when this candidate's completed FST is not eligible for
+    /// production publication, independent of whether it also reproduced the oracle. A caller
+    /// building this from `crate::backend_runtime::RuntimeEvaluation` reads it off that type's own
+    /// `production_health`, never re-derives it.
+    pub production_blocks_publication: bool,
 }
 
 pub trait CandidateEvaluator {
@@ -827,8 +832,10 @@ pub fn optimize_with_evaluator(
         // See docs/research/pg-foma-recipe-optimizer-design-notes.md for why downgrading quality here breaks report-writing entirely.
         search.termination = Termination::BudgetExhausted;
     }
+    // A production-blocked candidate gets NO ranking row, so it can neither win nor reach the frontier.
     let ranking: Vec<(String, Certification, Score)> = evaluated
         .iter()
+        .filter(|item| !item.evidence.production_blocks_publication)
         .filter_map(|item| {
             item.evidence.score.map(|score| {
                 (
@@ -1035,6 +1042,7 @@ mod tests {
                         evaluations: 1,
                         ..BudgetUsage::default()
                     },
+                    production_blocks_publication: false,
                 }
             }
         }
@@ -1098,6 +1106,7 @@ mod tests {
                         elapsed: 60,
                         ..BudgetUsage::default()
                     },
+                    production_blocks_publication: false,
                 }
             }
         }
@@ -1173,6 +1182,7 @@ mod tests {
                         elapsed: 40,
                         ..BudgetUsage::default()
                     },
+                    production_blocks_publication: false,
                 }
             }
         }
@@ -1708,5 +1718,66 @@ mod tests {
 
         assert_eq!(pareto_frontier(&items), vec!["certified".to_owned()]);
         assert_eq!(select_confirmed(&items), Some("certified".to_owned()));
+    }
+
+    /// A `selectable()` candidate whose production health blocks publication must win nothing and reach no frontier, unlike an identically-scored clean one.
+    #[test]
+    fn a_production_blocked_candidate_cannot_win_or_reach_the_frontier() {
+        struct MixedHealthEvaluator;
+        impl CandidateEvaluator for MixedHealthEvaluator {
+            fn evaluate(&mut self, candidate: &CandidateState, _remaining: Budget) -> ConfirmationEvidence {
+                let score = Score {
+                    states: 10,
+                    arcs: 10,
+                    build: 1,
+                    apply: 1,
+                    proposals: 1,
+                    confirmation: 1,
+                    confirmation_steps: 1,
+                    raw_paths: 0,
+                };
+                ConfirmationEvidence {
+                    certification: Certification::FullHcConfirmed {
+                        words: 1,
+                        corpus_hash: "h".into(),
+                    },
+                    score: Some(score),
+                    usage: BudgetUsage {
+                        evaluations: 1,
+                        ..BudgetUsage::default()
+                    },
+                    // "baseline" is production-blocked; "other" is otherwise identical and clean.
+                    production_blocks_publication: candidate.baseline,
+                }
+            }
+        }
+        let candidates = vec![
+            candidate("baseline", "base", "base", 1, Some(1), true),
+            candidate("other", "other", "other", 1, Some(1), false),
+        ];
+        let budget = Budget {
+            candidates: 2,
+            evaluations: 2,
+            ..Budget::default()
+        };
+        let selected = Exhaustive.search(&candidates, budget, 1);
+        let outcome = optimize_with_evaluator(
+            &selected.selected,
+            budget,
+            1,
+            &Exhaustive,
+            &mut MixedHealthEvaluator,
+        );
+        assert_eq!(outcome.evaluated.len(), 2, "both candidates were evaluated");
+        assert_eq!(
+            outcome.winner,
+            Some("other".to_owned()),
+            "the production-blocked baseline must never win despite being scored and certified"
+        );
+        assert_eq!(
+            outcome.frontier,
+            vec!["other".to_owned()],
+            "the production-blocked baseline must not reach the frontier either"
+        );
     }
 }

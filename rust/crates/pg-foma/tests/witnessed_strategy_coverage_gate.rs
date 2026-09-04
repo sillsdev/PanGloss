@@ -72,7 +72,7 @@ fn forcing_a_backend_to_fail_removes_exactly_its_witnesses() {
                 if strategy == sabotaged_backend {
                     Err("forced failure".to_string())
                 } else {
-                    pg_foma::witnessed_coverage::compile_with_backend(g, strategy)
+                    pg_foma::witnessed_coverage::compile_with_backend_for_measurement(g, strategy)
                 }
             })
         },

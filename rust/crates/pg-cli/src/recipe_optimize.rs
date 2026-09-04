@@ -224,12 +224,14 @@ struct Evaluator<'a> {
     progress_error: Option<String>,
 }
 impl Evaluator<'_> {
+    #[allow(clippy::too_many_arguments)]
     fn append_progress(
         &mut self,
         candidate: &CandidateState,
         certification: &pg_foma::backend_optimizer::Certification,
         score: pg_foma::backend_optimizer::Score,
         realized_strategy: &str,
+        production_blocks_publication: bool,
     ) {
         let row = CandidateProgressRow {
             report: CandidateReport {
@@ -237,6 +239,7 @@ impl Evaluator<'_> {
                 backend_id: candidate.signature.clone(),
                 certification: certification.clone(),
                 score: Some(score),
+                production_blocks_publication,
             },
             realized_strategy: realized_strategy.to_owned(),
         };
@@ -268,6 +271,8 @@ impl CandidateEvaluator for Evaluator<'_> {
                 },
                 score: None,
                 usage: BudgetUsage::default(),
+                // No completed FST was built to assess, so "could not look" must not read as publishable.
+                production_blocks_publication: true,
             };
         }
         // No baseline argument: the role travels on the `LoweredCandidate` in `self.plans`, set once at materialization, rather than a caller-maintained parallel slice.
@@ -288,7 +293,15 @@ impl CandidateEvaluator for Evaluator<'_> {
         .remove(0);
         let realized_strategy = e.realized_strategy.label();
         self.realized.insert(c.id.clone(), realized_strategy);
-        self.append_progress(&c, &e.certification, e.score, realized_strategy);
+        // Reads `RuntimeEvaluation`'s own comparison rather than re-deriving it here.
+        let production_blocks_publication = e.production_blocks_publication();
+        self.append_progress(
+            &c,
+            &e.certification,
+            e.score,
+            realized_strategy,
+            production_blocks_publication,
+        );
         ConfirmationEvidence {
             certification: e.certification,
             score: Some(e.score),
@@ -298,6 +311,7 @@ impl CandidateEvaluator for Evaluator<'_> {
                 confirmation: e.score.confirmation,
                 ..Default::default()
             },
+            production_blocks_publication,
         }
     }
 }
@@ -621,6 +635,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             backend_id: e.candidate.signature.clone(),
             certification: e.evidence.certification.clone(),
             score: e.evidence.score,
+            production_blocks_publication: e.evidence.production_blocks_publication,
         })
         .collect::<Vec<_>>();
     let baseline_id = states.iter().find(|s| s.baseline).map(|s| s.id.clone());

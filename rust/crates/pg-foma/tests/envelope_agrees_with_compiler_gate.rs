@@ -7,8 +7,9 @@ use pg_foma::analyzer::{FomaError, FomaProposer};
 use pg_foma::backend_selection::{select_backends, BackendReport};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
+use pg_foma::production_admission::assess_completed_fst;
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
-use pg_foma::witnessed_coverage::compile_with_backend;
+use pg_foma::witnessed_coverage::compile_with_backend_for_measurement;
 use pg_grammar::model::Grammar;
 
 /// How a fixture's envelope verdict lines up with what its compiler actually did.
@@ -21,7 +22,26 @@ enum Agreement {
     TooStrict,
 }
 
-fn observe(name: &str, strategy: EmissionStrategy) -> Option<(String, Agreement)> {
+/// One fixture x strategy observation; `agreement` asks about capability versus the compiler and `production_blocks` asks, independently, about publishing.
+#[derive(Debug)]
+struct Row {
+    label: String,
+    agreement: Agreement,
+    compiled: bool,
+    production_blocks: bool,
+    has_partials: bool,
+}
+
+/// The four differential columns, printed together so closing one cannot hide opening another.
+#[derive(Default)]
+struct DifferentialCounts {
+    envelope_refuses_compiler_succeeds: usize,
+    envelope_admits_compiler_fails: usize,
+    compiler_succeeds_production_rejects: usize,
+    compiler_succeeds_production_admits: usize,
+}
+
+fn observe(name: &str, strategy: EmissionStrategy) -> Option<Row> {
     let fixture = discover().into_iter().find(|f| f.label() == name)?;
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).ok()?;
     if grammar.char_tables.is_empty() {
@@ -32,24 +52,37 @@ fn observe(name: &str, strategy: EmissionStrategy) -> Option<(String, Agreement)
         .report_for(strategy)
         .is_some_and(BackendReport::can_represent);
 
-    // Compiled regardless of the verdict; honouring it would hide the too-strict direction.
+    // The MEASUREMENT entry point, deliberately: it asks production admission nothing, so a readiness policy can never arrive here disguised as a compiler failure.
     let compiled = match panic::catch_unwind(AssertUnwindSafe(|| {
-        compile_with_backend(&grammar, strategy)
+        compile_with_backend_for_measurement(&grammar, strategy)
     })) {
         Ok(Ok(())) => Ok(()),
         Ok(Err(reason)) => Err(reason),
         Err(_) => Err("panicked".to_owned()),
     };
+    let compiled_ok = compiled.is_ok();
+
+    let facts = grammar
+        .partial_morpheme_facts()
+        .unwrap_or_else(|error| panic!("{name}: partial inventory must be valid: {error}"));
+    let admission = assess_completed_fst(&grammar, strategy)
+        .unwrap_or_else(|error| panic!("{name}: production admission must decide: {error}"));
 
     let agreement = match (admitted, compiled) {
         (true, Ok(())) | (false, Err(_)) => Agreement::Agree,
         (true, Err(reason)) => Agreement::TooLax(reason),
         (false, Ok(())) => Agreement::TooStrict,
     };
-    Some((format!("{name} x {}", strategy.label()), agreement))
+    Some(Row {
+        label: format!("{name} x {}", strategy.label()),
+        agreement,
+        compiled: compiled_ok,
+        production_blocks: admission.blocks_publication(),
+        has_partials: facts.has_partials(),
+    })
 }
 
-fn sweep() -> Vec<(String, Agreement)> {
+fn sweep() -> Vec<Row> {
     let mut rows = Vec::new();
     for fixture in discover() {
         for &strategy in ALL_STRATEGIES {
@@ -59,6 +92,25 @@ fn sweep() -> Vec<(String, Agreement)> {
         }
     }
     rows
+}
+
+fn counts(rows: &[Row]) -> DifferentialCounts {
+    let mut counts = DifferentialCounts::default();
+    for row in rows {
+        match row.agreement {
+            Agreement::TooStrict => counts.envelope_refuses_compiler_succeeds += 1,
+            Agreement::TooLax(_) => counts.envelope_admits_compiler_fails += 1,
+            Agreement::Agree => {}
+        }
+        if row.compiled {
+            if row.production_blocks {
+                counts.compiler_succeeds_production_rejects += 1;
+            } else {
+                counts.compiler_succeeds_production_admits += 1;
+            }
+        }
+    }
+    counts
 }
 
 /// Only the surface probe gates on the envelope, so only there may a refusal never cost a compile.
@@ -73,11 +125,11 @@ fn the_envelope_never_refuses_a_surface_probe_that_compiles() {
 
     let too_strict: Vec<&str> = rows
         .iter()
-        .filter(|(label, a)| {
-            *a == Agreement::TooStrict
-                && label.ends_with(EmissionStrategy::TunedSurfaceProbed.label())
+        .filter(|row| {
+            row.agreement == Agreement::TooStrict
+                && row.label.ends_with(EmissionStrategy::TunedSurfaceProbed.label())
         })
-        .map(|(label, _)| label.as_str())
+        .map(|row| row.label.as_str())
         .collect();
     assert!(
         too_strict.is_empty(),
@@ -190,7 +242,7 @@ fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
 
 /// Compiles `grammar` with `strategy`; asserts the attempt never panics, returns whether it compiled.
 fn compiled_without_panicking(grammar: &Grammar, strategy: EmissionStrategy, label: &str) -> bool {
-    match panic::catch_unwind(AssertUnwindSafe(|| compile_with_backend(grammar, strategy))) {
+    match panic::catch_unwind(AssertUnwindSafe(|| compile_with_backend_for_measurement(grammar, strategy))) {
         Ok(result) => result.is_ok(),
         Err(_) => panic!("{label}: {strategy:?} panicked instead of returning a typed refusal"),
     }
@@ -288,21 +340,40 @@ fn report_envelope_compiler_divergence() {
     let rows = sweep();
     let lax: Vec<(&String, &String)> = rows
         .iter()
-        .filter_map(|(label, a)| match a {
-            Agreement::TooLax(reason) => Some((label, reason)),
+        .filter_map(|row| match &row.agreement {
+            Agreement::TooLax(reason) => Some((&row.label, reason)),
             _ => None,
         })
         .collect();
 
     let strict: Vec<&String> = rows
         .iter()
-        .filter(|(_, a)| *a == Agreement::TooStrict)
-        .map(|(label, _)| label)
+        .filter(|row| row.agreement == Agreement::TooStrict)
+        .map(|row| &row.label)
         .collect();
+    let counts = counts(&rows);
     eprintln!("envelope-vs-compiler: {} observation(s)", rows.len());
     eprintln!(
         "agree: {}",
-        rows.iter().filter(|(_, a)| *a == Agreement::Agree).count()
+        rows.iter()
+            .filter(|row| row.agreement == Agreement::Agree)
+            .count()
+    );
+    eprintln!(
+        "envelope_refuses_compiler_succeeds: {}",
+        counts.envelope_refuses_compiler_succeeds
+    );
+    eprintln!(
+        "envelope_admits_compiler_fails: {}",
+        counts.envelope_admits_compiler_fails
+    );
+    eprintln!(
+        "compiler_succeeds_production_rejects: {}",
+        counts.compiler_succeeds_production_rejects
+    );
+    eprintln!(
+        "compiler_succeeds_production_admits: {}",
+        counts.compiler_succeeds_production_admits
     );
     eprintln!(
         "envelope refused, build nonetheless succeeded: {}",
@@ -341,5 +412,67 @@ fn report_envelope_compiler_divergence() {
     assert_eq!(
         lax_sorted, expected_lax_sorted,
         "the too-lax inventory moved without this ratchet being updated to name the new set"
+    );
+}
+
+/// The two production columns must partition the compile successes and correspond one-for-one with the grammar's own partial inventory in BOTH directions.
+#[test]
+fn production_admission_partitions_compile_successes_by_partial_inventory() {
+    let rows = sweep();
+    let counts = counts(&rows);
+    let compiled = rows.iter().filter(|row| row.compiled).count();
+    eprintln!(
+        "compile successes: {compiled} (production rejects {}, admits {})",
+        counts.compiler_succeeds_production_rejects, counts.compiler_succeeds_production_admits
+    );
+    assert_eq!(
+        counts.compiler_succeeds_production_rejects + counts.compiler_succeeds_production_admits,
+        compiled,
+        "every compile success must land in exactly one production column"
+    );
+
+    let over_refused: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.production_blocks && !row.has_partials)
+        .map(|row| row.label.as_str())
+        .collect();
+    assert!(
+        over_refused.is_empty(),
+        "production admission refused {} partial-free observation(s), so it is refusing more than \
+         the policy: {over_refused:#?}",
+        over_refused.len()
+    );
+
+    let under_refused: Vec<&str> = rows
+        .iter()
+        .filter(|row| row.has_partials && !row.production_blocks)
+        .map(|row| row.label.as_str())
+        .collect();
+    assert!(
+        under_refused.is_empty(),
+        "production admission ADMITTED {} partial-bearing observation(s), so the policy is not \
+         being applied: {under_refused:#?}",
+        under_refused.len()
+    );
+
+    // Non-vacuity, scope-honest: assert a rejection was really observed only when the claimed scope actually contains a partial-bearing fixture, and say so either way.
+    let partial_bearing = rows.iter().filter(|row| row.has_partials).count();
+    eprintln!("partial-bearing observations in this scope: {partial_bearing}");
+    if partial_bearing == 0 {
+        eprintln!(
+            "NOTE: no discovered fixture declares a partial morpheme, so this run witnesses only \
+             the ADMIT direction; the refuse direction is witnessed by \
+             partial_fst_production_admission_gate's synthetic fixtures"
+        );
+    } else {
+        assert!(
+            counts.compiler_succeeds_production_rejects > 0
+                || rows.iter().all(|row| !(row.has_partials && row.compiled)),
+            "a partial-bearing fixture compiled but produced no production rejection"
+        );
+    }
+    assert!(
+        counts.compiler_succeeds_production_admits > 0,
+        "no observation was production-admitted, so this census cannot see an over-refusal"
     );
 }

@@ -10,11 +10,15 @@ use crate::compose_budget::{ApplyBudget, ComposeBudget, ComposeError};
 use crate::composite::{FomaAnalyzer, ProfiledFomaApplyOutcomeWithCandidates};
 use crate::emit::surface_table;
 use crate::enumerate::{EmissionStrategy, LoweredCandidate};
+use crate::health::{
+    FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
+};
 use crate::lowering_adapter::LoweringAdapter;
 use crate::parity::{
     certified_occurrence, IdentityDivergence, IdentityMismatchDirection, OccurrenceIdentities,
     ParitySide,
 };
+use crate::production_admission::assess_completed_fst;
 use crate::replace::SegAlphabet;
 use crate::tags::Candidate;
 use foma::options::FomaOptions;
@@ -1186,6 +1190,27 @@ pub struct RuntimeEvaluation {
     /// resource breach, an excluded corpus, a per-word apply-budget refusal) -- see that
     /// constructor's own doc for why "nothing compared" must never read as a clean zero.
     pub divergence: IdentityDivergence,
+    /// [`crate::production_admission::assess_completed_fst`]'s verdict on THIS candidate,
+    /// orthogonal to `certification`: `certification` answers accuracy/parity against the oracle,
+    /// this answers publishability of the compiled artifact, and neither stands in for the other
+    /// -- a candidate can be accurate but unpublishable (a partial-bearing grammar), or compile
+    /// cleanly for production while still failing to reproduce the oracle.
+    pub production_health: HealthReport,
+}
+
+impl RuntimeEvaluation {
+    /// Selection needs BOTH answers: an accurate candidate that may not be published is not selectable.
+    pub fn selectable(&self) -> bool {
+        self.certification.selectable() && !self.production_blocks_publication()
+    }
+
+    /// The one place this candidate's `production_health` is turned into a publication verdict, so
+    /// every caller (this type's own `selectable`, and anything threading the fact onward into a
+    /// `ConfirmationEvidence`/`CandidateReport`) reads the SAME comparison rather than each
+    /// re-deriving it against `Severity::NotProductionReady` by hand.
+    pub fn production_blocks_publication(&self) -> bool {
+        crate::production_admission::health_blocks_publication(&self.production_health)
+    }
 }
 
 /// Runs `words` through `analyzer`, scores, budget-checks, and certifies against `expected` — shared by every evaluation strategy so only the network-acquisition step can differ between them. The ordinary (unobserved) measurement; `words` is always `None` in `EvaluatedPlan`.
@@ -1257,6 +1282,19 @@ fn budget_breach(score: &Score, budget: RuntimeBudget) -> Option<(&'static str, 
     })
 }
 
+/// Fail-closed health for a candidate that never reached a completed FST to assess -- "could not look" must never read as "everything is fine".
+fn unassessed_production_health(detail: String) -> HealthReport {
+    HealthReport::new(vec![HealthFinding::new(
+        FindingCode::BuildProcessFailed,
+        Severity::NotProductionReady,
+        Phase::Compile,
+        Metric::UnknownUnboundedWork,
+        MetricValue::Unbounded,
+        ValueProvenance::Observed,
+        detail,
+    )])
+}
+
 #[inline]
 #[allow(clippy::too_many_arguments)]
 fn measure_and_certify_inner<const OBSERVE: bool>(
@@ -1270,6 +1308,13 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     arcs: u64,
     build: u64,
 ) -> EvaluatedPlan {
+    // Computed once and shared by every return below: a pure function of (grammar, strategy), not of `words`.
+    let production_health = match assess_completed_fst(grammar, realized_strategy) {
+        Ok(admission) => admission.health().clone(),
+        Err(e) => unassessed_production_health(format!(
+            "production admission assessment failed: {e}"
+        )),
+    };
     let mut actual = Vec::new();
     let mut observed_proposals = OBSERVE.then(|| Vec::with_capacity(words.len()));
     let mut apply: u64 = 0;
@@ -1317,6 +1362,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
                         },
                         realized_strategy,
                         divergence: IdentityDivergence::not_compared(expected.len() as u64),
+                        production_health: production_health.clone(),
                     },
                     words: None,
                 };
@@ -1403,6 +1449,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
             score,
             realized_strategy,
             divergence,
+            production_health,
         },
         words,
     }
@@ -1414,6 +1461,7 @@ fn failed_evaluation(
     certification: Certification,
     build: u64,
     divergence: IdentityDivergence,
+    production_health: HealthReport,
 ) -> RuntimeEvaluation {
     RuntimeEvaluation {
         realized_strategy,
@@ -1429,19 +1477,27 @@ fn failed_evaluation(
             raw_paths: 0,
         },
         divergence,
+        production_health,
     }
 }
 
-/// A failure that happened before any occurrence could be compared, recorded as `not_compared` so this run cannot report the clean zero of one that actually compared.
+/// A failure that happened before any occurrence could be compared, recorded as `not_compared` so this run cannot report the clean zero of one that actually compared. No completed FST was ever produced, so `production_health` is always the fail-closed verdict, never the grammar's own admission.
 fn failed_evaluated_over(
     realized_strategy: EmissionStrategy,
     certification: Certification,
     build: u64,
     occurrences: u64,
+    production_health: HealthReport,
 ) -> EvaluatedPlan {
     let divergence = IdentityDivergence::not_compared(occurrences);
     EvaluatedPlan {
-        evaluation: failed_evaluation(realized_strategy, certification, build, divergence),
+        evaluation: failed_evaluation(
+            realized_strategy,
+            certification,
+            build,
+            divergence,
+            production_health,
+        ),
         words: None,
     }
 }
@@ -1452,11 +1508,13 @@ fn build_failed_evaluated(
     build: u64,
     occurrences: u64,
 ) -> EvaluatedPlan {
+    let production_health = unassessed_production_health(reason.clone());
     failed_evaluated_over(
         realized_strategy,
         Certification::BuildFailed { reason },
         build,
         occurrences,
+        production_health,
     )
 }
 
@@ -1783,6 +1841,9 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                     },
                     0,
                     corpus_evidence.requested,
+                    unassessed_production_health(format!(
+                        "corpus {stage}: no completed FST was built to assess"
+                    )),
                 )
             })
             .collect::<Vec<_>>();
@@ -1804,11 +1865,15 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
         .map(|candidate| {
             if candidate.adapter.interprets_plan() {
                 if let Some(reason) = unbuildable_marker_reason(candidate, grammar) {
+                    let production_health = unassessed_production_health(format!(
+                        "unsupported: {reason}"
+                    ));
                     return failed_evaluated_over(
                         EmissionStrategy::PlanComposed,
                         Certification::Unsupported { reason },
                         0,
                         expected.len() as u64,
+                        production_health,
                     );
                 }
             }
@@ -1843,11 +1908,15 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                         certification,
                         build,
                     } => {
+                        let production_health = unassessed_production_health(format!(
+                            "plan realization failed to build: {certification:?}"
+                        ));
                         return failed_evaluated_over(
                             EmissionStrategy::PlanComposed,
                             certification,
                             build,
                             expected.len() as u64,
+                            production_health,
                         )
                     }
                 };
@@ -2480,5 +2549,54 @@ mod tests {
         let gap = word_proposal_containment(&evidence)
             .expect_err("a dropped identity must still fail containment");
         assert_eq!(gap.morpheme_ids, vec![1]);
+    }
+
+    /// `selectable()` answers accuracy AND publishability; only their conjunction can make it true.
+    #[test]
+    fn selectable_requires_both_accurate_certification_and_clean_production_health() {
+        let confirmed = Certification::FullHcConfirmed {
+            words: 1,
+            corpus_hash: "h".into(),
+        };
+        let score = Score {
+            states: 1,
+            arcs: 1,
+            build: 1,
+            apply: 1,
+            proposals: 1,
+            confirmation: 1,
+            confirmation_steps: 1,
+            raw_paths: 0,
+        };
+        let divergence = IdentityDivergence::not_compared(0);
+        let clean_health = HealthReport::new(vec![]);
+        let blocked_health = unassessed_production_health("test block".into());
+
+        let evaluation = |certification: Certification, production_health: HealthReport| {
+            RuntimeEvaluation {
+                certification,
+                score,
+                realized_strategy: EmissionStrategy::PlanComposed,
+                divergence,
+                production_health,
+            }
+        };
+
+        assert!(
+            evaluation(confirmed.clone(), clean_health.clone()).selectable(),
+            "accurate certification + clean production health must select"
+        );
+        assert!(
+            !evaluation(Certification::EstimateOnly, clean_health.clone()).selectable(),
+            "an unselectable certification alone must refuse, even with clean production health"
+        );
+        assert!(
+            !evaluation(confirmed.clone(), blocked_health.clone()).selectable(),
+            "blocked production health alone must refuse, even with an accurate certification"
+        );
+        assert!(
+            !evaluation(Certification::EstimateOnly, blocked_health).selectable(),
+            "both halves failing must refuse"
+        );
     }
 }

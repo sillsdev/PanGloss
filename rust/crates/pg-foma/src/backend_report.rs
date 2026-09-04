@@ -5,9 +5,10 @@ use crate::backend_optimizer::{
 };
 
 /// Bumped 3 -> 4 when the always-zero `build_failures` and `unvisited` pruning buckets were
-/// removed from the artifact. Reports from the prior schema are not comparable and must not
-/// silently deserialize as if they were current.
-pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 4;
+/// removed from the artifact; bumped 4 -> 5 when `CandidateReport::production_blocks_publication`
+/// was added so `validate` could recompute the same frontier/winner the optimizer selected under.
+/// Reports from a prior schema are not comparable and must not silently deserialize as if current.
+pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 5;
 pub const DETERMINISTIC_SCORE_SCHEMA_VERSION: u32 = 2;
 use crate::backend_space::FeasibleCount;
 use crate::backend_space::PilotSummary;
@@ -24,6 +25,14 @@ pub struct CandidateReport {
     pub backend_id: String,
     pub certification: Certification,
     pub score: Option<Score>,
+    /// Orthogonal to `certification`: true when this candidate's completed FST is not eligible for
+    /// production publication (see `crate::backend_runtime::RuntimeEvaluation::production_health`),
+    /// independent of whether it also reproduced the oracle. `#[serde(default)]` so a report
+    /// written before this field existed still parses -- as `false`, i.e. not known to be blocked,
+    /// which is the only backward-compatible reading for evidence that predates this question ever
+    /// being asked.
+    #[serde(default)]
+    pub production_blocks_publication: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -201,18 +210,25 @@ impl BackendOptimizationReport {
             if !candidate.certification.selectable() || candidate.score.is_none() {
                 return Err("winner is not fully confirmed and scored");
             }
+            if candidate.production_blocks_publication {
+                return Err("winner's production health blocks publication");
+            }
         }
         if self.frontier.iter().any(|id| {
-            !self
-                .candidates
-                .iter()
-                .any(|c| &c.id == id && c.certification.selectable() && c.score.is_some())
+            !self.candidates.iter().any(|c| {
+                &c.id == id
+                    && c.certification.selectable()
+                    && c.score.is_some()
+                    && !c.production_blocks_publication
+            })
         }) {
             return Err("frontier contains a candidate that is not fully confirmed and scored");
         }
+        // Same filter `backend_optimizer::optimize_with_evaluator` applies before ranking, so this recomputation can never diverge from the live selection.
         let ranking: Vec<_> = self
             .candidates
             .iter()
+            .filter(|candidate| !candidate.production_blocks_publication)
             .filter_map(|candidate| {
                 candidate
                     .score
@@ -362,6 +378,78 @@ mod tests {
         assert_eq!(r.validate(), Err("selectable candidate is missing a score"));
     }
 
+    /// A `selectable()` (confirmed, scored) candidate blocked from publication cannot be named `winner`.
+    #[test]
+    fn a_production_blocked_candidate_cannot_be_named_winner() {
+        let mut r = sample();
+        let mut blocked = confirmed_candidate("a", 1);
+        blocked.production_blocks_publication = true;
+        r.candidates = vec![blocked];
+        r.frontier = vec![];
+        r.winner = Some("a".into());
+
+        assert_eq!(
+            r.validate(),
+            Err("winner's production health blocks publication")
+        );
+    }
+
+    /// A cheaper-but-blocked candidate must not steal the frontier/winner from a pricier clean one.
+    #[test]
+    fn a_production_blocked_candidate_is_excluded_from_frontier_and_winner_selection() {
+        let mut r = sample();
+        let mut blocked_but_cheaper = confirmed_candidate("a", 1);
+        blocked_but_cheaper.production_blocks_publication = true;
+        let clean_but_pricier = confirmed_candidate("b", 2);
+        r.candidates = vec![blocked_but_cheaper, clean_but_pricier];
+        r.frontier = vec!["b".into()];
+        r.winner = Some("b".into());
+
+        assert_eq!(r.validate(), Ok(()));
+    }
+
+    /// The gate blocks only the specific candidate whose health names it, never every candidate.
+    #[test]
+    fn a_clean_production_health_candidate_remains_selectable() {
+        let mut r = sample();
+        r.candidates = vec![confirmed_candidate("a", 1)];
+        assert!(!r.candidates[0].production_blocks_publication);
+        r.frontier = vec!["a".into()];
+        r.winner = Some("a".into());
+
+        assert_eq!(r.validate(), Ok(()));
+    }
+
+    /// The new field round-trips through JSON, and a pre-existing report without it defaults to `false`.
+    #[test]
+    fn production_blocks_publication_round_trips_and_legacy_reports_default_to_false() {
+        let mut r = sample();
+        let mut blocked = confirmed_candidate("a", 1);
+        blocked.production_blocks_publication = true;
+        r.candidates = vec![blocked];
+        r.frontier = vec![];
+        r.winner = None;
+        assert_eq!(r.validate(), Ok(()));
+
+        let json = r.canonical_json();
+        let restored: BackendOptimizationReport =
+            serde_json::from_str(&json).expect("round trip must parse");
+        assert!(restored.candidates[0].production_blocks_publication);
+        assert_eq!(restored.validate(), Ok(()));
+
+        // Simulate a report written before this field existed: strip it out of the JSON entirely.
+        let mut legacy: serde_json::Value = serde_json::from_str(&json).unwrap();
+        legacy["candidates"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("production_blocks_publication");
+        let legacy_report: BackendOptimizationReport = serde_json::from_value(legacy).unwrap();
+        assert!(
+            !legacy_report.candidates[0].production_blocks_publication,
+            "a field-less legacy candidate must default to not-known-blocked"
+        );
+    }
+
     #[test]
     fn validation_recomputes_the_serialized_frontier() {
         let mut r = sample();
@@ -475,6 +563,7 @@ mod tests {
             backend_id: format!("backend-{id}"),
             certification: Certification::EstimateOnly,
             score: None,
+            production_blocks_publication: false,
         }
     }
 
@@ -496,6 +585,7 @@ mod tests {
                 confirmation_steps: work,
                 raw_paths: work,
             }),
+            production_blocks_publication: false,
         }
     }
 

@@ -98,6 +98,12 @@ pub type GrammarObservation = coverage_seam::Observation<BackendOutcome>;
 
 /// Compiles `g` with `strategy`'s REAL entry point — the only source of a witness in this module.
 ///
+/// This is a MEASUREMENT, and the name says so because the distinction is load-bearing: it returns
+/// `Ok(())`, never a network, a payload or an artifact, and it asks
+/// [`crate::production_admission::assess_completed_fst`] nothing. A grammar this function compiles
+/// may still be refused publication; keeping the two apart is what stops a readiness policy from
+/// masquerading as a compiler that could not build the grammar.
+///
 /// Each arm is the same entry point `crate::backend_runtime`'s own per-adapter realization uses, so
 /// a witness collected here names a compiler the runtime can actually run:
 /// `crate::analyzer::FomaProposer::new` for the surface probe,
@@ -106,7 +112,7 @@ pub type GrammarObservation = coverage_seam::Observation<BackendOutcome>;
 /// `crate::build::finish_controllable_net` for the plan composer. Both whole-grammar backends
 /// derive their own topology and take no plan, exactly as `crate::enumerate::EmissionStrategy`'s
 /// own doc describes.
-pub fn compile_with_backend(g: &Grammar, strategy: EmissionStrategy) -> Result<(), String> {
+pub fn compile_with_backend_for_measurement(g: &Grammar, strategy: EmissionStrategy) -> Result<(), String> {
     match LoweringAdapter::for_strategy(strategy) {
         LoweringAdapter::TunedSurfaceEmit => FomaProposer::new(g)
             .map(|_| ())
@@ -161,11 +167,11 @@ fn compile_plan_composed(g: &Grammar) -> Result<(), String> {
 /// compiled — it cannot legally run this grammar, so a compile there would measure nothing the
 /// selector permits. Every other backend is compiled for real, and only an `Ok` becomes a witness.
 pub fn observe_grammar(label: &str, g: &Grammar) -> GrammarObservation {
-    observe_grammar_with(label, g, &compile_with_backend)
+    observe_grammar_with(label, g, &compile_with_backend_for_measurement)
 }
 
 /// `observe_grammar` with the compile step injected, so a test can force a backend to fail and
-/// check that its witnesses disappear. The production caller passes `compile_with_backend`; nothing
+/// check that its witnesses disappear. The production caller passes `compile_with_backend_for_measurement`; nothing
 /// else in this crate substitutes anything.
 pub fn observe_grammar_with(
     label: &str,

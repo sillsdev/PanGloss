@@ -62,6 +62,7 @@ impl CandidateEvaluator for SyntheticEvaluator {
                 elapsed: candidate.lower_bound.max(1),
                 ..BudgetUsage::default()
             },
+            production_blocks_publication: false,
         }
     }
 }

@@ -4,6 +4,7 @@ use pg_conformance_fixtures::corpus;
 use pg_foma::backend_selection::{select_backends_for_grammar, BackendSelection, BackendStatus};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::health::{FindingCode, Severity};
+use pg_foma::production_admission::assess_completed_fst;
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
 use pg_grammar::model::Grammar;
 
@@ -187,6 +188,77 @@ fn aweti_backend_reports_are_complete() {
 fn mbugwe_backend_reports_are_complete() {
     let selection = characterize("mbugwe", &load("mbugwe"));
     assert_only_tuned_surface_accepts("mbugwe", &selection);
+}
+
+/// One grammar's FST production status derived from its OWN partial inventory, so no grammar name appears in the decision.
+fn assert_production_status_follows_partial_inventory(name: &str) {
+    let grammar = load(name);
+    let facts = grammar
+        .partial_morpheme_facts()
+        .unwrap_or_else(|error| panic!("{name}: partial inventory must be valid: {error}"));
+    let expected_publishable = !facts.has_partials();
+    for &strategy in ALL_STRATEGIES {
+        let admission = assess_completed_fst(&grammar, strategy)
+            .unwrap_or_else(|error| panic!("{name}: admission must decide: {error}"));
+        eprintln!(
+            "{name}: partial_entries={} partial_rules={} backend={:?} publishable={} \
+             admission={:?} by_class=[{}]",
+            facts.partial_entry_count(),
+            facts.partial_rule_count(),
+            strategy,
+            !admission.blocks_publication(),
+            admission.health().admission(),
+            admission.health().admission_by_class().render(),
+        );
+        assert_eq!(
+            !admission.blocks_publication(),
+            expected_publishable,
+            "{name} x {strategy:?}: production status must follow the grammar's own partial \
+             inventory ({} entry/entries, {} rule(s))",
+            facts.partial_entry_count(),
+            facts.partial_rule_count(),
+        );
+        // A readiness refusal must never masquerade as a representability denial.
+        assert_eq!(
+            admission.health().admission_by_class().representability,
+            Severity::WithinLimits,
+            "{name} x {strategy:?}: partiality is a readiness fact, never representability"
+        );
+    }
+    corpus::record_cases(&format!("{name}_production_admission"), 1);
+}
+
+// One test per grammar, matching the per-grammar reports above: a single test loading all five
+// exceeds nextest's 10-minute per-test ceiling, and one slow grammar would take the others with it.
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn sena_production_status_follows_its_partial_inventory() {
+    assert_production_status_follows_partial_inventory("sena");
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn indonesian_production_status_follows_its_partial_inventory() {
+    assert_production_status_follows_partial_inventory("indonesian");
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn amharic_production_status_follows_its_partial_inventory() {
+    assert_production_status_follows_partial_inventory("amharic");
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn aweti_production_status_follows_its_partial_inventory() {
+    assert_production_status_follows_partial_inventory("aweti");
+}
+
+#[test]
+#[ignore = "needs local gitignored corpus data; run with --include-ignored"]
+fn mbugwe_production_status_follows_its_partial_inventory() {
+    assert_production_status_follows_partial_inventory("mbugwe");
 }
 
 /// All five reference grammars keep an accepted backend; which one, and why, is pinned above.
