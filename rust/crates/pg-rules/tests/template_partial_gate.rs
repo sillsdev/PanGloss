@@ -296,12 +296,13 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
 
 #[test]
 fn gate4_template_rule_is_exempt_from_the_post_template_gates() {
-    // Same state as gate 3's case (A), but the rule is also tagged `is_template_rule`.
+    // Same state as gate 3's case (A), but invoke the rule through an actual template slot.
     // See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
     let mut g = load_alpha_grammar();
     let r = push_suffix_rule(&mut g, 200, "p", true); // a PARTIAL rule...
     mark_template_rule(&mut g, r); // ...that is ALSO a template-slot member.
-    let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![r], vec![]);
+    let tid = push_template(&mut g, false, r);
+    let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![], vec![tid]);
     let cache = RuleCache::build(&g);
 
     let mut input = word(&g, "a", s);

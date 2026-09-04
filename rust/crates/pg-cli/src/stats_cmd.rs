@@ -1956,7 +1956,7 @@ mod tests {
     }
 
     #[test]
-    fn batch_stats_produces_nonempty_object_report_and_tsv_stays_byte_identical() {
+    fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() {
         let (grammar_xml, word) = primary_fixture();
         let words_text = format!("{word}\n");
 
@@ -1976,9 +1976,24 @@ mod tests {
         crate::run_batch(&args_stats).expect("stats batch run");
         let tsv_stats = fs::read_to_string(&out_stats).expect("read stats tsv");
 
+        let stable_fields = |tsv: &str| {
+            tsv.lines()
+                .map(|line| {
+                    let columns: Vec<_> = line.split('\t').collect();
+                    assert_eq!(columns.len(), 5, "batch TSV row must keep its five columns");
+                    [
+                        columns[0].to_owned(),
+                        columns[1].to_owned(),
+                        columns[3].to_owned(),
+                        columns[4].to_owned(),
+                    ]
+                })
+                .collect::<Vec<_>>()
+        };
         assert_eq!(
-            tsv_plain, tsv_stats,
-            "batch's TSV output must be byte-identical with or without --stats"
+            stable_fields(&tsv_plain),
+            stable_fields(&tsv_stats),
+            "batch's stable TSV fields must be identical with or without --stats; elapsed milliseconds are measured independently"
         );
 
         let conn = rusqlite::Connection::open(&cache_path).unwrap();
