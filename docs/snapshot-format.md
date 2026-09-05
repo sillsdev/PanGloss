@@ -475,14 +475,25 @@ treatment of the two as mutually exclusive in practice).
 
 ## 7. `conversionProvenance`
 
-**Status:** `pg-fwdata` populates `sourceInventoryStatus`, `sourceCensus`, and `importIssues` on
-every `.fwdata`/`.fwbackup` import; `graphToSnapshot`'s per-object inventory is still schema only
-(always empty). Absent from a document entirely (every snapshot written before this schema
-existed), it deserializes as `schemaVersion: 0` with `sourceInventoryStatus: "unknown"` —
-`ConversionProvenance`'s `Default`, and never to be read as "cleanly imported". Excluded from
-`Snapshot::grammar_hash`'s digest — that digest's semantic fields are exactly
-`format`/`version`/`project`/`featureSystems`/`phonology`/`morphology`/`lexicon` — so an edit here
-alone never invalidates a grammar-hash-keyed cache.
+**Status:** `pg-fwdata` populates `sourceInventoryStatus`, `sourceCensus`, `importIssues`, and
+`graphToSnapshot` on every `.fwdata`/`.fwbackup` import. Absent from a document entirely (every
+snapshot written before this schema existed), it deserializes as `schemaVersion: 0` with
+`sourceInventoryStatus: "unknown"` — `ConversionProvenance`'s `Default`, and never to be read as
+"cleanly imported". Excluded from `Snapshot::grammar_hash`'s digest — that digest's semantic
+fields are exactly `format`/`version`/`project`/`featureSystems`/`phonology`/`morphology`/`lexicon`
+— so an edit here alone never invalidates a grammar-hash-keyed cache.
+
+`graphToSnapshot`'s six sets form a pipeline, each a subset of the one before it:
+`represented ⊆ selected ⊆ considered ⊆ authored ∪ synthesized`, and separately
+`rejected ⊆ selected` with `represented ∩ rejected = ∅` (a selected item is always accounted for
+by ending up in exactly one of `represented` or `rejected`, never both). `authored` is seeded once
+from every tracked `<rt>` header the parser kept; an owner extractor adds `considered` when it
+looks at a record, `selected` when it decides to use it, `represented` once the resulting snapshot
+object is pushed, `rejected` (alongside an `importIssues` entry) when a selected record cannot be
+represented, and `synthesized` for a value invented with no source record (e.g. a defaulted
+`lexemeMorphType` when an entry has no usable allomorph). `authored` minus `considered` names
+classes this crate's recorder does not yet reach; a non-empty difference is pinned as a named
+ratchet test rather than left silent.
 
 | Field | Type | Notes |
 |---|---|---|

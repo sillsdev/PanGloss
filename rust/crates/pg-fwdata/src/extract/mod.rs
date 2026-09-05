@@ -1,6 +1,7 @@
 //! Object-graph → `pg_snapshot::Snapshot` extraction, split by snapshot section (`project`, `features`, `phonology`, `morphology`, `lexicon`), sharing one `Ctx`; most guid fields pass through unresolved (validated later), and this crate only dereferences a guid where the snapshot embeds the target's own data inline, warning and skipping rather than panicking when the target is missing.
 
 mod features;
+mod inventory;
 mod lexicon;
 mod morphology;
 mod phonology;
@@ -8,15 +9,19 @@ mod project;
 
 pub(crate) mod codes;
 
+pub(crate) use inventory::tracked_kind;
+
 use pg_snapshot::{
-    ConversionProvenance, Snapshot, SourceInventoryStatus, Warning,
-    CONVERSION_PROVENANCE_SCHEMA_VERSION,
+    ConversionProvenance, InventoryKey, IssueClass, Snapshot, SourceInventoryStatus, SourceRef,
+    Warning, CONVERSION_PROVENANCE_SCHEMA_VERSION,
 };
 
 use crate::{
     xml::{RawGraph, Record},
     ImportError,
 };
+
+use inventory::SelectionRecorder;
 
 /// Shared extraction context: the raw object graph, accumulating warnings, and writing-system priority lists that only become known once the `project` section has been read.
 pub struct Ctx<'a> {
@@ -27,15 +32,19 @@ pub struct Ctx<'a> {
     pub analysis_ws: Vec<String>,
     /// Vernacular writing systems, default first — `project.vernacularWritingSystems`.
     pub vernacular_ws: Vec<String>,
+    pub(crate) recorder: SelectionRecorder,
 }
 
 impl<'a> Ctx<'a> {
     fn new(graph: &'a RawGraph) -> Self {
+        let mut recorder = SelectionRecorder::default();
+        recorder.seed_authored_from_graph(graph);
         Ctx {
             graph,
             warnings: Vec::new(),
             analysis_ws: Vec::new(),
             vernacular_ws: Vec::new(),
+            recorder,
         }
     }
 
@@ -46,6 +55,55 @@ impl<'a> Ctx<'a> {
 
     pub fn get(&self, guid: &str) -> Option<&'a Record> {
         self.graph.get(guid)
+    }
+
+    /// Records an attachment/expansion/setting `key` as sourced (object identities are seeded once in `Ctx::new` instead).
+    pub(crate) fn authored(&mut self, key: InventoryKey) {
+        self.recorder.authored(key);
+    }
+
+    pub(crate) fn considered(&mut self, key: InventoryKey) {
+        self.recorder.considered(key);
+    }
+
+    pub(crate) fn selected(&mut self, key: InventoryKey) {
+        self.recorder.selected(key);
+    }
+
+    pub(crate) fn represented(&mut self, key: InventoryKey) {
+        self.recorder.represented(key);
+    }
+
+    pub(crate) fn synthesized(&mut self, key: InventoryKey) {
+        self.recorder.synthesized(key);
+    }
+
+    pub(crate) fn is_represented(&self, key: &InventoryKey) -> bool {
+        self.recorder.is_represented(key)
+    }
+
+    /// Records `key` rejected and emits the SAME warning a caller would otherwise have emitted alone, so converting a warn-only site to also reject never changes warning prose or counts.
+    pub(crate) fn reject(
+        &mut self,
+        key: InventoryKey,
+        code: &'static str,
+        class: IssueClass,
+        fatal: bool,
+        source: Option<SourceRef>,
+        msg: impl Into<String>,
+    ) {
+        let msg = msg.into();
+        self.warn(code, msg.clone());
+        self.recorder.rejected(
+            key,
+            pg_snapshot::ConversionIssue {
+                code: code.to_string(),
+                class,
+                source,
+                fatal,
+                message: msg,
+            },
+        );
     }
 
     /// Resolve `guid` expecting a specific class; warns and returns `None` if it is dangling or resolves to a surprising class.
@@ -108,8 +166,11 @@ pub fn extract(
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
 
+    let (graph_to_snapshot, recorder_issues) = std::mem::take(&mut ctx.recorder).finish();
     let mut snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
-    let source_inventory_status = if graph.issues.iter().any(|issue| issue.fatal) {
+    let mut import_issues = graph.issues.clone();
+    import_issues.extend(recorder_issues);
+    let source_inventory_status = if import_issues.iter().any(|issue| issue.fatal) {
         SourceInventoryStatus::ImportedWithFatalIssues
     } else {
         SourceInventoryStatus::ImportedComplete
@@ -118,8 +179,8 @@ pub fn extract(
         schema_version: CONVERSION_PROVENANCE_SCHEMA_VERSION,
         source_inventory_status,
         source_census: graph.census(),
-        graph_to_snapshot: Default::default(),
-        import_issues: graph.issues.clone(),
+        graph_to_snapshot,
+        import_issues,
     };
     Ok((snapshot, ctx.warnings))
 }
