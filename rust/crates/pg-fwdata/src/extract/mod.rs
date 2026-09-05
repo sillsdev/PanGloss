@@ -21,6 +21,7 @@ use crate::{
 /// Shared extraction context: the raw object graph, accumulating warnings, and writing-system priority lists that only become known once the `project` section has been read.
 pub struct Ctx<'a> {
     pub graph: &'a RawGraph,
+    /// Semantic, never-fatal tolerances the extractor noticed; see `RawGraph.issues` for structural, fatal-capable graph problems.
     pub warnings: Vec<Warning>,
     /// Analysis writing systems, default first — `project.analysisWritingSystems`.
     pub analysis_ws: Vec<String>,

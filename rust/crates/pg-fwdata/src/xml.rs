@@ -6,6 +6,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use quick_xml::events::{BytesStart, Event};
+use quick_xml::name::QName;
 use quick_xml::reader::Reader;
 use sha2::{Digest, Sha256};
 
@@ -76,7 +77,7 @@ impl RawGraph {
 }
 
 /// The LCM classes this crate's extractor reads; every other `<rt class="...">` is skipped unparsed.
-const ALLOWED_CLASSES: &[&str] = &[
+pub(crate) const ALLOWED_CLASSES: &[&str] = &[
     // project / roots
     "LangProject",
     "LexDb",
@@ -145,6 +146,15 @@ fn class_allowed(class: &str) -> bool {
     ALLOWED_CLASSES.contains(&class)
 }
 
+/// Skip past a recognized `<rt>` record's body, discarding it without building a `Node`.
+fn skip_rt_body<R: BufRead>(reader: &mut Reader<R>, name: QName) -> Result<(), ImportError> {
+    let mut skip_buf = Vec::new();
+    reader
+        .read_to_end_into(name, &mut skip_buf)
+        .map_err(|e| ImportError::Xml(e.to_string()))?;
+    Ok(())
+}
+
 fn get_attr(e: &BytesStart, name: &str) -> Result<Option<String>, ImportError> {
     for a in e.attributes() {
         let a = a.map_err(|err| ImportError::Xml(err.to_string()))?;
@@ -190,17 +200,11 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                 });
                 if class_allowed(&class) {
                     if guid.is_empty() {
-                        let mut skip_buf = Vec::new();
-                        reader
-                            .read_to_end_into(e.name(), &mut skip_buf)
-                            .map_err(|e| ImportError::Xml(e.to_string()))?;
+                        skip_rt_body(&mut reader, e.name())?;
                         graph.issues.push(missing_guid_issue(&class, ordinal));
                     } else if graph.records.contains_key(&guid) {
                         // A recognized record already holds this guid; keep it and just advance past this duplicate's body.
-                        let mut skip_buf = Vec::new();
-                        reader
-                            .read_to_end_into(e.name(), &mut skip_buf)
-                            .map_err(|e| ImportError::Xml(e.to_string()))?;
+                        skip_rt_body(&mut reader, e.name())?;
                     } else {
                         let node = parse_rt_body(&mut reader)?;
                         if class == "LexEntry" {
@@ -211,10 +215,7 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
                             .insert(guid.clone(), Record { class, guid, node });
                     }
                 } else {
-                    let mut skip_buf = Vec::new();
-                    reader
-                        .read_to_end_into(e.name(), &mut skip_buf)
-                        .map_err(|e| ImportError::Xml(e.to_string()))?;
+                    skip_rt_body(&mut reader, e.name())?;
                 }
             }
             Event::Empty(e) if e.local_name().as_ref() == b"rt" => {
