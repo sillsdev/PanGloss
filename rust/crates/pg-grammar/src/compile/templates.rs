@@ -3,7 +3,7 @@
 use hashbrown::HashMap;
 
 use pg_snapshot::morphology::{AffixSlot, AffixTemplate, LexEntryInflType, PartOfSpeech};
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
 
 use crate::model::{
     AffixTemplateDef, AllomorphId, AllomorphOwner, MRuleId, MorphRuleDef, MorphemeId, MorphemeInfo,
@@ -12,7 +12,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
-use super::{environment, Acc, Ctx};
+use super::{environment, issue_codes, Acc, Ctx};
 
 pub(crate) fn build(
     snapshot: &Snapshot,
@@ -56,6 +56,8 @@ fn build_pos(
 ) -> Result<(), GrammarError> {
     for pos in items {
         for tmpl in &pos.affix_templates {
+            let key = InventoryKey::object(InventoryKind::Template, tmpl.guid.clone());
+            ctx.considered(key);
             if tmpl.disabled {
                 continue;
             }
@@ -95,20 +97,63 @@ fn build_template(
         .collect();
     combined.extend(tmpl.prefix_slots.iter().rev().map(|g| (g.as_str(), true)));
 
+    let template_key = InventoryKey::object(InventoryKind::Template, tmpl.guid.clone());
+    ctx.selected(template_key.clone());
+
     let mut slot_defs = Vec::new();
     for (slot_guid, is_prefix) in combined {
+        let slot_key = InventoryKey::object(InventoryKind::TemplateSlot, slot_guid.to_string());
+        let attachment = InventoryKey::attachment(
+            InventoryKind::TemplateSlot,
+            tmpl.guid.clone(),
+            slot_guid.to_string(),
+            "slot",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(slot_key.clone());
+        ctx.considered(attachment.clone());
         let Some(&affix_slot) = slot_registry.get(slot_guid) else {
-            warnings.push(format!(
-                "affix template {:?}: slot {slot_guid:?} does not resolve; skipped",
-                tmpl.guid
-            ));
+            ctx.selected(slot_key.clone());
+            ctx.selected(attachment.clone());
+            ctx.reject(
+                warnings,
+                slot_key,
+                issue_codes::TEMPLATE_SLOT_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!(
+                    "affix template {:?}: slot {slot_guid:?} does not resolve; skipped",
+                    tmpl.guid
+                ),
+            );
+            ctx.reject_quietly(
+                attachment,
+                issue_codes::TEMPLATE_SLOT_UNRESOLVED,
+                IssueClass::InvalidSource,
+                "template-slot attachment: slot does not resolve",
+            );
             continue;
         };
+        ctx.selected(slot_key.clone());
+        ctx.selected(attachment.clone());
         let mut rules = acc.slot_rules.get(slot_guid).cloned().unwrap_or_default();
         if rules.is_empty() {
             // No loaded affix at all references this slot — HCLoader drops it entirely.
+            ctx.reject_quietly(
+                slot_key,
+                issue_codes::TEMPLATE_SLOT_NO_RULES,
+                IssueClass::UnrepresentableForHc,
+                "template slot has no loaded affix rules",
+            );
+            ctx.reject_quietly(
+                attachment,
+                issue_codes::TEMPLATE_SLOT_NO_RULES,
+                IssueClass::UnrepresentableForHc,
+                "template-slot attachment: slot has no loaded affix rules",
+            );
             continue;
         }
+        ctx.represented(slot_key);
+        ctx.represented(attachment);
 
         let infl_types_for_slot: Vec<&LexEntryInflType> = snapshot
             .morphology
@@ -150,6 +195,12 @@ fn build_template(
     }
 
     if slot_defs.is_empty() {
+        ctx.reject_quietly(
+            template_key,
+            issue_codes::TEMPLATE_NO_SLOTS,
+            IssueClass::UnrepresentableForHc,
+            "affix template has no slots with any loaded affix rule",
+        );
         return Ok(None);
     }
 
@@ -159,7 +210,13 @@ fn build_template(
     let required_syn_fs = match super::features::build_syn_fs(ctx.syn, Some(pos_bits), None) {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
-            warnings.push(format!("affix template {:?}: {e}; skipped", tmpl.guid));
+            ctx.reject(
+                warnings,
+                template_key,
+                issue_codes::TEMPLATE_BUILD_FAILED,
+                IssueClass::UnrepresentableForHc,
+                format!("affix template {:?}: {e}; skipped", tmpl.guid),
+            );
             return Ok(None);
         }
     };
@@ -171,6 +228,7 @@ fn build_template(
         required_syn_fs,
         slots: slot_defs,
     });
+    ctx.represented(template_key);
     Ok(Some(id))
 }
 
@@ -192,23 +250,40 @@ fn build_null_affix_rule(
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Option<MRuleId> {
+    let key = InventoryKey::object(InventoryKind::Msa, format!("null-affix#{}", it.guid));
+    ctx.synthesized(key.clone());
+    ctx.considered(key.clone());
     let Some(required_mpr) = ctx.mpr.lex_entry_infl_type(&it.guid) else {
-        warnings.push(format!(
-            "lexEntryInflType {:?}: does not resolve in the MPR registry; null-affix rule skipped",
-            it.guid
-        ));
+        ctx.selected(key.clone());
+        ctx.reject(
+            warnings,
+            key,
+            issue_codes::NULL_AFFIX_MPR_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!(
+                "lexEntryInflType {:?}: does not resolve in the MPR registry; null-affix rule skipped",
+                it.guid
+            ),
+        );
         return None;
     };
+    ctx.selected(key.clone());
 
     let out_syn_fs = match &it.inflection_features {
         Some(fs) if !fs.values.is_empty() => {
             match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
                 Ok(v) => acc.fs_interner.intern(v),
                 Err(e) => {
-                    warnings.push(format!(
-                        "lexEntryInflType {:?}: {e}; null-affix rule skipped",
-                        it.guid
-                    ));
+                    ctx.reject(
+                        warnings,
+                        key,
+                        issue_codes::NULL_AFFIX_SYN_FS_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!(
+                            "lexEntryInflType {:?}: {e}; null-affix rule skipped",
+                            it.guid
+                        ),
+                    );
                     return None;
                 }
             }
@@ -221,10 +296,16 @@ fn build_null_affix_rule(
     };
     let null_ins = if is_prefix { "^0+" } else { "+^0" };
     let Ok(insert) = insert_segments(null_ins, ctx) else {
-        warnings.push(format!(
-            "lexEntryInflType {:?}: cannot segment null-affix marker {null_ins:?}; rule skipped",
-            it.guid
-        ));
+        ctx.reject(
+            warnings,
+            key,
+            issue_codes::NULL_AFFIX_SEGMENT_FAILED,
+            IssueClass::UnrepresentableForHc,
+            format!(
+                "lexEntryInflType {:?}: cannot segment null-affix marker {null_ins:?}; rule skipped",
+                it.guid
+            ),
+        );
         return None;
     };
     let rhs = if is_prefix {
@@ -285,6 +366,7 @@ fn build_null_affix_rule(
             is_template_rule: false,
         },
     ));
+    ctx.represented(key);
     Some(mrule_id)
 }
 

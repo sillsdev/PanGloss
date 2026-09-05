@@ -3,7 +3,7 @@
 use hashbrown::HashMap;
 
 use pg_snapshot::morphology::{InflectionClass, PartOfSpeech};
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, SelectionRecorder, Snapshot};
 
 use crate::model::{MprFeatureDef, MprGroup, MprGroupMatchType, MprGroupOutput, MprId, MprSet};
 use crate::GrammarError;
@@ -76,6 +76,7 @@ impl MprTables {
 pub(crate) fn build(
     snapshot: &Snapshot,
     warnings: &mut Vec<String>,
+    recorder: &mut SelectionRecorder,
 ) -> Result<MprTables, GrammarError> {
     let mut mpr_names: Vec<String> = Vec::new();
     let mut mpr_features: Vec<MprFeatureDef> = Vec::new();
@@ -90,22 +91,31 @@ pub(crate) fn build(
         &mut infl_class_bit,
         &mut infl_class_children,
         &mut infl_members,
+        recorder,
     )?;
 
     let mut exception_feature_bit: HashMap<String, MprId> = HashMap::new();
     let mut exception_members = MprSet::EMPTY;
     for f in &snapshot.morphology.exception_features {
+        let key = InventoryKey::object(InventoryKind::RuleFeature, f.guid.clone());
+        recorder.considered(key.clone());
         let id = next_bit(&mut mpr_names, &mut mpr_features, &f.guid, &f.name)?;
         exception_feature_bit.insert(f.guid.clone(), id);
         exception_members.insert(id);
+        recorder.selected(key.clone());
+        recorder.represented(key);
     }
 
     let mut lex_entry_infl_type_bit: HashMap<String, MprId> = HashMap::new();
     let mut lex_entry_infl_type_members = MprSet::EMPTY;
     for t in &snapshot.morphology.lex_entry_infl_types {
+        let key = InventoryKey::object(InventoryKind::RuleFeature, t.guid.clone());
+        recorder.considered(key.clone());
         let id = next_bit(&mut mpr_names, &mut mpr_features, &t.guid, &t.name)?;
         lex_entry_infl_type_bit.insert(t.guid.clone(), id);
         lex_entry_infl_type_members.insert(id);
+        recorder.selected(key.clone());
+        recorder.represented(key);
     }
 
     let mut mpr_groups = Vec::new();
@@ -116,6 +126,7 @@ pub(crate) fn build(
             output: MprGroupOutput::Overwrite,
             members: infl_members,
         });
+        record_synthesized_mpr_group(recorder, "inflClasses");
     }
     if !exception_members.is_empty() {
         mpr_groups.push(MprGroup {
@@ -124,6 +135,7 @@ pub(crate) fn build(
             output: MprGroupOutput::Overwrite,
             members: exception_members,
         });
+        record_synthesized_mpr_group(recorder, "exceptionFeatures");
     }
     if !lex_entry_infl_type_members.is_empty() {
         mpr_groups.push(MprGroup {
@@ -132,6 +144,7 @@ pub(crate) fn build(
             output: MprGroupOutput::Overwrite,
             members: lex_entry_infl_type_members,
         });
+        record_synthesized_mpr_group(recorder, "lexEntryInflTypes");
     }
 
     let _ = warnings; // reserved: no warning conditions besides the >64 hard error today.
@@ -175,10 +188,11 @@ fn walk_pos_infl_classes(
     bit: &mut HashMap<String, MprId>,
     children: &mut HashMap<String, Vec<String>>,
     members: &mut MprSet,
+    recorder: &mut SelectionRecorder,
 ) -> Result<(), GrammarError> {
     for pos in items {
         for ic in &pos.inflection_classes {
-            add_infl_class(ic, mpr_names, mpr_features, bit, children, members)?;
+            add_infl_class(ic, mpr_names, mpr_features, bit, children, members, recorder)?;
         }
         walk_pos_infl_classes(
             &pos.children,
@@ -187,6 +201,7 @@ fn walk_pos_infl_classes(
             bit,
             children,
             members,
+            recorder,
         )?;
     }
     Ok(())
@@ -199,7 +214,10 @@ fn add_infl_class(
     bit: &mut HashMap<String, MprId>,
     children: &mut HashMap<String, Vec<String>>,
     members: &mut MprSet,
+    recorder: &mut SelectionRecorder,
 ) -> Result<(), GrammarError> {
+    let key = InventoryKey::object(InventoryKind::InflectionClass, ic.guid.clone());
+    recorder.considered(key.clone());
     let id = next_bit(mpr_names, mpr_features, &ic.guid, &ic.name)?;
     bit.insert(ic.guid.clone(), id);
     members.insert(id);
@@ -207,8 +225,19 @@ fn add_infl_class(
         ic.guid.clone(),
         ic.children.iter().map(|c| c.guid.clone()).collect(),
     );
+    recorder.selected(key.clone());
+    recorder.represented(key);
     for c in &ic.children {
-        add_infl_class(c, mpr_names, mpr_features, bit, children, members)?;
+        add_infl_class(c, mpr_names, mpr_features, bit, children, members, recorder)?;
     }
     Ok(())
+}
+
+/// The synthesized MPR-group composite (`"inflClasses"`/`"exceptionFeatures"`/`"lexEntryInflTypes"`), distinct from the individual inflection-class/rule-feature atoms folded into it.
+fn record_synthesized_mpr_group(recorder: &mut SelectionRecorder, name: &str) {
+    let key = InventoryKey::object(InventoryKind::RuleFeature, name.to_string());
+    recorder.synthesized(key.clone());
+    recorder.considered(key.clone());
+    recorder.selected(key.clone());
+    recorder.represented(key);
 }

@@ -1,7 +1,7 @@
 //! Phonological rules: rewrite rules placed on the stratum `NotOnClitics` selects. Metathesis rules are not implemented -- each produces a warning, not a rule.
 
 use pg_snapshot::phonology::{PhonContext, PhonologicalRule, RewriteRhs, RewriteRule};
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
 
 use crate::model::{
     AlphaVar, AnchorSide, Dir, PRuleId, Pattern, PatternNode, PhonRuleDef, RewriteMode,
@@ -9,7 +9,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
-use super::Ctx;
+use super::{issue_codes, Ctx};
 
 /// Greek-letter alpha-variable names, in assignment order (`HCLoader.VariableNames`).
 const VAR_NAMES: [&str; 24] = [
@@ -35,23 +35,44 @@ pub(crate) fn build(
 
     for rule in &snapshot.phonology.rules {
         match rule {
-            PhonologicalRule::Rewrite(r) => match build_rewrite_rule(r, snapshot, ctx, warnings) {
-                Ok(def) => {
-                    let id = PRuleId(prules.len() as u32);
-                    prules.push(PhonRuleDef::Rewrite(def));
-                    if on_morphology {
-                        morphology_prules.push(id);
-                    } else {
-                        clitic_prules.push(id);
+            PhonologicalRule::Rewrite(r) => {
+                let key = InventoryKey::object(InventoryKind::PhonologicalRule, r.guid.clone());
+                ctx.considered(key.clone());
+                ctx.selected(key.clone());
+                match build_rewrite_rule(r, snapshot, ctx, warnings) {
+                    Ok(def) => {
+                        let id = PRuleId(prules.len() as u32);
+                        prules.push(PhonRuleDef::Rewrite(def));
+                        if on_morphology {
+                            morphology_prules.push(id);
+                        } else {
+                            clitic_prules.push(id);
+                        }
+                        ctx.represented(key);
                     }
+                    Err(e) => ctx.reject(
+                        warnings,
+                        key,
+                        issue_codes::RULE_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("phonological rule {:?}: {e}; skipped", r.guid),
+                    ),
                 }
-                Err(e) => warnings.push(format!("phonological rule {:?}: {e}; skipped", r.guid)),
-            },
+            }
             PhonologicalRule::Metathesis(r) => {
-                warnings.push(format!(
-                    "unsupported: metathesis rule {:?} not implemented; skipped",
-                    r.guid
-                ));
+                let key = InventoryKey::object(InventoryKind::PhonologicalRule, r.guid.clone());
+                ctx.considered(key.clone());
+                ctx.selected(key.clone());
+                ctx.reject(
+                    warnings,
+                    key,
+                    issue_codes::RULE_METATHESIS_UNSUPPORTED,
+                    IssueClass::UnrepresentableForHc,
+                    format!(
+                        "unsupported: metathesis rule {:?} not implemented; skipped",
+                        r.guid
+                    ),
+                );
             }
         }
     }

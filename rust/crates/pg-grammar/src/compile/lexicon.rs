@@ -4,12 +4,12 @@ use hashbrown::HashMap;
 
 use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Msa, Sense};
 use pg_snapshot::morphology::{LexEntryInflType, MorphType};
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
 
 use crate::model::{LexEntryDef, LexEntryId, MRuleId, RootAllomorphDef, StratumId};
 use crate::GrammarError;
 
-use super::{affixes, Acc, Ctx};
+use super::{affixes, issue_codes, Acc, Ctx};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build(
@@ -42,6 +42,25 @@ pub(crate) fn build(
         .collect();
 
     for entry in &snapshot.lexicon.entries {
+        // Visiting is recorded here; each owner below records its own selection.
+        let entry_key = InventoryKey::object(InventoryKind::Entry, entry.guid.clone());
+        ctx.considered(entry_key.clone());
+        ctx.selected(entry_key.clone());
+        ctx.represented(entry_key);
+        for allo in &entry.allomorphs {
+            ctx.considered(InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()));
+        }
+        for msa in &entry.msas {
+            ctx.considered(InventoryKey::object(InventoryKind::Msa, msa.guid().to_string()));
+        }
+        // A sense is read only for its gloss text (`sense_gloss`); it is never dropped/warned on its own, so it goes straight to represented.
+        for sense in &entry.senses {
+            let sense_key = InventoryKey::object(InventoryKind::Sense, sense.guid.clone());
+            ctx.considered(sense_key.clone());
+            ctx.selected(sense_key.clone());
+            ctx.represented(sense_key);
+        }
+
         // Form partition: each of an entry's forms lands in the stem or rule bucket for the Morphology or Clitics stratum by morph type; an enclitic form is deliberately in both clitic buckets since HCLoader loads it as both a lex entry and an affix-process rule.
         let clitic = |a: &Allomorph| {
             matches!(
@@ -198,13 +217,21 @@ fn build_stem_entry(
         return None;
     };
 
+    let msa_key = InventoryKey::object(InventoryKind::Msa, guid.clone());
+    ctx.selected(msa_key.clone());
     let pos_bits = part_of_speech
         .as_deref()
         .and_then(|p| ctx.pos.bits_single(p));
     let syn_fs = match super::features::build_syn_fs(ctx.syn, pos_bits, features.as_ref()) {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
-            warnings.push(format!("MSA {guid:?}: {e}; entry skipped"));
+            ctx.reject(
+                warnings,
+                msa_key,
+                issue_codes::MSA_BUILD_FAILED,
+                IssueClass::UnrepresentableForHc,
+                format!("MSA {guid:?}: {e}; entry skipped"),
+            );
             return None;
         }
     };
@@ -251,6 +278,8 @@ fn build_stem_entry(
         .iter()
         .filter(|a| is_lex_entry_form(a, clitic))
     {
+        let allo_key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
+        ctx.selected(allo_key.clone());
         match build_root_allomorph(allo, ctx, warnings) {
             Ok(def) => {
                 let allo_id = crate::model::AllomorphId(acc.allomorph_owners.len() as u32);
@@ -266,13 +295,27 @@ fn build_stem_entry(
                 });
                 acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
                 allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
+                ctx.represented(allo_key);
             }
-            Err(e) => warnings.push(format!("allomorph {:?}: {e}; skipped", allo.guid)),
+            Err(e) => ctx.reject(
+                warnings,
+                allo_key,
+                issue_codes::ALLOMORPH_UNSEGMENTABLE,
+                IssueClass::UnrepresentableForHc,
+                format!("allomorph {:?}: {e}; skipped", allo.guid),
+            ),
         }
     }
     if allomorphs.is_empty() {
+        ctx.reject_quietly(
+            msa_key,
+            issue_codes::MSA_NO_ALLOMORPHS,
+            IssueClass::UnrepresentableForHc,
+            "MSA has zero loadable allomorphs for this stratum bucket",
+        );
         return None;
     }
+    ctx.represented(msa_key);
 
     acc.entries.push(LexEntryDef {
         authored_id: entry.guid.clone(),
@@ -511,11 +554,27 @@ fn build_variant_stem_entry(
         }
     }
 
+    let variant_key = InventoryKey::expansion(
+        InventoryKind::Entry,
+        variant_entry.guid.clone(),
+        vec![guid.clone()],
+        "variant",
+    );
+    ctx.synthesized(variant_key.clone());
+    ctx.considered(variant_key.clone());
+    ctx.selected(variant_key.clone());
+
     let syn_fs = match super::features::build_syn_fs(ctx.syn, pos_bits, merged_ms_features.as_ref())
     {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
-            warnings.push(format!("MSA {guid:?}: {e}; variant entry skipped"));
+            ctx.reject(
+                warnings,
+                variant_key,
+                issue_codes::MSA_BUILD_FAILED,
+                IssueClass::UnrepresentableForHc,
+                format!("MSA {guid:?}: {e}; variant entry skipped"),
+            );
             return None;
         }
     };
@@ -551,6 +610,8 @@ fn build_variant_stem_entry(
         .iter()
         .filter(|a| is_lex_entry_form(a, false))
     {
+        let allo_key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
+        ctx.selected(allo_key.clone());
         match build_root_allomorph(allo, ctx, warnings) {
             Ok(def) => {
                 let allo_id = crate::model::AllomorphId(acc.allomorph_owners.len() as u32);
@@ -566,13 +627,27 @@ fn build_variant_stem_entry(
                 });
                 acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
                 allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
+                ctx.represented(allo_key);
             }
-            Err(e) => warnings.push(format!("allomorph {:?}: {e}; skipped", allo.guid)),
+            Err(e) => ctx.reject(
+                warnings,
+                allo_key,
+                issue_codes::ALLOMORPH_UNSEGMENTABLE,
+                IssueClass::UnrepresentableForHc,
+                format!("allomorph {:?}: {e}; skipped", allo.guid),
+            ),
         }
     }
     if allomorphs.is_empty() {
+        ctx.reject_quietly(
+            variant_key,
+            issue_codes::MSA_NO_ALLOMORPHS,
+            IssueClass::UnrepresentableForHc,
+            "variant entry has zero loadable allomorphs",
+        );
         return None;
     }
+    ctx.represented(variant_key);
 
     // Gloss: `inflType.GlossPrepend` (unless the literal "***" sentinel) + base gloss + `GlossAppend`.
     let base_gloss = sense_gloss(main_entry, guid, ctx).unwrap_or("");

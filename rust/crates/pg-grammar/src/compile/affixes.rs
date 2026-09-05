@@ -3,6 +3,7 @@
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Msa, RuleMapping};
 use pg_snapshot::morphology::MorphType;
 use pg_snapshot::phonology::PhonContext;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass};
 
 use crate::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, EnvironmentDef, MRuleId,
@@ -11,6 +12,7 @@ use crate::model::{
 };
 
 use super::environment;
+use super::issue_codes;
 use super::{Acc, Ctx};
 
 /// Which concatenative shape an affix morph type implies; `None` for a type this compiler does not build a rule for (circumfix, bare clitic/particle, phrase-shaped).
@@ -48,14 +50,19 @@ pub(crate) fn build_affix_rule(
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Option<MRuleId> {
-    let rule_form_allos: Vec<&Allomorph> = allos
-        .iter()
-        .copied()
-        .filter(|a| is_valid_rule_form(a, warnings))
-        .collect();
+    let mut rule_form_allos: Vec<&Allomorph> = Vec::new();
+    for &allo in allos {
+        if is_valid_rule_form(allo, ctx, warnings) {
+            ctx.selected(InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()));
+            rule_form_allos.push(allo);
+        }
+    }
     if rule_form_allos.is_empty() {
         return None;
     }
+
+    let msa_key = InventoryKey::object(InventoryKind::Msa, msa.guid().to_string());
+    ctx.selected(msa_key.clone());
 
     let mrule_id = MRuleId(acc.mrules.len() as u32);
 
@@ -75,7 +82,13 @@ pub(crate) fn build_affix_rule(
             {
                 Ok(fs) => acc.fs_interner.intern(fs),
                 Err(e) => {
-                    warnings.push(format!("MSA {guid:?}: {e}; skipped"));
+                    ctx.reject(
+                        warnings,
+                        msa_key.clone(),
+                        issue_codes::MSA_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("MSA {guid:?}: {e}; skipped"),
+                    );
                     return None;
                 }
             };
@@ -85,7 +98,13 @@ pub(crate) fn build_affix_rule(
             let out = match super::features::build_syn_fs(ctx.syn, out_pos, to_features.as_ref()) {
                 Ok(fs) => acc.fs_interner.intern(fs),
                 Err(e) => {
-                    warnings.push(format!("MSA {guid:?}: {e}; skipped"));
+                    ctx.reject(
+                        warnings,
+                        msa_key.clone(),
+                        issue_codes::MSA_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("MSA {guid:?}: {e}; skipped"),
+                    );
                     return None;
                 }
             };
@@ -104,7 +123,13 @@ pub(crate) fn build_affix_rule(
             let req = match super::features::build_syn_fs(ctx.syn, req_pos, features.as_ref()) {
                 Ok(fs) => acc.fs_interner.intern(fs),
                 Err(e) => {
-                    warnings.push(format!("MSA {guid:?}: {e}; skipped"));
+                    ctx.reject(
+                        warnings,
+                        msa_key.clone(),
+                        issue_codes::MSA_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("MSA {guid:?}: {e}; skipped"),
+                    );
                     return None;
                 }
             };
@@ -121,7 +146,13 @@ pub(crate) fn build_affix_rule(
             let req = match super::features::build_syn_fs(ctx.syn, req_pos, None) {
                 Ok(fs) => acc.fs_interner.intern(fs),
                 Err(e) => {
-                    warnings.push(format!("MSA {guid:?}: {e}; skipped"));
+                    ctx.reject(
+                        warnings,
+                        msa_key.clone(),
+                        issue_codes::MSA_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("MSA {guid:?}: {e}; skipped"),
+                    );
                     return None;
                 }
             };
@@ -145,7 +176,13 @@ pub(crate) fn build_affix_rule(
             let req = match super::features::build_syn_fs(ctx.syn, req_pos, None) {
                 Ok(fs) => acc.fs_interner.intern(fs),
                 Err(e) => {
-                    warnings.push(format!("MSA {guid:?}: {e}; skipped"));
+                    ctx.reject(
+                        warnings,
+                        msa_key.clone(),
+                        issue_codes::MSA_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("MSA {guid:?}: {e}; skipped"),
+                    );
                     return None;
                 }
             };
@@ -277,6 +314,9 @@ pub(crate) fn build_affix_rule(
         let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
         acc.allomorph_owners
             .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
+        for guid in &source_guids {
+            ctx.represented(InventoryKey::object(InventoryKind::Allomorph, guid.clone()));
+        }
         acc.allomorph_sources.push(crate::model::AllomorphSource {
             form_guids: source_guids.into_iter().map(Some).collect(),
             omitted: false,
@@ -296,6 +336,12 @@ pub(crate) fn build_affix_rule(
         allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
     }
     if allomorphs.is_empty() {
+        ctx.reject_quietly(
+            msa_key,
+            issue_codes::MSA_NO_RULE_FORM_ALLOMORPHS,
+            IssueClass::UnrepresentableForHc,
+            "affix rule has zero loadable allomorphs",
+        );
         return None;
     }
 
@@ -336,6 +382,7 @@ pub(crate) fn build_affix_rule(
         }
     }
 
+    ctx.represented(msa_key);
     Some(mrule_id)
 }
 
@@ -384,6 +431,14 @@ fn build_circumfix_allomorphs(
             prefixes.len(),
             suffixes.len()
         ));
+        for allo in allos {
+            ctx.reject_quietly(
+                InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()),
+                issue_codes::CIRCUMFIX_MISSING_HALF,
+                IssueClass::UnrepresentableForHc,
+                "circumfix entry is missing a prefix or suffix half",
+            );
+        }
         return Vec::new();
     }
 
@@ -393,12 +448,27 @@ fn build_circumfix_allomorphs(
             super::best_ws(&prefix.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""),
         );
         for suffix in &suffixes {
+            let expansion = InventoryKey::expansion(
+                InventoryKind::Allomorph,
+                prefix.guid.clone(),
+                vec![suffix.guid.clone()],
+                "circumfix-cross-product",
+            );
+            ctx.synthesized(expansion.clone());
+            ctx.considered(expansion.clone());
+            ctx.selected(expansion.clone());
             let suffix_form = super::format_form(
                 super::best_ws(&suffix.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""),
             );
             let lead = match insert_segments(&format!("{prefix_form}+"), ctx) {
                 Ok(a) => a,
                 Err(e) => {
+                    ctx.reject_quietly(
+                        expansion,
+                        issue_codes::ALLOMORPH_UNSEGMENTABLE,
+                        IssueClass::UnrepresentableForHc,
+                        format!("circumfix allomorph {:?}: {e}; skipped", prefix.guid),
+                    );
                     warnings.push(format!(
                         "circumfix allomorph {:?}: {e}; skipped",
                         prefix.guid
@@ -409,6 +479,12 @@ fn build_circumfix_allomorphs(
             let trail = match insert_segments(&format!("+{suffix_form}"), ctx) {
                 Ok(a) => a,
                 Err(e) => {
+                    ctx.reject_quietly(
+                        expansion,
+                        issue_codes::ALLOMORPH_UNSEGMENTABLE,
+                        IssueClass::UnrepresentableForHc,
+                        format!("circumfix allomorph {:?}: {e}; skipped", suffix.guid),
+                    );
                     warnings.push(format!(
                         "circumfix allomorph {:?}: {e}; skipped",
                         suffix.guid
@@ -416,6 +492,7 @@ fn build_circumfix_allomorphs(
                     continue;
                 }
             };
+            ctx.represented(expansion);
             // Union of both halves' conditioning, `positions` included per `combined_env_guids` below.
             let mut environments = super::environment::resolve_environment_defs(
                 prefix
@@ -464,16 +541,29 @@ fn build_circumfix_allomorphs(
     out
 }
 
-/// Simplified `IsValidRuleForm`: bracket-pattern (reduplication) forms are not implemented (warned, dropped) rather than gated on environment validity.
-fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
+/// Simplified `IsValidRuleForm`: bracket-pattern (reduplication) forms are not implemented (warned, dropped) rather than gated on environment validity. Records the allomorph rejected only where this filter is the allomorph's one plausible route to a rule form (infix/prefix/suffix-shaped); a morph type that structurally can never be a rule form (bare stem/clitic/particle/phrase) is left considered-but-not-selected, mirroring a disabled compound rule rather than a failure.
+fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -> bool {
     if let Some(process) = &allo.process {
         return process.input.len() > 1 || process.output.len() > 1;
     }
     if allo.is_abstract {
         return false;
     }
+    let key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
     match allo.morph_type {
-        MorphType::Infix | MorphType::InfixingInterfix => !allo.positions.is_empty(),
+        MorphType::Infix | MorphType::InfixingInterfix => {
+            if allo.positions.is_empty() {
+                ctx.reject_quietly(
+                    key,
+                    issue_codes::ALLOMORPH_NOT_RULE_FORM,
+                    IssueClass::UnrepresentableForHc,
+                    "infix allomorph has no position environment",
+                );
+                false
+            } else {
+                true
+            }
+        }
         // Proclitic/Enclitic count as rule forms unconditionally, under the same non-empty/non-abstract gate as prefix/suffix.
         MorphType::Prefix
         | MorphType::PrefixingInterfix
@@ -483,16 +573,32 @@ fn is_valid_rule_form(allo: &Allomorph, warnings: &mut Vec<String>) -> bool {
         | MorphType::Enclitic => {
             let form = super::best_ws(&allo.forms, None).unwrap_or("");
             if form.contains('[') {
-                warnings.push(format!(
-                    "unsupported: reduplication/bracket-pattern affix form {form:?} (allomorph \
-                     {:?}) not implemented; allomorph skipped",
-                    allo.guid
-                ));
+                ctx.reject(
+                    warnings,
+                    key,
+                    issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED,
+                    IssueClass::UnrepresentableForHc,
+                    format!(
+                        "unsupported: reduplication/bracket-pattern affix form {form:?} \
+                         (allomorph {:?}) not implemented; allomorph skipped",
+                        allo.guid
+                    ),
+                );
                 return false;
             }
-            !form.trim().is_empty()
+            if form.trim().is_empty() {
+                ctx.reject_quietly(
+                    key,
+                    issue_codes::ALLOMORPH_NOT_RULE_FORM,
+                    IssueClass::UnrepresentableForHc,
+                    "affix allomorph has no non-empty form",
+                );
+                false
+            } else {
+                true
+            }
         }
-        // Bare Clitic/Particle are stem forms (clitic-stratum lex entries), never rule forms; not a warning since they're handled on the stem path.
+        // Bare Clitic/Particle/Stem/Root/... are never rule forms for this filter; not a warning since they're handled on the stem path (or, for Circumfix halves, by the circumfix cross-product builder instead).
         _ => false,
     }
 }
@@ -511,17 +617,29 @@ fn build_affix_allomorphs_for(
         return match build_process_allomorph(allo, process, required_mpr, out_mpr, ctx, acc) {
             Ok(def) => vec![def],
             Err(e) => {
-                warnings.push(format!("allomorph {:?}: {e}; skipped", allo.guid));
+                ctx.reject(
+                    warnings,
+                    InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()),
+                    issue_codes::ALLOMORPH_PROCESS_BUILD_FAILED,
+                    IssueClass::UnrepresentableForHc,
+                    format!("allomorph {:?}: {e}; skipped", allo.guid),
+                );
                 Vec::new()
             }
         };
     }
 
     let Some(shape) = shape_of(allo.morph_type) else {
-        warnings.push(format!(
-            "unsupported: morph type of allomorph {:?} not implemented as an affix rule; skipped",
-            allo.guid
-        ));
+        ctx.reject(
+            warnings,
+            InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()),
+            issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED,
+            IssueClass::UnrepresentableForHc,
+            format!(
+                "unsupported: morph type of allomorph {:?} not implemented as an affix rule; skipped",
+                allo.guid
+            ),
+        );
         return Vec::new();
     };
 
@@ -552,7 +670,7 @@ fn build_affix_allomorphs_for(
         .collect();
 
     let mut out = Vec::new();
-    for pass in resolve_environments(&combined_env_guids, ctx, warnings) {
+    for pass in resolve_environments(&combined_env_guids, &allo.guid, ctx, warnings) {
         let (left_str, right_str) = pass.unwrap_or_default();
         match build_concatenative(&form, &left_str, &right_str, shape, ctx) {
             Ok((lhs, rhs, environments)) => {
@@ -710,35 +828,81 @@ fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
 /// Resolves each environment guid to its split `(left, right)` context strings, yielding one `None` pass whenever the guid list was empty or an entry failed to resolve/parse.
 fn resolve_environments(
     guids: &[&str],
+    allo_guid: &str,
     ctx: &Ctx,
     warnings: &mut Vec<String>,
 ) -> Vec<Option<(String, String)>> {
     let mut out = Vec::new();
     let mut has_blank = guids.is_empty();
     for g in guids {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::Environment,
+            allo_guid.to_string(),
+            g.to_string(),
+            "environment",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
         let Some(env) = ctx.env_by_guid.get(g) else {
-            warnings.push(format!(
-                "environment {g:?} does not resolve; treated as absent"
-            ));
+            ctx.selected(attachment.clone());
+            ctx.reject(
+                warnings,
+                attachment,
+                issue_codes::ENVIRONMENT_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("environment {g:?} does not resolve; treated as absent"),
+            );
             has_blank = true;
             continue;
         };
+        ctx.selected(attachment.clone());
+        let env_object = InventoryKey::object(InventoryKind::Environment, env.guid.clone());
+        ctx.considered(env_object.clone());
+        ctx.selected(env_object.clone());
         // A failing environment is invalid as a whole and lands in the same blank-fallback bucket as a malformed split, rather than being discovered later.
         if let Err(e) = environment::validate_environment(&env.representation, ctx) {
-            warnings.push(format!(
-                "invalid environment {:?} ({}): {e}; treated as absent",
-                env.guid, env.representation
-            ));
+            ctx.reject(
+                warnings,
+                attachment,
+                issue_codes::ENVIRONMENT_INVALID,
+                IssueClass::InvalidSource,
+                format!(
+                    "invalid environment {:?} ({}): {e}; treated as absent",
+                    env.guid, env.representation
+                ),
+            );
+            ctx.reject_quietly(
+                env_object,
+                issue_codes::ENVIRONMENT_INVALID,
+                IssueClass::InvalidSource,
+                "environment representation failed validation",
+            );
             has_blank = true;
             continue;
         }
         match environment::split_environment_string(&env.representation) {
-            Ok(pair) => out.push(Some(pair)),
+            Ok(pair) => {
+                out.push(Some(pair));
+                ctx.represented(attachment);
+                ctx.represented(env_object);
+            }
             Err(e) => {
-                warnings.push(format!(
-                    "invalid environment {:?} ({}): {e}; treated as absent",
-                    env.guid, env.representation
-                ));
+                ctx.reject(
+                    warnings,
+                    attachment,
+                    issue_codes::ENVIRONMENT_INVALID,
+                    IssueClass::InvalidSource,
+                    format!(
+                        "invalid environment {:?} ({}): {e}; treated as absent",
+                        env.guid, env.representation
+                    ),
+                );
+                ctx.reject_quietly(
+                    env_object,
+                    issue_codes::ENVIRONMENT_INVALID,
+                    IssueClass::InvalidSource,
+                    "environment representation failed to split",
+                );
                 has_blank = true;
             }
         }

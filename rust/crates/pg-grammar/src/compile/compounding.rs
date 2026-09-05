@@ -1,7 +1,7 @@
 //! Compound rules: authored, or — when the snapshot declares none and `NoDefaultCompounding` is not set — the two synthesized `DefaultCompoundingRules` defaults.
 
 use pg_snapshot::morphology::{CompoundConstituentRequirement, CompoundOutcome, CompoundRule};
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
 
 use crate::model::{
     CompoundingRuleDef, CompoundingSubruleDef, MRuleId, MorphRuleDef, OutputAction, PartRef,
@@ -9,7 +9,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
-use super::{environment, Acc, Ctx};
+use super::{environment, issue_codes, Acc, Ctx};
 
 pub(crate) fn build(
     snapshot: &Snapshot,
@@ -18,6 +18,9 @@ pub(crate) fn build(
     morphology_mrules: &mut Vec<MRuleId>,
     warnings: &mut Vec<String>,
 ) -> Result<(), GrammarError> {
+    for r in &snapshot.morphology.compound_rules {
+        ctx.considered(InventoryKey::object(InventoryKind::CompoundRule, r.guid().to_string()));
+    }
     let rules: Vec<&CompoundRule> = snapshot
         .morphology
         .compound_rules
@@ -35,6 +38,8 @@ pub(crate) fn build(
     }
 
     for rule in rules {
+        let key = InventoryKey::object(InventoryKind::CompoundRule, rule.guid().to_string());
+        ctx.selected(key.clone());
         let max_apps = snapshot
             .morphology
             .parser_parameters
@@ -52,10 +57,20 @@ pub(crate) fn build(
                 overriding,
                 ..
             } => {
-                if let Some(id) = build_endo(
+                match build_endo(
                     name, *head_last, left, right, overriding, max_apps, ctx, acc, warnings,
                 )? {
-                    morphology_mrules.push(id);
+                    Some(id) => {
+                        morphology_mrules.push(id);
+                        ctx.represented(key);
+                    }
+                    // `build_endo` already pushed its own warning on failure; recording must not add a second one.
+                    None => ctx.reject_quietly(
+                        key,
+                        issue_codes::COMPOUND_RULE_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                         format!("compound rule {name:?}: build failed; skipped"),
+                     ),
                 }
             }
             CompoundRule::Exocentric {
@@ -65,8 +80,33 @@ pub(crate) fn build(
                 to,
                 ..
             } => {
-                for id in build_exo(name, left, right, to, max_apps, ctx, acc, warnings)? {
-                    morphology_mrules.push(id);
+                let ids = build_exo(name, left, right, to, max_apps, ctx, acc, warnings)?;
+                if ids.is_empty() {
+                    // `build_exo` already pushed its own warning on failure; recording must not add a second one.
+                    ctx.reject_quietly(
+                        key,
+                        issue_codes::COMPOUND_RULE_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("compound rule {name:?}: build failed; skipped"),
+                    );
+                } else {
+                    ctx.represented(key.clone());
+                    for (member_id, role) in ids.iter().zip(["exo-right", "exo-left"]) {
+                        let expansion = InventoryKey::expansion(
+                            InventoryKind::CompoundRule,
+                            rule.guid().to_string(),
+                            Vec::new(),
+                            role,
+                        );
+                        ctx.synthesized(expansion.clone());
+                        ctx.considered(expansion.clone());
+                        ctx.selected(expansion.clone());
+                        ctx.represented(expansion);
+                        let _ = member_id;
+                    }
+                     for id in ids {
+                         morphology_mrules.push(id);
+                     }
                 }
             }
         }
@@ -92,10 +132,15 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Result<Vec<MRuleId>, G
         ("Default Left Head Compounding", true),
         ("Default Right Head Compounding", false),
     ] {
+        let key = InventoryKey::object(InventoryKind::CompoundRule, name.to_string());
+        ctx.synthesized(key.clone());
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
         let (head_lhs, non_head_lhs) = head_nonhead_patterns(ctx);
         let rhs = plus_join(head_first, ctx)?;
         let empty = acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY);
         let mrule_id = MRuleId(acc.mrules.len() as u32);
+        ctx.represented(key);
         acc.mrules
             .push(MorphRuleDef::Compounding(CompoundingRuleDef {
                 xml_id: name.to_string(),
