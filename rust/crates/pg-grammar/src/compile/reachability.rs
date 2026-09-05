@@ -10,8 +10,8 @@ use crate::model::{
     MorphRuleDef,
 };
 
-/// Compact `grammar.mrules` to exactly the set HCLoader's own exporter would ever visit, remapping every surviving `MRuleId` to a dense index, then cascade the same treatment to `grammar.allomorph_owners` and every surviving allomorph's own `id`/`co_occurrence` (see module doc for why the cascade is required).
-pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) {
+/// Compact `grammar.mrules` to exactly the set HCLoader's own exporter would ever visit, remapping every surviving `MRuleId` to a dense index, then cascade the same treatment to `grammar.allomorph_owners` and every surviving allomorph's own `id`/`co_occurrence` (see module doc for why the cascade is required). Returns the OLD ids this pass removed: the mrules first, then the allomorph-owner registry entries the cascade dropped alongside them.
+pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) -> (Vec<u32>, Vec<u32>) {
     // --- 1. Every mrule a stratum or an (enabled) template slot actually names. ---
     let mut used_mrules: HashSet<u32> = HashSet::new();
     for s in &grammar.strata {
@@ -31,10 +31,13 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
     let old_mrules = std::mem::take(&mut grammar.mrules);
     let mut old_to_new_mrule: StdHashMap<u32, u32> = StdHashMap::with_capacity(used_mrules.len());
     let mut new_mrules = Vec::with_capacity(used_mrules.len());
+    let mut removed_mrules = Vec::new();
     for (old_id, def) in old_mrules.into_iter().enumerate() {
         if used_mrules.contains(&(old_id as u32)) {
             old_to_new_mrule.insert(old_id as u32, new_mrules.len() as u32);
             new_mrules.push(def);
+        } else {
+            removed_mrules.push(old_id as u32);
         }
     }
     grammar.mrules = new_mrules;
@@ -60,6 +63,7 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
     let old_owners = std::mem::take(&mut grammar.allomorph_owners);
     let mut old_to_new_allo: StdHashMap<u32, u32> = StdHashMap::with_capacity(old_owners.len());
     let mut new_owners = Vec::with_capacity(old_owners.len());
+    let mut removed_allomorphs = Vec::new();
     for (old_id, owner) in old_owners.into_iter().enumerate() {
         let kept = match owner {
             AllomorphOwner::Root(le, k) => Some(AllomorphOwner::Root(le, k)),
@@ -70,6 +74,8 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
         if let Some(new_owner) = kept {
             old_to_new_allo.insert(old_id as u32, new_owners.len() as u32);
             new_owners.push(new_owner);
+        } else {
+            removed_allomorphs.push(old_id as u32);
         }
     }
     grammar.allomorph_owners = new_owners;
@@ -100,6 +106,8 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
             );
         }
     }
+
+    (removed_mrules, removed_allomorphs)
 }
 
 fn remap_allomorph_id_and_coocc(
@@ -129,8 +137,8 @@ fn remap_allomorph_id_and_coocc(
     });
 }
 
-/// Drops a `MorphemeCoOccurrenceRuleDef` whose primary morpheme or any `others` target is no longer reachable after `compact_mrules`; must run after it, since "reachable" is defined in terms of the already-compacted grammar.
-pub(crate) fn trim_unreachable_morpheme_coocurrence(grammar: &mut Grammar) {
+/// Drops a `MorphemeCoOccurrenceRuleDef` whose primary morpheme or any `others` target is no longer reachable after `compact_mrules`; must run after it, since "reachable" is defined in terms of the already-compacted grammar. Returns `(morpheme id, index within that morpheme's `co_occurrence` as pushed)` for every rule dropped this way -- the same `(u32, usize)` identity `inventory::represent_via` published it under.
+pub(crate) fn trim_unreachable_morpheme_coocurrence(grammar: &mut Grammar) -> Vec<(u32, usize)> {
     let mut reachable: HashSet<u32> = HashSet::new();
     for r in &grammar.mrules {
         match r {
@@ -147,12 +155,22 @@ pub(crate) fn trim_unreachable_morpheme_coocurrence(grammar: &mut Grammar) {
         reachable.insert(e.morpheme.0);
     }
 
+    let mut removed = Vec::new();
     for (i, m) in grammar.morphemes.iter_mut().enumerate() {
         if !reachable.contains(&(i as u32)) {
+            removed.extend((0..m.co_occurrence.len()).map(|idx| (i as u32, idx)));
             m.co_occurrence.clear();
         } else {
-            m.co_occurrence
-                .retain(|rule| rule.others.iter().all(|o| reachable.contains(&o.0)));
+            let mut idx = 0usize;
+            m.co_occurrence.retain(|rule| {
+                let keep = rule.others.iter().all(|o| reachable.contains(&o.0));
+                if !keep {
+                    removed.push((i as u32, idx));
+                }
+                idx += 1;
+                keep
+            });
         }
     }
+    removed
 }

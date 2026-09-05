@@ -58,3 +58,9 @@ pub(crate) const RULE_FEATURE_UNRESOLVED: &str = "grammar.rule.rule-feature-unre
 pub(crate) const STRATA_CUSTOM_UNSUPPORTED: &str = "grammar.strata.custom-unsupported";
 
 pub(crate) const ADHOC_PROHIBITION_UNRESOLVED: &str = "grammar.adhoc-prohibition.unresolved";
+
+pub(crate) const MRULE_UNREACHABLE_COMPACTED: &str = "grammar.mrule.unreachable-compacted";
+pub(crate) const COOCCURRENCE_TARGET_UNREACHABLE: &str =
+    "grammar.cooccurrence.target-unreachable";
+pub(crate) const NATURAL_CLASS_UNREFERENCED_COMPACTED: &str =
+    "grammar.natclass.unreferenced-compacted";

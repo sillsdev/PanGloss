@@ -9,6 +9,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
+use super::inventory::LineageTarget;
 use super::{environment, issue_codes, roles, Acc, Ctx};
 
 pub(crate) fn build(
@@ -71,7 +72,7 @@ pub(crate) fn build(
                 ) {
                     Some(id) => {
                         morphology_mrules.push(id);
-                        ctx.represented(key);
+                        ctx.represent_via(LineageTarget::MRule(id.0), key);
                     }
                     // `build_endo` already pushed its own warning on failure; recording must not add a second one.
                     None => ctx.reject_quietly(
@@ -99,8 +100,9 @@ pub(crate) fn build(
                         format!("compound rule {name:?}: build failed; skipped"),
                     );
                 } else {
-                    ctx.represented(key.clone());
-                    for (member_id, role) in ids.iter().zip([roles::EXO_RIGHT, roles::EXO_LEFT]) {
+                    // Both ids are always pushed to the same stratum list, so they survive/die together; the shared key rides on either one's lineage.
+                    ctx.represent_via(LineageTarget::MRule(ids[0].0), key.clone());
+                    for (&member_id, role) in ids.iter().zip([roles::EXO_RIGHT, roles::EXO_LEFT]) {
                         let expansion = InventoryKey::expansion(
                             InventoryKind::CompoundRule,
                             rule.guid().to_string(),
@@ -110,8 +112,7 @@ pub(crate) fn build(
                         ctx.synthesized(expansion.clone());
                         ctx.considered(expansion.clone());
                         ctx.selected(expansion.clone());
-                        ctx.represented(expansion);
-                        let _ = member_id;
+                        ctx.represent_via(LineageTarget::MRule(member_id.0), expansion);
                     }
                     for id in ids {
                         morphology_mrules.push(id);
@@ -149,7 +150,7 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Vec<MRuleId> {
         let rhs = plus_join(head_first, ctx);
         let empty = acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY);
         let mrule_id = MRuleId(acc.mrules.len() as u32);
-        ctx.represented(key);
+        ctx.represent_via(LineageTarget::MRule(mrule_id.0), key);
         acc.mrules
             .push(MorphRuleDef::Compounding(CompoundingRuleDef {
                 xml_id: name.to_string(),

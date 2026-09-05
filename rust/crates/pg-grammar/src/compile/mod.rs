@@ -57,6 +57,8 @@ use crate::GrammarError;
 
 use pg_snapshot::{InventoryKey, IssueClass, SelectionRecorder, Snapshot};
 
+use inventory::{Lineage, LineageTarget};
+
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
 /// allomorphs/entries — see the module doc). Only a handful of hard limits inherited from
@@ -74,6 +76,7 @@ pub(crate) fn compile_project_recording(
 ) -> Result<(Grammar, Vec<String>, SelectionRecorder), GrammarError> {
     let mut warnings: Vec<String> = Vec::new();
     let mut recorder = SelectionRecorder::default();
+    let mut lineage = Lineage::default();
     inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
 
     // --- MPR feature groups: inflection classes, exception features, lexEntryInflTypes --------
@@ -102,7 +105,14 @@ pub(crate) fn compile_project_recording(
         by_name: natclass_by_name,
         any: any_nc,
         last_unnamed: natclass_last_unnamed,
-    } = natclass::build(snapshot, &phon_features, &phoneme_of, &mut warnings, &mut recorder);
+    } = natclass::build(
+        snapshot,
+        &phon_features,
+        &phoneme_of,
+        &mut warnings,
+        &mut recorder,
+        &mut lineage,
+    );
 
     // --- grammar-tier FS interner: the empty FS is interned first (FsId 0) ---------------------
     let mut fs_interner: Interner<FeatureStruct> = Interner::with_capacity(64);
@@ -144,6 +154,7 @@ pub(crate) fn compile_project_recording(
         default_vernacular_ws: snapshot.project.vernacular_writing_systems.first().cloned(),
         default_analysis_ws: snapshot.project.analysis_writing_systems.first().cloned(),
         recorder: RefCell::new(recorder),
+        lineage: RefCell::new(lineage),
     };
 
     let mut acc = Acc {
@@ -233,8 +244,9 @@ pub(crate) fn compile_project_recording(
             .insert(m.xml_key.clone(), MorphemeId(i as u32));
     }
     strata_assign_co_occurrence(snapshot, &ctx, &mut acc, &mut warnings);
-    // The recorder must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
-    let recorder = ctx.recorder.into_inner();
+    // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
+    let mut recorder = ctx.recorder.into_inner();
+    let lineage = ctx.lineage.into_inner();
 
     let strata = vec![
         StratumDef {
@@ -304,11 +316,20 @@ pub(crate) fn compile_project_recording(
     };
 
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.
-    reachability::compact_mrules(&mut grammar, &mut warnings);
-    reachability::trim_unreachable_morpheme_coocurrence(&mut grammar);
+    let (removed_mrules, _removed_allomorphs) = reachability::compact_mrules(&mut grammar, &mut warnings);
+    let removed_cooccurrence = reachability::trim_unreachable_morpheme_coocurrence(&mut grammar);
 
     // `pg-fwdata` extracts every declared natural class unconditionally, so compact to only those actually referenced now that every other compile step has had its chance to resolve one (see `natclass::compact_to_referenced`'s own doc).
-    natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
+    let removed_natclasses = natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
+
+    // Revokes exactly what the three finalizers above report they dropped, via the lineage every owner published at push time -- see `inventory::finalize`'s own doc.
+    inventory::finalize(
+        &mut recorder,
+        &lineage,
+        removed_mrules,
+        removed_cooccurrence,
+        removed_natclasses,
+    );
 
     Ok((grammar, warnings, recorder))
 }
@@ -380,7 +401,11 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
                     );
                     continue;
                 }
-                ctx.represented(key);
+                let index = allomorph_co_occurrence_len(acc, primary_id);
+                ctx.represent_via(
+                    LineageTarget::AllomorphCoOccurrence(primary_id.0, index),
+                    key,
+                );
                 let def = AllomorphCoOccurrenceRuleDef {
                     require: false,
                     others: other_ids,
@@ -452,7 +477,11 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
                     );
                     continue;
                 }
-                ctx.represented(key);
+                let index = acc.morphemes[primary_id.0 as usize].co_occurrence.len();
+                ctx.represent_via(
+                    LineageTarget::MorphemeCoOccurrence(primary_id.0, index),
+                    key,
+                );
                 acc.morphemes[primary_id.0 as usize].co_occurrence.push(
                     MorphemeCoOccurrenceRuleDef {
                         require: false,
@@ -462,6 +491,20 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
                 );
             }
         }
+    }
+}
+
+/// The index the about-to-be-pushed co-occurrence rule will occupy on `primary_id`'s own list.
+fn allomorph_co_occurrence_len(acc: &Acc, primary_id: AllomorphId) -> usize {
+    match acc.allomorph_owners[primary_id.0 as usize] {
+        AllomorphOwner::Root(le, idx) => acc.entries[le.0 as usize].allomorphs[idx as usize]
+            .co_occurrence
+            .len(),
+        AllomorphOwner::Affix(mr, idx) => match &acc.mrules[mr.0 as usize] {
+            MorphRuleDef::AffixProcess(d) => d.allomorphs[idx as usize].co_occurrence.len(),
+            MorphRuleDef::Realizational(d) => d.allomorphs[idx as usize].co_occurrence.len(),
+            MorphRuleDef::Compounding(_) => 0,
+        },
     }
 }
 
@@ -490,6 +533,8 @@ pub(crate) struct Ctx<'a> {
     pub default_analysis_ws: Option<String>,
     /// The snapshot-to-grammar selection recorder every owner below writes its considered/selected/represented/rejected/synthesized calls into; behind a `RefCell` since `Ctx` itself is shared by shared reference everywhere.
     pub recorder: RefCell<SelectionRecorder>,
+    /// Which owner published which `represented` keys, read only by `inventory::finalize`.
+    pub lineage: RefCell<Lineage>,
 }
 
 impl Ctx<'_> {
@@ -512,6 +557,17 @@ impl Ctx<'_> {
 
     pub(crate) fn synthesized(&self, key: InventoryKey) {
         self.recorder.borrow_mut().synthesized(key);
+    }
+
+    /// As [`Ctx::represented`], but also publishes `key` into the lineage under `target`, so a
+    /// later reachability/reference compaction pass that removes `target` can revoke it by name.
+    pub(crate) fn represent_via(&self, target: LineageTarget, key: InventoryKey) {
+        inventory::represent_via(
+            &mut self.recorder.borrow_mut(),
+            &mut self.lineage.borrow_mut(),
+            target,
+            key,
+        );
     }
 
     /// Delegates to `inventory::reject` so the `ConversionIssue` construction exists in exactly one place, shared with the phases that run before `Ctx` exists.

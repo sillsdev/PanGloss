@@ -12,6 +12,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
+use super::inventory::LineageTarget;
 use super::{environment, issue_codes, roles, Acc, Ctx};
 
 pub(crate) fn build(
@@ -359,7 +360,7 @@ fn build_null_affix_rule(
             is_template_rule: false,
         },
     ));
-    ctx.represented(key);
+    ctx.represent_via(LineageTarget::MRule(mrule_id.0), key);
     Some(mrule_id)
 }
 
