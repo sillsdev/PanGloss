@@ -99,7 +99,8 @@ namespace XampleProjector
 					return ExitCodes.ParseEngineFailure;
 				}
 
-				var effectiveCaps = ReadEffectiveCaps(Path.Combine(dynamicFilesDir, database + "adctl.txt"));
+				var loadedAdctlPath = Path.Combine(dynamicFilesDir, database + "adctl.txt");
+				var effectiveCaps = ReadEffectiveCaps(loadedAdctlPath);
 				var maxAnalysesToReturn = maxAnalysesOverride ?? DefaultMaxAnalysesToReturn;
 				var fixedFilesDir = Path.Combine(fieldWorksDir, "Language Explorer", "Configuration", "Grammar");
 
@@ -123,12 +124,14 @@ namespace XampleProjector
 						wordResults.Add(ParseOneWord(cache, xample, word));
 
 					var xample64Path = Path.Combine(fieldWorksDir, "xample64.dll");
+					// runtime vs. adctl are different provenances (SetParameter vs. a baked-in file); nest, don't flatten.
 					var parametersJson = new JObject
 					{
-						["maxAnalysesToReturn"] = maxAnalysesToReturn,
+						["runtime"] = new JObject { ["maxAnalysesToReturn"] = maxAnalysesToReturn },
+						["adctl"] = effectiveCaps,
+						["adctlPatched"] = overrides.Count > 0,
+						["adctlSource"] = PathUtil.MakeRelative(projectDir, loadedAdctlPath),
 					};
-					foreach (var kv in effectiveCaps)
-						parametersJson[kv.Key] = kv.Value;
 
 					var response = new JObject
 					{
