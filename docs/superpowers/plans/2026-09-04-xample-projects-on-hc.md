@@ -403,15 +403,24 @@ git commit -m "gates: measure FieldWorks conversion loss end to end"
 > **Deviation 2026-09-05 — pilot fixture changed.** `prefixal-discontinuous-slot-dependency` cannot be
 > backed out of FieldWorks: `HCLoader` assigns output MPR features only to derivational affixes
 > (`LoadDerivAffixProcessRule`), while `mrModeTrans` is a template-slot affix that *sets*
-> `mprHighTrans`, and `mrSubj` gates per subrule where FieldWorks gates per MSA. The pilot is
-> `languages/suffixing-evidential-adjacency-chain` instead: every construct it uses (template slots,
-> slot disjunction, allomorph environments, segment natural classes, morpheme and allomorph ad hoc
-> prohibitions, free-fluctuating allomorphs) has a `producible=Yes` row in Machine's
-> `fieldworks-producibility.tsv`. All fourteen of its phonemes are members of `ncVowel`/`ncConsonant`,
-> so its manifest witnesses `mutation.referenced-phoneme` refusals and baseline parity only; the
-> empty-inventory invariance case (with its `inferred_segments` list) moves to Task 8's first
-> expansion, `edge-cases/deep-optional-affix-nesting`, whose only natural class is `ncAny`. Read every
-> `prefixal-discontinuous-slot-dependency` path below as the evidential fixture's.
+> `mprHighTrans`, and `mrSubj` gates per subrule where FieldWorks gates per MSA. A scan of all 21
+> `requires: []` fixtures against Machine's `fieldworks-producibility.tsv` `producible=No` rows plus
+> three semantic checks (slot rule setting an MPR feature, per-subrule `requiredMPRFeatures`,
+> `type="require"` co-occurrence — FieldWorks ad hoc rules are exclude-only) leaves sixteen
+> producible fixtures. The pilot is `edge-cases/deep-optional-affix-nesting`: one template of twelve
+> optional slots, `ncAny` as its only natural class, so both phonemes are unreferenced and the
+> empty-inventory case's `inferred_segments` is `[x, k]`. Its C(12,k) analyses make it the natural
+> containment probe as well: author the project's `<XAmple>` block with `MaxPrefixes` and
+> `MaxAnalysesToReturn` high enough that the comparator's baseline is not capped, and record the cap
+> status. Task 8's expansion candidates, in order: `diacritic-segments`, `disjunctive-recheck`,
+> `free-fluctuating-allomorph-pair`, `strrep-identity`, `stem-name-restricted-root-allomorph`,
+> `mpr-overwrite-order-dependence`, `mpr-group-overwrite-without-realizational`, `compounding-breadth`,
+> `truncate-morphotactic`, `loader-isactive`, `loader-pattern-shapes`,
+> `bistratal-overlapping-segment-representation`, `cross-table-root-respelling`,
+> `process-morphology-in-place-mutation`. Not producible: `prefixal-discontinuous-slot-dependency`,
+> `suffixing-evidential-adjacency-chain`, `fusional-realizational-morphology`,
+> `morphotactic-attribute-breadth`, `loader-isactive-breadth`, `feature-gating-breadth`. Read every
+> `prefixal-discontinuous-slot-dependency` path below as the pilot's.
 
 **Files:**
 
