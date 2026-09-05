@@ -2,7 +2,7 @@
 
 use std::panic::{self, AssertUnwindSafe};
 
-use pg_conformance_fixtures::{claimed_scope, discover, SCOPE_ENV};
+use pg_conformance_fixtures::{claimed_scope, discover, producibility_census, SCOPE_ENV};
 use pg_foma::coverage_seam::collect_observations;
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::faithfulness_coverage::{
@@ -54,6 +54,14 @@ fn report() -> FaithfulnessReport {
 fn report_faithfulness_coverage() {
     let report = report();
     println!("{}", report.render());
+    // "fixtures discovered" is not one FieldWorks-facing population; report the three separately.
+    let census = producibility_census(&discover());
+    println!(
+        "fieldworks_producible -- {} producible, {} engine-only, {} unmarked",
+        census.producible.len(),
+        census.engine_only.len(),
+        census.unmarked.len()
+    );
 
     if let Err(violations) = report.check(REQUIREMENT) {
         panic!(
