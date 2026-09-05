@@ -83,8 +83,7 @@ impl InventoryKey {
         }
     }
 
-    /// A key naming an attachment relationship between an owner and a target, distinguished by
-    /// `role` (e.g. which reference slot on the owner points at the target).
+    /// A key naming an [`InventoryIdentity::Attachment`] between an owner and a target.
     pub fn attachment(
         kind: InventoryKind,
         owner_guid: impl Into<String>,
