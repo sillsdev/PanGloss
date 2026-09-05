@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using Newtonsoft.Json.Linq;
+using SIL.LCModel;
 using SIL.Machine.Morphology.HermitCrab;
 
 namespace XampleProjector
@@ -39,19 +40,47 @@ namespace XampleProjector
 				return ExitCodes.ParityMismatch;
 			}
 
-			var guidMap = JObject.Parse(File.ReadAllText(guidMapPath));
-			var guidMapIds = new HashSet<string>(((JObject)guidMap[Fields.GuidMap]).Properties().Select(p => p.Name));
+			var guidMapDoc = JObject.Parse(File.ReadAllText(guidMapPath));
+			Dictionary<string, Guid> guidMap;
+			try
+			{
+				guidMap = ((JObject)guidMapDoc[Fields.GuidMap]).Properties()
+					.ToDictionary(p => p.Name, p => Guid.Parse((string)p.Value));
+			}
+			catch (Exception ex) when (ex is FormatException || ex is NullReferenceException)
+			{
+				Console.Error.WriteLine("Parity mismatch: --guid-map \"{0}\" has no valid \"{1}\" object: {2}", guidMapPath, Fields.GuidMap, ex.Message);
+				return ExitCodes.ParityMismatch;
+			}
+			var projectPathRelative = (string)guidMapDoc[Fields.ProjectPath];
+			if (projectPathRelative == null)
+			{
+				Console.Error.WriteLine("Parity mismatch: --guid-map \"{0}\" has no \"{1}\"", guidMapPath, Fields.ProjectPath);
+				return ExitCodes.ParityMismatch;
+			}
+			var projectPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(guidMapPath)) ?? ".", projectPathRelative);
 
 			var hcDoc = LoadXml(hcXmlPath);
 			var report = new JObject();
 			try
 			{
-				CheckMorphologicalRules(hcDoc, grammar, guidMapIds, report);
+				CheckMorphologicalRules(hcDoc, grammar, report);
 				CheckLexicalEntries(hcDoc, grammar, report);
 				CheckCharacterTable(hcDoc, report);
-				CheckSlotOrder(hcDoc, grammar, guidMapIds, report);
+				CheckSlotOrder(hcDoc, grammar, report);
 				CheckXampleFiles(hcXmlPath, report);
 				CheckHcEngine(hcXmlPath, report);
+
+				// The structural checks above read only grammar.xml and the HC-XML/XAMPLE files
+				// `project` wrote; the guid map is only meaningful against the live authored
+				// project, so it is the one check that has to open LCM.
+				var lcmExit = FieldWorksSession.Run(fieldWorksDir, projectPath, (cache, logger) =>
+				{
+					CheckAuthoredProject(cache, grammar, guidMap, report);
+					return ExitCodes.Ok;
+				});
+				if (lcmExit != ExitCodes.Ok)
+					return lcmExit;
 			}
 			catch (ParityMismatchException ex)
 			{
@@ -81,7 +110,7 @@ namespace XampleProjector
 
 		private static XElement Stratum(XDocument hcDoc) => hcDoc.Root.Element("Language").Element("Strata").Element("Stratum");
 
-		private static void CheckMorphologicalRules(XDocument hcDoc, GrammarModel grammar, HashSet<string> guidMapIds, JObject report)
+		private static void CheckMorphologicalRules(XDocument hcDoc, GrammarModel grammar, JObject report)
 		{
 			var rules = Stratum(hcDoc).Element("MorphologicalRuleDefinitions")?.Elements("MorphologicalRule").ToList()
 				?? new List<XElement>();
@@ -103,7 +132,7 @@ namespace XampleProjector
 				if (insertShape != "x+")
 					throw new ParityMismatchException($"MorphologicalRule id=\"{(string)rule.Attribute("id")}\": expected InsertSegments \"x+\" (\"x\" plus the prefix's morph-boundary marker), found \"{insertShape}\"");
 				var gloss = (string)rule.Element("Gloss");
-				if (gloss == null || !guidMapIds.Contains(gloss) && !grammar.MorphologicalRules.Values.Any(r => r.MorphemeId == gloss))
+				if (gloss == null || !grammar.MorphologicalRules.Values.Any(r => r.MorphemeId == gloss))
 					throw new ParityMismatchException($"MorphologicalRule id=\"{(string)rule.Attribute("id")}\": Gloss \"{gloss}\" does not trace back to a fixture MorphemeId");
 			}
 			report["morphologicalRuleCount"] = rules.Count;
@@ -152,7 +181,7 @@ namespace XampleProjector
 		/// docs research on liblcm authoring) -- `author` sets Gloss = the fixture's own MorphemeId
 		/// whenever grammar.xml gives no separate Gloss, which is exactly this pilot's shape.
 		/// </summary>
-		private static void CheckSlotOrder(XDocument hcDoc, GrammarModel grammar, HashSet<string> guidMapIds, JObject report)
+		private static void CheckSlotOrder(XDocument hcDoc, GrammarModel grammar, JObject report)
 		{
 			var template = Stratum(hcDoc).Element("AffixTemplates")?.Element("AffixTemplate");
 			var expectedTemplate = grammar.AffixTemplates.Single();
@@ -239,6 +268,132 @@ namespace XampleProjector
 				throw new ParityMismatchException($"expected 924 analyses for \"xxxxxxk\", found {countXxxxxxK}");
 			report["engineAnalysisCountK"] = countK;
 			report["engineAnalysisCountXxxxxxK"] = countXxxxxxK;
+		}
+
+		/// <summary>
+		/// The only check here that opens the authored LCM project rather than reading grammar.xml
+		/// or the projected HC-XML/XAMPLE files: binds --guid-map to the live object graph so a
+		/// swapped or emptied guid map is caught here, not silently accepted (see README).
+		/// </summary>
+		private static void CheckAuthoredProject(LcmCache cache, GrammarModel grammar, Dictionary<string, Guid> guidMap, JObject report)
+		{
+			var repo = cache.ServiceLocator.GetInstance<ICmObjectRepository>();
+
+			ICmObject Resolve(string fixtureId, string expectedClassName)
+			{
+				if (!guidMap.TryGetValue(fixtureId, out var guid))
+					throw new ParityMismatchException($"guidMap is missing fixture id \"{fixtureId}\" (expected a {expectedClassName})");
+				if (!repo.TryGetObject(guid, out var obj))
+					throw new ParityMismatchException($"guidMap[\"{fixtureId}\"] = {guid} does not resolve to any object in the authored project");
+				if (obj.ClassName != expectedClassName)
+					throw new ParityMismatchException($"guidMap[\"{fixtureId}\"] = {guid} resolves to a {obj.ClassName}, expected a {expectedClassName}");
+				return obj;
+			}
+
+			// (a) every guidMap guid resolves to an object of the expected LCM class.
+			foreach (var pos in grammar.PartsOfSpeech)
+				Resolve(pos.Id, "PartOfSpeech");
+			foreach (var phoneme in grammar.Phonemes)
+				Resolve(phoneme.Id, "PhPhoneme");
+			foreach (var marker in grammar.BoundaryMarkers)
+				Resolve(marker.Id, "PhBdryMarker");
+			foreach (var nc in grammar.NaturalClasses)
+				Resolve(nc.Id, "PhNCSegments");
+			foreach (var feature in grammar.MprFeatures)
+				Resolve(feature.Id, "CmPossibility");
+			foreach (var rule in grammar.MorphologicalRules.Values)
+			{
+				Resolve(rule.Id, "LexEntry");
+				foreach (var subrule in rule.Subrules)
+					Resolve(subrule.Id, "MoAffixAllomorph");
+			}
+			foreach (var template in grammar.AffixTemplates)
+			{
+				Resolve(template.Name, "MoInflAffixTemplate");
+				foreach (var slot in template.Slots)
+					Resolve(slot.Name, "MoInflAffixSlot");
+			}
+			foreach (var lexEntry in grammar.LexicalEntries)
+			{
+				Resolve(lexEntry.Id, "LexEntry");
+				foreach (var allo in lexEntry.Allomorphs)
+					Resolve(allo.Id, "MoStemAllomorph");
+			}
+			for (var i = 0; i < grammar.MorphemeCoOccurrenceRules.Count; i++)
+				Resolve($"morphemeCoOccurrence[{i}]", "MoMorphAdhocProhib");
+			for (var i = 0; i < grammar.AllomorphCoOccurrenceRules.Count; i++)
+				Resolve($"allomorphCoOccurrence[{i}]", "MoAlloAdhocProhib");
+
+			// (b) the template's PrefixSlotsRS/SuffixSlotsRS guid sequence equals the fixture's
+			// slot declaration order, per direction, mapped through guidMap.
+			foreach (var template in grammar.AffixTemplates)
+			{
+				var lcmTemplate = (IMoInflAffixTemplate)Resolve(template.Name, "MoInflAffixTemplate");
+				bool SlotIsPrefix(SlotModel slot) => grammar.MorphologicalRules[slot.RuleIds[0]].Subrules[0].IsPrefix;
+
+				var expectedPrefixOrder = template.Slots.Where(SlotIsPrefix).Select(s => guidMap[s.Name]).ToList();
+				var actualPrefixOrder = lcmTemplate.PrefixSlotsRS.Select(s => s.Guid).ToList();
+				if (!actualPrefixOrder.SequenceEqual(expectedPrefixOrder))
+				{
+					throw new ParityMismatchException(
+						$"AffixTemplate \"{template.Name}\": PrefixSlotsRS guid order [{string.Join(",", actualPrefixOrder)}] " +
+						$"does not match the fixture's declared slot order mapped through guidMap [{string.Join(",", expectedPrefixOrder)}]");
+				}
+
+				var expectedSuffixOrder = template.Slots.Where(s => !SlotIsPrefix(s)).Select(s => guidMap[s.Name]).ToList();
+				var actualSuffixOrder = lcmTemplate.SuffixSlotsRS.Select(s => s.Guid).ToList();
+				if (!actualSuffixOrder.SequenceEqual(expectedSuffixOrder))
+				{
+					throw new ParityMismatchException(
+						$"AffixTemplate \"{template.Name}\": SuffixSlotsRS guid order [{string.Join(",", actualSuffixOrder)}] " +
+						$"does not match the fixture's declared slot order mapped through guidMap [{string.Join(",", expectedSuffixOrder)}]");
+				}
+			}
+
+			// (c) each slot rule's MoInflAffMsa.SlotsRC contains exactly its fixture slot's guid.
+			foreach (var template in grammar.AffixTemplates)
+			{
+				foreach (var slot in template.Slots)
+				{
+					var slotGuid = guidMap[slot.Name];
+					foreach (var ruleId in slot.RuleIds)
+					{
+						var entry = (ILexEntry)Resolve(ruleId, "LexEntry");
+						var msa = (IMoInflAffMsa)entry.MorphoSyntaxAnalysesOC.First();
+						var slotGuids = msa.SlotsRC.Select(s => s.Guid).ToList();
+						if (slotGuids.Count != 1 || slotGuids[0] != slotGuid)
+						{
+							throw new ParityMismatchException(
+								$"MorphologicalRule \"{ruleId}\": MoInflAffMsa.SlotsRC is [{string.Join(",", slotGuids)}], " +
+								$"expected exactly [{slotGuid}] (slot \"{slot.Name}\")");
+						}
+					}
+				}
+			}
+
+			// (d) each entry's LexemeFormOA + AlternateFormsOS guids match the fixture's allomorph
+			// ordering rule (README "author's supported subset": LAST allomorph -> LexemeFormOA,
+			// every earlier one -> AlternateFormsOS in order).
+			foreach (var lexEntry in grammar.LexicalEntries)
+			{
+				var entry = (ILexEntry)Resolve(lexEntry.Id, "LexEntry");
+				var expectedLexeme = guidMap[lexEntry.Allomorphs[lexEntry.Allomorphs.Count - 1].Id];
+				if (entry.LexemeFormOA.Guid != expectedLexeme)
+				{
+					throw new ParityMismatchException(
+						$"LexicalEntry \"{lexEntry.Id}\": LexemeFormOA guid {entry.LexemeFormOA.Guid} does not match the fixture's LAST allomorph guid {expectedLexeme}");
+				}
+				var expectedAlternates = lexEntry.Allomorphs.Take(lexEntry.Allomorphs.Count - 1).Select(a => guidMap[a.Id]).ToList();
+				var actualAlternates = entry.AlternateFormsOS.Select(f => f.Guid).ToList();
+				if (!actualAlternates.SequenceEqual(expectedAlternates))
+				{
+					throw new ParityMismatchException(
+						$"LexicalEntry \"{lexEntry.Id}\": AlternateFormsOS guid order [{string.Join(",", actualAlternates)}] " +
+						$"does not match the fixture's earlier-allomorph order [{string.Join(",", expectedAlternates)}]");
+				}
+			}
+
+			report["guidMapVerifiedCount"] = guidMap.Count;
 		}
 	}
 }

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>AllomorphCoOccurrenceProbe</Name>
+    <!--
+      Minimal fixture for XampleProjector's own build.ps1 -Mode test: exercises
+      AllomorphCoOccurrenceRule authoring (GrammarAuthor.CreateCoOccurrenceRules), resolving one
+      primaryAllomorph against an affix rule's subrule id ("subP1") and one otherAllomorphs entry
+      against a lexical entry's allomorph id ("aK"), the two id spaces alloFormMap unifies.
+      Synthetic segments only ("x"/"k"), matching the machine submodule's own pilot fixture
+      convention; not a HermitCrab conformance fixture and not staged anywhere else.
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cX"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrP1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>p1</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subP1">
+                <MorphologicalInput><PhoneticSequence id="stemP1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments><CopyFromInput index="stemP1" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>P1</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posV">
+            <Name>probeTemplate</Name>
+            <Slot optional="true" morphologicalRules="mrP1">
+              <Name>slot1</Name>
+            </Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+    <AllomorphCoOccurrenceRules>
+      <AllomorphCoOccurrenceRule type="exclude" primaryAllomorph="subP1" otherAllomorphs="aK" adjacency="anywhere" />
+    </AllomorphCoOccurrenceRules>
+  </Language>
+</HermitCrabInput>
