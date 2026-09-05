@@ -10,7 +10,7 @@
 //! (no monitor fired). Read `CONTEXT.md`'s three axes before reclassifying anything here.
 //!
 //! # Post-compile, and one owner
-//! [`assess_completed_fst`] starts nothing, suppresses nothing, and consults no selector. A
+//! `assess_completed_fst` starts nothing, suppresses nothing, and consults no selector. A
 //! contained measurement attempt may compile a complete FST from a partial-bearing grammar so
 //! PanGloss can measure it; what this module denies is publishing, serializing, selecting or
 //! reconstructing that result as a trusted artifact. Every strategy in

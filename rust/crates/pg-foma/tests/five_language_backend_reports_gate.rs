@@ -228,8 +228,7 @@ fn assert_production_status_follows_partial_inventory(name: &str) {
     corpus::record_cases(&format!("{name}_production_admission"), 1);
 }
 
-// One test per grammar, matching the per-grammar reports above: a single test loading all five
-// exceeds nextest's 10-minute per-test ceiling, and one slow grammar would take the others with it.
+// One test per grammar: all five in one test exceeds nextest's 10-minute per-test ceiling.
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]

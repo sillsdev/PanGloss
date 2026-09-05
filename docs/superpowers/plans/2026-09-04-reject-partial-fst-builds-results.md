@@ -517,6 +517,34 @@ Every command was run through `rust/tools/pg.ps1` from
 | `-Mode test -Package pg-grammar` (whole package) | 91 passed, 10 skipped (`#[ignore]`d corpus tests) |
 | `-Mode conformance-test -Scope local -Package pg-parse -TestTarget conformance_fixtures_gate` | 199 words across 30 fixtures; 4/5 passed, 1 pre-existing `-Scope local` failure (below) |
 | `hc-conformance.exe --fixtures <scratch> --propose --capabilities ""` | 1 passed, 0 failed, 0 skipped |
+| `-Mode check` (workspace, `--all-targets`) | clean, no errors |
+| `-Mode test -Package pg-foma -TestTarget faithfulness_coverage_gate` | 3 tests, 3 passed (ratchet at 6) |
+| `-Mode test -Package pg-foma -TestTarget envelope_agrees_with_compiler_gate` (final) | 8 tests, 8 passed |
+| `-Mode test -Package pg-foma -TestTarget witnessed_strategy_coverage_gate` | 4 tests, 4 passed |
+| `-Mode test` (authoritative, `all` scope, 2026-09-05) | 2256 tests run across 233 binaries: 2255 passed, **1 failed**, 173 skipped |
+| `-Mode test -Package pg-foma -TestTarget backend_scoreboard_gate` (after the ratchet update below) | 1 test, 1 passed |
+| `-Mode check` (workspace, after the comment-hygiene edits to four test files) | clean |
+| `-Mode doc` (first run) | **failed**: `unresolved link to assess_completed_fst` in `production_admission.rs`'s module doc, denied by `broken_intra_doc_links` -- the final reviewer's one flagged risk, confirmed |
+| `-Mode doc` (after un-linking that name: the module carries both an outer `///` in `lib.rs` and inner `//!` docs, and rustdoc resolves the combination against the parent scope) | clean, 22 crates documented, `broken_intra_doc_links = "deny"` satisfied |
+
+**The one authoritative-suite failure, and what it was.** `backend_scoreboard_gate::
+backend_scoreboard_matches_the_ratchet_in_both_directions` -- a per-(fixture, backend) ratchet
+that none of the targeted runs above ever linked. Adding one scored fixture moves every backend's
+bucket total by one, and the gate holds exact figures, so it failed by construction rather than by
+regression. Measured movement, one cell per backend:
+
+| Backend | Cell moved | Reading |
+|---|---|---|
+| TunedSurfaceProbed | `compiles_but_misses` 0 -> 1 | `daknagafa`, the topology miss diagnosed above |
+| TemplatedUnderlyingTokens | `compiles_but_misses` 0 -> 1 | the same word, same shared skeleton limit |
+| PlanComposed | `oracle_exact` 31 -> 32 | whole-fixture containment held |
+
+Soundness stayed at zero surviving over-generations. The three constants were updated
+deliberately, with the reason recorded in
+`docs/research/backend-scoreboard-extraction-reconciliation.md` (the file the gate's own header
+points at), and the gate re-run green. It is the same `daknagafa` fact the faithfulness ratchet
+already carries, now visible from a second, independent measurement -- which is exactly why the
+targeted runs could not have caught it and the authoritative run was not optional.
 
 **One known, pre-existing failure under `-Scope local`:**
 `conformance_fixtures_gate::w91_affix_shapes_covered_by_upstream_fixtures` panics with
@@ -537,24 +565,42 @@ named test was required to fail.
 | `mrGate2Partial`'s `partial="true"` → `"false"` (scratch copy, C# oracle) | fixture word `pilnbvbfb` | FAILED — 1/8 mismatched, word gained `PIL+NONFINTAGB+GATE2PARTIAL+FINTAGB` |
 | `nonFinalTemplateA`'s `final="false"` → `"true"` (scratch copy, C# oracle) | fixture words `daknagafa`, `dakna` | FAILED — 2/8 mismatched, both flipped as documented |
 
-**Still to falsify, and not claimed as done.** Five controls in the production gate have not yet
-been broken-and-observed. They are named here rather than omitted so the gap is legible:
+**The five production-gate controls, broken and observed (2026-09-05).** Each break was applied by
+exact string replacement to a backed-up copy, the named test selected by `-Filter`, and the source
+restored afterward; `git status` showed no residual change. Every case is a distinct assertion
+message, not a compile error:
 
-| # | Break | Test that must fail |
-|---|---|---|
-| F1 | `RuntimeEvaluation::selectable()` ignores `production_health` | `selectable_requires_both_accurate_certification_and_clean_production_health` |
-| F2 | `backend_report::validate`'s ranking drops the publication filter | `a_production_blocked_candidate_is_excluded_from_frontier_and_winner_selection` |
-| F3 | the stats prefix reverts to `FINAL_TEMPLATE_STATS` | `final_template_stats_line_is_deterministic_for_empty_and_nonempty_rows` |
-| F4 | `compile_completed_backend` stops consulting admission | `a_partial_grammar_compiles_under_containment_and_is_then_refused_publication` |
-| F5 | `assess_completed_fst` refuses unconditionally | `production_admission_partitions_compile_successes_by_partial_inventory` (the over-refusal direction) |
+| # | Break | Test that failed | Observed (exit 100 each) |
+|---|---|---|---|
+| F1 | `RuntimeEvaluation::selectable()` drops `!production_blocks_publication()` | `backend_runtime::tests::selectable_requires_both_accurate_certification_and_clean_production_health` | panicked: "blocked production health alone must refuse, even with an accurate certification" |
+| F2 | `backend_report::validate`'s ranking filter becomes `\|_\| true` | `backend_report::tests::a_production_blocked_candidate_is_excluded_from_frontier_and_winner_selection` | `Err("serialized frontier does not match recomputed frontier")` |
+| F3 | stats prefix reverted to `FINAL_TEMPLATE_STATS` | `stats_cmd::tests::final_template_stats_line_is_deterministic_for_empty_and_nonempty_rows` | FAILED at `stats_cmd.rs:1853` (the prefix assertion) |
+| F4 | `compile_completed_backend`'s admission branch behind `if false &&` | `completed_build::tests::a_partial_grammar_compiles_under_containment_and_is_then_refused_publication` | panicked: "a partial grammar must not yield a production artifact", printing the leaked `CompletedBackendBuild` with payload bytes |
+| F5 | `assess_completed_fst` refuses unconditionally (`if true`) | `every_strategy_admits_the_no_partial_control` | `PlanComposed: the control must stay production-admissible` -- `NotProductionReady` vs `WithinLimits` |
 
-One attempt at F1 was made and produced **no observation**: the run never reached a test result, and
-the deliberate break was left in the working tree while an authoritative suite build was compiling
-that file. The break was reverted, the tainted suite run was discarded and restarted from a clean
-tree, and the tree was re-verified by direct inspection of the restored function rather than by
-`git status` (which shows the file as merely modified either way, and so cannot tell a break from a
-fix). Recording the process failure because the mechanism that caught it — reading the file's
-contents, not its status — is the reusable part.
+F5's falsifier is the admission gate's own control test rather than the envelope census named in
+the earlier draft of this table; both assert the over-refusal direction, and the control test is the
+cheaper one to link. F4's failure output is worth reading once: with the boundary bypassed, the
+partial grammar's payload and fingerprints reach the caller intact, which is exactly the artifact
+the policy exists to withhold.
+
+Two process notes, recorded because the mechanism that caught each is the reusable part. The first
+F1 attempt produced no observation: the break was left in the tree while an authoritative build was
+compiling that file; the run was discarded and restarted from a clean tree, and the tree was
+re-verified by reading the restored function, since `git status` shows "modified" for a break and a
+fix alike. Later, two whole passes of the falsification script reported all five as "done" in under
+a minute with an empty exit code: the harness had splatted its argument array positionally, so
+`pg.ps1` rejected `-Mode` itself and no test ever ran. Both were caught by the same rule -- an
+observation needs a `Summary` line with a non-zero test count, never just a section header -- and
+the script now prints that count beside each verdict. A third pass ran F1, F2, F4 and F5 but not F3:
+`-Mode quick` selects `--lib --bins`, and `pg-cli` has no lib target, so it exited 101 with zero
+tests; F3 was re-run under `-Mode test` and observed.
+
+**Comment hygiene** after these edits: 8 violations remain, all in files this branch never touched
+(`cross_table_root_respelling_gate.rs`, `surface_probe.rs`, `emit.rs`) and inherited from `main`.
+The 6 this branch had introduced -- one dated path in a test constant's comment, five over-long
+implementation comments in the new gates -- were reduced to one line each; the arguments they
+carried live in this document.
 
 ## Remaining limitations
 

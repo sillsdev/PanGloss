@@ -116,10 +116,7 @@ fn selected_templated_underlying_tokens_payload_reconstructs_exact_analysis_pipe
     );
 }
 
-/// At the PUBLIC boundary, a partial-bearing grammar yields no build to select at all.
-///
-/// `select_completed_build` is never even reached: the refusal is an absence, not a filter, so
-/// there is no payload, fingerprint or evidence value a caller could route around.
+/// At the PUBLIC boundary a partial-bearing grammar yields no build at all -- an absence, not a filter a caller could route around.
 #[test]
 fn a_partial_bearing_grammar_yields_no_selectable_build() {
     let mut grammar = pg_grammar::load(TUNED_FIXTURE).expect("synthetic fixture must load");

@@ -150,12 +150,7 @@ fn every_strategy_admits_the_no_partial_control() {
     }
 }
 
-/// All three strategies: the measurement really runs, and publication is refused regardless.
-///
-/// Both facts are recorded per strategy rather than only the refusal. A backend may legitimately
-/// decline a given grammar for an unrelated capability reason, and asserting only "refused" could
-/// not tell that apart from the readiness policy — so this requires at least one strategy to have
-/// COMPLETED the measurement on the same grammar the policy then refuses.
+/// Per partial shape: every strategy refuses publication, and at least one COMPLETES the measurement first.
 #[test]
 fn all_three_strategies_measure_and_are_then_refused_publication() {
     for (label, grammar, _authored_id) in partial_shapes() {
@@ -213,15 +208,7 @@ fn the_control_measures_and_stays_publishable_on_every_strategy() {
     );
 }
 
-/// The recall question behind classing the partial policy as READINESS rather than
-/// representability: every backend must still PROPOSE the analyses that exist only because a rule
-/// is partial.
-///
-/// `Readiness` asserts the grammar is representable and only unshippable. That is a claim about
-/// recall, so it is measured here rather than assumed: partial-dependent words are identified
-/// structurally (they lose every analysis when the partial flags are cleared), and each backend's
-/// proposal set must contain the oracle's analyses for them. A `NotAttempted` outcome fails this
-/// test — an unmeasured backend cannot support the weaker classification.
+/// READINESS claims recall, so it is measured: every backend must contain the oracle's analyses for the partial-dependent words.
 #[test]
 fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial() {
     let fixture = pg_conformance_fixtures::discover()
@@ -269,9 +256,7 @@ fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial
         partial_dependent
     );
 
-    // Containment restricted to the partial-dependent words: a failure on some OTHER word in the
-    // same fixture is a real gap but a different question, and must not be read as a partial-recall
-    // miss. The whole-fixture account is printed below and owned by `faithfulness_coverage_gate`.
+    // Partial-dependent words only: a miss elsewhere in the fixture is `faithfulness_coverage_gate`'s question.
     let only_partial_dependent: Vec<String> =
         partial_dependent.iter().map(|(word, _)| word.clone()).collect();
     let observation = pg_foma::faithfulness_coverage::observe_fixture_containment(
