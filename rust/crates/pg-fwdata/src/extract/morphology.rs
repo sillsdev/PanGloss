@@ -83,13 +83,13 @@ fn record_parser_settings(
     if presence.accept_unspecified_graphemes {
         record_present_setting(ctx, "AcceptUnspecifiedGraphemes");
     }
-    for field in &presence.xample_fields {
+    for (field, parsed_ok) in &presence.xample_fields {
         let name = format!("XAmple.{field}");
         let key = InventoryKey::setting(InventoryKind::ParserSetting, name);
         ctx.authored(key.clone());
         ctx.considered(key.clone());
         ctx.selected(key.clone());
-        if xample_field_parsed(&parsed.xample, field) {
+        if *parsed_ok {
             ctx.represented(key);
         } else {
             ctx.record_rejected(
@@ -121,19 +121,6 @@ fn record_present_setting_kind(ctx: &mut Ctx, kind: InventoryKind, name: &str) {
     ctx.considered(key.clone());
     ctx.selected(key.clone());
     ctx.represented(key);
-}
-
-fn xample_field_parsed(xample: &pg_snapshot::XAmpleParameters, field: &str) -> bool {
-    match field {
-        "MaxNulls" => xample.max_nulls.is_some(),
-        "MaxPrefixes" => xample.max_prefixes.is_some(),
-        "MaxInfixes" => xample.max_infixes.is_some(),
-        "MaxSuffixes" => xample.max_suffixes.is_some(),
-        "MaxInterfixes" => xample.max_interfixes.is_some(),
-        "MaxRoots" => xample.max_roots.is_some(),
-        "MaxAnalysesToReturn" => xample.max_analyses_to_return.is_some(),
-        _ => false,
-    }
 }
 
 // Parts of speech

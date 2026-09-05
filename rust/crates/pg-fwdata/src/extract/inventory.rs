@@ -156,11 +156,8 @@ impl SelectionRecorder {
     }
 
     pub(crate) fn finish(self) -> (ConversionInventory, Vec<ConversionIssue>) {
-        debug_assert!(
-            self.check_invariants().is_ok(),
-            "selection recorder invariant violated: {:?}",
-            self.check_invariants()
-        );
+        let result = self.check_invariants();
+        debug_assert!(result.is_ok(), "selection recorder invariant violated: {result:?}");
         (self.inventory, self.issues)
     }
 }
