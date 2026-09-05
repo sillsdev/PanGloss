@@ -12,6 +12,7 @@ use crate::model::{
 };
 
 use super::environment;
+use super::inventory::LineageTarget;
 use super::issue_codes;
 use super::roles;
 use super::{Acc, Ctx};
@@ -356,6 +357,7 @@ pub(crate) fn build_affix_rule(
                 msa,
                 required_mpr,
                 out_mpr,
+                mrule_id,
                 ctx,
                 acc,
                 warnings,
@@ -382,7 +384,10 @@ pub(crate) fn build_affix_rule(
         acc.allomorph_owners
             .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
         for guid in &source_guids {
-            ctx.represented(InventoryKey::object(InventoryKind::Allomorph, guid.clone()));
+            ctx.represent_via(
+                LineageTarget::MRule(mrule_id.0),
+                InventoryKey::object(InventoryKind::Allomorph, guid.clone()),
+            );
         }
         acc.allomorph_sources.push(crate::model::AllomorphSource {
             form_guids: source_guids.into_iter().map(Some).collect(),
@@ -449,7 +454,7 @@ pub(crate) fn build_affix_rule(
         }
     }
 
-    ctx.represented(msa_key);
+    ctx.represent_via(LineageTarget::MRule(mrule_id.0), msa_key);
     Some(mrule_id)
 }
 
@@ -470,12 +475,14 @@ fn is_circumfix_suffix_half(mt: MorphType) -> bool {
 }
 
 /// One allomorph per prefix-half x suffix-half pairing, environments/positions unioned from both halves; see docs/research/circumfix-cross-product-loading.md.
+#[allow(clippy::too_many_arguments)]
 fn build_circumfix_allomorphs(
     entry: &LexEntry,
     allos: &[&Allomorph],
     msa: &Msa,
     required_mpr: crate::model::MprSet,
     out_mpr: crate::model::MprSet,
+    mrule_id: MRuleId,
     ctx: &Ctx,
     acc: &mut Acc,
     warnings: &mut Vec<String>,
@@ -559,7 +566,7 @@ fn build_circumfix_allomorphs(
                     continue;
                 }
             };
-            ctx.represented(expansion);
+            ctx.represent_via(LineageTarget::MRule(mrule_id.0), expansion);
             // Union of both halves' conditioning, `positions` included per `combined_env_guids` below.
             let mut environments = super::environment::resolve_environment_defs(
                 prefix

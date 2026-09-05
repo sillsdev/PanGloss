@@ -177,6 +177,19 @@ impl SelectionRecorder {
         self.inventory.represented.contains(key)
     }
 
+    /// Moves an already-`represented` key to `rejected`, for a key a post-hoc reachability/reference
+    /// compaction pass dropped after the compiler represented it. Panics if `key` was not represented:
+    /// that would mean the caller is re-deriving reachability instead of relaying an owner's own decision.
+    pub fn revoke_represented(&mut self, key: InventoryKey, issue: ConversionIssue) {
+        let was_represented = self.inventory.represented.remove(&key);
+        assert!(
+            was_represented,
+            "revoke_represented: key was not represented: {key:?}"
+        );
+        self.inventory.rejected.insert(key);
+        self.issues.push(issue);
+    }
+
     /// `represented ⊆ selected ⊆ considered ⊆ authored ∪ synthesized`; `rejected ⊆ selected`; `represented ∩ rejected = ∅`.
     pub fn check_invariants(&self) -> Result<(), String> {
         let authored_or_synthesized: BTreeSet<_> = self
@@ -230,6 +243,10 @@ pub enum IssueClass {
     UnrepresentableForHc,
     SubstrateUnresolvable,
     MigrationDifference,
+    /// The compiler represented this key and a later reachability/reference compaction pass then
+    /// removed it from the compiled `Grammar` — exactly as an exporter walking the finished
+    /// grammar would never visit it. Never fatal.
+    UnreachableInGrammar,
 }
 
 /// A pointer at the raw source object a [`ConversionIssue`] is about, independent of whether that
@@ -544,6 +561,49 @@ mod tests {
             },
         );
         assert!(r.check_invariants().is_err());
+    }
+
+    #[test]
+    fn revoke_represented_moves_the_key_to_rejected_and_off_represented() {
+        let mut r = SelectionRecorder::default();
+        let key = InventoryKey::object(InventoryKind::Msa, "g1");
+        r.authored(key.clone());
+        r.considered(key.clone());
+        r.selected(key.clone());
+        r.represented(key.clone());
+        r.revoke_represented(
+            key.clone(),
+            ConversionIssue {
+                code: "test.revoked".to_string(),
+                class: IssueClass::UnreachableInGrammar,
+                source: None,
+                fatal: false,
+                message: "test".to_string(),
+            },
+        );
+        assert!(!r.inventory.represented.contains(&key));
+        assert!(r.inventory.rejected.contains(&key));
+        assert!(r.check_invariants().is_ok());
+    }
+
+    #[test]
+    #[should_panic(expected = "key was not represented")]
+    fn revoke_represented_panics_on_a_key_that_was_never_represented() {
+        let mut r = SelectionRecorder::default();
+        let key = InventoryKey::object(InventoryKind::Msa, "g1");
+        r.authored(key.clone());
+        r.considered(key.clone());
+        r.selected(key.clone());
+        r.revoke_represented(
+            key,
+            ConversionIssue {
+                code: "test.revoked".to_string(),
+                class: IssueClass::UnreachableInGrammar,
+                source: None,
+                fatal: false,
+                message: "test".to_string(),
+            },
+        );
     }
 
     #[test]

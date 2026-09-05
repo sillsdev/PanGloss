@@ -6,8 +6,9 @@ use pg_snapshot::feature::{
 };
 use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Lexicon, Msa, Sense};
 use pg_snapshot::morphology::{
-    AffixSlot, AffixTemplate, CompoundConstituentRequirement, CompoundOutcome, CompoundRule,
-    InflectionClass, LexEntryInflType, MorphType, Morphology, PartOfSpeech,
+    AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
+    CompoundOutcome, CompoundRule, InflectionClass, LexEntryInflType, MorphType, Morphology,
+    PartOfSpeech,
 };
 use pg_snapshot::phonology::{
     BoundaryMarker, MetathesisRule, NaturalClass as SnapNaturalClass, Phoneme, PhonologicalRule,
@@ -1913,4 +1914,195 @@ fn complex_phonological_feature_is_recorded_selected_before_rejected() {
     assert!(issues
         .iter()
         .any(|i| i.code == super::issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED));
+}
+
+// --- finalizer revocation: a compacted-away mrule/natclass/co-occurrence rule is un-represented ---
+
+/// A `template_only` mrule whose slot no template ever references is orphaned by compaction, so its MSA and allomorph keys end up rejected, not represented.
+#[test]
+fn template_only_mrule_orphaned_by_no_template_is_revoked_unreachable_after_compaction() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-orphan".to_string(),
+        citation_form: vec![ws("sen", "-ka")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph("allo-orphan", MorphType::Suffix, "ka")],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-orphan".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: vec!["slot-never-templated".to_string()],
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+
+    let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "compaction revocation is silent: {warnings:?}");
+
+    let msa_key = InventoryKey::object(InventoryKind::Msa, "msa-orphan".to_string());
+    assert!(inventory.rejected.contains(&msa_key));
+    assert!(!inventory.represented.contains(&msa_key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::MRULE_UNREACHABLE_COMPACTED));
+
+    let allo_key = InventoryKey::object(InventoryKind::Allomorph, "allo-orphan".to_string());
+    assert!(inventory.rejected.contains(&allo_key));
+    assert!(!inventory.represented.contains(&allo_key));
+
+    assert!(
+        grammar.mrules.iter().all(|r| match r {
+            MorphRuleDef::AffixProcess(d) =>
+                grammar.morphemes[d.morpheme.0 as usize].xml_key != "msa-orphan",
+            _ => true,
+        }),
+        "the orphaned mrule must not survive compaction: {:?}",
+        grammar.mrules
+    );
+}
+
+/// An unnamed, unreferenced, non-last natural class is revoked; a referenced one and `__any__` stay represented.
+#[test]
+fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
+        guid: "nc-orphan".to_string(),
+        name: String::new(),
+        phonemes: vec!["ph-a".to_string()],
+    });
+    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
+        guid: "nc-last-unnamed".to_string(),
+        name: String::new(),
+        phonemes: vec!["ph-i".to_string()],
+    });
+    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
+        guid: "nc-vowel".to_string(),
+        name: "V".to_string(),
+        phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+    });
+    snapshot.phonology.environments.push(pg_snapshot::phonology::Environment {
+        guid: "env-v".to_string(),
+        name: String::new(),
+        representation: "/_[V]".to_string(),
+    });
+    snapshot.lexicon.entries[1].allomorphs[0]
+        .environments
+        .push("env-v".to_string());
+
+    let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "compaction revocation is silent: {warnings:?}");
+
+    let orphan_key = InventoryKey::object(InventoryKind::NaturalClass, "nc-orphan".to_string());
+    assert!(inventory.rejected.contains(&orphan_key));
+    assert!(!inventory.represented.contains(&orphan_key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::NATURAL_CLASS_UNREFERENCED_COMPACTED));
+    assert!(!grammar.natural_classes.iter().any(|d| d.xml_id == "nc-orphan"));
+
+    let referenced_key = InventoryKey::object(InventoryKind::NaturalClass, "nc-vowel".to_string());
+    assert!(inventory.represented.contains(&referenced_key));
+
+    let any_key = InventoryKey::object(InventoryKind::NaturalClass, "__any__".to_string());
+    assert!(inventory.represented.contains(&any_key));
+}
+
+/// A morpheme co-occurrence rule targeting an orphaned-away morpheme is revoked; one whose targets all survive stays represented, even sharing the same primary.
+#[test]
+fn morpheme_coocurrence_rule_targeting_a_compacted_away_morpheme_is_revoked_but_a_surviving_one_stays(
+) {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-orphan".to_string(),
+        citation_form: vec![ws("sen", "-ka")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph("allo-orphan", MorphType::Suffix, "ka")],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-orphan".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: vec!["slot-never-templated".to_string()],
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Morpheme {
+        guid: "coocc-dropped".to_string(),
+        disabled: false,
+        primary: f.stem_msa.clone(),
+        others: vec!["msa-orphan".to_string()],
+        adjacency: Adjacency::Anywhere,
+    });
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Morpheme {
+        guid: "coocc-survives".to_string(),
+        disabled: false,
+        primary: f.stem_msa.clone(),
+        others: vec![f.suffix_msa.clone()],
+        adjacency: Adjacency::Anywhere,
+    });
+
+    let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "compaction revocation is silent: {warnings:?}");
+
+    let dropped_key =
+        InventoryKey::object(InventoryKind::MorphemeCoOccurrence, "coocc-dropped".to_string());
+    assert!(inventory.rejected.contains(&dropped_key));
+    assert!(!inventory.represented.contains(&dropped_key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE));
+
+    let survives_key =
+        InventoryKey::object(InventoryKind::MorphemeCoOccurrence, "coocc-survives".to_string());
+    assert!(inventory.represented.contains(&survives_key));
+}
+
+/// Every `represented` `Msa`/`NaturalClass` object atom must match an object in the compiled `Grammar`.
+#[test]
+fn fixture_represented_msa_and_natural_class_atoms_match_the_final_grammar_exactly() {
+    let (snapshot, _f) = fixture();
+    let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    fn object_guid(k: &InventoryKey) -> Option<String> {
+        match &k.identity {
+            pg_snapshot::InventoryIdentity::Object { guid } => Some(guid.clone()),
+            _ => None,
+        }
+    }
+
+    let represented_msas: std::collections::BTreeSet<String> = inventory
+        .represented
+        .iter()
+        .filter(|k| k.kind == InventoryKind::Msa)
+        .filter_map(object_guid)
+        .collect();
+    let grammar_msas: std::collections::BTreeSet<String> =
+        grammar.morphemes.iter().map(|m| m.xml_key.clone()).collect();
+    assert_eq!(represented_msas, grammar_msas);
+
+    let represented_natclasses: std::collections::BTreeSet<String> = inventory
+        .represented
+        .iter()
+        .filter(|k| k.kind == InventoryKind::NaturalClass)
+        .filter_map(object_guid)
+        .collect();
+    let grammar_natclasses: std::collections::BTreeSet<String> = grammar
+        .natural_classes
+        .iter()
+        .map(|d| d.xml_id.clone())
+        .collect();
+    assert_eq!(represented_natclasses, grammar_natclasses);
+}
+
+/// `inventory::finalize` must panic on a removed id whose owner never published lineage for it.
+#[test]
+#[should_panic(expected = "removed by reachability compaction but published no lineage")]
+fn finalize_panics_on_a_removed_mrule_id_with_no_published_lineage() {
+    let mut recorder = pg_snapshot::SelectionRecorder::default();
+    let lineage = super::inventory::Lineage::default();
+    super::inventory::finalize(&mut recorder, &lineage, vec![42], Vec::new(), Vec::new());
 }

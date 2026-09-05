@@ -1,8 +1,135 @@
 //! Seeds the snapshot-to-grammar `SelectionRecorder`'s `authored` set from the snapshot's own collections — a plain enumeration that makes no decision, mirroring `pg_fwdata`'s own `seed_authored_from_graph`.
 
+use hashbrown::HashMap;
+
 use pg_snapshot::morphology::{AdhocProhibition, PartOfSpeech};
 use pg_snapshot::phonology::{NaturalClass, PhonologicalRule};
 use pg_snapshot::{ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot};
+
+/// Which owner an [`InventoryKey`] was published as representing, at the moment that owner pushed
+/// it -- the identity a later reachability/reference compaction pass names when it drops that
+/// owner, so [`finalize`] can revoke exactly the keys that owner represented without rediscovering
+/// them by scanning the compiled `Grammar`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum LineageTarget {
+    MRule(u32),
+    NaturalClass(u32),
+    MorphemeCoOccurrence(u32, usize),
+    AllomorphCoOccurrence(u32, usize),
+}
+
+/// Every [`InventoryKey`] published as representing an mrule, natural class, or co-occurrence
+/// rule, keyed by that owner's identity as of the push (see [`LineageTarget`]); read only by
+/// [`finalize`], which maps a finalizer's removed-id report through these maps rather than
+/// re-deriving which keys an owner represented.
+#[derive(Debug, Default)]
+pub(crate) struct Lineage {
+    pub mrules: HashMap<u32, Vec<InventoryKey>>,
+    pub natural_classes: HashMap<u32, Vec<InventoryKey>>,
+    pub morpheme_cooccurrence: HashMap<(u32, usize), Vec<InventoryKey>>,
+    pub allomorph_cooccurrence: HashMap<(u32, usize), Vec<InventoryKey>>,
+}
+
+impl Lineage {
+    fn insert(&mut self, target: LineageTarget, key: InventoryKey) {
+        match target {
+            LineageTarget::MRule(id) => self.mrules.entry(id).or_default().push(key),
+            LineageTarget::NaturalClass(id) => {
+                self.natural_classes.entry(id).or_default().push(key)
+            }
+            LineageTarget::MorphemeCoOccurrence(id, idx) => self
+                .morpheme_cooccurrence
+                .entry((id, idx))
+                .or_default()
+                .push(key),
+            LineageTarget::AllomorphCoOccurrence(id, idx) => self
+                .allomorph_cooccurrence
+                .entry((id, idx))
+                .or_default()
+                .push(key),
+        }
+    }
+}
+
+/// Marks `key` represented (exactly as [`SelectionRecorder::represented`]) and publishes it into
+/// `lineage` under `target`, so a later finalizer that removes `target` can revoke `key` by name
+/// instead of rediscovering it from the compiled `Grammar`.
+pub(crate) fn represent_via(
+    recorder: &mut SelectionRecorder,
+    lineage: &mut Lineage,
+    target: LineageTarget,
+    key: InventoryKey,
+) {
+    recorder.represented(key.clone());
+    lineage.insert(target, key);
+}
+
+/// Revokes every key a reachability/reference compaction pass reports removed, mapping each
+/// removed id through `lineage` to the keys its owner published at push time. A removed id absent
+/// from `lineage` is a bug in the owner that pushed it (represented a key without publishing it),
+/// so this panics rather than silently leaving the stale key represented.
+pub(crate) fn finalize(
+    recorder: &mut SelectionRecorder,
+    lineage: &Lineage,
+    removed_mrules: Vec<u32>,
+    removed_morpheme_cooccurrence: Vec<(u32, usize)>,
+    removed_natural_classes: Vec<u32>,
+) {
+    for id in removed_mrules {
+        let keys = lineage
+            .mrules
+            .get(&id)
+            .unwrap_or_else(|| panic!("mrule {id} removed by reachability compaction but published no lineage"));
+        for key in keys.clone() {
+            recorder.revoke_represented(
+                key,
+                ConversionIssue {
+                    code: super::issue_codes::MRULE_UNREACHABLE_COMPACTED.to_string(),
+                    class: IssueClass::UnreachableInGrammar,
+                    source: None,
+                    fatal: false,
+                    message: format!("mrule {id} unreachable after reachability compaction"),
+                },
+            );
+        }
+    }
+    for target in removed_morpheme_cooccurrence {
+        let keys = lineage.morpheme_cooccurrence.get(&target).unwrap_or_else(|| {
+            panic!("morpheme co-occurrence rule {target:?} removed by reachability compaction but published no lineage")
+        });
+        for key in keys.clone() {
+            recorder.revoke_represented(
+                key,
+                ConversionIssue {
+                    code: super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE.to_string(),
+                    class: IssueClass::UnreachableInGrammar,
+                    source: None,
+                    fatal: false,
+                    message: format!(
+                        "morpheme co-occurrence rule {target:?} unreachable after reachability compaction"
+                    ),
+                },
+            );
+        }
+    }
+    for id in removed_natural_classes {
+        let keys = lineage.natural_classes.get(&id).unwrap_or_else(|| {
+            panic!("natural class {id} removed by reachability compaction but published no lineage")
+        });
+        for key in keys.clone() {
+            recorder.revoke_represented(
+                key,
+                ConversionIssue {
+                    code: super::issue_codes::NATURAL_CLASS_UNREFERENCED_COMPACTED.to_string(),
+                    class: IssueClass::UnreachableInGrammar,
+                    source: None,
+                    fatal: false,
+                    message: format!("natural class {id} unreferenced after compaction"),
+                },
+            );
+        }
+    }
+}
 
 /// Records `key` rejected and emits the SAME warning a caller would otherwise have pushed alone, so converting a warn-only site to also reject never changes warning prose or counts. For the phases that run before `Ctx` exists (`Ctx::reject` covers everything after).
 pub(crate) fn reject(
