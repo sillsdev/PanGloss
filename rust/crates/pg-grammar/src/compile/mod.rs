@@ -318,17 +318,19 @@ pub(crate) fn compile_project_recording(
     };
 
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.
-    let (removed_mrules, _removed_allomorphs) = reachability::compact_mrules(&mut grammar, &mut warnings);
+    let (removed_mrules, removed_allomorph_cooccurrence) =
+        reachability::compact_mrules(&mut grammar, &mut warnings);
     let removed_cooccurrence = reachability::trim_unreachable_morpheme_coocurrence(&mut grammar);
 
     // `pg-fwdata` extracts every declared natural class unconditionally, so compact to only those actually referenced now that every other compile step has had its chance to resolve one (see `natclass::compact_to_referenced`'s own doc).
     let removed_natclasses = natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
 
-    // Revokes exactly what the three finalizers above report they dropped, via the lineage every owner published at push time -- see `inventory::finalize`'s own doc.
+    // Revokes exactly what the four finalizers above report they dropped, via the lineage every owner published at push time -- see `inventory::finalize`'s own doc.
     inventory::finalize(
         &mut recorder,
         &lineage,
         removed_mrules,
+        removed_allomorph_cooccurrence,
         removed_cooccurrence,
         removed_natclasses,
     );

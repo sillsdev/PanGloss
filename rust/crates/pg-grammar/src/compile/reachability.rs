@@ -10,8 +10,11 @@ use crate::model::{
     MorphRuleDef,
 };
 
-/// Compact `grammar.mrules` to exactly the set HCLoader's own exporter would ever visit, remapping every surviving `MRuleId` to a dense index, then cascade the same treatment to `grammar.allomorph_owners` and every surviving allomorph's own `id`/`co_occurrence` (see module doc for why the cascade is required). Returns the OLD ids this pass removed: the mrules first, then the allomorph-owner registry entries the cascade dropped alongside them.
-pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) -> (Vec<u32>, Vec<u32>) {
+/// Compact `grammar.mrules` to exactly the set HCLoader's own exporter would ever visit, remapping every surviving `MRuleId` to a dense index, then cascade the same treatment to `grammar.allomorph_owners` and every surviving allomorph's own `id`/`co_occurrence` (see module doc for why the cascade is required). Returns the OLD ids this pass removed: the mrules, then the `(owner allomorph id, index)` identity of every `AllomorphCoOccurrenceRuleDef` dropped alongside them -- either because its owner allomorph went with a removed mrule, or because every one of its `others` targets did.
+pub(crate) fn compact_mrules(
+    grammar: &mut Grammar,
+    warnings: &mut Vec<String>,
+) -> (Vec<u32>, Vec<(u32, usize)>) {
     // --- 1. Every mrule a stratum or an (enabled) template slot actually names. ---
     let mut used_mrules: HashSet<u32> = HashSet::new();
     for s in &grammar.strata {
@@ -32,12 +35,18 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
     let mut old_to_new_mrule: StdHashMap<u32, u32> = StdHashMap::with_capacity(used_mrules.len());
     let mut new_mrules = Vec::with_capacity(used_mrules.len());
     let mut removed_mrules = Vec::new();
+    // Path (a) identities: a removed mrule's own allomorphs are only reachable here, before their defs (and the co-occurrence rules they own) are dropped.
+    let mut removed_allomorph_cooccurrence: Vec<(u32, usize)> = Vec::new();
     for (old_id, def) in old_mrules.into_iter().enumerate() {
         if used_mrules.contains(&(old_id as u32)) {
             old_to_new_mrule.insert(old_id as u32, new_mrules.len() as u32);
             new_mrules.push(def);
         } else {
             removed_mrules.push(old_id as u32);
+            for a in mrule_allomorphs(&def) {
+                removed_allomorph_cooccurrence
+                    .extend((0..a.co_occurrence.len()).map(|idx| (a.id.0, idx)));
+            }
         }
     }
     grammar.mrules = new_mrules;
@@ -70,7 +79,6 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
     let mut old_to_new_allo: StdHashMap<u32, u32> = StdHashMap::with_capacity(old_owners.len());
     let mut new_owners = Vec::with_capacity(old_owners.len());
     let mut new_sources = Vec::with_capacity(old_sources.len());
-    let mut removed_allomorphs = Vec::new();
     for (old_id, (owner, source)) in old_owners
         .into_iter()
         .zip(old_sources.into_iter())
@@ -86,8 +94,6 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
             old_to_new_allo.insert(old_id as u32, new_owners.len() as u32);
             new_owners.push(new_owner);
             new_sources.push(source);
-        } else {
-            removed_allomorphs.push(old_id as u32);
         }
     }
     grammar.allomorph_owners = new_owners;
@@ -101,12 +107,12 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
     // 4. Fix up every surviving allomorph's own self-tagging `id` and remap/drop any `others` reference through the same table; a dropped mrule's own allomorphs vanished along with it in step 2.
     for e in &mut grammar.entries {
         for a in &mut e.allomorphs {
-            remap_allomorph_id_and_coocc(
+            removed_allomorph_cooccurrence.extend(remap_allomorph_id_and_coocc(
                 &mut a.id,
                 &mut a.co_occurrence,
                 &old_to_new_allo,
                 warnings,
-            );
+            ));
         }
     }
     for r in &mut grammar.mrules {
@@ -116,16 +122,25 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
             MorphRuleDef::Compounding(_) => continue,
         };
         for a in allos {
-            remap_allomorph_id_and_coocc(
+            removed_allomorph_cooccurrence.extend(remap_allomorph_id_and_coocc(
                 &mut a.id,
                 &mut a.co_occurrence,
                 &old_to_new_allo,
                 warnings,
-            );
+            ));
         }
     }
 
-    (removed_mrules, removed_allomorphs)
+    (removed_mrules, removed_allomorph_cooccurrence)
+}
+
+/// The allomorphs a `MorphRuleDef` owns, or `&[]` for a `Compounding` rule (which owns none).
+fn mrule_allomorphs(def: &MorphRuleDef) -> &[AffixAllomorphDef] {
+    match def {
+        MorphRuleDef::AffixProcess(d) => &d.allomorphs,
+        MorphRuleDef::Realizational(d) => &d.allomorphs,
+        MorphRuleDef::Compounding(_) => &[],
+    }
 }
 
 fn remap_allomorph_id_and_coocc(
@@ -133,10 +148,13 @@ fn remap_allomorph_id_and_coocc(
     coocc: &mut Vec<AllomorphCoOccurrenceRuleDef>,
     old_to_new: &StdHashMap<u32, u32>,
     warnings: &mut Vec<String>,
-) {
+) -> Vec<(u32, usize)> {
+    let owner_old_id = id.0;
     id.0 = *old_to_new
         .get(&id.0)
         .expect("surviving allomorph id not marked used -- compaction sweep bug");
+    let mut dropped = Vec::new();
+    let mut idx = 0usize;
     coocc.retain_mut(|rule| {
         let before = rule.others.len();
         rule.others = rule
@@ -151,8 +169,14 @@ fn remap_allomorph_id_and_coocc(
                     .to_string(),
             );
         }
-        !rule.others.is_empty()
+        let keep = !rule.others.is_empty();
+        if !keep {
+            dropped.push((owner_old_id, idx));
+        }
+        idx += 1;
+        keep
     });
+    dropped
 }
 
 /// Drops a `MorphemeCoOccurrenceRuleDef` whose primary morpheme or any `others` target is no longer reachable after `compact_mrules`; must run after it, since "reachable" is defined in terms of the already-compacted grammar. Returns `(morpheme id, index within that morpheme's `co_occurrence` as pushed)` for every rule dropped this way -- the same `(u32, usize)` identity `inventory::represent_via` published it under.

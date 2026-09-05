@@ -72,6 +72,7 @@ pub(crate) fn finalize(
     recorder: &mut SelectionRecorder,
     lineage: &Lineage,
     removed_mrules: Vec<u32>,
+    removed_allomorph_cooccurrence: Vec<(u32, usize)>,
     removed_morpheme_cooccurrence: Vec<(u32, usize)>,
     removed_natural_classes: Vec<u32>,
 ) {
@@ -89,6 +90,27 @@ pub(crate) fn finalize(
                     source: None,
                     fatal: false,
                     message: format!("mrule {id} unreachable after reachability compaction"),
+                },
+            );
+        }
+    }
+    for target in removed_allomorph_cooccurrence {
+        let keys = lineage.allomorph_cooccurrence.get(&target).unwrap_or_else(|| {
+            panic!("allomorph co-occurrence rule {target:?} removed by reachability compaction but published no lineage")
+        });
+        for key in keys.clone() {
+            recorder.revoke_represented(
+                key,
+                ConversionIssue {
+                    code: super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE.to_string(),
+                    class: IssueClass::UnreachableInGrammar,
+                    source: None,
+                    fatal: false,
+                    message: format!(
+                        "allomorph co-occurrence rule (owner {}, index {}) unreachable after \
+                         mrule reachability compaction",
+                        target.0, target.1
+                    ),
                 },
             );
         }
