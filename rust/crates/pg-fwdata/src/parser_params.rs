@@ -7,13 +7,25 @@ use pg_snapshot::{
 use crate::node::parse_full_document;
 use crate::{extract::codes, ImportError};
 
-/// Which optional `ParserParameters` source fields were physically present in `<Uni>`, regardless of whether each one parsed successfully — used only for `graphToSnapshot` recording, never to decide `ParserParameters`'s own values.
+/// Which optional `ParserParameters` source fields were physically present in `<Uni>`, and (for the `XAmple` caps) whether each one parsed successfully — used only for `graphToSnapshot` recording, never to decide `ParserParameters`'s own values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ParserSettingsPresence {
     pub active_parser: bool,
     pub accept_unspecified_graphemes: bool,
-    pub xample_fields: Vec<&'static str>,
+    pub xample_fields: Vec<(&'static str, bool)>,
 }
+
+/// The `<XAmple>` cap field names, in the order `parse_with_issues` fills them.
+#[cfg(test)]
+const XAMPLE_FIELD_TAGS: &[&str] = &[
+    "MaxNulls",
+    "MaxPrefixes",
+    "MaxInfixes",
+    "MaxSuffixes",
+    "MaxInterfixes",
+    "MaxRoots",
+    "MaxAnalysesToReturn",
+];
 
 /// Malformed cap metadata becomes a warning; a malformed or unknown active-parser selector is fatal.
 pub fn parse_with_issues(
@@ -54,15 +66,20 @@ pub fn parse_with_issues(
     };
 
     let mut issues = Vec::new();
+    let mut xample_fields_present: Vec<(&'static str, bool)> = Vec::new();
     let xa = params_elem.child("XAmple");
     fn child_value<T: std::str::FromStr>(
         n: Option<&crate::node::Node>,
-        tag: &str,
+        tag: &'static str,
         issues: &mut Vec<Warning>,
+        presence: &mut Vec<(&'static str, bool)>,
     ) -> Option<T> {
         let child = n.and_then(|n| n.child(tag))?;
         match child.text.trim().parse::<T>() {
-            Ok(value) => Some(value),
+            Ok(value) => {
+                presence.push((tag, true));
+                Some(value)
+            }
             Err(_) => {
                 issues.push(Warning::new(
                     codes::INVALID_PARSER_PARAMETER,
@@ -71,32 +88,24 @@ pub fn parse_with_issues(
                         child.text.trim()
                     ),
                 ));
+                presence.push((tag, false));
                 None
             }
         }
     }
-    const XAMPLE_FIELD_TAGS: &[&str] = &[
-        "MaxNulls",
-        "MaxPrefixes",
-        "MaxInfixes",
-        "MaxSuffixes",
-        "MaxInterfixes",
-        "MaxRoots",
-        "MaxAnalysesToReturn",
-    ];
-    let xample_fields_present: Vec<&'static str> = XAMPLE_FIELD_TAGS
-        .iter()
-        .copied()
-        .filter(|tag| xa.is_some_and(|n| n.child(tag).is_some()))
-        .collect();
     let xample = XAmpleParameters {
-        max_nulls: child_value(xa, "MaxNulls", &mut issues),
-        max_prefixes: child_value(xa, "MaxPrefixes", &mut issues),
-        max_infixes: child_value(xa, "MaxInfixes", &mut issues),
-        max_suffixes: child_value(xa, "MaxSuffixes", &mut issues),
-        max_interfixes: child_value(xa, "MaxInterfixes", &mut issues),
-        max_roots: child_value(xa, "MaxRoots", &mut issues),
-        max_analyses_to_return: child_value(xa, "MaxAnalysesToReturn", &mut issues),
+        max_nulls: child_value(xa, "MaxNulls", &mut issues, &mut xample_fields_present),
+        max_prefixes: child_value(xa, "MaxPrefixes", &mut issues, &mut xample_fields_present),
+        max_infixes: child_value(xa, "MaxInfixes", &mut issues, &mut xample_fields_present),
+        max_suffixes: child_value(xa, "MaxSuffixes", &mut issues, &mut xample_fields_present),
+        max_interfixes: child_value(xa, "MaxInterfixes", &mut issues, &mut xample_fields_present),
+        max_roots: child_value(xa, "MaxRoots", &mut issues, &mut xample_fields_present),
+        max_analyses_to_return: child_value(
+            xa,
+            "MaxAnalysesToReturn",
+            &mut issues,
+            &mut xample_fields_present,
+        ),
     };
 
     let not_on_clitics = match hc {
@@ -260,6 +269,39 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].code, "fwdata.invalid-parser-parameter");
         assert!(issues[0].message.contains("MaxPrefixes"));
+    }
+
+    #[test]
+    fn presence_reports_parsed_ok_per_xample_field() {
+        let (_, _, presence) = parse_with_issues(Some(
+            "<ParserParameters><XAmple><MaxPrefixes>many</MaxPrefixes>\
+             <MaxRoots>2</MaxRoots></XAmple></ParserParameters>",
+        ))
+        .unwrap();
+        assert_eq!(
+            presence.xample_fields,
+            vec![("MaxPrefixes", false), ("MaxRoots", true)]
+        );
+    }
+
+    #[test]
+    fn every_xample_field_tag_appears_in_the_presence_list_exactly_once() {
+        let uni = "<ParserParameters><XAmple><MaxNulls>0</MaxNulls><MaxPrefixes>1</MaxPrefixes>\
+             <MaxInfixes>0</MaxInfixes><MaxSuffixes>0</MaxSuffixes><MaxInterfixes>0</MaxInterfixes>\
+             <MaxRoots>1</MaxRoots><MaxAnalysesToReturn>20</MaxAnalysesToReturn></XAmple>\
+             </ParserParameters>";
+        let (_, _, presence) = parse_with_issues(Some(uni)).unwrap();
+        for tag in XAMPLE_FIELD_TAGS {
+            assert_eq!(
+                presence
+                    .xample_fields
+                    .iter()
+                    .filter(|(name, _)| name == tag)
+                    .count(),
+                1,
+                "{tag} must appear exactly once"
+            );
+        }
     }
 
     #[test]
