@@ -56,8 +56,8 @@ mod warning;
 
 pub use common::{Guid, WsForm};
 pub use conversion::{
-    ConversionInventory, ConversionIssue, ConversionProvenance, InventoryIdentity, InventoryKey,
-    InventoryKind, IssueClass, ProvenanceError, RawSourceCensus, SelectionRecorder,
+    ConversionInventory, ConversionIssue, ConversionProvenance, InventoryDelta, InventoryIdentity,
+    InventoryKey, InventoryKind, IssueClass, ProvenanceError, RawSourceCensus, SelectionRecorder,
     SourceInventoryStatus, SourceRef, CONVERSION_PROVENANCE_SCHEMA_VERSION,
 };
 pub use feature::{

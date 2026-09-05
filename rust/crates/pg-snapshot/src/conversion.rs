@@ -233,6 +233,59 @@ impl SelectionRecorder {
     }
 }
 
+/// The conversion-loss categories a [`ConversionInventory`] implies but does not itself name --
+/// derived, never recorded independently, so they can never drift from the stage sets they read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryDelta {
+    pub inventory: ConversionInventory,
+    pub issues: Vec<ConversionIssue>,
+    /// `selected` minus (`represented` union `rejected`): chosen for the grammar but neither built nor refused -- the category this recording exists to surface.
+    pub silently_omitted: BTreeSet<InventoryKey>,
+    /// `represented` minus (`authored` union `synthesized`): present in the grammar with no recorded origin.
+    pub unclassified: BTreeSet<InventoryKey>,
+    /// `synthesized` minus `authored`: created by the compiler rather than by the source.
+    pub synthesized_only: BTreeSet<InventoryKey>,
+}
+
+impl InventoryDelta {
+    /// Derives every category from one finished stage's `(inventory, issues)` pair; never recomputes what `SelectionRecorder` already decided.
+    pub fn from_stage(inventory: ConversionInventory, issues: Vec<ConversionIssue>) -> Self {
+        let represented_or_rejected: BTreeSet<InventoryKey> = inventory
+            .represented
+            .union(&inventory.rejected)
+            .cloned()
+            .collect();
+        let silently_omitted: BTreeSet<InventoryKey> = inventory
+            .selected
+            .difference(&represented_or_rejected)
+            .cloned()
+            .collect();
+        let authored_or_synthesized: BTreeSet<InventoryKey> = inventory
+            .authored
+            .union(&inventory.synthesized)
+            .cloned()
+            .collect();
+        let unclassified: BTreeSet<InventoryKey> = inventory
+            .represented
+            .difference(&authored_or_synthesized)
+            .cloned()
+            .collect();
+        let synthesized_only: BTreeSet<InventoryKey> = inventory
+            .synthesized
+            .difference(&inventory.authored)
+            .cloned()
+            .collect();
+        InventoryDelta {
+            inventory,
+            issues,
+            silently_omitted,
+            unclassified,
+            synthesized_only,
+        }
+    }
+}
+
 /// What kind of problem a [`ConversionIssue`] reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -615,5 +668,47 @@ mod tests {
         r.selected(key.clone());
         r.represented(key);
         assert!(r.check_invariants().is_ok());
+    }
+
+    #[test]
+    fn from_stage_derives_exactly_the_three_loss_categories() {
+        let clean = InventoryKey::object(InventoryKind::Entry, "clean");
+        let omit_a = InventoryKey::object(InventoryKind::Msa, "omit-a");
+        let omit_b = InventoryKey::object(InventoryKind::Msa, "omit-b");
+        let unclassified_a = InventoryKey::object(InventoryKind::Allomorph, "unclassified-a");
+        let unclassified_b = InventoryKey::object(InventoryKind::Allomorph, "unclassified-b");
+        let synth_only_a = InventoryKey::object(InventoryKind::NaturalClass, "synth-only-a");
+        let synth_only_b = InventoryKey::object(InventoryKind::NaturalClass, "synth-only-b");
+
+        let inventory = ConversionInventory {
+            authored: [clean.clone()].into_iter().collect(),
+            considered: [clean.clone(), omit_a.clone(), omit_b.clone()].into_iter().collect(),
+            selected: [clean.clone(), omit_a.clone(), omit_b.clone()].into_iter().collect(),
+            represented: [clean.clone(), unclassified_a.clone(), unclassified_b.clone()]
+                .into_iter()
+                .collect(),
+            rejected: BTreeSet::new(),
+            synthesized: [synth_only_a.clone(), synth_only_b.clone()].into_iter().collect(),
+        };
+
+        let delta = InventoryDelta::from_stage(inventory.clone(), Vec::new());
+
+        assert_eq!(
+            delta.silently_omitted,
+            [omit_a.clone(), omit_b.clone()].into_iter().collect()
+        );
+        assert_eq!(
+            delta.unclassified,
+            [unclassified_a.clone(), unclassified_b.clone()].into_iter().collect()
+        );
+        assert_eq!(
+            delta.synthesized_only,
+            [synth_only_a.clone(), synth_only_b.clone()].into_iter().collect()
+        );
+        assert!(!delta.silently_omitted.contains(&clean));
+        assert!(!delta.unclassified.contains(&clean));
+        assert!(!delta.synthesized_only.contains(&clean));
+        assert_eq!(delta.inventory, inventory);
+        assert!(delta.issues.is_empty());
     }
 }

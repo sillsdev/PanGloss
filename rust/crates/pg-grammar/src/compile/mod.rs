@@ -68,6 +68,20 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     Ok((grammar, warnings))
 }
 
+/// As [`compile_project`], but also returns the conversion-loss measurement derived from the same
+/// recorder -- a violated recorder invariant is a bug in this compiler's own bookkeeping, so it
+/// panics naming the violation rather than returning a measurement that cannot be trusted.
+pub fn compile_project_measured(
+    snapshot: &Snapshot,
+) -> Result<(Grammar, Vec<String>, pg_snapshot::InventoryDelta), GrammarError> {
+    let (grammar, warnings, recorder) = compile_project_recording(snapshot)?;
+    if let Err(violation) = recorder.check_invariants() {
+        panic!("compile_project_measured: selection recorder invariant violated: {violation}");
+    }
+    let (inventory, issues) = recorder.finish();
+    Ok((grammar, warnings, pg_snapshot::InventoryDelta::from_stage(inventory, issues)))
+}
+
 /// As [`compile_project`], but also returns the [`SelectionRecorder`] every owner below wrote its
 /// snapshot-to-grammar selection decisions into — the seam a later slice's measured API reads.
 /// Recording happens before `reachability::compact_mrules`/`trim_unreachable_morpheme_coocurrence`/`natclass::compact_to_referenced` run, so `represented` is a pre-compaction claim, not a claim about the returned `Grammar` after compaction.
