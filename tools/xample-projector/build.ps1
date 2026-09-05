@@ -220,6 +220,86 @@ function Get-AnalysisSignatures {
 	return $wordEntry.analyses | ForEach-Object { ($_.morphemes | ForEach-Object { $_.msaGuid }) -join '+' } | Sort-Object
 }
 
+# Task 3 slice C part 2: phonology-mutations.yaml (machine\conformance\PROTOCOL.md section 10) is a
+# small, fixed-shape manifest -- a bespoke parser tailored to exactly that shape, not a general YAML
+# reader (the Rust side owns YAML later, per this slice's own task brief).
+function ConvertFrom-PhonologyMutationsYaml {
+	param([string]$Path)
+	$text = Get-Content -Raw -Path $Path
+
+	$versionMatch = [regex]::Match($text, '(?m)^version:\s*(\d+)\s*$')
+	if (-not $versionMatch.Success) { throw "phonology-mutations.yaml ($Path): no 'version:' line found" }
+	$shaMatch = [regex]::Match($text, '(?m)^base_sha256:\s*([0-9a-fA-F]{64})\s*$')
+	if (-not $shaMatch.Success) { throw "phonology-mutations.yaml ($Path): no 64-hex 'base_sha256:' line found" }
+
+	$cases = @()
+	$caseBlocks = [regex]::Split($text, '(?m)^\s*- id:\s*') | Select-Object -Skip 1
+	foreach ($block in $caseBlocks) {
+		$caseId = [regex]::Match($block, '^(\S+)').Groups[1].Value
+
+		$removePhonemeMatch = [regex]::Match($block,
+			'remove_phoneme:\s*\r?\n\s*guid:\s*(\S+)\s*\r?\n\s*assert_representations:\s*\[([^\]]*)\]\s*\r?\n\s*require_unreferenced:\s*(true|false)')
+		$removeAllMatch = [regex]::Match($block, 'remove_all_phonemes:\s*\r?\n\s*require_unreferenced:\s*(true|false)')
+		if ($removePhonemeMatch.Success) {
+			$assertReps = @($removePhonemeMatch.Groups[2].Value -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+			$operation = @{
+				op                    = 'remove_phoneme'
+				guid                  = $removePhonemeMatch.Groups[1].Value
+				assertRepresentations = $assertReps
+				requireUnreferenced   = [bool]::Parse($removePhonemeMatch.Groups[3].Value)
+			}
+		}
+		elseif ($removeAllMatch.Success) {
+			$operation = @{ op = 'remove_all_phonemes'; requireUnreferenced = [bool]::Parse($removeAllMatch.Groups[1].Value) }
+		}
+		else {
+			throw "phonology-mutations.yaml ($Path): case '$caseId' has no recognized operation (v1 vocabulary: remove_phoneme, remove_all_phonemes)"
+		}
+
+		$xampleMatch = [regex]::Match($block, 'xample_projection:\s*(\S+)')
+		$hcMatch = [regex]::Match($block, 'hc_analyses:\s*(\S+)')
+		$segmentsMatch = [regex]::Match($block, 'inferred_segments:\s*\[([^\]]*)\]')
+		if (-not $xampleMatch.Success -or -not $hcMatch.Success -or -not $segmentsMatch.Success) {
+			throw "phonology-mutations.yaml ($Path): case '$caseId' is missing an expect.{xample_projection,hc_analyses,inferred_segments} field"
+		}
+		# v1's only defined expect value -- a manifest naming anything else must refuse, not be
+		# silently treated as this build's own "same_as_base" checks.
+		if ($xampleMatch.Groups[1].Value -ne 'same_as_base' -or $hcMatch.Groups[1].Value -ne 'same_as_base') {
+			throw "phonology-mutations.yaml ($Path): case '$caseId' has an expect value outside the v1 vocabulary (only 'same_as_base' is defined)"
+		}
+
+		$cases += [pscustomobject]@{
+			id                     = $caseId
+			operation              = $operation
+			expectInferredSegments = @($segmentsMatch.Groups[1].Value -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' })
+		}
+	}
+	if ($cases.Count -eq 0) { throw "phonology-mutations.yaml ($Path): no cases found" }
+
+	return [pscustomobject]@{
+		version    = [int]$versionMatch.Groups[1].Value
+		baseSha256 = $shaMatch.Groups[1].Value.ToLowerInvariant()
+		cases      = $cases
+	}
+}
+
+function Get-MutationRequestFromManifestCase {
+	param($Case, [string]$BaseSha256)
+	$op = $Case.operation
+	$operationObj = if ($op.op -eq 'remove_phoneme') {
+		@{ op = 'remove_phoneme'; guid = $op.guid; assertRepresentations = @($op.assertRepresentations); requireUnreferenced = $op.requireUnreferenced }
+	}
+	else {
+		@{ op = 'remove_all_phonemes'; requireUnreferenced = $op.requireUnreferenced }
+	}
+	return @{
+		schemaVersion = 1
+		caseId        = $Case.id
+		baseSha256    = $BaseSha256
+		operations    = @($operationObj)
+	}
+}
+
 function Find-MSBuild {
 	$vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
 	if (Test-Path $vswhere) {
@@ -958,17 +1038,91 @@ if (-not (Test-Path $mutateParseGrammar)) {
 	exit 0
 }
 
+# Task 3 slice C part 2: prefer the checked-in FieldWorks witness (machine\conformance\PROTOCOL.md
+# section 10) over authoring a fresh base project -- it IS a real, oracle-adjacent project rather
+# than one this run just invented, and using it here is what keeps it from silently drifting away
+# from what 'author' actually produces. Absence is not an error (a machine checkout predating this
+# slice, or a partial checkout) -- name the path and fall back, as today.
+$witnessDir = Join-Path $mutateParseConformanceDir 'edge-cases\deep-optional-affix-nesting\fieldworks'
+$witnessFwdata = Join-Path $witnessDir 'project.fwdata'
+$witnessManifestPath = Join-Path $witnessDir 'phonology-mutations.yaml'
+$witnessFwdataPresent = Test-Path $witnessFwdata
+$witnessManifestPresent = Test-Path $witnessManifestPath
+if ($witnessFwdataPresent -ne $witnessManifestPresent) {
+	Write-Error "mutate/parse live proof: fieldworks witness is partially present under $witnessDir (project.fwdata=$witnessFwdataPresent, phonology-mutations.yaml=$witnessManifestPresent) -- expected both or neither."
+	exit 1
+}
+$usingWitness = $witnessFwdataPresent -and $witnessManifestPresent
+if (-not $usingWitness) {
+	Write-Host "SKIPPED (checked-in FieldWorks witness): not found at $witnessFwdata -- falling back to a freshly authored base project for this run."
+}
+
 $mpTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-mutate-parse-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $mpTempRoot -Force | Out-Null
 try {
-	# --- 1. Author the pilot fixture as the base project for this part. ---
-	$baseAuthorOut = Join-Path $mpTempRoot 'base-author'
-	New-Item -ItemType Directory -Path $baseAuthorOut -Force | Out-Null
-	& $exePath author --grammar $mutateParseGrammar --out-dir $baseAuthorOut --name MutateParseBase
-	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'author' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
-	$baseFwdata = Join-Path $baseAuthorOut 'MutateParseBase\MutateParseBase.fwdata'
-	$baseSha256Before = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
-	Write-Host "mutate/parse live proof: base project authored, sha256 $baseSha256Before"
+	# --- 1. Acquire the base project for this part: the checked-in witness when present, else
+	#        author the pilot fixture fresh (unchanged fallback behavior). ---
+	if ($usingWitness) {
+		$manifest = ConvertFrom-PhonologyMutationsYaml -Path $witnessManifestPath
+
+		$witnessActualSha256 = (Get-FileHash -Algorithm SHA256 -Path $witnessFwdata).Hash.ToLowerInvariant()
+		if ($witnessActualSha256 -ne $manifest.baseSha256) {
+			Write-Error "mutate/parse live proof: checked-in witness sha256 mismatch -- $witnessFwdata hashes to $witnessActualSha256, but phonology-mutations.yaml declares base_sha256 $($manifest.baseSha256)."
+			exit 1
+		}
+		Write-Host "mutate/parse live proof: using the checked-in FieldWorks witness at $witnessFwdata (sha256 $witnessActualSha256, verified against phonology-mutations.yaml)."
+
+		# Never touch the machine checkout's own copy: opening a project, even read-only, can leave
+		# session artifacts beside it (this same witness's own first 'inspect' left a SharedSettings
+		# directory that had to be deleted before it was committed) -- copy it out first.
+		$witnessCopyDir = Join-Path $mpTempRoot 'witness-base\project'
+		New-Item -ItemType Directory -Path $witnessCopyDir -Force | Out-Null
+		Copy-Item -Path $witnessFwdata -Destination (Join-Path $witnessCopyDir 'project.fwdata') -Force
+		New-Item -ItemType Directory -Path (Join-Path $witnessCopyDir 'WritingSystemStore') -Force | Out-Null
+		Get-ChildItem (Join-Path $witnessDir 'WritingSystemStore') -Filter '*.ldml' | ForEach-Object {
+			Copy-Item -Path $_.FullName -Destination (Join-Path $witnessCopyDir "WritingSystemStore\$($_.Name)") -Force
+		}
+		$baseFwdata = Join-Path $witnessCopyDir 'project.fwdata'
+		$baseSha256Before = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
+		if ($baseSha256Before -ne $manifest.baseSha256) {
+			Write-Error "mutate/parse live proof: the working copy of the witness ($baseSha256Before) does not match the verified original ($($manifest.baseSha256)) -- copy corrupted?"
+			exit 1
+		}
+
+		# The witness must never silently drift from what 'author' actually produces: author the
+		# SAME grammar.xml fresh and compare. This canNOT reuse the determinism harness's own
+		# guid->fixture-id map as-is: that map only has entries for the FRESH run's own randomly
+		# assigned guids, so mapping only one side (with the other falling back to a blanket "GUID"
+		# blind) makes the two sides' <rt> records sort into DIFFERENT orders -- a real identifier
+		# like "eK"/"mrP1" and the literal string "GUID" don't collate the same way, so records that
+		# are otherwise identical land at different positions and the diff is all spurious (measured:
+		# 248 "differing" lines, every one a record-order artifact, none a real content difference).
+		# Both sides MUST get the identical treatment, so both use an empty map here -- the witness's
+		# own guidMap was never committed in the first place (it isn't part of the checked-in file
+		# set, see PROTOCOL.md section 10), so this is also the only map available for that side.
+		$driftAuthorOut = Join-Path $mpTempRoot 'witness-drift-author'
+		New-Item -ItemType Directory -Path $driftAuthorOut -Force | Out-Null
+		& $exePath author --grammar $mutateParseGrammar --out-dir $driftAuthorOut --name WitnessDrift
+		if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: witness-drift 'author' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+		$driftFwdata = Join-Path $driftAuthorOut 'WitnessDrift\WitnessDrift.fwdata'
+		$driftNormalizedFresh = Get-NormalizedFwdataText -Path $driftFwdata -GuidToFixtureId @{}
+		$driftNormalizedWitness = Get-NormalizedFwdataText -Path $baseFwdata -GuidToFixtureId @{}
+		if ($driftNormalizedFresh -ne $driftNormalizedWitness) {
+			$driftDiffLines = Compare-Object -ReferenceObject ($driftNormalizedFresh -split "`r?`n") -DifferenceObject ($driftNormalizedWitness -split "`r?`n")
+			Write-Error "mutate/parse live proof: the checked-in witness has drifted from 'author' ($($driftDiffLines.Count) differing normalized line(s)). First 10:`n$(($driftDiffLines | Select-Object -First 10 | Out-String))"
+			exit 1
+		}
+		Write-Host "mutate/parse live proof: witness-drift probe OK -- a freshly authored pilot normalizes identically to the checked-in witness ($($driftNormalizedFresh.Length) chars)."
+	}
+	else {
+		$baseAuthorOut = Join-Path $mpTempRoot 'base-author'
+		New-Item -ItemType Directory -Path $baseAuthorOut -Force | Out-Null
+		& $exePath author --grammar $mutateParseGrammar --out-dir $baseAuthorOut --name MutateParseBase
+		if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'author' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+		$baseFwdata = Join-Path $baseAuthorOut 'MutateParseBase\MutateParseBase.fwdata'
+		$baseSha256Before = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
+		Write-Host "mutate/parse live proof: base project authored, sha256 $baseSha256Before"
+	}
 
 	# --- Record the "k" phoneme guid via inspect. ---
 	$baseInspectPath = Join-Path $mpTempRoot 'base-inspect.json'
@@ -987,11 +1141,18 @@ try {
 	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'project' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
 
 	# --- Case A: remove-k-only ---
-	$removeKRequestObj = @{
-		schemaVersion = 1
-		caseId        = 'remove-k-only'
-		baseSha256    = $baseSha256Before
-		operations    = @(@{ op = 'remove_phoneme'; guid = $kGuid; assertRepresentations = @('k'); requireUnreferenced = $true })
+	if ($usingWitness) {
+		$removeKCase = $manifest.cases | Where-Object { $_.id -eq 'remove-k-only' }
+		if (-not $removeKCase) { Write-Error "mutate/parse live proof: witness manifest has no 'remove-k-only' case."; exit 1 }
+		$removeKRequestObj = Get-MutationRequestFromManifestCase -Case $removeKCase -BaseSha256 $baseSha256Before
+	}
+	else {
+		$removeKRequestObj = @{
+			schemaVersion = 1
+			caseId        = 'remove-k-only'
+			baseSha256    = $baseSha256Before
+			operations    = @(@{ op = 'remove_phoneme'; guid = $kGuid; assertRepresentations = @('k'); requireUnreferenced = $true })
+		}
 	}
 	$removeKRequestPath = Join-Path $mpTempRoot 'remove-k-only-request.json'
 	($removeKRequestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $removeKRequestPath -Encoding utf8
@@ -1011,6 +1172,15 @@ try {
 	$baseSha256AfterA = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
 	if ($baseSha256AfterA -ne $baseSha256Before) { Write-Error "remove-k-only: SOURCE PROJECT WAS MODIFIED (sha256 $baseSha256Before -> $baseSha256AfterA)"; exit 1 }
 	Write-Host "mutate 'remove-k-only' OK: deletedCount=1, removed=['k'], reopened=true, source sha256 unchanged ($baseSha256Before)."
+	if ($usingWitness) {
+		$actualInferredSegsA = ($removeKResponse.removed | ForEach-Object { $_.representations[0] } | Sort-Object) -join ','
+		$expectedInferredSegsA = ($removeKCase.expectInferredSegments | Sort-Object) -join ','
+		if ($actualInferredSegsA -ne $expectedInferredSegsA) {
+			Write-Error "remove-k-only: manifest expect.inferred_segments [$expectedInferredSegsA] does not match actual removed representations [$actualInferredSegsA]"
+			exit 1
+		}
+		Write-Host "remove-k-only: manifest expect.inferred_segments confirmed ($expectedInferredSegsA)."
+	}
 
 	$removeKClonedFwdata = Join-Path $removeKOutDir $removeKResponse.materializedProjectPath
 	$removeKProjectedOut = Join-Path $mpTempRoot 'remove-k-only-projected'
@@ -1022,11 +1192,18 @@ try {
 	Assert-HcXmlLacksSegmentDefinition -BaseHcXmlPath (Join-Path $baseProjectedOut 'MPBase.hc.xml') -CloneHcXmlPath (Join-Path $removeKProjectedOut 'MPBase.hc.xml') -Representation 'k' -Label 'remove-k-only'
 
 	# --- Case B: empty-phoneme-inventory ---
-	$emptyRequestObj = @{
-		schemaVersion = 1
-		caseId        = 'empty-phoneme-inventory'
-		baseSha256    = $baseSha256Before
-		operations    = @(@{ op = 'remove_all_phonemes'; requireUnreferenced = $true })
+	if ($usingWitness) {
+		$emptyCase = $manifest.cases | Where-Object { $_.id -eq 'empty-phoneme-inventory' }
+		if (-not $emptyCase) { Write-Error "mutate/parse live proof: witness manifest has no 'empty-phoneme-inventory' case."; exit 1 }
+		$emptyRequestObj = Get-MutationRequestFromManifestCase -Case $emptyCase -BaseSha256 $baseSha256Before
+	}
+	else {
+		$emptyRequestObj = @{
+			schemaVersion = 1
+			caseId        = 'empty-phoneme-inventory'
+			baseSha256    = $baseSha256Before
+			operations    = @(@{ op = 'remove_all_phonemes'; requireUnreferenced = $true })
+		}
 	}
 	$emptyRequestPath = Join-Path $mpTempRoot 'empty-phoneme-inventory-request.json'
 	($emptyRequestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $emptyRequestPath -Encoding utf8
@@ -1044,6 +1221,14 @@ try {
 	$baseSha256AfterB = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
 	if ($baseSha256AfterB -ne $baseSha256Before) { Write-Error "empty-phoneme-inventory: SOURCE PROJECT WAS MODIFIED (sha256 $baseSha256Before -> $baseSha256AfterB)"; exit 1 }
 	Write-Host "mutate 'empty-phoneme-inventory' OK: deletedCount=2, removed=[k,x], reopened=true, source sha256 unchanged ($baseSha256Before)."
+	if ($usingWitness) {
+		$expectedInferredSegsB = ($emptyCase.expectInferredSegments | Sort-Object) -join ','
+		if ($emptyReps -ne $expectedInferredSegsB) {
+			Write-Error "empty-phoneme-inventory: manifest expect.inferred_segments [$expectedInferredSegsB] does not match actual removed representations [$emptyReps]"
+			exit 1
+		}
+		Write-Host "empty-phoneme-inventory: manifest expect.inferred_segments confirmed ($expectedInferredSegsB)."
+	}
 
 	$emptyClonedFwdata = Join-Path $emptyOutDir $emptyResponse.materializedProjectPath
 	$emptyProjectedOut = Join-Path $mpTempRoot 'empty-phoneme-inventory-projected'

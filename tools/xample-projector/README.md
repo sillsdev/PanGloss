@@ -483,14 +483,47 @@ independently of both the Sena 3 tests and the pilot-fixture tests.
 The `mutate`/`parse` live proof reads a THIRD, independent `machine` checkout --
 `$env:PANGLOSS_MACHINE_DIR`, default `C:\Users\johnm\Documents\repos\machine` -- rather than this
 repo's own submodule, per this slice's own task brief (another agent commits to that checkout
-concurrently; this tool only ever reads its working tree). It authors
-`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` as its OWN base project (never the
-one the submodule-backed tests above author), and separately tries a short list of
-`conformance\edge-cases\*` fixtures with a `SegmentNaturalClass`
-(`disjunctive-recheck`, `free-fluctuating-allomorph-pair`, `strrep-identity`, `diacritic-segments`,
-`loader-pattern-shapes`, in that order) for its referenced-phoneme refusal probe, using the first
-one that authors successfully and reporting which. Skipped (with reason) only when FieldWorks
-itself is absent, or when this grammar isn't found at that path.
+concurrently; this tool only ever reads its working tree). Skipped (with reason) only when
+FieldWorks itself is absent, or when `conformance\edge-cases\deep-optional-affix-nesting\grammar.xml`
+isn't found at that path; it separately tries a short list of `conformance\edge-cases\*` fixtures
+with a `SegmentNaturalClass` (`disjunctive-recheck`, `free-fluctuating-allomorph-pair`,
+`strrep-identity`, `diacritic-segments`, `loader-pattern-shapes`, in that order) for its
+referenced-phoneme refusal probe, using the first one that authors successfully and reporting which.
+
+**Base project: the checked-in FieldWorks witness, when present, else a fresh `author` run.**
+Task 3 slice C part 2 added a real, oracle-adjacent FieldWorks project committed alongside the
+pilot fixture itself --
+`machine\conformance\edge-cases\deep-optional-affix-nesting\fieldworks\project.fwdata` (+
+`fieldworks\WritingSystemStore\*.ldml`) and `fieldworks\phonology-mutations.yaml`, a small versioned
+manifest of the same two phoneme-removal cases this proof runs (see
+`machine\conformance\PROTOCOL.md` section 10 for the manifest's own vocabulary and eligibility
+rules). When that file exists, `build.ps1`:
+1. Reads `phonology-mutations.yaml` (a bespoke, fixed-shape parser -- `ConvertFrom-
+   PhonologyMutationsYaml` -- not a general YAML reader; the Rust side owns YAML later) and verifies
+   its `base_sha256` against the ACTUAL sha256 of `project.fwdata`. A mismatch fails the run loudly,
+   naming both hashes, rather than silently trusting a manifest that no longer describes the project
+   beside it.
+2. Copies `fieldworks\` (never the machine checkout's own copy -- opening a project can leave
+   session artifacts beside it even read-only, as this same witness's own first `inspect` did) into
+   a scratch directory and uses that copy as the base project for every later step, in place of a
+   freshly authored one.
+3. Builds each case's `mutate` request JSON directly from the manifest's own operations (so a
+   manifest edit changes what this proof runs, rather than the request staying hardcoded beside a
+   manifest nobody reads) and additionally asserts `expect.inferred_segments` against the mutation's
+   own `removed[]` -- exercising that field rather than leaving it as dead documentation.
+4. Runs ONE drift probe: freshly `author`s the SAME `grammar.xml` and asserts it normalizes
+   identically to the checked-in witness -- the SAME `Get-NormalizedFwdataText` the determinism
+   harness above uses, but with an EMPTY guid map on BOTH sides (blanket `GUID`/`TIMESTAMP` blinding,
+   no fixture-id substitution): the witness's own `guidMap` was never committed (it isn't part of
+   the checked-in file set, see PROTOCOL.md section 10), and mapping only one side made the two
+   sides' `<rt>` records sort into different orders -- a real identifier and the literal string
+   `GUID` don't collate the same way, so otherwise-identical records land at different positions and
+   the diff is all spurious. Both sides need the identical treatment for the comparison to mean
+   anything. So the witness cannot silently drift from what `author` actually produces.
+
+When the witness file is absent (an older `machine` checkout, or a partial one), `build.ps1` prints
+`SKIPPED (checked-in FieldWorks witness): ...` naming the expected path and falls back to authoring
+`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` fresh, exactly as before this slice.
 
 ## Pinned versions
 
@@ -557,4 +590,8 @@ Not addressed in this pass: splitting `GrammarParser`/`GrammarModel` into a tabl
 larger files (`GrammarParser.cs`, `GrammarAuthor.cs`) along construct-kind boundaries. `parse`'s
 `categoryId` extraction is a best-effort read of a `Category`/`category` attribute on
 `<WfiAnalysis>` -- no fixture in this slice's live proof exercises a non-null value, so it is
-unverified against a real category-bearing result. Part 2 adds the Machine fixture data proper.
+unverified against a real category-bearing result. Part 2 added the Machine fixture data proper (the
+checked-in `fieldworks/` witness described above) and `build.ps1`'s consumption of it;
+`ConvertFrom-PhonologyMutationsYaml` is a bespoke parser for that one manifest shape, not a general
+YAML reader -- a real YAML dependency, if this grows past one manifest per fixture, is follow-on
+work, not something this pass reaches for.
