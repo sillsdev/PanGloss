@@ -1,0 +1,620 @@
+{
+  "schemaVersion": 1,
+  "mode": "project",
+  "fieldWorksVersion": "9.3.10.26161",
+  "assemblyVersions": {
+    "ParserCore.dll": "9.3.10.26161",
+    "SIL.LCModel.dll": "11.0.0.55167",
+    "SIL.Machine.dll": "3.8.2.0",
+    "SIL.Machine.Morphology.HermitCrab.dll": "3.7.4.0",
+    "XAmpleManagedWrapper.dll": "9.3.10.26161",
+    "xample64.dll": "3.12.23.21"
+  },
+  "sourcePath": "<fw-projects-dir>/Sena 3/Sena 3.fwdata",
+  "sourceSha256": "2916ece9a44cb47b9a5648001a318371bd12d0722206d86324a55c0255c78f36",
+  "database": "Sena3",
+  "generated": [
+    {
+      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3.hc.xml",
+      "sha256": "639845b30868e910e68416f3b2baf76922202d525ba1f570443a0cf419dfa202",
+      "bytes": 1379931
+    },
+    {
+      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3gafawsData.xml",
+      "sha256": "d3d41f4a2d2b2b0d2d4c5e5cc594be1a144e14f882c643af5e13dfe8ce088f0a",
+      "bytes": 5592
+    },
+    {
+      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\OUTSena3gafawsData.xml",
+      "sha256": "550322bd704fad24236c55194b1146a7a070ba57ec19b17e50c1fcc0beb5f55d",
+      "bytes": 6592
+    },
+    {
+      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3adctl.txt",
+      "sha256": "150e69c2c574553a14ee21f25155c99c0273fe864779c3b9d1e645c7450024a0",
+      "bytes": 5203
+    },
+    {
+      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3gram.txt",
+      "sha256": "7015da99f85e27f2bbb331ab49fc998f18ea8eca8ba2df8ecde90873d00acb40",
+      "bytes": 171371
+    },
+    {
+      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3XAmpleWordGrammarDebugger.xsl",
+      "sha256": "b981701ec1effcc5137556b1ab031183cf46526f8b74d74f05b58179525c3478",
+      "bytes": 1117204
+    },
+    {
+      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3lex.txt",
+      "sha256": "bcc8ba97d943ca6b40418ae6710b4880d55e201a0de92d47e9aa64698b361ff7",
+      "bytes": 154133
+    }
+  ],
+  "hcLoadDiagnostics": [
+    {
+      "kind": "DuplicateGrapheme",
+      "message": "The phoneme \"n\" has the same grapheme as another phoneme."
+    },
+    {
+      "kind": "DuplicateGrapheme",
+      "message": "The phoneme \"w\" has the same grapheme as another phoneme."
+    },
+    {
+      "kind": "DuplicateGrapheme",
+      "message": "The phoneme \"m\" has the same grapheme as another phoneme."
+    },
+    {
+      "kind": "DuplicateGrapheme",
+      "message": "The phoneme \"y\" has the same grapheme as another phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [-Lab][-Nas]\" is invalid. Reason: Unrecognized natural class at position 12."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[Nas]\" is invalid. Reason: The natural class \"Nas\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"N+\" contains an undefined phoneme at 0."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"pakati_na_kati\" contains an undefined phoneme at 6."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"ana-mobvi\" contains an undefined phoneme at 3."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[LabAsp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[-Lab+Asp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [-Lab-Lat-Nas]\" is invalid. Reason: The natural class \"-Lab-Lat-Nas\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[Nas]\" is invalid. Reason: The natural class \"Nas\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[LabAsp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[-Lab+Asp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [-Lab-Lat-Nas]\" is invalid. Reason: The natural class \"-Lab-Lat-Nas\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[Nas]\" is invalid. Reason: The natural class \"Nas\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"Jorge\" contains an undefined phoneme at 0."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/[V+mid] ([preNas]) [C-nas] ([Mod]) _\" is invalid. Reason: Unrecognized natural class at position 12."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"sábadu\" contains an undefined phoneme at 2."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'phole-m'phole\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [-Lab]\" is invalid. Reason: The natural class \"-Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[LabAsp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[-Lab+Asp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C-lab-lat-nas]\" is invalid. Reason: Unrecognized natural class at position 6."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[Nas]\" is invalid. Reason: The natural class \"Nas\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[LabAsp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[-Lab+Asp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C-lab-lat-nas]\" is invalid. Reason: Unrecognized natural class at position 6."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[Nas]\" is invalid. Reason: The natural class \"Nas\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [-Lab]\" is invalid. Reason: The natural class \"-Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"bulángeti\" contains an undefined phoneme at 4."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [AEI]\" is invalid. Reason: Unrecognized natural class at position 6."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[LabAsp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [nonlabialaspirated]\" is invalid. Reason: Unrecognized natural class at position 6."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[LabAsp]\" is invalid. Reason: Unrecognized natural class at position 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'+\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"ng'ono-ng'ono\" contains an undefined phoneme at 6."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"menya-meny\" contains an undefined phoneme at 5."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'boliboli\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"kuenda-na-kuenda\" contains an undefined phoneme at 6."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [Lab]\" is invalid. Reason: The natural class \"Lab\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [-Lab][-Nas]\" is invalid. Reason: Unrecognized natural class at position 12."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/_[Nas]\" is invalid. Reason: The natural class \"Nas\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"N+\" contains an undefined phoneme at 0."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"nsanga-nsanga\" contains an undefined phoneme at 6."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"nakati-nakati\" contains an undefined phoneme at 6."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/[V+mid] ([preNas]) [C-nas] ([Mod]) _\" is invalid. Reason: Unrecognized natural class at position 12."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ [C] _\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"báulu\" contains an undefined phoneme at 2."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"tsákala\" contains an undefined phoneme at 3."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"ubodzi-bodzi\" contains an undefined phoneme at 6."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"+-ko\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'khangaiwa\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"mwana-cinthu\" contains an undefined phoneme at 5."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"ana-cinthu\" contains an undefined phoneme at 3."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ # ~_\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"pang'ono-pang'ono\" contains an undefined phoneme at 8."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ ~[V]\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ ~_ [V]\" is invalid. Reason: Unrecognized phoneme at position 3."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'gano\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"maso-maso\" contains an undefined phoneme at 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"bodzi-bodzi\" contains an undefined phoneme at 5."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ [C]\" is invalid. Reason: The natural class \"C\" contains an invalid phoneme."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"bárigi\" contains an undefined phoneme at 2."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"toma-tom\" contains an undefined phoneme at 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"nyakapherú-pheru\" contains an undefined phoneme at 10."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ o ... _\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"tálimba\" contains an undefined phoneme at 2."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/[V+mid] ([preNas]) [C-nas] ([Mod]) _\" is invalid. Reason: Unrecognized natural class at position 12."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"n'tsanga\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ ~[V]\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ ~_ [V]\" is invalid. Reason: Unrecognized phoneme at position 3."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ ~[V]\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ ~_ [V]\" is invalid. Reason: Unrecognized phoneme at position 3."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ ~[V]\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ ~_ [V]\" is invalid. Reason: Unrecognized phoneme at position 3."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ ~[V]\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ ~_ [V]\" is invalid. Reason: Unrecognized phoneme at position 3."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ ~[V]\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ ~_ [V]\" is invalid. Reason: Unrecognized phoneme at position 3."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ _ ~[V]\" is invalid. Reason: Unrecognized phoneme at position 5."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/ ~_ [V]\" is invalid. Reason: Unrecognized phoneme at position 3."
+    },
+    {
+      "kind": "InvalidEnvironment",
+      "message": "The environment \"/[V+mid] ([preNas]) [C-nas] ([Mod]) _\" is invalid. Reason: Unrecognized natural class at position 12."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'bambakuca\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"nkhundu-nkhundu\" contains an undefined phoneme at 7."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"kati-na-kati\" contains an undefined phoneme at 4."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"alt:.nkhundu-nkhundu\" contains an undefined phoneme at 3."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"m'dzukwa\" contains an undefined phoneme at 1."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"nkono-nkono\" contains an undefined phoneme at 5."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"dzulu-dzulu\" contains an undefined phoneme at 5."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"mbwera-mbwera\" contains an undefined phoneme at 6."
+    },
+    {
+      "kind": "InvalidShape",
+      "message": "The form \"kusiana-sian\" contains an undefined phoneme at 7."
+    }
+  ],
+  "diagnostics": []
+}
