@@ -70,17 +70,60 @@ function Get-NormalizedFwdataText {
 
 # Task 3 slice C part 1 (mutate/parse live proof) helpers.
 
-function Get-DigitBlindLines {
+# The exact closed set of "morphotactic name" prefixes gram.txt/adctl.txt glue an hvo onto with no
+# separator (e.g. "RootPOS106", "IrregInflForm79") -- every $sXxx literal in FieldWorks' own
+# Src\Transforms\Application\XAmpleTemplateVariables.xsl. A prefix match still requires the next
+# characters to be digits, so e.g. "InflClass" can never eat into "FromInflClass107"'s own "From".
+$script:HvoIdentifierPrefixes = @(
+	'IrregInflFormInSlot', 'IrregInflForm', 'DefaultExcpFeatures', 'FromExcpFeat', 'ToExcpFeat',
+	'ExcpFeat', 'FromInflClass', 'ToInflClass', 'InflClass', 'FromMSFS', 'ToMSFS', 'MSEnvFS',
+	'MSFS', 'InflectionFS', 'FromPOS', 'ToPOS', 'RootPOS', 'MSEnvPOS', 'CliticPOS', 'CFP',
+	'StemName', 'ICA'
+)
+
+# Blind ONLY digit runs that are a known, XSL-confirmed hvo carrier -- never a raw \d+ blind (that
+# also blinds a \maxp/\maxs/\maxi/\maxr/\maxn/\maxnull cap, a count, or a numeric gloss, none of
+# which should ever compare equal after a phoneme deletion). Every shape below was found by diffing
+# a live base project's adctl.txt/gram.txt/lex.txt against the SAME project's phoneme-deleted clone
+# (every other line is byte-identical) and confirmed against the emitting XSL: bMorphnameIsMsaId=y
+# (FxtM3ParserToXAmpleADCtl.xsl:39,217,268,284,305) and M3ModelExportServices.cs (every M3-dump
+# "Id"/"dst" attribute is the LCM object's own Hvo) mean every one of these is a raw, renumberable
+# hvo, never a value carrying independent meaning.
+function Get-HvoBlindLines {
 	param([string]$Path)
-	(Get-Content -Path $Path) | ForEach-Object { [regex]::Replace($_, '\d+', '#') }
+	$prefixAlternation = ($script:HvoIdentifierPrefixes -join '|')
+	(Get-Content -Path $Path) | ForEach-Object {
+		$line = $_
+		# "<Prefix><hvo>" identifiers, e.g. "RootPOS106", "MSEnvPOS106", "IrregInflForm79".
+		$line = [regex]::Replace($line, "\b($prefixAlternation)(\d+)\b", '${1}#')
+		# "(<hvo>_<slotIndex>)" / "<<hvo>_<slotIndex> ...>" -- the index after "_" is a stable
+		# 0..N-1 slot position (FxtM3ParserToToXAmpleGrammar.xsl), never renumbered; only the
+		# leading hvo is.
+		$line = [regex]::Replace($line, '\((\d+)(_\d+)\)', '(#$2)')
+		$line = [regex]::Replace($line, '<(\d+)(_\d+) ', '<#$2 ')
+		# "<... synCat>       = <hvo>" -- measured: the only two bare "= \d+$" lines in gram.txt,
+		# both a POS's own hvo (same value as that POS's "RootPOS<hvo>" token elsewhere).
+		$line = [regex]::Replace($line, '(synCat>\s*=\s*)(\d+)(\s*)$', '${1}#${3}')
+		# "rootCat:<hvo>" / "fromCat:<hvo>" / "toCat:<hvo>" / "envCat:<hvo>".
+		$line = [regex]::Replace($line, '((?:root|from|to|env)Cat:)(\d+)', '${1}#')
+		# "rule {... template <hvo>}" -- the AffixTemplate's own hvo in a rule-name comment.
+		$line = [regex]::Replace($line, '(template\s*)(\d+)(\})', '${1}#${3}')
+		# lex.txt's "\lx <hvo>" / "\wc <hvo>" -- only when the WHOLE value is digits; a non-numeric
+		# \wc (e.g. "root", "prefix", "circumSfx") is a literal category name, never an hvo, and
+		# stays byte-compared.
+		$line = [regex]::Replace($line, '^(\\lx )(\d+)\s*$', '${1}#')
+		$line = [regex]::Replace($line, '^(\\wc )(\d+)\s*$', '${1}#')
+		# lex.txt's "\a <form> {<hvo>}" -- the allomorph's own MoAffixAllomorph/MoStemAllomorph hvo
+		# (FxtM3ParserToXAmpleLex.xsl's AlloForm template writes "{" + @Id + "}" verbatim).
+		$line = [regex]::Replace($line, '^(\\a \S+ \{)(\d+)(\})', '${1}#${3}')
+		$line
+	}
 }
 
 # Deleting an unreferenced phoneme record shifts every LATER object's hvo within the same load
-# session (bMorphnameIsMsaId=y bakes each MSA's own hvo into adctl.txt/gram.txt/lex.txt as literal
-# text -- e.g. "RootPOS109" / "\lx 105") -- measured directly: diffing a base project's XAMPLE
-# files against the SAME project's phoneme-deleted clone shows every differing line differs ONLY in
-# digit runs, never in surrounding text. So "unaffected by the phoneme deletion" is verified as
-# byte-identical OR identical-after-blinding-digits, not raw byte-identity alone.
+# session, so "unaffected by the phoneme deletion" is verified as byte-identical OR identical after
+# blinding ONLY the hvo-bearing tokens above -- never a raw digit blind, which would also pass a
+# corrupted cap or count (see Test-XampleFileCorruptionIsCaught below, which proves that directly).
 function Test-XampleFilesEquivalentIgnoringHvoRenumbering {
 	param([string]$BaseDir, [string]$CloneDir, [string]$Database, [string]$Label)
 	foreach ($name in @('adctl.txt', 'gram.txt', 'lex.txt')) {
@@ -92,10 +135,10 @@ function Test-XampleFilesEquivalentIgnoringHvoRenumbering {
 			Write-Host "  $name byte-identical (base vs $Label clone)."
 			continue
 		}
-		$baseBlind = Get-DigitBlindLines -Path $baseFile
-		$cloneBlind = Get-DigitBlindLines -Path $cloneFile
+		$baseBlind = Get-HvoBlindLines -Path $baseFile
+		$cloneBlind = Get-HvoBlindLines -Path $cloneFile
 		if ($baseBlind.Count -ne $cloneBlind.Count) {
-			Write-Error "$Label`: $name line count differs after digit-blinding: base=$($baseBlind.Count) clone=$($cloneBlind.Count)"
+			Write-Error "$Label`: $name line count differs after hvo-blinding: base=$($baseBlind.Count) clone=$($cloneBlind.Count)"
 			exit 1
 		}
 		for ($i = 0; $i -lt $baseBlind.Count; $i++) {
@@ -104,7 +147,49 @@ function Test-XampleFilesEquivalentIgnoringHvoRenumbering {
 				exit 1
 			}
 		}
-		Write-Host "  $name identical to base except for hvo renumbering (base vs $Label clone; digit-blind compare)."
+		Write-Host "  $name identical to base except for hvo renumbering (base vs $Label clone; hvo-only-blind compare)."
+	}
+}
+
+# Negative probe: the tightened compare must still CATCH a real regression. Flip one digit of a
+# \maxp cap (never an hvo-bearing token -- see Get-HvoBlindLines) in a temp copy of the clone's own
+# adctl.txt and assert the hvo-blind compare now reports a real difference at that exact line,
+# rather than silently passing it the way a raw digit-blind (the pre-fix behavior) would have.
+function Test-XampleFileCorruptionIsCaught {
+	param([string]$CloneDir, [string]$Database, [string]$Label)
+	$cloneAdctlPath = Join-Path $CloneDir "${Database}adctl.txt"
+	$corruptDir = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-corrupt-probe-" + [System.Guid]::NewGuid().ToString('N'))
+	New-Item -ItemType Directory -Path $corruptDir -Force | Out-Null
+	try {
+		$corruptAdctlPath = Join-Path $corruptDir "${Database}adctl.txt"
+		$original = Get-Content -Path $cloneAdctlPath
+		$maxpLine = $original | Where-Object { $_ -match '^\\maxp \d+$' } | Select-Object -First 1
+		if (-not $maxpLine) {
+			Write-Error "$Label`: corrupted-copy probe could not find a '\maxp <N>' line in $cloneAdctlPath to corrupt."
+			exit 1
+		}
+		$corrupted = $original | ForEach-Object {
+			if ($_ -eq $maxpLine) { $maxpLine -replace '\d+$', '3' } else { $_ }
+		}
+		Set-Content -Path $corruptAdctlPath -Value $corrupted -Encoding utf8
+		if ((Get-Content -Raw -Path $corruptAdctlPath) -ceq (Get-Content -Raw -Path $cloneAdctlPath)) {
+			Write-Error "$Label`: corrupted-copy probe failed to actually change anything -- '$maxpLine' not found verbatim?"
+			exit 1
+		}
+		$origBlind = Get-HvoBlindLines -Path $cloneAdctlPath
+		$corruptBlind = Get-HvoBlindLines -Path $corruptAdctlPath
+		$foundDiff = $false
+		for ($i = 0; $i -lt $origBlind.Count; $i++) {
+			if ($origBlind[$i] -cne $corruptBlind[$i]) { $foundDiff = $true }
+		}
+		if (-not $foundDiff) {
+			Write-Error "$Label`: corrupted-copy probe FAILED to catch a corrupted '\maxp' cap -- the hvo-only blind is over-broad."
+			exit 1
+		}
+		Write-Host "  corrupted-copy probe OK ($Label): a corrupted '\maxp' cap ($maxpLine -> $($corrupted | Where-Object { $_ -match '^\\maxp \d+$' })) is still caught after the hvo-only blind."
+	}
+	finally {
+		Remove-Item -Path $corruptDir -Recurse -Force -ErrorAction SilentlyContinue
 	}
 }
 
@@ -933,6 +1018,7 @@ try {
 	& $exePath project --project $removeKClonedFwdata --out-dir $removeKProjectedOut --database MPBase
 	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: 'project' on the remove-k-only clone failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
 	Test-XampleFilesEquivalentIgnoringHvoRenumbering -BaseDir $baseProjectedOut -CloneDir $removeKProjectedOut -Database 'MPBase' -Label 'remove-k-only'
+	Test-XampleFileCorruptionIsCaught -CloneDir $removeKProjectedOut -Database 'MPBase' -Label 'remove-k-only'
 	Assert-HcXmlLacksSegmentDefinition -BaseHcXmlPath (Join-Path $baseProjectedOut 'MPBase.hc.xml') -CloneHcXmlPath (Join-Path $removeKProjectedOut 'MPBase.hc.xml') -Representation 'k' -Label 'remove-k-only'
 
 	# --- Case B: empty-phoneme-inventory ---
@@ -1030,16 +1116,67 @@ try {
 	# --- parse: the real XAMPLE engine over the base project's own generated files ---
 	$mpWordsPath = Join-Path $mpTempRoot 'words.txt'
 	Set-Content -Path $mpWordsPath -Value @('k', 'xxxxxxk') -Encoding utf8
+
+	# The project's OWN adctl.txt must be provably untouched by a capped run: --max-prefixes
+	# patches a COPY (ParseCommand.PatchedDynamicFilesDir), never the caller's file -- hash it
+	# before and after rather than trusting that claim.
+	$baseAdctlPath = Join-Path $baseProjectedOut 'MPBaseadctl.txt'
+	$baseAdctlHashBeforeParse = (Get-FileHash -Algorithm SHA256 -Path $baseAdctlPath).Hash
 	$baseParseOutPath = Join-Path $mpTempRoot 'base-parse.json'
 	& $exePath parse --project $baseFwdata --project-dir $baseProjectedOut --database MPBase --words $mpWordsPath --out $baseParseOutPath --max-analyses 2000 --max-prefixes 12
 	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'parse' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$baseAdctlHashAfterParse = (Get-FileHash -Algorithm SHA256 -Path $baseAdctlPath).Hash
+	if ($baseAdctlHashAfterParse -ne $baseAdctlHashBeforeParse) {
+		Write-Error "parse (--max-prefixes 12): the PROJECT'S OWN adctl.txt changed (sha256 $baseAdctlHashBeforeParse -> $baseAdctlHashAfterParse)."
+		exit 1
+	}
+	& $exePath --validate-capture $baseParseOutPath
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: --validate-capture failed on base-parse.json (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
 	$baseParse = Get-Content $baseParseOutPath -Raw | ConvertFrom-Json
+	if ($baseParse.parameters.adctlPatched -ne $true) { Write-Error "parse (--max-prefixes 12): expected parameters.adctlPatched true, got $($baseParse.parameters.adctlPatched)"; exit 1 }
+	if ($baseParse.parameters.adctl.maxPrefixes -ne 12) { Write-Error "parse (--max-prefixes 12): expected parameters.adctl.maxPrefixes 12, got $($baseParse.parameters.adctl.maxPrefixes)"; exit 1 }
+	Write-Host "parse adctl-untouched probe OK: base project's own adctl.txt unchanged (sha256 $baseAdctlHashBeforeParse); adctlPatched=true, adctl.maxPrefixes=12."
+
+	# --- same base files, no cap override at all: adctlPatched must read false, adctlSource must
+	#     name the project's own (unpatched) file, not a patched temp copy. ---
+	$baseParseUnpatchedOutPath = Join-Path $mpTempRoot 'base-parse-unpatched.json'
+	& $exePath parse --project $baseFwdata --project-dir $baseProjectedOut --database MPBase --words $mpWordsPath --out $baseParseUnpatchedOutPath --max-analyses 2000
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'parse' (no cap overrides) failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	& $exePath --validate-capture $baseParseUnpatchedOutPath
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: --validate-capture failed on base-parse-unpatched.json (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$baseParseUnpatched = Get-Content $baseParseUnpatchedOutPath -Raw | ConvertFrom-Json
+	if ($baseParseUnpatched.parameters.adctlPatched -ne $false) { Write-Error "parse (no cap overrides): expected parameters.adctlPatched false, got $($baseParseUnpatched.parameters.adctlPatched)"; exit 1 }
+	if ($baseParseUnpatched.parameters.adctlSource -match 'xample-projector-parse-') {
+		Write-Error "parse (no cap overrides): adctlSource unexpectedly names a patched temp copy: $($baseParseUnpatched.parameters.adctlSource)"
+		exit 1
+	}
+	Write-Host "parse adctlPatched=false probe OK: no cap overrides -> adctlPatched=false, adctlSource=$($baseParseUnpatched.parameters.adctlSource)."
+
 	$kParse = $baseParse.words | Where-Object { $_.word -eq 'k' }
 	$xxParse = $baseParse.words | Where-Object { $_.word -eq 'xxxxxxk' }
 	if ($kParse.analyses.Count -ne 1) { Write-Error "parse: expected exactly 1 analysis for 'k', got $($kParse.analyses.Count)"; exit 1 }
-	Write-Host "parse OK: engineVersion=$($baseParse.engineVersion), effective parameters: $($baseParse.parameters | ConvertTo-Json -Compress)"
+	Write-Host "parse OK: engineVersion=$($baseParse.engineVersion), effective parameters: $($baseParse.parameters | ConvertTo-Json -Compress -Depth 5)"
 	Write-Host "parse OK: 'k' = $($kParse.analyses.Count) analysis (analyses), reachedMaxAnalyses=$($kParse.reachedMaxAnalyses), engineError=$($kParse.engineError)"
 	Write-Host "parse (reported as-is, never massaged): 'xxxxxxk' = $($xxParse.analyses.Count) analyses, reachedMaxAnalyses=$($xxParse.reachedMaxAnalyses), engineError=$($xxParse.engineError) (the HC oracle's own count for this word is 924 -- XAMPLE is a different engine and is not expected to match it)."
+
+	# --- parse the remove-k-only clone's own files; multiset must match the base's. XAmple loads
+	#     a FIXED, project-independent character table (cd.tab, under the FieldWorks install, not
+	#     the project), never the project's own PhPhonemeSet, so a phoneme deletion changes
+	#     nothing XAmple itself parses -- only HC's hc.xml load is sensitive to it (the
+	#     InvalidShape warnings printed above come from 'project', not from this 'parse'). ---
+	$removeKParseOutPath = Join-Path $mpTempRoot 'remove-k-only-parse.json'
+	& $exePath parse --project $removeKClonedFwdata --project-dir $removeKProjectedOut --database MPBase --words $mpWordsPath --out $removeKParseOutPath --max-analyses 2000 --max-prefixes 12
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: remove-k-only clone 'parse' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$removeKParse = Get-Content $removeKParseOutPath -Raw | ConvertFrom-Json
+	foreach ($word in @('k', 'xxxxxxk')) {
+		$baseSigs = Get-AnalysisSignatures -ParseResponse $baseParse -Word $word
+		$removeKSigs = Get-AnalysisSignatures -ParseResponse $removeKParse -Word $word
+		if (($baseSigs -join '|') -ne ($removeKSigs -join '|')) {
+			Write-Error "parse multiset comparison: '$word' differs between base ($($baseSigs.Count) analyses) and remove-k-only clone ($($removeKSigs.Count) analyses)."
+			exit 1
+		}
+	}
+	Write-Host "parse multiset comparison OK: base and remove-k-only clone produce identical analysis multisets for 'k' and 'xxxxxxk'."
 
 	# --- parse the empty-phoneme-inventory clone's own files; multiset must match the base's ---
 	$cloneParseOutPath = Join-Path $mpTempRoot 'clone-parse.json'

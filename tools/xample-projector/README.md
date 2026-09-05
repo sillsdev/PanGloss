@@ -187,6 +187,33 @@ Response `mutation-response.json`:
 ```
 `--validate-capture` accepts `mode: "mutate"`.
 
+### Comparing XAMPLE outputs across a mutation: never byte-identical, and that's expected
+
+Projecting a base project and its phoneme-mutated clone (`project` run twice, once per project)
+never produces byte-identical `adctl.txt`/`gram.txt`/`lex.txt`: every object the M3 dump writes is
+named by its raw LibLCM **hvo**, and deleting one phoneme record shifts every later object's hvo
+within that clone's own load session. This is baked in by a FieldWorks XSL parameter, not something
+this tool introduces: `Src\Transforms\Application\FxtM3ParserToXAmpleADCtl.xsl:39` sets
+`bMorphnameIsMsaId` to `y` by default, and every place that parameter is read
+(`FxtM3ParserToXAmpleADCtl.xsl:217,268,284,305`) writes the referenced MSA's own hvo (`@dst`/`@Id`)
+verbatim instead of its gloss text; `FxtM3ParserToXAmpleLex.xsl`'s `\lx`/`\wc`/`\a ... {}` fields and
+`FxtM3ParserToToXAmpleGrammar.xsl`'s rule bodies do the same unconditionally. The hvo itself comes
+from `SIL.LCModel.DomainServices.M3ModelExportServices.cs`, where every M3-dump `Id`/`dst` attribute
+is written as `object.Hvo` -- a plain in-memory sequence number LibLCM assigns per load session, not
+a stable identifier.
+
+So **a base-vs-mutant XAMPLE-file comparison must be hvo-blind, or must go through `parse`'s own
+`msaGuid`** (a real LCM guid, stable across a file-copy clone even though the hvo it is resolved
+from is not -- see `parse`'s own doc below), never raw byte-identity:
+- `build.ps1`'s `Get-HvoBlindLines`/`Test-XampleFilesEquivalentIgnoringHvoRenumbering` blind only
+  the token shapes measured to actually carry an hvo (an identifier+hvo token from the closed
+  `XAmpleTemplateVariables.xsl` prefix set, an `(hvo_slotIndex)` pair, `\lx`/`\wc`/`\a ... {hvo}` in
+  `lex.txt`, and the like) -- never every digit, which would also erase a real regression in a
+  `\maxp`/`\maxs`/`\maxi`/`\maxr`/`\maxn`/`\maxnull` cap or a count.
+- `parse`'s own multiset comparison (`Get-AnalysisSignatures`, keyed on `msaGuid`) is the
+  guid-based cross-check: it is verified for both `mutate` live-proof cases
+  (`remove-k-only`, `empty-phoneme-inventory`).
+
 `parse --project <path-to-.fwdata> --project-dir <dir with <db>adctl.txt/gram.txt/lex.txt>
 --database <name> --words <file, one per line> --out <response.json> [--max-analyses N]
 [--max-prefixes N] [--max-suffixes N] [--max-infixes N] [--max-roots N] [--max-interfixes N]
@@ -212,14 +239,25 @@ against the pilot fixture changes `xxxxxxk`'s analysis count from 924 to 1, prov
 read, not merely accepted. `--max-analyses` is the one genuine runtime override
 (`SetParameter("MaxAnalysesToReturn", ...)`); its default is `1000` when not given (this tool's own
 convention, matching `author`'s default), since XAmple's own unset default (20) exists to serve
-interactive FLEx, not a batch tool. The response's `parameters` always reports the values actually
-used, read back from the (possibly patched) `adctl.txt` plus the effective `MaxAnalysesToReturn`.
+interactive FLEx, not a batch tool.
+
+The response's `parameters` keeps these two provenances apart rather than flattening them into
+sibling keys: `runtime` is the one cap `SetParameter` actually honours; `adctl` is read back from
+whichever `adctl.txt` was actually loaded (the caller's own file, or a patched temp copy -- see
+above); `adctlPatched` says which; `adctlSource` names that file's path, relative to
+`--project-dir` (so a patched run's path runs through the temp directory named above, and an
+unpatched run's does not).
 
 Response:
 ```
 { "schemaVersion": 1, "mode": "parse", "database": "...",
   "engineVersion": "<xample64.dll file version -- AmpleReportVersion is never exposed by the public managed wrapper surface>",
-  "parameters": { "maxAnalysesToReturn": 1000, "maxPrefixes": 5, "maxSuffixes": 5, "maxInfixes": 0, "maxRoots": 1, "maxInterfixes": 0, "maxNulls": 0 },
+  "parameters": {
+    "runtime": { "maxAnalysesToReturn": 1000 },
+    "adctl": { "maxPrefixes": 5, "maxSuffixes": 5, "maxInfixes": 0, "maxRoots": 1, "maxInterfixes": 0, "maxNulls": 0 },
+    "adctlPatched": false,
+    "adctlSource": "MPBaseadctl.txt"
+  },
   "words": [ { "word": "...", "analyses": [ { "morphemes": [ { "form": "...", "msaGuid": "...", "morphnameOrGloss": "...", "type": "..." } ], "categoryId": null, "surfaceNfd": "..." } ], "reachedMaxAnalyses": false, "engineError": null } ] }
 ```
 `analyses` is a MULTISET -- duplicate-looking entries (same surface text, same morph list) are two
@@ -417,11 +455,15 @@ from a live run rather than assuming it.
                                                     # probes, normalized-.fwdata author determinism,
                                                     # and both construct-refusal probes too); PLUS a
                                                     # live 'mutate' (remove-k-only, empty-phoneme-
-                                                    # inventory, and a referenced-phoneme refusal
-                                                    # probe) + 'parse' (real XAmple engine) run
-                                                    # against a freshly authored pilot project (a
-                                                    # separate 'C:\Users\johnm\...\machine' checkout,
-                                                    # not the submodule above -- see below)
+                                                    # inventory, a referenced-phoneme refusal probe,
+                                                    # and a corrupted-copy negative probe proving the
+                                                    # hvo-only blind still catches a corrupted cap)
+                                                    # + 'parse' (real XAmple engine; adctl-untouched
+                                                    # + adctlPatched true/false + msaGuid multiset
+                                                    # checks for both mutate cases) run against a
+                                                    # freshly authored pilot project (a separate
+                                                    # 'C:\Users\johnm\...\machine' checkout, not the
+                                                    # submodule above -- see below)
 ```
 `build.ps1` locates MSBuild via `vswhere.exe` (preferring the Visual Studio toolchain this project
 was built against) and falls back to `dotnet build` if MSBuild is unavailable.

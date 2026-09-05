@@ -75,6 +75,7 @@ namespace XampleProjector
 			CheckSha256Fields(document, problems);
 			CheckAssemblyVersionKeys(document, problems);
 			CheckNoAbsolutePaths(document, problems);
+			CheckParseParametersShape(document, problems);
 
 			if (problems.Count == 0)
 			{
@@ -211,6 +212,49 @@ namespace XampleProjector
 				if (path != null && LooksRooted(path))
 					problems.Add($"generated[].path must not be an absolute path or drive letter: \"{path}\"");
 			}
+		}
+
+		private static readonly string[] AdctlCapFields =
+		{
+			"maxPrefixes", "maxSuffixes", "maxInfixes", "maxRoots", "maxInterfixes", "maxNulls",
+		};
+
+		/// <summary>
+		/// A "parse" response's "parameters" distinguishes the one runtime-overridable cap
+		/// (SetParameter) from the caps baked into adctl.txt at author/project time -- flattening
+		/// them into sibling keys (the pre-fix shape) made it impossible to tell a cap's source.
+		/// </summary>
+		private static void CheckParseParametersShape(JObject document, List<string> problems)
+		{
+			if ((string)document[Fields.Mode] != "parse")
+				return;
+			if (!(document[Fields.Parameters] is JObject parameters))
+				return; // already reported by CheckRequiredFieldsForMode
+
+			if (!(parameters["runtime"] is JObject runtime) || runtime["maxAnalysesToReturn"] == null)
+				problems.Add("[parse] \"parameters.runtime.maxAnalysesToReturn\" is missing");
+
+			if (!(parameters["adctl"] is JObject adctl))
+			{
+				problems.Add("[parse] \"parameters.adctl\" is missing or not an object");
+			}
+			else
+			{
+				foreach (var field in AdctlCapFields)
+				{
+					if (adctl[field] == null)
+						problems.Add($"[parse] \"parameters.adctl.{field}\" is missing");
+				}
+			}
+
+			if (parameters["adctlPatched"] == null || parameters["adctlPatched"].Type != JTokenType.Boolean)
+				problems.Add("[parse] \"parameters.adctlPatched\" is missing or not a boolean");
+
+			var adctlSource = (string)parameters["adctlSource"];
+			if (string.IsNullOrEmpty(adctlSource))
+				problems.Add("[parse] \"parameters.adctlSource\" is missing");
+			else if (LooksRooted(adctlSource))
+				problems.Add($"\"parameters.adctlSource\" must not be an absolute path or drive letter: \"{adctlSource}\"");
 		}
 
 		/// <summary>
