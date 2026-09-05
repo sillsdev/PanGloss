@@ -1299,7 +1299,7 @@ front-matter keys; a `false` verdict requires non-empty notes at parse time.
   FieldWorks re-authoring exists. Recommendation per fixture: convert / deprecate / delete-candidate.
 - [x] **Step 2: Mark (Machine)** — front-matter field on all 36 upstream fixtures plus PROTOCOL §9,
   branch `conformance/fieldworks-witnesses` (`43af40e4`, follow-ups through `7a4ec947`).
-- [ ] **Step 2 (PanGloss)** — `pg-conformance-fixtures` reads the field as
+- [x] **Step 2 (PanGloss)** — `pg-conformance-fixtures` reads the field as
   `FieldworksProducibility { Producible, EngineOnly{notes}, Unmarked }`; the coverage gates and
   `pangloss coverage` print the three buckets; `producibility_marking_gate` ratchets `Unmarked`
   (62 today: 33 upstream at the current pin + 29 `conformance-staging/**`). Branch
