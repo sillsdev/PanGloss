@@ -128,6 +128,48 @@ try {
 		exit $LASTEXITCODE
 	}
 	Write-Host 'Live run OK.'
+
+	# --- Probe: 'inspect' produces at least one phoneme, each with a real guid ---
+	$inspectResponse = Join-Path $tempRoot 'inspect-response.json'
+	Write-Host "Running: $exePath inspect --project `"$projectFwdata`" --out `"$inspectResponse`""
+	& $exePath inspect --project $projectFwdata --out $inspectResponse
+	$inspectExit = $LASTEXITCODE
+	if ($inspectExit -ne 0) {
+		Write-Error "Live 'inspect' run failed (exit $inspectExit)."
+		exit $inspectExit
+	}
+	$inspectJson = Get-Content $inspectResponse -Raw | ConvertFrom-Json
+	$phonemeCount = $inspectJson.phonemes.Count
+	if ($phonemeCount -le 0) {
+		Write-Error "Live 'inspect' run reported zero phonemes."
+		exit 1
+	}
+	foreach ($phoneme in $inspectJson.phonemes) {
+		if ($null -eq $phoneme.guid -or $phoneme.guid.Length -ne 36) {
+			Write-Error "Live 'inspect' run reported a phoneme with a malformed guid: '$($phoneme.guid)'"
+			exit 1
+		}
+	}
+	Write-Host "Live 'inspect' probe OK: $phonemeCount phoneme(s), all with 36-char guids."
+
+	# --- Probe: an output-dir collision surfaces as ProjectionException -> exit 5, naming the step ---
+	$collisionOutDir = Join-Path $tempRoot 'out-collision'
+	New-Item -ItemType Directory -Path $collisionOutDir -Force | Out-Null
+	$collisionPath = Join-Path $collisionOutDir 'Sena3adctl.txt'
+	New-Item -ItemType Directory -Path $collisionPath -Force | Out-Null
+	Write-Host "Running (expected to fail): $exePath project --project `"$projectFwdata`" --out-dir `"$collisionOutDir`" --database Sena3 (Sena3adctl.txt pre-created as a directory)"
+	$collisionOutput = & $exePath project --project $projectFwdata --out-dir $collisionOutDir --database Sena3 2>&1
+	$collisionExit = $LASTEXITCODE
+	$collisionText = ($collisionOutput | Out-String)
+	if ($collisionExit -ne 5) {
+		Write-Error "Output-dir collision probe: expected exit 5, got $collisionExit. Output:`n$collisionText"
+		exit 1
+	}
+	if ($collisionText -notmatch 'adctl') {
+		Write-Error "Output-dir collision probe: exit was 5 but the output does not name 'adctl'. Output:`n$collisionText"
+		exit 1
+	}
+	Write-Host "Output-dir collision probe OK: exit 5, output names 'adctl'."
 }
 finally {
 	Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

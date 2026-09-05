@@ -21,8 +21,10 @@ namespace XampleProjector
 		internal static List<GeneratedFile> Generate(LcmCache cache, string fieldWorksDir, string outDir, string database)
 		{
 			var lp = cache.LanguageProject;
-			var model = M3ModelExportServices.ExportGrammarAndLexicon(lp);
-			var template = M3ModelExportServices.ExportGafaws(lp.PartsOfSpeechOA.PossibilitiesOS);
+			var model = RunStep("M3 export (grammar and lexicon)",
+				() => M3ModelExportServices.ExportGrammarAndLexicon(lp));
+			var template = RunStep("M3 export (GAFAWS templates)",
+				() => M3ModelExportServices.ExportGafaws(lp.PartsOfSpeechOA.PossibilitiesOS));
 
 			// One path can be written more than once (each POS-with-templates iteration below
 			// reuses the same GAFAWS input/output names), so collect the set of distinct paths
@@ -36,7 +38,33 @@ namespace XampleProjector
 				RemoveDottedCircles(element);
 
 			touchedPaths.AddRange(MakeAmpleFiles(model, fieldWorksDir, outDir, database));
-			return touchedPaths.Distinct().Select(GeneratedFile.Describe).ToList();
+			return RunStep("describing generated files",
+				() => touchedPaths.Distinct().Select(GeneratedFile.Describe).ToList());
+		}
+
+		// Every failure inside this pipeline must surface as a ProjectionException naming the
+		// step that failed, never a raw exception -- a caller needs "which step" to diagnose a
+		// bad output directory, a missing transform, or a GAFAWS mismatch, and ProjectCommand
+		// maps ProjectionException to the documented exit 5.
+		private static void RunStep(string stepName, Action action)
+		{
+			RunStep<object>(stepName, () => { action(); return null; });
+		}
+
+		private static T RunStep<T>(string stepName, Func<T> func)
+		{
+			try
+			{
+				return func();
+			}
+			catch (ProjectionException)
+			{
+				throw;
+			}
+			catch (Exception ex)
+			{
+				throw new ProjectionException($"{stepName} failed: {ex.Message}", ex);
+			}
 		}
 
 		// --- ported from M3ToXAmpleTransformer.PrepareTemplatesForXAmpleFiles / DefineUndefinedSlots /
@@ -54,17 +82,22 @@ namespace XampleProjector
 				var gafawsInputPath = Path.Combine(outDir, database + "gafawsData.xml");
 				var gafawsTransform = LoadTransform(fieldWorksDir, "FxtM3ParserToGAFAWS");
 				var templateDom = new XDocument(new XElement(templateElem));
-				using (var writer = new StreamWriter(gafawsInputPath))
-					gafawsTransform.Transform(templateDom.CreateNavigator(), null, writer);
+				RunStep($"GAFAWS XSL transform (FxtM3ParserToGAFAWS) writing {gafawsInputPath}", () =>
+				{
+					using (var writer = new StreamWriter(gafawsInputPath))
+						gafawsTransform.Transform(templateDom.CreateNavigator(), null, writer);
+				});
 				touchedPaths.Add(gafawsInputPath);
 
 				var pa = new PositionAnalyzer();
-				var resultFile = pa.Process(gafawsInputPath);
+				var resultFile = RunStep($"GAFAWS PositionAnalyzer.Process reading {gafawsInputPath}",
+					() => pa.Process(gafawsInputPath));
 				if (string.IsNullOrEmpty(resultFile))
 					continue;
 				touchedPaths.Add(resultFile);
 
-				InsertOrderclassInfo(domModel, resultFile);
+				RunStep($"GAFAWS orderclass insertion from {resultFile}",
+					() => InsertOrderclassInfo(domModel, resultFile));
 			}
 			return touchedPaths;
 		}
@@ -148,8 +181,11 @@ namespace XampleProjector
 		private static string TransformToFile(XDocument model, string fieldWorksDir, string xslName, string outPath)
 		{
 			var xslt = LoadTransform(fieldWorksDir, xslName);
-			using (var writer = new StreamWriter(outPath))
-				xslt.Transform(model.CreateNavigator(), null, writer);
+			RunStep($"XAMPLE XSL transform ({xslName}) writing {outPath}", () =>
+			{
+				using (var writer = new StreamWriter(outPath))
+					xslt.Transform(model.CreateNavigator(), null, writer);
+			});
 			return outPath;
 		}
 
