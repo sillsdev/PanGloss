@@ -384,3 +384,184 @@ fn import_is_deterministic() {
     assert_eq!(snap1.to_json(), snap2.to_json());
     assert_eq!(report1.warnings, report2.warnings);
 }
+
+#[test]
+fn fixture_conversion_provenance_is_a_clean_complete_import() {
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    assert_eq!(
+        provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedComplete
+    );
+    assert_ne!(
+        provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::Synthetic
+    );
+    assert!(provenance.import_issues.is_empty());
+
+    let census = &provenance.source_census;
+    assert!(census.total_occurrences > 0);
+    let class_sum: u64 = census.class_occurrences.values().sum();
+    assert_eq!(class_sum, census.total_occurrences);
+    assert_eq!(census.unhandled_class_occurrences.len(), 0);
+    assert_eq!(census.ordered_header_sha256.len(), 64);
+    assert!(census
+        .ordered_header_sha256
+        .chars()
+        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+
+    let (snapshot2, _report2) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    assert_eq!(
+        census.ordered_header_sha256,
+        snapshot2.conversion_provenance.source_census.ordered_header_sha256
+    );
+}
+
+#[test]
+fn duplicating_an_allowed_class_guid_yields_one_fatal_issue_and_the_first_content_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
+    assert!(source.contains(needle), "fixture must contain the -s LexEntry header");
+    // Duplicate the "-s" LexEntry header with a visibly different citation form in the copy, appended at the end.
+    let duplicate_block = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">
+<CitationForm>
+<AUni ws="fx">zzz-duplicate</AUni>
+</CitationForm>
+</rt>
+"#;
+    let variant = source.replacen(
+        "</languageproject>",
+        &format!("{duplicate_block}</languageproject>"),
+        1,
+    );
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    assert_eq!(
+        provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
+    );
+    let duplicate_issues: Vec<_> = provenance
+        .import_issues
+        .iter()
+        .filter(|issue| issue.code == "invalid-source.duplicate-guid")
+        .collect();
+    assert_eq!(duplicate_issues.len(), 1);
+    assert!(duplicate_issues[0].fatal);
+
+    let suffix_entries: Vec<_> = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .filter(|e| e.guid == "00000000-0000-0000-0000-000000000050")
+        .collect();
+    assert_eq!(suffix_entries.len(), 1, "the duplicated entry must appear once");
+    assert!(
+        suffix_entries[0]
+            .citation_form
+            .iter()
+            .any(|f| f.form == "-s"),
+        "the FIRST occurrence's content must win"
+    );
+}
+
+#[test]
+fn unknown_class_record_is_census_only_and_raises_no_issue() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let injected = r#"<rt class="ZzUnknown" guid="00000000-0000-0000-0000-0000000000zz">
+</rt>
+"#;
+    let variant = source.replacen(
+        "</languageproject>",
+        &format!("{injected}</languageproject>"),
+        1,
+    );
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    assert!(!provenance
+        .import_issues
+        .iter()
+        .any(|issue| issue.source.as_ref().is_some_and(|s| s.kind == "ZzUnknown")));
+    assert_eq!(
+        provenance.source_census.unhandled_class_occurrences.get("ZzUnknown"),
+        Some(&1)
+    );
+}
+
+#[test]
+fn missing_guid_on_an_allowed_class_is_a_fatal_issue_and_drops_the_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
+    assert!(source.contains(needle), "fixture must contain the -s LexEntry header");
+    let variant = source.replacen(needle, r#"<rt class="LexEntry">"#, 1);
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    assert_eq!(
+        provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
+    );
+    let missing_issues: Vec<_> = provenance
+        .import_issues
+        .iter()
+        .filter(|issue| issue.code == "invalid-source.missing-guid")
+        .collect();
+    assert_eq!(missing_issues.len(), 1);
+    assert!(missing_issues[0].fatal);
+    assert!(!snapshot
+        .lexicon
+        .entries
+        .iter()
+        .any(|e| e.guid == "00000000-0000-0000-0000-000000000050"));
+}
+
+#[test]
+fn unknown_class_duplicate_before_an_allowed_class_keeps_the_recognized_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
+    assert!(source.contains(needle), "fixture must contain the -s LexEntry header");
+    // Inject an unknown-class record sharing the "-s" LexEntry's guid, placed BEFORE it in document order.
+    let injected = r#"<rt class="ZzUnknown" guid="00000000-0000-0000-0000-000000000050">
+</rt>
+"#;
+    let variant = source.replacen(needle, &format!("{injected}{needle}"), 1);
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    let duplicate_issues: Vec<_> = provenance
+        .import_issues
+        .iter()
+        .filter(|issue| issue.code == "invalid-source.duplicate-guid")
+        .collect();
+    assert_eq!(duplicate_issues.len(), 1);
+    let suffix_entries: Vec<_> = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .filter(|e| e.guid == "00000000-0000-0000-0000-000000000050")
+        .collect();
+    assert_eq!(suffix_entries.len(), 1, "the recognized LexEntry must be kept");
+}
+
+#[test]
+fn conversion_provenance_round_trips_through_json() {
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let round_tripped = pg_snapshot::Snapshot::from_json(&snapshot.to_json()).unwrap();
+    assert_eq!(
+        round_tripped.conversion_provenance,
+        snapshot.conversion_provenance
+    );
+}

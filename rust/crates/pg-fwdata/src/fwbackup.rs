@@ -47,13 +47,14 @@ pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), I
     };
     let stem = crate::file_stem(Path::new(&fwdata_name));
     let (mut snapshot, warnings) = extract::extract(&graph, &stem)?;
+    let provenance = snapshot.conversion_provenance.clone();
 
     if let Some(default_ws) = snapshot.project.vernacular_writing_systems.first().cloned() {
         if let Some((_, text)) = ldml.iter().find(|(tag, _)| *tag == default_ws) {
             snapshot.project.exemplar_characters = exemplar_characters_from_ldml(text);
         }
     }
-    Ok((snapshot, ImportReport { warnings }))
+    Ok((snapshot, ImportReport { warnings, provenance }))
 }
 
 /// Text elements of the LDML main exemplar set (UnicodeSet syntax), NFD.

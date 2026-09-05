@@ -8,7 +8,10 @@ mod project;
 
 pub(crate) mod codes;
 
-use pg_snapshot::{Snapshot, Warning};
+use pg_snapshot::{
+    ConversionProvenance, Snapshot, SourceInventoryStatus, Warning,
+    CONVERSION_PROVENANCE_SCHEMA_VERSION,
+};
 
 use crate::{
     xml::{RawGraph, Record},
@@ -104,6 +107,18 @@ pub fn extract(
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
 
-    let snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
+    let mut snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
+    let source_inventory_status = if graph.issues.iter().any(|issue| issue.fatal) {
+        SourceInventoryStatus::ImportedWithFatalIssues
+    } else {
+        SourceInventoryStatus::ImportedComplete
+    };
+    snapshot.conversion_provenance = ConversionProvenance {
+        schema_version: CONVERSION_PROVENANCE_SCHEMA_VERSION,
+        source_inventory_status,
+        source_census: graph.census(),
+        graph_to_snapshot: Default::default(),
+        import_issues: graph.issues.clone(),
+    };
     Ok((snapshot, ctx.warnings))
 }

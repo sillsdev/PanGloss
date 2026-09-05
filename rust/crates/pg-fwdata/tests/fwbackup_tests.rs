@@ -92,3 +92,14 @@ fn malformed_xample_cap_reaches_fwbackup_import_report() {
         1
     );
 }
+
+#[test]
+fn fwbackup_report_provenance_matches_the_snapshot_and_the_direct_fwdata_import() {
+    let dir = tempfile::tempdir().unwrap();
+    let backup = write_backup(dir.path());
+    let (snapshot, report) = pg_fwdata::import_file(&backup).unwrap();
+    assert_eq!(report.provenance, snapshot.conversion_provenance);
+
+    let (direct, _direct_report) = pg_fwdata::import_file(&fixture_fwdata()).unwrap();
+    assert_eq!(report.provenance, direct.conversion_provenance);
+}

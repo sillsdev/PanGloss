@@ -54,3 +54,7 @@ pub(crate) const REFERENCE_NOT_IN_SCOPE: &str = "fwdata.reference-not-in-scope";
 pub(crate) const INVALID_PARSER_PARAMETER: &str = "fwdata.invalid-parser-parameter";
 /// The parser selector is malformed or names a parser this importer cannot represent.
 pub(crate) const INVALID_ACTIVE_PARSER: &str = "invalid-source.active-parser";
+/// A guid is shared by more than one `<rt>` record, recognized or not.
+pub(crate) const DUPLICATE_GUID: &str = "invalid-source.duplicate-guid";
+/// A tracked (allowed-class) `<rt>` record has no `guid` attribute, or an empty one.
+pub(crate) const MISSING_GUID: &str = "invalid-source.missing-guid";
