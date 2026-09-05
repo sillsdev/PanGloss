@@ -1297,9 +1297,16 @@ front-matter keys; a `false` verdict requires non-empty notes at parse time.
 - [x] **Step 1: Triage** — per non-producible fixture: offending constructs with HCLoader citations,
   coverage claims, whether each claim is duplicated by a producible fixture, and whether a faithful
   FieldWorks re-authoring exists. Recommendation per fixture: convert / deprecate / delete-candidate.
-- [ ] **Step 2: Mark** — add the front-matter field to every fixture and the protocol text on the
-  Machine branch; nothing else changes yet. `pg-conformance-fixtures` reads it;
-  `witnessed_strategy_coverage_gate` and the coverage headline report the two counts separately.
+- [x] **Step 2: Mark (Machine)** — front-matter field on all 36 upstream fixtures plus PROTOCOL §9,
+  branch `conformance/fieldworks-witnesses` (`43af40e4`, follow-ups through `7a4ec947`).
+- [ ] **Step 2 (PanGloss)** — `pg-conformance-fixtures` reads the field as
+  `FieldworksProducibility { Producible, EngineOnly{notes}, Unmarked }`; the coverage gates and
+  `pangloss coverage` print the three buckets; `producibility_marking_gate` ratchets `Unmarked`
+  (62 today: 33 upstream at the current pin + 29 `conformance-staging/**`). Branch
+  `research/xample-task8b` (`20bfc3d3`), under review.
+- [ ] **Step 2b: Mark the 29 `conformance-staging/**` fixtures** with the same triage (they are
+  this repo's own and were never scanned), then advance the `machine/` gitlink to the witness
+  branch once it is pushed, so the ratchet can fall to 0.
 - [ ] **Step 3: Convert** the fixtures the triage marks convertible, one at a time, each with oracle
   re-derivation and an `author` round trip proving producibility.
 - [ ] **Step 4: Retire** — at the end, delete delete-candidates (with the duplicating fixture named
