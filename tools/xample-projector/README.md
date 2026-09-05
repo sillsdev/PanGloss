@@ -7,9 +7,12 @@ grammar files (the same XSL transforms and GAFAWS step `M3ToXAmpleTransformer`/`
 drive internally, replicated here because that class is `internal`). Both sides read the same
 opened `LcmCache`, so they can never diverge on which project state they saw.
 
-This slice (Task 3, slice A) ships the tool scaffold plus three subcommands: `inspect` (read-only
-phonology survey), `project` (full HC + XAMPLE projection), and `--validate-capture` (portable,
-FieldWorks-free schema check). A later slice adds LibLCM-driven phoneme mutation and direct
+Task 3, slice A shipped the tool scaffold plus three subcommands: `inspect` (read-only phonology
+survey), `project` (full HC + XAMPLE projection), and `--validate-capture` (portable, FieldWorks-free
+schema check). Task 3, slice B (this slice) adds `author` -- back a HermitCrab conformance fixture
+(`grammar.xml`) out into a brand-new FieldWorks project via LibLCM, refusing every construct
+outside a documented supported subset -- and `verify-parity`, a structural + HC-engine proof that
+`project` on an authored project reproduces the fixture it came from. A later slice adds direct
 `xample64.dll` parsing.
 
 ## Contract
@@ -50,10 +53,175 @@ Every file in `generated` is described from its FINAL on-disk state after all wr
 that has slotted affix templates, so an early snapshot would go stale by the time the response is
 written).
 
+`author --grammar <grammar.xml> --out-dir <dir> --name <ProjectName> [--vernacular-ws <icu>]
+[--xample-max-prefixes N] [--xample-max-analyses N]` parses and validates `grammar.xml` against the
+supported subset below (refusing, exit 7, before ever touching LibLCM if anything falls outside it),
+then creates `<out-dir>\<ProjectName>\<ProjectName>.fwdata` (+ `WritingSystemStore\*.ldml`) from it
+and writes `<out-dir>\author-response.json`:
+```
+{
+  "schemaVersion": 1, "mode": "author",
+  "fieldWorksVersion": "...",
+  "grammarPath": "...", "grammarSha256": "<64 hex>",
+  "projectPath": "...", "projectSha256": "<64 hex>",
+  "authored": { "<LCM class name>": <count>, ... },
+  "unmapped": [ "<attribute/value ignored, with reason>", ... ],
+  "guidMap": { "<fixture id>": "<lcm guid>", ... },
+  "diagnostics": []
+}
+```
+`guidMap` has one entry per created LCM object, keyed by the fixture id (or, for a `Slot`/
+`AffixTemplate`, its `Name` text -- the DTD gives those elements no `id` attribute) that produced
+it: parts of speech, phonemes, natural classes (segment-based), MPR features (as `ProdRestrict`
+possibilities), each `MorphologicalRule`'s synthetic `LexEntry`, each subrule's `MoAffixAllomorph`,
+each `LexicalEntry`'s `LexEntry` and allomorphs, each `Slot`'s `MoInflAffixSlot`, and each
+`AffixTemplate`'s `MoInflAffixTemplate`. `unmapped` records attributes that are read but have no
+FieldWorks equivalent (`Stratum@morphologicalRuleOrder`, `Stratum@morphologicalRules`) rather than
+silently dropping them.
+
+**Determinism.** Authoring the same `grammar.xml` twice produces two `.fwdata` files that differ
+(LibLCM assigns every guid randomly) but whose `authored` counts and `guidMap` key sets are
+identical -- verified in `build.ps1 -Mode test`.
+
+`verify-parity --grammar <grammar.xml> --hc-xml <projected.hc.xml> --guid-map <author-response.json>`
+re-parses `grammar.xml`, loads the HC XML `project` produced from the authored project (the SAME
+`HermitCrabInput`-shaped schema `XmlLanguageWriter` writes -- see `Src\LexText\ParserCore\HCLoader.cs`
+for the loader and `machine\src\SIL.Machine.Morphology.HermitCrab\XmlLanguageWriter.cs` for the
+writer, both element-for-element compatible with the input DTD), and asserts:
+- rule/lex-entry/segment/slot counts and shapes match the fixture (each rule's `InsertSegments`
+  carries the fixture's literal text PLUS the automatic morph-boundary character every FieldWorks
+  affix representation adds -- e.g. a fixture prefix inserting `"x"` round-trips as `"x+"`, confirmed
+  empirically, not assumed);
+- the produced `AffixTemplate`'s slot order, traced back to the fixture's own `MorphemeId`s via each
+  produced rule's `Gloss` (the only trace an authored rule carries forward -- HCLoader never lets a
+  fixture force its own literal `MorphemeId` onto the HC engine's `Morpheme.Id`, see `author`'s own
+  Gloss-from-MorphemeId fallback below), equals the fixture's declaration order or its exact reverse
+  -- **see "Slot ordering" below for which, and why**;
+- the XAMPLE `lex.txt` written alongside the HC XML has one `\lx ` record per authored allomorph, and
+  `adctl.txt`/`gram.txt` are non-empty;
+- loading the HC XML with `SIL.Machine.Morphology.HermitCrab.XmlLanguageLoader.Load` and parsing with
+  `new Morpher(new TraceManager(), language)` (the exact construction `conformance/PROTOCOL.md`
+  section 8 pins every fixture's `expected.tsv` against -- no `Morpher` property is ever assigned)
+  reproduces the fixture's own oracle-confirmed analysis counts.
+
+On success it prints a JSON report (structural counts, `slotOrder`, `slotOrderingRule`, engine
+counts) to stdout and exits 0; on the first mismatch it exits 8 naming that mismatch.
+
 `--validate-capture <response.json>`: schema validation only, no FieldWorks install required.
-Checks required fields are present, `schemaVersion == 1`, every `sha256`-shaped field is 64
-lowercase hex, and `assemblyVersions`'s keys are exactly the pinned set. This is the portable-CI
-path.
+Checks required fields are present for the response's own `mode` (`inspect`, `project`, or
+`author`), `schemaVersion == 1`, every `sha256`-shaped field is 64 lowercase hex, `assemblyVersions`'s
+keys are exactly the pinned set (when present), and no path field is absolute. This is the
+portable-CI path.
+
+## `author`'s supported subset
+
+Refusal is always loud: exit 7, naming the offending element/attribute and its fixture id, decided
+by a full validation pass over `grammar.xml` (`GrammarParser.cs`) **before** any LibLCM project is
+created -- a refused grammar leaves no partial project on disk.
+
+Supported:
+- `PartsOfSpeech/PartOfSpeech` -> `IPartOfSpeechFactory`.
+- `CharacterDefinitionTable/SegmentDefinitions/SegmentDefinition` -> `PhPhonemeSet` + `IPhPhoneme`
+  (one `PhCode` per `Representation`). `BoundaryDefinitions` whose sole representation is `+` or `#`
+  -> `IPhBdryMarker` at the matching well-known guid (`LangProjectTags.kguidPhRuleMorphBdry` /
+  `kguidPhRuleWordBdry`); any other boundary representation is refused. A `+` marker is always
+  authored even when the fixture declares none -- `HCLoader.LoadCharacterDefinitionTable` indexes the
+  character table by `"+"` unconditionally (`HCLoader.cs:2712`), so its absence crashes `project`
+  with a `KeyNotFoundException` on ANY grammar, not just ones that use it.
+- `NaturalClasses/SegmentNaturalClass` -> `IPhNCSegments`. A `FeatureNaturalClass` with no features,
+  referenced ONLY as the "any stem" pattern (a single `OptionalSegmentSequence min="1" max="-1"` over
+  it inside a `MorphologicalInput`) is NOT authored -- `HCLoader` represents an unconstrained affix
+  input with its own built-in "any segment" pattern regardless of what LCM natural classes exist, so
+  authoring one would be inert. Any other use of a `FeatureNaturalClass`, or one that declares
+  features, is refused.
+- Exactly one `Stratum` (more -> refused). `morphologicalRuleOrder`/`morphologicalRules` are recorded
+  in `unmapped`, never authored -- FieldWorks orders rules via slots/templates, not a stratum list.
+- `LexicalEntry` -> `ILexEntryFactory.Create(stem morph type, ..., SandboxGenericMSA{kStem, MainPOS})`.
+  Multiple `Allomorph`s: the fixture's LAST allomorph becomes `LexemeFormOA`, every earlier one an
+  `IMoStemAllomorphFactory`-built `AlternateFormsOS` entry, in order -- `HCLoader` emits
+  `AlternateForms` before `LexemeForm`, so this ordering is what makes the round trip reproduce the
+  fixture's own allomorph order. `ruleFeatures` -> `ProdRestrictOA` possibilities on
+  `MoStemMsa.ProdRestrictRC`.
+- A `MorphologicalRule` referenced by exactly one `AffixTemplate` slot -> a synthetic affix
+  `LexEntry` (`MoInflAffMsa{MainPOS, Slot}`, via `SandboxGenericMSA` -- the factory wires
+  `SlotsRC.Add(slot)` itself, no separate call needed). Supported subrule shape: one
+  `MorphologicalInput` matching the any-stem pattern above, and a `MorphologicalOutput` that is
+  exactly `InsertSegments`+`CopyFromInput` (prefix) or `CopyFromInput`+`InsertSegments` (suffix) --
+  anything else is refused. `RequiredEnvironments` -> `IPhEnvironment.StringRepresentation` rebuilt
+  in FieldWorks syntax (`FieldWorksEnvironmentSyntax.cs`): natural-class contexts, literal segments,
+  `#` word-boundary anchors, and parenthesized optionality are supported; anything else (raw
+  `Segments`, `BoundaryMarker`) is refused. `requiredMPRFeatures` on a rule's subrules -> `FromProdRestrictRC`,
+  but ONLY if identical across every subrule of that rule -- `MoInflAffMsa.FromProdRestrictRC` is one
+  set shared by the whole affix, so subrules gated by genuinely different features (disjunctive
+  allomorphy keyed by different MPR values) cannot be represented and are refused. `MPRFeatures` on a
+  subrule's `MorphologicalOutput` is always refused: every rule this slice authors is, by
+  construction, a slot/inflectional affix, and FieldWorks has no field for an inflectional affix to
+  SET an MPR feature (only `MoDerivAffMsa`'s `ToProdRestrictRC` can, and derivational rules are out of
+  scope here). A `MorphologicalRule` not referenced by any slot is refused (derivational back-out is
+  a later expansion), and so is `requiredPartsOfSpeech != outputPartOfSpeech` on a slot rule.
+- `AffixTemplate` -> `IMoInflAffixTemplate`; each `Slot` -> `IMoInflAffixSlot` in
+  `pos.AffixSlotsOC`, added to `PrefixSlotsRS` if every referenced rule is a prefix, `SuffixSlotsRS`
+  if every one is a suffix (mixed -> refused). See "Slot ordering" below for insertion order.
+- `MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule` with `type="exclude"` -> `IMoMorphAdhocProhib`/
+  `IMoAlloAdhocProhib` (`Adjacency` int per `HCLoader.GetAdjacency`, `HCLoader.cs:2241-2255`: 0
+  anywhere, 1 somewhereToLeft, 2 somewhereToRight, 3 adjacentToLeft, 4 adjacentToRight).
+  `isActive="no"` on one of these sets `.Disabled = true`; `type="require"`, or `isActive="no"`
+  anywhere else in the document, is refused.
+- `Gloss` -> the LexSense gloss FieldWorks' `HCLoader.GetGloss` reads; when the fixture gives none,
+  the fixture's own `MorphemeId` is used as the gloss instead -- this is also what lets
+  `verify-parity` trace a produced rule back to its fixture origin (see above), since HCLoader never
+  lets a fixture force its own `MorphemeId` onto the HC engine's internal id.
+
+Refused, always, naming the construct: `PhonologicalFeatureSystem`, `HeadFeatures`, `FootFeatures`,
+`StemNames`, `Families`, `PhonologicalRuleDefinitions`, `SyntacticRules`, `RealizationalRule`,
+`CompoundingRule`, `ExcludedEnvironments`, `partial="true"`, and any attribute referencing one of
+those unsupported systems (`requiredStemName`, `requiredSubcategorizedRules`,
+`outputObligatoryFeatures`, `family`, `subcategorizations`, `obligatoryHeadFeatures`/
+`obligatoryFootFeatures`, ...).
+
+`ParserParameters` is generated, never read from the fixture:
+```
+<ParserParameters><ActiveParser>XAmple</ActiveParser><XAmple><MaxNulls>0</MaxNulls>
+<MaxPrefixes>{N}</MaxPrefixes><MaxInfixes>0</MaxInfixes><MaxRoots>1</MaxRoots>
+<MaxSuffixes>{N}</MaxSuffixes><MaxInterfixes>0</MaxInterfixes><MaxAnalysesToReturn>{M}</MaxAnalysesToReturn>
+</XAmple><HC><NoDefaultCompounding>true</NoDefaultCompounding>
+<AcceptUnspecifiedGraphemes>false</AcceptUnspecifiedGraphemes></HC></ParserParameters>
+```
+`N` defaults to `max(5, total slot count across all AffixTemplates)`, overridable with
+`--xample-max-prefixes` (the one value feeds both `MaxPrefixes` and `MaxSuffixes` -- there is no
+separate suffix knob); `M` defaults to 1000, overridable with `--xample-max-analyses`.
+
+Vernacular writing system defaults to `en` (`--vernacular-ws` overrides); analysis is always `en`.
+`CreateCacheWithNewBlankLangProj`'s bootstrap only ever adds the ANALYSIS default to
+`CurrentAnalysisWritingSystems` -- the vernacular default is never added to the base
+`VernacularWritingSystems` collection by anything in the bootstrap path, so `author` adds it itself
+(mirroring `HCLoaderTests.cs:129`'s identical fixup); skipping this makes a LATER `project`/`inspect`
+reopen of the authored project crash with a `NullReferenceException` inside
+`BackendProvider.BootstrapExtantSystem`, since that method reads `LangProject.VernWss`
+unconditionally. Commits are asynchronous (`XMLBackendProvider.Commit` only enqueues); `author` calls
+`IUndoStackManager.Save()` (the same public flush `ProjectLockingService`/`ProjectBackupService`
+use) before computing `projectSha256`, since `Dispose()` alone was measured leaving a bare
+80-byte skeleton `.fwdata` on disk.
+
+## Slot ordering
+
+`author` adds slots to `IMoInflAffixTemplate.PrefixSlotsRS`/`.SuffixSlotsRS` in the fixture's own
+declaration order (its own convention: innermost-to-outermost for a prefixing template -- confirmed
+against `edge-cases/deep-optional-affix-nesting`'s own comment and oracle-verified `words.yaml`).
+`HCLoader.LoadLanguage` then builds the loaded `AffixTemplate.Slots` list as
+`template.SuffixSlotsRS.Concat(template.PrefixSlotsRS.Reverse())` (`HCLoader.cs:297`) -- confirmed
+independently against `HCLoaderTests.cs`'s own `AffixTemplate` test (:729-768): there,
+`PrefixSlotsRS` is built as `[prefixSlot1 (added 1st), prefixSlot2 (added 2nd)]`, yet the loaded
+`Language.Strata[0].AffixTemplates[0].Slots` comes back as `[suffixSlot, prefixSlot2, prefixSlot1]`
+-- suffix slots first (their own `SuffixSlotsRS` order), then prefix slots in the EXACT REVERSE of
+their `PrefixSlotsRS` insertion order.
+
+So `author`ing the pilot fixture's 12 declared prefix slots `slot1..slot12` (mrP1..mrP12) in
+declaration order reproduces, via that reversal, the outward highest-slot-first order
+`words.yaml`'s own oracle-confirmed analyses already expect (e.g. `xxxxxxk`'s
+`P10+P5+P4+P3+P2+P1+K` rule chain lists the fired slots in descending P-number) with NO reversal on
+`author`'s own side -- `verify-parity`'s `slotOrder`/`slotOrderingRule` fields report this directly
+from a live run rather than assuming it.
 
 ## Exit codes
 
@@ -62,26 +230,34 @@ path.
 | 0 | ok |
 | 2 | usage |
 | 3 | pin mismatch (an assembly/native DLL under the FieldWorks install does not match the pinned file version) |
-| 4 | project open failure (missing file, locked by another application, or needs FLEx migration) |
+| 4 | project open failure (missing file, locked by another application, needs FLEx migration, or the target `author` path already exists) |
 | 5 | projection failure (HCLoader, XmlLanguageWriter, or an XAMPLE transform failed) |
 | 6 | capture validation failure |
+| 7 | author refusal (a grammar.xml construct is outside the supported subset -- see above) |
+| 8 | parity mismatch (`verify-parity` found the first structural or HC-engine divergence from the fixture) |
 
 ## Build and run
 
 ```powershell
 & .\tools\xample-projector\build.ps1 -Mode check   # restore + build only
-& .\tools\xample-projector\build.ps1 -Mode test    # build, --validate-capture the checked-in
-                                                    # testdata capture, and (if a FieldWorks
-                                                    # install and the Sena 3 sample project are
-                                                    # both reachable) a live 'project' run against
-                                                    # a throwaway copy of Sena 3
+& .\tools\xample-projector\build.ps1 -Mode test    # build, --validate-capture every checked-in
+                                                    # testdata capture, and (whichever of these are
+                                                    # reachable) a live 'project' run against a
+                                                    # throwaway copy of Sena 3, PLUS a live
+                                                    # 'author' -> 'project' -> 'verify-parity' run
+                                                    # against the machine submodule's pilot fixture
+                                                    # (author determinism + both refusal probes too)
 ```
 `build.ps1` locates MSBuild via `vswhere.exe` (preferring the Visual Studio toolchain this project
 was built against) and falls back to `dotnet build` if MSBuild is unavailable.
 
 FieldWorks install directory: `$env:PANGLOSS_FIELDWORKS_DIR`, default
-`C:\Program Files\SIL\FieldWorks 9`. Sample-project directory for the live test:
-`$env:PANGLOSS_FW_PROJECTS_DIR`, default `<FieldWorks source checkout>\DistFiles\Projects`.
+`C:\Program Files\SIL\FieldWorks 9`. Sample-project directory for the Sena 3 live test:
+`$env:PANGLOSS_FW_PROJECTS_DIR`, default `<FieldWorks source checkout>\DistFiles\Projects`. The
+`author`/`verify-parity` live tests instead read the `machine` git submodule at this repo's own
+root (`machine\conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` and two fixtures
+under `machine\conformance\languages\` for the refusal probes) and are skipped, independently of the
+Sena 3 tests, if that submodule isn't initialized.
 
 ## Pinned versions
 
@@ -115,3 +291,12 @@ FieldWorks directory. Both are set up in `Program.Main` before any FieldWorks ty
 `Src\LexText\ParserCore\M3ToXAmpleTransformer.cs` and `XAmpleParser.cs` (both drive an `internal`
 class this tool cannot reference directly), parameterized to write into a caller-chosen directory
 instead of the hardcoded `%TEMP%` the original always uses.
+
+`GrammarParser.cs`/`GrammarModel.cs` (validation), `GrammarAuthor.cs`/`AuthorSession.cs`/
+`FieldWorksEnvironmentSyntax.cs` (LibLCM object construction), `AuthorCommand.cs`, and
+`VerifyParityCommand.cs` are this slice's own code, built against the factory-call shapes
+`Src\LexText\ParserCore\ParserCoreTests\HCLoaderTests.cs` exercises (that file constructs LCM
+objects programmatically the same way a real project does) and checked against `HCLoader.cs`
+itself and its own `SIL.Machine.Morphology.HermitCrab` XML writer/loader for the two facts a test
+file alone can't settle: the slot-reversal behavior (see "Slot ordering" above) and the mandatory
+`"+"` character (see the supported-subset list above).

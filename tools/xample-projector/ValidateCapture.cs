@@ -32,6 +32,12 @@ namespace XampleProjector
 			Fields.NaturalClasses, Fields.Diagnostics,
 		};
 
+		private static readonly string[] AuthorRequiredFields =
+		{
+			Fields.SchemaVersion, Fields.Mode, Fields.FieldWorksVersion, Fields.GrammarPath, Fields.GrammarSha256,
+			Fields.ProjectPath, Fields.ProjectSha256, Fields.Authored, Fields.Unmapped, Fields.GuidMap, Fields.Diagnostics,
+		};
+
 		internal static int Run(string path)
 		{
 			if (!File.Exists(path))
@@ -94,8 +100,11 @@ namespace XampleProjector
 				case "inspect":
 					required = InspectRequiredFields;
 					break;
+				case "author":
+					required = AuthorRequiredFields;
+					break;
 				default:
-					problems.Add($"[{mode}] unknown mode (expected \"inspect\" or \"project\")");
+					problems.Add($"[{mode}] unknown mode (expected \"inspect\", \"project\", or \"author\")");
 					return;
 			}
 
@@ -119,6 +128,13 @@ namespace XampleProjector
 			var sourceSha256 = (string)document[Fields.SourceSha256];
 			if (sourceSha256 != null && !Sha256Pattern.IsMatch(sourceSha256))
 				problems.Add($"\"{Fields.SourceSha256}\" is not 64 lowercase hex characters: \"{sourceSha256}\"");
+
+			foreach (var field in new[] { Fields.GrammarSha256, Fields.ProjectSha256 })
+			{
+				var value = (string)document[field];
+				if (value != null && !Sha256Pattern.IsMatch(value))
+					problems.Add($"\"{field}\" is not 64 lowercase hex characters: \"{value}\"");
+			}
 
 			if (!(document[Fields.Generated] is JArray generated))
 				return;
@@ -161,6 +177,13 @@ namespace XampleProjector
 			var sourcePath = (string)document[Fields.SourcePath];
 			if (sourcePath != null && LooksRooted(sourcePath))
 				problems.Add($"\"{Fields.SourcePath}\" must not be an absolute path or drive letter: \"{sourcePath}\"");
+
+			foreach (var field in new[] { Fields.GrammarPath, Fields.ProjectPath })
+			{
+				var value = (string)document[field];
+				if (value != null && LooksRooted(value))
+					problems.Add($"\"{field}\" must not be an absolute path or drive letter: \"{value}\"");
+			}
 
 			if (!(document[Fields.Generated] is JArray generated))
 				return;

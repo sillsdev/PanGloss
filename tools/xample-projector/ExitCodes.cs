@@ -8,5 +8,7 @@ namespace XampleProjector
 		internal const int ProjectOpenFailure = 4;
 		internal const int ProjectionFailure = 5;
 		internal const int CaptureValidationFailure = 6;
+		internal const int AuthorRefusal = 7;
+		internal const int ParityMismatch = 8;
 	}
 }
