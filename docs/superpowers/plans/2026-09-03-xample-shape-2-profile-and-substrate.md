@@ -1,5 +1,10 @@
 # XAmple-shape, Plan 2 of 4: parser profile, substrate synthesis, analysis caps on the grammar
 
+> **SUPERSEDED 2026-09-04 — DO NOT EXECUTE.** The accepted contract no longer creates an XAMPLE
+> runtime profile, drops authored rules, disables HC defaults, or attaches XAMPLE caps to `Grammar`.
+> The retained substrate work and the replacement refusal design are specified in
+> `2026-09-04-xample-projects-on-hc.md`. This file remains only as design history.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `pg_grammar::compile` resolves a parser profile from the snapshot, compiles an XAmple-configured project the way XAmple would (rules dropped, no default compounding, caps attached to the grammar), and synthesizes the segmental substrate XAmple never needed, reporting every invented segment and every lost restriction as typed notices instead of free strings.

@@ -1,5 +1,12 @@
 # XAmple-shape, Plan 4 of 4: the XAmple engine as oracle of record, `grammar.xample/` emitter, two-oracle gate, fixtures
 
+> **SUPERSEDED 2026-09-04 — DO NOT EXECUTE AS WRITTEN.** Only the DLL/result-parsing research and
+> both-direction comparison principle remain useful. The hand-written emitter and its phonology-free
+> `OutsideSubset` boundary are superseded: the current comparator gives the same FieldWorks project
+> to the real `M3ToXAmpleTransformer` and to PanGloss. XAMPLE is a migration comparator, not the
+> oracle defining production HC semantics, and ordinary HC replaces the old XAMPLE profile. The
+> authoritative tasks are in `2026-09-04-xample-projects-on-hc.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** For phonology-free (`requires: []`) conformance fixtures, run the real XAmple engine FieldWorks ships and compare it, both directions, against HC-Rust under the XAmple profile; stage one synthetic XAmple-shape fixture verified against both `hc.dll` and XAmple.

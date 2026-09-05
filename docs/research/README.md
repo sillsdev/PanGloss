@@ -235,13 +235,13 @@ Hard negatives are the cheapest research in the corpus. Do not re-run them.
 `../adr/0004-runtime-feature-compatibility.md`, `../cleanup-decisions.md`,
 `../fwdata-import-plan.md`, `../grammar-json-export-plan.md`, `../snapshot-format.md`.
 
-**XAmple-shaped grammars** (phonology-free, environment-only projects from FLEx's other parser):
-`xample-grammars-on-hc-rust.md` — **MIXED** — verified survey of what XAmple is, what C# HC and
-PanGloss already guarantee for the zero-rule case, the silent substrate gap (`compile/chardef.rs`
-builds only from inventoried phonemes; unsegmentable allomorphs are skipped with a warning;
-`accept_unspecified_graphemes` is read by nothing), and a PROPOSED five-part path: red gates,
-substrate synthesis, an `xample-shape` profile, `xample64.dll` as a bounded second oracle,
-fixtures. Companion: `xample-primary-sources.md` (web-cited AMPLE/XAmple manual and source facts).
+**XAMPLE-authored FieldWorks projects on HC**:
+`xample-grammars-on-hc-rust.md` — **VERIFIED + DECIDED** — long-lived engine comparison and
+conversion record. It explains the shared FieldWorks source model, which morphology is equivalent,
+the missing character-substrate gap, what intentionally changes under ordinary HC, the
+implement-or-refuse lossless policy, and `xample64.dll`'s limited jurisdiction as a differential
+migration comparator. Companion: `xample-primary-sources.md` (web-cited AMPLE/XAMPLE manual and
+source facts).
 
 ---
 
