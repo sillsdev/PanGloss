@@ -19,7 +19,7 @@ use pg_snapshot::{FeatureSystems, InventoryKey, InventoryKind, Snapshot, WsForm}
 
 use crate::model::{MorphRuleDef, TemplateSlotZone};
 
-use super::{compile_project, compile_project_recording, environment};
+use super::{compile_project, compile_project_measured, compile_project_recording, environment};
 
 /// Compiles `snapshot` through the recording seam and asserts the recorder's own invariants hold; returns everything a caller might want to inspect further.
 fn compile_recording_ok(
@@ -2371,4 +2371,84 @@ fn owner_with_two_cooccurrence_rules_revokes_only_the_one_whose_target_is_compac
         surviving_coocc_count, 1,
         "exactly the idx-0 rule must remain on the compiled allomorph"
     );
+}
+
+/// Field-for-field `Grammar` equality; `phon_features`/`char_tables`/`fs_interner` own a private HashMap whose iteration order (not content) can differ between two identical builds, so those three go through deterministic public accessors instead of `Debug`.
+fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Grammar) {
+    assert_eq!(a.name, b.name, "name");
+    assert_eq!(format!("{:?}", a.syn_features), format!("{:?}", b.syn_features), "syn_features");
+    assert_eq!(a.mpr_names, b.mpr_names, "mpr_names");
+    assert_eq!(format!("{:?}", a.mpr_features), format!("{:?}", b.mpr_features), "mpr_features");
+    assert_eq!(format!("{:?}", a.mpr_groups), format!("{:?}", b.mpr_groups), "mpr_groups");
+    assert_eq!(format!("{:?}", a.stem_names), format!("{:?}", b.stem_names), "stem_names");
+    assert_eq!(format!("{:?}", a.families), format!("{:?}", b.families), "families");
+    assert_eq!(
+        format!("{:?}", a.natural_classes),
+        format!("{:?}", b.natural_classes),
+        "natural_classes"
+    );
+    assert_eq!(format!("{:?}", a.morphemes), format!("{:?}", b.morphemes), "morphemes");
+    assert_eq!(a.allomorph_owners, b.allomorph_owners, "allomorph_owners");
+    assert_eq!(format!("{:?}", a.prules), format!("{:?}", b.prules), "prules");
+    assert_eq!(format!("{:?}", a.mrules), format!("{:?}", b.mrules), "mrules");
+    assert_eq!(format!("{:?}", a.templates), format!("{:?}", b.templates), "templates");
+    assert_eq!(format!("{:?}", a.entries), format!("{:?}", b.entries), "entries");
+    assert_eq!(format!("{:?}", a.strata), format!("{:?}", b.strata), "strata");
+
+    assert_eq!(a.phon_features.len(), b.phon_features.len(), "phon_features.len");
+    for i in 0..a.phon_features.len() {
+        let flat = crate::featsys::FlatIndex(i as u32);
+        assert_eq!(a.phon_features.feature_xml_id(flat), b.phon_features.feature_xml_id(flat));
+        assert_eq!(a.phon_features.feature_name(flat), b.phon_features.feature_name(flat));
+        assert_eq!(a.phon_features.mask(flat), b.phon_features.mask(flat));
+        assert_eq!(a.phon_features.default_bits(flat), b.phon_features.default_bits(flat));
+        let sym_count = a.phon_features.symbol_count(flat);
+        assert_eq!(sym_count, b.phon_features.symbol_count(flat));
+        for idx in 0..sym_count as u32 {
+            assert_eq!(
+                a.phon_features.symbol_name(flat, idx),
+                b.phon_features.symbol_name(flat, idx)
+            );
+        }
+    }
+
+    assert_eq!(a.char_tables.len(), b.char_tables.len(), "char_tables.len");
+    for (ta, tb) in a.char_tables.iter().zip(b.char_tables.iter()) {
+        assert_eq!(ta.xml_id(), tb.xml_id());
+        assert_eq!(ta.name(), tb.name());
+        let a_defs: Vec<_> = ta.iter().collect();
+        let b_defs: Vec<_> = tb.iter().collect();
+        assert_eq!(a_defs.len(), b_defs.len());
+        for ((ida, cda), (idb, cdb)) in a_defs.iter().zip(b_defs.iter()) {
+            assert_eq!(ida, idb);
+            assert_eq!(cda.xml_id(), cdb.xml_id());
+            assert_eq!(cda.kind(), cdb.kind());
+            assert_eq!(cda.representations(), cdb.representations());
+            assert_eq!(cda.representations_nfd(), cdb.representations_nfd());
+            assert_eq!(cda.feature_lanes(), cdb.feature_lanes());
+        }
+    }
+
+    let a_fs: Vec<_> = a.fs_interner.iter().collect();
+    let b_fs: Vec<_> = b.fs_interner.iter().collect();
+    assert_eq!(a_fs, b_fs, "fs_interner");
+}
+
+/// `compile_project_measured` must change no behaviour versus `compile_project`: same `Grammar`, same warnings.
+#[test]
+fn compile_project_measured_changes_no_behaviour_versus_compile_project() {
+    let (snapshot, _f) = fixture();
+    let (grammar_plain, warnings_plain) = compile_project(&snapshot).expect("fixture must compile");
+    let (grammar_measured, warnings_measured, _delta) =
+        compile_project_measured(&snapshot).expect("fixture must compile");
+
+    assert_eq!(
+        warnings_plain.len(),
+        warnings_measured.len(),
+        "warning count must match"
+    );
+    for (a, b) in warnings_plain.iter().zip(warnings_measured.iter()) {
+        assert_eq!(a, b, "warnings must be byte-identical element by element");
+    }
+    assert_grammars_equal(&grammar_plain, &grammar_measured);
 }
