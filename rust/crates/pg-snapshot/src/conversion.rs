@@ -140,6 +140,86 @@ pub struct ConversionInventory {
     pub synthesized: BTreeSet<InventoryKey>,
 }
 
+/// Accumulates one conversion stage's selection inventory (one set per pipeline stage, plus rejection issues); every mutation names its stage and nothing here re-decides what the caller already decided.
+#[derive(Debug, Default)]
+pub struct SelectionRecorder {
+    inventory: ConversionInventory,
+    issues: Vec<ConversionIssue>,
+}
+
+impl SelectionRecorder {
+    pub fn authored(&mut self, key: InventoryKey) {
+        self.inventory.authored.insert(key);
+    }
+
+    pub fn considered(&mut self, key: InventoryKey) {
+        self.inventory.considered.insert(key);
+    }
+
+    pub fn selected(&mut self, key: InventoryKey) {
+        self.inventory.selected.insert(key);
+    }
+
+    pub fn represented(&mut self, key: InventoryKey) {
+        self.inventory.represented.insert(key);
+    }
+
+    pub fn synthesized(&mut self, key: InventoryKey) {
+        self.inventory.synthesized.insert(key);
+    }
+
+    pub fn rejected(&mut self, key: InventoryKey, issue: ConversionIssue) {
+        self.inventory.rejected.insert(key);
+        self.issues.push(issue);
+    }
+
+    pub fn is_represented(&self, key: &InventoryKey) -> bool {
+        self.inventory.represented.contains(key)
+    }
+
+    /// `represented ⊆ selected ⊆ considered ⊆ authored ∪ synthesized`; `rejected ⊆ selected`; `represented ∩ rejected = ∅`.
+    pub fn check_invariants(&self) -> Result<(), String> {
+        let authored_or_synthesized: BTreeSet<_> = self
+            .inventory
+            .authored
+            .union(&self.inventory.synthesized)
+            .cloned()
+            .collect();
+        for key in &self.inventory.considered {
+            if !authored_or_synthesized.contains(key) {
+                return Err(format!(
+                    "considered but neither authored nor synthesized: {key:?}"
+                ));
+            }
+        }
+        for key in &self.inventory.selected {
+            if !self.inventory.considered.contains(key) {
+                return Err(format!("selected but not considered: {key:?}"));
+            }
+        }
+        for key in &self.inventory.represented {
+            if !self.inventory.selected.contains(key) {
+                return Err(format!("represented but not selected: {key:?}"));
+            }
+        }
+        for key in &self.inventory.rejected {
+            if !self.inventory.selected.contains(key) {
+                return Err(format!("rejected but not selected: {key:?}"));
+            }
+            if self.inventory.represented.contains(key) {
+                return Err(format!("both represented and rejected: {key:?}"));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn finish(self) -> (ConversionInventory, Vec<ConversionIssue>) {
+        let result = self.check_invariants();
+        debug_assert!(result.is_ok(), "selection recorder invariant violated: {result:?}");
+        (self.inventory, self.issues)
+    }
+}
+
 /// What kind of problem a [`ConversionIssue`] reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -415,5 +495,65 @@ mod tests {
             provenance.validate(),
             Err(ProvenanceError::UnsupportedSchemaVersion { found: 2 })
         ));
+    }
+
+    #[test]
+    fn invariants_hold_for_a_well_formed_sequence() {
+        let mut r = SelectionRecorder::default();
+        let key = InventoryKey::object(InventoryKind::Entry, "g1");
+        r.authored(key.clone());
+        r.considered(key.clone());
+        r.selected(key.clone());
+        r.represented(key);
+        assert!(r.check_invariants().is_ok());
+    }
+
+    #[test]
+    fn invariants_reject_selected_without_considered() {
+        let mut r = SelectionRecorder::default();
+        let key = InventoryKey::object(InventoryKind::Entry, "g1");
+        r.authored(key.clone());
+        r.selected(key);
+        assert!(r.check_invariants().is_err());
+    }
+
+    #[test]
+    fn invariants_reject_considered_without_authored_or_synthesized() {
+        let mut r = SelectionRecorder::default();
+        let key = InventoryKey::object(InventoryKind::Entry, "g1");
+        r.considered(key);
+        assert!(r.check_invariants().is_err());
+    }
+
+    #[test]
+    fn invariants_reject_represented_and_rejected_together() {
+        let mut r = SelectionRecorder::default();
+        let key = InventoryKey::object(InventoryKind::Entry, "g1");
+        r.authored(key.clone());
+        r.considered(key.clone());
+        r.selected(key.clone());
+        r.represented(key.clone());
+        r.rejected(
+            key,
+            ConversionIssue {
+                code: "test.code".to_string(),
+                class: IssueClass::UnrepresentableForHc,
+                source: None,
+                fatal: false,
+                message: "test".to_string(),
+            },
+        );
+        assert!(r.check_invariants().is_err());
+    }
+
+    #[test]
+    fn synthesized_satisfies_the_authored_or_synthesized_requirement() {
+        let mut r = SelectionRecorder::default();
+        let key = InventoryKey::object(InventoryKind::Msa, "synth-1");
+        r.synthesized(key.clone());
+        r.considered(key.clone());
+        r.selected(key.clone());
+        r.represented(key);
+        assert!(r.check_invariants().is_ok());
     }
 }

@@ -1,6 +1,6 @@
-//! Class→inventory-kind classification ([`class_role`]) and the [`SelectionRecorder`] every extractor owner writes to as it decides, never re-deriving the decision itself.
+//! Class→inventory-kind classification ([`class_role`]) for the shared `pg_snapshot::SelectionRecorder` every extractor owner writes to as it decides, never re-deriving the decision itself.
 
-use pg_snapshot::{ConversionInventory, ConversionIssue, InventoryKey, InventoryKind};
+use pg_snapshot::{InventoryKey, InventoryKind, SelectionRecorder};
 
 use crate::xml::RawGraph;
 
@@ -63,102 +63,22 @@ pub(crate) fn tracked_kind(class: &str) -> Option<InventoryKind> {
     }
 }
 
-/// Accumulates the graph→snapshot selection inventory (one set per pipeline stage, plus rejection issues); every mutation names its stage and nothing here re-decides what the caller already decided.
-#[derive(Debug, Default)]
-pub(crate) struct SelectionRecorder {
-    inventory: ConversionInventory,
-    issues: Vec<ConversionIssue>,
-}
-
-impl SelectionRecorder {
-    pub(crate) fn authored(&mut self, key: InventoryKey) {
-        self.inventory.authored.insert(key);
-    }
-
-    pub(crate) fn considered(&mut self, key: InventoryKey) {
-        self.inventory.considered.insert(key);
-    }
-
-    pub(crate) fn selected(&mut self, key: InventoryKey) {
-        self.inventory.selected.insert(key);
-    }
-
-    pub(crate) fn represented(&mut self, key: InventoryKey) {
-        self.inventory.represented.insert(key);
-    }
-
-    pub(crate) fn synthesized(&mut self, key: InventoryKey) {
-        self.inventory.synthesized.insert(key);
-    }
-
-    pub(crate) fn rejected(&mut self, key: InventoryKey, issue: ConversionIssue) {
-        self.inventory.rejected.insert(key);
-        self.issues.push(issue);
-    }
-
-    pub(crate) fn is_represented(&self, key: &InventoryKey) -> bool {
-        self.inventory.represented.contains(key)
-    }
-
-    /// Seeds `authored` from every graph header whose class tracks and whose guid is the kept (first recognized) occurrence, never a header shadowed by an earlier duplicate.
-    pub(crate) fn seed_authored_from_graph(&mut self, graph: &RawGraph) {
-        for header in &graph.headers {
-            if header.guid.is_empty() {
-                continue;
-            }
-            let Some(kind) = tracked_kind(&header.class) else {
-                continue;
-            };
-            let Some(record) = graph.records.get(&header.guid) else {
-                continue;
-            };
-            if record.class != header.class {
-                continue;
-            }
-            self.authored(InventoryKey::object(kind, header.guid.clone()));
+/// Seeds `recorder`'s `authored` from every graph header whose class tracks and whose guid is the kept (first recognized) occurrence, never a header shadowed by an earlier duplicate.
+pub(crate) fn seed_authored_from_graph(recorder: &mut SelectionRecorder, graph: &RawGraph) {
+    for header in &graph.headers {
+        if header.guid.is_empty() {
+            continue;
         }
-    }
-
-    /// `represented ⊆ selected ⊆ considered ⊆ authored ∪ synthesized`; `rejected ⊆ selected`; `represented ∩ rejected = ∅`.
-    pub(crate) fn check_invariants(&self) -> Result<(), String> {
-        let authored_or_synthesized: std::collections::BTreeSet<_> = self
-            .inventory
-            .authored
-            .union(&self.inventory.synthesized)
-            .cloned()
-            .collect();
-        for key in &self.inventory.considered {
-            if !authored_or_synthesized.contains(key) {
-                return Err(format!(
-                    "considered but neither authored nor synthesized: {key:?}"
-                ));
-            }
+        let Some(kind) = tracked_kind(&header.class) else {
+            continue;
+        };
+        let Some(record) = graph.records.get(&header.guid) else {
+            continue;
+        };
+        if record.class != header.class {
+            continue;
         }
-        for key in &self.inventory.selected {
-            if !self.inventory.considered.contains(key) {
-                return Err(format!("selected but not considered: {key:?}"));
-            }
-        }
-        for key in &self.inventory.represented {
-            if !self.inventory.selected.contains(key) {
-                return Err(format!("represented but not selected: {key:?}"));
-            }
-        }
-        for key in &self.inventory.rejected {
-            if !self.inventory.selected.contains(key) {
-                return Err(format!("rejected but not selected: {key:?}"));
-            }
-            if self.inventory.represented.contains(key) {
-                return Err(format!("both represented and rejected: {key:?}"));
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn finish(self) -> (ConversionInventory, Vec<ConversionIssue>) {
-        let result = self.check_invariants();
-        debug_assert!(result.is_ok(), "selection recorder invariant violated: {result:?}");
-        (self.inventory, self.issues)
+        recorder.authored(InventoryKey::object(kind, header.guid.clone()));
     }
 }
 
@@ -166,7 +86,6 @@ impl SelectionRecorder {
 mod tests {
     use super::*;
     use crate::xml::ALLOWED_CLASSES;
-    use pg_snapshot::IssueClass;
 
     #[test]
     fn every_allowed_class_is_classified() {
@@ -262,65 +181,5 @@ mod tests {
                 "{class} must be a carrier"
             );
         }
-    }
-
-    #[test]
-    fn invariants_hold_for_a_well_formed_sequence() {
-        let mut r = SelectionRecorder::default();
-        let key = InventoryKey::object(InventoryKind::Entry, "g1");
-        r.authored(key.clone());
-        r.considered(key.clone());
-        r.selected(key.clone());
-        r.represented(key);
-        assert!(r.check_invariants().is_ok());
-    }
-
-    #[test]
-    fn invariants_reject_selected_without_considered() {
-        let mut r = SelectionRecorder::default();
-        let key = InventoryKey::object(InventoryKind::Entry, "g1");
-        r.authored(key.clone());
-        r.selected(key);
-        assert!(r.check_invariants().is_err());
-    }
-
-    #[test]
-    fn invariants_reject_considered_without_authored_or_synthesized() {
-        let mut r = SelectionRecorder::default();
-        let key = InventoryKey::object(InventoryKind::Entry, "g1");
-        r.considered(key);
-        assert!(r.check_invariants().is_err());
-    }
-
-    #[test]
-    fn invariants_reject_represented_and_rejected_together() {
-        let mut r = SelectionRecorder::default();
-        let key = InventoryKey::object(InventoryKind::Entry, "g1");
-        r.authored(key.clone());
-        r.considered(key.clone());
-        r.selected(key.clone());
-        r.represented(key.clone());
-        r.rejected(
-            key,
-            ConversionIssue {
-                code: "test.code".to_string(),
-                class: IssueClass::UnrepresentableForHc,
-                source: None,
-                fatal: false,
-                message: "test".to_string(),
-            },
-        );
-        assert!(r.check_invariants().is_err());
-    }
-
-    #[test]
-    fn synthesized_satisfies_the_authored_or_synthesized_requirement() {
-        let mut r = SelectionRecorder::default();
-        let key = InventoryKey::object(InventoryKind::Msa, "synth-1");
-        r.synthesized(key.clone());
-        r.considered(key.clone());
-        r.selected(key.clone());
-        r.represented(key);
-        assert!(r.check_invariants().is_ok());
     }
 }
