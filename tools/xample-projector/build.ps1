@@ -7,6 +7,67 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $csproj = Join-Path $root 'XampleProjector.csproj'
 
+# Task 5 (author determinism, strengthened): a .fwdata is plain XML with random guids and
+# timestamps sprinkled through it, so a byte diff across two independent 'author' runs is
+# meaningless until both are normalized the same way -- known guids become their fixture id
+# (readable AND still catches an id resolving to the wrong object), everything else collapses to
+# fixed placeholders so only real structural differences survive the diff.
+function Get-GuidToFixtureIdMap {
+	param($AuthorResponse)
+	$map = @{}
+	foreach ($prop in $AuthorResponse.guidMap.PSObject.Properties) {
+		$map[$prop.Value] = $prop.Name
+	}
+	return $map
+}
+
+# Container elements the .fwdata format writes for an unordered LCM collection (OC/RC) rather
+# than an ordered sequence (OS/RS) -- measured against the pilot fixture's own PartOfSpeech
+# (AffixSlotsOC), PhPhonemeSet (PhonemesOC, BoundaryMarkersOC), and MoInflAffMsa (SlotsRC) records.
+# PrefixSlotsRS/SuffixSlotsRS/AlternateFormsOS are deliberately absent: their order is the exact
+# thing this project's "Slot ordering" section and allomorph-ordering rule depend on, so sorting
+# them here would hide a real regression instead of removing an artifact.
+$script:UnorderedFwdataContainers = 'AffixSlots', 'Phonemes', 'BoundaryMarkers', 'Slots'
+
+function Sort-UnorderedContainerChildren {
+	param([string]$RecordText)
+	foreach ($container in $script:UnorderedFwdataContainers) {
+		$RecordText = [regex]::Replace($RecordText, "(?s)<$container>(.*?)</$container>", {
+			param($m)
+			$items = [regex]::Matches($m.Groups[1].Value, '<objsur[^/]*/>') | ForEach-Object { $_.Value } | Sort-Object
+			"<$container>" + ($items -join '') + "</$container>"
+		})
+	}
+	return $RecordText
+}
+
+function Get-NormalizedFwdataText {
+	param([string]$Path, [hashtable]$GuidToFixtureId)
+	$text = Get-Content -Raw -Path $Path
+	foreach ($guid in $GuidToFixtureId.Keys) {
+		$text = $text -replace [regex]::Escape($guid), $GuidToFixtureId[$guid]
+	}
+	$text = $text -replace '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', 'GUID'
+	$text = $text -replace '\d{4}-\d{1,2}-\d{1,2} \d{1,2}:\d{2}:\d{2}(\.\d+)?', 'TIMESTAMP'
+
+	# Measured: a .fwdata's top-level <rt> records are written sorted by the object's own guid --
+	# sorting the pilot's 151 records by their pre-normalization guid reproduces the on-disk order
+	# exactly. Blanking that guid removes the only key the order ever depended on, so two
+	# independent runs keep the SAME records in a DIFFERENT order (and the same is true, one level
+	# down, of each unordered collection's own <objsur> children); re-sorting both before comparing
+	# removes that artifact instead of chasing it as a false failure.
+	$firstRtIndex = $text.IndexOf('<rt ')
+	if ($firstRtIndex -lt 0) { return $text }
+	$header = $text.Substring(0, $firstRtIndex)
+	$body = $text.Substring($firstRtIndex)
+	$singleLine = [System.Text.RegularExpressions.RegexOptions]::Singleline
+	# <rt .../> (self-closing, e.g. FsFeatureSystem) and <rt ...>...</rt> are both valid record
+	# shapes; matching only the latter silently glues a self-closing record onto the NEXT record.
+	$records = [regex]::Matches($body, '<rt\b[^>]*/>|<rt\b.*?</rt>', $singleLine) |
+		ForEach-Object { Sort-UnorderedContainerChildren $_.Value } | Sort-Object
+	return $header + ($records -join "`n")
+}
+
 function Find-MSBuild {
 	$vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
 	if (Test-Path $vswhere) {
@@ -314,6 +375,73 @@ try {
 		exit 1
 	}
 	Write-Host "verify-parity OK: 12 rules, 1 lex entry, 2 segments, 12 slots (order: $($verifyJson.slotOrderingRule)), 13 XAMPLE lex entries, HC engine 1/xxxxxxk=924 analyses."
+	if ($verifyJson.guidMapVerifiedCount -le 0) {
+		Write-Error "verify-parity reported guidMapVerifiedCount <= 0 -- the guid-map binding check did not run."
+		exit 1
+	}
+	Write-Host "verify-parity guid-map binding OK: $($verifyJson.guidMapVerifiedCount) guidMap entries checked against the live authored project."
+
+	# --- AllomorphCoOccurrenceRule authoring probe: pins the fix for the silent-drop defect (a
+	#     type="exclude" AllomorphCoOccurrenceRule used to author with no IMoAlloAdhocProhib
+	#     created and no refusal at all -- see GrammarAuthor.CreateCoOccurrenceRules) ---
+	$alloCoOccurGrammar = Join-Path $root 'testdata\allomorph-cooccurrence-probe.grammar.xml'
+	$alloCoOccurOutDir = Join-Path $authorTempRoot 'allo-cooccur-out'
+	New-Item -ItemType Directory -Path $alloCoOccurOutDir -Force | Out-Null
+	& $exePath author --grammar $alloCoOccurGrammar --out-dir $alloCoOccurOutDir --name AlloCoOccur
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: 'author' failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$alloCoOccurResponse = Get-Content (Join-Path $alloCoOccurOutDir 'author-response.json') -Raw | ConvertFrom-Json
+	if ($alloCoOccurResponse.authored.MoAlloAdhocProhib -ne 1) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: expected authored.MoAlloAdhocProhib == 1, got '$($alloCoOccurResponse.authored.MoAlloAdhocProhib)'."
+		exit 1
+	}
+	if (-not ($alloCoOccurResponse.guidMap.PSObject.Properties.Name -contains 'allomorphCoOccurrence[0]')) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: guidMap is missing 'allomorphCoOccurrence[0]'."
+		exit 1
+	}
+	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: exit 0, authored.MoAlloAdhocProhib == 1, guidMap has 'allomorphCoOccurrence[0]'."
+
+	# --- verify-parity guid-map binding probes: a swapped or emptied guid map must be refused
+	#     (exit 8), not silently accepted -- both copies live beside the real author-response.json
+	#     so its "projectPath" (relative to that directory) still resolves. ---
+	$swappedResponse = Get-Content $authorResponsePath -Raw | ConvertFrom-Json
+	$slot1Guid = $swappedResponse.guidMap.slot1
+	$slot2Guid = $swappedResponse.guidMap.slot2
+	$swappedResponse.guidMap.slot1 = $slot2Guid
+	$swappedResponse.guidMap.slot2 = $slot1Guid
+	$swappedResponsePath = Join-Path $authorOutDir 'author-response-swapped-slots.json'
+	$swappedResponse | ConvertTo-Json -Depth 10 | Set-Content -Path $swappedResponsePath -Encoding utf8
+	$swappedOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $swappedResponsePath 2>&1
+	$swappedExit = $LASTEXITCODE
+	$swappedText = ($swappedOutput | Out-String)
+	if ($swappedExit -ne 8) {
+		Write-Error "verify-parity guid-map binding probe (swapped slots): expected exit 8, got $swappedExit. Output:`n$swappedText"
+		exit 1
+	}
+	if ($swappedText -notmatch 'order') {
+		Write-Error "verify-parity guid-map binding probe (swapped slots): exit was 8 but output does not name an order difference. Output:`n$swappedText"
+		exit 1
+	}
+	Write-Host "verify-parity guid-map binding probe (swapped slot1/slot2 guids) OK: exit 8, output names the order difference."
+
+	$emptyResponse = Get-Content $authorResponsePath -Raw | ConvertFrom-Json
+	$emptyResponse.guidMap = New-Object PSObject
+	$emptyResponsePath = Join-Path $authorOutDir 'author-response-empty-guidmap.json'
+	$emptyResponse | ConvertTo-Json -Depth 10 | Set-Content -Path $emptyResponsePath -Encoding utf8
+	$emptyOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $emptyResponsePath 2>&1
+	$emptyExit = $LASTEXITCODE
+	$emptyText = ($emptyOutput | Out-String)
+	if ($emptyExit -ne 8) {
+		Write-Error "verify-parity guid-map binding probe (empty guidMap): expected exit 8, got $emptyExit. Output:`n$emptyText"
+		exit 1
+	}
+	if ($emptyText -notmatch 'missing fixture id') {
+		Write-Error "verify-parity guid-map binding probe (empty guidMap): exit was 8 but output does not name the missing key(s). Output:`n$emptyText"
+		exit 1
+	}
+	Write-Host "verify-parity guid-map binding probe (emptied guidMap) OK: exit 8, output names the missing key(s)."
 
 	# --- determinism: author the SAME fixture into a second directory; structure (authored counts,
 	#     guidMap key set) must match exactly even though GUIDs/timestamps make the .fwdata bytes differ ---
@@ -342,6 +470,19 @@ try {
 		Write-Host "Determinism probe note: projectSha256 happened to match across two runs (LibLCM guids are random, so this is not required to differ, only permitted to)."
 	}
 	Write-Host "Determinism probe OK: $($authorResponse1.guidMap.PSObject.Properties.Name.Count) guidMap keys and every authored count match across two independent 'author' runs (sha256 legitimately differs by run, since LCM guids are assigned randomly)."
+
+	# --- determinism, strengthened: normalize both .fwdata files (known guids -> fixture id,
+	#     every remaining guid/timestamp -> a fixed placeholder) and diff them directly, rather
+	#     than trusting guidMap key sets and authored counts as a proxy for the project itself ---
+	$pilotFwdata2 = Join-Path $authorOutDir2 'Pilot\Pilot.fwdata'
+	$normalizedFwdata1 = Get-NormalizedFwdataText -Path $pilotFwdata -GuidToFixtureId (Get-GuidToFixtureIdMap $authorResponse1)
+	$normalizedFwdata2 = Get-NormalizedFwdataText -Path $pilotFwdata2 -GuidToFixtureId (Get-GuidToFixtureIdMap $authorResponse2)
+	if ($normalizedFwdata1 -ne $normalizedFwdata2) {
+		$diffLines = Compare-Object -ReferenceObject ($normalizedFwdata1 -split "`r?`n") -DifferenceObject ($normalizedFwdata2 -split "`r?`n")
+		Write-Error "Normalized .fwdata determinism probe: normalized files differ ($($diffLines.Count) differing line(s)). First 10:`n$(($diffLines | Select-Object -First 10 | Out-String))"
+		exit 1
+	}
+	Write-Host "Normalized .fwdata determinism probe OK: two independent 'author' runs produce byte-identical .fwdata text after mapping guidMap guids to fixture ids and blanking every remaining guid/timestamp ($($normalizedFwdata1.Length) chars)."
 
 	# --- refusal probes: exit 7, naming the unsupported construct ---
 	if (Test-Path $mprRefusalGrammar) {

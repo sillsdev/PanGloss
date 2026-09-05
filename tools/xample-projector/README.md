@@ -71,17 +71,25 @@ and writes `<out-dir>\author-response.json`:
 }
 ```
 `guidMap` has one entry per created LCM object, keyed by the fixture id (or, for a `Slot`/
-`AffixTemplate`, its `Name` text -- the DTD gives those elements no `id` attribute) that produced
-it: parts of speech, phonemes, natural classes (segment-based), MPR features (as `ProdRestrict`
-possibilities), each `MorphologicalRule`'s synthetic `LexEntry`, each subrule's `MoAffixAllomorph`,
-each `LexicalEntry`'s `LexEntry` and allomorphs, each `Slot`'s `MoInflAffixSlot`, and each
-`AffixTemplate`'s `MoInflAffixTemplate`. `unmapped` records attributes that are read but have no
-FieldWorks equivalent (`Stratum@morphologicalRuleOrder`, `Stratum@morphologicalRules`) rather than
-silently dropping them.
+`AffixTemplate`, its `Name` text, or for a `MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule`,
+`morphemeCoOccurrence[N]`/`allomorphCoOccurrence[N]` by document order -- the DTD gives none of
+those elements an `id` attribute) that produced it: parts of speech, phonemes, natural classes
+(segment-based), MPR features (as `ProdRestrict` possibilities), each `MorphologicalRule`'s
+synthetic `LexEntry`, each subrule's `MoAffixAllomorph`, each `LexicalEntry`'s `LexEntry` and
+allomorphs, each `Slot`'s `MoInflAffixSlot`, each `AffixTemplate`'s `MoInflAffixTemplate`, and each
+co-occurrence rule's `MoMorphAdhocProhib`/`MoAlloAdhocProhib`. `unmapped` records attributes that
+are read but have no FieldWorks equivalent (`Stratum@morphologicalRuleOrder`,
+`Stratum@morphologicalRules`) rather than silently dropping them. After authoring, `author`
+reconciles every construct `GrammarParser` produced against `guidMap`: anything parsed but never
+authored refuses (exit 7, `author.unconsumed-construct`, naming the element and its id) rather than
+producing a project silently missing it -- a parser addition with no matching authoring code fails
+loudly instead of shipping a construct nobody can see is gone.
 
-**Determinism.** Authoring the same `grammar.xml` twice produces two `.fwdata` files that differ
-(LibLCM assigns every guid randomly) but whose `authored` counts and `guidMap` key sets are
-identical -- verified in `build.ps1 -Mode test`.
+**Determinism.** Authoring the same `grammar.xml` twice produces two `.fwdata` files whose
+`authored` counts and `guidMap` key sets are identical, and whose full text is identical once each
+run's own `guidMap` guids are replaced by their fixture id and every remaining guid/timestamp is
+blanked (LibLCM assigns every real guid randomly, and each object's `DateCreated`/`DateModified`
+naturally differ by run) -- verified in `build.ps1 -Mode test`.
 
 `verify-parity --grammar <grammar.xml> --hc-xml <projected.hc.xml> --guid-map <author-response.json>`
 re-parses `grammar.xml`, loads the HC XML `project` produced from the authored project (the SAME
@@ -102,10 +110,22 @@ writer, both element-for-element compatible with the input DTD), and asserts:
 - loading the HC XML with `SIL.Machine.Morphology.HermitCrab.XmlLanguageLoader.Load` and parsing with
   `new Morpher(new TraceManager(), language)` (the exact construction `conformance/PROTOCOL.md`
   section 8 pins every fixture's `expected.tsv` against -- no `Morpher` property is ever assigned)
-  reproduces the fixture's own oracle-confirmed analysis counts.
+  reproduces the fixture's own oracle-confirmed analysis counts;
+- **`--guid-map` is bound against the live authored project**, opened read-only via the same
+  `LcmCache.CreateCacheFromExistingData` path `inspect`/`project` use (path read from the guid-map
+  file's own `projectPath`, relative to that file's directory): every `guidMap` guid resolves to an
+  object of the expected LCM class; the produced `AffixTemplate`'s `PrefixSlotsRS`/`SuffixSlotsRS`
+  guid sequence equals the fixture's slot declaration order mapped through `guidMap`, per direction;
+  each slot rule's `MoInflAffMsa.SlotsRC` contains exactly its own slot's guid; and each
+  `LexicalEntry`'s `LexemeFormOA`/`AlternateFormsOS` guids match the documented allomorph ordering
+  rule above. A `--guid-map` that resolves an id to the wrong object, a scrambled slot order, or a
+  missing key is refused here, not silently accepted -- pinned by two deliberately-corrupted copies
+  of the pilot's own `author-response.json` in `build.ps1 -Mode test` (swapped slot guids; an emptied
+  `guidMap`), both asserted to exit 8.
 
-On success it prints a JSON report (structural counts, `slotOrder`, `slotOrderingRule`, engine
-counts) to stdout and exits 0; on the first mismatch it exits 8 naming that mismatch.
+On success it prints a JSON report (structural counts, `slotOrder`, `slotOrderingRule`,
+`guidMapVerifiedCount`, engine counts) to stdout and exits 0; on the first mismatch it exits 8
+naming that mismatch.
 
 `--validate-capture <response.json>`: schema validation only, no FieldWorks install required.
 Checks required fields are present for the response's own `mode` (`inspect`, `project`, or
@@ -143,8 +163,9 @@ Supported:
   fixture's own allomorph order. `ruleFeatures` -> `ProdRestrictOA` possibilities on
   `MoStemMsa.ProdRestrictRC`.
 - A `MorphologicalRule` referenced by exactly one `AffixTemplate` slot -> a synthetic affix
-  `LexEntry` (`MoInflAffMsa{MainPOS, Slot}`, via `SandboxGenericMSA` -- the factory wires
-  `SlotsRC.Add(slot)` itself, no separate call needed). Supported subrule shape: one
+  `LexEntry` (`MoInflAffMsa{MainPOS}`, via `SandboxGenericMSA`; `author` adds the produced slot to
+  `MoInflAffMsa.SlotsRC` itself, in `CreateAffixTemplatesAndSlots`, once the slot exists -- the
+  factory has no slot to add at MSA-construction time). Supported subrule shape: one
   `MorphologicalInput` matching the any-stem pattern above, and a `MorphologicalOutput` that is
   exactly `InsertSegments`+`CopyFromInput` (prefix) or `CopyFromInput`+`InsertSegments` (suffix) --
   anything else is refused. `RequiredEnvironments` -> `IPhEnvironment.StringRepresentation` rebuilt
@@ -178,6 +199,26 @@ Refused, always, naming the construct: `PhonologicalFeatureSystem`, `HeadFeature
 those unsupported systems (`requiredStemName`, `requiredSubcategorizedRules`,
 `outputObligatoryFeatures`, `family`, `subcategorizations`, `obligatoryHeadFeatures`/
 `obligatoryFootFeatures`, ...).
+
+**What the pilot fixture actually exercises vs. what's implemented but unexercised.**
+`build.ps1 -Mode test`'s live `author`/`verify-parity` run is
+`edge-cases/deep-optional-affix-nesting` -- 12 single-allomorph prefix rules, one lexical entry
+with one allomorph, no environments, no co-occurrence rules. Passing that fixture is evidence for
+the rows marked pilot below; the rest are exercised only by the smaller probes named beside them
+(or, honestly, not at all yet):
+
+| Construct | Exercised by |
+|---|---|
+| Single-allomorph `LexicalEntry`, single-subrule affix rules, slot ordering | pilot fixture |
+| Multi-`Allomorph` `LexicalEntry` (`AlternateFormsOS` ordering) | implemented (`CreateStemEntries`), no live `author`/`verify-parity` fixture yet |
+| `RequiredEnvironments` / `FieldWorksEnvironmentSyntax` string building | implemented, no live fixture yet |
+| `MorphemeCoOccurrenceRule type="exclude"` | implemented, no live fixture yet |
+| `AllomorphCoOccurrenceRule type="exclude"` | `testdata/allomorph-cooccurrence-probe.grammar.xml` (`build.ps1 -Mode test`'s own probe, not a `machine` conformance fixture) |
+| `verify-parity --guid-map` binding (class, slot order, `SlotsRC`, allomorph order) | pilot fixture (positive case) + two deliberately-corrupted copies of its own `author-response.json` (negative cases, exit 8) |
+
+None of the "no live fixture yet" rows are refused -- `GrammarParser`/`GrammarAuthor` accept them --
+they simply have no live `author`+`verify-parity` round trip pinning them the way the pilot fixture
+does the rest.
 
 `ParserParameters` is generated, never read from the fixture:
 ```
@@ -233,7 +274,7 @@ from a live run rather than assuming it.
 | 4 | project open failure (missing file, locked by another application, needs FLEx migration, or the target `author` path already exists) |
 | 5 | projection failure (HCLoader, XmlLanguageWriter, or an XAMPLE transform failed) |
 | 6 | capture validation failure |
-| 7 | author refusal (a grammar.xml construct is outside the supported subset -- see above) |
+| 7 | author refusal (a grammar.xml construct is outside the supported subset -- see above; also `author.unconsumed-construct`, the reconciliation guard naming a parsed construct that never landed in `guidMap`) |
 | 8 | parity mismatch (`verify-parity` found the first structural or HC-engine divergence from the fixture) |
 
 ## Build and run
@@ -246,7 +287,10 @@ from a live run rather than assuming it.
                                                     # throwaway copy of Sena 3, PLUS a live
                                                     # 'author' -> 'project' -> 'verify-parity' run
                                                     # against the machine submodule's pilot fixture
-                                                    # (author determinism + both refusal probes too)
+                                                    # (guid-map binding, an AllomorphCoOccurrenceRule
+                                                    # authoring probe, two guid-map corruption probes,
+                                                    # normalized-.fwdata author determinism, and both
+                                                    # refusal probes too)
 ```
 `build.ps1` locates MSBuild via `vswhere.exe` (preferring the Visual Studio toolchain this project
 was built against) and falls back to `dotnet build` if MSBuild is unavailable.
@@ -257,7 +301,8 @@ FieldWorks install directory: `$env:PANGLOSS_FIELDWORKS_DIR`, default
 `author`/`verify-parity` live tests instead read the `machine` git submodule at this repo's own
 root (`machine\conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` and two fixtures
 under `machine\conformance\languages\` for the refusal probes) and are skipped, independently of the
-Sena 3 tests, if that submodule isn't initialized.
+Sena 3 tests, if that submodule isn't initialized. `testdata\allomorph-cooccurrence-probe.grammar.xml`
+is this tool's own fixture (not part of the `machine` submodule) and needs no submodule at all.
 
 ## Pinned versions
 

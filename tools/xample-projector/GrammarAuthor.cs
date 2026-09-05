@@ -17,6 +17,14 @@ namespace XampleProjector
 		internal void Note(string fixtureId, Guid guid, string className)
 		{
 			GuidMap[fixtureId] = guid;
+			NoteCountOnly(className);
+		}
+
+		/// <summary>Counts an authored object that has no fixture id of its own (e.g. the
+		/// auto-added "+" boundary marker) -- still a real object `author` created, so it must
+		/// still show up in the response's "authored" counts.</summary>
+		internal void NoteCountOnly(string className)
+		{
 			Authored[className] = Authored.TryGetValue(className, out var n) ? n + 1 : 1;
 		}
 	}
@@ -64,15 +72,21 @@ namespace XampleProjector
 
 				var ruleMsaMap = new Dictionary<string, IMoInflAffMsa>();
 				var ruleEntryMap = new Dictionary<string, ILexEntry>();
-				CreateAffixRules(cache, grammar, posMap, mprMap, ruleMsaMap, ruleEntryMap, result, envCtx);
+				var alloFormMap = new Dictionary<string, IMoForm>();
+				CreateAffixRules(cache, grammar, posMap, mprMap, ruleMsaMap, ruleEntryMap, alloFormMap, result, envCtx);
 
 				var stemEntryMsaMap = new Dictionary<string, IMoStemMsa>();
-				CreateStemEntries(cache, grammar, posMap, mprMap, stemEntryMsaMap, result, envCtx);
+				CreateStemEntries(cache, grammar, posMap, mprMap, stemEntryMsaMap, alloFormMap, result, envCtx);
 
 				CreateAffixTemplatesAndSlots(cache, grammar, posMap, ruleMsaMap, result);
-				CreateCoOccurrenceRules(cache, grammar, ruleMsaMap, stemEntryMsaMap, result);
+				CreateCoOccurrenceRules(cache, grammar, ruleMsaMap, stemEntryMsaMap, alloFormMap, result);
 
 				SetParserParameters(cache, grammar, xampleMaxPrefixes, xampleMaxSuffixes, xampleMaxAnalyses);
+
+				// Every construct GrammarParser produced must land in result.GuidMap by now --
+				// see ReconcileAuthored's own doc comment for why this is driven off grammar's
+				// collections rather than the LCM side just created.
+				ReconcileAuthored(grammar, result);
 			});
 			return result;
 		}
@@ -135,6 +149,8 @@ namespace XampleProjector
 				code.Representation.set_String(cache.DefaultAnalWs, tss);
 				if (fixtureId != null)
 					result.Note(fixtureId, lcmMarker.Guid, "PhBdryMarker");
+				else
+					result.NoteCountOnly("PhBdryMarker");
 			}
 
 			foreach (var marker in grammar.BoundaryMarkers)
@@ -186,7 +202,7 @@ namespace XampleProjector
 
 		private static void CreateAffixRules(LcmCache cache, GrammarModel grammar, Dictionary<string, IPartOfSpeech> posMap,
 			Dictionary<string, ICmPossibility> mprMap, Dictionary<string, IMoInflAffMsa> ruleMsaMap, Dictionary<string, ILexEntry> ruleEntryMap,
-			AuthorResult result, EnvCtx envCtx)
+			Dictionary<string, IMoForm> alloFormMap, AuthorResult result, EnvCtx envCtx)
 		{
 			var entryFactory = cache.ServiceLocator.GetInstance<ILexEntryFactory>();
 			var affixAllomorphFactory = cache.ServiceLocator.GetInstance<IMoAffixAllomorphFactory>();
@@ -211,6 +227,7 @@ namespace XampleProjector
 
 				var firstAllo = (IMoAffixAllomorph)entry.LexemeFormOA;
 				AttachEnvironments(envCtx, firstAllo.PhoneEnvRC, firstSubrule.RequiredEnvironments);
+				alloFormMap[firstSubrule.Id] = firstAllo;
 
 				foreach (var subrule in rule.Subrules.Skip(1))
 				{
@@ -218,6 +235,7 @@ namespace XampleProjector
 					entry.AlternateFormsOS.Add(allo);
 					allo.Form.SetVernacularDefaultWritingSystem(subrule.InsertShape);
 					AttachEnvironments(envCtx, allo.PhoneEnvRC, subrule.RequiredEnvironments);
+					alloFormMap[subrule.Id] = allo;
 					result.Note(subrule.Id, allo.Guid, "MoAffixAllomorph");
 				}
 
@@ -229,7 +247,8 @@ namespace XampleProjector
 		}
 
 		private static void CreateStemEntries(LcmCache cache, GrammarModel grammar, Dictionary<string, IPartOfSpeech> posMap,
-			Dictionary<string, ICmPossibility> mprMap, Dictionary<string, IMoStemMsa> stemEntryMsaMap, AuthorResult result, EnvCtx envCtx)
+			Dictionary<string, ICmPossibility> mprMap, Dictionary<string, IMoStemMsa> stemEntryMsaMap, Dictionary<string, IMoForm> alloFormMap,
+			AuthorResult result, EnvCtx envCtx)
 		{
 			var entryFactory = cache.ServiceLocator.GetInstance<ILexEntryFactory>();
 			var stemAllomorphFactory = cache.ServiceLocator.GetInstance<IMoStemAllomorphFactory>();
@@ -253,6 +272,7 @@ namespace XampleProjector
 
 				var lexemeForm = (IMoStemAllomorph)entry.LexemeFormOA;
 				AttachEnvironments(envCtx, lexemeForm.PhoneEnvRC, lexemeAllomorph.RequiredEnvironments);
+				alloFormMap[lexemeAllomorph.Id] = lexemeForm;
 				result.Note(lexemeAllomorph.Id, lexemeForm.Guid, "MoStemAllomorph");
 
 				for (var i = 0; i < lexEntry.Allomorphs.Count - 1; i++)
@@ -262,6 +282,7 @@ namespace XampleProjector
 					entry.AlternateFormsOS.Add(allo);
 					allo.Form.SetVernacularDefaultWritingSystem(alternate.Shape);
 					AttachEnvironments(envCtx, allo.PhoneEnvRC, alternate.RequiredEnvironments);
+					alloFormMap[alternate.Id] = allo;
 					result.Note(alternate.Id, allo.Guid, "MoStemAllomorph");
 				}
 
@@ -334,7 +355,7 @@ namespace XampleProjector
 		}
 
 		private static void CreateCoOccurrenceRules(LcmCache cache, GrammarModel grammar, Dictionary<string, IMoInflAffMsa> ruleMsaMap,
-			Dictionary<string, IMoStemMsa> stemEntryMsaMap, AuthorResult result)
+			Dictionary<string, IMoStemMsa> stemEntryMsaMap, Dictionary<string, IMoForm> alloFormMap, AuthorResult result)
 		{
 			IMoMorphSynAnalysis LookupMsa(string morphemeId)
 			{
@@ -345,9 +366,19 @@ namespace XampleProjector
 				throw new GrammarAuthorException($"MorphemeCoOccurrenceRule references \"{morphemeId}\" which is not a known MorphologicalRule or LexicalEntry");
 			}
 
-			var morphFactory = cache.ServiceLocator.GetInstance<IMoMorphAdhocProhibFactory>();
-			foreach (var rule in grammar.MorphemeCoOccurrenceRules)
+			IMoForm LookupAllo(string alloId)
 			{
+				if (alloFormMap.TryGetValue(alloId, out var form))
+					return form;
+				throw new GrammarAuthorException($"AllomorphCoOccurrenceRule references \"{alloId}\" which is not a known Allomorph or MorphologicalSubrule");
+			}
+
+			// The DTD gives MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule no id attribute,
+			// so each is keyed by document order for guidMap/reconciliation purposes.
+			var morphFactory = cache.ServiceLocator.GetInstance<IMoMorphAdhocProhibFactory>();
+			for (var i = 0; i < grammar.MorphemeCoOccurrenceRules.Count; i++)
+			{
+				var rule = grammar.MorphemeCoOccurrenceRules[i];
 				var prohib = morphFactory.Create();
 				cache.LanguageProject.MorphologicalDataOA.AdhocCoProhibitionsOC.Add(prohib);
 				prohib.FirstMorphemeRA = LookupMsa(rule.PrimaryId);
@@ -355,7 +386,69 @@ namespace XampleProjector
 					prohib.RestOfMorphsRS.Add(LookupMsa(otherId));
 				prohib.Adjacency = AdjacencyOf(rule.Adjacency);
 				prohib.Disabled = !rule.IsActive;
+				result.Note($"morphemeCoOccurrence[{i}]", prohib.Guid, "MoMorphAdhocProhib");
 			}
+
+			var alloFactory = cache.ServiceLocator.GetInstance<IMoAlloAdhocProhibFactory>();
+			for (var i = 0; i < grammar.AllomorphCoOccurrenceRules.Count; i++)
+			{
+				var rule = grammar.AllomorphCoOccurrenceRules[i];
+				var prohib = alloFactory.Create();
+				cache.LanguageProject.MorphologicalDataOA.AdhocCoProhibitionsOC.Add(prohib);
+				prohib.FirstAllomorphRA = LookupAllo(rule.PrimaryId);
+				foreach (var otherId in rule.OtherIds)
+					prohib.RestOfAllosRS.Add(LookupAllo(otherId));
+				prohib.Adjacency = AdjacencyOf(rule.Adjacency);
+				prohib.Disabled = !rule.IsActive;
+				result.Note($"allomorphCoOccurrence[{i}]", prohib.Guid, "MoAlloAdhocProhib");
+			}
+		}
+
+		/// <summary>
+		/// Refuses (author.unconsumed-construct) naming the first parsed construct with no
+		/// guidMap entry -- walks grammar's own collections, never the LCM side, so a future
+		/// parser addition with no authoring code fails loudly instead of being silently dropped.
+		/// </summary>
+		private static void ReconcileAuthored(GrammarModel grammar, AuthorResult result)
+		{
+			void Require(string kind, string id)
+			{
+				if (!result.GuidMap.ContainsKey(id))
+					throw new GrammarAuthorException($"author.unconsumed-construct: {kind} \"{id}\" was parsed but never authored");
+			}
+
+			foreach (var pos in grammar.PartsOfSpeech)
+				Require("PartOfSpeech", pos.Id);
+			foreach (var phoneme in grammar.Phonemes)
+				Require("SegmentDefinition", phoneme.Id);
+			foreach (var marker in grammar.BoundaryMarkers)
+				Require("BoundaryDefinition", marker.Id);
+			foreach (var nc in grammar.NaturalClasses)
+				Require("SegmentNaturalClass", nc.Id);
+			foreach (var feature in grammar.MprFeatures)
+				Require("MorphologicalPhonologicalRuleFeature", feature.Id);
+			foreach (var rule in grammar.MorphologicalRules.Values)
+			{
+				Require("MorphologicalRule", rule.Id);
+				foreach (var subrule in rule.Subrules)
+					Require("MorphologicalSubrule", subrule.Id);
+			}
+			foreach (var template in grammar.AffixTemplates)
+			{
+				Require("AffixTemplate", template.Name);
+				foreach (var slot in template.Slots)
+					Require("Slot", slot.Name);
+			}
+			foreach (var lexEntry in grammar.LexicalEntries)
+			{
+				Require("LexicalEntry", lexEntry.Id);
+				foreach (var allo in lexEntry.Allomorphs)
+					Require("Allomorph", allo.Id);
+			}
+			for (var i = 0; i < grammar.MorphemeCoOccurrenceRules.Count; i++)
+				Require("MorphemeCoOccurrenceRule", $"morphemeCoOccurrence[{i}]");
+			for (var i = 0; i < grammar.AllomorphCoOccurrenceRules.Count; i++)
+				Require("AllomorphCoOccurrenceRule", $"allomorphCoOccurrence[{i}]");
 		}
 
 		// HCLoader.GetAdjacency (HCLoader.cs:2241-2255) maps these ints to HC's MorphCoOccurrenceAdjacency.
