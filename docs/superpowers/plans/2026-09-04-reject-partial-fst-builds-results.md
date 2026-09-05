@@ -275,6 +275,234 @@ satisfiable by refusing everything or by refusing nothing. They are asserted as 
 compile successes with two-directional correspondence to the grammar's own partial inventory
 instead — see the census section above.
 
+## Why the partial policy is READINESS and not CannotRepresent — measured, not assumed
+
+`Readiness` claims the grammar is representable and merely unshippable. That is a claim about
+**recall**: every FST strategy must still propose the analyses HermitCrab confirms on a
+partial-bearing grammar, including the ones that exist *only because* a rule is partial. Nothing
+measured that when the class was chosen.
+
+The gap was concrete rather than theoretical. The first version of
+`final-template-partial-discriminators` pinned both final-template **refusals** and contained no
+word whose parse depended on a partial rule succeeding — precisely the shape an under-proposing
+backend would lose in silence. `pg-foma`'s
+`every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial` was written to
+measure it and ran RED against that fixture, reporting the emptiness directly rather than as an
+argument:
+
+```
+staging:edge-cases/final-template-partial-discriminators: this gate needs at least two words
+whose parse DEPENDS on a partial rule, or a backend that silently under-proposes on partials
+would pass it; found []
+```
+
+The gate identifies partial-dependent words **structurally**, not by hardcoding strings: it loads
+the fixture twice, clears every `AffixProcessRuleDef.partial` and `LexEntryDef.partial` in the
+second copy, and keeps the words that HermitCrab analyses in the first and not at all in the
+second. That is the same "must parse, and only because the rule is partial" property a manual
+red-on-revert demonstrates, expressed as a standing assertion instead of a one-off.
+
+It then requires `faithfulness_coverage::observe_fixture_containment` to report `Held` for **each**
+of the three strategies on that fixture. `NotAttempted` fails it deliberately: an unmeasured backend
+cannot support the weaker classification, and the aggregate `faithfulness_coverage_gate` report
+cannot answer this on its own — it is keyed by `(CharacteristicKind, EmissionStrategy)` and names
+only one example fixture per failed pair, and there is no `CharacteristicKind` for partiality, so
+this fixture's rows are pooled with every other fixture exhibiting the same kinds. The per-fixture
+entry point is what isolates the question.
+
+### The partial-dependent positives
+
+`pilfbvb` (`pil` + `finalTemplateB` + `mrGate2Partial`) parses **only** because the rule is partial:
+`NonPartialRuleProhibitedAfterFinalTemplate` would otherwise refuse an ordinary rule applied after a
+final template. Verified against the C# founding oracle, and falsified against that same oracle by
+flipping the one attribute — which moves BOTH arms at once, in opposite directions:
+
+| `mrGate2Partial` | `pilfbvb` | `pilnbvbfb` |
+|---|---|---|
+| `partial="true"` | `PIL+FINTAGB+GATE2PARTIAL` | no analysis |
+| `partial="false"` | no analysis | `PIL+NONFINTAGB+GATE2PARTIAL+FINTAGB` |
+
+One attribute, two opposite flips, both oracle-confirmed. This is the word an under-proposing
+backend would lose in silence, and it is now in the fixture the containment gate reads.
+
+`nibgi` is the second, and it exercises a different arm: Branch C's root is not partial, so
+`templateZ` is *applicable* by POS, but its one mandatory slot requires a final segment in `ncOnlyK`
+that neither `nib` nor `nibgi` has, so the battery yields nothing. Because `mrGate3Partial` has
+already made the WORD partial, `SynthesisAffixTemplatesRule.cs:59`'s `!input.IsPartial &&
+applicableTemplate` is false and the else-arm passes the word through as final. Flipping that rule's
+`partial` attribute drops `nibgi` to zero analyses and touches no other word.
+
+Authoring it surfaced a real HC-Rust/`hc.dll` divergence, recorded because it is the same class this
+repo already documents for `--` in XML comments: **the C# loader validates every `InsertSegments`
+shape at grammar-load time regardless of reachability, and HC-Rust does not.** A first draft gave
+the never-applied slot rule the output shape `zz`, whose segments are undeclared; HC-Rust accepted
+the grammar and the founding oracle refused the whole file with `engine crashed: The shape, zz,
+contains an undefined phoneme at 0`. Dead code in a grammar is not dead to the oracle's loader.
+
+### Outcome: containment HELD on every backend, so Readiness stands
+
+Measured by `every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial`:
+
+```
+"pilfbvb" has 1 analysis/analyses ONLY because a rule is partial
+"nibgi"   has 1 analysis/analyses ONLY because a rule is partial
+x plan-composed               : partial-dependent containment held | whole-fixture containment held
+x tuned-surface-probed        : partial-dependent containment held | whole-fixture containment failed
+x templated-underlying-tokens : partial-dependent containment held | whole-fixture containment failed
+```
+
+**The one sentence this rests on:** every strategy's proposal set was measured to contain every
+analysis HermitCrab finds for the words that exist only because a rule is partial, so the partial
+policy denies shippability without denying representability and `FindingClass::Readiness` is the
+correct axis.
+
+The two `whole-fixture containment failed` cells are a **different question** and are deliberately
+not read as a partial-recall miss: they fail on non-partial words (tuned-surface-probed on
+`daknagafa`, the Branch A gate-1 control), which is why the gate measures containment over the
+partial-dependent subset rather than the whole fixture. Conflating them would have escalated two
+backends to `CannotRepresent` on evidence that says nothing about partials. That gap belongs to
+`faithfulness_coverage_gate`'s own inventory and is reported there.
+
+## A separate recall gap this fixture exposed — `faithfulness_coverage_gate` is RED
+
+Running the containment sweep over the extended fixture turned the gate red, and the cause is NOT
+the partial policy. Recorded in full because it is a real defect the new fixture found:
+
+```
+pairs exhibited: 52 held; 6 FAILED; 14 not-attempted
+  plan-composed              : 15 held / 0 FAILED / 9 not-attempted
+  tuned-surface-probed       : 21 held / 3 FAILED / 0 not-attempted
+  templated-underlying-tokens: 16 held / 3 FAILED / 5 not-attempted
+soundness: 0 (kind, backend) pair(s) OVER-GENERATING
+```
+
+All six failures are the SAME word, `daknagafa`, across three constructs × two backends:
+
+```
+oracle identity (morphemes=[9, 1, 2, 0], root_index=0) required multiplicity 1,
+proposal set offered 0
+```
+
+`daknagafa` is `DAK+NONFINTAGA+GATE1+FINTAGA`: an ordinary rule applied after a **non-final**
+template and then closed by a final template — exactly the interleaving this branch's final-template
+work governs. HermitCrab accepts it and the C# founding oracle confirms it. `plan-composed` proposes
+it; `tuned-surface-probed` and `templated-underlying-tokens` do not.
+
+Three things this is NOT, stated because each is an easy misreading:
+
+- **Not a partial-recall miss.** `daknagafa` contains no partial rule; containment on the two
+  partial-dependent words held on all three backends. It does not move PGF0016's class.
+- **Not a representability limit of the construct.** `plan-composed` proposes it, so the construct
+  is representable; two emitters do not reach it.
+- **Not a soundness defect.** Over-generation stayed at 0 across every pair.
+
+The ratchet was `NoMoreThan { failures: 5 }`, and the five it held were all
+`segment-natural-class-table-binding × tuned-surface-probed` on the word `"g"`. Those five are gone
+from this run's inventory — `main`'s own `abfecf90` changed that fixture's `words.yaml` — so the
+count did not go 5 → 11; it went to 6 with entirely different membership.
+
+**Decision: the ratchet was raised 5 → 6, and the emitter fix is being pursued straight after.**
+Raising it is what keeps the branch landable without hiding anything; the const's doc comment now
+names the exact word, the three constructs, the two backends, the fact that `plan-composed`
+proposes it (so the construct is representable and this is an emitter gap, not a limit), that
+soundness stayed 0, and that it was raised under protest with the fix as the next move. The five it
+previously held are gone because `main`'s `abfecf90` changed
+`segment-natural-class-table-binding`'s own ground truth, so the membership turned over rather than
+the backlog growing.
+
+What the fix is NOT allowed to be: relaxing a refusal by widening a candidate set the emitter does
+not own, or changing `pg-rules`/`pg-parse`. HermitCrab and the C# oracle agree that `daknagafa`
+parses; the emitters are behind, and the acceptance test is the faithfulness gate in BOTH
+directions — the six rows must clear while over-generation stays at 0 and neither of
+`envelope_agrees_with_compiler_gate`'s two exact named inventories moves.
+
+### Root cause, diagnosed and NOT patched
+
+Measured per backend on the two Branch A words:
+
+| word | plan-composed | tuned-surface-probed | templated-underlying-tokens |
+|---|---|---|---|
+| `dakfa` (one template) | proposes `[9,0]` | proposes `[9,0]` | proposes `[9,0]` |
+| `daknagafa` (template → loose → template) | proposes `[9,1,2,0]` | proposes `[]` | proposes `[]` |
+
+A total miss, not a multiplicity gap, and only on the two-template word — which localizes it to the
+SECOND template application.
+
+**One shared cause, and it is a topology limit rather than a refusal bug.** `emit::emit` (backing
+`TunedSurfaceProbed`) and `emit::emit_underlying_templated` (backing `TemplatedUnderlyingTokens`)
+build the same lexc skeleton: `TmplDispatch` → prefix slots → root → one loose-suffix opportunity →
+`G{gi}Join` (a one-of union over the template group's members) → `OuterSfx` (a second loose-suffix
+opportunity) → `#`. That admits **at most one template application per word**, with loose ordinary
+rules strictly before and/or strictly after it. There is no arc back from "after a loose rule" into
+`G{gi}Join`, which is exactly what `daknagafa` needs — the mirror of `SynthesisStratumRule.cs`'s
+`ApplyTemplates` → (changed) → `ApplyMorphologicalRules` → (not final) → `ApplyTemplates` recursion.
+
+The composite machinery cannot cover for it: `emit::structural_candidate_rules_for_root` admits only
+`is_structural_rule` shapes (circumfix, reduplication, dropping-allomorph) into that search, and all
+three rules here are plain `CopyFromInput` + `InsertSegments` suffixes, so the search never attempts
+the word. `TemplatedUnderlyingTokens` has no composite machinery at all.
+
+`morphotactics::MorphotacticIndex` DOES model the recursion correctly (its own engine fact 4), so the
+knowledge exists in the crate — but there is no existing "does this word need a second template
+pass" decision in `emit.rs` or `morphotactics.rs` to call or extract. Closing the gap means adding a
+bounded re-entry arc to two whole-grammar lexc compilers together with a termination argument
+mirroring the engine's own "recurse only if the template actually changed the word" rule. That is a
+redesign of the emitted topology, not the call-the-owner pattern, so it was deliberately left
+undone here rather than attempted and reverted — the failure mode `CLAUDE.md` records four times
+over.
+
+## The five reference grammars, measured
+
+Run with the private corpus supplied externally (`PANGLOSS_CORPUS_ROOT` pointed at a sibling
+worktree's `samples/data`, which `pg_conformance_fixtures::corpus::corpus_root` exists to support),
+under the opt-in `census` nextest profile because the pre-existing per-grammar backend-report tests
+exceed the default 10-minute per-test ceiling. Verified flags survived onto the cargo line:
+`--test-threads 1 --profile census --run-ignored all --success-output immediate`.
+
+All five `*_production_status_follows_its_partial_inventory` tests **passed**, each printing its own
+inventory. The decision contains no grammar name — `expected_publishable` is `!facts.has_partials()`:
+
+| Grammar | partial entries | partial rules | publishable | admission | by class |
+|---|---|---|---|---|---|
+| sena | 24 | 3 | false | NotProductionReady | readiness only |
+| aweti | 2 | 1 | false | NotProductionReady | readiness only |
+| indonesian | 0 | 4 | false | NotProductionReady | readiness only |
+| amharic | 0 | 1 | false | NotProductionReady | readiness only |
+| mbugwe | 0 | 1 | false | NotProductionReady | readiness only |
+
+Identical on all three strategies, with `representability`, `containment` and `process` all
+`WithinLimits` in every cell. Every reference grammar declares at least one partial, so **every one
+of them is FST-production-ineligible** — and `mbugwe`'s single partial rule is the same `mrule22`
+the 2026-09-03 results document already identified as the reason its default HC policy stays
+conservative. One cause, two boundaries.
+
+`corpus::record_cases` reported a non-zero executed-case count for each
+(`PANGLOSS_CORPUS_CASES <name>_production_admission 1`), so none of these five is a suite that ran
+and measured nothing.
+
+### Three pre-existing failures this run exposed, none of them from this branch
+
+Named rather than omitted, because a corpus run that reports "5 passed, 3 failed, 3 timed out" and
+is summarized as a pass would be exactly the false-green this repo refuses:
+
+1. **`sena_backend_reports_are_complete` fails a real assertion.** It expects
+   `TemplatedUnderlyingTokens` to be `Refused` for sena and measures `Accepted` (`ConfirmOnly`, no
+   findings, no failed predicates). This branch does not touch `capability`/`backend_selection`;
+   `main`'s own `abfecf90` ("name cross-table respelling as a backend capability") does, so the
+   expectation is most likely stale against current `main` rather than broken here. **Not
+   re-verified against `main`**, which would need a second ~96-minute corpus run.
+2. **Three pre-existing per-grammar backend-report tests time out even under `census`.** amharic,
+   aweti and mbugwe were killed at ~1800s by the 30-minute ceiling. That is a genuine "could not
+   look" for those three, and it is why the new production-status tests were split one-per-grammar:
+   each completes in well under a second, so a slow grammar cannot take the others with it.
+3. **Two runs abort the test process outright** (`0xc0000409`, preceded by
+   `memory allocation of 3288334352 bytes failed` — a single ~3.06 GB allocation) on indonesian and
+   on sena via `every_reference_grammar_has_an_accepted_backend`. `procgov`'s 19 GB job ceiling is
+   far above that, so this reads as an allocator/stack fault in the FST build path for those two
+   grammars, not a resource-governance refusal.
+
+All three are in `#[ignore]`d, corpus-gated tests, so none of them gates CI or the default suite.
+
 ## Verification record
 
 Every command was run through `rust/tools/pg.ps1` from
@@ -345,8 +573,21 @@ this branch closed.
 
 3. **The five-grammar evidence is local, not CI-reproducible.** `five_language_backend_reports_gate`
    is `#[ignore]`d and needs gitignored private corpus exports. Its new fact-derived
-   production-status assertion is therefore only as verified as the last local `corpus-test` run
-   recorded below, and CI cannot re-derive it.
+   production-status assertion is therefore only as verified as the local `census`-profile run
+   recorded above, and CI cannot re-derive it. That same run also exposed three pre-existing
+   failures in the OLD tests in that file — a stale sena expectation, three timeouts, and two
+   process aborts — none from this branch and all detailed above.
+
+7. **Two backends cannot propose a word that needs template → loose rule → template.** Measured, not
+   suspected: `daknagafa` is proposed by `plan-composed` and by neither `tuned-surface-probed` nor
+   `templated-underlying-tokens`, because both build a lexc skeleton admitting at most one template
+   application per word. It is a shared topology limit in `emit::emit` and
+   `emit::emit_underlying_templated`, not a refusal bug and not a partial-recall miss; the full
+   diagnosis, including why the composite machinery cannot cover it, is above. The faithfulness
+   ratchet sits at 6 to hold it visibly rather than silently, and closing it needs a bounded
+   template re-entry arc with a termination argument mirroring
+   `SynthesisAffixTemplatesRule.cs`'s own "recurse only if the template changed the word". Left as
+   its own piece of work; the acceptance test already exists.
 
 4. **The two upstream obligation ledgers still read `NotEvidenced`/`Open`** for both arms of both
    final-template gates. They are generated files inside the `machine` submodule, and moving them
