@@ -497,7 +497,8 @@ pilot fixture itself --
 `fieldworks\WritingSystemStore\*.ldml`) and `fieldworks\phonology-mutations.yaml`, a small versioned
 manifest of the same two phoneme-removal cases this proof runs (see
 `machine\conformance\PROTOCOL.md` section 10 for the manifest's own vocabulary and eligibility
-rules). When that file exists, `build.ps1`:
+rules; `build.ps1`'s `ConvertFrom-PhonologyMutationsYaml` refuses any `version:` other than `1`,
+naming the version found and the version supported). When that file exists, `build.ps1`:
 1. Reads `phonology-mutations.yaml` (a bespoke, fixed-shape parser -- `ConvertFrom-
    PhonologyMutationsYaml` -- not a general YAML reader; the Rust side owns YAML later) and verifies
    its `base_sha256` against the ACTUAL sha256 of `project.fwdata`. A mismatch fails the run loudly,
@@ -510,7 +511,8 @@ rules). When that file exists, `build.ps1`:
 3. Builds each case's `mutate` request JSON directly from the manifest's own operations (so a
    manifest edit changes what this proof runs, rather than the request staying hardcoded beside a
    manifest nobody reads) and additionally asserts `expect.inferred_segments` against the mutation's
-   own `removed[]` -- exercising that field rather than leaving it as dead documentation.
+   own `removed[]` -- exercising that field rather than leaving it as dead documentation. `mutate`
+   itself refuses a request whose `schemaVersion` isn't `1`.
 4. Runs ONE drift probe: freshly `author`s the SAME `grammar.xml` and asserts it normalizes
    identically to the checked-in witness -- the SAME `Get-NormalizedFwdataText` the determinism
    harness above uses, but with each side's guid-to-label map built independently from that side's

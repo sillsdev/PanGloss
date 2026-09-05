@@ -448,6 +448,10 @@ function ConvertFrom-PhonologyMutationsYaml {
 
 	$versionMatch = [regex]::Match($text, '(?m)^version:\s*(\d+)\s*$')
 	if (-not $versionMatch.Success) { throw "phonology-mutations.yaml ($Path): no 'version:' line found" }
+	$manifestVersion = [int]$versionMatch.Groups[1].Value
+	if ($manifestVersion -ne 1) {
+		throw "phonology-mutations.yaml ($Path): version $manifestVersion is not supported (this build only supports version 1)"
+	}
 	$shaMatch = [regex]::Match($text, '(?m)^base_sha256:\s*([0-9a-fA-F]{64})\s*$')
 	if (-not $shaMatch.Success) { throw "phonology-mutations.yaml ($Path): no 64-hex 'base_sha256:' line found" }
 
@@ -496,7 +500,7 @@ function ConvertFrom-PhonologyMutationsYaml {
 	if ($cases.Count -eq 0) { throw "phonology-mutations.yaml ($Path): no cases found" }
 
 	return [pscustomobject]@{
-		version    = [int]$versionMatch.Groups[1].Value
+		version    = $manifestVersion
 		baseSha256 = $shaMatch.Groups[1].Value.ToLowerInvariant()
 		cases      = $cases
 	}
@@ -594,6 +598,34 @@ if ($LASTEXITCODE -ne 0) {
 	exit $LASTEXITCODE
 }
 Write-Host '--validate-capture (author) OK.'
+
+# --- phonology-mutations.yaml version-refusal probe: needs no FieldWorks/exe at all, so it runs
+#     unconditionally rather than only when a live witness happens to be reachable. ---
+$badVersionManifestPath = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-bad-version-manifest-" + [System.Guid]::NewGuid().ToString('N') + '.yaml')
+Set-Content -Path $badVersionManifestPath -Value "version: 2`nbase_sha256: $('0' * 64)`n" -Encoding utf8
+try {
+	$badVersionThrew = $false
+	$badVersionMessage = $null
+	try {
+		ConvertFrom-PhonologyMutationsYaml -Path $badVersionManifestPath | Out-Null
+	}
+	catch {
+		$badVersionThrew = $true
+		$badVersionMessage = $_.Exception.Message
+	}
+	if (-not $badVersionThrew) {
+		Write-Error "phonology-mutations.yaml version-refusal probe: version 2 was accepted with no error."
+		exit 1
+	}
+	if ($badVersionMessage -notmatch 'version 2' -or $badVersionMessage -notmatch 'version 1') {
+		Write-Error "phonology-mutations.yaml version-refusal probe: refused, but the message does not name both the version found and the version supported. Message:`n$badVersionMessage"
+		exit 1
+	}
+	Write-Host "phonology-mutations.yaml version-refusal probe OK: version 2 refused -- $badVersionMessage"
+}
+finally {
+	Remove-Item -Path $badVersionManifestPath -Force -ErrorAction SilentlyContinue
+}
 
 $fieldWorksDir = $env:PANGLOSS_FIELDWORKS_DIR
 if ([string]::IsNullOrEmpty($fieldWorksDir)) { $fieldWorksDir = 'C:\Program Files\SIL\FieldWorks 9' }
@@ -1336,6 +1368,36 @@ try {
 	}
 
 	Test-ContentDerivedLabelCatchesWiringSwap -SourceFwdata $baseFwdata -ExePath $exePath -Label 'mutate/parse live proof base project'
+
+	# --- 'mutate' schemaVersion refusal probe: a request declaring an unsupported schemaVersion
+	#     must be refused (exit 9), naming the version found and the version supported, rather than
+	#     silently treated as schemaVersion 1. ---
+	$badSchemaVersionRequestObj = @{
+		schemaVersion = 2
+		caseId        = 'bad-schema-version'
+		baseSha256    = $baseSha256Before
+		operations    = @(@{ op = 'remove_all_phonemes'; requireUnreferenced = $true })
+	}
+	$badSchemaVersionRequestPath = Join-Path $mpTempRoot 'bad-schema-version-request.json'
+	($badSchemaVersionRequestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $badSchemaVersionRequestPath -Encoding utf8
+	$badSchemaVersionOutDir = Join-Path $mpTempRoot 'bad-schema-version-out'
+	$badSchemaVersionOutput = & $exePath mutate --project $baseFwdata --request $badSchemaVersionRequestPath --out-dir $badSchemaVersionOutDir 2>&1
+	$badSchemaVersionExit = $LASTEXITCODE
+	$badSchemaVersionText = ($badSchemaVersionOutput | Out-String)
+	if ($badSchemaVersionExit -ne 9) {
+		Write-Error "mutate schemaVersion refusal probe: expected exit 9, got $badSchemaVersionExit. Output:`n$badSchemaVersionText"
+		exit 1
+	}
+	if ($badSchemaVersionText -notmatch '2' -or $badSchemaVersionText -notmatch '1') {
+		Write-Error "mutate schemaVersion refusal probe: exit was 9 but output does not name both the version found (2) and the version supported (1). Output:`n$badSchemaVersionText"
+		exit 1
+	}
+	$baseSha256AfterBadSchemaVersion = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
+	if ($baseSha256AfterBadSchemaVersion -ne $baseSha256Before) {
+		Write-Error "mutate schemaVersion refusal probe: SOURCE PROJECT WAS MODIFIED (sha256 $baseSha256Before -> $baseSha256AfterBadSchemaVersion)"
+		exit 1
+	}
+	Write-Host "mutate schemaVersion refusal probe OK: exit 9, output names schemaVersion 2 and 1, source sha256 unchanged."
 
 	# --- Record the "k" phoneme guid via inspect. ---
 	$baseInspectPath = Join-Path $mpTempRoot 'base-inspect.json'
