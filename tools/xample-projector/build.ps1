@@ -65,6 +65,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host '--validate-capture OK.'
 
+$capturedInspectResponse = Join-Path $root 'testdata\captured-inspect-response.json'
+Write-Host "Running --validate-capture against $capturedInspectResponse"
+& $exePath --validate-capture $capturedInspectResponse
+if ($LASTEXITCODE -ne 0) {
+	Write-Error "--validate-capture failed on the checked-in inspect capture (exit $LASTEXITCODE)."
+	exit $LASTEXITCODE
+}
+Write-Host '--validate-capture (inspect) OK.'
+
 $fieldWorksDir = $env:PANGLOSS_FIELDWORKS_DIR
 if ([string]::IsNullOrEmpty($fieldWorksDir)) { $fieldWorksDir = 'C:\Program Files\SIL\FieldWorks 9' }
 $fwProjectsDir = $env:PANGLOSS_FW_PROJECTS_DIR
@@ -151,6 +160,68 @@ try {
 		}
 	}
 	Write-Host "Live 'inspect' probe OK: $phonemeCount phoneme(s), all with 36-char guids."
+
+	# --- Probe: two consecutive 'inspect' runs over the same project produce byte-identical JSON
+	#     (pins InspectCommand's guid sort as the thing that makes this true) ---
+	$inspectResponse2 = Join-Path $tempRoot 'inspect-response-2.json'
+	& $exePath inspect --project $projectFwdata --out $inspectResponse2
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Second live 'inspect' run (determinism probe) failed (exit $LASTEXITCODE)."
+		exit $LASTEXITCODE
+	}
+	$inspectText1 = Get-Content $inspectResponse -Raw
+	$inspectText2 = Get-Content $inspectResponse2 -Raw
+	if ($inspectText1 -ne $inspectText2) {
+		Write-Error "Determinism probe: two consecutive 'inspect' runs produced different JSON."
+		exit 1
+	}
+	Write-Host "Live 'inspect' determinism probe OK: two runs produced byte-identical JSON ($($inspectText1.Length) bytes)."
+
+	# --- Probe: two consecutive 'project' runs over the same copy agree exactly on every entry
+	#     marked deterministic:true, and the sole deterministic:false entry is the GAFAWS OUT file
+	#     (pins determinism by EFFECT: same sha256 across independent runs, not by the label alone) ---
+	$outDir2 = Join-Path $tempRoot 'out2'
+	New-Item -ItemType Directory -Path $outDir2 -Force | Out-Null
+	Write-Host "Running second 'project' pass for determinism comparison: $exePath project --project `"$projectFwdata`" --out-dir `"$outDir2`" --database Sena3"
+	& $exePath project --project $projectFwdata --out-dir $outDir2 --database Sena3 | Out-Null
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Second 'project' run (determinism probe) failed (exit $LASTEXITCODE)."
+		exit $LASTEXITCODE
+	}
+
+	$response1 = Get-Content $responseJson -Raw | ConvertFrom-Json
+	$response2 = Get-Content (Join-Path $outDir2 'response.json') -Raw | ConvertFrom-Json
+
+	if ($response1.generated.Count -ne $response2.generated.Count) {
+		Write-Error "Determinism probe: run 1 produced $($response1.generated.Count) generated file(s), run 2 produced $($response2.generated.Count)."
+		exit 1
+	}
+	$nonDeterministicCount = 0
+	foreach ($entry1 in $response1.generated) {
+		$entry2 = $response2.generated | Where-Object { $_.path -eq $entry1.path }
+		if (-not $entry2) {
+			Write-Error "Determinism probe: entry '$($entry1.path)' present in run 1 but not run 2."
+			exit 1
+		}
+		if ($entry1.deterministic) {
+			if ($entry1.sha256 -ne $entry2.sha256) {
+				Write-Error "Determinism probe: '$($entry1.path)' is marked deterministic but sha256 differs between runs ($($entry1.sha256) vs $($entry2.sha256))."
+				exit 1
+			}
+		}
+		else {
+			$nonDeterministicCount++
+			if ($entry1.path -notmatch '^OUT.*gafawsData\.xml$') {
+				Write-Error "Determinism probe: the entry marked non-deterministic ('$($entry1.path)') is not the GAFAWS OUT file."
+				exit 1
+			}
+		}
+	}
+	if ($nonDeterministicCount -ne 1) {
+		Write-Error "Determinism probe: expected exactly 1 entry marked deterministic:false, found $nonDeterministicCount."
+		exit 1
+	}
+	Write-Host "Determinism probe OK: $($response1.generated.Count) generated file(s) compared across two runs; exactly 1 correctly marked non-deterministic (the GAFAWS OUT file); every other entry byte-identical."
 
 	# --- Probe: an output-dir collision surfaces as ProjectionException -> exit 5, naming the step ---
 	$collisionOutDir = Join-Path $tempRoot 'out-collision'

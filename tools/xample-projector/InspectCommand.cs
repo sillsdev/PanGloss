@@ -12,6 +12,11 @@ namespace XampleProjector
 	/// Read-only survey of a FieldWorks project's phonology: phonemes, boundary markers,
 	/// natural classes, and which parser is active -- everything needed to plan a later
 	/// LibLCM-driven mutation without writing anything to the source project.
+	///
+	/// Every array (phonemes, boundaryMarkers, naturalClasses, memberGuids, and each unit's
+	/// inboundReferences) is sorted by guid (ordinal string compare) before being written, so
+	/// two runs over the same project produce byte-identical JSON regardless of whatever order
+	/// LCM's own collections happen to enumerate in.
 	/// </summary>
 	internal static class InspectCommand
 	{
@@ -24,16 +29,16 @@ namespace XampleProjector
 				return ExitCodes.Usage;
 			}
 
-			return FieldWorksSession.Run(projectPath, (cache, logger) =>
+			return FieldWorksSession.Run(fieldWorksDir, projectPath, (cache, logger) =>
 			{
-				var response = BuildResponse(cache, fieldWorksDir, projectPath);
+				var response = BuildResponse(cache, fieldWorksDir, outPath, projectPath);
 				JsonWriter.WriteFile(outPath, response);
 				Console.WriteLine("Wrote {0}", outPath);
 				return ExitCodes.Ok;
 			});
 		}
 
-		private static JObject BuildResponse(LcmCache cache, string fieldWorksDir, string projectPath)
+		private static JObject BuildResponse(LcmCache cache, string fieldWorksDir, string outPath, string projectPath)
 		{
 			var diagnostics = new JArray();
 			var phonData = cache.LanguageProject.PhonologicalDataOA;
@@ -41,35 +46,40 @@ namespace XampleProjector
 			if (phonemeSet == null)
 				diagnostics.Add("no phoneme set found on this project's phonological data");
 
-			var phonemes = new JArray();
+			var phonemes = new List<JObject>();
 			if (phonemeSet != null)
 			{
 				foreach (var phoneme in phonemeSet.PhonemesOC)
 					phonemes.Add(DescribeTerminalUnit(phoneme, diagnostics, "phoneme"));
 			}
 
-			var boundaryMarkers = new JArray();
+			var boundaryMarkers = new List<JObject>();
 			if (phonemeSet != null)
 			{
 				foreach (var marker in phonemeSet.BoundaryMarkersOC)
 					boundaryMarkers.Add(DescribeTerminalUnit(marker, diagnostics, "boundary marker"));
 			}
 
-			var naturalClasses = new JArray();
+			var naturalClasses = new List<JObject>();
 			foreach (var natClass in phonData?.NaturalClassesOS ?? Enumerable.Empty<IPhNaturalClass>())
 				naturalClasses.Add(DescribeNaturalClass(natClass));
+
+			// outPath's directory is this mode's analog of --out-dir: the base generated[].path
+			// (project mode) and sourcePath (both modes) are relative to.
+			var outFileDir = Path.GetDirectoryName(Path.GetFullPath(outPath));
 
 			var response = new JObject
 			{
 				[Fields.SchemaVersion] = SchemaVersion.Current,
+				[Fields.Mode] = "inspect",
 				[Fields.FieldWorksVersion] = FieldWorksVersion(fieldWorksDir),
-				[Fields.SourcePath] = projectPath,
+				[Fields.SourcePath] = PathUtil.MakeRelative(outFileDir, projectPath),
 				[Fields.SourceSha256] = Sha256.OfFile(projectPath),
 				[Fields.ProjectName] = cache.ProjectId.Name,
 				[Fields.ActiveParser] = cache.LanguageProject.MorphologicalDataOA?.ActiveParser,
-				[Fields.Phonemes] = phonemes,
-				[Fields.BoundaryMarkers] = boundaryMarkers,
-				[Fields.NaturalClasses] = naturalClasses,
+				[Fields.Phonemes] = SortedByGuid(phonemes),
+				[Fields.BoundaryMarkers] = SortedByGuid(boundaryMarkers),
+				[Fields.NaturalClasses] = SortedByGuid(naturalClasses),
 				[Fields.Diagnostics] = diagnostics,
 			};
 			return response;
@@ -87,7 +97,7 @@ namespace XampleProjector
 			if (representations.Count == 0)
 				diagnostics.Add($"{kindForDiagnostics} {unit.Guid} has no valid grapheme representations");
 
-			var inboundReferences = new JArray();
+			var inboundReferences = new List<JObject>();
 			foreach (var referrer in unit.ReferringObjects)
 			{
 				inboundReferences.Add(new JObject
@@ -101,14 +111,14 @@ namespace XampleProjector
 			{
 				["guid"] = unit.Guid.ToString(),
 				["representations"] = representations,
-				["inboundReferences"] = inboundReferences,
+				["inboundReferences"] = SortedByGuid(inboundReferences),
 			};
 		}
 
 		private static JObject DescribeNaturalClass(IPhNaturalClass natClass)
 		{
 			string kind;
-			var memberGuids = new JArray();
+			var memberGuids = new List<string>();
 			switch (natClass)
 			{
 				case IPhNCSegments segments:
@@ -123,14 +133,20 @@ namespace XampleProjector
 					kind = natClass.ClassName;
 					break;
 			}
+			memberGuids.Sort(StringComparer.Ordinal);
 
 			return new JObject
 			{
 				["guid"] = natClass.Guid.ToString(),
 				["name"] = natClass.Name?.BestAnalysisVernacularAlternative?.Text,
 				["kind"] = kind,
-				["memberGuids"] = memberGuids,
+				["memberGuids"] = new JArray(memberGuids),
 			};
+		}
+
+		private static JArray SortedByGuid(List<JObject> items)
+		{
+			return new JArray(items.OrderBy(o => (string)o["guid"], StringComparer.Ordinal));
 		}
 
 		internal static string FieldWorksVersion(string fieldWorksDir)

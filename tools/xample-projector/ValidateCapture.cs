@@ -16,6 +16,22 @@ namespace XampleProjector
 	{
 		private static readonly Regex Sha256Pattern = new Regex("^[0-9a-f]{64}$", RegexOptions.Compiled);
 
+		// "mode" is itself required in both shapes, precisely so a caller (this file included)
+		// never has to guess which set applies -- see CheckRequiredFields.
+		private static readonly string[] ProjectRequiredFields =
+		{
+			Fields.SchemaVersion, Fields.Mode, Fields.FieldWorksVersion, Fields.AssemblyVersions,
+			Fields.SourcePath, Fields.SourceSha256, Fields.Database, Fields.Generated,
+			Fields.HcLoadDiagnostics, Fields.Diagnostics,
+		};
+
+		private static readonly string[] InspectRequiredFields =
+		{
+			Fields.SchemaVersion, Fields.Mode, Fields.FieldWorksVersion, Fields.SourcePath, Fields.SourceSha256,
+			Fields.ProjectName, Fields.ActiveParser, Fields.Phonemes, Fields.BoundaryMarkers,
+			Fields.NaturalClasses, Fields.Diagnostics,
+		};
+
 		internal static int Run(string path)
 		{
 			if (!File.Exists(path))
@@ -36,10 +52,11 @@ namespace XampleProjector
 			}
 
 			var problems = new List<string>();
-			CheckRequiredFields(document, problems);
+			CheckRequiredFieldsForMode(document, problems);
 			CheckSchemaVersion(document, problems);
 			CheckSha256Fields(document, problems);
 			CheckAssemblyVersionKeys(document, problems);
+			CheckNoAbsolutePaths(document, problems);
 
 			if (problems.Count == 0)
 			{
@@ -53,18 +70,39 @@ namespace XampleProjector
 			return ExitCodes.CaptureValidationFailure;
 		}
 
-		private static void CheckRequiredFields(JObject document, List<string> problems)
+		/// <summary>
+		/// Required fields are scoped by "mode" -- inspect and project responses are disjoint
+		/// shapes, and validating one against the other's field set would either demand fields
+		/// that mode never produces or silently accept a capture missing fields its own mode
+		/// requires.
+		/// </summary>
+		private static void CheckRequiredFieldsForMode(JObject document, List<string> problems)
 		{
-			string[] required =
+			var mode = (string)document[Fields.Mode];
+			if (mode == null)
 			{
-				Fields.SchemaVersion, Fields.Mode, Fields.FieldWorksVersion, Fields.AssemblyVersions,
-				Fields.SourcePath, Fields.SourceSha256, Fields.Database, Fields.Generated,
-				Fields.HcLoadDiagnostics, Fields.Diagnostics,
-			};
+				problems.Add($"missing required field \"{Fields.Mode}\" (required fields cannot be scoped without it)");
+				return;
+			}
+
+			string[] required;
+			switch (mode)
+			{
+				case "project":
+					required = ProjectRequiredFields;
+					break;
+				case "inspect":
+					required = InspectRequiredFields;
+					break;
+				default:
+					problems.Add($"[{mode}] unknown mode (expected \"inspect\" or \"project\")");
+					return;
+			}
+
 			foreach (var field in required)
 			{
 				if (document[field] == null)
-					problems.Add($"missing required field \"{field}\"");
+					problems.Add($"[{mode}] missing required field \"{field}\"");
 			}
 		}
 
@@ -109,6 +147,46 @@ namespace XampleProjector
 				problems.Add($"\"{Fields.AssemblyVersions}\" is missing pinned key \"{missing}\"");
 			foreach (var extra in actualKeys.Except(expectedKeys))
 				problems.Add($"\"{Fields.AssemblyVersions}\" has an unpinned key \"{extra}\"");
+		}
+
+		/// <summary>
+		/// A captured response.json is meant to be checked in and read on any machine, so
+		/// neither "sourcePath" nor any generated[].path may leak the machine-specific absolute
+		/// path (drive letter or UNC root) it happened to be produced under. "sourcePath" must
+		/// be relative (both modes now write it relative to their own output location) or the
+		/// "&lt;fw-projects-dir&gt;/..." placeholder convention used by checked-in fixtures.
+		/// </summary>
+		private static void CheckNoAbsolutePaths(JObject document, List<string> problems)
+		{
+			var sourcePath = (string)document[Fields.SourcePath];
+			if (sourcePath != null && LooksRooted(sourcePath))
+				problems.Add($"\"{Fields.SourcePath}\" must not be an absolute path or drive letter: \"{sourcePath}\"");
+
+			if (!(document[Fields.Generated] is JArray generated))
+				return;
+			foreach (var entry in generated.OfType<JObject>())
+			{
+				var path = (string)entry["path"];
+				if (path != null && LooksRooted(path))
+					problems.Add($"generated[].path must not be an absolute path or drive letter: \"{path}\"");
+			}
+		}
+
+		/// <summary>
+		/// "starts with a drive letter, or with a directory separator" -- exactly what an
+		/// absolute or UNC path looks like, and exactly what a relative path (or the
+		/// "&lt;fw-projects-dir&gt;/..." placeholder, which starts with "&lt;") never does. Deliberately
+		/// NOT Path.IsPathRooted: on net48 it validates the string contains no illegal path
+		/// characters first and throws ArgumentException on '&lt;'/'&gt;' -- exactly the placeholder's
+		/// own characters -- so it cannot be used on a value that is only sometimes a real path.
+		/// </summary>
+		private static bool LooksRooted(string candidate)
+		{
+			if (string.IsNullOrEmpty(candidate))
+				return false;
+			if (candidate[0] == '\\' || candidate[0] == '/')
+				return true;
+			return candidate.Length >= 2 && char.IsLetter(candidate[0]) && candidate[1] == ':';
 		}
 	}
 }

@@ -1,0 +1,1269 @@
+{
+  "schemaVersion": 1,
+  "mode": "inspect",
+  "fieldWorksVersion": "9.3.10.26161",
+  "sourcePath": "<fw-projects-dir>/Sena 3/Sena 3.fwdata",
+  "sourceSha256": "2916ece9a44cb47b9a5648001a318371bd12d0722206d86324a55c0255c78f36",
+  "projectName": "Sena 3",
+  "activeParser": "XAmple",
+  "phonemes": [
+    {
+      "guid": "02423cfb-438d-4a0c-b776-195afd3b941b",
+      "representations": [
+        "y"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "660c76e9-8054-44a4-8960-1b36adae58ce",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "07d4f30f-adff-4d91-9aea-965b1e5edd67",
+      "representations": [
+        "p"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "08740d03-706c-4d79-973c-bb1dc8a5f63a",
+      "representations": [
+        "i"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "0accca6b-b086-455e-9a46-a54f64b93685",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "22279498-b64a-448c-939a-59d0f18140fa",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "2e4a1a68-fb92-485d-8e5c-261cfa1bc2ee",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "3a71d5ad-619c-4048-89e2-8fd29b0ded2c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "110b1534-7da1-4460-86ec-98191e2c90b6",
+      "representations": [
+        "m",
+        "n"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "84c6b7f1-25bc-48ae-9d52-77f0b55ba4fd",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "13c8912b-30fb-4a79-82ce-442e35b7c1d4",
+      "representations": [
+        "pf"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "14bd1795-d041-4c59-91ae-1d5506c63402",
+      "representations": [
+        "o"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "085e32ec-eb5b-4eed-9dab-e55854ce88fb",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "11b7ddde-8bc5-4e45-8fc3-6fc1087825ba",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "22279498-b64a-448c-939a-59d0f18140fa",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "63b345c1-d118-43c4-8f70-2d97114b1ed2",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "1ca0867d-f552-471e-9e80-1120cc17de7b",
+      "representations": [
+        "s"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "1fe59fab-5e53-42c3-8b23-d8ea6a2d531f",
+      "representations": [
+        "a"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "11b7ddde-8bc5-4e45-8fc3-6fc1087825ba",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "22279498-b64a-448c-939a-59d0f18140fa",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "2e4a1a68-fb92-485d-8e5c-261cfa1bc2ee",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "3a71d5ad-619c-4048-89e2-8fd29b0ded2c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "32d10b7d-d499-4610-9298-f4aa00eb6f19",
+      "representations": [
+        "g"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "35a2a60a-ea74-4712-b98c-2b49c0f69e34",
+      "representations": [
+        "v"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "36897620-d231-4a2d-bd25-b90e3f856887",
+      "representations": [
+        "dh"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "3ff8d085-d090-45db-a075-42405b77d23a",
+      "representations": [
+        "dj"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "62426ecf-51c0-48f9-acbf-24e407e206c9",
+      "representations": [
+        "ps"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "69d2d111-f81e-4ca7-8cef-5f30b7a327a5",
+      "representations": [
+        "j"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "70286ab3-04b7-43ab-afb3-76e978e24142",
+      "representations": [
+        "u"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "085e32ec-eb5b-4eed-9dab-e55854ce88fb",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "11b7ddde-8bc5-4e45-8fc3-6fc1087825ba",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "22279498-b64a-448c-939a-59d0f18140fa",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "2e4a1a68-fb92-485d-8e5c-261cfa1bc2ee",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "721991b0-8006-45be-a6b7-2e47041ed7bd",
+      "representations": [
+        "th"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "16d9bb08-6397-4db5-83cc-4114cc492858",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "7716e981-8a84-47eb-89dd-21f8945d3c54",
+      "representations": [
+        "ch"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "7835cc34-ff4b-435c-be10-f1026838d7c8",
+      "representations": [
+        "bz"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "7e960604-3aae-47f1-8f74-aaf317010ab1",
+      "representations": [
+        "yw"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "660c76e9-8054-44a4-8960-1b36adae58ce",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "7fef04b0-4d91-4172-9c42-9c50a7d65aac",
+      "representations": [
+        "bh"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "80de42fa-3152-41e6-8aec-2a9b59faa5b6",
+      "representations": [
+        "h"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "82b13fe1-552a-4065-9f16-28c91f09a789",
+      "representations": [
+        "r"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "ec90b4e3-720e-47ab-9e2e-5f745f50779c",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "8a95ddbc-41bf-4aa1-bed7-e052d22d3178",
+      "representations": [
+        "ng'"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "8cb1a1c0-4f55-418f-b457-7de9ffbdb11f",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "937234ce-012f-4143-9130-c80cce3d8ace",
+      "representations": [
+        "l"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "ec90b4e3-720e-47ab-9e2e-5f745f50779c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "9c4b0b53-62e0-4238-8eca-0e2dd632bec5",
+      "representations": [
+        "ph"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "ce57e7d8-02a8-4945-ba30-eef3009418fc",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "a4afe386-6463-4311-9fc9-e57519276c7a",
+      "representations": [
+        "c"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "aec85db1-31f1-406d-b480-45dfe6552e39",
+      "representations": [
+        "ts"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "b0ed6f3e-804d-4b2a-9db8-238b395f8fc5",
+      "representations": [
+        "f"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "b4d383ca-f06d-4c2e-b769-eacd7cee081b",
+      "representations": [
+        "z"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "c1626766-e9ea-40c0-83a1-743afa07c89f",
+      "representations": [
+        "kh"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "16d9bb08-6397-4db5-83cc-4114cc492858",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "c172b324-d130-42da-972a-866a331fc714",
+      "representations": [
+        "bv"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "ce9bdc1f-3e80-4c7f-a045-1bfaff3d989f",
+      "representations": [
+        "e"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "0accca6b-b086-455e-9a46-a54f64b93685",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "22279498-b64a-448c-939a-59d0f18140fa",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "3a71d5ad-619c-4048-89e2-8fd29b0ded2c",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "63b345c1-d118-43c4-8f70-2d97114b1ed2",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "cf286958-c6c3-453f-8369-a93ef0d6f3e0",
+      "representations": [
+        "k"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "cfd57b1f-6089-4c80-9752-2df7ccd9fc13",
+      "representations": [
+        "w"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "660c76e9-8054-44a4-8960-1b36adae58ce",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "d80bca00-592c-42d7-9cee-bbb2be4ed56f",
+      "representations": [
+        "dz"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "dbd6d116-b210-4dc0-9a0b-1d664751ca27",
+      "representations": [
+        "n"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "8cb1a1c0-4f55-418f-b457-7de9ffbdb11f",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "eb6dfaa3-82d7-4dff-8e0f-63601d25e770",
+      "representations": [
+        "x"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "f2aab4c3-be3c-4456-8bb3-3f0bc46f9020",
+      "representations": [
+        "d"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "16d9bb08-6397-4db5-83cc-4114cc492858",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "f7ee0a39-1595-4129-9d1d-5405164207e6",
+      "representations": [
+        "t"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "f830273c-0834-475e-bad5-27087ad9e6ea",
+      "representations": [
+        "w"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "f8687755-bfb7-42aa-84eb-14fcc1412efc",
+      "representations": [
+        "sw"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "f8f99596-cd40-4f7a-ab77-b89cce86a2e6",
+      "representations": [
+        "m"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "8cb1a1c0-4f55-418f-b457-7de9ffbdb11f",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "fc73c7e6-a7be-4dce-adc8-f76028245cad",
+      "representations": [
+        "b"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "ce57e7d8-02a8-4945-ba30-eef3009418fc",
+          "class": "PhNCSegments"
+        }
+      ]
+    },
+    {
+      "guid": "fee040aa-7999-47a9-a822-87f5985daef4",
+      "representations": [
+        "y"
+      ],
+      "inboundReferences": [
+        {
+          "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+          "class": "PhNCSegments"
+        },
+        {
+          "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+          "class": "PhNCSegments"
+        }
+      ]
+    }
+  ],
+  "boundaryMarkers": [
+    {
+      "guid": "3bde17ce-e39a-4bae-8a5c-a8d96fd4cb56",
+      "representations": [],
+      "inboundReferences": []
+    },
+    {
+      "guid": "7db635e0-9ef3-4167-a594-12551ed89aaa",
+      "representations": [
+        "#"
+      ],
+      "inboundReferences": []
+    }
+  ],
+  "naturalClasses": [
+    {
+      "guid": "04023d7f-65a3-425c-b07f-244a2c568984",
+      "name": "Consonants minus the nasals",
+      "kind": "segments",
+      "memberGuids": [
+        "07d4f30f-adff-4d91-9aea-965b1e5edd67",
+        "13c8912b-30fb-4a79-82ce-442e35b7c1d4",
+        "1ca0867d-f552-471e-9e80-1120cc17de7b",
+        "32d10b7d-d499-4610-9298-f4aa00eb6f19",
+        "35a2a60a-ea74-4712-b98c-2b49c0f69e34",
+        "36897620-d231-4a2d-bd25-b90e3f856887",
+        "3ff8d085-d090-45db-a075-42405b77d23a",
+        "62426ecf-51c0-48f9-acbf-24e407e206c9",
+        "69d2d111-f81e-4ca7-8cef-5f30b7a327a5",
+        "721991b0-8006-45be-a6b7-2e47041ed7bd",
+        "7716e981-8a84-47eb-89dd-21f8945d3c54",
+        "7835cc34-ff4b-435c-be10-f1026838d7c8",
+        "7fef04b0-4d91-4172-9c42-9c50a7d65aac",
+        "80de42fa-3152-41e6-8aec-2a9b59faa5b6",
+        "82b13fe1-552a-4065-9f16-28c91f09a789",
+        "937234ce-012f-4143-9130-c80cce3d8ace",
+        "9c4b0b53-62e0-4238-8eca-0e2dd632bec5",
+        "a4afe386-6463-4311-9fc9-e57519276c7a",
+        "aec85db1-31f1-406d-b480-45dfe6552e39",
+        "b0ed6f3e-804d-4b2a-9db8-238b395f8fc5",
+        "b4d383ca-f06d-4c2e-b769-eacd7cee081b",
+        "c1626766-e9ea-40c0-83a1-743afa07c89f",
+        "c172b324-d130-42da-972a-866a331fc714",
+        "cf286958-c6c3-453f-8369-a93ef0d6f3e0",
+        "d80bca00-592c-42d7-9cee-bbb2be4ed56f",
+        "eb6dfaa3-82d7-4dff-8e0f-63601d25e770",
+        "f2aab4c3-be3c-4456-8bb3-3f0bc46f9020",
+        "f7ee0a39-1595-4129-9d1d-5405164207e6",
+        "f830273c-0834-475e-bad5-27087ad9e6ea",
+        "f8687755-bfb7-42aa-84eb-14fcc1412efc",
+        "fc73c7e6-a7be-4dce-adc8-f76028245cad",
+        "fee040aa-7999-47a9-a822-87f5985daef4"
+      ]
+    },
+    {
+      "guid": "085e32ec-eb5b-4eed-9dab-e55854ce88fb",
+      "name": "back vowels",
+      "kind": "segments",
+      "memberGuids": [
+        "14bd1795-d041-4c59-91ae-1d5506c63402",
+        "70286ab3-04b7-43ab-afb3-76e978e24142"
+      ]
+    },
+    {
+      "guid": "0accca6b-b086-455e-9a46-a54f64b93685",
+      "name": "vogais frontais",
+      "kind": "segments",
+      "memberGuids": [
+        "08740d03-706c-4d79-973c-bb1dc8a5f63a",
+        "ce9bdc1f-3e80-4c7f-a045-1bfaff3d989f"
+      ]
+    },
+    {
+      "guid": "0f785459-fdd5-4079-9c9c-1cf5ce8addb4",
+      "name": "labiais",
+      "kind": "segments",
+      "memberGuids": [
+        "07d4f30f-adff-4d91-9aea-965b1e5edd67",
+        "13c8912b-30fb-4a79-82ce-442e35b7c1d4",
+        "35a2a60a-ea74-4712-b98c-2b49c0f69e34",
+        "62426ecf-51c0-48f9-acbf-24e407e206c9",
+        "7835cc34-ff4b-435c-be10-f1026838d7c8",
+        "7fef04b0-4d91-4172-9c42-9c50a7d65aac",
+        "9c4b0b53-62e0-4238-8eca-0e2dd632bec5",
+        "b0ed6f3e-804d-4b2a-9db8-238b395f8fc5",
+        "c172b324-d130-42da-972a-866a331fc714",
+        "f830273c-0834-475e-bad5-27087ad9e6ea",
+        "f8f99596-cd40-4f7a-ab77-b89cce86a2e6",
+        "fc73c7e6-a7be-4dce-adc8-f76028245cad"
+      ]
+    },
+    {
+      "guid": "11b7ddde-8bc5-4e45-8fc3-6fc1087825ba",
+      "name": "vogais não-frontais",
+      "kind": "segments",
+      "memberGuids": [
+        "14bd1795-d041-4c59-91ae-1d5506c63402",
+        "1fe59fab-5e53-42c3-8b23-d8ea6a2d531f",
+        "70286ab3-04b7-43ab-afb3-76e978e24142"
+      ]
+    },
+    {
+      "guid": "16d9bb08-6397-4db5-83cc-4114cc492858",
+      "name": "non-labial \"aspirates\"",
+      "kind": "segments",
+      "memberGuids": [
+        "721991b0-8006-45be-a6b7-2e47041ed7bd",
+        "c1626766-e9ea-40c0-83a1-743afa07c89f",
+        "f2aab4c3-be3c-4456-8bb3-3f0bc46f9020"
+      ]
+    },
+    {
+      "guid": "22279498-b64a-448c-939a-59d0f18140fa",
+      "name": "vowels",
+      "kind": "segments",
+      "memberGuids": [
+        "08740d03-706c-4d79-973c-bb1dc8a5f63a",
+        "14bd1795-d041-4c59-91ae-1d5506c63402",
+        "1fe59fab-5e53-42c3-8b23-d8ea6a2d531f",
+        "70286ab3-04b7-43ab-afb3-76e978e24142",
+        "ce9bdc1f-3e80-4c7f-a045-1bfaff3d989f"
+      ]
+    },
+    {
+      "guid": "2e4a1a68-fb92-485d-8e5c-261cfa1bc2ee",
+      "name": "non-mid vowels",
+      "kind": "segments",
+      "memberGuids": [
+        "08740d03-706c-4d79-973c-bb1dc8a5f63a",
+        "1fe59fab-5e53-42c3-8b23-d8ea6a2d531f",
+        "70286ab3-04b7-43ab-afb3-76e978e24142"
+      ]
+    },
+    {
+      "guid": "35898d19-3e7b-445b-962f-53123ebe0fcf",
+      "name": "consonants",
+      "kind": "segments",
+      "memberGuids": [
+        "07d4f30f-adff-4d91-9aea-965b1e5edd67",
+        "13c8912b-30fb-4a79-82ce-442e35b7c1d4",
+        "1ca0867d-f552-471e-9e80-1120cc17de7b",
+        "32d10b7d-d499-4610-9298-f4aa00eb6f19",
+        "35a2a60a-ea74-4712-b98c-2b49c0f69e34",
+        "36897620-d231-4a2d-bd25-b90e3f856887",
+        "3ff8d085-d090-45db-a075-42405b77d23a",
+        "62426ecf-51c0-48f9-acbf-24e407e206c9",
+        "69d2d111-f81e-4ca7-8cef-5f30b7a327a5",
+        "721991b0-8006-45be-a6b7-2e47041ed7bd",
+        "7716e981-8a84-47eb-89dd-21f8945d3c54",
+        "7835cc34-ff4b-435c-be10-f1026838d7c8",
+        "7fef04b0-4d91-4172-9c42-9c50a7d65aac",
+        "80de42fa-3152-41e6-8aec-2a9b59faa5b6",
+        "82b13fe1-552a-4065-9f16-28c91f09a789",
+        "8a95ddbc-41bf-4aa1-bed7-e052d22d3178",
+        "937234ce-012f-4143-9130-c80cce3d8ace",
+        "9c4b0b53-62e0-4238-8eca-0e2dd632bec5",
+        "a4afe386-6463-4311-9fc9-e57519276c7a",
+        "aec85db1-31f1-406d-b480-45dfe6552e39",
+        "b0ed6f3e-804d-4b2a-9db8-238b395f8fc5",
+        "b4d383ca-f06d-4c2e-b769-eacd7cee081b",
+        "c1626766-e9ea-40c0-83a1-743afa07c89f",
+        "c172b324-d130-42da-972a-866a331fc714",
+        "cf286958-c6c3-453f-8369-a93ef0d6f3e0",
+        "d80bca00-592c-42d7-9cee-bbb2be4ed56f",
+        "dbd6d116-b210-4dc0-9a0b-1d664751ca27",
+        "eb6dfaa3-82d7-4dff-8e0f-63601d25e770",
+        "f2aab4c3-be3c-4456-8bb3-3f0bc46f9020",
+        "f7ee0a39-1595-4129-9d1d-5405164207e6",
+        "f830273c-0834-475e-bad5-27087ad9e6ea",
+        "f8687755-bfb7-42aa-84eb-14fcc1412efc",
+        "f8f99596-cd40-4f7a-ab77-b89cce86a2e6",
+        "fc73c7e6-a7be-4dce-adc8-f76028245cad",
+        "fee040aa-7999-47a9-a822-87f5985daef4"
+      ]
+    },
+    {
+      "guid": "3a71d5ad-619c-4048-89e2-8fd29b0ded2c",
+      "name": "non-back vowels",
+      "kind": "segments",
+      "memberGuids": [
+        "08740d03-706c-4d79-973c-bb1dc8a5f63a",
+        "1fe59fab-5e53-42c3-8b23-d8ea6a2d531f",
+        "ce9bdc1f-3e80-4c7f-a045-1bfaff3d989f"
+      ]
+    },
+    {
+      "guid": "63b345c1-d118-43c4-8f70-2d97114b1ed2",
+      "name": "mid-vowels",
+      "kind": "segments",
+      "memberGuids": [
+        "14bd1795-d041-4c59-91ae-1d5506c63402",
+        "ce9bdc1f-3e80-4c7f-a045-1bfaff3d989f"
+      ]
+    },
+    {
+      "guid": "660c76e9-8054-44a4-8960-1b36adae58ce",
+      "name": "Post-consonantal modifiers",
+      "kind": "segments",
+      "memberGuids": [
+        "02423cfb-438d-4a0c-b776-195afd3b941b",
+        "7e960604-3aae-47f1-8f74-aaf317010ab1",
+        "cfd57b1f-6089-4c80-9752-2df7ccd9fc13"
+      ]
+    },
+    {
+      "guid": "84c6b7f1-25bc-48ae-9d52-77f0b55ba4fd",
+      "name": "Prenasalization",
+      "kind": "segments",
+      "memberGuids": [
+        "110b1534-7da1-4460-86ec-98191e2c90b6"
+      ]
+    },
+    {
+      "guid": "8cb1a1c0-4f55-418f-b457-7de9ffbdb11f",
+      "name": "nasals",
+      "kind": "segments",
+      "memberGuids": [
+        "8a95ddbc-41bf-4aa1-bed7-e052d22d3178",
+        "dbd6d116-b210-4dc0-9a0b-1d664751ca27",
+        "f8f99596-cd40-4f7a-ab77-b89cce86a2e6"
+      ]
+    },
+    {
+      "guid": "a835a8de-62b1-4a8f-83d0-f8513e1dae88",
+      "name": "non-labial, non-lateral non-nasal consonants",
+      "kind": "segments",
+      "memberGuids": [
+        "1ca0867d-f552-471e-9e80-1120cc17de7b",
+        "32d10b7d-d499-4610-9298-f4aa00eb6f19",
+        "36897620-d231-4a2d-bd25-b90e3f856887",
+        "3ff8d085-d090-45db-a075-42405b77d23a",
+        "69d2d111-f81e-4ca7-8cef-5f30b7a327a5",
+        "7716e981-8a84-47eb-89dd-21f8945d3c54",
+        "80de42fa-3152-41e6-8aec-2a9b59faa5b6",
+        "82b13fe1-552a-4065-9f16-28c91f09a789",
+        "a4afe386-6463-4311-9fc9-e57519276c7a",
+        "aec85db1-31f1-406d-b480-45dfe6552e39",
+        "b4d383ca-f06d-4c2e-b769-eacd7cee081b",
+        "cf286958-c6c3-453f-8369-a93ef0d6f3e0",
+        "d80bca00-592c-42d7-9cee-bbb2be4ed56f",
+        "eb6dfaa3-82d7-4dff-8e0f-63601d25e770",
+        "f7ee0a39-1595-4129-9d1d-5405164207e6",
+        "f8687755-bfb7-42aa-84eb-14fcc1412efc",
+        "fee040aa-7999-47a9-a822-87f5985daef4"
+      ]
+    },
+    {
+      "guid": "ce57e7d8-02a8-4945-ba30-eef3009418fc",
+      "name": "labial \"aspirated\" consonants",
+      "kind": "segments",
+      "memberGuids": [
+        "9c4b0b53-62e0-4238-8eca-0e2dd632bec5",
+        "fc73c7e6-a7be-4dce-adc8-f76028245cad"
+      ]
+    },
+    {
+      "guid": "ec90b4e3-720e-47ab-9e2e-5f745f50779c",
+      "name": "lateral",
+      "kind": "segments",
+      "memberGuids": [
+        "82b13fe1-552a-4065-9f16-28c91f09a789",
+        "937234ce-012f-4143-9130-c80cce3d8ace"
+      ]
+    },
+    {
+      "guid": "f1050eb2-a416-4491-960c-6c4564543a7c",
+      "name": "consoantes não-labias",
+      "kind": "segments",
+      "memberGuids": [
+        "1ca0867d-f552-471e-9e80-1120cc17de7b",
+        "32d10b7d-d499-4610-9298-f4aa00eb6f19",
+        "36897620-d231-4a2d-bd25-b90e3f856887",
+        "3ff8d085-d090-45db-a075-42405b77d23a",
+        "69d2d111-f81e-4ca7-8cef-5f30b7a327a5",
+        "721991b0-8006-45be-a6b7-2e47041ed7bd",
+        "7716e981-8a84-47eb-89dd-21f8945d3c54",
+        "80de42fa-3152-41e6-8aec-2a9b59faa5b6",
+        "82b13fe1-552a-4065-9f16-28c91f09a789",
+        "8a95ddbc-41bf-4aa1-bed7-e052d22d3178",
+        "a4afe386-6463-4311-9fc9-e57519276c7a",
+        "aec85db1-31f1-406d-b480-45dfe6552e39",
+        "b4d383ca-f06d-4c2e-b769-eacd7cee081b",
+        "c1626766-e9ea-40c0-83a1-743afa07c89f",
+        "cf286958-c6c3-453f-8369-a93ef0d6f3e0",
+        "d80bca00-592c-42d7-9cee-bbb2be4ed56f",
+        "dbd6d116-b210-4dc0-9a0b-1d664751ca27",
+        "eb6dfaa3-82d7-4dff-8e0f-63601d25e770",
+        "f2aab4c3-be3c-4456-8bb3-3f0bc46f9020",
+        "f7ee0a39-1595-4129-9d1d-5405164207e6",
+        "f8687755-bfb7-42aa-84eb-14fcc1412efc",
+        "fee040aa-7999-47a9-a822-87f5985daef4"
+      ]
+    }
+  ],
+  "diagnostics": [
+    "boundary marker 3bde17ce-e39a-4bae-8a5c-a8d96fd4cb56 has no valid grapheme representations"
+  ]
+}

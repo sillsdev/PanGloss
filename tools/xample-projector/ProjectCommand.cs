@@ -30,7 +30,7 @@ namespace XampleProjector
 
 			Directory.CreateDirectory(outDir);
 
-			return FieldWorksSession.Run(projectPath, (cache, logger) =>
+			return FieldWorksSession.Run(fieldWorksDir, projectPath, (cache, logger) =>
 			{
 				List<GeneratedFile> generated;
 				try
@@ -43,12 +43,13 @@ namespace XampleProjector
 					return ExitCodes.ProjectionFailure;
 				}
 
-				var response = BuildResponse(cache, fieldWorksDir, projectPath, database, generated, logger);
+				var response = BuildResponse(cache, fieldWorksDir, outDir, projectPath, database, generated, logger);
 				JsonWriter.WriteFile(Path.Combine(outDir, "response.json"), response);
 
 				Console.WriteLine("Generated {0} file(s) in {1}:", generated.Count, outDir);
 				foreach (var file in generated)
-					Console.WriteLine("  {0} ({1} bytes, sha256 {2})", file.Path, file.Bytes, file.Sha256Hex);
+					Console.WriteLine("  {0} ({1} bytes, sha256 {2}{3})", file.RelativePath, file.Bytes, file.Sha256Hex,
+						file.Deterministic ? "" : ", NOT deterministic");
 
 				return ExitCodes.Ok;
 			});
@@ -58,33 +59,18 @@ namespace XampleProjector
 		{
 			var generated = new List<GeneratedFile>();
 
-			Language language;
-			try
-			{
-				language = HCLoader.Load(cache, logger);
-			}
-			catch (Exception ex)
-			{
-				throw new ProjectionException($"HCLoader.Load failed: {ex.Message}", ex);
-			}
+			var language = ProjectionStep.Run("HCLoader.Load", () => HCLoader.Load(cache, logger));
 
 			var hcPath = Path.Combine(outDir, database + ".hc.xml");
-			try
-			{
-				XmlLanguageWriter.Save(language, hcPath);
-			}
-			catch (Exception ex)
-			{
-				throw new ProjectionException($"XmlLanguageWriter.Save failed: {ex.Message}", ex);
-			}
-			generated.Add(GeneratedFile.Describe(hcPath));
+			ProjectionStep.Run("XmlLanguageWriter.Save", () => XmlLanguageWriter.Save(language, hcPath));
+			generated.Add(GeneratedFile.Describe(outDir, hcPath));
 
 			generated.AddRange(XampleProjection.Generate(cache, fieldWorksDir, outDir, database));
 
 			return generated;
 		}
 
-		private static JObject BuildResponse(LcmCache cache, string fieldWorksDir, string projectPath, string database,
+		private static JObject BuildResponse(LcmCache cache, string fieldWorksDir, string outDir, string projectPath, string database,
 			List<GeneratedFile> generated, DiagnosticLogger logger)
 		{
 			var hcLoadDiagnostics = new JArray();
@@ -103,7 +89,10 @@ namespace XampleProjector
 				[Fields.Mode] = "project",
 				[Fields.FieldWorksVersion] = InspectCommand.FieldWorksVersion(fieldWorksDir),
 				[Fields.AssemblyVersions] = AssemblyVersionsJson(fieldWorksDir),
-				[Fields.SourcePath] = projectPath,
+				// Relative to --out-dir (same base generated[].path uses), so a captured
+				// response.json never leaks the machine-specific absolute path it was produced
+				// under -- see PathUtil.MakeRelative and ValidateCapture's absolute-path check.
+				[Fields.SourcePath] = PathUtil.MakeRelative(outDir, projectPath),
 				[Fields.SourceSha256] = Sha256.OfFile(projectPath),
 				[Fields.Database] = database,
 				[Fields.Generated] = new JArray(generated.Select(f => f.ToJson())),

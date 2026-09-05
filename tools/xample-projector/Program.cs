@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace XampleProjector
 {
@@ -30,12 +31,26 @@ namespace XampleProjector
 				return ValidateCapture.Run(args[1]);
 			}
 
+			// An unknown subcommand is a usage error, decided before anything below touches
+			// FieldWorks -- a typo in the subcommand must never pay the cost of (or risk a
+			// false pin-mismatch report from) probing an install it was never going to use.
+			if (args[0] != "inspect" && args[0] != "project")
+			{
+				WriteUsage();
+				return ExitCodes.Usage;
+			}
+
 			string fieldWorksDir = ResolveFieldWorksDir();
 
 			// Widen the native search path, and register the assembly probe, BEFORE any code
 			// that touches a FieldWorks type runs. Both registrations happen in Main, which
 			// itself references no FieldWorks type, so Main's own JIT cannot race the handler.
-			NativeMethods.SetDllDirectory(fieldWorksDir);
+			if (!NativeMethods.SetDllDirectory(fieldWorksDir))
+			{
+				var error = Marshal.GetLastWin32Error();
+				Console.Error.WriteLine("SetDllDirectory failed for \"{0}\" (Win32 error {1}).", fieldWorksDir, error);
+				return ExitCodes.PinMismatch;
+			}
 			AppDomain.CurrentDomain.AssemblyResolve += (sender, e) => ResolveFieldWorksAssembly(e.Name, fieldWorksDir);
 
 			var mismatches = FieldWorksPins.Verify(fieldWorksDir);
