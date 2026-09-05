@@ -567,6 +567,11 @@ fn build_circumfix_allomorphs(
                 }
             };
             ctx.represent_via(LineageTarget::MRule(mrule_id.0), expansion);
+            // The suffix half is built into this pairing too, not just claimed via the prefix's own returned guid.
+            ctx.represent_via(
+                LineageTarget::MRule(mrule_id.0),
+                InventoryKey::object(InventoryKind::Allomorph, suffix.guid.clone()),
+            );
             // Union of both halves' conditioning, `positions` included per `combined_env_guids` below.
             let mut environments = super::environment::resolve_environment_defs(
                 prefix
