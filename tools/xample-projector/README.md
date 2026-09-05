@@ -7,14 +7,13 @@ grammar files (the same XSL transforms and GAFAWS step `M3ToXAmpleTransformer`/`
 drive internally, replicated here because that class is `internal`). Both sides read the same
 opened `LcmCache`, so they can never diverge on which project state they saw.
 
-Task 3, slice A shipped the tool scaffold plus three subcommands: `inspect` (read-only phonology
-survey), `project` (full HC + XAMPLE projection), and `--validate-capture` (portable, FieldWorks-free
-schema check). Task 3, slice B added `author` -- back a HermitCrab conformance fixture
-(`grammar.xml`) out into a brand-new FieldWorks project via LibLCM, refusing every construct
-outside a documented supported subset -- and `verify-parity`, a structural + HC-engine proof that
-`project` on an authored project reproduces the fixture it came from. Task 3, slice C part 1 (this
-slice) adds `mutate` -- a scripted LibLCM phoneme-inventory counterfactual applied to a CLONE of a
-project, never the source -- and `parse`, which drives the real XAmple engine
+The tool exposes six subcommands. `inspect` (read-only phonology survey), `project` (full HC +
+XAMPLE projection), and `--validate-capture` (portable, FieldWorks-free schema check) are the core
+projection path. `author` backs a HermitCrab conformance fixture (`grammar.xml`) out into a
+brand-new FieldWorks project via LibLCM, refusing every construct outside a documented supported
+subset; `verify-parity` is a structural + HC-engine proof that `project` on an authored project
+reproduces the fixture it came from. `mutate` applies a scripted LibLCM phoneme-inventory
+counterfactual to a CLONE of a project, never the source; `parse` drives the real XAmple engine
 (`XAmpleManagedWrapper`/`xample.dll`) over a project's already-generated XAMPLE files.
 
 ## Contract
@@ -229,7 +228,8 @@ against one project comparable to a parse against a cloned/mutated copy of it.
 
 **Every `<XAmple>` cap except `MaxAnalysesToReturn` is baked into `adctl.txt`'s own `\maxp`/`\maxi`/
 `\maxs`/`\maxr`/`\maxn`/`\maxnull` control lines at author/project time**
-(`FxtM3ParserToXAmpleADCtl.xsl:130-134`) -- confirmed by reading
+(`FxtM3ParserToXAmpleADCtl.xsl:130-134` for `\maxp`/`\maxi`/`\maxs`/`\maxr`/`\maxn`; `\maxnull` is
+written separately, at line 117) -- confirmed by reading
 `XAmpleManagedWrapper.XAmpleDLLWrapper.SetParameter(name, value)`: it special-cases ONLY
 `"MaxAnalysesToReturn"` and silently drops every other name, so the native engine truly has no
 runtime knob for the rest. `--max-prefixes`/`--max-suffixes`/`--max-infixes`/`--max-roots`/
@@ -482,17 +482,16 @@ independently of both the Sena 3 tests and the pilot-fixture tests.
 
 The `mutate`/`parse` live proof reads a THIRD, independent `machine` checkout --
 `$env:PANGLOSS_MACHINE_DIR`, default `C:\Users\johnm\Documents\repos\machine` -- rather than this
-repo's own submodule, per this slice's own task brief (another agent commits to that checkout
-concurrently; this tool only ever reads its working tree). Skipped (with reason) only when
-FieldWorks itself is absent, or when `conformance\edge-cases\deep-optional-affix-nesting\grammar.xml`
-isn't found at that path; it separately tries a short list of `conformance\edge-cases\*` fixtures
-with a `SegmentNaturalClass` (`disjunctive-recheck`, `free-fluctuating-allomorph-pair`,
-`strrep-identity`, `diacritic-segments`, `loader-pattern-shapes`, in that order) for its
-referenced-phoneme refusal probe, using the first one that authors successfully and reporting which.
+repo's own submodule (another agent commits to that checkout concurrently; this tool only ever
+reads its working tree). Skipped (with reason) only when FieldWorks itself is absent, or when
+`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` isn't found at that path; it
+separately tries a short list of `conformance\edge-cases\*` fixtures with a `SegmentNaturalClass`
+(`disjunctive-recheck`, `free-fluctuating-allomorph-pair`, `strrep-identity`, `diacritic-segments`,
+`loader-pattern-shapes`, in that order) for its referenced-phoneme refusal probe, using the first
+one that authors successfully and reporting which.
 
 **Base project: the checked-in FieldWorks witness, when present, else a fresh `author` run.**
-Task 3 slice C part 2 added a real, oracle-adjacent FieldWorks project committed alongside the
-pilot fixture itself --
+A real, oracle-adjacent FieldWorks project is committed alongside the pilot fixture itself --
 `machine\conformance\edge-cases\deep-optional-affix-nesting\fieldworks\project.fwdata` (+
 `fieldworks\WritingSystemStore\*.ldml`) and `fieldworks\phonology-mutations.yaml`, a small versioned
 manifest of the same two phoneme-removal cases this proof runs (see
@@ -539,7 +538,7 @@ naming the version found and the version supported). When that file exists, `bui
 
 When the witness file is absent (an older `machine` checkout, or a partial one), `build.ps1` prints
 `SKIPPED (checked-in FieldWorks witness): ...` naming the expected path and falls back to authoring
-`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` fresh, exactly as before this slice.
+`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` fresh, as before.
 
 ## Pinned versions
 
