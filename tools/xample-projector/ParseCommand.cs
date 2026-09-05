@@ -88,9 +88,10 @@ namespace XampleProjector
 			return FieldWorksSession.Run(fieldWorksDir, projectPath, (cache, logger) =>
 			{
 				string dynamicFilesDir;
+				var patched = overrides.Count > 0;
 				try
 				{
-					dynamicFilesDir = overrides.Count == 0
+					dynamicFilesDir = !patched
 						? projectDir
 						: PatchedDynamicFilesDir(projectDir, database, Path.Combine(Path.GetTempPath(), "xample-projector-parse-" + Guid.NewGuid().ToString("N")), overrides);
 				}
@@ -100,55 +101,69 @@ namespace XampleProjector
 					return ExitCodes.ParseEngineFailure;
 				}
 
-				var loadedAdctlPath = Path.Combine(dynamicFilesDir, database + "adctl.txt");
-				var effectiveCaps = ReadEffectiveCaps(loadedAdctlPath);
-				var maxAnalysesToReturn = maxAnalysesOverride ?? DefaultMaxAnalysesToReturn;
-				var fixedFilesDir = Path.Combine(fieldWorksDir, "Language Explorer", "Configuration", "Grammar");
-
-				using (var xample = new XAmpleWrapper())
+				try
 				{
-					try
+					var loadedAdctlPath = Path.Combine(dynamicFilesDir, database + "adctl.txt");
+					var effectiveCaps = ReadEffectiveCaps(loadedAdctlPath);
+					var maxAnalysesToReturn = maxAnalysesOverride ?? DefaultMaxAnalysesToReturn;
+					var fixedFilesDir = Path.Combine(fieldWorksDir, "Language Explorer", "Configuration", "Grammar");
+
+					using (var xample = new XAmpleWrapper())
 					{
-						xample.Init();
-						xample.SetParameter("MaxAnalysesToReturn", maxAnalysesToReturn.ToString(CultureInfo.InvariantCulture));
-						xample.LoadFiles(fixedFilesDir, dynamicFilesDir, database);
+						try
+						{
+							xample.Init();
+							xample.SetParameter("MaxAnalysesToReturn", maxAnalysesToReturn.ToString(CultureInfo.InvariantCulture));
+							xample.LoadFiles(fixedFilesDir, dynamicFilesDir, database);
+						}
+						catch (Exception ex)
+						{
+							Console.Error.WriteLine("Parse engine load failure: {0}", ex.Message);
+							return ExitCodes.ParseEngineFailure;
+						}
+
+						var words = File.ReadAllLines(wordsPath).Select(w => w.Trim()).Where(w => w.Length > 0).ToList();
+						var wordResults = new JArray();
+						foreach (var word in words)
+							wordResults.Add(ParseOneWord(cache, xample, word));
+
+						var xample64Path = Path.Combine(fieldWorksDir, "xample64.dll");
+						// runtime vs. adctl are different provenances (SetParameter vs. a baked-in file); nest, don't flatten.
+						var parametersJson = new JObject
+						{
+							["runtime"] = new JObject { ["maxAnalysesToReturn"] = maxAnalysesToReturn },
+							["adctl"] = effectiveCaps,
+							["adctlPatched"] = patched,
+							["adctlSource"] = PathUtil.MakeRelative(projectDir, loadedAdctlPath),
+						};
+
+						var response = new JObject
+						{
+							[Fields.SchemaVersion] = SchemaVersion.Current,
+							[Fields.Mode] = "parse",
+							[Fields.Database] = database,
+							// AmpleReportVersion is never called by the public managed wrapper surface
+							// (XAmpleWrapper/IXAmpleWrapper expose no such method), so the pinned
+							// xample64.dll file version is the only honest answer here.
+							[Fields.EngineVersion] = File.Exists(xample64Path) ? FileVersionInfo.GetVersionInfo(xample64Path).FileVersion : null,
+							[Fields.Parameters] = parametersJson,
+							[Fields.Words] = wordResults,
+						};
+						JsonWriter.WriteFile(outPath, response);
+						Console.WriteLine("Wrote {0}", outPath);
+						return ExitCodes.Ok;
 					}
-					catch (Exception ex)
+				}
+				finally
+				{
+					// Best-effort: a leaked scratch copy of adctl/gram/lex.txt costs disk, never
+					// correctness, so a failed delete (e.g. an AV scan still holding a handle) must
+					// not turn an otherwise-successful parse into a failure.
+					if (patched)
 					{
-						Console.Error.WriteLine("Parse engine load failure: {0}", ex.Message);
-						return ExitCodes.ParseEngineFailure;
+						try { Directory.Delete(dynamicFilesDir, recursive: true); }
+						catch (Exception) { /* best-effort cleanup only, see comment above */ }
 					}
-
-					var words = File.ReadAllLines(wordsPath).Select(w => w.Trim()).Where(w => w.Length > 0).ToList();
-					var wordResults = new JArray();
-					foreach (var word in words)
-						wordResults.Add(ParseOneWord(cache, xample, word));
-
-					var xample64Path = Path.Combine(fieldWorksDir, "xample64.dll");
-					// runtime vs. adctl are different provenances (SetParameter vs. a baked-in file); nest, don't flatten.
-					var parametersJson = new JObject
-					{
-						["runtime"] = new JObject { ["maxAnalysesToReturn"] = maxAnalysesToReturn },
-						["adctl"] = effectiveCaps,
-						["adctlPatched"] = overrides.Count > 0,
-						["adctlSource"] = PathUtil.MakeRelative(projectDir, loadedAdctlPath),
-					};
-
-					var response = new JObject
-					{
-						[Fields.SchemaVersion] = SchemaVersion.Current,
-						[Fields.Mode] = "parse",
-						[Fields.Database] = database,
-						// AmpleReportVersion is never called by the public managed wrapper surface
-						// (XAmpleWrapper/IXAmpleWrapper expose no such method), so the pinned
-						// xample64.dll file version is the only honest answer here.
-						[Fields.EngineVersion] = File.Exists(xample64Path) ? FileVersionInfo.GetVersionInfo(xample64Path).FileVersion : null,
-						[Fields.Parameters] = parametersJson,
-						[Fields.Words] = wordResults,
-					};
-					JsonWriter.WriteFile(outPath, response);
-					Console.WriteLine("Wrote {0}", outPath);
-					return ExitCodes.Ok;
 				}
 			});
 		}
