@@ -318,6 +318,18 @@ pub struct ProducibilityCensus {
     pub unmarked: Vec<String>,
 }
 
+impl ProducibilityCensus {
+    /// The one bucket-count rendering shared by every gate that prints this census.
+    pub fn summary_line(&self) -> String {
+        format!(
+            "{} producible, {} engine-only, {} unmarked",
+            self.producible.len(),
+            self.engine_only.len(),
+            self.unmarked.len()
+        )
+    }
+}
+
 /// Partitions already-[`discover`]ed fixtures by their `words.yaml` producibility verdict. Loads
 /// each fixture's `words.yaml` itself (no separate walker) — see [`FieldworksProducibility`] for
 /// what each bucket means.
@@ -341,7 +353,7 @@ pub fn producibility_census(fixtures: &[FixtureRef]) -> ProducibilityCensus {
 /// (`fieldworks_producible`, `PROTOCOL.md` section 9) — separate from correctness: `false` names an
 /// HC-engine-only regression fixture, never a claim that anything is wrong with it, and never
 /// evidence of FieldWorks-facing conformance coverage.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FieldworksProducibility {
     /// `fieldworks_producible: true` — every construct this fixture exercises has an `HCLoader`
     /// code path from a real FieldWorks project.

@@ -1,24 +1,34 @@
-//! Ratchet on how many `discover_scoped(All)` fixtures leave `fieldworks_producible` unmarked.
+//! Ratchet on how many `discover()`ed fixtures leave `fieldworks_producible` unmarked, scoped to the run's own claim.
 
 use pg_conformance_fixtures::{
-    discover_scoped, producibility_census, ConformanceScope, FieldworksProducibility,
+    claimed_scope, discover, producibility_census, ConformanceScope, FieldworksProducibility,
 };
 
 /// Ratchet, not a target: falls only when a fixture is actually marked, never raised to admit a new silent one.
-const UNMARKED_ALLOWED: usize = 62;
+fn unmarked_allowed(scope: ConformanceScope) -> usize {
+    match scope {
+        // Measured at submodule pin f42d9591: staging-only unmarked fixtures.
+        ConformanceScope::Local => 29,
+        // Measured at submodule pin f42d9591: 33 machine + 29 staging unmarked.
+        ConformanceScope::All => 62,
+    }
+}
 
 #[test]
 fn unmarked_fixtures_do_not_grow() {
-    let fixtures = discover_scoped(ConformanceScope::All);
+    let scope = claimed_scope();
+    let fixtures = discover();
     assert!(
         !fixtures.is_empty(),
-        "no fixtures discovered at all under ConformanceScope::All -- check the `machine` \
-         submodule is initialized and conformance-staging/ exists"
+        "no fixtures discovered at all under scope {} -- check the `machine` submodule is \
+         initialized and conformance-staging/ exists",
+        scope.label()
     );
     let census = producibility_census(&fixtures);
 
     println!(
-        "producibility census (scope=all, {} fixtures discovered)",
+        "producibility census (scope={}, {} fixtures discovered)",
+        scope.label(),
         fixtures.len()
     );
     println!(
@@ -53,11 +63,13 @@ fn unmarked_fixtures_do_not_grow() {
         "the three buckets must partition every discovered fixture exactly once"
     );
 
+    let allowed = unmarked_allowed(scope);
     assert!(
-        census.unmarked.len() <= UNMARKED_ALLOWED,
-        "unmarked (fieldworks_producible absent) fixture count grew from the ratchet of \
-         {UNMARKED_ALLOWED} to {} -- a newly staged or upstream-advanced fixture must state its \
-         FieldWorks producibility explicitly, never leave it silent: {:?}",
+        census.unmarked.len() <= allowed,
+        "unmarked (fieldworks_producible absent) fixture count grew from the scope={} ratchet of \
+         {allowed} to {} -- a newly staged or upstream-advanced fixture must state its FieldWorks \
+         producibility explicitly, never leave it silent: {:?}",
+        scope.label(),
         census.unmarked.len(),
         census.unmarked
     );
