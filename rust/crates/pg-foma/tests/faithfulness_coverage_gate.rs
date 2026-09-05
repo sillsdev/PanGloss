@@ -56,12 +56,7 @@ fn report_faithfulness_coverage() {
     println!("{}", report.render());
     // "fixtures discovered" is not one FieldWorks-facing population; report the three separately.
     let census = producibility_census(&discover());
-    println!(
-        "fieldworks_producible -- {} producible, {} engine-only, {} unmarked",
-        census.producible.len(),
-        census.engine_only.len(),
-        census.unmarked.len()
-    );
+    println!("fieldworks_producible -- {}", census.summary_line());
 
     if let Err(violations) = report.check(REQUIREMENT) {
         panic!(

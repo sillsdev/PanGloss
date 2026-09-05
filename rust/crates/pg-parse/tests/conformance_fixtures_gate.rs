@@ -58,10 +58,8 @@ fn all_discovered_fixtures_match_oracle() {
     // "fixtures covered" is not one FieldWorks-facing population; report the three separately.
     let census = producibility_census(&fixtures);
     eprintln!(
-        "conformance_fixtures_gate: fieldworks_producible -- {} producible, {} engine-only, {} unmarked",
-        census.producible.len(),
-        census.engine_only.len(),
-        census.unmarked.len()
+        "conformance_fixtures_gate: fieldworks_producible -- {}",
+        census.summary_line()
     );
 }
 
