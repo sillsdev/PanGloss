@@ -7,12 +7,24 @@ use pg_snapshot::{
 use crate::node::parse_full_document;
 use crate::{extract::codes, ImportError};
 
+/// Which optional `ParserParameters` source fields were physically present in `<Uni>`, regardless of whether each one parsed successfully — used only for `graphToSnapshot` recording, never to decide `ParserParameters`'s own values.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParserSettingsPresence {
+    pub active_parser: bool,
+    pub accept_unspecified_graphemes: bool,
+    pub xample_fields: Vec<&'static str>,
+}
+
 /// Malformed cap metadata becomes a warning; a malformed or unknown active-parser selector is fatal.
 pub fn parse_with_issues(
     raw: Option<&str>,
-) -> Result<(ParserParameters, Vec<Warning>), ImportError> {
+) -> Result<(ParserParameters, Vec<Warning>, ParserSettingsPresence), ImportError> {
     let Some(raw) = raw else {
-        return Ok((ParserParameters::default(), Vec::new()));
+        return Ok((
+            ParserParameters::default(),
+            Vec::new(),
+            ParserSettingsPresence::default(),
+        ));
     };
     let root = parse_full_document(raw)
         .map_err(|error| invalid_active_parser(format!("ParserParameters XML is malformed: {error}")))?;
@@ -28,6 +40,7 @@ pub fn parse_with_issues(
     };
     let hc = params_elem.child("HC");
 
+    let active_parser_present = params_elem.child("ActiveParser").is_some();
     let active_parser = match params_elem.child("ActiveParser") {
         None => ActiveParser::XAmple,
         Some(node) if node.text == "HC" && node.children.is_empty() => ActiveParser::Hc,
@@ -62,6 +75,20 @@ pub fn parse_with_issues(
             }
         }
     }
+    const XAMPLE_FIELD_TAGS: &[&str] = &[
+        "MaxNulls",
+        "MaxPrefixes",
+        "MaxInfixes",
+        "MaxSuffixes",
+        "MaxInterfixes",
+        "MaxRoots",
+        "MaxAnalysesToReturn",
+    ];
+    let xample_fields_present: Vec<&'static str> = XAMPLE_FIELD_TAGS
+        .iter()
+        .copied()
+        .filter(|tag| xa.is_some_and(|n| n.child(tag).is_some()))
+        .collect();
     let xample = XAmpleParameters {
         max_nulls: child_value(xa, "MaxNulls", &mut issues),
         max_prefixes: child_value(xa, "MaxPrefixes", &mut issues),
@@ -76,6 +103,8 @@ pub fn parse_with_issues(
         None => true,
         Some(hc) => hc.child_bool_text("NotOnClitics").unwrap_or(true),
     };
+    let accept_unspecified_graphemes_present =
+        hc.is_some_and(|hc| hc.child("AcceptUnspecifiedGraphemes").is_some());
     let accept_unspecified_graphemes = hc
         .map(|hc| {
             hc.child_bool_text("AcceptUnspecifiedGraphemes")
@@ -115,6 +144,11 @@ pub fn parse_with_issues(
             xample,
         },
         issues,
+        ParserSettingsPresence {
+            active_parser: active_parser_present,
+            accept_unspecified_graphemes: accept_unspecified_graphemes_present,
+            xample_fields: xample_fields_present,
+        },
     ))
 }
 
@@ -218,7 +252,7 @@ mod tests {
 
     #[test]
     fn malformed_xample_cap_is_none_and_reported() {
-        let (params, issues) = parse_with_issues(Some(
+        let (params, issues, _) = parse_with_issues(Some(
             "<ParserParameters><XAmple><MaxPrefixes>many</MaxPrefixes></XAmple></ParserParameters>",
         ))
         .unwrap();

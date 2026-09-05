@@ -106,6 +106,11 @@ impl<'a> Ctx<'a> {
         );
     }
 
+    /// Records `key` rejected with no new warning, for a failure a caller has already warned about through another path (e.g. `Ctx::require` or `parser_params`'s own issues).
+    pub(crate) fn record_rejected(&mut self, key: InventoryKey, issue: pg_snapshot::ConversionIssue) {
+        self.recorder.rejected(key, issue);
+    }
+
     /// Resolve `guid` expecting a specific class; warns and returns `None` if it is dangling or resolves to a surprising class.
     pub fn require(&mut self, guid: &str, want_class: &str, context: &str) -> Option<&'a Record> {
         match self.get(guid) {

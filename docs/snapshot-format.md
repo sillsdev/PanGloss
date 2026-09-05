@@ -495,6 +495,14 @@ represented, and `synthesized` for a value invented with no source record (e.g. 
 classes this crate's recorder does not yet reach; a non-empty difference is pinned as a named
 ratchet test rather than left silent.
 
+A `setting` identity (no owning guid) covers a parser-parameter field read straight from `<Uni>`
+rather than from a tracked `<rt>` record: `ParserSetting` for `ActiveParser`,
+`AcceptUnspecifiedGraphemes`, and each `XAmple.<Field>` the parser reads, and
+`StrataConfiguration` for a present `Strata` string. A setting is `authored` only when its source
+element is physically present; a malformed `XAmple` cap is `rejected` (non-fatal,
+`invalid-parser-parameter`, `malformedSource`) reusing the same warning `pg-fwdata` already emits
+for it, never a second one.
+
 | Field | Type | Notes |
 |---|---|---|
 | `schemaVersion` | integer | `1` for a document written by this build; `0` reads as "no provenance was ever recorded". `Snapshot`'s own `format`/`version` envelope is unrelated. |
