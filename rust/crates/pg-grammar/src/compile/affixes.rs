@@ -200,20 +200,50 @@ pub(crate) fn build_affix_rule(
         } => {
             let mut set = crate::model::MprSet::EMPTY;
             for f in from_exception_features {
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::RuleFeature,
+                    msa_guid.clone(),
+                    f.clone(),
+                    "required",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
                 if let Some(s) = ctx.mpr.exception_feature(f) {
                     set = set.union(s);
+                    ctx.represented(attachment);
                 } else {
-                    warnings.push(format!(
-                        "MSA {msa_guid:?}: exception feature {f:?} does not resolve"
-                    ));
+                    ctx.reject(
+                        warnings,
+                        attachment,
+                        issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
+                    );
                 }
             }
             if let Some(ic) = from_inflection_class {
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::InflectionClass,
+                    msa_guid.clone(),
+                    ic.clone(),
+                    "required",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
                 match ctx.mpr.infl_class_with_descendants(ic) {
-                    Some(s) => set = set.union(s),
-                    None => warnings.push(format!(
-                        "MSA {msa_guid:?}: inflection class {ic:?} does not resolve"
-                    )),
+                    Some(s) => {
+                        set = set.union(s);
+                        ctx.represented(attachment);
+                    }
+                    None => ctx.reject(
+                        warnings,
+                        attachment,
+                        issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
+                    ),
                 }
             }
             set
@@ -223,12 +253,26 @@ pub(crate) fn build_affix_rule(
         } => {
             let mut set = crate::model::MprSet::EMPTY;
             for f in exception_features {
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::RuleFeature,
+                    msa_guid.clone(),
+                    f.clone(),
+                    "required",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
                 if let Some(s) = ctx.mpr.exception_feature(f) {
                     set = set.union(s);
+                    ctx.represented(attachment);
                 } else {
-                    warnings.push(format!(
-                        "MSA {msa_guid:?}: exception feature {f:?} does not resolve"
-                    ));
+                    ctx.reject(
+                        warnings,
+                        attachment,
+                        issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
+                    );
                 }
             }
             set
@@ -243,20 +287,50 @@ pub(crate) fn build_affix_rule(
         } => {
             let mut set = crate::model::MprSet::EMPTY;
             for f in to_exception_features {
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::RuleFeature,
+                    msa_guid.clone(),
+                    f.clone(),
+                    "out",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
                 if let Some(s) = ctx.mpr.exception_feature(f) {
                     set = set.union(s);
+                    ctx.represented(attachment);
                 } else {
-                    warnings.push(format!(
-                        "MSA {msa_guid:?}: exception feature {f:?} does not resolve"
-                    ));
+                    ctx.reject(
+                        warnings,
+                        attachment,
+                        issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
+                    );
                 }
             }
             if let Some(ic) = to_inflection_class {
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::InflectionClass,
+                    msa_guid.clone(),
+                    ic.clone(),
+                    "out",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
                 match ctx.mpr.infl_class_single(ic) {
-                    Some(s) => set = set.union(s),
-                    None => warnings.push(format!(
-                        "MSA {msa_guid:?}: inflection class {ic:?} does not resolve"
-                    )),
+                    Some(s) => {
+                        set = set.union(s);
+                        ctx.represented(attachment);
+                    }
+                    None => ctx.reject(
+                        warnings,
+                        attachment,
+                        issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
+                    ),
                 }
             }
             set
@@ -269,11 +343,36 @@ pub(crate) fn build_affix_rule(
             from_stem_name: Some(sn),
             ..
         } => match ctx.stem_name_by_guid.get(sn) {
-            Some(&id) => Some(id),
+            Some(&id) => {
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::StemName,
+                    msa_guid.clone(),
+                    sn.clone(),
+                    "required",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
+                ctx.represented(attachment);
+                Some(id)
+            }
             None => {
-                warnings.push(format!(
-                    "MSA {msa_guid:?}: stem name {sn:?} does not resolve"
-                ));
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::StemName,
+                    msa_guid.clone(),
+                    sn.clone(),
+                    "required",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
+                ctx.reject(
+                    warnings,
+                    attachment,
+                    issue_codes::MSA_STEM_NAME_UNRESOLVED,
+                    IssueClass::InvalidSource,
+                    format!("MSA {msa_guid:?}: stem name {sn:?} does not resolve"),
+                );
                 None
             }
         },
@@ -598,7 +697,7 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -
                 true
             }
         }
-        // Bare Clitic/Particle/Stem/Root/... are never rule forms for this filter; not a warning since they're handled on the stem path (or, for Circumfix halves, by the circumfix cross-product builder instead).
+        // Bare Clitic/Particle/Stem/Root/... are never rule forms for this filter, and no `reject_quietly` here: `lexicon.rs`'s stem/clitic bucket owns this allomorph guid's represented/rejected identity instead.
         _ => false,
     }
 }

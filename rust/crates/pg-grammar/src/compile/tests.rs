@@ -1405,6 +1405,179 @@ fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
 
     compile_recording_ok(&circumfix_snapshot(&[], &[]).0);
     compile_recording_ok(&circumfix_snapshot(&["env-after-vowel"], &[]).0);
+
+    // Variant entry (mirrors variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss).
+    let (mut variant_entry_variant, f) = fixture();
+    let infl_type_guid = "infl-plural".to_string();
+    variant_entry_variant
+        .morphology
+        .lex_entry_infl_types
+        .push(LexEntryInflType {
+            guid: infl_type_guid.clone(),
+            name: "Irregular Plural".to_string(),
+            abbreviation: "irr.pl".to_string(),
+            gloss_prepend: String::new(),
+            gloss_append: ".IRR".to_string(),
+            slots: Vec::new(),
+            inflection_features: None,
+        });
+    variant_entry_variant.lexicon.entries.push(LexEntry {
+        guid: "entry-variant".to_string(),
+        citation_form: vec![ws("sen", "kumi")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-variant", MorphType::Stem, "kumi")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-variant".to_string(),
+            component_lexemes: vec![f.stem_entry.clone()],
+            variant_entry_types: vec![infl_type_guid],
+        }],
+    });
+    compile_recording_ok(&variant_entry_variant);
+
+    // Both circumfix halves conditioned (mirrors a_circumfix_with_environments_on_both_halves_unions_them).
+    let (mut both_halves_circumfix, _f) =
+        circumfix_snapshot(&["env-after-vowel"], &["env-before-vowel"]);
+    both_halves_circumfix
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-after-vowel".to_string(),
+            name: "after vowel".to_string(),
+            representation: "/[V]_".to_string(),
+        });
+    both_halves_circumfix
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-before-vowel".to_string(),
+            name: "before vowel".to_string(),
+            representation: "/_[V]".to_string(),
+        });
+    compile_recording_ok(&both_halves_circumfix);
+
+    // A circumfix half carrying a position (mirrors a_circumfix_half_carrying_a_position_builds_with_it_unioned_in).
+    let (mut position_circumfix, _f) = circumfix_snapshot(&[], &[]);
+    position_circumfix
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-after-vowel".to_string(),
+            name: "after vowel".to_string(),
+            representation: "/[V]_".to_string(),
+        });
+    position_circumfix
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|e| e.guid == "entry-circumfix")
+        .expect("circumfix_snapshot must have pushed entry-circumfix")
+        .allomorphs[0]
+        .positions
+        .push("env-after-vowel".to_string());
+    compile_recording_ok(&position_circumfix);
+
+    // Morphosyntactic closed feature (mirrors morphosyntactic_closed_feature_compiles_into_the_syntactic_feature_system).
+    let (mut closed_feature_variant, _f) = fixture();
+    let number_guid = "feat-number".to_string();
+    let sg_guid = "val-sg".to_string();
+    let pl_guid = "val-pl".to_string();
+    closed_feature_variant.feature_systems.morphosyntactic = FeatureSystem {
+        closed_features: vec![ClosedFeature {
+            guid: number_guid.clone(),
+            name: "Number".to_string(),
+            abbreviation: "num".to_string(),
+            values: vec![
+                FeatureValueSymbol {
+                    guid: sg_guid.clone(),
+                    name: "singular".to_string(),
+                    abbreviation: "sg".to_string(),
+                },
+                FeatureValueSymbol {
+                    guid: pl_guid.clone(),
+                    name: "plural".to_string(),
+                    abbreviation: "pl".to_string(),
+                },
+            ],
+        }],
+        complex_features: Vec::new(),
+    };
+    match &mut closed_feature_variant.lexicon.entries[0].msas[0] {
+        Msa::Stem { features, .. } => {
+            *features = Some(FeatureStructure {
+                values: vec![FeatureValue {
+                    feature: number_guid.clone(),
+                    value: FeatureValueKind::Closed {
+                        value: sg_guid.clone(),
+                    },
+                }],
+            })
+        }
+        _ => panic!("expected the fixture's stem MSA"),
+    }
+    compile_recording_ok(&closed_feature_variant);
+
+    // Enclitic dual-stratum entry (mirrors enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule).
+    let (mut enclitic_variant, f) = fixture();
+    enclitic_variant.lexicon.entries.push(LexEntry {
+        guid: "entry-clitic".to_string(),
+        citation_form: vec![ws("sen", "=si")],
+        lexeme_morph_type: MorphType::Enclitic,
+        allomorphs: vec![simple_allomorph("allo-clitic", MorphType::Enclitic, "si")],
+        msas: vec![Msa::Stem {
+            guid: "msa-clitic".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            inflection_class: None,
+            features: None,
+            exception_features: Vec::new(),
+            from_parts_of_speech: vec![f.noun_pos.clone()],
+            slots: Vec::new(),
+        }],
+        senses: vec![Sense {
+            guid: "sense-clitic".to_string(),
+            gloss: vec![ws("en", "TOP")],
+            definition: Vec::new(),
+            msa: Some("msa-clitic".to_string()),
+        }],
+        entry_refs: Vec::new(),
+    });
+    compile_recording_ok(&enclitic_variant);
+}
+
+/// The variant-entry expansion atom (`expansion(Entry, variant_guid, [main_msa_guid], "variant")`) records the variant/main-MSA pairing itself, distinct from the entries/allomorphs/MSAs it draws from.
+#[test]
+fn variant_entry_expansion_atom_is_synthesized_and_represented() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-variant".to_string(),
+        citation_form: vec![ws("sen", "kumi")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-variant", MorphType::Stem, "kumi")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-variant-expansion".to_string(),
+            component_lexemes: vec![f.stem_entry.clone()],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+
+    let (_grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    let expansion = InventoryKey::expansion(
+        InventoryKind::Entry,
+        "entry-variant".to_string(),
+        vec![f.stem_msa.clone()],
+        "variant",
+    );
+    assert!(
+        inventory.synthesized.contains(&expansion),
+        "expected the variant-entry expansion atom synthesized"
+    );
+    assert!(
+        inventory.represented.contains(&expansion),
+        "expected the variant-entry expansion atom represented"
+    );
 }
 
 /// Pins the fixture's warning vector exactly and proves `compile_project`/`compile_project_recording` agree byte-for-byte -- the recording seam must never change what `compile_project` itself returns.

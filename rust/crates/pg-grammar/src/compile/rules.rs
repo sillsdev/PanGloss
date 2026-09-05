@@ -97,24 +97,40 @@ fn build_var_table(
 ) -> VarTable {
     let mut vars = Vec::new();
     for (i, g) in guids.iter().enumerate() {
+        let key = InventoryKey::object(InventoryKind::FeatureConstraint, g.clone());
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
         let Some(fc) = snapshot
             .phonology
             .feature_constraints
             .iter()
             .find(|c| &c.guid == g)
         else {
-            warnings.push(format!("feature constraint {g:?} does not resolve"));
+            ctx.reject(
+                warnings,
+                key,
+                issue_codes::FEATURE_CONSTRAINT_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("feature constraint {g:?} does not resolve"),
+            );
             continue;
         };
         let Some(flat) = ctx.phon.flat_index(&fc.feature) else {
-            warnings.push(format!(
-                "feature constraint {g:?}: unknown phonological feature {:?}",
-                fc.feature
-            ));
+            ctx.reject(
+                warnings,
+                key,
+                issue_codes::FEATURE_CONSTRAINT_PHON_FEATURE_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!(
+                    "feature constraint {g:?}: unknown phonological feature {:?}",
+                    fc.feature
+                ),
+            );
             continue;
         };
         let name = VAR_NAMES.get(i).copied().unwrap_or("?").to_string();
         vars.push((g.clone(), name, flat));
+        ctx.represented(key);
     }
     VarTable { vars }
 }
@@ -136,7 +152,7 @@ fn build_rewrite_rule(
 
     let mut subrules = Vec::new();
     for rhs in &r.right_hand_sides {
-        subrules.push(build_subrule(rhs, &lhs, mode, ctx, &vars, warnings)?);
+        subrules.push(build_subrule(&r.guid, rhs, &lhs, mode, ctx, &vars, warnings)?);
     }
 
     Ok(RewriteRuleDef {
@@ -151,6 +167,7 @@ fn build_rewrite_rule(
 }
 
 fn build_subrule(
+    rule_guid: &str,
     rhs: &RewriteRhs,
     lhs: &Pattern,
     mode: RewriteMode,
@@ -169,16 +186,52 @@ fn build_subrule(
 
     let mut required_mpr = crate::model::MprSet::EMPTY;
     for f in &rhs.required_rule_features {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::RuleFeature,
+            rule_guid.to_string(),
+            f.clone(),
+            "required",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
         match ctx.mpr.rule_feature(f) {
-            Some(s) => required_mpr = required_mpr.union(s),
-            None => warnings.push(format!("rule feature {f:?} does not resolve")),
+            Some(s) => {
+                required_mpr = required_mpr.union(s);
+                ctx.represented(attachment);
+            }
+            None => ctx.reject(
+                warnings,
+                attachment,
+                issue_codes::RULE_FEATURE_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("rule feature {f:?} does not resolve"),
+            ),
         }
     }
     let mut excluded_mpr = crate::model::MprSet::EMPTY;
     for f in &rhs.excluded_rule_features {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::RuleFeature,
+            rule_guid.to_string(),
+            f.clone(),
+            "excluded",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
         match ctx.mpr.rule_feature(f) {
-            Some(s) => excluded_mpr = excluded_mpr.union(s),
-            None => warnings.push(format!("rule feature {f:?} does not resolve")),
+            Some(s) => {
+                excluded_mpr = excluded_mpr.union(s);
+                ctx.represented(attachment);
+            }
+            None => ctx.reject(
+                warnings,
+                attachment,
+                issue_codes::RULE_FEATURE_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("rule feature {f:?} does not resolve"),
+            ),
         }
     }
 
