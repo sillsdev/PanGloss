@@ -17,6 +17,7 @@ sources:
   - "docs/adr/0001-honest-capability-boundary.md (simultaneous-subrule overlap, named as the unverified-oracle example)"
   - "openspec/changes/plan-construct-coverage-completion design.md row 6 (SimultaneousRewrite, NEEDS-ORACLE) and tasks.md 5.2"
 requires: [phonology]
+fieldworks_producible: true
 words:
   # ---- The discriminating pair: this is what actually verifies overlap RESOLUTION -------------
   # Root PE ("pe") sits at the one position where BOTH subrules match: subrule 1 rewrites p -> b

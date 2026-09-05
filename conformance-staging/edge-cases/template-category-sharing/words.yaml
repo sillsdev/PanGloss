@@ -28,6 +28,7 @@ sources:
   - "docs/conformance-staging-plan.md pathology catalog (agglutinative-Bantoid row)"
   - "docs/fst-plan/foma-fst-plan.md Phase 0 census (d5 ordering dead-end class)"
 requires: []
+fieldworks_producible: true
 words:
   - word: kolo
     note: KOLO bare root, no affixes -- a plain control.

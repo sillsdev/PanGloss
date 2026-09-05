@@ -10,6 +10,18 @@ inspired_by: ["synthetic right-to-left inline-pre-segmented-environment rewrite 
 sources:
   - "openspec/changes/plan-construct-coverage-completion task 4.2 (RightToLeftRewrite: additional in-scope pattern shapes -- Segments)"
 requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Exercises Segments.characterDefinitionTable: an inline literal Segments node with an explicit
+  table reference sits inside a phonological rule's RightEnvironment PhoneticTemplate. HCLoader
+  builds exactly one CharacterDefinitionTable per grammar (HCLoader.cs:204,2669-2742), and its
+  generic LoadPatternNode (HCLoader.cs:2313-2391) -- the same function used for every RewriteRule
+  LHS/RHS/environment context (HCLoader.cs:2036,2063,2079-2094) -- only ever builds pattern nodes
+  from typed LibLCM contexts (IPhSimpleContextNC/Seg, IPhIterationContext, IPhSequenceContext),
+  never from a re-parsed literal PhoneticShape string needing characterDefinitionTable resolution.
+  Same underlying gap as Segments.characterDefinitionTable/InsertSegments.characterDefinitionTable
+  (both No in fieldworks-producibility.tsv): an explicit table reference on a Segments node -- same
+  table or not -- has no FieldWorks source.
 words:
   - word: ey
     note: >-

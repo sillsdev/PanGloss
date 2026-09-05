@@ -13,6 +13,7 @@ inspired_by: ["synthetic unbounded-iterative-quantifier rewrite probe (not model
 sources:
   - "docs/conformance/representative-typology-basis.md S1.2.6 (Quantifier pattern -- genuinely unbounded quantifier)"
 requires: [phonology]
+fieldworks_producible: true
 words:
   - word: ect
     note: >-

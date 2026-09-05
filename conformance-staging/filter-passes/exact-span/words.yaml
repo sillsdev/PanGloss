@@ -25,6 +25,7 @@ inspired_by: ["synthetic agglutinative grammar with no phonological alternation 
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (impossible exact local surface span)"
 requires: []
+fieldworks_producible: true
 words:
   - word: tin
     note: Bare root, spanning the whole surface on its own. Plain control.

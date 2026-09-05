@@ -13,6 +13,17 @@ inspired_by: ["synthetic compounding-construct probe (not modeling any real lang
 sources:
   - "openspec/changes/cover-compounding/design.md (D2/D3/D4)"
 requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Two independent gaps. (1) MorphologicalPhonologicalRuleFeatureGroup elements "GRuleLevel"/
+  "GSubruleLevel" are custom-named with outputType="append"; HCLoader's LoadLanguage builds exactly
+  three hardcoded groups (inflClasses/exceptionFeatures/lexEntryInflTypes) and never touches
+  MprFeatureGroup.Output away from its Overwrite default (HCLoader.cs:168-192) -- a user-named group
+  or an append-policy group has no FieldWorks source regardless of the producible
+  MorphologicalPhonologicalRuleFeatureGroup.features attribute it also carries. (2)
+  HeadMorphologicalInput@requiredMPRFeatures="mpr3 mpr4": CompoundingSubrule.RequiredMprFeatures is
+  never set by either compounding-rule loader (HCLoader.cs:1898-1910 Endo, 1959-1998 Exo) --
+  contrast MorphologicalInput.requiredMPRFeatures on an ordinary affix rule, which IS producible.
 words:
   - word: fasu
     note: headA bare root, no compounding -- a plain control.

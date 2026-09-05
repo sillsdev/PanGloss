@@ -19,6 +19,7 @@ inspired_by: ["synthetic suffixing grammar with category selection and a lexical
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (static POS/MPR/signature conflict)"
 requires: []
+fieldworks_producible: true
 words:
   - word: sanu
     note: Bare regular root of the first category. Plain control.

@@ -9,6 +9,7 @@ sources:
   - "docs/conformance/representative-typology-basis.md S1.2.4 (Metathesis -- right-to-left direction)"
   - "docs/conformance/needs-decision-resolutions.md (row 8)"
 requires: [phonology]
+fieldworks_producible: true
 words:
   - word: sq
     note: >-

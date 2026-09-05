@@ -21,6 +21,15 @@ sources:
   - "docs/conformance/representative-typology-basis.md S1.2.5 (Multi-table: shared-representation-across-tables configuration)"
   - "rust/crates/pg-rules/src/cache.rs owning_table_tests module"
 requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Declares two distinct CharacterDefinitionTables (t0 "Inner", t1 "Outer"), with the Inner and
+  Outer strata each bound to a different one via Stratum@characterDefinitionTable. HCLoader loads
+  exactly one CharacterDefinitionTable per grammar and reuses it for every stratum it builds
+  (HCLoader.cs:204,227-233,374,2669-2742) -- the same gap behind edge-cases/cross-table-root-respelling
+  and edge-cases/bistratal-overlapping-segment-representation. A FieldWorks project can never
+  produce the second, distinct per-stratum table this fixture's own SegmentNaturalClass-table-
+  dependence premise needs.
 words:
   - word: g
     note: >-
