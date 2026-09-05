@@ -669,7 +669,18 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -
                 true
             }
         }
-        // Bare Clitic/Particle/Stem/Root/... are never rule forms for this filter, and no `selected`/`reject_quietly` here: `lexicon.rs`'s stem/clitic bucket owns this allomorph guid's selected/represented/rejected identity instead.
+        // A circumfix/discontiguous-phrase allomorph is never a valid rule form on its own (a circumfix is built as a prefix/suffix-half cross-product instead); selected then rejected here since neither half-shape check above nor `lexicon.rs`'s stem/clitic bucket ever claims this guid.
+        MorphType::Circumfix | MorphType::DiscontigPhrase => {
+            ctx.selected(key.clone());
+            ctx.reject_quietly(
+                key,
+                issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM,
+                IssueClass::UnrepresentableForHc,
+                "allomorph morph type is not a valid rule form on its own",
+            );
+            false
+        }
+        // Bare Clitic/Particle/Stem/Root/BoundRoot/BoundStem/Phrase are never rule forms for this filter, and no `selected`/`reject_quietly` here: `lexicon.rs`'s stem/clitic bucket owns this allomorph guid's selected/represented/rejected identity instead.
         _ => false,
     }
 }
