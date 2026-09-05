@@ -547,6 +547,9 @@ fn unknown_class_duplicate_before_an_allowed_class_keeps_the_recognized_record()
         .filter(|issue| issue.code == "invalid-source.duplicate-guid")
         .collect();
     assert_eq!(duplicate_issues.len(), 1);
+    let source = duplicate_issues[0].source.as_ref().unwrap();
+    assert_eq!(source.kind, "ZzUnknown");
+    assert_eq!(source.id, "00000000-0000-0000-0000-000000000050");
     let suffix_entries: Vec<_> = snapshot
         .lexicon
         .entries
