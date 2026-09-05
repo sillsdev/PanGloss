@@ -2,8 +2,9 @@
 
 use pg_snapshot::{
     AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
-    CompoundOutcome, CompoundRule, ExceptionFeature, FeatureSystems, InflectionClass,
-    InventoryKey, InventoryKind, LexEntryInflType, Lexicon, Morphology, PartOfSpeech, StemName,
+    CompoundOutcome, CompoundRule, ConversionIssue, ExceptionFeature, FeatureSystems,
+    InflectionClass, InventoryKey, InventoryKind, IssueClass, LexEntryInflType, Lexicon,
+    Morphology, ParserParameters, PartOfSpeech, SourceRef, StemName,
 };
 
 use super::features::extract_feature_structure;
@@ -55,8 +56,9 @@ pub fn extract_morphology(
                 .unwrap_or_default()
         })
     });
-    let (parser_parameters, parser_issues) =
+    let (parser_parameters, parser_issues, settings_presence) =
         parser_params::parse_with_issues(parser_raw.as_deref())?;
+    record_parser_settings(ctx, &parser_parameters, &settings_presence);
     ctx.warnings.extend(parser_issues);
 
     Ok(Morphology {
@@ -67,6 +69,71 @@ pub fn extract_morphology(
         lex_entry_infl_types,
         parser_parameters,
     })
+}
+
+/// Records each parser-parameter setting present in the source `<Uni>`; a malformed `XAmple` field is rejected using the warning `parser_params` already emitted, never a second one.
+fn record_parser_settings(
+    ctx: &mut Ctx,
+    parsed: &ParserParameters,
+    presence: &parser_params::ParserSettingsPresence,
+) {
+    if presence.active_parser {
+        record_present_setting(ctx, "ActiveParser");
+    }
+    if presence.accept_unspecified_graphemes {
+        record_present_setting(ctx, "AcceptUnspecifiedGraphemes");
+    }
+    for field in &presence.xample_fields {
+        let name = format!("XAmple.{field}");
+        let key = InventoryKey::setting(InventoryKind::ParserSetting, name);
+        ctx.authored(key.clone());
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
+        if xample_field_parsed(&parsed.xample, field) {
+            ctx.represented(key);
+        } else {
+            ctx.record_rejected(
+                key,
+                ConversionIssue {
+                    code: super::codes::INVALID_PARSER_PARAMETER.to_string(),
+                    class: IssueClass::MalformedSource,
+                    source: None,
+                    fatal: false,
+                    message: format!(
+                        "morphology.parserParameters: XAmple {field} is present but malformed"
+                    ),
+                },
+            );
+        }
+    }
+    if parsed.strata.is_some() {
+        record_present_setting_kind(ctx, InventoryKind::StrataConfiguration, "Strata");
+    }
+}
+
+fn record_present_setting(ctx: &mut Ctx, name: &str) {
+    record_present_setting_kind(ctx, InventoryKind::ParserSetting, name);
+}
+
+fn record_present_setting_kind(ctx: &mut Ctx, kind: InventoryKind, name: &str) {
+    let key = InventoryKey::setting(kind, name.to_string());
+    ctx.authored(key.clone());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    ctx.represented(key);
+}
+
+fn xample_field_parsed(xample: &pg_snapshot::XAmpleParameters, field: &str) -> bool {
+    match field {
+        "MaxNulls" => xample.max_nulls.is_some(),
+        "MaxPrefixes" => xample.max_prefixes.is_some(),
+        "MaxInfixes" => xample.max_infixes.is_some(),
+        "MaxSuffixes" => xample.max_suffixes.is_some(),
+        "MaxInterfixes" => xample.max_interfixes.is_some(),
+        "MaxRoots" => xample.max_roots.is_some(),
+        "MaxAnalysesToReturn" => xample.max_analyses_to_return.is_some(),
+        _ => false,
+    }
 }
 
 // Parts of speech
@@ -252,7 +319,7 @@ fn record_template_slot_attachments(ctx: &mut Ctx, parts_of_speech: &[PartOfSpee
                         attachment,
                         super::codes::DANGLING_REFERENCE,
                         pg_snapshot::IssueClass::InvalidSource,
-                        false,
+                        !template.disabled,
                         Some(pg_snapshot::SourceRef {
                             kind: "MoInflAffixSlot".to_string(),
                             id: slot_guid.clone(),
@@ -292,13 +359,28 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str) -> Option<CompoundRule> {
             ctx.considered(key.clone());
             ctx.selected(key.clone());
             let head_last = rec.node.val_bool("HeadLast").unwrap_or(false);
-            let left = compound_side(ctx, guid, "left", rec.node.objsur_one("LeftMsa"), label);
-            let right = compound_side(ctx, guid, "right", rec.node.objsur_one("RightMsa"), label);
+            let left = compound_side(
+                ctx,
+                guid,
+                "left",
+                rec.node.objsur_one("LeftMsa"),
+                disabled,
+                label,
+            );
+            let right = compound_side(
+                ctx,
+                guid,
+                "right",
+                rec.node.objsur_one("RightMsa"),
+                disabled,
+                label,
+            );
             let overriding = compound_outcome(
                 ctx,
                 guid,
                 "output",
                 rec.node.objsur_one("OverridingMsa"),
+                disabled,
                 label,
             );
             ctx.represented(key);
@@ -315,9 +397,30 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str) -> Option<CompoundRule> {
         "MoExoCompound" => {
             ctx.considered(key.clone());
             ctx.selected(key.clone());
-            let left = compound_side(ctx, guid, "left", rec.node.objsur_one("LeftMsa"), label);
-            let right = compound_side(ctx, guid, "right", rec.node.objsur_one("RightMsa"), label);
-            let to = compound_outcome(ctx, guid, "output", rec.node.objsur_one("ToMsa"), label);
+            let left = compound_side(
+                ctx,
+                guid,
+                "left",
+                rec.node.objsur_one("LeftMsa"),
+                disabled,
+                label,
+            );
+            let right = compound_side(
+                ctx,
+                guid,
+                "right",
+                rec.node.objsur_one("RightMsa"),
+                disabled,
+                label,
+            );
+            let to = compound_outcome(
+                ctx,
+                guid,
+                "output",
+                rec.node.objsur_one("ToMsa"),
+                disabled,
+                label,
+            );
             ctx.represented(key);
             Some(CompoundRule::Exocentric {
                 guid: guid.to_string(),
@@ -338,8 +441,15 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str) -> Option<CompoundRule> {
     }
 }
 
-/// Records the `CompoundRule`→`Msa` side/output attachment, unconditionally represented once the referenced `MoStemMsa` resolves (the shared success path for `compound_side`/`compound_outcome`).
-fn record_compound_side_attachment(ctx: &mut Ctx, owner_guid: &str, target_guid: &str, role: &str) {
+/// Records the `CompoundRule`→`Msa` side/output attachment: represented on a successful `require`, otherwise rejected fatal iff the owning rule is enabled (a disabled rule's own dangling reference can never surface at runtime). `ctx.require` has already warned on failure, so this records without a second warning.
+fn record_compound_side_attachment(
+    ctx: &mut Ctx,
+    owner_guid: &str,
+    target_guid: &str,
+    role: &str,
+    rule_disabled: bool,
+    resolved: bool,
+) {
     let key = InventoryKey::attachment(
         InventoryKind::Msa,
         owner_guid.to_string(),
@@ -349,7 +459,26 @@ fn record_compound_side_attachment(ctx: &mut Ctx, owner_guid: &str, target_guid:
     ctx.authored(key.clone());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
-    ctx.represented(key);
+    if resolved {
+        ctx.represented(key);
+    } else {
+        ctx.record_rejected(
+            key,
+            ConversionIssue {
+                code: super::codes::DANGLING_REFERENCE.to_string(),
+                class: IssueClass::InvalidSource,
+                source: Some(SourceRef {
+                    kind: "MoStemMsa".to_string(),
+                    id: target_guid.to_string(),
+                }),
+                fatal: !rule_disabled,
+                message: format!(
+                    "morphology.compoundRules: compound rule {owner_guid} references {role} \
+                     MSA {target_guid}, which does not resolve to a MoStemMsa"
+                ),
+            },
+        );
+    }
 }
 
 /// A compound side/outcome is always an `MoStemMsa`, but `HCLoader` only ever reads its `PartOfSpeechRA`/`ProdRestrictRC` pair for a side requirement.
@@ -358,15 +487,17 @@ fn compound_side(
     owner_guid: &str,
     role: &str,
     msa_guid: Option<String>,
+    rule_disabled: bool,
     label: &str,
 ) -> CompoundConstituentRequirement {
     let Some(guid) = msa_guid else {
         return CompoundConstituentRequirement::default();
     };
-    let Some(rec) = ctx.require(&guid, "MoStemMsa", label) else {
+    let rec = ctx.require(&guid, "MoStemMsa", label);
+    record_compound_side_attachment(ctx, owner_guid, &guid, role, rule_disabled, rec.is_some());
+    let Some(rec) = rec else {
         return CompoundConstituentRequirement::default();
     };
-    record_compound_side_attachment(ctx, owner_guid, &guid, role);
     CompoundConstituentRequirement {
         part_of_speech: rec.node.objsur_one("PartOfSpeech"),
         exception_features: rec.node.objsur_list("ProdRestrict"),
@@ -378,15 +509,17 @@ fn compound_outcome(
     owner_guid: &str,
     role: &str,
     msa_guid: Option<String>,
+    rule_disabled: bool,
     label: &str,
 ) -> CompoundOutcome {
     let Some(guid) = msa_guid else {
         return CompoundOutcome::default();
     };
-    let Some(rec) = ctx.require(&guid, "MoStemMsa", label) else {
+    let rec = ctx.require(&guid, "MoStemMsa", label);
+    record_compound_side_attachment(ctx, owner_guid, &guid, role, rule_disabled, rec.is_some());
+    let Some(rec) = rec else {
         return CompoundOutcome::default();
     };
-    record_compound_side_attachment(ctx, owner_guid, &guid, role);
     CompoundOutcome {
         part_of_speech: rec.node.objsur_one("PartOfSpeech"),
         inflection_class: rec.node.objsur_one("InflectionClass"),

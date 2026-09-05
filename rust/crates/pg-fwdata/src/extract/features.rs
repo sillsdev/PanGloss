@@ -1,8 +1,9 @@
 //! `featureSystems` snapshot section, plus the `FeatureStructure` resolver used everywhere else a feature structure is attached to something.
 
 use pg_snapshot::{
-    ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureSystems, FeatureValue,
-    FeatureValueKind, FeatureValueSymbol, InventoryKey, InventoryKind,
+    ClosedFeature, ComplexFeature, ConversionIssue, FeatureStructure, FeatureSystem,
+    FeatureSystems, FeatureValue, FeatureValueKind, FeatureValueSymbol, InventoryKey,
+    InventoryKind, IssueClass, SourceRef,
 };
 
 use super::Ctx;
@@ -69,7 +70,18 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
     let abbreviation = ctx.best_analysis(&rec.node.ws_forms("Abbreviation"));
     let mut values = Vec::new();
     for value_guid in rec.node.objsur_list("Values") {
-        if let Some(v) = ctx.require(&value_guid, "FsSymFeatVal", "closedFeature.values") {
+        let resolved = ctx.require(&value_guid, "FsSymFeatVal", "closedFeature.values");
+        let attachment = InventoryKey::attachment(
+            InventoryKind::FeatureValue,
+            rec.guid.clone(),
+            value_guid.clone(),
+            "value",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
+        if let Some(v) = resolved {
+            ctx.represented(attachment);
             let value_key = InventoryKey::object(InventoryKind::FeatureValue, value_guid.clone());
             ctx.considered(value_key.clone());
             ctx.selected(value_key.clone());
@@ -79,6 +91,24 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
                 name: ctx.best_analysis(&v.node.ws_forms("Name")),
                 abbreviation: ctx.best_analysis(&v.node.ws_forms("Abbreviation")),
             });
+        } else {
+            ctx.record_rejected(
+                attachment,
+                ConversionIssue {
+                    code: super::codes::DANGLING_REFERENCE.to_string(),
+                    class: IssueClass::InvalidSource,
+                    source: Some(SourceRef {
+                        kind: "FsSymFeatVal".to_string(),
+                        id: value_guid.clone(),
+                    }),
+                    fatal: true,
+                    message: format!(
+                        "closedFeature.values: feature {} references value {value_guid}, \
+                         which does not resolve to a FsSymFeatVal",
+                        rec.guid
+                    ),
+                },
+            );
         }
     }
     ctx.represented(key);
