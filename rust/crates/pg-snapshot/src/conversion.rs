@@ -128,7 +128,7 @@ impl InventoryKey {
 
 /// Which conversion-pipeline stage an [`InventoryKey`] reached, tracked as one set per stage so
 /// the same key can be compared across stages (e.g. `authored` minus `represented` names what
-/// was silently lost).
+/// was silently lost); `represented` is a pre-compaction claim, recorded before any later reachability/natural-class compaction pass runs against the compiled grammar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversionInventory {

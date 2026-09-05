@@ -153,14 +153,29 @@ pub(crate) fn build(
 
     let table = CharDefTable::from_raw("main".to_string(), None, raw_defs, phon)?;
 
-    let morph_bdry = table.lookup_nfd(&nfd("+")).unwrap_or_else(|| {
-        warnings.push(
-            "no boundary marker representation '+' found; morpheme-boundary matching will \
-                 fall back to the null boundary"
-                .to_string(),
-        );
-        null_bdry
-    });
+    // The morph-boundary lookup is a derived fact, not a snapshot object -- there is nothing upstream to author it against.
+    let morph_bdry_key = InventoryKey::setting(InventoryKind::BoundaryMarker, "morph-boundary");
+    recorder.synthesized(morph_bdry_key.clone());
+    recorder.considered(morph_bdry_key.clone());
+    recorder.selected(morph_bdry_key.clone());
+    let morph_bdry = match table.lookup_nfd(&nfd("+")) {
+        Some(id) => {
+            recorder.represented(morph_bdry_key);
+            id
+        }
+        None => {
+            inventory::reject(
+                recorder,
+                warnings,
+                morph_bdry_key,
+                issue_codes::BOUNDARY_MORPH_MARKER_UNRESOLVED,
+                IssueClass::InvalidSource,
+                "no boundary marker representation '+' found; morpheme-boundary matching will \
+                 fall back to the null boundary",
+            );
+            null_bdry
+        }
+    };
 
     Ok(CharDefBuild {
         table,

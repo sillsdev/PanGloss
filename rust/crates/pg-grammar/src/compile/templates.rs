@@ -12,7 +12,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
-use super::{environment, issue_codes, Acc, Ctx};
+use super::{environment, issue_codes, roles, Acc, Ctx};
 
 pub(crate) fn build(
     snapshot: &Snapshot,
@@ -107,7 +107,7 @@ fn build_template(
             InventoryKind::TemplateSlot,
             tmpl.guid.clone(),
             slot_guid.to_string(),
-            "slot",
+            roles::SLOT,
         );
         ctx.authored(attachment.clone());
         ctx.considered(slot_key.clone());

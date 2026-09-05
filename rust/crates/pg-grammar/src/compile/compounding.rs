@@ -9,7 +9,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
-use super::{environment, issue_codes, Acc, Ctx};
+use super::{environment, issue_codes, roles, Acc, Ctx};
 
 pub(crate) fn build(
     snapshot: &Snapshot,
@@ -100,7 +100,7 @@ pub(crate) fn build(
                     );
                 } else {
                     ctx.represented(key.clone());
-                    for (member_id, role) in ids.iter().zip(["exo-right", "exo-left"]) {
+                    for (member_id, role) in ids.iter().zip([roles::EXO_RIGHT, roles::EXO_LEFT]) {
                         let expansion = InventoryKey::expansion(
                             InventoryKind::CompoundRule,
                             rule.guid().to_string(),
@@ -218,9 +218,9 @@ fn build_endo(
     warnings: &mut Vec<String>,
 ) -> Option<MRuleId> {
     let (head_side, non_head_side, head_role, non_head_role) = if head_last {
-        (right, left, "right", "left")
+        (right, left, roles::RIGHT, roles::LEFT)
     } else {
-        (left, right, "left", "right")
+        (left, right, roles::LEFT, roles::RIGHT)
     };
     let head_required_syn_fs =
         side_required_fs(rule_guid, head_role, head_side, ctx, acc, warnings)?;
@@ -231,21 +231,16 @@ fn build_endo(
             InventoryKind::PartOfSpeech,
             rule_guid.to_string(),
             p.to_string(),
-            "output",
+            roles::OUTPUT,
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
         let bits = ctx.pos.bits_single(p);
-        match bits {
-            Some(_) => ctx.represented(attachment),
-            None => ctx.reject_quietly(
-                attachment,
-                issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
-                IssueClass::InvalidSource,
-                "compound rule output: part of speech does not resolve",
-            ),
-        }
+        ctx.record_attachment_quietly(
+            attachment,
+            bits.is_some(),
+            issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
+            IssueClass::InvalidSource,
+            "compound rule output: part of speech does not resolve",
+        );
         bits
     });
     let out_syn_fs = match super::features::build_syn_fs(ctx.syn, out_pos, None) {
@@ -310,10 +305,10 @@ fn build_exo(
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Vec<MRuleId> {
-    let Some(left_fs) = side_required_fs(rule_guid, "left", left, ctx, acc, warnings) else {
+    let Some(left_fs) = side_required_fs(rule_guid, roles::LEFT, left, ctx, acc, warnings) else {
         return Vec::new();
     };
-    let Some(right_fs) = side_required_fs(rule_guid, "right", right, ctx, acc, warnings) else {
+    let Some(right_fs) = side_required_fs(rule_guid, roles::RIGHT, right, ctx, acc, warnings) else {
         return Vec::new();
     };
     let out_pos = to.part_of_speech.as_deref().and_then(|p| {
@@ -321,21 +316,16 @@ fn build_exo(
             InventoryKind::PartOfSpeech,
             rule_guid.to_string(),
             p.to_string(),
-            "output",
+            roles::OUTPUT,
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
         let bits = ctx.pos.bits_single(p);
-        match bits {
-            Some(_) => ctx.represented(attachment),
-            None => ctx.reject_quietly(
-                attachment,
-                issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
-                IssueClass::InvalidSource,
-                "compound rule output: part of speech does not resolve",
-            ),
-        }
+        ctx.record_attachment_quietly(
+            attachment,
+            bits.is_some(),
+            issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
+            IssueClass::InvalidSource,
+            "compound rule output: part of speech does not resolve",
+        );
         bits
     });
     let out_syn_fs = match super::features::build_syn_fs(ctx.syn, out_pos, None) {
@@ -350,8 +340,8 @@ fn build_exo(
         .as_deref()
         .and_then(|ic| ctx.mpr.infl_class_single(ic))
         .unwrap_or(crate::model::MprSet::EMPTY);
-    let left_mpr = side_mpr(rule_guid, "left", left, ctx, warnings);
-    let right_mpr = side_mpr(rule_guid, "right", right, ctx, warnings);
+    let left_mpr = side_mpr(rule_guid, roles::LEFT, left, ctx, warnings);
+    let right_mpr = side_mpr(rule_guid, roles::RIGHT, right, ctx, warnings);
 
     let mut out = Vec::new();
     // "right compound rule": head = right, non-head = left, output = nonhead+"+"+head.
@@ -432,18 +422,14 @@ fn side_required_fs(
             p.to_string(),
             role.to_string(),
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
-        match ctx.pos.bits_single(p) {
-            Some(_) => ctx.represented(attachment),
-            None => ctx.reject_quietly(
-                attachment,
-                issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
-                IssueClass::InvalidSource,
-                "compound rule side: part of speech does not resolve",
-            ),
-        }
+        let resolved = ctx.pos.bits_single(p);
+        ctx.record_attachment_quietly(
+            attachment,
+            resolved.is_some(),
+            issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
+            IssueClass::InvalidSource,
+            "compound rule side: part of speech does not resolve",
+        );
         ctx.pos.bits_with_descendants(std::iter::once(p))
     });
     match super::features::build_syn_fs(ctx.syn, pos_bits, None) {
@@ -470,21 +456,17 @@ fn side_mpr(
             f.clone(),
             role.to_string(),
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
-        match ctx.mpr.exception_feature(f) {
-            Some(s) => {
-                set = set.union(s);
-                ctx.represented(attachment);
-            }
-            None => ctx.reject(
-                warnings,
-                attachment,
-                issue_codes::COMPOUND_SIDE_EXCEPTION_FEATURE_UNRESOLVED,
-                IssueClass::InvalidSource,
-                format!("compound rule: exception feature {f:?} does not resolve"),
-            ),
+        let resolved = ctx.mpr.exception_feature(f);
+        ctx.record_attachment(
+            warnings,
+            attachment,
+            resolved.is_some(),
+            issue_codes::COMPOUND_SIDE_EXCEPTION_FEATURE_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!("compound rule: exception feature {f:?} does not resolve"),
+        );
+        if let Some(s) = resolved {
+            set = set.union(s);
         }
     }
     set

@@ -9,7 +9,7 @@ use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
 use crate::model::{LexEntryDef, LexEntryId, MRuleId, RootAllomorphDef, StratumId};
 use crate::GrammarError;
 
-use super::{affixes, issue_codes, Acc, Ctx};
+use super::{affixes, issue_codes, roles, Acc, Ctx};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build(
@@ -130,13 +130,14 @@ pub(crate) fn build(
         if entry.senses.is_empty() {
             for er in &entry.entry_refs {
                 if let EntryRef::Variant {
+                    guid: er_guid,
                     component_lexemes,
                     variant_entry_types,
-                    ..
                 } = er
                 {
                     build_variant(
                         entry,
+                        er_guid,
                         component_lexemes,
                         variant_entry_types,
                         &entry_by_guid,
@@ -249,23 +250,19 @@ fn build_stem_entry(
             InventoryKind::InflectionClass,
             guid.clone(),
             ic.clone(),
-            "required",
+            roles::REQUIRED,
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
-        match ctx.mpr.infl_class_single(ic) {
-            Some(s) => {
-                mpr = mpr.union(s);
-                ctx.represented(attachment);
-            }
-            None => ctx.reject(
-                warnings,
-                attachment,
-                issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
-                IssueClass::InvalidSource,
-                format!("MSA {guid:?}: inflection class {ic:?} does not resolve"),
-            ),
+        let resolved = ctx.mpr.infl_class_single(ic);
+        ctx.record_attachment(
+            warnings,
+            attachment,
+            resolved.is_some(),
+            issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!("MSA {guid:?}: inflection class {ic:?} does not resolve"),
+        );
+        if let Some(s) = resolved {
+            mpr = mpr.union(s);
         }
     }
     for f in exception_features {
@@ -273,23 +270,19 @@ fn build_stem_entry(
             InventoryKind::RuleFeature,
             guid.clone(),
             f.clone(),
-            "required",
+            roles::REQUIRED,
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
-        match ctx.mpr.exception_feature(f) {
-            Some(s) => {
-                mpr = mpr.union(s);
-                ctx.represented(attachment);
-            }
-            None => ctx.reject(
-                warnings,
-                attachment,
-                issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
-                IssueClass::InvalidSource,
-                format!("MSA {guid:?}: exception feature {f:?} does not resolve"),
-            ),
+        let resolved = ctx.mpr.exception_feature(f);
+        ctx.record_attachment(
+            warnings,
+            attachment,
+            resolved.is_some(),
+            issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!("MSA {guid:?}: exception feature {f:?} does not resolve"),
+        );
+        if let Some(s) = resolved {
+            mpr = mpr.union(s);
         }
     }
     if let Some(it) = infl_type {
@@ -297,26 +290,22 @@ fn build_stem_entry(
             InventoryKind::RuleFeature,
             guid.clone(),
             it.guid.clone(),
-            "infl-type",
+            roles::INFL_TYPE,
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
-        match ctx.mpr.lex_entry_infl_type(&it.guid) {
-            Some(s) => {
-                mpr = mpr.union(s);
-                ctx.represented(attachment);
-            }
-            None => ctx.reject(
-                warnings,
-                attachment,
-                issue_codes::MSA_LEX_ENTRY_INFL_TYPE_UNRESOLVED,
-                IssueClass::InvalidSource,
-                format!(
-                    "lexEntryInflType {:?} does not resolve in the MPR registry",
-                    it.guid
-                ),
+        let resolved = ctx.mpr.lex_entry_infl_type(&it.guid);
+        ctx.record_attachment(
+            warnings,
+            attachment,
+            resolved.is_some(),
+            issue_codes::MSA_LEX_ENTRY_INFL_TYPE_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!(
+                "lexEntryInflType {:?} does not resolve in the MPR registry",
+                it.guid
             ),
+        );
+        if let Some(s) = resolved {
+            mpr = mpr.union(s);
         }
     }
 
@@ -438,6 +427,7 @@ fn natural_class_defs<'a>(ctx: &Ctx<'a>) -> &'a [crate::model::NaturalClass] {
 #[allow(clippy::too_many_arguments)]
 fn build_variant(
     variant_entry: &LexEntry,
+    er_guid: &str,
     component_lexemes: &[String],
     variant_entry_types: &[String],
     entry_by_guid: &HashMap<&str, &LexEntry>,
@@ -450,6 +440,12 @@ fn build_variant(
     morphology_mrules: &mut Vec<MRuleId>,
     warnings: &mut Vec<String>,
 ) {
+    // The `EntryRef::Variant` itself, distinct from the entries/allomorphs/MSAs it draws from below; this function is the ref's only consumer, so it is always handled once reached.
+    let er_key = InventoryKey::object(InventoryKind::EntryReference, er_guid.to_string());
+    ctx.considered(er_key.clone());
+    ctx.selected(er_key.clone());
+    ctx.represented(er_key);
+
     let infl_types = get_infl_types(variant_entry_types, infl_type_by_guid);
 
     for component in component_lexemes {
@@ -467,14 +463,12 @@ fn build_variant(
                     InventoryKind::Entry,
                     variant_entry.guid.clone(),
                     component.clone(),
-                    "variant-component",
+                    roles::VARIANT_COMPONENT,
                 );
-                ctx.authored(attachment.clone());
-                ctx.considered(attachment.clone());
-                ctx.selected(attachment.clone());
-                ctx.reject(
+                ctx.record_attachment(
                     warnings,
                     attachment,
+                    false,
                     issue_codes::VARIANT_COMPONENT_UNRESOLVED,
                     IssueClass::InvalidSource,
                     format!(
@@ -616,7 +610,7 @@ fn build_variant_stem_entry(
         InventoryKind::Entry,
         variant_entry.guid.clone(),
         vec![guid.clone()],
-        "variant",
+        roles::VARIANT,
     );
     ctx.synthesized(variant_key.clone());
     ctx.considered(variant_key.clone());

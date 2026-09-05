@@ -9,7 +9,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
-use super::{issue_codes, Ctx};
+use super::{issue_codes, roles, Ctx};
 
 /// Greek-letter alpha-variable names, in assignment order (`HCLoader.VariableNames`).
 const VAR_NAMES: [&str; 24] = [
@@ -190,23 +190,19 @@ fn build_subrule(
             InventoryKind::RuleFeature,
             rule_guid.to_string(),
             f.clone(),
-            "required",
+            roles::REQUIRED,
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
-        match ctx.mpr.rule_feature(f) {
-            Some(s) => {
-                required_mpr = required_mpr.union(s);
-                ctx.represented(attachment);
-            }
-            None => ctx.reject(
-                warnings,
-                attachment,
-                issue_codes::RULE_FEATURE_UNRESOLVED,
-                IssueClass::InvalidSource,
-                format!("rule feature {f:?} does not resolve"),
-            ),
+        let resolved = ctx.mpr.rule_feature(f);
+        ctx.record_attachment(
+            warnings,
+            attachment,
+            resolved.is_some(),
+            issue_codes::RULE_FEATURE_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!("rule feature {f:?} does not resolve"),
+        );
+        if let Some(s) = resolved {
+            required_mpr = required_mpr.union(s);
         }
     }
     let mut excluded_mpr = crate::model::MprSet::EMPTY;
@@ -215,23 +211,19 @@ fn build_subrule(
             InventoryKind::RuleFeature,
             rule_guid.to_string(),
             f.clone(),
-            "excluded",
+            roles::EXCLUDED,
         );
-        ctx.authored(attachment.clone());
-        ctx.considered(attachment.clone());
-        ctx.selected(attachment.clone());
-        match ctx.mpr.rule_feature(f) {
-            Some(s) => {
-                excluded_mpr = excluded_mpr.union(s);
-                ctx.represented(attachment);
-            }
-            None => ctx.reject(
-                warnings,
-                attachment,
-                issue_codes::RULE_FEATURE_UNRESOLVED,
-                IssueClass::InvalidSource,
-                format!("rule feature {f:?} does not resolve"),
-            ),
+        let resolved = ctx.mpr.rule_feature(f);
+        ctx.record_attachment(
+            warnings,
+            attachment,
+            resolved.is_some(),
+            issue_codes::RULE_FEATURE_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!("rule feature {f:?} does not resolve"),
+        );
+        if let Some(s) = resolved {
+            excluded_mpr = excluded_mpr.union(s);
         }
     }
 

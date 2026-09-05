@@ -4,6 +4,7 @@ pub(crate) const PHONEME_NO_REPRESENTATION: &str = "grammar.phoneme.no-represent
 pub(crate) const PHONEME_NFD_COLLISION: &str = "grammar.phoneme.nfd-collision";
 pub(crate) const BOUNDARY_NFD_COLLISION: &str = "grammar.boundary.nfd-collision";
 pub(crate) const BOUNDARY_NO_REPRESENTATION: &str = "grammar.boundary.no-representation";
+pub(crate) const BOUNDARY_MORPH_MARKER_UNRESOLVED: &str = "grammar.boundary.morph-marker-unresolved";
 
 pub(crate) const NATCLASS_SEGMENTS_MEMBER_UNRESOLVED: &str =
     "grammar.natclass.segments-member-unresolved";

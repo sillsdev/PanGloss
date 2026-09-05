@@ -59,8 +59,13 @@ pub(crate) fn seed_authored_from_snapshot(
         for s in &e.senses {
             recorder.authored(InventoryKey::object(Sense, s.guid.clone()));
         }
-        for er in &e.entry_refs {
-            recorder.authored(InventoryKey::object(EntryReference, entry_ref_guid(er)));
+        // `lexicon::build_variant` walks a `Variant` ref only when the entry has no senses; `ComplexForm` refs are never consumed by this compiler at all (see `EntryRef::ComplexForm`'s own doc).
+        if e.senses.is_empty() {
+            for er in &e.entry_refs {
+                if let pg_snapshot::lexicon::EntryRef::Variant { guid, .. } = er {
+                    recorder.authored(InventoryKey::object(EntryReference, guid.clone()));
+                }
+            }
         }
         for m in &e.msas {
             recorder.authored(InventoryKey::object(Msa, m.guid().to_string()));
@@ -168,13 +173,6 @@ fn seed_infl_classes(
     for ic in items {
         recorder.authored(InventoryKey::object(InventoryKind::InflectionClass, ic.guid.clone()));
         seed_infl_classes(recorder, &ic.children);
-    }
-}
-
-fn entry_ref_guid(er: &pg_snapshot::lexicon::EntryRef) -> String {
-    use pg_snapshot::lexicon::EntryRef::*;
-    match er {
-        Variant { guid, .. } | ComplexForm { guid, .. } => guid.clone(),
     }
 }
 
