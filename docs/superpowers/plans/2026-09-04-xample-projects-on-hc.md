@@ -1235,6 +1235,38 @@ git add machine rust/crates/pg-xample-oracle rust/crates/pg-parse/tests
 git commit -m "oracle: measure XAMPLE to HC migration differences"
 ```
 
+## Task 8b: Make every conformance fixture FieldWorks-producible or deprecate it
+
+**Decision (2026-09-05):** the conformance suite's coverage claim must hold from the surface PanGloss
+ships — FieldWorks projects. A fixture that no FieldWorks user could produce proves conformance with
+`hc.dll` and nothing about a grammar a user can hand us. For each fixture that the producibility scan
+(Machine's `fieldworks-producibility.tsv` `producible=No` rows plus the three usage-level checks:
+a template-slot rule setting MPR features, per-subrule `requiredMPRFeatures`, `type="require"`
+co-occurrence) marks non-producible, do exactly one of:
+
+1. **Convert** — re-author the same phenomenon with the mechanism FieldWorks actually uses, then
+   re-derive `words.yaml` against the C# founding oracle and back the fixture out with `author`.
+   Only when the phenomenon is meaningful from a FieldWorks perspective and the coverage survives.
+2. **Deprecate** — mark it in the suite's manifest as HC-engine-only, spend no further FieldWorks
+   work on it, and at the end of this plan either delete it (coverage fully duplicated by producible
+   fixtures) or convert it (unique coverage worth keeping).
+
+**Files:** `machine/conformance/fixtures.csv` (or the manifest the triage identifies) gains a
+producibility column with values `fieldworks`, `deprecated-hc-only`; `PROTOCOL.md` states the
+policy; `pg-conformance-fixtures::discover` exposes the column so PanGloss gates can report the two
+populations separately and never let an `hc-only` fixture stand in for FieldWorks coverage.
+
+- [ ] **Step 1: Triage** — per non-producible fixture: offending constructs with HCLoader citations,
+  coverage claims, whether each claim is duplicated by a producible fixture, and whether a faithful
+  FieldWorks re-authoring exists. Recommendation per fixture: convert / deprecate / delete-candidate.
+- [ ] **Step 2: Mark** — add the column and the protocol text on the Machine branch; nothing else
+  changes yet. `pg-conformance-fixtures` reads it; `witnessed_strategy_coverage_gate` and the
+  coverage headline report `fieldworks` and `deprecated-hc-only` counts separately.
+- [ ] **Step 3: Convert** the fixtures the triage marks convertible, one at a time, each with oracle
+  re-derivation and an `author` round trip proving producibility.
+- [ ] **Step 4: Retire** — at the end, delete delete-candidates (with the duplicating fixture named
+  in the commit) or convert the rest. No fixture stays `deprecated-hc-only` past the end of this plan.
+
 ## Task 9: Resolve known semantic questions with focused fixtures
 
 **Files:**
