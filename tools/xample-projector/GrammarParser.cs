@@ -33,8 +33,10 @@ namespace XampleProjector
 			var language = languages[0];
 
 			// The DTD types "id" as document-global, but DtdProcessing.Ignore (LoadGrammarDocument)
-			// means nothing enforces that -- alloFormMap/GuidMap are plain dictionaries keyed by
-			// fixture id and would otherwise silently overwrite on a collision.
+			// means nothing enforces that. This single dictionary also covers every other string
+			// AuthorResult.GuidMap will ever be keyed by -- AffixTemplate/Slot Name text and the
+			// synthetic morphemeCoOccurrence[i]/allomorphCoOccurrence[i] keys -- since none of
+			// those have a DTD id attribute either.
 			var seenIds = new Dictionary<string, string>();
 
 			RefuseIfPresent(language, "PhonologicalFeatureSystem");
@@ -151,6 +153,7 @@ namespace XampleProjector
 				{
 					var templateName = (string)te.Element("Name");
 					RefuseIfInactive(te, $"AffixTemplate \"{templateName}\"");
+					RegisterId(seenIds, templateName, "AffixTemplate");
 					if ((string)te.Attribute("requiredSubcategorizedRules") != null)
 						throw new GrammarAuthorException($"AffixTemplate \"{templateName}\": requiredSubcategorizedRules is unsupported (SyntacticRules unsupported)");
 
@@ -159,6 +162,7 @@ namespace XampleProjector
 					{
 						var slotName = (string)se.Element("Name");
 						RefuseIfInactive(se, $"Slot \"{slotName}\"");
+						RegisterId(seenIds, slotName, "Slot");
 						var ruleIds = SplitIds((string)se.Attribute("morphologicalRules"));
 						if (ruleIds.Count == 0)
 							throw new GrammarAuthorException($"Slot \"{slotName}\": morphologicalRules is required but empty");
@@ -209,8 +213,7 @@ namespace XampleProjector
 			var lexicalEntries = ParseLexicalEntries(stratum, ctx);
 
 			// A MorphemeCoOccurrenceRule references a MorphologicalRule or LexicalEntry id; an
-			// AllomorphCoOccurrenceRule references a MorphologicalSubrule or Allomorph id -- the
-			// same two id spaces GrammarAuthor.CreateCoOccurrenceRules' lookups union over.
+			// AllomorphCoOccurrenceRule references a MorphologicalSubrule or Allomorph id.
 			var morphemeIds = new HashSet<string>(rules.Keys);
 			foreach (var entry in lexicalEntries)
 				morphemeIds.Add(entry.Id);
@@ -225,6 +228,13 @@ namespace XampleProjector
 
 			var morphemeRules = ParseCoOccurrenceRules(language.Element("MorphemeCoOccurrenceRules"), isAllomorph: false, morphemeIds);
 			var allomorphRules = ParseCoOccurrenceRules(language.Element("AllomorphCoOccurrenceRules"), isAllomorph: true, allomorphIds);
+
+			// Neither DTD element carries an id attribute -- AuthorResult.Note keys these by
+			// document order instead, so that key space is registered here too.
+			for (var i = 0; i < morphemeRules.Count; i++)
+				RegisterId(seenIds, $"morphemeCoOccurrence[{i}]", "MorphemeCoOccurrenceRule");
+			for (var i = 0; i < allomorphRules.Count; i++)
+				RegisterId(seenIds, $"allomorphCoOccurrence[{i}]", "AllomorphCoOccurrenceRule");
 
 			return new GrammarModel
 			{
@@ -706,7 +716,9 @@ namespace XampleProjector
 				throw new GrammarAuthorException($"{label}: isActive=\"no\" is unsupported outside MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule");
 		}
 
-		// Refuses the first id reused across element kinds -- the DTD types "id" as document-global.
+		// Refuses the first key reused across kinds -- covers DTD id attributes plus
+		// AffixTemplate/Slot Name text and the synthetic co-occurrence-rule keys, since
+		// AuthorResult.GuidMap is keyed by all of them in one document-global space.
 		private static void RegisterId(Dictionary<string, string> seenIds, string id, string elementKind)
 		{
 			if (id == null)
@@ -714,7 +726,7 @@ namespace XampleProjector
 			if (seenIds.TryGetValue(id, out var firstKind))
 			{
 				throw new GrammarAuthorException(
-					$"id \"{id}\" is used by both a {firstKind} and a {elementKind} (unsupported -- the DTD declares id as document-global)");
+					$"key \"{id}\" is used by both a {firstKind} and a {elementKind} (unsupported -- GuidMap is keyed by one document-global namespace of ids, Names, and synthetic co-occurrence keys)");
 			}
 			seenIds[id] = elementKind;
 		}

@@ -141,7 +141,9 @@ namespace XampleProjector
 		/// with the marker trailing (fixture "x" -> "x+", confirmed empirically via a live
 		/// author+project run). No suffix fixture has been round-tripped yet (see README's coverage
 		/// table), so a leading marker ("+x") is this command's best-understood but UNCONFIRMED
-		/// mirror of that same convention for a suffix.
+		/// mirror of that same convention for a suffix: when a suffix subrule is checked,
+		/// <c>report["insertConventionConfirmed"]</c> is set false and a console line names the
+		/// gap, rather than a match reporting success indistinguishable from the confirmed prefix case.
 		/// </summary>
 		private static void CheckMorphologicalRules(XDocument hcDoc, GrammarModel grammar, JObject report)
 		{
@@ -151,6 +153,7 @@ namespace XampleProjector
 			if (rules.Count != expectedCount)
 				throw new ParityMismatchException($"expected {expectedCount} MorphologicalRule elements, found {rules.Count}");
 
+			var insertConventionConfirmed = true;
 			foreach (var rule in rules)
 			{
 				var ruleIdAttr = (string)rule.Attribute("id");
@@ -168,6 +171,11 @@ namespace XampleProjector
 				for (var i = 0; i < producedSubrules.Count; i++)
 				{
 					var fixtureSubrule = fixtureRule.Subrules[i];
+					if (!fixtureSubrule.IsPrefix && insertConventionConfirmed)
+					{
+						insertConventionConfirmed = false;
+						Console.WriteLine("verify-parity: suffix InsertSegments convention (\"+\" + shape) is UNCONFIRMED -- no suffix fixture has been round-tripped against a live author+project run yet (see README).");
+					}
 					var expectedInsert = fixtureSubrule.IsPrefix ? fixtureSubrule.InsertShape + "+" : "+" + fixtureSubrule.InsertShape;
 					var insertShape = (string)producedSubrules[i].Element("MorphologicalOutput").Element("InsertSegments")?.Element("PhoneticShape");
 					if (insertShape != expectedInsert)
@@ -178,6 +186,7 @@ namespace XampleProjector
 				}
 			}
 			report["morphologicalRuleCount"] = rules.Count;
+			report["insertConventionConfirmed"] = insertConventionConfirmed;
 		}
 
 		private static void CheckLexicalEntries(XDocument hcDoc, GrammarModel grammar, JObject report)

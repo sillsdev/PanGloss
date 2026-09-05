@@ -504,6 +504,99 @@ try {
 		exit 1
 	}
 	Write-Host "Duplicate id refusal probe OK: exit 7, output names 'dup1', no .fwdata on disk."
+
+	# Critical re-review finding: GrammarParser.RegisterId used to track only DTD `id` attributes,
+	# but AuthorResult.GuidMap is also keyed by AffixTemplate/Slot Name text -- two AffixTemplates
+	# each with a slot named "Root" passed Parse and only then threw mid-Author, after a real
+	# .fwdata already existed. GrammarParser.Parse now registers Name text in the same seenIds
+	# space, so this refuses before any project exists.
+	$duplicateSlotNameGrammarXml = @'
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>DuplicateSlotNameProbe</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cX"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrP1">
+            <MorphemeId>P1</MorphemeId>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrP1s1">
+                <MorphologicalInput>
+                  <PhoneticSequence><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments>
+                  <CopyFromInput />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrP2">
+            <MorphemeId>P2</MorphemeId>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrP2s1">
+                <MorphologicalInput>
+                  <PhoneticSequence><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <InsertSegments><PhoneticShape>y</PhoneticShape></InsertSegments>
+                  <CopyFromInput />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posV">
+            <Name>TemplateA</Name>
+            <Slot optional="true" morphologicalRules="mrP1"><Name>Root</Name></Slot>
+          </AffixTemplate>
+          <AffixTemplate requiredPartsOfSpeech="posV">
+            <Name>TemplateB</Name>
+            <Slot optional="true" morphologicalRules="mrP2"><Name>Root</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+'@
+	$duplicateSlotNameGrammarPath = Join-Path $parserRefusalTempRoot 'duplicate-slot-name.grammar.xml'
+	Set-Content -Path $duplicateSlotNameGrammarPath -Value $duplicateSlotNameGrammarXml -Encoding utf8
+	$duplicateSlotNameOutDir = Join-Path $parserRefusalTempRoot 'duplicate-slot-name-out'
+	$duplicateSlotNameOutput = & $exePath author --grammar $duplicateSlotNameGrammarPath --out-dir $duplicateSlotNameOutDir --name DuplicateSlotName 2>&1
+	$duplicateSlotNameExit = $LASTEXITCODE
+	$duplicateSlotNameText = ($duplicateSlotNameOutput | Out-String)
+	if ($duplicateSlotNameExit -ne 7) {
+		Write-Error "Duplicate slot-name refusal probe: expected exit 7, got $duplicateSlotNameExit. Output:`n$duplicateSlotNameText"
+		exit 1
+	}
+	if ($duplicateSlotNameText -notmatch 'Root') {
+		Write-Error "Duplicate slot-name refusal probe: exit was 7 but output does not name 'Root'. Output:`n$duplicateSlotNameText"
+		exit 1
+	}
+	$duplicateSlotNameFwdata = Join-Path $duplicateSlotNameOutDir 'DuplicateSlotName\DuplicateSlotName.fwdata'
+	if (Test-Path $duplicateSlotNameFwdata) {
+		Write-Error "Duplicate slot-name refusal probe: exit was 7 but a .fwdata was left on disk at $duplicateSlotNameFwdata."
+		exit 1
+	}
+	Write-Host "Duplicate slot-name refusal probe OK: exit 7, output names 'Root', no .fwdata on disk."
 }
 finally {
 	Remove-Item -Path $parserRefusalTempRoot -Recurse -Force -ErrorAction SilentlyContinue
