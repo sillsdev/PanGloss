@@ -1,14 +1,23 @@
-# XAmple-shape, Plan 1 of 4: snapshot fields, ParserParameters parsing, `.fwbackup` input
+# XAMPLE-to-HC groundwork: snapshot fields, parser metadata, `.fwbackup` input
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status (2026-09-04): RETAINED AND IMPLEMENTED.** The data imported here is provenance,
+> substrate evidence, and differential-comparison input. It does not select an XAMPLE runtime
+> profile. Continued work follows `2026-09-04-xample-projects-on-hc.md`.
 
-**Goal:** The snapshot carries which parser a FieldWorks project selected, the XAmple analysis caps, and (from `.fwbackup` input) the writing system's exemplar characters, so later plans can compile a project the way XAmple would.
+> This is an implementation record, not an executable current plan. Unchecked boxes preserve the
+> historical test-first sequence; do not resume them from this file.
+
+**Goal:** Preserve which parser a FieldWorks project selected, its raw XAMPLE containment settings,
+and the writing system's exemplar characters so PanGloss can complete HC's character substrate and
+explain measured migration differences without using the settings as HC grammar semantics.
 
 **Architecture:** `pg-snapshot` gains three data-only additions (`ActiveParser`, `XAmpleParameters`, `Project.exemplar_characters`). `pg-fwdata::parser_params::parse` reads the two new XML pieces from the same `<ParserParameters>` string it already parses, following liblcm's rule that an absent `<ActiveParser>` means XAmple. `pg_fwdata::import_file` accepts a `.fwbackup` zip, extracts the `.fwdata` entry and the `WritingSystemStore/*.ldml` files in memory, and fills the exemplar set.
 
 **Tech Stack:** Rust, serde, `quick-xml` (already a dependency), `zip` crate (new, add `zip = { version = "2", default-features = false, features = ["deflate"] }` to the workspace). Builds/tests ONLY via `rust/tools/pg.ps1` (never bare cargo): `-Mode check` for the inner loop, `-Mode quick`/`-Mode test -Package <crate>` to run tests.
 
-Spec: `docs/superpowers/specs/2026-09-03-xample-shape-grammars.md` §2, §3.4, §4 (LDML clause), §7.
+Current spec: `docs/superpowers/specs/2026-09-03-xample-shape-grammars.md` §2, §4, §7. This plan
+predates the 2026-09-04 contract revision; its imported fields remain valid even where later use
+changed.
 
 ---
 
@@ -72,8 +81,9 @@ Expected: compile error, `ActiveParser` not found.
 
 ```rust
 /// Which parser FieldWorks runs for this project, from `/ParserParameters/ActiveParser`.
-/// liblcm reports `"XAmple"` when the element is absent or the XML is unparsable
-/// (`OverridesLing_MoClasses.cs`, `MoMorphData.ActiveParser` getter), so that is the default here.
+/// FieldWorks defaults an absent element to `"XAmple"`. The retained implementation also defaulted
+/// malformed XML, but the current contract requires malformed/unknown values to be reported as
+/// invalid source rather than silently classified as XAMPLE-authored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum ActiveParser {
@@ -82,9 +92,9 @@ pub enum ActiveParser {
     Hc,
 }
 
-/// The `<ParserParameters><XAmple>` block: XAmple's analysis caps. `None` means the element
-/// was absent; FieldWorks' transform defaults (`FxtM3ParserCommon.xsl`) are applied by the
-/// grammar compiler, not here, because two of them depend on the rest of the project.
+/// The `<ParserParameters><XAmple>` block: raw XAmple containment metadata. `None` means the
+/// element was absent. HC does not apply FieldWorks/XAMPLE defaults; only comparison tooling may
+/// interpret them, and malformed values must remain visible in the import report.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct XAmpleParameters {
@@ -101,7 +111,8 @@ pub struct XAmpleParameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_roots: Option<u32>,
     /// `MaxAnalysesToReturn`; FieldWorks treats a value below 1 as "no limit"
-    /// (`XAmpleParser.cs:126-133`). Stored raw; interpretation belongs to the compiler.
+    /// (`XAmpleParser.cs:126-133`). Stored raw; interpretation belongs only to XAMPLE
+    /// comparison tooling, never the HC compiler.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_analyses_to_return: Option<i32>,
 }
@@ -694,5 +705,7 @@ Expected: exit 0; the JSON's `project.exemplarCharacters` is non-empty and `morp
 
 ## Self-review notes
 
-- Spec §2 (ActiveParser default = XAmple): Task 3. Spec §3.4 cap block: Tasks 1, 3, 4. Spec §4 LDML clause: Tasks 6, 7. Spec §7 census gate: Plan 3.
+- Historical implementation map: parser default/metadata in Task 3; cap fields in Tasks 1, 3, 4;
+  LDML extraction in Tasks 6–7. The current end-to-end census and refusal gates are in
+  `2026-09-04-xample-projects-on-hc.md` Tasks 1–2 and 6.
 - Types used later: `pg_snapshot::ActiveParser::{XAmple, Hc}`, `pg_snapshot::XAmpleParameters` (fields `max_nulls, max_prefixes, max_infixes, max_suffixes, max_interfixes, max_roots: Option<u32>`, `max_analyses_to_return: Option<i32>`), `Project.exemplar_characters: Vec<String>`.

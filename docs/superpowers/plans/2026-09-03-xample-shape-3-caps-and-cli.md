@@ -1,5 +1,9 @@
 # XAmple-shape, Plan 3 of 4: enforce analysis caps in HC-Rust, CLI profile flag and loud banner, census gate
 
+> **SUPERSEDED 2026-09-04 — DO NOT EXECUTE.** XAMPLE caps are resource-containment and comparison
+> metadata, not HC validity predicates. There will be no `--parser-profile`, cap-aware `Grammar`, or
+> XAMPLE-profile banner. See `2026-09-04-xample-projects-on-hc.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A grammar carrying `analysis_caps` yields, from HC-Rust and from every FST propose + HC-confirm path, only analyses XAmple's caps admit; the CLI lets a user pick the profile, prints XAmple/substrate notices under an unmissable banner, and a census gate records which real projects resolve to which profile.
