@@ -9,11 +9,13 @@ opened `LcmCache`, so they can never diverge on which project state they saw.
 
 Task 3, slice A shipped the tool scaffold plus three subcommands: `inspect` (read-only phonology
 survey), `project` (full HC + XAMPLE projection), and `--validate-capture` (portable, FieldWorks-free
-schema check). Task 3, slice B (this slice) adds `author` -- back a HermitCrab conformance fixture
+schema check). Task 3, slice B added `author` -- back a HermitCrab conformance fixture
 (`grammar.xml`) out into a brand-new FieldWorks project via LibLCM, refusing every construct
 outside a documented supported subset -- and `verify-parity`, a structural + HC-engine proof that
-`project` on an authored project reproduces the fixture it came from. A later slice adds direct
-`xample64.dll` parsing.
+`project` on an authored project reproduces the fixture it came from. Task 3, slice C part 1 (this
+slice) adds `mutate` -- a scripted LibLCM phoneme-inventory counterfactual applied to a CLONE of a
+project, never the source -- and `parse`, which drives the real XAmple engine
+(`XAmpleManagedWrapper`/`xample.dll`) over a project's already-generated XAMPLE files.
 
 ## Contract
 
@@ -138,11 +140,98 @@ On success it prints a JSON report (structural counts, `slotOrder`, `slotOrderin
 `guidMapVerifiedCount`, engine counts) to stdout and exits 0; on the first mismatch it exits 8
 naming that mismatch.
 
+`mutate --project <path-to-.fwdata> --request <request.json> --out-dir <dir>` applies a scripted
+LibLCM phoneme-inventory counterfactual to a CLONE of the project, never the source. Request
+(versioned):
+```
+{ "schemaVersion": 1, "caseId": "...", "baseSha256": "<64 hex of the source .fwdata>",
+  "operations": [
+    {"op":"remove_phoneme","guid":"...","assertRepresentations":["x"],"requireUnreferenced":true},
+    {"op":"remove_all_phonemes","requireUnreferenced":true}
+  ] }
+```
+In order:
+1. Hashes the source `.fwdata` and compares it to `baseSha256` (mismatch: exit 10
+   `mutation.source-digest-mismatch`).
+2. Clones the WHOLE project directory (including `WritingSystemStore`) to a fresh directory under
+   `--out-dir`; every later step touches only the clone. At the very end, the source is hashed
+   again and compared to the first hash (mismatch: exit 10 `mutation.source-modified`).
+3. Resolves each `remove_phoneme` guid exactly once against the clone's first phoneme set (missing:
+   exit 9 `mutation.unknown-target`; the same guid named twice across operations: exit 9
+   `mutation.duplicate-target`; `assertRepresentations` mismatched against the phoneme's own
+   `CodesOS[*].Representation`, in order: exit 9 `mutation.representation-mismatch`).
+   `remove_all_phonemes` targets every phoneme in that same set. Zero resolved targets: exit 9
+   `mutation.no-targets`.
+4. For every target whose operation set `requireUnreferenced`, walks `ICmObject.ReferringObjects`;
+   any referrer (of any kind -- natural classes, environments, rules, ...) refuses the WHOLE
+   request (exit 9 `mutation.referenced-phoneme`, naming each referrer's class, guid, and
+   `ShortName`) and deletes nothing. A referrer on a target whose op did NOT set
+   `requireUnreferenced` does not block, but is still recorded in the response's
+   `inboundReferences` for transparency.
+5. Deletes every target inside one `NonUndoableUnitOfWorkHelper.Do`, flushes
+   (`IUndoStackManager.Save()`), disposes the cache, then REOPENS the clone and verifies by
+   re-reading it: every target guid is gone and the phoneme-set count dropped by exactly the number
+   deleted (else exit 10 `mutation.deletion-unverified`).
+
+Response `mutation-response.json`:
+```
+{ "schemaVersion": 1, "mode": "mutate", "caseId": "...", "baseSha256": "<64 hex>",
+  "materializedSha256": "<64 hex, of the clone's .fwdata after reopen>",
+  "materializedProjectPath": "<relative to --out-dir>",
+  "removed": [{"guid": "...", "representations": ["..."]}],
+  "inboundReferences": [{"targetGuid": "...", "referrerGuid": "...", "referrerClass": "..."}],
+  "reopened": true, "deletedCount": 0, "diagnostics": [] }
+```
+`--validate-capture` accepts `mode: "mutate"`.
+
+`parse --project <path-to-.fwdata> --project-dir <dir with <db>adctl.txt/gram.txt/lex.txt>
+--database <name> --words <file, one per line> --out <response.json> [--max-analyses N]
+[--max-prefixes N] [--max-suffixes N] [--max-infixes N] [--max-roots N] [--max-interfixes N]
+[--max-nulls N]` drives the real XAmple engine (`XAmpleManagedWrapper.XAmpleWrapper` ->
+`xample.dll`, resolved via the `SetDllDirectory` search path `Program.Main` already sets up) over a
+project's already-generated XAMPLE files. `--project` is required, not merely accepted: parsing a
+`Morph`'s `MoForm`/`MSI` `DbRef` hvo the way
+`SIL.FieldWorks.WordWorks.Parser.XAmpleParser.ProcessParseResults`/`TryCreateParseMorph` do
+(`Src\LexText\ParserCore\XAmpleParser.cs:178-331`) needs a live `ICmObjectRepository`, and an hvo is
+only stable within the ONE `LcmCache` session that assigned it -- so every morph is reported by its
+LCM **guid** (`msaGuid`), not the bare hvo the XML carries, and that guid is what makes a parse
+against one project comparable to a parse against a cloned/mutated copy of it.
+
+**Every `<XAmple>` cap except `MaxAnalysesToReturn` is baked into `adctl.txt`'s own `\maxp`/`\maxi`/
+`\maxs`/`\maxr`/`\maxn`/`\maxnull` control lines at author/project time**
+(`FxtM3ParserToXAmpleADCtl.xsl:130-134`) -- confirmed by reading
+`XAmpleManagedWrapper.XAmpleDLLWrapper.SetParameter(name, value)`: it special-cases ONLY
+`"MaxAnalysesToReturn"` and silently drops every other name, so the native engine truly has no
+runtime knob for the rest. `--max-prefixes`/`--max-suffixes`/`--max-infixes`/`--max-roots`/
+`--max-interfixes`/`--max-nulls`, when given, therefore patch a COPY of `<db>adctl.txt` (never the
+caller's own file) before `LoadFiles` -- measured live: dropping `--max-prefixes` from 12 to 3
+against the pilot fixture changes `xxxxxxk`'s analysis count from 924 to 1, proving the patch is
+read, not merely accepted. `--max-analyses` is the one genuine runtime override
+(`SetParameter("MaxAnalysesToReturn", ...)`); its default is `1000` when not given (this tool's own
+convention, matching `author`'s default), since XAmple's own unset default (20) exists to serve
+interactive FLEx, not a batch tool. The response's `parameters` always reports the values actually
+used, read back from the (possibly patched) `adctl.txt` plus the effective `MaxAnalysesToReturn`.
+
+Response:
+```
+{ "schemaVersion": 1, "mode": "parse", "database": "...",
+  "engineVersion": "<xample64.dll file version -- AmpleReportVersion is never exposed by the public managed wrapper surface>",
+  "parameters": { "maxAnalysesToReturn": 1000, "maxPrefixes": 5, "maxSuffixes": 5, "maxInfixes": 0, "maxRoots": 1, "maxInterfixes": 0, "maxNulls": 0 },
+  "words": [ { "word": "...", "analyses": [ { "morphemes": [ { "form": "...", "msaGuid": "...", "morphnameOrGloss": "...", "type": "..." } ], "categoryId": null, "surfaceNfd": "..." } ], "reachedMaxAnalyses": false, "engineError": null } ] }
+```
+`analyses` is a MULTISET -- duplicate-looking entries (same surface text, same morph list) are two
+genuinely distinct analyses (e.g. two different subsets of optional slots that happen to fire the
+same rules) and are never deduplicated. `reachedMaxAnalyses` is read from the engine's own
+`<Exception code="ReachedMaxAnalyses">`; any other engine exception or `<Error>` element is
+recorded verbatim in `engineError` and parsing continues with the next word. `LoadFiles`/`Init`
+failure (a missing `cd.tab`/`adctl.txt`/`gram.txt`/`lex.txt`, or a native load error) exits 11,
+naming the missing file.
+
 `--validate-capture <response.json>`: schema validation only, no FieldWorks install required.
-Checks required fields are present for the response's own `mode` (`inspect`, `project`, or
-`author`), `schemaVersion == 1`, every `sha256`-shaped field is 64 lowercase hex, `assemblyVersions`'s
-keys are exactly the pinned set (when present), and no path field is absolute. This is the
-portable-CI path.
+Checks required fields are present for the response's own `mode` (`inspect`, `project`, `author`,
+`mutate`, or `parse`), `schemaVersion == 1`, every `sha256`-shaped field is 64 lowercase hex,
+`assemblyVersions`'s keys are exactly the pinned set (when present), and no path field is absolute.
+This is the portable-CI path.
 
 ## `author`'s supported subset
 
@@ -296,6 +385,9 @@ from a live run rather than assuming it.
 | 6 | capture validation failure |
 | 7 | author refusal (a grammar.xml construct is outside the supported subset -- see above; also `author.unconsumed-construct`, the reconciliation guard naming a parsed construct that never landed in `guidMap`) |
 | 8 | parity mismatch (`verify-parity` found the first structural or HC-engine divergence from the fixture) |
+| 9 | mutation refusal (`mutate` cannot proceed with this request/target shape -- unknown/duplicate target, representation mismatch, no targets, or a still-referenced phoneme; nothing is deleted) |
+| 10 | mutation integrity failure (the source digest didn't match, the source changed, or the reopened clone didn't verify the deletion) |
+| 11 | parse engine load failure (`LoadFiles`/`Init` failed, or a required XAMPLE/`cd.tab` file is missing -- names the file) |
 
 ## Build and run
 
@@ -313,7 +405,13 @@ from a live run rather than assuming it.
                                                     # against the machine submodule's pilot fixture
                                                     # (guid-map binding, two guid-map corruption
                                                     # probes, normalized-.fwdata author determinism,
-                                                    # and both construct-refusal probes too)
+                                                    # and both construct-refusal probes too); PLUS a
+                                                    # live 'mutate' (remove-k-only, empty-phoneme-
+                                                    # inventory, and a referenced-phoneme refusal
+                                                    # probe) + 'parse' (real XAmple engine) run
+                                                    # against a freshly authored pilot project (a
+                                                    # separate 'C:\Users\johnm\...\machine' checkout,
+                                                    # not the submodule above -- see below)
 ```
 `build.ps1` locates MSBuild via `vswhere.exe` (preferring the Visual Studio toolchain this project
 was built against) and falls back to `dotnet build` if MSBuild is unavailable.
@@ -329,6 +427,18 @@ independently of the Sena 3 tests, if that submodule isn't initialized. The two
 `testdata\allomorph-cooccurrence-probe.grammar.xml` (this tool's own fixture, not part of the
 `machine` submodule) need no submodule at all, and run whenever FieldWorks itself is present --
 independently of both the Sena 3 tests and the pilot-fixture tests.
+
+The `mutate`/`parse` live proof reads a THIRD, independent `machine` checkout --
+`$env:PANGLOSS_MACHINE_DIR`, default `C:\Users\johnm\Documents\repos\machine` -- rather than this
+repo's own submodule, per this slice's own task brief (another agent commits to that checkout
+concurrently; this tool only ever reads its working tree). It authors
+`conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` as its OWN base project (never the
+one the submodule-backed tests above author), and separately tries a short list of
+`conformance\edge-cases\*` fixtures with a `SegmentNaturalClass`
+(`disjunctive-recheck`, `free-fluctuating-allomorph-pair`, `strrep-identity`, `diacritic-segments`,
+`loader-pattern-shapes`, in that order) for its referenced-phoneme refusal probe, using the first
+one that authors successfully and reporting which. Skipped (with reason) only when FieldWorks
+itself is absent, or when this grammar isn't found at that path.
 
 ## Pinned versions
 
@@ -349,9 +459,17 @@ directory and refuses (exit 3) on any mismatch, printing both versions:
 
 This tool references FieldWorks assemblies by `HintPath` with `Private=false` (it never copies
 FieldWorks's 100+ DLLs into its own output). At runtime it widens the native DLL search path with
-`SetDllDirectory` (so ICU, and in a later slice `xample.dll`, resolve) and registers an
-`AppDomain.AssemblyResolve` handler that loads a missing managed assembly by simple name from the
-FieldWorks directory. Both are set up in `Program.Main` before any FieldWorks type is touched.
+`SetDllDirectory` (so ICU and `xample.dll`, loaded by `parse` via `XAmpleManagedWrapper`, both
+resolve) and registers an `AppDomain.AssemblyResolve` handler that loads a missing managed assembly
+by simple name from the FieldWorks directory. Both are set up in `Program.Main` before any
+FieldWorks type is touched.
+
+`FwRegistryHelper.Initialize`/`FwUtils.InitializeIcu`/`Sldr.Initialize` are process-global, one-shot
+calls -- `Sldr.Initialize` itself throws on a second call in the same process. Every prior command
+opened at most one `LcmCache` per process, so this was never exercised until `mutate`, which opens
+the clone once to mutate it and once more to reopen-and-verify. `FieldWorksBootstrap.EnsureInitialized`
+guards all three behind a static flag; `FieldWorksSession.Run` and `AuthorSession.Run` both call it
+instead of the three calls directly.
 
 ## Provenance
 
@@ -372,8 +490,19 @@ itself and its own `SIL.Machine.Morphology.HermitCrab` XML writer/loader for the
 file alone can't settle: the slot-reversal behavior (see "Slot ordering" above) and the mandatory
 `"+"` character (see the supported-subset list above).
 
+`MutateCommand.cs`/`MutationException.cs` (LibLCM phoneme deletion, built against the
+`ReferringObjects`/`NonUndoableUnitOfWorkHelper`/`IUndoStackManager.Save` shapes documented in
+`SIL.LCModel.DomainServices.PhonologyServices.DeletePhonology`) and `ParseCommand.cs` (drives
+`XAmpleManagedWrapper.XAmpleWrapper`, built against the real usage pattern in
+`Src\LexText\ParserCore\XAmpleParser.cs`) are this slice's own code. `FieldWorksBootstrap.cs`
+factors the one-shot `FwRegistryHelper`/`FwUtils`/`Sldr` initialization out of `FieldWorksSession.cs`
+and `AuthorSession.cs` so a single process can open more than one `LcmCache` (see "Runtime probing").
+
 ## Follow-ups
 
 Not addressed in this pass: splitting `GrammarParser`/`GrammarModel` into a table-driven parser
 (rather than the current sequence of hand-written element/attribute checks), and splitting the
-larger files (`GrammarParser.cs`, `GrammarAuthor.cs`) along construct-kind boundaries.
+larger files (`GrammarParser.cs`, `GrammarAuthor.cs`) along construct-kind boundaries. `parse`'s
+`categoryId` extraction is a best-effort read of a `Category`/`category` attribute on
+`<WfiAnalysis>` -- no fixture in this slice's live proof exercises a non-null value, so it is
+unverified against a real category-bearing result. Part 2 adds the Machine fixture data proper.

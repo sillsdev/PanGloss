@@ -34,7 +34,8 @@ namespace XampleProjector
 			// An unknown subcommand is a usage error, decided before anything below touches
 			// FieldWorks -- a typo in the subcommand must never pay the cost of (or risk a
 			// false pin-mismatch report from) probing an install it was never going to use.
-			if (args[0] != "inspect" && args[0] != "project" && args[0] != "author" && args[0] != "verify-parity")
+			if (args[0] != "inspect" && args[0] != "project" && args[0] != "author" && args[0] != "verify-parity" &&
+				args[0] != "mutate" && args[0] != "parse")
 			{
 				WriteUsage();
 				return ExitCodes.Usage;
@@ -80,6 +81,10 @@ namespace XampleProjector
 					return AuthorCommand.Run(args, fieldWorksDir);
 				case "verify-parity":
 					return VerifyParityCommand.Run(args, fieldWorksDir);
+				case "mutate":
+					return MutateCommand.Run(args, fieldWorksDir);
+				case "parse":
+					return ParseCommand.Run(args, fieldWorksDir);
 				default:
 					WriteUsage();
 					return ExitCodes.Usage;
@@ -109,10 +114,15 @@ namespace XampleProjector
 			Console.WriteLine("         [--vernacular-ws <icu>] [--xample-max-prefixes N] [--xample-max-analyses N]");
 			Console.WriteLine("  verify-parity --grammar <grammar.xml> --hc-xml <projected.hc.xml> --guid-map <author-response.json>");
 			Console.WriteLine("                --expect WORD=COUNT [--expect WORD=COUNT ...] (at least one required)");
+			Console.WriteLine("  mutate --project <path-to-.fwdata> --request <request.json> --out-dir <dir>");
+			Console.WriteLine("  parse --project <path-to-.fwdata> --project-dir <dir with <db>adctl.txt/gram.txt/lex.txt>");
+			Console.WriteLine("        --database <name> --words <file, one per line> --out <response.json>");
+			Console.WriteLine("        [--max-analyses N] [--max-prefixes N] [--max-suffixes N] [--max-infixes N]");
+			Console.WriteLine("        [--max-roots N] [--max-interfixes N] [--max-nulls N]");
 			Console.WriteLine("  --validate-capture <response.json>");
 			Console.WriteLine();
 			Console.WriteLine("FieldWorks install directory: ${0}, default {1}", FieldWorksDirEnvVar, DefaultFieldWorksDir);
-			Console.WriteLine("Exit codes: 0 ok, 2 usage, 3 pin mismatch, 4 project open failure, 5 projection failure, 6 capture validation failure, 7 author refusal, 8 parity mismatch.");
+			Console.WriteLine("Exit codes: 0 ok, 2 usage, 3 pin mismatch, 4 project open failure, 5 projection failure, 6 capture validation failure, 7 author refusal, 8 parity mismatch, 9 mutation refusal, 10 mutation integrity failure, 11 parse engine load failure.");
 		}
 	}
 }

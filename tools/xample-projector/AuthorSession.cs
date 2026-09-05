@@ -1,9 +1,7 @@
 using System;
 using System.IO;
-using SIL.FieldWorks.Common.FwUtils;
 using SIL.LCModel;
 using SIL.LCModel.Utils;
-using SIL.WritingSystems;
 
 namespace XampleProjector
 {
@@ -23,9 +21,7 @@ namespace XampleProjector
 				return ExitCodes.ProjectOpenFailure;
 			}
 
-			FwRegistryHelper.Initialize();
-			FwUtils.InitializeIcu();
-			Sldr.Initialize();
+			FieldWorksBootstrap.EnsureInitialized();
 
 			var synchronizeInvoke = new SingleThreadedSynchronizeInvoke();
 			var projectId = new ProjectIdentifier(projectPath);
