@@ -114,3 +114,24 @@ again, so it was deleted outright rather than left registered as a permanently-v
 `capability::TunedSurfaceClosureCheck` (`surface-probe.finite-closure-bound`) are all gone, along
 with the tests that existed only to exercise them.
 `TemplatedUnderlyingTokens`/`PlanComposed` still refuse this fixture for unrelated reasons.
+
+## `final-template-partial-discriminators` (staged `edge-cases/`, added 2026-09-04)
+
+One new scored fixture (65 -> 66 per backend), so every backend's total moves by exactly one:
+
+| backend | cell | why |
+|---|---|---|
+| TunedSurfaceProbed | `compiles_but_misses` (0 -> 1) | misses `daknagafa` (`DAK+NONFINTAGA+GATE1+FINTAGA`: a non-final template, then a loose rule, then a final template) |
+| TemplatedUnderlyingTokens | `compiles_but_misses` (0 -> 1) | the same word, for the same reason |
+| PlanComposed | `oracle_exact` (31 -> 32) | whole-fixture containment held |
+
+Root cause of the two misses, diagnosed and deliberately not patched on the branch that added the
+fixture: both the surface skeleton (`emit()`) and the templated skeleton
+(`emit_underlying_templated()`) admit at most one affix-template application per word, so a
+template -> loose-rule -> template derivation has no path. It is a topology limit shared by the two
+lexc routes, not a partiality effect -- the fixture's two partial-dependent words (`pilfbvb`,
+`nibgi`) are contained on all three backends, which is what lets the partial production policy
+stay `Readiness` rather than `CannotRepresent`. The full diagnosis, the containment measurement,
+and the `faithfulness_coverage_gate` ratchet raised 5 -> 6 for the same word are in
+`docs/superpowers/plans/2026-09-04-reject-partial-fst-builds-results.md`. Soundness stayed at 0
+`candidate_only_identities` in the run that produced these figures (2026-09-05, full `-Mode test`).

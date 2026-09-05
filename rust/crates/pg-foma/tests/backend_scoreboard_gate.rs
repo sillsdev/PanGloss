@@ -43,13 +43,13 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target, over 64 fixtures (the submodule pin added two upstream witnesses for the port divergences fixed this week). TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route); the two misses are segment-natural-class-table-binding "g" and rewrite-analysis-feature-neutralization "d", one phenomenon -- hc.dll's analysis-side feature erasure yields a cross-table analysis no forward composition produces. TUT: no miss left after the order lattice, flip-polarity alpha variables and the marker-adjacent leading drop; the token-space pattern-root route turned four more refusals exact; both new fixtures refuse as bistratal roots. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 31 typed refusals -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target, over 66 scored fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route); the one miss is `final-template-partial-discriminators` "daknagafa" (template -> loose rule -> template), the lexc-skeleton one-template-application-per-word limit tracked in docs/superpowers/plans/2026-09-04-reject-partial-fst-builds-results.md -- not a partiality effect (that fixture's partial-dependent words are contained on every backend). TUT: the same "daknagafa" miss is its one miss (its templated skeleton shares the one-application limit); otherwise none left after the order lattice, flip-polarity alpha variables and the marker-adjacent leading drop; the token-space pattern-root route turned four more refusals exact; both bistratal-root fixtures refuse. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 31 typed refusals; `final-template-partial-discriminators` is oracle-exact here -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
             oracle_exact: 64,
-            compiles_but_misses: 0,
+            compiles_but_misses: 1,
             refused: 1,
             unmeasurable: 0,
         },
@@ -58,7 +58,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
             oracle_exact: 45,
-            compiles_but_misses: 0,
+            compiles_but_misses: 1,
             refused: 20,
             unmeasurable: 0,
         },
@@ -66,7 +66,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 31,
+            oracle_exact: 32,
             compiles_but_misses: 0,
             refused: 31,
             unmeasurable: 3,
