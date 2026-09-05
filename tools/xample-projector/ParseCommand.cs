@@ -23,7 +23,8 @@ namespace XampleProjector
 	{
 		/// <summary>
 		/// Every one of these is baked into adctl.txt's own "\maxX" control line at author/project
-		/// time (FxtM3ParserToXAmpleADCtl.xsl:130-134) -- confirmed by reading
+		/// time (FxtM3ParserToXAmpleADCtl.xsl:130-134 for \maxp/\maxi/\maxs/\maxr/\maxn; \maxnull is
+		/// written separately, at line 117) -- confirmed by reading
 		/// XAmpleManagedWrapper\XAmpleDLLWrapper.cs: its public SetParameter(name, value) special-
 		/// cases ONLY "MaxAnalysesToReturn" and silently drops every other name, so the native
 		/// engine has no runtime knob for these at all. A flag here therefore patches a COPY of
@@ -297,7 +298,8 @@ namespace XampleProjector
 			}
 
 			// An irregularly inflected variant's MSI DbRef is "lexEntryHvo.refIndex.msaHvo"
-			// (XAmpleParser.cs:284-286); only the trailing hvo identifies the MSA itself.
+			// (XAmpleParser.cs:266-286; the format itself is spelled out at 266-269); only the
+			// trailing hvo identifies the MSA itself.
 			var msaHvoText = msiHvoText?.Split('.').LastOrDefault() ?? msiHvoText;
 			var msaGuidOrHvo = msiHvoText;
 			if (int.TryParse(msaHvoText, out var msaHvo) && repo.TryGetObject(msaHvo, out ICmObject msaObj))

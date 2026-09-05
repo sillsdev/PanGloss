@@ -213,7 +213,7 @@ function Get-ContentDerivedGuidLabelMap {
 	return $labelMap
 }
 
-# Task 3 slice C part 1 (mutate/parse live proof) helpers.
+# mutate/parse live proof helpers.
 
 # The exact closed set of "morphotactic name" prefixes gram.txt/adctl.txt glue an hvo onto with no
 # separator (e.g. "RootPOS106", "IrregInflForm79") -- every $sXxx literal in FieldWorks' own
@@ -412,6 +412,36 @@ function Test-ContentDerivedLabelCatchesWiringSwap {
 	}
 }
 
+# The shared shape of every exit-code probe in this file: run one projector subcommand, capture
+# combined stdout+stderr, and assert BOTH the exit code and that the output names every expected
+# substring (a RAW -notmatch pattern, exactly as each call site used before this was extracted --
+# not auto-escaped, since at least one caller relies on that to match a literal regex fragment) --
+# refusing loudly the moment either check fails. Returns the captured text so a caller can layer a
+# probe-specific follow-up check (e.g. "no .fwdata left on disk") on top.
+function Assert-ProjectorExit {
+	param(
+		[Parameter(Mandatory)][string]$ExePath,
+		[Parameter(Mandatory)][string[]]$Arguments,
+		[Parameter(Mandatory)][int]$ExpectedExitCode,
+		[string[]]$ExpectedSubstrings = @(),
+		[Parameter(Mandatory)][string]$Label
+	)
+	$output = & $ExePath @Arguments 2>&1
+	$exitCode = $LASTEXITCODE
+	$text = ($output | Out-String)
+	if ($exitCode -ne $ExpectedExitCode) {
+		Write-Error "$Label`: expected exit $ExpectedExitCode, got $exitCode. Output:`n$text"
+		exit 1
+	}
+	foreach ($substring in $ExpectedSubstrings) {
+		if ($text -notmatch $substring) {
+			Write-Error "$Label`: exit was $ExpectedExitCode but output does not name '$substring'. Output:`n$text"
+			exit 1
+		}
+	}
+	return $text
+}
+
 function Assert-HcXmlLacksSegmentDefinition {
 	param([string]$BaseHcXmlPath, [string]$CloneHcXmlPath, [string]$Representation, [string]$Label)
 	$pattern = "(?s)<SegmentDefinition[^>]*>.*?<Representation>$([regex]::Escape($Representation))</Representation>.*?</SegmentDefinition>"
@@ -439,9 +469,9 @@ function Get-AnalysisSignatures {
 	return $wordEntry.analyses | ForEach-Object { ($_.morphemes | ForEach-Object { $_.msaGuid }) -join '+' } | Sort-Object
 }
 
-# Task 3 slice C part 2: phonology-mutations.yaml (machine\conformance\PROTOCOL.md section 10) is a
-# small, fixed-shape manifest -- a bespoke parser tailored to exactly that shape, not a general YAML
-# reader (the Rust side owns YAML later, per this slice's own task brief).
+# phonology-mutations.yaml (machine\conformance\PROTOCOL.md section 10) is a small, fixed-shape
+# manifest; a bespoke parser matches its exact shape rather than pulling in a general YAML reader
+# (the Rust side owns YAML later).
 function ConvertFrom-PhonologyMutationsYaml {
 	param([string]$Path)
 	$text = Get-Content -Raw -Path $Path
@@ -782,17 +812,9 @@ try {
 	$collisionPath = Join-Path $collisionOutDir 'Sena3adctl.txt'
 	New-Item -ItemType Directory -Path $collisionPath -Force | Out-Null
 	Write-Host "Running (expected to fail): $exePath project --project `"$projectFwdata`" --out-dir `"$collisionOutDir`" --database Sena3 (Sena3adctl.txt pre-created as a directory)"
-	$collisionOutput = & $exePath project --project $projectFwdata --out-dir $collisionOutDir --database Sena3 2>&1
-	$collisionExit = $LASTEXITCODE
-	$collisionText = ($collisionOutput | Out-String)
-	if ($collisionExit -ne 5) {
-		Write-Error "Output-dir collision probe: expected exit 5, got $collisionExit. Output:`n$collisionText"
-		exit 1
-	}
-	if ($collisionText -notmatch 'adctl') {
-		Write-Error "Output-dir collision probe: exit was 5 but the output does not name 'adctl'. Output:`n$collisionText"
-		exit 1
-	}
+	Assert-ProjectorExit -ExePath $exePath -Label 'Output-dir collision probe' -ExpectedExitCode 5 -ExpectedSubstrings 'adctl' -Arguments @(
+		'project', '--project', $projectFwdata, '--out-dir', $collisionOutDir, '--database', 'Sena3'
+	) | Out-Null
 	Write-Host "Output-dir collision probe OK: exit 5, output names 'adctl'."
 }
 finally {
@@ -806,9 +828,9 @@ finally {
 $parserRefusalTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-parser-refusal-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $parserRefusalTempRoot -Force | Out-Null
 try {
-	# Finding 1: MorphemeCoOccurrenceRule referencing an unknown id used to refuse only from
-	# inside GrammarAuthor.CreateCoOccurrenceRules, after AuthorSession.Run had already created and
-	# locked a real .fwdata. GrammarParser.Parse now refuses it before any project exists.
+	# MorphemeCoOccurrenceRule referencing an unknown id used to refuse only from inside
+	# GrammarAuthor.CreateCoOccurrenceRules, after AuthorSession.Run had already created and locked
+	# a real .fwdata. GrammarParser.Parse now refuses it before any project exists.
 	$unknownRefGrammarXml = @'
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
@@ -847,17 +869,9 @@ try {
 	$unknownRefGrammarPath = Join-Path $parserRefusalTempRoot 'unknown-ref.grammar.xml'
 	Set-Content -Path $unknownRefGrammarPath -Value $unknownRefGrammarXml -Encoding utf8
 	$unknownRefOutDir = Join-Path $parserRefusalTempRoot 'unknown-ref-out'
-	$unknownRefOutput = & $exePath author --grammar $unknownRefGrammarPath --out-dir $unknownRefOutDir --name UnknownRef 2>&1
-	$unknownRefExit = $LASTEXITCODE
-	$unknownRefText = ($unknownRefOutput | Out-String)
-	if ($unknownRefExit -ne 7) {
-		Write-Error "Unknown co-occurrence id refusal probe: expected exit 7, got $unknownRefExit. Output:`n$unknownRefText"
-		exit 1
-	}
-	if ($unknownRefText -notmatch 'doesNotExist') {
-		Write-Error "Unknown co-occurrence id refusal probe: exit was 7 but output does not name 'doesNotExist'. Output:`n$unknownRefText"
-		exit 1
-	}
+	Assert-ProjectorExit -ExePath $exePath -Label 'Unknown co-occurrence id refusal probe' -ExpectedExitCode 7 -ExpectedSubstrings 'doesNotExist' -Arguments @(
+		'author', '--grammar', $unknownRefGrammarPath, '--out-dir', $unknownRefOutDir, '--name', 'UnknownRef'
+	) | Out-Null
 	$unknownRefFwdata = Join-Path $unknownRefOutDir 'UnknownRef\UnknownRef.fwdata'
 	if (Test-Path $unknownRefFwdata) {
 		Write-Error "Unknown co-occurrence id refusal probe: exit was 7 but a .fwdata was left on disk at $unknownRefFwdata."
@@ -865,9 +879,9 @@ try {
 	}
 	Write-Host "Unknown co-occurrence id refusal probe OK: exit 7, output names 'doesNotExist', no .fwdata on disk."
 
-	# Finding 3: ids are document-global per the DTD (XML ID type), but DtdProcessing.Ignore means
-	# nothing enforced that -- a PartOfSpeech and a LexicalEntry sharing one id used to silently
-	# collide in AuthorResult.GuidMap. GrammarParser.Parse now refuses the reused id up front.
+	# ids are document-global per the DTD (XML ID type), but DtdProcessing.Ignore means nothing
+	# enforced that -- a PartOfSpeech and a LexicalEntry sharing one id used to silently collide in
+	# AuthorResult.GuidMap. GrammarParser.Parse now refuses the reused id up front.
 	$duplicateIdGrammarXml = @'
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
@@ -903,17 +917,9 @@ try {
 	$duplicateIdGrammarPath = Join-Path $parserRefusalTempRoot 'duplicate-id.grammar.xml'
 	Set-Content -Path $duplicateIdGrammarPath -Value $duplicateIdGrammarXml -Encoding utf8
 	$duplicateIdOutDir = Join-Path $parserRefusalTempRoot 'duplicate-id-out'
-	$duplicateIdOutput = & $exePath author --grammar $duplicateIdGrammarPath --out-dir $duplicateIdOutDir --name DuplicateId 2>&1
-	$duplicateIdExit = $LASTEXITCODE
-	$duplicateIdText = ($duplicateIdOutput | Out-String)
-	if ($duplicateIdExit -ne 7) {
-		Write-Error "Duplicate id refusal probe: expected exit 7, got $duplicateIdExit. Output:`n$duplicateIdText"
-		exit 1
-	}
-	if ($duplicateIdText -notmatch 'dup1') {
-		Write-Error "Duplicate id refusal probe: exit was 7 but output does not name 'dup1'. Output:`n$duplicateIdText"
-		exit 1
-	}
+	Assert-ProjectorExit -ExePath $exePath -Label 'Duplicate id refusal probe' -ExpectedExitCode 7 -ExpectedSubstrings 'dup1' -Arguments @(
+		'author', '--grammar', $duplicateIdGrammarPath, '--out-dir', $duplicateIdOutDir, '--name', 'DuplicateId'
+	) | Out-Null
 	$duplicateIdFwdata = Join-Path $duplicateIdOutDir 'DuplicateId\DuplicateId.fwdata'
 	if (Test-Path $duplicateIdFwdata) {
 		Write-Error "Duplicate id refusal probe: exit was 7 but a .fwdata was left on disk at $duplicateIdFwdata."
@@ -921,11 +927,11 @@ try {
 	}
 	Write-Host "Duplicate id refusal probe OK: exit 7, output names 'dup1', no .fwdata on disk."
 
-	# Critical re-review finding: GrammarParser.RegisterId used to track only DTD `id` attributes,
-	# but AuthorResult.GuidMap is also keyed by AffixTemplate/Slot Name text -- two AffixTemplates
-	# each with a slot named "Root" passed Parse and only then threw mid-Author, after a real
-	# .fwdata already existed. GrammarParser.Parse now registers Name text in the same seenIds
-	# space, so this refuses before any project exists.
+	# GrammarParser.RegisterId used to track only DTD `id` attributes, but AuthorResult.GuidMap is
+	# also keyed by AffixTemplate/Slot Name text -- two AffixTemplates each with a slot named "Root"
+	# passed Parse and only then threw mid-Author, after a real .fwdata already existed.
+	# GrammarParser.Parse now registers Name text in the same seenIds space, so this refuses before
+	# any project exists.
 	$duplicateSlotNameGrammarXml = @'
 <?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
@@ -996,17 +1002,9 @@ try {
 	$duplicateSlotNameGrammarPath = Join-Path $parserRefusalTempRoot 'duplicate-slot-name.grammar.xml'
 	Set-Content -Path $duplicateSlotNameGrammarPath -Value $duplicateSlotNameGrammarXml -Encoding utf8
 	$duplicateSlotNameOutDir = Join-Path $parserRefusalTempRoot 'duplicate-slot-name-out'
-	$duplicateSlotNameOutput = & $exePath author --grammar $duplicateSlotNameGrammarPath --out-dir $duplicateSlotNameOutDir --name DuplicateSlotName 2>&1
-	$duplicateSlotNameExit = $LASTEXITCODE
-	$duplicateSlotNameText = ($duplicateSlotNameOutput | Out-String)
-	if ($duplicateSlotNameExit -ne 7) {
-		Write-Error "Duplicate slot-name refusal probe: expected exit 7, got $duplicateSlotNameExit. Output:`n$duplicateSlotNameText"
-		exit 1
-	}
-	if ($duplicateSlotNameText -notmatch 'Root') {
-		Write-Error "Duplicate slot-name refusal probe: exit was 7 but output does not name 'Root'. Output:`n$duplicateSlotNameText"
-		exit 1
-	}
+	Assert-ProjectorExit -ExePath $exePath -Label 'Duplicate slot-name refusal probe' -ExpectedExitCode 7 -ExpectedSubstrings 'Root' -Arguments @(
+		'author', '--grammar', $duplicateSlotNameGrammarPath, '--out-dir', $duplicateSlotNameOutDir, '--name', 'DuplicateSlotName'
+	) | Out-Null
 	$duplicateSlotNameFwdata = Join-Path $duplicateSlotNameOutDir 'DuplicateSlotName\DuplicateSlotName.fwdata'
 	if (Test-Path $duplicateSlotNameFwdata) {
 		Write-Error "Duplicate slot-name refusal probe: exit was 7 but a .fwdata was left on disk at $duplicateSlotNameFwdata."
@@ -1018,20 +1016,19 @@ finally {
 	Remove-Item -Path $parserRefusalTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- author / verify-parity live tests (Task 3 slice B): the `machine` conformance submodule's
-#     own fixtures, not Sena 3 -- independent of whether Sena3 is reachable above. ---
+# --- author / verify-parity live tests: the `machine` conformance submodule's own fixtures,
+#     not Sena 3 -- independent of whether Sena3 is reachable above. ---
 $conformanceRoot = Join-Path $root '..\..\machine\conformance'
 $pilotGrammar = Join-Path $conformanceRoot 'edge-cases\deep-optional-affix-nesting\grammar.xml'
 $mprRefusalGrammar = Join-Path $conformanceRoot 'languages\prefixal-discontinuous-slot-dependency\grammar.xml'
 $requireRefusalGrammar = Join-Path $conformanceRoot 'languages\suffixing-evidential-adjacency-chain\grammar.xml'
 
-# --- AllomorphCoOccurrenceRule authoring probe (Finding 6: moved above the machine-submodule gate
-#     below so it always runs when FieldWorks is present -- this fixture is this tool's own
-#     testdata, not part of the machine submodule, and needs no submodule at all): pins the fix for
-#     the silent-drop defect (a type="exclude" AllomorphCoOccurrenceRule used to author with no
-#     IMoAlloAdhocProhib created and no refusal at all -- see GrammarAuthor.CreateCoOccurrenceRules),
-#     and now also proves the exclusion actually binds in the live HC engine, not just that an
-#     object was created. ---
+# --- AllomorphCoOccurrenceRule authoring probe: runs above the machine-submodule gate below
+#     (this fixture is this tool's own testdata, not part of the machine submodule, so it needs no
+#     submodule at all) and pins the fix for the silent-drop defect (a type="exclude"
+#     AllomorphCoOccurrenceRule used to author with no IMoAlloAdhocProhib created and no refusal at
+#     all -- see GrammarAuthor.CreateCoOccurrenceRules); it also proves the exclusion actually
+#     binds in the live HC engine, not just that an object was created. ---
 $alloCoOccurGrammar = Join-Path $root 'testdata\allomorph-cooccurrence-probe.grammar.xml'
 $alloCoOccurTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-allo-cooccur-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $alloCoOccurTempRoot -Force | Out-Null
@@ -1157,34 +1154,18 @@ try {
 	$swappedResponse.guidMap.slot2 = $slot1Guid
 	$swappedResponsePath = Join-Path $authorOutDir 'author-response-swapped-slots.json'
 	$swappedResponse | ConvertTo-Json -Depth 10 | Set-Content -Path $swappedResponsePath -Encoding utf8
-	$swappedOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $swappedResponsePath --expect k=1 --expect xxxxxxk=924 2>&1
-	$swappedExit = $LASTEXITCODE
-	$swappedText = ($swappedOutput | Out-String)
-	if ($swappedExit -ne 8) {
-		Write-Error "verify-parity guid-map binding probe (swapped slots): expected exit 8, got $swappedExit. Output:`n$swappedText"
-		exit 1
-	}
-	if ($swappedText -notmatch 'order') {
-		Write-Error "verify-parity guid-map binding probe (swapped slots): exit was 8 but output does not name an order difference. Output:`n$swappedText"
-		exit 1
-	}
+	Assert-ProjectorExit -ExePath $exePath -Label 'verify-parity guid-map binding probe (swapped slots)' -ExpectedExitCode 8 -ExpectedSubstrings 'order' -Arguments @(
+		'verify-parity', '--grammar', $pilotGrammar, '--hc-xml', $pilotHcXml, '--guid-map', $swappedResponsePath, '--expect', 'k=1', '--expect', 'xxxxxxk=924'
+	) | Out-Null
 	Write-Host "verify-parity guid-map binding probe (swapped slot1/slot2 guids) OK: exit 8, output names the order difference."
 
 	$emptyResponse = Get-Content $authorResponsePath -Raw | ConvertFrom-Json
 	$emptyResponse.guidMap = New-Object PSObject
 	$emptyResponsePath = Join-Path $authorOutDir 'author-response-empty-guidmap.json'
 	$emptyResponse | ConvertTo-Json -Depth 10 | Set-Content -Path $emptyResponsePath -Encoding utf8
-	$emptyOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $emptyResponsePath --expect k=1 --expect xxxxxxk=924 2>&1
-	$emptyExit = $LASTEXITCODE
-	$emptyText = ($emptyOutput | Out-String)
-	if ($emptyExit -ne 8) {
-		Write-Error "verify-parity guid-map binding probe (empty guidMap): expected exit 8, got $emptyExit. Output:`n$emptyText"
-		exit 1
-	}
-	if ($emptyText -notmatch 'missing fixture id') {
-		Write-Error "verify-parity guid-map binding probe (empty guidMap): exit was 8 but output does not name the missing key(s). Output:`n$emptyText"
-		exit 1
-	}
+	Assert-ProjectorExit -ExePath $exePath -Label 'verify-parity guid-map binding probe (empty guidMap)' -ExpectedExitCode 8 -ExpectedSubstrings 'missing fixture id' -Arguments @(
+		'verify-parity', '--grammar', $pilotGrammar, '--hc-xml', $pilotHcXml, '--guid-map', $emptyResponsePath, '--expect', 'k=1', '--expect', 'xxxxxxk=924'
+	) | Out-Null
 	Write-Host "verify-parity guid-map binding probe (emptied guidMap) OK: exit 8, output names the missing key(s)."
 
 	# --- determinism: author the SAME fixture into a second directory; structure (authored counts,
@@ -1232,17 +1213,9 @@ try {
 	if (Test-Path $mprRefusalGrammar) {
 		$mprOutDir = Join-Path $authorTempRoot 'mpr-refusal-out'
 		New-Item -ItemType Directory -Path $mprOutDir -Force | Out-Null
-		$mprOutput = & $exePath author --grammar $mprRefusalGrammar --out-dir $mprOutDir --name MprRefusal 2>&1
-		$mprExit = $LASTEXITCODE
-		$mprText = ($mprOutput | Out-String)
-		if ($mprExit -ne 7) {
-			Write-Error "MPRFeatures refusal probe: expected exit 7, got $mprExit. Output:`n$mprText"
-			exit 1
-		}
-		if ($mprText -notmatch 'mrModeTrans' -or $mprText -notmatch 'MPRFeatures') {
-			Write-Error "MPRFeatures refusal probe: exit was 7 but output does not name mrModeTrans/MPRFeatures. Output:`n$mprText"
-			exit 1
-		}
+		Assert-ProjectorExit -ExePath $exePath -Label 'MPRFeatures refusal probe' -ExpectedExitCode 7 -ExpectedSubstrings 'mrModeTrans', 'MPRFeatures' -Arguments @(
+			'author', '--grammar', $mprRefusalGrammar, '--out-dir', $mprOutDir, '--name', 'MprRefusal'
+		) | Out-Null
 		Write-Host "MPRFeatures refusal probe OK: exit 7, output names mrModeTrans's MPRFeatures."
 	}
 	else {
@@ -1252,17 +1225,9 @@ try {
 	if (Test-Path $requireRefusalGrammar) {
 		$requireOutDir = Join-Path $authorTempRoot 'require-refusal-out'
 		New-Item -ItemType Directory -Path $requireOutDir -Force | Out-Null
-		$requireOutput = & $exePath author --grammar $requireRefusalGrammar --out-dir $requireOutDir --name RequireRefusal 2>&1
-		$requireExit = $LASTEXITCODE
-		$requireText = ($requireOutput | Out-String)
-		if ($requireExit -ne 7) {
-			Write-Error "type=`"require`" refusal probe: expected exit 7, got $requireExit. Output:`n$requireText"
-			exit 1
-		}
-		if ($requireText -notmatch 'type="require"') {
-			Write-Error "type=`"require`" refusal probe: exit was 7 but output does not name type=`"require`". Output:`n$requireText"
-			exit 1
-		}
+		Assert-ProjectorExit -ExePath $exePath -Label 'type="require" refusal probe' -ExpectedExitCode 7 -ExpectedSubstrings 'type="require"' -Arguments @(
+			'author', '--grammar', $requireRefusalGrammar, '--out-dir', $requireOutDir, '--name', 'RequireRefusal'
+		) | Out-Null
 		Write-Host "type=`"require`" refusal probe OK: exit 7, output names type=`"require`"."
 	}
 	else {
@@ -1273,12 +1238,12 @@ finally {
 	Remove-Item -Path $authorTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- Task 3 slice C part 1 live proof: 'mutate' + 'parse' against a freshly authored pilot
-#     project. Skipped (with reason) only when FieldWorks itself is absent -- already checked at
-#     the top of this script, so reaching here means FieldWorks is present. The Machine grammar
-#     root defaults to the path named in this slice's own task brief and is independently
-#     overridable via PANGLOSS_MACHINE_DIR, distinct from this repo's own `machine` submodule
-#     ($conformanceRoot above) -- Part 2 swaps in the checked-in copy of this same fixture data. ---
+# --- mutate/parse live proof: 'mutate' + 'parse' against a freshly authored pilot project.
+#     Skipped (with reason) only when FieldWorks itself is absent -- already checked at the top of
+#     this script, so reaching here means FieldWorks is present. The Machine grammar root defaults
+#     to a fixed path and is independently overridable via PANGLOSS_MACHINE_DIR, distinct from this
+#     repo's own `machine` submodule ($conformanceRoot above); the checked-in FieldWorks witness
+#     below swaps in a real project for this same fixture when present. ---
 $machineRootForMutateParse = $env:PANGLOSS_MACHINE_DIR
 if ([string]::IsNullOrEmpty($machineRootForMutateParse)) { $machineRootForMutateParse = 'C:\Users\johnm\Documents\repos\machine' }
 $mutateParseConformanceDir = Join-Path $machineRootForMutateParse 'conformance'
@@ -1289,11 +1254,11 @@ if (-not (Test-Path $mutateParseGrammar)) {
 	exit 0
 }
 
-# Task 3 slice C part 2: prefer the checked-in FieldWorks witness (machine\conformance\PROTOCOL.md
-# section 10) over authoring a fresh base project -- it IS a real, oracle-adjacent project rather
-# than one this run just invented, and using it here is what keeps it from silently drifting away
-# from what 'author' actually produces. Absence is not an error (a machine checkout predating this
-# slice, or a partial checkout) -- name the path and fall back, as today.
+# Prefer the checked-in FieldWorks witness (machine\conformance\PROTOCOL.md section 10) over
+# authoring a fresh base project -- it IS a real, oracle-adjacent project rather than one this run
+# just invented, and using it here is what keeps it from silently drifting away from what 'author'
+# actually produces. Absence is not an error (an older or partial machine checkout) -- name the
+# path and fall back, as today.
 $witnessDir = Join-Path $mutateParseConformanceDir 'edge-cases\deep-optional-affix-nesting\fieldworks'
 $witnessFwdata = Join-Path $witnessDir 'project.fwdata'
 $witnessManifestPath = Join-Path $witnessDir 'phonology-mutations.yaml'
@@ -1381,17 +1346,9 @@ try {
 	$badSchemaVersionRequestPath = Join-Path $mpTempRoot 'bad-schema-version-request.json'
 	($badSchemaVersionRequestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $badSchemaVersionRequestPath -Encoding utf8
 	$badSchemaVersionOutDir = Join-Path $mpTempRoot 'bad-schema-version-out'
-	$badSchemaVersionOutput = & $exePath mutate --project $baseFwdata --request $badSchemaVersionRequestPath --out-dir $badSchemaVersionOutDir 2>&1
-	$badSchemaVersionExit = $LASTEXITCODE
-	$badSchemaVersionText = ($badSchemaVersionOutput | Out-String)
-	if ($badSchemaVersionExit -ne 9) {
-		Write-Error "mutate schemaVersion refusal probe: expected exit 9, got $badSchemaVersionExit. Output:`n$badSchemaVersionText"
-		exit 1
-	}
-	if ($badSchemaVersionText -notmatch '2' -or $badSchemaVersionText -notmatch '1') {
-		Write-Error "mutate schemaVersion refusal probe: exit was 9 but output does not name both the version found (2) and the version supported (1). Output:`n$badSchemaVersionText"
-		exit 1
-	}
+	Assert-ProjectorExit -ExePath $exePath -Label 'mutate schemaVersion refusal probe' -ExpectedExitCode 9 -ExpectedSubstrings '2', '1' -Arguments @(
+		'mutate', '--project', $baseFwdata, '--request', $badSchemaVersionRequestPath, '--out-dir', $badSchemaVersionOutDir
+	) | Out-Null
 	$baseSha256AfterBadSchemaVersion = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
 	if ($baseSha256AfterBadSchemaVersion -ne $baseSha256Before) {
 		Write-Error "mutate schemaVersion refusal probe: SOURCE PROJECT WAS MODIFIED (sha256 $baseSha256Before -> $baseSha256AfterBadSchemaVersion)"
@@ -1553,14 +1510,9 @@ try {
 	$negativeRequestPath = Join-Path $mpTempRoot 'negative-request.json'
 	($negativeRequestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $negativeRequestPath -Encoding utf8
 	$negativeOutDir = Join-Path $mpTempRoot 'negative-out'
-	$negativeOutput = & $exePath mutate --project $negativeFwdata --request $negativeRequestPath --out-dir $negativeOutDir 2>&1
-	$negativeExit = $LASTEXITCODE
-	$negativeText = ($negativeOutput | Out-String)
-	if ($negativeExit -ne 9) { Write-Error "negative probe ($negativeFixtureUsed): expected exit 9, got $negativeExit. Output:`n$negativeText"; exit 1 }
-	if ($negativeText -notmatch 'mutation\.referenced-phoneme' -or $negativeText -notmatch 'PhNCSegments') {
-		Write-Error "negative probe ($negativeFixtureUsed): exit was 9 but output does not name mutation.referenced-phoneme/PhNCSegments. Output:`n$negativeText"
-		exit 1
-	}
+	Assert-ProjectorExit -ExePath $exePath -Label "negative probe ($negativeFixtureUsed)" -ExpectedExitCode 9 -ExpectedSubstrings 'mutation\.referenced-phoneme', 'PhNCSegments' -Arguments @(
+		'mutate', '--project', $negativeFwdata, '--request', $negativeRequestPath, '--out-dir', $negativeOutDir
+	) | Out-Null
 	$negativeClonedFwdata = Join-Path $negativeOutDir 'NegProbe\NegProbe.fwdata'
 	if (-not (Test-Path $negativeClonedFwdata)) { Write-Error "negative probe ($negativeFixtureUsed): refused but no clone was left at $negativeClonedFwdata"; exit 1 }
 	$negativeInspectAfterPath = Join-Path $mpTempRoot 'negative-inspect-after.json'
