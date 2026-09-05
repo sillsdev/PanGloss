@@ -91,26 +91,37 @@ run's own `guidMap` guids are replaced by their fixture id and every remaining g
 blanked (LibLCM assigns every real guid randomly, and each object's `DateCreated`/`DateModified`
 naturally differ by run) -- verified in `build.ps1 -Mode test`.
 
-`verify-parity --grammar <grammar.xml> --hc-xml <projected.hc.xml> --guid-map <author-response.json>`
-re-parses `grammar.xml`, loads the HC XML `project` produced from the authored project (the SAME
-`HermitCrabInput`-shaped schema `XmlLanguageWriter` writes -- see `Src\LexText\ParserCore\HCLoader.cs`
-for the loader and `machine\src\SIL.Machine.Morphology.HermitCrab\XmlLanguageWriter.cs` for the
-writer, both element-for-element compatible with the input DTD), and asserts:
-- rule/lex-entry/segment/slot counts and shapes match the fixture (each rule's `InsertSegments`
-  carries the fixture's literal text PLUS the automatic morph-boundary character every FieldWorks
-  affix representation adds -- e.g. a fixture prefix inserting `"x"` round-trips as `"x+"`, confirmed
-  empirically, not assumed);
+`verify-parity --grammar <grammar.xml> --hc-xml <projected.hc.xml> --guid-map <author-response.json>
+--expect WORD=COUNT [--expect WORD=COUNT ...]` re-parses `grammar.xml`, loads the HC XML `project`
+produced from the authored project (the SAME `HermitCrabInput`-shaped schema `XmlLanguageWriter`
+writes -- see `Src\LexText\ParserCore\HCLoader.cs` for the loader and
+`machine\src\SIL.Machine.Morphology.HermitCrab\XmlLanguageWriter.cs` for the writer, both
+element-for-element compatible with the input DTD), and asserts. **Every structural expectation
+below is derived from the re-parsed grammar.xml itself, never hardcoded to one fixture** -- this
+command is meant to run against any grammar `author` can accept, not only the pilot fixture:
+- rule/lex-entry/segment/slot counts and shapes match the fixture: each traced-back fixture
+  subrule's own `InsertShape` (see the Gloss trace below) plus the automatic morph-boundary
+  character every FieldWorks affix representation adds -- a PREFIX's shape round-trips with the
+  marker trailing (fixture `"x"` -> `"x+"`, confirmed empirically via a live author+project run).
+  No suffix fixture has been round-tripped yet (see the coverage table below), so a leading marker
+  (`"+x"`) is this command's best-understood but UNCONFIRMED mirror of that same convention for a
+  suffix; the expected character-table representations are the fixture's own declared phoneme
+  representations; the expected XAMPLE `lex.txt` `\lx ` record count is one per authored morph
+  (every affix subrule plus every lexical entry allomorph);
 - the produced `AffixTemplate`'s slot order, traced back to the fixture's own `MorphemeId`s via each
   produced rule's `Gloss` (the only trace an authored rule carries forward -- HCLoader never lets a
   fixture force its own literal `MorphemeId` onto the HC engine's `Morpheme.Id`, see `author`'s own
   Gloss-from-MorphemeId fallback below), equals the fixture's declaration order or its exact reverse
-  -- **see "Slot ordering" below for which, and why**;
-- the XAMPLE `lex.txt` written alongside the HC XML has one `\lx ` record per authored allomorph, and
-  `adctl.txt`/`gram.txt` are non-empty;
+  -- **see "Slot ordering" below for which, and why**; `adctl.txt`/`gram.txt` are asserted non-empty;
 - loading the HC XML with `SIL.Machine.Morphology.HermitCrab.XmlLanguageLoader.Load` and parsing with
   `new Morpher(new TraceManager(), language)` (the exact construction `conformance/PROTOCOL.md`
   section 8 pins every fixture's `expected.tsv` against -- no `Morpher` property is ever assigned)
-  reproduces the fixture's own oracle-confirmed analysis counts;
+  reproduces, for every `--expect WORD=COUNT` the caller supplies, exactly COUNT analyses of WORD.
+  **An analysis count is the one thing this command cannot derive from grammar.xml alone** -- only an
+  oracle (or, for a fixture this tool owns outright, reasoning about its own designed semantics: see
+  the `AllomorphCoOccurrenceRule` probe row below) knows the correct count for a word, so
+  `verify-parity` refuses (exit 2, usage) if zero `--expect` flags are given rather than silently
+  running the engine check over no words at all;
 - **`--guid-map` is bound against the live authored project**, opened read-only via the same
   `LcmCache.CreateCacheFromExistingData` path `inspect`/`project` use (path read from the guid-map
   file's own `projectPath`, relative to that file's directory): every `guidMap` guid resolves to an
@@ -137,7 +148,16 @@ portable-CI path.
 
 Refusal is always loud: exit 7, naming the offending element/attribute and its fixture id, decided
 by a full validation pass over `grammar.xml` (`GrammarParser.cs`) **before** any LibLCM project is
-created -- a refused grammar leaves no partial project on disk.
+created -- a refused grammar leaves no partial project on disk. This includes every check that once
+lived inside `GrammarAuthor` and could only fire after `AuthorSession.Run` had already created and
+locked a real `.fwdata` (a slot mixing prefix and suffix rules; a `MorphemeCoOccurrenceRule`/
+`AllomorphCoOccurrenceRule` referencing an unknown id; an unsupported `adjacency` value):
+`GrammarAuthor` itself refuses nothing, per its own doc comment. `GrammarParser.Parse` also tracks
+every `id` attribute seen across the whole document and refuses the first one reused across element
+kinds (naming both) -- the DTD types `id` as document-global (XML ID) but `DtdProcessing.Ignore`
+means nothing else enforces that, and `alloFormMap`/`AuthorResult.GuidMap` are plain dictionaries
+keyed by fixture id that would otherwise silently overwrite on a collision (`AuthorResult.Note`
+throwing on a duplicate key is a defensive backstop for this, not the primary check).
 
 Supported:
 - `PartsOfSpeech/PartOfSpeech` -> `IPartOfSpeechFactory`.
@@ -213,7 +233,7 @@ the rows marked pilot below; the rest are exercised only by the smaller probes n
 | Multi-`Allomorph` `LexicalEntry` (`AlternateFormsOS` ordering) | implemented (`CreateStemEntries`), no live `author`/`verify-parity` fixture yet |
 | `RequiredEnvironments` / `FieldWorksEnvironmentSyntax` string building | implemented, no live fixture yet |
 | `MorphemeCoOccurrenceRule type="exclude"` | implemented, no live fixture yet |
-| `AllomorphCoOccurrenceRule type="exclude"` | `testdata/allomorph-cooccurrence-probe.grammar.xml` (`build.ps1 -Mode test`'s own probe, not a `machine` conformance fixture) |
+| `AllomorphCoOccurrenceRule type="exclude"` | `testdata/allomorph-cooccurrence-probe.grammar.xml` (`build.ps1 -Mode test`'s own probe, not a `machine` conformance fixture; `verify-parity --expect k=1 --expect xk=0` additionally proves the exclusion binds in the live HC engine, not just that an `IMoAlloAdhocProhib` object exists -- these two counts follow from the probe's own designed semantics (one optional prefix slot, excluded "anywhere" from the sole lexical entry), not an oracle, since this fixture is not a `machine` conformance fixture) |
 | `verify-parity --guid-map` binding (class, slot order, `SlotsRC`, allomorph order) | pilot fixture (positive case) + two deliberately-corrupted copies of its own `author-response.json` (negative cases, exit 8) |
 
 None of the "no live fixture yet" rows are refused -- `GrammarParser`/`GrammarAuthor` accept them --
@@ -269,7 +289,7 @@ from a live run rather than assuming it.
 | Code | Meaning |
 |---|---|
 | 0 | ok |
-| 2 | usage |
+| 2 | usage (also `verify-parity` given zero `--expect WORD=COUNT` flags, or one not shaped `WORD=COUNT`) |
 | 3 | pin mismatch (an assembly/native DLL under the FieldWorks install does not match the pinned file version) |
 | 4 | project open failure (missing file, locked by another application, needs FLEx migration, or the target `author` path already exists) |
 | 5 | projection failure (HCLoader, XmlLanguageWriter, or an XAMPLE transform failed) |
@@ -284,13 +304,16 @@ from a live run rather than assuming it.
 & .\tools\xample-projector\build.ps1 -Mode test    # build, --validate-capture every checked-in
                                                     # testdata capture, and (whichever of these are
                                                     # reachable) a live 'project' run against a
-                                                    # throwaway copy of Sena 3, PLUS a live
+                                                    # throwaway copy of Sena 3; two GrammarParser
+                                                    # refusal-before-project-exists probes (needs
+                                                    # FieldWorks only, no submodule); the
+                                                    # AllomorphCoOccurrenceRule authoring + engine
+                                                    # probe (also needs no submodule); PLUS a live
                                                     # 'author' -> 'project' -> 'verify-parity' run
                                                     # against the machine submodule's pilot fixture
-                                                    # (guid-map binding, an AllomorphCoOccurrenceRule
-                                                    # authoring probe, two guid-map corruption probes,
-                                                    # normalized-.fwdata author determinism, and both
-                                                    # refusal probes too)
+                                                    # (guid-map binding, two guid-map corruption
+                                                    # probes, normalized-.fwdata author determinism,
+                                                    # and both construct-refusal probes too)
 ```
 `build.ps1` locates MSBuild via `vswhere.exe` (preferring the Visual Studio toolchain this project
 was built against) and falls back to `dotnet build` if MSBuild is unavailable.
@@ -298,11 +321,14 @@ was built against) and falls back to `dotnet build` if MSBuild is unavailable.
 FieldWorks install directory: `$env:PANGLOSS_FIELDWORKS_DIR`, default
 `C:\Program Files\SIL\FieldWorks 9`. Sample-project directory for the Sena 3 live test:
 `$env:PANGLOSS_FW_PROJECTS_DIR`, default `<FieldWorks source checkout>\DistFiles\Projects`. The
-`author`/`verify-parity` live tests instead read the `machine` git submodule at this repo's own
-root (`machine\conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` and two fixtures
-under `machine\conformance\languages\` for the refusal probes) and are skipped, independently of the
-Sena 3 tests, if that submodule isn't initialized. `testdata\allomorph-cooccurrence-probe.grammar.xml`
-is this tool's own fixture (not part of the `machine` submodule) and needs no submodule at all.
+pilot-fixture `author`/`verify-parity` live tests instead read the `machine` git submodule at this
+repo's own root (`machine\conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` and two
+fixtures under `machine\conformance\languages\` for the construct-refusal probes) and are skipped,
+independently of the Sena 3 tests, if that submodule isn't initialized. The two
+`GrammarParser`-refusal probes (unknown co-occurrence id; duplicate id) and
+`testdata\allomorph-cooccurrence-probe.grammar.xml` (this tool's own fixture, not part of the
+`machine` submodule) need no submodule at all, and run whenever FieldWorks itself is present --
+independently of both the Sena 3 tests and the pilot-fixture tests.
 
 ## Pinned versions
 
@@ -345,3 +371,9 @@ objects programmatically the same way a real project does) and checked against `
 itself and its own `SIL.Machine.Morphology.HermitCrab` XML writer/loader for the two facts a test
 file alone can't settle: the slot-reversal behavior (see "Slot ordering" above) and the mandatory
 `"+"` character (see the supported-subset list above).
+
+## Follow-ups
+
+Not addressed in this pass: splitting `GrammarParser`/`GrammarModel` into a table-driven parser
+(rather than the current sequence of hand-written element/attribute checks), and splitting the
+larger files (`GrammarParser.cs`, `GrammarAuthor.cs`) along construct-kind boundaries.

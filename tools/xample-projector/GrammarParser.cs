@@ -22,6 +22,7 @@ namespace XampleProjector
 			internal HashSet<string> FeaturedFeatureClassIds;
 			internal HashSet<string> SegmentClassIds;
 			internal HashSet<string> SegmentIds;
+			internal Dictionary<string, string> SeenIds;
 		}
 
 		internal static GrammarModel Parse(XDocument doc)
@@ -30,6 +31,11 @@ namespace XampleProjector
 			if (languages.Count != 1)
 				throw new GrammarAuthorException($"HermitCrabInput: expected exactly 1 Language element, found {languages.Count}");
 			var language = languages[0];
+
+			// The DTD types "id" as document-global, but DtdProcessing.Ignore (LoadGrammarDocument)
+			// means nothing enforces that -- alloFormMap/GuidMap are plain dictionaries keyed by
+			// fixture id and would otherwise silently overwrite on a collision.
+			var seenIds = new Dictionary<string, string>();
 
 			RefuseIfPresent(language, "PhonologicalFeatureSystem");
 			RefuseIfPresent(language, "HeadFeatures");
@@ -41,8 +47,8 @@ namespace XampleProjector
 
 			var languageName = (string)language.Element("Name");
 
-			var partsOfSpeech = ParsePartsOfSpeech(language);
-			var mprFeatures = ParseMprFeatures(language);
+			var partsOfSpeech = ParsePartsOfSpeech(language, seenIds);
+			var mprFeatures = ParseMprFeatures(language, seenIds);
 
 			var strata = language.Element("Strata")?.Elements("Stratum").ToList() ?? new List<XElement>();
 			if (strata.Count != 1)
@@ -66,10 +72,11 @@ namespace XampleProjector
 			var charTable = language.Elements("CharacterDefinitionTable").FirstOrDefault(t => (string)t.Attribute("id") == charTableId);
 			if (charTable == null)
 				throw new GrammarAuthorException($"Stratum references characterDefinitionTable=\"{charTableId}\" which was not found");
+			RegisterId(seenIds, charTableId, "CharacterDefinitionTable");
 			RefuseIfInactive(charTable, $"CharacterDefinitionTable \"{charTableId}\"");
 
-			var phonemes = ParsePhonemes(charTable);
-			var boundaryMarkers = ParseBoundaryMarkers(charTable);
+			var phonemes = ParsePhonemes(charTable, seenIds);
+			var boundaryMarkers = ParseBoundaryMarkers(charTable, seenIds);
 
 			var featurelessFeatureClassIds = new HashSet<string>();
 			var featuredFeatureClassIds = new HashSet<string>();
@@ -82,6 +89,7 @@ namespace XampleProjector
 					if (el.Name == "FeatureNaturalClass")
 					{
 						var id = (string)el.Attribute("id");
+						RegisterId(seenIds, id, "FeatureNaturalClass");
 						RefuseIfInactive(el, $"FeatureNaturalClass \"{id}\"");
 						if (el.Elements("FeatureValue").Any())
 							featuredFeatureClassIds.Add(id);
@@ -91,6 +99,7 @@ namespace XampleProjector
 					else if (el.Name == "SegmentNaturalClass")
 					{
 						var id = (string)el.Attribute("id");
+						RegisterId(seenIds, id, "SegmentNaturalClass");
 						RefuseIfInactive(el, $"SegmentNaturalClass \"{id}\"");
 						segmentClasses.Add(new SegmentNaturalClassModel
 						{
@@ -114,6 +123,7 @@ namespace XampleProjector
 				FeaturedFeatureClassIds = featuredFeatureClassIds,
 				SegmentClassIds = new HashSet<string>(segmentClasses.Select(c => c.Id)),
 				SegmentIds = new HashSet<string>(phonemes.Select(p => p.Id)),
+				SeenIds = seenIds,
 			};
 
 			var rules = new Dictionary<string, MorphologicalRuleModel>();
@@ -158,6 +168,10 @@ namespace XampleProjector
 								throw new GrammarAuthorException($"AffixTemplate \"{templateName}\" slot \"{slotName}\" references unknown MorphologicalRule \"{rid}\"");
 							referencedRuleIds.Add(rid);
 						}
+						// A slot has exactly one of PrefixSlotsRS/SuffixSlotsRS to be added to.
+						var directions = ruleIds.Select(rid => rules[rid].Subrules[0].IsPrefix).Distinct().ToList();
+						if (directions.Count != 1)
+							throw new GrammarAuthorException($"Slot \"{slotName}\" mixes prefix and suffix rules (unsupported)");
 						slots.Add(new SlotModel
 						{
 							Name = slotName,
@@ -194,8 +208,23 @@ namespace XampleProjector
 
 			var lexicalEntries = ParseLexicalEntries(stratum, ctx);
 
-			var morphemeRules = ParseCoOccurrenceRules(language.Element("MorphemeCoOccurrenceRules"), isAllomorph: false);
-			var allomorphRules = ParseCoOccurrenceRules(language.Element("AllomorphCoOccurrenceRules"), isAllomorph: true);
+			// A MorphemeCoOccurrenceRule references a MorphologicalRule or LexicalEntry id; an
+			// AllomorphCoOccurrenceRule references a MorphologicalSubrule or Allomorph id -- the
+			// same two id spaces GrammarAuthor.CreateCoOccurrenceRules' lookups union over.
+			var morphemeIds = new HashSet<string>(rules.Keys);
+			foreach (var entry in lexicalEntries)
+				morphemeIds.Add(entry.Id);
+
+			var allomorphIds = new HashSet<string>();
+			foreach (var rule in rules.Values)
+				foreach (var subrule in rule.Subrules)
+					allomorphIds.Add(subrule.Id);
+			foreach (var entry in lexicalEntries)
+				foreach (var allo in entry.Allomorphs)
+					allomorphIds.Add(allo.Id);
+
+			var morphemeRules = ParseCoOccurrenceRules(language.Element("MorphemeCoOccurrenceRules"), isAllomorph: false, morphemeIds);
+			var allomorphRules = ParseCoOccurrenceRules(language.Element("AllomorphCoOccurrenceRules"), isAllomorph: true, allomorphIds);
 
 			return new GrammarModel
 			{
@@ -214,17 +243,22 @@ namespace XampleProjector
 			};
 		}
 
-		private static List<PartOfSpeechModel> ParsePartsOfSpeech(XElement language)
+		private static List<PartOfSpeechModel> ParsePartsOfSpeech(XElement language, Dictionary<string, string> seenIds)
 		{
 			var container = language.Element("PartsOfSpeech");
 			if (container == null)
 				throw new GrammarAuthorException("Language has no PartsOfSpeech element");
 			return container.Elements("PartOfSpeech")
-				.Select(el => new PartOfSpeechModel { Id = (string)el.Attribute("id"), Name = (string)el.Element("Name") })
+				.Select(el =>
+				{
+					var id = (string)el.Attribute("id");
+					RegisterId(seenIds, id, "PartOfSpeech");
+					return new PartOfSpeechModel { Id = id, Name = (string)el.Element("Name") };
+				})
 				.ToList();
 		}
 
-		private static List<MprFeatureModel> ParseMprFeatures(XElement language)
+		private static List<MprFeatureModel> ParseMprFeatures(XElement language, Dictionary<string, string> seenIds)
 		{
 			var result = new List<MprFeatureModel>();
 			var container = language.Element("MorphologicalPhonologicalRuleFeatures");
@@ -234,13 +268,14 @@ namespace XampleProjector
 			foreach (var el in container.Elements("MorphologicalPhonologicalRuleFeature"))
 			{
 				var id = (string)el.Attribute("id");
+				RegisterId(seenIds, id, "MorphologicalPhonologicalRuleFeature");
 				RefuseIfInactive(el, $"MorphologicalPhonologicalRuleFeature \"{id}\"");
 				result.Add(new MprFeatureModel { Id = id, Text = (string)el });
 			}
 			return result;
 		}
 
-		private static List<PhonemeModel> ParsePhonemes(XElement charTable)
+		private static List<PhonemeModel> ParsePhonemes(XElement charTable, Dictionary<string, string> seenIds)
 		{
 			var result = new List<PhonemeModel>();
 			var segDefs = charTable.Element("SegmentDefinitions");
@@ -249,6 +284,7 @@ namespace XampleProjector
 			foreach (var el in segDefs.Elements("SegmentDefinition"))
 			{
 				var id = (string)el.Attribute("id");
+				RegisterId(seenIds, id, "SegmentDefinition");
 				RefuseIfInactive(el, $"SegmentDefinition \"{id}\"");
 				RefuseIfPresent(el, "FeatureValue", $"SegmentDefinition \"{id}\"");
 				var reps = el.Element("Representations").Elements("Representation").Select(r => (string)r).ToList();
@@ -259,7 +295,7 @@ namespace XampleProjector
 			return result;
 		}
 
-		private static List<BoundaryMarkerModel> ParseBoundaryMarkers(XElement charTable)
+		private static List<BoundaryMarkerModel> ParseBoundaryMarkers(XElement charTable, Dictionary<string, string> seenIds)
 		{
 			var result = new List<BoundaryMarkerModel>();
 			var container = charTable.Element("BoundaryDefinitions");
@@ -268,6 +304,7 @@ namespace XampleProjector
 			foreach (var el in container.Elements("BoundaryDefinition"))
 			{
 				var id = (string)el.Attribute("id");
+				RegisterId(seenIds, id, "BoundaryDefinition");
 				RefuseIfInactive(el, $"BoundaryDefinition \"{id}\"");
 				var reps = el.Element("Representations").Elements("Representation").Select(r => (string)r).ToList();
 				if (reps.Count != 1 || (reps[0] != "+" && reps[0] != "#"))
@@ -283,6 +320,7 @@ namespace XampleProjector
 		private static MorphologicalRuleModel ParseMorphologicalRule(XElement el, ParseCtx ctx)
 		{
 			var id = (string)el.Attribute("id");
+			RegisterId(ctx.SeenIds, id, "MorphologicalRule");
 			RefuseIfInactive(el, $"MorphologicalRule \"{id}\"");
 			if ((string)el.Attribute("partial") == "true")
 				throw new GrammarAuthorException($"MorphologicalRule \"{id}\": partial=\"true\" is unsupported");
@@ -337,6 +375,7 @@ namespace XampleProjector
 		{
 			var id = (string)subEl.Attribute("id");
 			var label = $"MorphologicalRule \"{ruleId}\" subrule \"{id}\"";
+			RegisterId(ctx.SeenIds, id, "MorphologicalSubrule");
 			RefuseIfInactive(subEl, label);
 			RefuseIfPresent(subEl, "VariableFeatures", label);
 			RefuseIfPresent(subEl, "RequiredHeadFeatures", label);
@@ -526,6 +565,7 @@ namespace XampleProjector
 			foreach (var el in container.Elements("LexicalEntry"))
 			{
 				var id = (string)el.Attribute("id");
+				RegisterId(ctx.SeenIds, id, "LexicalEntry");
 				RefuseIfInactive(el, $"LexicalEntry \"{id}\"");
 				if ((string)el.Attribute("partial") == "true")
 					throw new GrammarAuthorException($"LexicalEntry \"{id}\": partial=\"true\" is unsupported");
@@ -558,6 +598,7 @@ namespace XampleProjector
 				foreach (var alloEl in allomorphsEl.Elements("Allomorph"))
 				{
 					var alloId = (string)alloEl.Attribute("id");
+					RegisterId(ctx.SeenIds, alloId, "Allomorph");
 					RefuseIfInactive(alloEl, $"Allomorph \"{alloId}\"");
 					if ((string)alloEl.Attribute("stemName") != null)
 						throw new GrammarAuthorException($"Allomorph \"{alloId}\": stemName is unsupported (StemNames unsupported)");
@@ -590,7 +631,13 @@ namespace XampleProjector
 			return result;
 		}
 
-		private static List<CoOccurrenceRuleModel> ParseCoOccurrenceRules(XElement containerEl, bool isAllomorph)
+		// The only five values HCLoader.GetAdjacency (HCLoader.cs:2241-2255) recognizes.
+		private static readonly HashSet<string> ValidAdjacencyValues = new HashSet<string>
+		{
+			"anywhere", "somewhereToLeft", "somewhereToRight", "adjacentToLeft", "adjacentToRight",
+		};
+
+		private static List<CoOccurrenceRuleModel> ParseCoOccurrenceRules(XElement containerEl, bool isAllomorph, HashSet<string> validIds)
 		{
 			var result = new List<CoOccurrenceRuleModel>();
 			if (containerEl == null)
@@ -598,6 +645,7 @@ namespace XampleProjector
 			var childName = isAllomorph ? "AllomorphCoOccurrenceRule" : "MorphemeCoOccurrenceRule";
 			var primaryAttr = isAllomorph ? "primaryAllomorph" : "primaryMorpheme";
 			var othersAttr = isAllomorph ? "otherAllomorphs" : "otherMorphemes";
+			var idKind = isAllomorph ? "Allomorph or MorphologicalSubrule" : "MorphologicalRule or LexicalEntry";
 			foreach (var el in containerEl.Elements())
 			{
 				if (el.Name != childName)
@@ -612,9 +660,28 @@ namespace XampleProjector
 				if (type != "exclude")
 					throw new GrammarAuthorException($"{childName} {primaryAttr}=\"{primary}\": unsupported type=\"{type}\"");
 
+				if (!validIds.Contains(primary))
+				{
+					throw new GrammarAuthorException(
+						$"{childName} {primaryAttr}=\"{primary}\" is not a known {idKind}");
+				}
+
 				var isActive = (string)el.Attribute("isActive") != "no";
 				var adjacency = (string)el.Attribute("adjacency") ?? "anywhere";
+				if (!ValidAdjacencyValues.Contains(adjacency))
+				{
+					throw new GrammarAuthorException(
+						$"{childName} {primaryAttr}=\"{primary}\": unsupported adjacency=\"{adjacency}\"");
+				}
 				var others = SplitIds((string)el.Attribute(othersAttr));
+				foreach (var otherId in others)
+				{
+					if (!validIds.Contains(otherId))
+					{
+						throw new GrammarAuthorException(
+							$"{childName} {primaryAttr}=\"{primary}\": {othersAttr} references \"{otherId}\" which is not a known {idKind}");
+					}
+				}
 				result.Add(new CoOccurrenceRuleModel
 				{
 					PrimaryId = primary,
@@ -639,11 +706,24 @@ namespace XampleProjector
 				throw new GrammarAuthorException($"{label}: isActive=\"no\" is unsupported outside MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule");
 		}
 
+		// Refuses the first id reused across element kinds -- the DTD types "id" as document-global.
+		private static void RegisterId(Dictionary<string, string> seenIds, string id, string elementKind)
+		{
+			if (id == null)
+				return;
+			if (seenIds.TryGetValue(id, out var firstKind))
+			{
+				throw new GrammarAuthorException(
+					$"id \"{id}\" is used by both a {firstKind} and a {elementKind} (unsupported -- the DTD declares id as document-global)");
+			}
+			seenIds[id] = elementKind;
+		}
+
 		private static List<string> SplitIds(string value)
 		{
 			return string.IsNullOrEmpty(value)
 				? new List<string>()
-				: value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+				: value.Split((char[])null, StringSplitOptions.RemoveEmptyEntries).ToList();
 		}
 	}
 }
