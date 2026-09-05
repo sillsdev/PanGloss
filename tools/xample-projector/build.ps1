@@ -74,6 +74,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host '--validate-capture (inspect) OK.'
 
+$capturedAuthorResponse = Join-Path $root 'testdata\captured-author-response.json'
+Write-Host "Running --validate-capture against $capturedAuthorResponse"
+& $exePath --validate-capture $capturedAuthorResponse
+if ($LASTEXITCODE -ne 0) {
+	Write-Error "--validate-capture failed on the checked-in author capture (exit $LASTEXITCODE)."
+	exit $LASTEXITCODE
+}
+Write-Host '--validate-capture (author) OK.'
+
 $fieldWorksDir = $env:PANGLOSS_FIELDWORKS_DIR
 if ([string]::IsNullOrEmpty($fieldWorksDir)) { $fieldWorksDir = 'C:\Program Files\SIL\FieldWorks 9' }
 $fwProjectsDir = $env:PANGLOSS_FW_PROJECTS_DIR
@@ -85,11 +94,11 @@ if (-not (Test-Path $fieldWorksDir)) {
 	Write-Host "SKIPPED (live run): FieldWorks install not found at $fieldWorksDir"
 	exit 0
 }
-if (-not (Test-Path $senaFwdata)) {
-	Write-Host "SKIPPED (live run): sample project not found at $senaFwdata"
-	exit 0
-}
 
+if (-not (Test-Path $senaFwdata)) {
+	Write-Host "SKIPPED (Sena3 project/inspect live tests): sample project not found at $senaFwdata"
+}
+else {
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-test-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 try {
@@ -244,6 +253,139 @@ try {
 }
 finally {
 	Remove-Item -Path $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+}
+
+# --- author / verify-parity live tests (Task 3 slice B): the `machine` conformance submodule's
+#     own fixtures, not Sena 3 -- independent of whether Sena3 is reachable above. ---
+$conformanceRoot = Join-Path $root '..\..\machine\conformance'
+$pilotGrammar = Join-Path $conformanceRoot 'edge-cases\deep-optional-affix-nesting\grammar.xml'
+$mprRefusalGrammar = Join-Path $conformanceRoot 'languages\prefixal-discontinuous-slot-dependency\grammar.xml'
+$requireRefusalGrammar = Join-Path $conformanceRoot 'languages\suffixing-evidential-adjacency-chain\grammar.xml'
+
+if (-not (Test-Path $pilotGrammar)) {
+	Write-Host "SKIPPED (author/verify-parity live tests): machine submodule fixture not found at $pilotGrammar"
+	exit 0
+}
+
+$authorTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-author-test-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $authorTempRoot -Force | Out-Null
+try {
+	# --- author the pilot fixture, project it, and verify-parity against the fixture it came from ---
+	$authorOutDir = Join-Path $authorTempRoot 'author-out'
+	New-Item -ItemType Directory -Path $authorOutDir -Force | Out-Null
+	Write-Host "Running: $exePath author --grammar `"$pilotGrammar`" --out-dir `"$authorOutDir`" --name Pilot"
+	& $exePath author --grammar $pilotGrammar --out-dir $authorOutDir --name Pilot
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Live 'author' run failed (exit $LASTEXITCODE)."
+		exit $LASTEXITCODE
+	}
+	$authorResponsePath = Join-Path $authorOutDir 'author-response.json'
+	& $exePath --validate-capture $authorResponsePath
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "--validate-capture failed on the live 'author' response.json (exit $LASTEXITCODE)."
+		exit $LASTEXITCODE
+	}
+	Write-Host 'Live author run OK.'
+
+	$pilotFwdata = Join-Path $authorOutDir 'Pilot\Pilot.fwdata'
+	$projectedOutDir = Join-Path $authorTempRoot 'projected'
+	New-Item -ItemType Directory -Path $projectedOutDir -Force | Out-Null
+	Write-Host "Running: $exePath project --project `"$pilotFwdata`" --out-dir `"$projectedOutDir`" --database Pilot"
+	& $exePath project --project $pilotFwdata --out-dir $projectedOutDir --database Pilot
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Live 'project' run (on the authored pilot project) failed (exit $LASTEXITCODE)."
+		exit $LASTEXITCODE
+	}
+	Write-Host 'Live project run (on the authored pilot project) OK.'
+
+	$pilotHcXml = Join-Path $projectedOutDir 'Pilot.hc.xml'
+	Write-Host "Running: $exePath verify-parity --grammar `"$pilotGrammar`" --hc-xml `"$pilotHcXml`" --guid-map `"$authorResponsePath`""
+	$verifyOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $authorResponsePath
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "'verify-parity' failed (exit $LASTEXITCODE). Output:`n$($verifyOutput | Out-String)"
+		exit $LASTEXITCODE
+	}
+	$verifyJson = $verifyOutput | Out-String | ConvertFrom-Json
+	if ($verifyJson.morphologicalRuleCount -ne 12 -or $verifyJson.lexicalEntryCount -ne 1 -or $verifyJson.segmentCount -ne 2 -or
+		$verifyJson.slotCount -ne 12 -or $verifyJson.xampleLexEntryCount -ne 13 -or
+		$verifyJson.engineAnalysisCountK -ne 1 -or $verifyJson.engineAnalysisCountXxxxxxK -ne 924) {
+		Write-Error "verify-parity reported unexpected counts:`n$($verifyOutput | Out-String)"
+		exit 1
+	}
+	Write-Host "verify-parity OK: 12 rules, 1 lex entry, 2 segments, 12 slots (order: $($verifyJson.slotOrderingRule)), 13 XAMPLE lex entries, HC engine 1/xxxxxxk=924 analyses."
+
+	# --- determinism: author the SAME fixture into a second directory; structure (authored counts,
+	#     guidMap key set) must match exactly even though GUIDs/timestamps make the .fwdata bytes differ ---
+	$authorOutDir2 = Join-Path $authorTempRoot 'author-out-2'
+	New-Item -ItemType Directory -Path $authorOutDir2 -Force | Out-Null
+	& $exePath author --grammar $pilotGrammar --out-dir $authorOutDir2 --name Pilot | Out-Null
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Second live 'author' run (determinism probe) failed (exit $LASTEXITCODE)."
+		exit $LASTEXITCODE
+	}
+	$authorResponse1 = Get-Content $authorResponsePath -Raw | ConvertFrom-Json
+	$authorResponse2 = Get-Content (Join-Path $authorOutDir2 'author-response.json') -Raw | ConvertFrom-Json
+	$keys1 = ($authorResponse1.guidMap.PSObject.Properties.Name | Sort-Object) -join ','
+	$keys2 = ($authorResponse2.guidMap.PSObject.Properties.Name | Sort-Object) -join ','
+	if ($keys1 -ne $keys2) {
+		Write-Error "Determinism probe: guidMap key sets differ between two 'author' runs over the same fixture."
+		exit 1
+	}
+	$counts1 = ($authorResponse1.authored.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object) -join ','
+	$counts2 = ($authorResponse2.authored.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" } | Sort-Object) -join ','
+	if ($counts1 -ne $counts2) {
+		Write-Error "Determinism probe: authored counts differ between two 'author' runs over the same fixture."
+		exit 1
+	}
+	if ($authorResponse1.projectSha256 -eq $authorResponse2.projectSha256) {
+		Write-Host "Determinism probe note: projectSha256 happened to match across two runs (LibLCM guids are random, so this is not required to differ, only permitted to)."
+	}
+	Write-Host "Determinism probe OK: $($authorResponse1.guidMap.PSObject.Properties.Name.Count) guidMap keys and every authored count match across two independent 'author' runs (sha256 legitimately differs by run, since LCM guids are assigned randomly)."
+
+	# --- refusal probes: exit 7, naming the unsupported construct ---
+	if (Test-Path $mprRefusalGrammar) {
+		$mprOutDir = Join-Path $authorTempRoot 'mpr-refusal-out'
+		New-Item -ItemType Directory -Path $mprOutDir -Force | Out-Null
+		$mprOutput = & $exePath author --grammar $mprRefusalGrammar --out-dir $mprOutDir --name MprRefusal 2>&1
+		$mprExit = $LASTEXITCODE
+		$mprText = ($mprOutput | Out-String)
+		if ($mprExit -ne 7) {
+			Write-Error "MPRFeatures refusal probe: expected exit 7, got $mprExit. Output:`n$mprText"
+			exit 1
+		}
+		if ($mprText -notmatch 'mrModeTrans' -or $mprText -notmatch 'MPRFeatures') {
+			Write-Error "MPRFeatures refusal probe: exit was 7 but output does not name mrModeTrans/MPRFeatures. Output:`n$mprText"
+			exit 1
+		}
+		Write-Host "MPRFeatures refusal probe OK: exit 7, output names mrModeTrans's MPRFeatures."
+	}
+	else {
+		Write-Host "SKIPPED (MPRFeatures refusal probe): fixture not found at $mprRefusalGrammar"
+	}
+
+	if (Test-Path $requireRefusalGrammar) {
+		$requireOutDir = Join-Path $authorTempRoot 'require-refusal-out'
+		New-Item -ItemType Directory -Path $requireOutDir -Force | Out-Null
+		$requireOutput = & $exePath author --grammar $requireRefusalGrammar --out-dir $requireOutDir --name RequireRefusal 2>&1
+		$requireExit = $LASTEXITCODE
+		$requireText = ($requireOutput | Out-String)
+		if ($requireExit -ne 7) {
+			Write-Error "type=`"require`" refusal probe: expected exit 7, got $requireExit. Output:`n$requireText"
+			exit 1
+		}
+		if ($requireText -notmatch 'type="require"') {
+			Write-Error "type=`"require`" refusal probe: exit was 7 but output does not name type=`"require`". Output:`n$requireText"
+			exit 1
+		}
+		Write-Host "type=`"require`" refusal probe OK: exit 7, output names type=`"require`"."
+	}
+	else {
+		Write-Host "SKIPPED (type=`"require`" refusal probe): fixture not found at $requireRefusalGrammar"
+	}
+}
+finally {
+	Remove-Item -Path $authorTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 exit 0

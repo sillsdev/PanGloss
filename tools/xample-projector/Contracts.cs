@@ -31,6 +31,17 @@ namespace XampleProjector
 		internal const string Database = "database";
 		internal const string Generated = "generated";
 		internal const string HcLoadDiagnostics = "hcLoadDiagnostics";
+
+		// author / verify-parity
+		internal const string GrammarPath = "grammarPath";
+		internal const string GrammarSha256 = "grammarSha256";
+		internal const string ProjectPath = "projectPath";
+		internal const string ProjectSha256 = "projectSha256";
+		internal const string Authored = "authored";
+		internal const string Unmapped = "unmapped";
+		internal const string GuidMap = "guidMap";
+		internal const string HcXmlPath = "hcXmlPath";
+		internal const string Mismatches = "mismatches";
 	}
 
 	internal static class JsonWriter

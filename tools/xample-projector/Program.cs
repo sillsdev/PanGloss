@@ -34,7 +34,7 @@ namespace XampleProjector
 			// An unknown subcommand is a usage error, decided before anything below touches
 			// FieldWorks -- a typo in the subcommand must never pay the cost of (or risk a
 			// false pin-mismatch report from) probing an install it was never going to use.
-			if (args[0] != "inspect" && args[0] != "project")
+			if (args[0] != "inspect" && args[0] != "project" && args[0] != "author" && args[0] != "verify-parity")
 			{
 				WriteUsage();
 				return ExitCodes.Usage;
@@ -76,6 +76,10 @@ namespace XampleProjector
 					return InspectCommand.Run(args, fieldWorksDir);
 				case "project":
 					return ProjectCommand.Run(args, fieldWorksDir);
+				case "author":
+					return AuthorCommand.Run(args, fieldWorksDir);
+				case "verify-parity":
+					return VerifyParityCommand.Run(args, fieldWorksDir);
 				default:
 					WriteUsage();
 					return ExitCodes.Usage;
@@ -101,10 +105,13 @@ namespace XampleProjector
 			Console.WriteLine();
 			Console.WriteLine("  inspect --project <path-to-.fwdata> --out <response.json>");
 			Console.WriteLine("  project --project <path-to-.fwdata> --out-dir <dir> --database <name>");
+			Console.WriteLine("  author --grammar <grammar.xml> --out-dir <dir> --name <ProjectName>");
+			Console.WriteLine("         [--vernacular-ws <icu>] [--xample-max-prefixes N] [--xample-max-analyses N]");
+			Console.WriteLine("  verify-parity --grammar <grammar.xml> --hc-xml <projected.hc.xml> --guid-map <author-response.json>");
 			Console.WriteLine("  --validate-capture <response.json>");
 			Console.WriteLine();
 			Console.WriteLine("FieldWorks install directory: ${0}, default {1}", FieldWorksDirEnvVar, DefaultFieldWorksDir);
-			Console.WriteLine("Exit codes: 0 ok, 2 usage, 3 pin mismatch, 4 project open failure, 5 projection failure, 6 capture validation failure.");
+			Console.WriteLine("Exit codes: 0 ok, 2 usage, 3 pin mismatch, 4 project open failure, 5 projection failure, 6 capture validation failure, 7 author refusal, 8 parity mismatch.");
 		}
 	}
 }
