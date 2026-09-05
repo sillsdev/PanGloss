@@ -7,8 +7,7 @@ use pg_snapshot::{
 use crate::node::parse_full_document;
 use crate::{extract::codes, ImportError};
 
-/// Parse `Node::uni_text`'s already-unescaped `<Uni>` text, preserving malformed cap metadata as
-/// warnings while refusing a malformed or unrecognized active-parser selector.
+/// Malformed cap metadata becomes a warning; a malformed or unknown active-parser selector is fatal.
 pub fn parse_with_issues(
     raw: Option<&str>,
 ) -> Result<(ParserParameters, Vec<Warning>), ImportError> {
