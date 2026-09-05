@@ -385,19 +385,43 @@ fn import_is_deterministic() {
     assert_eq!(report1.warnings, report2.warnings);
 }
 
+/// The fixture's "-s" allomorph has a dangling `PhoneEnv` guid and the "ranna" entry's extra allomorph an unrecognized morph type; both are recorder rejections, so this import is not clean.
 #[test]
-fn fixture_conversion_provenance_is_a_clean_complete_import() {
+fn fixture_conversion_provenance_reports_its_two_known_issues() {
     let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
     let provenance = &snapshot.conversion_provenance;
     assert_eq!(
         provenance.source_inventory_status,
-        pg_snapshot::SourceInventoryStatus::ImportedComplete
+        pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
     );
     assert_ne!(
         provenance.source_inventory_status,
         pg_snapshot::SourceInventoryStatus::Synthetic
     );
-    assert!(provenance.import_issues.is_empty());
+    assert_eq!(provenance.import_issues.len(), 2);
+    let env_issue = provenance
+        .import_issues
+        .iter()
+        .find(|i| i.code == "fwdata.dangling-reference")
+        .expect("the dangling environment issue must be present");
+    assert!(env_issue.fatal);
+    assert_eq!(env_issue.class, pg_snapshot::IssueClass::InvalidSource);
+    assert_eq!(
+        env_issue.source.as_ref().unwrap().id,
+        "00000000-0000-0000-0000-0000000000ff"
+    );
+    assert!(env_issue.message.contains("00000000-0000-0000-0000-000000000051"));
+
+    let morph_type_issue = provenance
+        .import_issues
+        .iter()
+        .find(|i| i.code == "fwdata.unknown-morph-type-guid")
+        .expect("the unknown-morph-type issue must be present");
+    assert!(!morph_type_issue.fatal);
+    assert_eq!(
+        morph_type_issue.class,
+        pg_snapshot::IssueClass::UnrepresentableForHc
+    );
 
     let census = &provenance.source_census;
     assert!(census.total_occurrences > 0);
@@ -567,4 +591,215 @@ fn conversion_provenance_round_trips_through_json() {
         round_tripped.conversion_provenance,
         snapshot.conversion_provenance
     );
+}
+
+#[test]
+fn graph_to_snapshot_inventory_has_authored_keys_and_no_unaccounted_selections() {
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    assert!(!inventory.authored.is_empty());
+
+    // A non-empty difference here must be pinned as a named ratchet, never silently accepted.
+    let unconsidered: Vec<_> = inventory.authored.difference(&inventory.considered).collect();
+    assert!(
+        unconsidered.is_empty(),
+        "authored but never considered: {unconsidered:?}"
+    );
+
+    // Every selected key must end up represented or rejected -- nothing may vanish silently.
+    let unaccounted: Vec<_> = inventory
+        .selected
+        .iter()
+        .filter(|k| !inventory.represented.contains(k) && !inventory.rejected.contains(k))
+        .collect();
+    assert!(
+        unaccounted.is_empty(),
+        "selected but neither represented nor rejected: {unaccounted:?}"
+    );
+}
+
+#[test]
+fn every_represented_allomorphs_environment_attachment_is_represented_or_rejected() {
+    use pg_snapshot::{InventoryIdentity, InventoryKind};
+
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    for entry in &snapshot.lexicon.entries {
+        for allomorph in &entry.allomorphs {
+            let allomorph_key =
+                pg_snapshot::InventoryKey::object(InventoryKind::Allomorph, allomorph.guid.clone());
+            if !inventory.represented.contains(&allomorph_key) {
+                continue;
+            }
+            for env_guid in &allomorph.environments {
+                let attachment = pg_snapshot::InventoryKey::attachment(
+                    InventoryKind::Environment,
+                    allomorph.guid.clone(),
+                    env_guid.clone(),
+                    "environment",
+                );
+                let accounted =
+                    inventory.represented.contains(&attachment) || inventory.rejected.contains(&attachment);
+                assert!(
+                    accounted,
+                    "allomorph {} environment {env_guid} attachment {:?} was never accounted for",
+                    allomorph.guid,
+                    InventoryIdentity::Attachment {
+                        owner_guid: allomorph.guid.clone(),
+                        target_guid: env_guid.clone(),
+                        role: "environment".to_string(),
+                    }
+                );
+            }
+        }
+    }
+}
+
+/// The fixture is CRLF; a multi-line needle must go through this rather than an embedded `\n`, which stays LF regardless of this source file's own line endings.
+fn crlf(s: &str) -> String {
+    s.replace('\n', "\r\n")
+}
+
+/// A stale ad-hoc morpheme prohibition (unreachable slot) stays a non-fatal warning, never a recorder issue.
+#[test]
+fn disabling_the_affix_template_makes_the_inflectional_prohibition_stale_but_nonfatal() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        &crlf(
+            r#"<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
+<Disabled val="False" />"#,
+        ),
+        &crlf(
+            r#"<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
+<Disabled val="True" />"#,
+        ),
+    );
+    let source = std::fs::read_to_string(&path).unwrap();
+    let prohibition = crlf(
+        r#"<rt class="MoMorphAdhocProhib" guid="00000000-0000-0000-0000-000000000060" ownerguid="00000000-0000-0000-0000-000000000003">
+<Adjacency val="0" />
+<Disabled val="False" />
+<FirstMorpheme>
+<objsur guid="00000000-0000-0000-0000-000000000052" t="r" />
+</FirstMorpheme>
+</rt>
+"#,
+    );
+    let owner_needle = crlf(
+        r#"<rt class="MoMorphData" guid="00000000-0000-0000-0000-000000000003" ownerguid="00000000-0000-0000-0000-000000000001">"#,
+    );
+    let owner_replacement = crlf(&format!(
+        "{}\n<AdhocCoProhibitions>\n<objsur guid=\"00000000-0000-0000-0000-000000000060\" t=\"o\" />\n</AdhocCoProhibitions>",
+        owner_needle.trim_end()
+    ));
+    let with_prohibition = source.replacen(
+        &owner_needle,
+        &format!("{prohibition}{owner_replacement}"),
+        1,
+    );
+    std::fs::write(&path, with_prohibition).unwrap();
+
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.code == "fwdata.stale-adhoc-prohibition"));
+    // The base fixture's own two known issues carry through unchanged; staleness adds none.
+    assert_eq!(snapshot.conversion_provenance.import_issues.len(), 2);
+}
+
+/// D(c): a `Disabled` `PhRegularRule` is considered but never selected, rejected, or issued.
+#[test]
+fn a_disabled_phonological_rule_is_considered_but_not_selected() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        &crlf(
+            r#"<rt class="PhRegularRule" guid="00000000-0000-0000-0000-000000000018" ownerguid="00000000-0000-0000-0000-000000000004">
+<Direction val="0" />
+<Disabled val="False" />"#,
+        ),
+        &crlf(
+            r#"<rt class="PhRegularRule" guid="00000000-0000-0000-0000-000000000018" ownerguid="00000000-0000-0000-0000-000000000004">
+<Direction val="0" />
+<Disabled val="True" />"#,
+        ),
+    );
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let key = InventoryKey::object(
+        InventoryKind::PhonologicalRule,
+        "00000000-0000-0000-0000-000000000018".to_string(),
+    );
+    assert!(inventory.considered.contains(&key));
+    assert!(!inventory.selected.contains(&key));
+    assert!(!inventory.represented.contains(&key));
+    assert!(!inventory.rejected.contains(&key));
+    assert!(snapshot.phonology.rules.is_empty());
+}
+
+/// A second `PhPhonemeSet`'s phonemes are considered but never selected; `ONLY_FIRST_USED` stays non-fatal.
+#[test]
+fn a_second_phoneme_set_is_considered_but_not_selected() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = crlf(
+        r#"<PhonemeSets>
+<objsur guid="00000000-0000-0000-0000-00000000000f" t="o" />
+</PhonemeSets>"#,
+    );
+    assert!(source.contains(&needle), "fixture PhonemeSets shape must match");
+    let second_set = crlf(
+        r#"<rt class="PhPhonemeSet" guid="00000000-0000-0000-0000-000000000070" ownerguid="00000000-0000-0000-0000-000000000004">
+<Name>
+<AUni ws="en">Second</AUni>
+</Name>
+<Phonemes>
+<objsur guid="00000000-0000-0000-0000-000000000071" t="o" />
+</Phonemes>
+</rt>
+<rt class="PhPhoneme" guid="00000000-0000-0000-0000-000000000071" ownerguid="00000000-0000-0000-0000-000000000070">
+<Codes>
+<objsur guid="00000000-0000-0000-0000-000000000072" t="o" />
+</Codes>
+<Name>
+<AUni ws="fx">z</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000072" ownerguid="00000000-0000-0000-0000-000000000071">
+<Representation>
+<AUni ws="fx">z</AUni>
+</Representation>
+</rt>
+"#,
+    );
+    let replacement = crlf(
+        "<PhonemeSets>\n<objsur guid=\"00000000-0000-0000-0000-00000000000f\" t=\"o\" />\n<objsur guid=\"00000000-0000-0000-0000-000000000070\" t=\"o\" />\n</PhonemeSets>",
+    );
+    let variant = source
+        .replacen(&needle, &replacement, 1)
+        .replacen("</languageproject>", &format!("{second_set}</languageproject>"), 1);
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.code == "fwdata.only-first-used"));
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let key = InventoryKey::object(
+        InventoryKind::Phoneme,
+        "00000000-0000-0000-0000-000000000071".to_string(),
+    );
+    assert!(inventory.considered.contains(&key));
+    assert!(!inventory.selected.contains(&key));
+    assert!(!snapshot.phonology.phonemes.iter().any(|p| p.name == "z"));
+    // The base fixture's own two known issues carry through unchanged; the skipped set adds none.
+    assert_eq!(snapshot.conversion_provenance.import_issues.len(), 2);
 }
