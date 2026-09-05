@@ -68,6 +68,73 @@ function Get-NormalizedFwdataText {
 	return $header + ($records -join "`n")
 }
 
+# Task 3 slice C part 1 (mutate/parse live proof) helpers.
+
+function Get-DigitBlindLines {
+	param([string]$Path)
+	(Get-Content -Path $Path) | ForEach-Object { [regex]::Replace($_, '\d+', '#') }
+}
+
+# Deleting an unreferenced phoneme record shifts every LATER object's hvo within the same load
+# session (bMorphnameIsMsaId=y bakes each MSA's own hvo into adctl.txt/gram.txt/lex.txt as literal
+# text -- e.g. "RootPOS109" / "\lx 105") -- measured directly: diffing a base project's XAMPLE
+# files against the SAME project's phoneme-deleted clone shows every differing line differs ONLY in
+# digit runs, never in surrounding text. So "unaffected by the phoneme deletion" is verified as
+# byte-identical OR identical-after-blinding-digits, not raw byte-identity alone.
+function Test-XampleFilesEquivalentIgnoringHvoRenumbering {
+	param([string]$BaseDir, [string]$CloneDir, [string]$Database, [string]$Label)
+	foreach ($name in @('adctl.txt', 'gram.txt', 'lex.txt')) {
+		$baseFile = Join-Path $BaseDir "$Database$name"
+		$cloneFile = Join-Path $CloneDir "$Database$name"
+		$baseRaw = Get-Content -Raw -Path $baseFile
+		$cloneRaw = Get-Content -Raw -Path $cloneFile
+		if ($baseRaw -ceq $cloneRaw) {
+			Write-Host "  $name byte-identical (base vs $Label clone)."
+			continue
+		}
+		$baseBlind = Get-DigitBlindLines -Path $baseFile
+		$cloneBlind = Get-DigitBlindLines -Path $cloneFile
+		if ($baseBlind.Count -ne $cloneBlind.Count) {
+			Write-Error "$Label`: $name line count differs after digit-blinding: base=$($baseBlind.Count) clone=$($cloneBlind.Count)"
+			exit 1
+		}
+		for ($i = 0; $i -lt $baseBlind.Count; $i++) {
+			if ($baseBlind[$i] -cne $cloneBlind[$i]) {
+				Write-Error "$Label`: $name differs at line $($i + 1) beyond hvo renumbering.`n  base:  $($baseBlind[$i])`n  clone: $($cloneBlind[$i])"
+				exit 1
+			}
+		}
+		Write-Host "  $name identical to base except for hvo renumbering (base vs $Label clone; digit-blind compare)."
+	}
+}
+
+function Assert-HcXmlLacksSegmentDefinition {
+	param([string]$BaseHcXmlPath, [string]$CloneHcXmlPath, [string]$Representation, [string]$Label)
+	$pattern = "(?s)<SegmentDefinition[^>]*>.*?<Representation>$([regex]::Escape($Representation))</Representation>.*?</SegmentDefinition>"
+	$baseText = Get-Content -Raw -Path $BaseHcXmlPath
+	$cloneText = Get-Content -Raw -Path $CloneHcXmlPath
+	if ($baseText -notmatch $pattern) {
+		Write-Error "$Label`: base hc.xml unexpectedly has no SegmentDefinition for '$Representation' -- cannot prove the clone dropped it."
+		exit 1
+	}
+	if ($cloneText -match $pattern) {
+		Write-Error "$Label`: clone hc.xml still contains a SegmentDefinition for '$Representation'."
+		exit 1
+	}
+	Write-Host "  clone hc.xml correctly lacks the '$Representation' SegmentDefinition present in the base hc.xml ($Label)."
+}
+
+# msaGuid is a real LCM guid (ParseCommand resolves it via a live LcmCache), stable across a
+# file-copy clone even though the raw hvo XAmple's XML embeds is only stable within one cache
+# session -- so a per-analysis signature built from msaGuids is comparable between the base
+# project and a phoneme-deleted clone even though their two parse runs open separate sessions.
+function Get-AnalysisSignatures {
+	param($ParseResponse, [string]$Word)
+	$wordEntry = $ParseResponse.words | Where-Object { $_.word -eq $Word }
+	if (-not $wordEntry) { return @() }
+	return $wordEntry.analyses | ForEach-Object { ($_.morphemes | ForEach-Object { $_.msaGuid }) -join '+' } | Sort-Object
+}
+
 function Find-MSBuild {
 	$vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe'
 	if (Test-Path $vswhere) {
@@ -695,6 +762,209 @@ try {
 }
 finally {
 	Remove-Item -Path $authorTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- Task 3 slice C part 1 live proof: 'mutate' + 'parse' against a freshly authored pilot
+#     project. Skipped (with reason) only when FieldWorks itself is absent -- already checked at
+#     the top of this script, so reaching here means FieldWorks is present. The Machine grammar
+#     root defaults to the path named in this slice's own task brief and is independently
+#     overridable via PANGLOSS_MACHINE_DIR, distinct from this repo's own `machine` submodule
+#     ($conformanceRoot above) -- Part 2 swaps in the checked-in copy of this same fixture data. ---
+$machineRootForMutateParse = $env:PANGLOSS_MACHINE_DIR
+if ([string]::IsNullOrEmpty($machineRootForMutateParse)) { $machineRootForMutateParse = 'C:\Users\johnm\Documents\repos\machine' }
+$mutateParseConformanceDir = Join-Path $machineRootForMutateParse 'conformance'
+$mutateParseGrammar = Join-Path $mutateParseConformanceDir 'edge-cases\deep-optional-affix-nesting\grammar.xml'
+
+if (-not (Test-Path $mutateParseGrammar)) {
+	Write-Host "SKIPPED (mutate/parse live proof): grammar not found at $mutateParseGrammar"
+	exit 0
+}
+
+$mpTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-mutate-parse-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $mpTempRoot -Force | Out-Null
+try {
+	# --- 1. Author the pilot fixture as the base project for this part. ---
+	$baseAuthorOut = Join-Path $mpTempRoot 'base-author'
+	New-Item -ItemType Directory -Path $baseAuthorOut -Force | Out-Null
+	& $exePath author --grammar $mutateParseGrammar --out-dir $baseAuthorOut --name MutateParseBase
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'author' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$baseFwdata = Join-Path $baseAuthorOut 'MutateParseBase\MutateParseBase.fwdata'
+	$baseSha256Before = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
+	Write-Host "mutate/parse live proof: base project authored, sha256 $baseSha256Before"
+
+	# --- Record the "k" phoneme guid via inspect. ---
+	$baseInspectPath = Join-Path $mpTempRoot 'base-inspect.json'
+	& $exePath inspect --project $baseFwdata --out $baseInspectPath
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'inspect' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$baseInspect = Get-Content $baseInspectPath -Raw | ConvertFrom-Json
+	$kPhoneme = $baseInspect.phonemes | Where-Object { $_.representations -contains 'k' } | Select-Object -First 1
+	if (-not $kPhoneme) { Write-Error "mutate/parse live proof: no phoneme with representation 'k' found in $baseInspectPath"; exit 1 }
+	$kGuid = $kPhoneme.guid
+	Write-Host "mutate/parse live proof: 'k' phoneme guid = $kGuid"
+
+	# --- project the base project once: gives the byte-identity/hc.xml baseline AND parse's own adctl/gram/lex. ---
+	$baseProjectedOut = Join-Path $mpTempRoot 'base-projected'
+	New-Item -ItemType Directory -Path $baseProjectedOut -Force | Out-Null
+	& $exePath project --project $baseFwdata --out-dir $baseProjectedOut --database MPBase
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'project' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+
+	# --- Case A: remove-k-only ---
+	$removeKRequestObj = @{
+		schemaVersion = 1
+		caseId        = 'remove-k-only'
+		baseSha256    = $baseSha256Before
+		operations    = @(@{ op = 'remove_phoneme'; guid = $kGuid; assertRepresentations = @('k'); requireUnreferenced = $true })
+	}
+	$removeKRequestPath = Join-Path $mpTempRoot 'remove-k-only-request.json'
+	($removeKRequestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $removeKRequestPath -Encoding utf8
+	$removeKOutDir = Join-Path $mpTempRoot 'remove-k-only-out'
+	& $exePath mutate --project $baseFwdata --request $removeKRequestPath --out-dir $removeKOutDir
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: 'remove-k-only' mutate failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$removeKResponsePath = Join-Path $removeKOutDir 'mutation-response.json'
+	& $exePath --validate-capture $removeKResponsePath
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: --validate-capture failed on remove-k-only's mutation-response.json (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$removeKResponse = Get-Content $removeKResponsePath -Raw | ConvertFrom-Json
+	if ($removeKResponse.deletedCount -ne 1) { Write-Error "remove-k-only: expected deletedCount 1, got $($removeKResponse.deletedCount)"; exit 1 }
+	if ($removeKResponse.removed.Count -ne 1 -or $removeKResponse.removed[0].representations.Count -ne 1 -or $removeKResponse.removed[0].representations[0] -ne 'k') {
+		Write-Error "remove-k-only: unexpected removed[]:`n$($removeKResponse.removed | ConvertTo-Json -Depth 5)"
+		exit 1
+	}
+	if (-not $removeKResponse.reopened) { Write-Error "remove-k-only: reopened was not true"; exit 1 }
+	$baseSha256AfterA = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
+	if ($baseSha256AfterA -ne $baseSha256Before) { Write-Error "remove-k-only: SOURCE PROJECT WAS MODIFIED (sha256 $baseSha256Before -> $baseSha256AfterA)"; exit 1 }
+	Write-Host "mutate 'remove-k-only' OK: deletedCount=1, removed=['k'], reopened=true, source sha256 unchanged ($baseSha256Before)."
+
+	$removeKClonedFwdata = Join-Path $removeKOutDir $removeKResponse.materializedProjectPath
+	$removeKProjectedOut = Join-Path $mpTempRoot 'remove-k-only-projected'
+	New-Item -ItemType Directory -Path $removeKProjectedOut -Force | Out-Null
+	& $exePath project --project $removeKClonedFwdata --out-dir $removeKProjectedOut --database MPBase
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: 'project' on the remove-k-only clone failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	Test-XampleFilesEquivalentIgnoringHvoRenumbering -BaseDir $baseProjectedOut -CloneDir $removeKProjectedOut -Database 'MPBase' -Label 'remove-k-only'
+	Assert-HcXmlLacksSegmentDefinition -BaseHcXmlPath (Join-Path $baseProjectedOut 'MPBase.hc.xml') -CloneHcXmlPath (Join-Path $removeKProjectedOut 'MPBase.hc.xml') -Representation 'k' -Label 'remove-k-only'
+
+	# --- Case B: empty-phoneme-inventory ---
+	$emptyRequestObj = @{
+		schemaVersion = 1
+		caseId        = 'empty-phoneme-inventory'
+		baseSha256    = $baseSha256Before
+		operations    = @(@{ op = 'remove_all_phonemes'; requireUnreferenced = $true })
+	}
+	$emptyRequestPath = Join-Path $mpTempRoot 'empty-phoneme-inventory-request.json'
+	($emptyRequestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $emptyRequestPath -Encoding utf8
+	$emptyOutDir = Join-Path $mpTempRoot 'empty-phoneme-inventory-out'
+	& $exePath mutate --project $baseFwdata --request $emptyRequestPath --out-dir $emptyOutDir
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: 'empty-phoneme-inventory' mutate failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$emptyResponsePath = Join-Path $emptyOutDir 'mutation-response.json'
+	& $exePath --validate-capture $emptyResponsePath
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: --validate-capture failed on empty-phoneme-inventory's mutation-response.json (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$emptyResponse = Get-Content $emptyResponsePath -Raw | ConvertFrom-Json
+	if ($emptyResponse.deletedCount -ne 2) { Write-Error "empty-phoneme-inventory: expected deletedCount 2, got $($emptyResponse.deletedCount)"; exit 1 }
+	$emptyReps = ($emptyResponse.removed | ForEach-Object { $_.representations[0] } | Sort-Object) -join ','
+	if ($emptyReps -ne 'k,x') { Write-Error "empty-phoneme-inventory: expected removed representations k,x -- got $emptyReps"; exit 1 }
+	if (-not $emptyResponse.reopened) { Write-Error "empty-phoneme-inventory: reopened was not true"; exit 1 }
+	$baseSha256AfterB = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
+	if ($baseSha256AfterB -ne $baseSha256Before) { Write-Error "empty-phoneme-inventory: SOURCE PROJECT WAS MODIFIED (sha256 $baseSha256Before -> $baseSha256AfterB)"; exit 1 }
+	Write-Host "mutate 'empty-phoneme-inventory' OK: deletedCount=2, removed=[k,x], reopened=true, source sha256 unchanged ($baseSha256Before)."
+
+	$emptyClonedFwdata = Join-Path $emptyOutDir $emptyResponse.materializedProjectPath
+	$emptyProjectedOut = Join-Path $mpTempRoot 'empty-phoneme-inventory-projected'
+	New-Item -ItemType Directory -Path $emptyProjectedOut -Force | Out-Null
+	& $exePath project --project $emptyClonedFwdata --out-dir $emptyProjectedOut --database MPBase
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: 'project' on the empty-phoneme-inventory clone failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	Test-XampleFilesEquivalentIgnoringHvoRenumbering -BaseDir $baseProjectedOut -CloneDir $emptyProjectedOut -Database 'MPBase' -Label 'empty-phoneme-inventory'
+	Assert-HcXmlLacksSegmentDefinition -BaseHcXmlPath (Join-Path $baseProjectedOut 'MPBase.hc.xml') -CloneHcXmlPath (Join-Path $emptyProjectedOut 'MPBase.hc.xml') -Representation 'k' -Label 'empty-phoneme-inventory'
+
+	# --- Negative: a fixture with a SegmentNaturalClass, requireUnreferenced must refuse and delete nothing. ---
+	$negativeCandidates = @('disjunctive-recheck', 'free-fluctuating-allomorph-pair', 'strrep-identity', 'diacritic-segments', 'loader-pattern-shapes')
+	$negativeFixtureUsed = $null
+	$negativeFwdata = $null
+	foreach ($candidate in $negativeCandidates) {
+		$candidateGrammar = Join-Path $mutateParseConformanceDir "edge-cases\$candidate\grammar.xml"
+		if (-not (Test-Path $candidateGrammar)) {
+			Write-Host "  negative-probe candidate '$candidate': fixture not found at $candidateGrammar, skipping."
+			continue
+		}
+		$candidateOutDir = Join-Path $mpTempRoot "negative-author-$candidate"
+		$candidateOutput = & $exePath author --grammar $candidateGrammar --out-dir $candidateOutDir --name NegProbe 2>&1
+		if ($LASTEXITCODE -eq 0) {
+			$negativeFixtureUsed = $candidate
+			$negativeFwdata = Join-Path $candidateOutDir 'NegProbe\NegProbe.fwdata'
+			Write-Host "  negative-probe candidate '$candidate': authored successfully, using it."
+			break
+		}
+		Write-Host "  negative-probe candidate '$candidate': refused ($(($candidateOutput | Out-String).Trim())), trying next."
+	}
+	if (-not $negativeFixtureUsed) {
+		Write-Error "mutate/parse live proof: none of the negative-probe candidate fixtures ($($negativeCandidates -join ', ')) could be authored."
+		exit 1
+	}
+
+	$negativeInspectPath = Join-Path $mpTempRoot 'negative-inspect-before.json'
+	& $exePath inspect --project $negativeFwdata --out $negativeInspectPath
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: negative-probe 'inspect' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$negativePhonemeCountBefore = (Get-Content $negativeInspectPath -Raw | ConvertFrom-Json).phonemes.Count
+
+	$negativeSha256 = (Get-FileHash -Algorithm SHA256 -Path $negativeFwdata).Hash.ToLowerInvariant()
+	$negativeRequestObj = @{
+		schemaVersion = 1
+		caseId        = 'negative-referenced-phoneme'
+		baseSha256    = $negativeSha256
+		operations    = @(@{ op = 'remove_all_phonemes'; requireUnreferenced = $true })
+	}
+	$negativeRequestPath = Join-Path $mpTempRoot 'negative-request.json'
+	($negativeRequestObj | ConvertTo-Json -Depth 5) | Set-Content -Path $negativeRequestPath -Encoding utf8
+	$negativeOutDir = Join-Path $mpTempRoot 'negative-out'
+	$negativeOutput = & $exePath mutate --project $negativeFwdata --request $negativeRequestPath --out-dir $negativeOutDir 2>&1
+	$negativeExit = $LASTEXITCODE
+	$negativeText = ($negativeOutput | Out-String)
+	if ($negativeExit -ne 9) { Write-Error "negative probe ($negativeFixtureUsed): expected exit 9, got $negativeExit. Output:`n$negativeText"; exit 1 }
+	if ($negativeText -notmatch 'mutation\.referenced-phoneme' -or $negativeText -notmatch 'PhNCSegments') {
+		Write-Error "negative probe ($negativeFixtureUsed): exit was 9 but output does not name mutation.referenced-phoneme/PhNCSegments. Output:`n$negativeText"
+		exit 1
+	}
+	$negativeClonedFwdata = Join-Path $negativeOutDir 'NegProbe\NegProbe.fwdata'
+	if (-not (Test-Path $negativeClonedFwdata)) { Write-Error "negative probe ($negativeFixtureUsed): refused but no clone was left at $negativeClonedFwdata"; exit 1 }
+	$negativeInspectAfterPath = Join-Path $mpTempRoot 'negative-inspect-after.json'
+	& $exePath inspect --project $negativeClonedFwdata --out $negativeInspectAfterPath
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: negative-probe clone 'inspect' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$negativePhonemeCountAfter = (Get-Content $negativeInspectAfterPath -Raw | ConvertFrom-Json).phonemes.Count
+	if ($negativePhonemeCountAfter -ne $negativePhonemeCountBefore) {
+		Write-Error "negative probe ($negativeFixtureUsed): phoneme count changed ($negativePhonemeCountBefore -> $negativePhonemeCountAfter) despite the refusal"
+		exit 1
+	}
+	Write-Host "negative referenced-phoneme probe OK ($negativeFixtureUsed): exit 9, names mutation.referenced-phoneme + PhNCSegments, phoneme count unchanged ($negativePhonemeCountBefore)."
+
+	# --- parse: the real XAMPLE engine over the base project's own generated files ---
+	$mpWordsPath = Join-Path $mpTempRoot 'words.txt'
+	Set-Content -Path $mpWordsPath -Value @('k', 'xxxxxxk') -Encoding utf8
+	$baseParseOutPath = Join-Path $mpTempRoot 'base-parse.json'
+	& $exePath parse --project $baseFwdata --project-dir $baseProjectedOut --database MPBase --words $mpWordsPath --out $baseParseOutPath --max-analyses 2000 --max-prefixes 12
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: base 'parse' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$baseParse = Get-Content $baseParseOutPath -Raw | ConvertFrom-Json
+	$kParse = $baseParse.words | Where-Object { $_.word -eq 'k' }
+	$xxParse = $baseParse.words | Where-Object { $_.word -eq 'xxxxxxk' }
+	if ($kParse.analyses.Count -ne 1) { Write-Error "parse: expected exactly 1 analysis for 'k', got $($kParse.analyses.Count)"; exit 1 }
+	Write-Host "parse OK: engineVersion=$($baseParse.engineVersion), effective parameters: $($baseParse.parameters | ConvertTo-Json -Compress)"
+	Write-Host "parse OK: 'k' = $($kParse.analyses.Count) analysis (analyses), reachedMaxAnalyses=$($kParse.reachedMaxAnalyses), engineError=$($kParse.engineError)"
+	Write-Host "parse (reported as-is, never massaged): 'xxxxxxk' = $($xxParse.analyses.Count) analyses, reachedMaxAnalyses=$($xxParse.reachedMaxAnalyses), engineError=$($xxParse.engineError) (the HC oracle's own count for this word is 924 -- XAMPLE is a different engine and is not expected to match it)."
+
+	# --- parse the empty-phoneme-inventory clone's own files; multiset must match the base's ---
+	$cloneParseOutPath = Join-Path $mpTempRoot 'clone-parse.json'
+	& $exePath parse --project $emptyClonedFwdata --project-dir $emptyProjectedOut --database MPBase --words $mpWordsPath --out $cloneParseOutPath --max-analyses 2000 --max-prefixes 12
+	if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: clone 'parse' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
+	$cloneParse = Get-Content $cloneParseOutPath -Raw | ConvertFrom-Json
+	foreach ($word in @('k', 'xxxxxxk')) {
+		$baseSigs = Get-AnalysisSignatures -ParseResponse $baseParse -Word $word
+		$cloneSigs = Get-AnalysisSignatures -ParseResponse $cloneParse -Word $word
+		if (($baseSigs -join '|') -ne ($cloneSigs -join '|')) {
+			Write-Error "parse multiset comparison: '$word' differs between base ($($baseSigs.Count) analyses) and empty-phoneme-inventory clone ($($cloneSigs.Count) analyses)."
+			exit 1
+		}
+	}
+	Write-Host "parse multiset comparison OK: base and empty-phoneme-inventory clone produce identical analysis multisets for 'k' ($($kParse.analyses.Count)) and 'xxxxxxk' ($($xxParse.analyses.Count))."
+}
+finally {
+	Remove-Item -Path $mpTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 exit 0

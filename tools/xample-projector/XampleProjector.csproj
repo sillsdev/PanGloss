@@ -72,6 +72,12 @@
       <HintPath>$(FieldWorksDir)\Newtonsoft.Json.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- XAmpleManagedWrapper: IXAmpleWrapper/XAmpleWrapper, the real XAMPLE engine (xample.dll,
+         resolved at runtime via the SetDllDirectory search path Program.Main already sets up) -->
+    <Reference Include="XAmpleManagedWrapper">
+      <HintPath>$(FieldWorksDir)\XAmpleManagedWrapper.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>

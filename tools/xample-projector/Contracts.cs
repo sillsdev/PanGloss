@@ -42,6 +42,21 @@ namespace XampleProjector
 		internal const string GuidMap = "guidMap";
 		internal const string HcXmlPath = "hcXmlPath";
 		internal const string Mismatches = "mismatches";
+
+		// mutate
+		internal const string CaseId = "caseId";
+		internal const string BaseSha256 = "baseSha256";
+		internal const string MaterializedSha256 = "materializedSha256";
+		internal const string MaterializedProjectPath = "materializedProjectPath";
+		internal const string Removed = "removed";
+		internal const string InboundReferences = "inboundReferences";
+		internal const string Reopened = "reopened";
+		internal const string DeletedCount = "deletedCount";
+
+		// parse
+		internal const string EngineVersion = "engineVersion";
+		internal const string Parameters = "parameters";
+		internal const string Words = "words";
 	}
 
 	internal static class JsonWriter

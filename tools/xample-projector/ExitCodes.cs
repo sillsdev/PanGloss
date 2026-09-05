@@ -10,5 +10,8 @@ namespace XampleProjector
 		internal const int CaptureValidationFailure = 6;
 		internal const int AuthorRefusal = 7;
 		internal const int ParityMismatch = 8;
+		internal const int MutationRefusal = 9;
+		internal const int MutationIntegrityFailure = 10;
+		internal const int ParseEngineFailure = 11;
 	}
 }

@@ -38,6 +38,18 @@ namespace XampleProjector
 			Fields.ProjectPath, Fields.ProjectSha256, Fields.Authored, Fields.Unmapped, Fields.GuidMap, Fields.Diagnostics,
 		};
 
+		private static readonly string[] MutateRequiredFields =
+		{
+			Fields.SchemaVersion, Fields.Mode, Fields.CaseId, Fields.BaseSha256, Fields.MaterializedSha256,
+			Fields.MaterializedProjectPath, Fields.Removed, Fields.InboundReferences, Fields.Reopened,
+			Fields.DeletedCount, Fields.Diagnostics,
+		};
+
+		private static readonly string[] ParseRequiredFields =
+		{
+			Fields.SchemaVersion, Fields.Mode, Fields.Database, Fields.EngineVersion, Fields.Parameters, Fields.Words,
+		};
+
 		internal static int Run(string path)
 		{
 			if (!File.Exists(path))
@@ -103,8 +115,14 @@ namespace XampleProjector
 				case "author":
 					required = AuthorRequiredFields;
 					break;
+				case "mutate":
+					required = MutateRequiredFields;
+					break;
+				case "parse":
+					required = ParseRequiredFields;
+					break;
 				default:
-					problems.Add($"[{mode}] unknown mode (expected \"inspect\", \"project\", or \"author\")");
+					problems.Add($"[{mode}] unknown mode (expected \"inspect\", \"project\", \"author\", \"mutate\", or \"parse\")");
 					return;
 			}
 
@@ -129,7 +147,7 @@ namespace XampleProjector
 			if (sourceSha256 != null && !Sha256Pattern.IsMatch(sourceSha256))
 				problems.Add($"\"{Fields.SourceSha256}\" is not 64 lowercase hex characters: \"{sourceSha256}\"");
 
-			foreach (var field in new[] { Fields.GrammarSha256, Fields.ProjectSha256 })
+			foreach (var field in new[] { Fields.GrammarSha256, Fields.ProjectSha256, Fields.BaseSha256, Fields.MaterializedSha256 })
 			{
 				var value = (string)document[field];
 				if (value != null && !Sha256Pattern.IsMatch(value))
@@ -178,7 +196,7 @@ namespace XampleProjector
 			if (sourcePath != null && LooksRooted(sourcePath))
 				problems.Add($"\"{Fields.SourcePath}\" must not be an absolute path or drive letter: \"{sourcePath}\"");
 
-			foreach (var field in new[] { Fields.GrammarPath, Fields.ProjectPath })
+			foreach (var field in new[] { Fields.GrammarPath, Fields.ProjectPath, Fields.MaterializedProjectPath })
 			{
 				var value = (string)document[field];
 				if (value != null && LooksRooted(value))
