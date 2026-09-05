@@ -1991,5 +1991,198 @@ fn fixture_represented_msa_and_natural_class_atoms_match_the_final_grammar_exact
 fn finalize_panics_on_a_removed_mrule_id_with_no_published_lineage() {
     let mut recorder = pg_snapshot::SelectionRecorder::default();
     let lineage = super::inventory::Lineage::default();
-    super::inventory::finalize(&mut recorder, &lineage, vec![42], Vec::new(), Vec::new());
+    super::inventory::finalize(
+        &mut recorder,
+        &lineage,
+        vec![42],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+}
+
+/// `inventory::finalize` must panic on a removed natural class whose owner never published lineage for it.
+#[test]
+#[should_panic(expected = "removed by reachability compaction but published no lineage")]
+fn finalize_panics_on_a_removed_natural_class_id_with_no_published_lineage() {
+    let mut recorder = pg_snapshot::SelectionRecorder::default();
+    let lineage = super::inventory::Lineage::default();
+    super::inventory::finalize(
+        &mut recorder,
+        &lineage,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        vec![7],
+    );
+}
+
+/// `inventory::finalize` must panic on a removed morpheme co-occurrence rule whose owner never published lineage for it.
+#[test]
+#[should_panic(expected = "removed by reachability compaction but published no lineage")]
+fn finalize_panics_on_a_removed_morpheme_cooccurrence_id_with_no_published_lineage() {
+    let mut recorder = pg_snapshot::SelectionRecorder::default();
+    let lineage = super::inventory::Lineage::default();
+    super::inventory::finalize(
+        &mut recorder,
+        &lineage,
+        Vec::new(),
+        Vec::new(),
+        vec![(3, 0)],
+        Vec::new(),
+    );
+}
+
+/// `inventory::finalize` must panic on a removed allomorph co-occurrence rule whose owner never published lineage for it.
+#[test]
+#[should_panic(expected = "removed by reachability compaction but published no lineage")]
+fn finalize_panics_on_a_removed_allomorph_cooccurrence_id_with_no_published_lineage() {
+    let mut recorder = pg_snapshot::SelectionRecorder::default();
+    let lineage = super::inventory::Lineage::default();
+    super::inventory::finalize(
+        &mut recorder,
+        &lineage,
+        Vec::new(),
+        vec![(5, 0)],
+        Vec::new(),
+        Vec::new(),
+    );
+}
+
+/// An allomorph co-occurrence rule whose OWNER allomorph is compacted away with its (template-only, unreferenced) mrule is revoked, not represented, and absent from every surviving `co_occurrence` Vec.
+#[test]
+fn allomorph_cooccurrence_rule_whose_owner_is_compacted_away_is_revoked() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-orphan".to_string(),
+        citation_form: vec![ws("sen", "-ka")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph("allo-orphan", MorphType::Suffix, "ka")],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-orphan".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: vec!["slot-never-templated".to_string()],
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
+        guid: "coocc-owner-orphaned".to_string(),
+        disabled: false,
+        primary: "allo-orphan".to_string(),
+        others: vec!["allo-stem".to_string()],
+        adjacency: Adjacency::Anywhere,
+    });
+
+    let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "compaction revocation is silent: {warnings:?}");
+
+    let key = InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-owner-orphaned".to_string());
+    assert!(inventory.rejected.contains(&key));
+    assert!(!inventory.represented.contains(&key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE));
+
+    for e in &grammar.entries {
+        for a in &e.allomorphs {
+            assert!(a.co_occurrence.is_empty());
+        }
+    }
+    for r in &grammar.mrules {
+        let allos: &[crate::model::AffixAllomorphDef] = match r {
+            MorphRuleDef::AffixProcess(d) => &d.allomorphs,
+            MorphRuleDef::Realizational(d) => &d.allomorphs,
+            MorphRuleDef::Compounding(_) => &[],
+        };
+        for a in allos {
+            assert!(a.co_occurrence.is_empty());
+        }
+    }
+}
+
+/// An allomorph co-occurrence rule whose owner survives but whose only `others` target is compacted away is revoked; the legacy warning is unchanged from before this change.
+#[test]
+fn allomorph_cooccurrence_rule_whose_only_target_is_compacted_away_is_revoked() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-orphan".to_string(),
+        citation_form: vec![ws("sen", "-ka")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph("allo-orphan", MorphType::Suffix, "ka")],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-orphan".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: vec!["slot-never-templated".to_string()],
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
+        guid: "coocc-target-orphaned".to_string(),
+        disabled: false,
+        primary: "allo-suffix".to_string(),
+        others: vec!["allo-orphan".to_string()],
+        adjacency: Adjacency::Anywhere,
+    });
+
+    let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert_eq!(
+        warnings,
+        vec![
+            "allomorph co-occurrence rule: an 'others' target was dropped by mrule reachability \
+             compaction; reference removed"
+                .to_string()
+        ],
+        "the legacy warning text/order must stay byte-identical"
+    );
+
+    let key = InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-target-orphaned".to_string());
+    assert!(inventory.rejected.contains(&key));
+    assert!(!inventory.represented.contains(&key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE));
+
+    for e in &grammar.entries {
+        for a in &e.allomorphs {
+            assert!(a.co_occurrence.is_empty());
+        }
+    }
+    for r in &grammar.mrules {
+        if let MorphRuleDef::AffixProcess(d) = r {
+            for a in &d.allomorphs {
+                assert!(a.co_occurrence.is_empty());
+            }
+        }
+    }
+}
+
+/// An allomorph co-occurrence rule whose owner and every `others` target survive stays represented.
+#[test]
+fn allomorph_cooccurrence_rule_whose_owner_and_targets_survive_stays_represented() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
+        guid: "coocc-survives".to_string(),
+        disabled: false,
+        primary: "allo-suffix".to_string(),
+        others: vec!["allo-stem".to_string()],
+        adjacency: Adjacency::Anywhere,
+    });
+
+    let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let key = InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-survives".to_string());
+    assert!(inventory.represented.contains(&key));
+
+    let found = grammar.mrules.iter().any(|r| match r {
+        MorphRuleDef::AffixProcess(d) => d.allomorphs.iter().any(|a| !a.co_occurrence.is_empty()),
+        _ => false,
+    });
+    assert!(found, "the surviving co-occurrence rule must remain on its owner's allomorph");
 }
