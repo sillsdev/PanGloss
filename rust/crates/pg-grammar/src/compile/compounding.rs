@@ -58,7 +58,16 @@ pub(crate) fn build(
                 ..
             } => {
                 match build_endo(
-                    name, *head_last, left, right, overriding, max_apps, ctx, acc, warnings,
+                    rule.guid(),
+                    name,
+                    *head_last,
+                    left,
+                    right,
+                    overriding,
+                    max_apps,
+                    ctx,
+                    acc,
+                    warnings,
                 ) {
                     Some(id) => {
                         morphology_mrules.push(id);
@@ -80,7 +89,7 @@ pub(crate) fn build(
                 to,
                 ..
             } => {
-                let ids = build_exo(name, left, right, to, max_apps, ctx, acc, warnings);
+                let ids = build_exo(rule.guid(), name, left, right, to, max_apps, ctx, acc, warnings);
                 if ids.is_empty() {
                     // `build_exo` already pushed its own warning on failure; recording must not add a second one.
                     ctx.reject_quietly(
@@ -197,6 +206,7 @@ fn plus_join(head_first: bool, ctx: &Ctx) -> Vec<OutputAction> {
 
 #[allow(clippy::too_many_arguments)]
 fn build_endo(
+    rule_guid: &str,
     name: &str,
     head_last: bool,
     left: &CompoundConstituentRequirement,
@@ -207,17 +217,37 @@ fn build_endo(
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Option<MRuleId> {
-    let (head_side, non_head_side) = if head_last {
-        (right, left)
+    let (head_side, non_head_side, head_role, non_head_role) = if head_last {
+        (right, left, "right", "left")
     } else {
-        (left, right)
+        (left, right, "left", "right")
     };
-    let head_required_syn_fs = side_required_fs(head_side, ctx, acc, warnings)?;
-    let non_head_required_syn_fs = side_required_fs(non_head_side, ctx, acc, warnings)?;
-    let out_pos = overriding
-        .part_of_speech
-        .as_deref()
-        .and_then(|p| ctx.pos.bits_single(p));
+    let head_required_syn_fs =
+        side_required_fs(rule_guid, head_role, head_side, ctx, acc, warnings)?;
+    let non_head_required_syn_fs =
+        side_required_fs(rule_guid, non_head_role, non_head_side, ctx, acc, warnings)?;
+    let out_pos = overriding.part_of_speech.as_deref().and_then(|p| {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::PartOfSpeech,
+            rule_guid.to_string(),
+            p.to_string(),
+            "output",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
+        let bits = ctx.pos.bits_single(p);
+        match bits {
+            Some(_) => ctx.represented(attachment),
+            None => ctx.reject_quietly(
+                attachment,
+                issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
+                IssueClass::InvalidSource,
+                "compound rule output: part of speech does not resolve",
+            ),
+        }
+        bits
+    });
     let out_syn_fs = match super::features::build_syn_fs(ctx.syn, out_pos, None) {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
@@ -244,8 +274,14 @@ fn build_endo(
             head_required_syn_fs,
             non_head_required_syn_fs,
             out_syn_fs,
-            head_prod_restrictions_mpr: side_mpr(head_side, ctx, warnings),
-            non_head_prod_restrictions_mpr: side_mpr(non_head_side, ctx, warnings),
+            head_prod_restrictions_mpr: side_mpr(rule_guid, head_role, head_side, ctx, warnings),
+            non_head_prod_restrictions_mpr: side_mpr(
+                rule_guid,
+                non_head_role,
+                non_head_side,
+                ctx,
+                warnings,
+            ),
             output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
             obligatory_features: Vec::new(),
             subrules: vec![CompoundingSubruleDef {
@@ -264,6 +300,7 @@ fn build_endo(
 /// Produces *two* rules, one per output-head order, since an exocentric compound's morphosyntax is stipulated rather than inherited.
 #[allow(clippy::too_many_arguments)]
 fn build_exo(
+    rule_guid: &str,
     name: &str,
     left: &CompoundConstituentRequirement,
     right: &CompoundConstituentRequirement,
@@ -273,16 +310,34 @@ fn build_exo(
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Vec<MRuleId> {
-    let Some(left_fs) = side_required_fs(left, ctx, acc, warnings) else {
+    let Some(left_fs) = side_required_fs(rule_guid, "left", left, ctx, acc, warnings) else {
         return Vec::new();
     };
-    let Some(right_fs) = side_required_fs(right, ctx, acc, warnings) else {
+    let Some(right_fs) = side_required_fs(rule_guid, "right", right, ctx, acc, warnings) else {
         return Vec::new();
     };
-    let out_pos = to
-        .part_of_speech
-        .as_deref()
-        .and_then(|p| ctx.pos.bits_single(p));
+    let out_pos = to.part_of_speech.as_deref().and_then(|p| {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::PartOfSpeech,
+            rule_guid.to_string(),
+            p.to_string(),
+            "output",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
+        let bits = ctx.pos.bits_single(p);
+        match bits {
+            Some(_) => ctx.represented(attachment),
+            None => ctx.reject_quietly(
+                attachment,
+                issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
+                IssueClass::InvalidSource,
+                "compound rule output: part of speech does not resolve",
+            ),
+        }
+        bits
+    });
     let out_syn_fs = match super::features::build_syn_fs(ctx.syn, out_pos, None) {
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
@@ -295,8 +350,8 @@ fn build_exo(
         .as_deref()
         .and_then(|ic| ctx.mpr.infl_class_single(ic))
         .unwrap_or(crate::model::MprSet::EMPTY);
-    let left_mpr = side_mpr(left, ctx, warnings);
-    let right_mpr = side_mpr(right, ctx, warnings);
+    let left_mpr = side_mpr(rule_guid, "left", left, ctx, warnings);
+    let right_mpr = side_mpr(rule_guid, "right", right, ctx, warnings);
 
     let mut out = Vec::new();
     // "right compound rule": head = right, non-head = left, output = nonhead+"+"+head.
@@ -363,15 +418,34 @@ fn build_exo(
 }
 
 fn side_required_fs(
+    rule_guid: &str,
+    role: &str,
     side: &CompoundConstituentRequirement,
     ctx: &Ctx,
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Option<pg_featstruct::FsId> {
-    let pos_bits = side
-        .part_of_speech
-        .as_deref()
-        .map(|p| ctx.pos.bits_with_descendants(std::iter::once(p)));
+    let pos_bits = side.part_of_speech.as_deref().map(|p| {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::PartOfSpeech,
+            rule_guid.to_string(),
+            p.to_string(),
+            role.to_string(),
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
+        match ctx.pos.bits_single(p) {
+            Some(_) => ctx.represented(attachment),
+            None => ctx.reject_quietly(
+                attachment,
+                issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
+                IssueClass::InvalidSource,
+                "compound rule side: part of speech does not resolve",
+            ),
+        }
+        ctx.pos.bits_with_descendants(std::iter::once(p))
+    });
     match super::features::build_syn_fs(ctx.syn, pos_bits, None) {
         Ok(fs) => Some(acc.fs_interner.intern(fs)),
         Err(e) => {
@@ -382,17 +456,35 @@ fn side_required_fs(
 }
 
 fn side_mpr(
+    rule_guid: &str,
+    role: &str,
     side: &CompoundConstituentRequirement,
     ctx: &Ctx,
     warnings: &mut Vec<String>,
 ) -> crate::model::MprSet {
     let mut set = crate::model::MprSet::EMPTY;
     for f in &side.exception_features {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::RuleFeature,
+            rule_guid.to_string(),
+            f.clone(),
+            role.to_string(),
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
         match ctx.mpr.exception_feature(f) {
-            Some(s) => set = set.union(s),
-            None => warnings.push(format!(
-                "compound rule: exception feature {f:?} does not resolve"
-            )),
+            Some(s) => {
+                set = set.union(s);
+                ctx.represented(attachment);
+            }
+            None => ctx.reject(
+                warnings,
+                attachment,
+                issue_codes::COMPOUND_SIDE_EXCEPTION_FEATURE_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("compound rule: exception feature {f:?} does not resolve"),
+            ),
         }
     }
     set

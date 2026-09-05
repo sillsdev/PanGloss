@@ -245,28 +245,78 @@ fn build_stem_entry(
     });
     let mut mpr = crate::model::MprSet::EMPTY;
     if let Some(ic) = &infl_class_guid {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::InflectionClass,
+            guid.clone(),
+            ic.clone(),
+            "required",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
         match ctx.mpr.infl_class_single(ic) {
-            Some(s) => mpr = mpr.union(s),
-            None => warnings.push(format!(
-                "MSA {guid:?}: inflection class {ic:?} does not resolve"
-            )),
+            Some(s) => {
+                mpr = mpr.union(s);
+                ctx.represented(attachment);
+            }
+            None => ctx.reject(
+                warnings,
+                attachment,
+                issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("MSA {guid:?}: inflection class {ic:?} does not resolve"),
+            ),
         }
     }
     for f in exception_features {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::RuleFeature,
+            guid.clone(),
+            f.clone(),
+            "required",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
         match ctx.mpr.exception_feature(f) {
-            Some(s) => mpr = mpr.union(s),
-            None => warnings.push(format!(
-                "MSA {guid:?}: exception feature {f:?} does not resolve"
-            )),
+            Some(s) => {
+                mpr = mpr.union(s);
+                ctx.represented(attachment);
+            }
+            None => ctx.reject(
+                warnings,
+                attachment,
+                issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("MSA {guid:?}: exception feature {f:?} does not resolve"),
+            ),
         }
     }
     if let Some(it) = infl_type {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::RuleFeature,
+            guid.clone(),
+            it.guid.clone(),
+            "infl-type",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
         match ctx.mpr.lex_entry_infl_type(&it.guid) {
-            Some(s) => mpr = mpr.union(s),
-            None => warnings.push(format!(
-                "lexEntryInflType {:?} does not resolve in the MPR registry",
-                it.guid
-            )),
+            Some(s) => {
+                mpr = mpr.union(s);
+                ctx.represented(attachment);
+            }
+            None => ctx.reject(
+                warnings,
+                attachment,
+                issue_codes::MSA_LEX_ENTRY_INFL_TYPE_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!(
+                    "lexEntryInflType {:?} does not resolve in the MPR registry",
+                    it.guid
+                ),
+            ),
         }
     }
 
@@ -413,10 +463,25 @@ fn build_variant(
                     .map(|m| (e, m))
                     .collect()
             } else {
-                warnings.push(format!(
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::Entry,
+                    variant_entry.guid.clone(),
+                    component.clone(),
+                    "variant-component",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
+                ctx.reject(
+                    warnings,
+                    attachment,
+                    issue_codes::VARIANT_COMPONENT_UNRESOLVED,
+                    IssueClass::InvalidSource,
+                    format!(
                 "variant entry {:?}: component {component:?} does not resolve to an entry or sense",
                 variant_entry.guid
-            ));
+            ),
+                );
                 Vec::new()
             };
 

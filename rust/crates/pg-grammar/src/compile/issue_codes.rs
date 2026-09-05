@@ -13,10 +13,19 @@ pub(crate) const STEM_NAME_BUILD_FAILED: &str = "grammar.stem-name.build-failed"
 pub(crate) const STEM_NAME_EMPTY_REGIONS: &str = "grammar.stem-name.empty-regions";
 
 pub(crate) const COMPOUND_RULE_BUILD_FAILED: &str = "grammar.compound-rule.build-failed";
+pub(crate) const COMPOUND_SIDE_POS_UNRESOLVED: &str = "grammar.compound-rule.side-pos-unresolved";
+pub(crate) const COMPOUND_SIDE_EXCEPTION_FEATURE_UNRESOLVED: &str =
+    "grammar.compound-rule.side-exception-feature-unresolved";
 
 pub(crate) const MSA_BUILD_FAILED: &str = "grammar.msa.build-failed";
 pub(crate) const MSA_NO_ALLOMORPHS: &str = "grammar.msa.no-allomorphs";
 pub(crate) const MSA_NO_RULE_FORM_ALLOMORPHS: &str = "grammar.msa.no-rule-form-allomorphs";
+pub(crate) const MSA_EXCEPTION_FEATURE_UNRESOLVED: &str = "grammar.msa.exception-feature-unresolved";
+pub(crate) const MSA_INFLECTION_CLASS_UNRESOLVED: &str = "grammar.msa.inflection-class-unresolved";
+pub(crate) const MSA_STEM_NAME_UNRESOLVED: &str = "grammar.msa.stem-name-unresolved";
+pub(crate) const MSA_LEX_ENTRY_INFL_TYPE_UNRESOLVED: &str =
+    "grammar.msa.lex-entry-infl-type-unresolved";
+pub(crate) const VARIANT_COMPONENT_UNRESOLVED: &str = "grammar.variant.component-unresolved";
 pub(crate) const ALLOMORPH_UNSEGMENTABLE: &str = "grammar.allomorph.unsegmentable";
 pub(crate) const ALLOMORPH_MORPH_TYPE_UNSUPPORTED: &str = "grammar.allomorph.morph-type-unsupported";
 pub(crate) const ALLOMORPH_NOT_RULE_FORM: &str = "grammar.allomorph.not-a-rule-form";
@@ -38,6 +47,10 @@ pub(crate) const NULL_AFFIX_SEGMENT_FAILED: &str = "grammar.null-affix.segment-f
 
 pub(crate) const RULE_METATHESIS_UNSUPPORTED: &str = "grammar.rule.metathesis-unsupported";
 pub(crate) const RULE_BUILD_FAILED: &str = "grammar.rule.build-failed";
+pub(crate) const FEATURE_CONSTRAINT_UNRESOLVED: &str = "grammar.rule.feature-constraint-unresolved";
+pub(crate) const FEATURE_CONSTRAINT_PHON_FEATURE_UNRESOLVED: &str =
+    "grammar.rule.feature-constraint-phon-feature-unresolved";
+pub(crate) const RULE_FEATURE_UNRESOLVED: &str = "grammar.rule.rule-feature-unresolved";
 
 pub(crate) const STRATA_CUSTOM_UNSUPPORTED: &str = "grammar.strata.custom-unsupported";
 
