@@ -400,6 +400,19 @@ git commit -m "gates: measure FieldWorks conversion loss end to end"
 
 ## Task 3: Establish canonical source fixtures, phoneme mutations, and the executable XAMPLE baseline
 
+> **Deviation 2026-09-05 — pilot fixture changed.** `prefixal-discontinuous-slot-dependency` cannot be
+> backed out of FieldWorks: `HCLoader` assigns output MPR features only to derivational affixes
+> (`LoadDerivAffixProcessRule`), while `mrModeTrans` is a template-slot affix that *sets*
+> `mprHighTrans`, and `mrSubj` gates per subrule where FieldWorks gates per MSA. The pilot is
+> `languages/suffixing-evidential-adjacency-chain` instead: every construct it uses (template slots,
+> slot disjunction, allomorph environments, segment natural classes, morpheme and allomorph ad hoc
+> prohibitions, free-fluctuating allomorphs) has a `producible=Yes` row in Machine's
+> `fieldworks-producibility.tsv`. All fourteen of its phonemes are members of `ncVowel`/`ncConsonant`,
+> so its manifest witnesses `mutation.referenced-phoneme` refusals and baseline parity only; the
+> empty-inventory invariance case (with its `inferred_segments` list) moves to Task 8's first
+> expansion, `edge-cases/deep-optional-affix-nesting`, whose only natural class is `ncAny`. Read every
+> `prefixal-discontinuous-slot-dependency` path below as the evidential fixture's.
+
 **Files:**
 
 - Modify in the Machine submodule: `machine/conformance/PROTOCOL.md`
