@@ -475,8 +475,9 @@ treatment of the two as mutually exclusive in practice).
 
 ## 7. `conversionProvenance`
 
-**Status:** schema only (this section documents the type; nothing in `pg-fwdata`/`pg-grammar`
-populates it yet). Absent from a document entirely (every snapshot written before this schema
+**Status:** `pg-fwdata` populates `sourceInventoryStatus`, `sourceCensus`, and `importIssues` on
+every `.fwdata`/`.fwbackup` import; `graphToSnapshot`'s per-object inventory is still schema only
+(always empty). Absent from a document entirely (every snapshot written before this schema
 existed), it deserializes as `schemaVersion: 0` with `sourceInventoryStatus: "unknown"` —
 `ConversionProvenance`'s `Default`, and never to be read as "cleanly imported". Excluded from
 `Snapshot::grammar_hash`'s digest — that digest's semantic fields are exactly
@@ -487,9 +488,9 @@ alone never invalidates a grammar-hash-keyed cache.
 |---|---|---|
 | `schemaVersion` | integer | `1` for a document written by this build; `0` reads as "no provenance was ever recorded". `Snapshot`'s own `format`/`version` envelope is unrelated. |
 | `sourceInventoryStatus` | `"importedComplete" \| "importedWithFatalIssues" \| "synthetic" \| "unknown"` | Whether a real import produced this snapshot, and whether it completed cleanly. `"unknown"` at `schemaVersion: 1` and any status other than `"unknown"` at `schemaVersion: 0` are both impossible pairs — `ConversionProvenance::validate` rejects them. |
-| `sourceCensus` | object | A raw tally of the source graph's object classes (`totalOccurrences`, `classOccurrences`, `unhandledClassOccurrences`, `orderedHeaderSha256`) — the denominator `graphToSnapshot`'s stages are measured against. |
+| `sourceCensus` | object | A raw tally of the source graph's object classes (`totalOccurrences`, `classOccurrences`, `unhandledClassOccurrences`, `orderedHeaderSha256`) — the denominator `graphToSnapshot`'s stages are measured against. `orderedHeaderSha256` is the lowercase-hex SHA-256 of `"{class}\t{guid}\n"` per retained `<rt>` header, concatenated in document order (every header, allowed and unknown classes alike). |
 | `graphToSnapshot` | object | Six `InventoryKey` sets — `authored`, `considered`, `selected`, `represented`, `rejected`, `synthesized` — one per conversion-pipeline stage. An `InventoryKey` is a `{ kind, identity }` pair; `identity` is one of `object` (a single guid), `attachment` (owner/target/role), `expansion` (owner/member guids/role), or `setting` (a bare name) — built only through `InventoryKey`'s constructors, never by hand-concatenating strings. |
-| `importIssues` | array | Problems noticed while converting: `code`, `class` (`malformedSource \| invalidSource \| ambiguousSource \| unrepresentableForHc \| substrateUnresolvable \| migrationDifference`), an optional `source` pointer (`{ kind, id }`), `fatal`, and a human-readable `message`. |
+| `importIssues` | array | Problems noticed while converting: `code`, `class` (`malformedSource \| invalidSource \| ambiguousSource \| unrepresentableForHc \| substrateUnresolvable \| migrationDifference`), an optional `source` pointer (`{ kind, id }`), `fatal`, and a human-readable `message`. `pg-fwdata` raises two fatal `invalidSource` codes from raw `<rt>` structure: `invalid-source.duplicate-guid` (a guid shared by two or more `<rt>` records, recognized or not — the first *recognized* record wins and every occurrence is named in the message) and `invalid-source.missing-guid` (a tracked/allowed-class `<rt>` record with no `guid` attribute — the record is dropped). |
 
 ## 8. `WsForm` (shared primitive)
 

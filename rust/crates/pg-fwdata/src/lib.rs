@@ -30,7 +30,7 @@ mod xml;
 
 use std::path::Path;
 
-use pg_snapshot::{Snapshot, Warning};
+use pg_snapshot::{ConversionProvenance, Snapshot, Warning};
 use thiserror::Error;
 
 /// Hard errors from `import_file`: I/O failures, invalid XML or non-`.fwdata` input, and source
@@ -55,10 +55,12 @@ pub enum ImportError {
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.
 /// Never a reason to fail the import (see the crate-level docs). Each warning carries a stable
 /// short code alongside its prose — see `pg_snapshot::Warning`'s doc for the `code`/`message`
-/// contract `pangloss compare` relies on.
+/// contract `pangloss compare` relies on. `provenance` is the same value as the returned
+/// `Snapshot`'s own `conversion_provenance`.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ImportReport {
     pub warnings: Vec<Warning>,
+    pub provenance: ConversionProvenance,
 }
 
 /// Import a `.fwdata` project file or `.fwbackup` archive into a `Snapshot` plus an `ImportReport`
@@ -77,7 +79,8 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
     let (snapshot, warnings) = extract::extract(&graph, &filename_stem)?;
-    Ok((snapshot, ImportReport { warnings }))
+    let provenance = snapshot.conversion_provenance.clone();
+    Ok((snapshot, ImportReport { warnings, provenance }))
 }
 
 pub(crate) fn file_stem(path: &Path) -> String {
