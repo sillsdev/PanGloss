@@ -29,6 +29,8 @@ pub(crate) const MSA_LEX_ENTRY_INFL_TYPE_UNRESOLVED: &str =
 pub(crate) const VARIANT_COMPONENT_UNRESOLVED: &str = "grammar.variant.component-unresolved";
 pub(crate) const ALLOMORPH_UNSEGMENTABLE: &str = "grammar.allomorph.unsegmentable";
 pub(crate) const ALLOMORPH_MORPH_TYPE_UNSUPPORTED: &str = "grammar.allomorph.morph-type-unsupported";
+pub(crate) const ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM: &str =
+    "grammar.allomorph.morph-type-unsupported-as-rule-form";
 pub(crate) const ALLOMORPH_NOT_RULE_FORM: &str = "grammar.allomorph.not-a-rule-form";
 pub(crate) const ALLOMORPH_REDUPLICATION_UNSUPPORTED: &str =
     "grammar.allomorph.reduplication-unsupported";

@@ -11,6 +11,11 @@ use crate::GrammarError;
 
 use super::{affixes, issue_codes, roles, Acc, Ctx};
 
+/// Whether `entry` has no senses of its own, so its `EntryRef::Variant`s get walked for a main-entry link.
+pub(crate) fn entry_yields_variant_refs(entry: &LexEntry) -> bool {
+    entry.senses.is_empty()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn build(
     snapshot: &Snapshot,
@@ -127,7 +132,7 @@ pub(crate) fn build(
         }
 
         // --- variants: entries with no senses of their own, linked via `EntryRef::Variant` ------
-        if entry.senses.is_empty() {
+        if entry_yields_variant_refs(entry) {
             for er in &entry.entry_refs {
                 if let EntryRef::Variant {
                     guid: er_guid,
@@ -440,7 +445,7 @@ fn build_variant(
     morphology_mrules: &mut Vec<MRuleId>,
     warnings: &mut Vec<String>,
 ) {
-    // The `EntryRef::Variant` itself, distinct from the entries/allomorphs/MSAs it draws from below; this function is the ref's only consumer, so it is always handled once reached.
+    // The `EntryRef::Variant` itself, distinct from the entries/allomorphs/MSAs it draws from below.
     let er_key = InventoryKey::object(InventoryKind::EntryReference, er_guid.to_string());
     ctx.considered(er_key.clone());
     ctx.selected(er_key.clone());

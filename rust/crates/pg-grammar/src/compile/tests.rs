@@ -1219,6 +1219,36 @@ fn fixture_recording_authored_minus_considered_is_empty_and_selected_minus_repre
     assert_no_authored_or_selected_falls_through(&inventory2);
 }
 
+/// Only a `Variant` ref's guid is authored as an `EntryReference` atom, never a `ComplexForm`'s.
+#[test]
+fn complex_form_ref_guid_is_never_authored_as_an_entry_reference() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-complex".to_string(),
+        citation_form: vec![ws("sen", "kumita")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-complex", MorphType::Stem, "kumita")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::ComplexForm {
+            guid: "entryref-complex-unauthored".to_string(),
+            component_lexemes: vec![f.stem_entry.clone()],
+            complex_entry_types: Vec::new(),
+        }],
+    });
+
+    let (_grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let complex_form_key = InventoryKey::object(
+        InventoryKind::EntryReference,
+        "entryref-complex-unauthored".to_string(),
+    );
+    assert!(
+        !inventory.authored.contains(&complex_form_key),
+        "a ComplexForm ref's guid must never be authored as an EntryReference atom"
+    );
+}
+
 /// Every existing fixture-derived scenario elsewhere in this file must also leave the recorder's invariants intact; each snapshot here mirrors an existing test's mutation, checked through `compile_recording_ok` rather than duplicating that test's own assertions.
 #[test]
 fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
@@ -1709,6 +1739,38 @@ fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
     assert!(issues
         .iter()
         .any(|i| i.code == super::issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED));
+}
+
+/// A bare `Circumfix`/`DiscontigPhrase`-typed allomorph must be selected then quietly rejected, not left dangling.
+#[test]
+fn circumfix_typed_allomorph_outside_a_cross_product_is_selected_before_quiet_rejection() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-bare-circumfix".to_string(),
+        citation_form: vec![ws("sen", "bare")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph(
+            "allo-bare-circumfix",
+            MorphType::Circumfix,
+            "x",
+        )],
+        msas: vec![Msa::Unclassified {
+            guid: "msa-bare-circumfix".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+
+    let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "this rejection is quiet: {warnings:?}");
+
+    let key = InventoryKey::object(InventoryKind::Allomorph, "allo-bare-circumfix".to_string());
+    assert!(inventory.selected.contains(&key), "must be selected before rejection");
+    assert!(inventory.rejected.contains(&key));
+    assert!(issues.iter().any(
+        |i| i.code == super::issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM
+    ));
 }
 
 /// `build_phon_features`'s complex-feature drop must select the feature before rejecting it (`rejected ⊆ selected`).
