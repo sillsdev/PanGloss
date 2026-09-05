@@ -68,6 +68,151 @@ function Get-NormalizedFwdataText {
 	return $header + ($records -join "`n")
 }
 
+# The direct text field a record's own content-derived label is read from, tried in this order --
+# whichever field a record's CLASS actually exposes (never content), so the same class always
+# picks the same field on both sides of any comparison. "Form" is deliberately absent: a phonetic
+# shape is not reliably unique (two different affixes/roots can share the identical shape, and
+# measured: the pilot fixture's own rules do), so a Form-bearing record (MoAffixAllomorph/
+# MoStemAllomorph) is labeled through its owner instead (see the owner-based pass below).
+$script:LabelDirectFieldNames = 'Name', 'Gloss', 'Representation', 'StringRepresentation', 'Abbreviation'
+
+function Get-XmlFieldText {
+	param([System.Xml.Linq.XElement]$RecordElement, [string]$FieldName)
+	$field = $RecordElement.Element([System.Xml.Linq.XName]$FieldName)
+	if (-not $field) { return $null }
+	$auni = $field.Descendants([System.Xml.Linq.XName]'AUni') | Select-Object -First 1
+	if ($auni -and $auni.Value.Trim().Length -gt 0) { return $auni.Value.Trim() }
+	$runText = (($field.Descendants([System.Xml.Linq.XName]'Run') | ForEach-Object { $_.Value }) -join '').Trim()
+	if ($runText.Length -gt 0) { return $runText }
+	if (-not $field.Elements()) {
+		$direct = $field.Value.Trim()
+		if ($direct.Length -gt 0) { return $direct }
+	}
+	return $null
+}
+
+# A deterministic, content-only tie-break key for two records that would otherwise receive the
+# identical owner-derived candidate label (e.g. two allomorphs owned by the same LexEntry): every
+# child element's own text, with any nested guid resolved to its OWN already-known label (or the
+# blanket "GUID" placeholder, never the raw guid -- a raw guid would reintroduce exactly the
+# random, run-specific ordering this whole function exists to remove). Never touches the record's
+# own identity/owner attributes, which differ by construction and would make every signature
+# trivially unique for the wrong reason.
+function Get-RecordSignature {
+	param([System.Xml.Linq.XElement]$RecordElement, [hashtable]$Records)
+	$text = ($RecordElement.Elements() | ForEach-Object { $_.ToString() }) -join ''
+	return [regex]::Replace($text, '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', {
+		param($m)
+		if ($Records.ContainsKey($m.Value) -and $Records[$m.Value].Label) { $Records[$m.Value].Label } else { 'GUID' }
+	})
+}
+
+# Builds a guid -> content-derived label map from a SINGLE project's own .fwdata, independent of
+# any external guidMap -- so two independently produced copies of the SAME grammar (e.g. a
+# checked-in FieldWorks witness with no committed guidMap, and a freshly authored run) get
+# comparable labels even though neither side's guids mean anything to the other. A record's own
+# Name/Gloss/Representation/StringRepresentation/Abbreviation text becomes "{class}:{text}" (a
+# reviewer-demonstrated gap: blanking every guid to the literal "GUID" makes "which slot serves
+# this rule" and "which POS this rule requires" invisible, because two structurally-identical
+# fragments differing only in THAT wiring then normalize byte-identically). A record with none of
+# those fields (LexEntry; the allomorph that carries a rule's own shape) instead borrows its
+# resolved owner's or owned child's label -- the one reverse relationship this needs is LexEntry's
+# owned LexSense (its Gloss); every other reference target GrammarAuthor creates (PartOfSpeech,
+# PhPhoneme, PhBdryMarker, PhNCSegments, ProdRestrict, MoInflAffixSlot, MoInflAffixTemplate)
+# already carries a direct field. What a bare MSA or co-occurrence-rule record POINTS AT gets a
+# real label even though that record's own identity does not strictly need one -- it still gets
+# one here (via its owner), which is what makes an ambiguous case (two allomorphs on the same
+# entry) resolvable by content instead of refusing outright. A record this cannot label at all
+# falls through to Get-NormalizedFwdataText's existing blanket "GUID" blind, unchanged from before
+# this function existed.
+function Get-ContentDerivedGuidLabelMap {
+	param([string]$Path, [string]$CheckExePath)
+
+	$xdoc = [System.Xml.Linq.XDocument]::Load($Path)
+	$records = @{}
+	$childrenByOwner = @{}
+	foreach ($rt in $xdoc.Root.Elements([System.Xml.Linq.XName]'rt')) {
+		$guid = $rt.Attribute('guid').Value
+		$class = $rt.Attribute('class').Value
+		$ownerAttr = $rt.Attribute('ownerguid')
+		$owner = if ($ownerAttr) { $ownerAttr.Value } else { $null }
+		$records[$guid] = [pscustomobject]@{ Class = $class; OwnerGuid = $owner; Element = $rt; Label = $null }
+		if ($owner) {
+			if (-not $childrenByOwner.ContainsKey($owner)) { $childrenByOwner[$owner] = New-Object System.Collections.Generic.List[string] }
+			$childrenByOwner[$owner].Add($guid)
+		}
+	}
+
+	foreach ($guid in @($records.Keys)) {
+		$rec = $records[$guid]
+		foreach ($fieldName in $script:LabelDirectFieldNames) {
+			$text = Get-XmlFieldText -RecordElement $rec.Element -FieldName $fieldName
+			if ($text) { $rec.Label = "$($rec.Class):$text"; break }
+		}
+	}
+
+	# Fixpoint: a record with no direct field of its own borrows its owned LexSense's Gloss (e.g.
+	# LexEntry), or else its resolved owner's label (e.g. an allomorph or MSA, via its owning
+	# LexEntry). Computed as CANDIDATES across the whole pass, then committed together, so two
+	# records that would land on the identical candidate are caught and tie-broken by content
+	# (Get-RecordSignature) rather than one silently claiming the label first depending on
+	# enumeration order.
+	$progress = $true
+	while ($progress) {
+		$progress = $false
+		$candidates = @{}
+		foreach ($guid in @($records.Keys)) {
+			$rec = $records[$guid]
+			if ($rec.Label) { continue }
+			$kids = $childrenByOwner[$guid]
+			$senseKid = if ($kids) { $kids | Where-Object { $records[$_].Class -eq 'LexSense' -and $records[$_].Label } | Select-Object -First 1 }
+			if ($senseKid) {
+				$suffix = $records[$senseKid].Label.Substring($records[$senseKid].Label.IndexOf(':') + 1)
+				$candidates[$guid] = "$($rec.Class):$suffix"
+			}
+			elseif ($rec.OwnerGuid -and $records.ContainsKey($rec.OwnerGuid) -and $records[$rec.OwnerGuid].Label) {
+				$candidates[$guid] = "$($rec.Class):$($records[$rec.OwnerGuid].Label)"
+			}
+		}
+		if ($candidates.Count -eq 0) { break }
+		$progress = $true
+		foreach ($group in ($candidates.GetEnumerator() | Group-Object -Property Value)) {
+			$members = @($group.Group.Name)
+			if ($members.Count -eq 1) {
+				$records[$members[0]].Label = $group.Name
+				continue
+			}
+			$ordered = $members | Sort-Object -Property @{ Expression = { Get-RecordSignature -RecordElement $records[$_].Element -Records $records } }
+			for ($i = 0; $i -lt $ordered.Count; $i++) {
+				$records[$ordered[$i]].Label = "$($group.Name)#$i"
+			}
+		}
+	}
+
+	$labelMap = @{}
+	foreach ($guid in $records.Keys) {
+		if ($records[$guid].Label) { $labelMap[$guid] = $records[$guid].Label }
+	}
+
+	# Label uniqueness is PROVEN, not assumed: XampleProjector.exe's own check-label-uniqueness
+	# command refuses (the same IdRegistry.Register guarded-insert GrammarParser uses to prove a
+	# grammar.xml's ids/Names are document-global-unique) if two guids would render identically --
+	# calling the existing enforcement rather than writing a second, independent uniqueness check.
+	$labelsJsonPath = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-labels-" + [System.Guid]::NewGuid().ToString('N') + '.json')
+	try {
+		($labelMap | ConvertTo-Json -Depth 3) | Set-Content -Path $labelsJsonPath -Encoding utf8
+		$checkOutput = & $CheckExePath check-label-uniqueness --labels $labelsJsonPath 2>&1
+		if ($LASTEXITCODE -ne 0) {
+			Write-Error "Get-ContentDerivedGuidLabelMap ($Path): content-derived labels are not unique -- $(($checkOutput | Out-String).Trim())"
+			exit 1
+		}
+	}
+	finally {
+		Remove-Item -Path $labelsJsonPath -Force -ErrorAction SilentlyContinue
+	}
+	return $labelMap
+}
+
 # Task 3 slice C part 1 (mutate/parse live proof) helpers.
 
 # The exact closed set of "morphotactic name" prefixes gram.txt/adctl.txt glue an hvo onto with no
@@ -190,6 +335,80 @@ function Test-XampleFileCorruptionIsCaught {
 	}
 	finally {
 		Remove-Item -Path $corruptDir -Recurse -Force -ErrorAction SilentlyContinue
+	}
+}
+
+# Negative probe (BLOCKING review finding): the witness-drift comparison must be able to FAIL on a
+# wiring-only difference, not just a literal-text one. Swap which of two structurally-identical
+# MoInflAffMsa records' <Slots> reference points at which MoInflAffixSlot -- a materially different
+# grammar (it reassigns which slot each affix rule fills), and the reviewer's own demonstrated shape
+# (there: a Slot reassigned between two Parts of Speech; here: a Slot reassigned between two affix
+# rules, the same reference-target class the pilot fixture actually has more than one of) -- and
+# assert content-derived labeling reports a real difference where the OLD blanket-"GUID" blind
+# (both sides normalized with an empty map) reports none.
+function Test-ContentDerivedLabelCatchesWiringSwap {
+	param([string]$SourceFwdata, [string]$ExePath, [string]$Label)
+	$swapDir = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-wiring-swap-probe-" + [System.Guid]::NewGuid().ToString('N'))
+	New-Item -ItemType Directory -Path $swapDir -Force | Out-Null
+	try {
+		$swappedPath = Join-Path $swapDir 'swapped.fwdata'
+		Copy-Item -Path $SourceFwdata -Destination $swappedPath -Force
+		$text = Get-Content -Raw -Path $swappedPath
+
+		$msaPattern = '<rt class="MoInflAffMsa"[^>]*>[\s\S]*?<Slots>\s*<objsur guid="([0-9a-fA-F-]{36})"[^/]*/>\s*</Slots>[\s\S]*?</rt>'
+		$msaMatches = [regex]::Matches($text, $msaPattern)
+		if ($msaMatches.Count -lt 2) {
+			Write-Error "$Label`: wiring-swap probe needs at least 2 MoInflAffMsa records with a <Slots> reference in $SourceFwdata, found $($msaMatches.Count)."
+			exit 1
+		}
+		$matchA = $msaMatches[0]
+		$matchB = $msaMatches[1]
+		$slotGuidA = $matchA.Groups[1].Value
+		$slotGuidB = $matchB.Groups[1].Value
+		if ($slotGuidA -eq $slotGuidB) {
+			Write-Error "$Label`: wiring-swap probe's first two MoInflAffMsa records already target the same slot ($slotGuidA) -- cannot construct a real perturbation from them."
+			exit 1
+		}
+
+		# Swap ONLY the two matched MSA records' own <Slots> reference -- a whole-document
+		# find/replace of the two slot guids would also rename the SLOT records' own identity (and
+		# every other reference to them, e.g. the owning POS's AffixSlots list), which is a
+		# consistent rename (invisible to any comparison, content-derived or not), not a rewiring.
+		# Splicing by match index/length, later match first, keeps the earlier match's index valid
+		# and touches nothing outside these two records' own <Slots> element.
+		$blockAReplacement = $matchA.Value -replace [regex]::Escape($slotGuidA), $slotGuidB
+		$blockBReplacement = $matchB.Value -replace [regex]::Escape($slotGuidB), $slotGuidA
+		$swappedText = $text.Remove($matchB.Index, $matchB.Length).Insert($matchB.Index, $blockBReplacement)
+		$swappedText = $swappedText.Remove($matchA.Index, $matchA.Length).Insert($matchA.Index, $blockAReplacement)
+		if ($swappedText -eq $text) {
+			Write-Error "$Label`: wiring-swap probe failed to actually change anything."
+			exit 1
+		}
+		Set-Content -Path $swappedPath -Value $swappedText -Encoding utf8 -NoNewline
+
+		$genuineLabels = Get-ContentDerivedGuidLabelMap -Path $SourceFwdata -CheckExePath $ExePath
+		$swappedLabels = Get-ContentDerivedGuidLabelMap -Path $swappedPath -CheckExePath $ExePath
+		$genuineNormalized = Get-NormalizedFwdataText -Path $SourceFwdata -GuidToFixtureId $genuineLabels
+		$swappedNormalized = Get-NormalizedFwdataText -Path $swappedPath -GuidToFixtureId $swappedLabels
+		if ($genuineNormalized -eq $swappedNormalized) {
+			Write-Error "$Label`: wiring-swap probe FAILED to catch a wiring-only perturbation (swapped slot $slotGuidA <-> $slotGuidB between two MoInflAffMsa records) -- content-derived labeling is over-broad."
+			exit 1
+		}
+		Write-Host "  wiring-swap probe OK ($Label): reassigning which of two affix rules targets slot $slotGuidA vs $slotGuidB is caught by content-derived labeling (normalized text differs)."
+
+		# The control: the OLD blanket-"GUID" blind (empty map both sides, this fix's BLOCKING
+		# finding) must still be BLIND to the identical perturbation -- confirms the probe is
+		# actually exercising the fixed code path, not a difference from some other cause.
+		$genuineBlank = Get-NormalizedFwdataText -Path $SourceFwdata -GuidToFixtureId @{}
+		$swappedBlank = Get-NormalizedFwdataText -Path $swappedPath -GuidToFixtureId @{}
+		if ($genuineBlank -ne $swappedBlank) {
+			Write-Error "$Label`: wiring-swap probe's own control failed -- the OLD blanket-GUID blind was expected to stay BLIND to this perturbation, but it reported a difference. Re-check the probe's premise."
+			exit 1
+		}
+		Write-Host "  wiring-swap probe control OK ($Label): the OLD blanket-GUID blind (empty map both sides) is confirmed blind to the same perturbation content-derived labeling now catches."
+	}
+	finally {
+		Remove-Item -Path $swapDir -Recurse -Force -ErrorAction SilentlyContinue
 	}
 }
 
@@ -1089,24 +1308,16 @@ try {
 			exit 1
 		}
 
-		# The witness must never silently drift from what 'author' actually produces: author the
-		# SAME grammar.xml fresh and compare. This canNOT reuse the determinism harness's own
-		# guid->fixture-id map as-is: that map only has entries for the FRESH run's own randomly
-		# assigned guids, so mapping only one side (with the other falling back to a blanket "GUID"
-		# blind) makes the two sides' <rt> records sort into DIFFERENT orders -- a real identifier
-		# like "eK"/"mrP1" and the literal string "GUID" don't collate the same way, so records that
-		# are otherwise identical land at different positions and the diff is all spurious (measured:
-		# 248 "differing" lines, every one a record-order artifact, none a real content difference).
-		# Both sides MUST get the identical treatment, so both use an empty map here -- the witness's
-		# own guidMap was never committed in the first place (it isn't part of the checked-in file
-		# set, see PROTOCOL.md section 10), so this is also the only map available for that side.
+		# The witness must never silently drift from what 'author' actually produces: author the SAME
+		# grammar.xml fresh and compare -- both sides labeled independently by their OWN content
+		# (neither a shared map nor a blanket blind), since the witness has no committed guidMap.
 		$driftAuthorOut = Join-Path $mpTempRoot 'witness-drift-author'
 		New-Item -ItemType Directory -Path $driftAuthorOut -Force | Out-Null
 		& $exePath author --grammar $mutateParseGrammar --out-dir $driftAuthorOut --name WitnessDrift
 		if ($LASTEXITCODE -ne 0) { Write-Error "mutate/parse live proof: witness-drift 'author' failed (exit $LASTEXITCODE)."; exit $LASTEXITCODE }
 		$driftFwdata = Join-Path $driftAuthorOut 'WitnessDrift\WitnessDrift.fwdata'
-		$driftNormalizedFresh = Get-NormalizedFwdataText -Path $driftFwdata -GuidToFixtureId @{}
-		$driftNormalizedWitness = Get-NormalizedFwdataText -Path $baseFwdata -GuidToFixtureId @{}
+		$driftNormalizedFresh = Get-NormalizedFwdataText -Path $driftFwdata -GuidToFixtureId (Get-ContentDerivedGuidLabelMap -Path $driftFwdata -CheckExePath $exePath)
+		$driftNormalizedWitness = Get-NormalizedFwdataText -Path $baseFwdata -GuidToFixtureId (Get-ContentDerivedGuidLabelMap -Path $baseFwdata -CheckExePath $exePath)
 		if ($driftNormalizedFresh -ne $driftNormalizedWitness) {
 			$driftDiffLines = Compare-Object -ReferenceObject ($driftNormalizedFresh -split "`r?`n") -DifferenceObject ($driftNormalizedWitness -split "`r?`n")
 			Write-Error "mutate/parse live proof: the checked-in witness has drifted from 'author' ($($driftDiffLines.Count) differing normalized line(s)). First 10:`n$(($driftDiffLines | Select-Object -First 10 | Out-String))"
@@ -1123,6 +1334,8 @@ try {
 		$baseSha256Before = (Get-FileHash -Algorithm SHA256 -Path $baseFwdata).Hash.ToLowerInvariant()
 		Write-Host "mutate/parse live proof: base project authored, sha256 $baseSha256Before"
 	}
+
+	Test-ContentDerivedLabelCatchesWiringSwap -SourceFwdata $baseFwdata -ExePath $exePath -Label 'mutate/parse live proof base project'
 
 	# --- Record the "k" phoneme guid via inspect. ---
 	$baseInspectPath = Join-Path $mpTempRoot 'base-inspect.json'

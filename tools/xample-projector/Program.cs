@@ -31,6 +31,12 @@ namespace XampleProjector
 				return ValidateCapture.Run(args[1]);
 			}
 
+			// check-label-uniqueness is likewise portable: it proves an already-computed guid-to-
+			// label map is injective (Dictionary<string,string> processing only), so it needs no
+			// FieldWorks install either.
+			if (args[0] == "check-label-uniqueness")
+				return CheckLabelUniquenessCommand.Run(args);
+
 			// An unknown subcommand is a usage error, decided before anything below touches
 			// FieldWorks -- a typo in the subcommand must never pay the cost of (or risk a
 			// false pin-mismatch report from) probing an install it was never going to use.
@@ -120,6 +126,7 @@ namespace XampleProjector
 			Console.WriteLine("        [--max-analyses N] [--max-prefixes N] [--max-suffixes N] [--max-infixes N]");
 			Console.WriteLine("        [--max-roots N] [--max-interfixes N] [--max-nulls N]");
 			Console.WriteLine("  --validate-capture <response.json>");
+			Console.WriteLine("  check-label-uniqueness --labels <guid-to-label.json>");
 			Console.WriteLine();
 			Console.WriteLine("FieldWorks install directory: ${0}, default {1}", FieldWorksDirEnvVar, DefaultFieldWorksDir);
 			Console.WriteLine("Exit codes: 0 ok, 2 usage, 3 pin mismatch, 4 project open failure, 5 projection failure, 6 capture validation failure, 7 author refusal, 8 parity mismatch, 9 mutation refusal, 10 mutation integrity failure, 11 parse engine load failure.");

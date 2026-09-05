@@ -513,13 +513,27 @@ rules). When that file exists, `build.ps1`:
    own `removed[]` -- exercising that field rather than leaving it as dead documentation.
 4. Runs ONE drift probe: freshly `author`s the SAME `grammar.xml` and asserts it normalizes
    identically to the checked-in witness -- the SAME `Get-NormalizedFwdataText` the determinism
-   harness above uses, but with an EMPTY guid map on BOTH sides (blanket `GUID`/`TIMESTAMP` blinding,
-   no fixture-id substitution): the witness's own `guidMap` was never committed (it isn't part of
-   the checked-in file set, see PROTOCOL.md section 10), and mapping only one side made the two
-   sides' `<rt>` records sort into different orders -- a real identifier and the literal string
-   `GUID` don't collate the same way, so otherwise-identical records land at different positions and
-   the diff is all spurious. Both sides need the identical treatment for the comparison to mean
-   anything. So the witness cannot silently drift from what `author` actually produces.
+   harness above uses, but with each side's guid-to-label map built independently from that side's
+   OWN `.fwdata` content (`Get-ContentDerivedGuidLabelMap`), since the witness's own `guidMap` was
+   never committed (it isn't part of the checked-in file set, see PROTOCOL.md section 10) and a
+   shared or empty map on both sides cannot: a record's own `Name`/`Gloss`/`Form`/`Representation`/
+   `StringRepresentation`/`Abbreviation` text becomes its label (e.g. a `MoInflAffixSlot` renders as
+   `MoInflAffixSlot:slot3`, not a blind `GUID`), so which slot a rule targets, which class a phoneme
+   belongs to, which POS a rule requires, and which LexEntry (via its own `LexSense` gloss) an
+   allomorph belongs to all survive normalization -- a wiring-only difference between two otherwise
+   identical fragments (e.g. two affix rules' target slots swapped) makes the normalized text
+   differ, where blanking everything to `GUID` could not. Label uniqueness is PROVEN, not assumed:
+   `XampleProjector.exe check-label-uniqueness` refuses (the same `IdRegistry.Register` guarded
+   insert `GrammarParser` uses for grammar.xml id/Name uniqueness) if two guids would render
+   identically. A record with none of those fields (e.g. a bare `MoInflAffMsa`) is left unlabeled
+   and falls through to the existing blanket `GUID` blind -- harmless here, since GrammarAuthor never
+   needs to tell two such records apart except by what they reference, and what they reference IS
+   labeled. `build.ps1 -Mode test` also runs `Test-ContentDerivedLabelCatchesWiringSwap`, a permanent
+   negative probe that swaps two affix rules' target-slot guids in a copy of a genuine project and
+   asserts the comparison now reports a difference (and, as a control, that the OLD blanket-`GUID`
+   blind stays blind to the identical perturbation) -- so the witness cannot silently drift from what
+   `author` actually produces, and a wiring-only regression cannot silently pass as a literal-text
+   match either.
 
 When the witness file is absent (an older `machine` checkout, or a partial one), `build.ps1` prints
 `SKIPPED (checked-in FieldWorks witness): ...` naming the expected path and falls back to authoring
