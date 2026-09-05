@@ -1,23 +1,25 @@
-//! Ratchet on how many `discover()`ed fixtures leave `fieldworks_producible` unmarked, scoped to the run's own claim.
+//! Ratchet on how many discovered fixtures leave `fieldworks_producible` unmarked; covers every staged category by adding `discover_filter_passes` to `discover`'s own result.
 
 use pg_conformance_fixtures::{
-    claimed_scope, discover, producibility_census, ConformanceScope, FieldworksProducibility,
+    claimed_scope, discover, discover_filter_passes, producibility_census, ConformanceScope,
+    FieldworksProducibility,
 };
 
 /// Ratchet, not a target: falls only when a fixture is actually marked, never raised to admit a new silent one.
 fn unmarked_allowed(scope: ConformanceScope) -> usize {
     match scope {
-        // Measured at submodule pin f42d9591: staging-only unmarked fixtures.
-        ConformanceScope::Local => 29,
-        // Measured at submodule pin f42d9591: 33 machine + 29 staging unmarked.
-        ConformanceScope::All => 62,
+        // Measured after marking every conformance-staging/** fixture (38: 29 edge-cases + 9 filter-passes).
+        ConformanceScope::Local => 0,
+        // Measured: 38 staging fixtures marked; 33 machine fixtures unmarked (pin predates their upstream marking).
+        ConformanceScope::All => 33,
     }
 }
 
 #[test]
 fn unmarked_fixtures_do_not_grow() {
     let scope = claimed_scope();
-    let fixtures = discover();
+    let mut fixtures = discover();
+    fixtures.extend(discover_filter_passes());
     assert!(
         !fixtures.is_empty(),
         "no fixtures discovered at all under scope {} -- check the `machine` submodule is \
