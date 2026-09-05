@@ -158,10 +158,7 @@ fn node_from_start(e: &quick_xml::events::BytesStart<'_>) -> Result<Node, Docume
     })
 }
 
-/// Parses a small, complete XML document into a synthetic root `Node`; unlike
-/// `crate::xml::parse_fwdata` this builds a full DOM, safe since the input is always small. The
-/// result is strict: exactly one element root is required, all tags must balance, and only
-/// whitespace/comments/declarations may occur outside it.
+/// Strict full-DOM parse of a small XML document: one balanced element root, nothing else outside it.
 pub fn parse_full_document(xml: &str) -> Result<Node, DocumentError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
