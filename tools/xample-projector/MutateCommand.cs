@@ -65,6 +65,12 @@ namespace XampleProjector
 
 		private static int RunMutation(string fieldWorksDir, string sourceProjectPath, JObject request, string outDir)
 		{
+			var schemaVersion = (int?)request["schemaVersion"];
+			if (schemaVersion != SchemaVersion.Current)
+			{
+				throw new MutationException(ExitCodes.MutationRefusal, "mutation.unsupported-schema-version",
+					$"request declares schemaVersion {(schemaVersion.HasValue ? schemaVersion.Value.ToString() : "<missing>")}, but only schemaVersion {SchemaVersion.Current} is supported");
+			}
 			var caseId = (string)request["caseId"];
 			if (string.IsNullOrEmpty(caseId))
 				throw new MutationException(ExitCodes.MutationRefusal, "mutation.missing-case-id", "request has no \"caseId\"");
