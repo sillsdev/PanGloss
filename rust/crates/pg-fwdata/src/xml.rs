@@ -259,7 +259,7 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
     Ok(graph)
 }
 
-/// The fatal issue for a tracked (allowed-class) `<rt>` record with no guid; the record itself is never inserted.
+/// The fatal issue for a tracked (allowed-class) `<rt>` record with no guid; the record itself is never inserted. `ordinal` is 1-based: the record's position among every `<rt>` header in the document.
 fn missing_guid_issue(class: &str, ordinal: u64) -> ConversionIssue {
     ConversionIssue {
         code: codes::MISSING_GUID.to_string(),
@@ -459,10 +459,57 @@ mod tests {
             .filter(|i| i.code == "invalid-source.duplicate-guid")
             .collect();
         assert_eq!(duplicate_issues.len(), 1);
+        let source = duplicate_issues[0].source.as_ref().unwrap();
+        assert_eq!(source.kind, "ZzUnknown");
+        assert_eq!(source.id, "00000000-0000-0000-0000-000000000002");
         let record = graph
             .get("00000000-0000-0000-0000-000000000002")
             .expect("the recognized LexDb occurrence must be kept");
         assert_eq!(record.class, "LexDb");
+    }
+
+    #[test]
+    fn duplicate_guid_across_two_different_allowed_classes_keeps_the_first() {
+        let xml = br#"<?xml version="1.0"?><languageproject>
+<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000002"/>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-000000000002"/>
+</languageproject>"#;
+        let graph = parse_fwdata_reader(std::io::Cursor::new(&xml[..])).unwrap();
+        let duplicate_issues: Vec<_> = graph
+            .issues
+            .iter()
+            .filter(|i| i.code == "invalid-source.duplicate-guid")
+            .collect();
+        assert_eq!(duplicate_issues.len(), 1);
+        let source = duplicate_issues[0].source.as_ref().unwrap();
+        assert_eq!(source.kind, "LexEntry");
+        assert_eq!(source.id, "00000000-0000-0000-0000-000000000002");
+        let record = graph
+            .get("00000000-0000-0000-0000-000000000002")
+            .expect("the first occurrence must be kept");
+        assert_eq!(record.class, "LexEntry");
+    }
+
+    #[test]
+    fn two_allowed_class_records_missing_guid_each_get_their_own_issue() {
+        let xml = br#"<?xml version="1.0"?><languageproject>
+<rt class="LexDb"/>
+<rt class="MoStemMsa"/>
+</languageproject>"#;
+        let graph = parse_fwdata_reader(std::io::Cursor::new(&xml[..])).unwrap();
+        let missing_issues: Vec<_> = graph
+            .issues
+            .iter()
+            .filter(|i| i.code == "invalid-source.missing-guid")
+            .collect();
+        assert_eq!(missing_issues.len(), 2);
+        let duplicate_issues = graph
+            .issues
+            .iter()
+            .filter(|i| i.code == "invalid-source.duplicate-guid")
+            .count();
+        assert_eq!(duplicate_issues, 0);
+        assert!(!graph.records.contains_key(""));
     }
 
     #[test]
