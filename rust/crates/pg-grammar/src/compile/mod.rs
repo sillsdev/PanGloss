@@ -32,6 +32,8 @@ mod chardef;
 mod compounding;
 mod environment;
 mod features;
+pub(crate) mod inventory;
+pub(crate) mod issue_codes;
 mod lexicon;
 mod mpr;
 mod natclass;
@@ -40,6 +42,8 @@ mod rules;
 mod templates;
 #[cfg(test)]
 mod tests;
+
+use std::cell::RefCell;
 
 use hashbrown::HashMap;
 
@@ -50,23 +54,34 @@ use crate::featsys::PhonFeatureSystem;
 use crate::model::*;
 use crate::GrammarError;
 
-use pg_snapshot::Snapshot;
+use pg_snapshot::{ConversionIssue, InventoryKey, IssueClass, SelectionRecorder, Snapshot};
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
 /// allomorphs/entries — see the module doc). Only a handful of hard limits inherited from
 /// `mod@crate::load` — >64 symbols in a feature, >64 total MPR features — surface as `Err`.
 pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), GrammarError> {
+    let (grammar, warnings, _recorder) = compile_project_recording(snapshot)?;
+    Ok((grammar, warnings))
+}
+
+/// As [`compile_project`], but also returns the [`SelectionRecorder`] every owner below wrote its
+/// snapshot-to-grammar selection decisions into — the seam a later slice's measured API reads.
+pub(crate) fn compile_project_recording(
+    snapshot: &Snapshot,
+) -> Result<(Grammar, Vec<String>, SelectionRecorder), GrammarError> {
     let mut warnings: Vec<String> = Vec::new();
+    let mut recorder = SelectionRecorder::default();
+    inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
 
     // --- MPR feature groups: inflection classes, exception features, lexEntryInflTypes --------
-    let mpr = mpr::build(snapshot, &mut warnings)?;
+    let mpr = mpr::build(snapshot, &mut warnings, &mut recorder)?;
 
     // --- POS + syntactic feature system (POS = feature 0; head = feature 1, always present) ---
-    let (syn, pos) = features::build_syn_features(snapshot)?;
+    let (syn, pos) = features::build_syn_features(snapshot, &mut recorder)?;
 
     // --- phonological feature system -----------------------------------------------------------
-    let phon_features = features::build_phon_features(snapshot, &mut warnings)?;
+    let phon_features = features::build_phon_features(snapshot, &mut warnings, &mut recorder)?;
 
     // --- character-definition table from phonemes ----------------------------------------------
     let chardef::CharDefBuild {
@@ -75,7 +90,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         boundary_of,
         null_bdry,
         morph_bdry,
-    } = chardef::build(snapshot, &phon_features, &mut warnings)?;
+    } = chardef::build(snapshot, &phon_features, &mut warnings, &mut recorder)?;
     let table_id = TableId(0);
 
     // --- natural classes (+ synthetic "Any") ----------------------------------------------------
@@ -85,7 +100,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         by_name: natclass_by_name,
         any: any_nc,
         last_unnamed: natclass_last_unnamed,
-    } = natclass::build(snapshot, &phon_features, &phoneme_of, &mut warnings);
+    } = natclass::build(snapshot, &phon_features, &phoneme_of, &mut warnings, &mut recorder);
 
     // --- grammar-tier FS interner: the empty FS is interned first (FsId 0) ---------------------
     let mut fs_interner: Interner<FeatureStruct> = Interner::with_capacity(64);
@@ -93,8 +108,14 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     debug_assert_eq!(empty, pg_featstruct::FsId(0));
 
     // --- stem names ------------------------------------------------------------------------------
-    let (stem_names, stem_name_by_guid) =
-        features::build_stem_names(snapshot, &syn, &pos, &mut fs_interner, &mut warnings);
+    let (stem_names, stem_name_by_guid) = features::build_stem_names(
+        snapshot,
+        &syn,
+        &pos,
+        &mut fs_interner,
+        &mut warnings,
+        &mut recorder,
+    );
 
     let mut env_by_guid = HashMap::new();
     for e in &snapshot.phonology.environments {
@@ -120,6 +141,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         env_by_guid: &env_by_guid,
         default_vernacular_ws: snapshot.project.vernacular_writing_systems.first().cloned(),
         default_analysis_ws: snapshot.project.analysis_writing_systems.first().cloned(),
+        recorder: RefCell::new(recorder),
     };
 
     let mut acc = Acc {
@@ -142,11 +164,31 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         .as_deref()
         .is_some_and(|s| !s.trim().is_empty())
     {
-        warnings.push(
+        let key = InventoryKey::setting(pg_snapshot::InventoryKind::StrataConfiguration, "Strata");
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
+        ctx.reject(
+            &mut warnings,
+            key,
+            issue_codes::STRATA_CUSTOM_UNSUPPORTED,
+            IssueClass::UnrepresentableForHc,
             "unsupported: custom Strata parser-parameter reorganization not implemented; using \
-             the default Morphology/Clitics/Surface layout"
-                .to_string(),
+             the default Morphology/Clitics/Surface layout",
         );
+    }
+    {
+        let not_on_clitics_key =
+            InventoryKey::setting(pg_snapshot::InventoryKind::ParserSetting, "notOnClitics");
+        ctx.considered(not_on_clitics_key.clone());
+        ctx.selected(not_on_clitics_key.clone());
+        ctx.represented(not_on_clitics_key);
+        let no_default_compounding_key = InventoryKey::setting(
+            pg_snapshot::InventoryKind::ParserSetting,
+            "noDefaultCompounding",
+        );
+        ctx.considered(no_default_compounding_key.clone());
+        ctx.selected(no_default_compounding_key.clone());
+        ctx.represented(no_default_compounding_key);
     }
     let morphology_stratum = StratumId(0);
     let clitic_stratum = StratumId(1);
@@ -188,7 +230,9 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         acc.msa_guid_index
             .insert(m.xml_key.clone(), MorphemeId(i as u32));
     }
-    strata_assign_co_occurrence(snapshot, &mut acc, &mut warnings);
+    strata_assign_co_occurrence(snapshot, &ctx, &mut acc, &mut warnings);
+    // The recorder must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
+    let recorder = ctx.recorder.into_inner();
 
     let strata = vec![
         StratumDef {
@@ -264,13 +308,14 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
     // `pg-fwdata` extracts every declared natural class unconditionally, so compact to only those actually referenced now that every other compile step has had its chance to resolve one (see `natclass::compact_to_referenced`'s own doc).
     natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
 
-    Ok((grammar, warnings))
+    Ok((grammar, warnings, recorder))
 }
 
 /// Ad-hoc co-occurrence rules resolved against the now-complete `acc.allomorph_guid_index`/`acc.msa_guid_index` registries; a dangling reference is a warning, never a hard failure.
-fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mut Vec<String>) {
+fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, warnings: &mut Vec<String>) {
     use pg_snapshot::morphology::AdhocProhibition;
     use pg_snapshot::morphology::Adjacency as SnapAdjacency;
+    use pg_snapshot::InventoryKind::{AllomorphCoOccurrence, MorphemeCoOccurrence};
 
     fn adjacency(a: SnapAdjacency) -> CoOccurrenceAdjacency {
         match a {
@@ -285,20 +330,29 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mu
     for rule in &snapshot.morphology.adhoc_prohibitions {
         match rule {
             AdhocProhibition::Allomorph {
+                guid,
                 disabled,
                 primary,
                 others,
                 adjacency: adj,
-                ..
             } => {
+                let key = InventoryKey::object(AllomorphCoOccurrence, guid.clone());
+                ctx.considered(key.clone());
                 if *disabled {
                     continue;
                 }
+                ctx.selected(key.clone());
                 let Some(&primary_id) = acc.allomorph_guid_index.get(primary) else {
-                    warnings.push(format!(
-                        "ad-hoc allomorph prohibition: primary allomorph {primary:?} does not \
-                         resolve; skipped"
-                    ));
+                    ctx.reject(
+                        warnings,
+                        key,
+                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!(
+                            "ad-hoc allomorph prohibition: primary allomorph {primary:?} does not \
+                             resolve; skipped"
+                        ),
+                    );
                     continue;
                 };
                 let mut other_ids = Vec::with_capacity(others.len());
@@ -316,8 +370,15 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mu
                     }
                 }
                 if !ok || other_ids.is_empty() {
+                    ctx.reject_quietly(
+                        key,
+                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        "ad-hoc allomorph prohibition: an 'others' target does not resolve",
+                    );
                     continue;
                 }
+                ctx.represented(key);
                 let def = AllomorphCoOccurrenceRuleDef {
                     require: false,
                     others: other_ids,
@@ -341,20 +402,29 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mu
                 }
             }
             AdhocProhibition::Morpheme {
+                guid,
                 disabled,
                 primary,
                 others,
                 adjacency: adj,
-                ..
             } => {
+                let key = InventoryKey::object(MorphemeCoOccurrence, guid.clone());
+                ctx.considered(key.clone());
                 if *disabled {
                     continue;
                 }
+                ctx.selected(key.clone());
                 let Some(&primary_id) = acc.msa_guid_index.get(primary) else {
-                    warnings.push(format!(
-                        "ad-hoc morpheme prohibition: primary morpheme {primary:?} does not \
-                         resolve; skipped"
-                    ));
+                    ctx.reject(
+                        warnings,
+                        key,
+                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!(
+                            "ad-hoc morpheme prohibition: primary morpheme {primary:?} does not \
+                             resolve; skipped"
+                        ),
+                    );
                     continue;
                 };
                 let mut other_ids = Vec::with_capacity(others.len());
@@ -372,8 +442,15 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, acc: &mut Acc, warnings: &mu
                     }
                 }
                 if !ok || other_ids.is_empty() {
+                    ctx.reject_quietly(
+                        key,
+                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        "ad-hoc morpheme prohibition: an 'others' target does not resolve",
+                    );
                     continue;
                 }
+                ctx.represented(key);
                 acc.morphemes[primary_id.0 as usize].co_occurrence.push(
                     MorphemeCoOccurrenceRuleDef {
                         require: false,
@@ -409,6 +486,74 @@ pub(crate) struct Ctx<'a> {
     pub env_by_guid: &'a HashMap<&'a str, &'a pg_snapshot::phonology::Environment>,
     pub default_vernacular_ws: Option<String>,
     pub default_analysis_ws: Option<String>,
+    /// The snapshot-to-grammar selection recorder every owner below writes its considered/selected/represented/rejected/synthesized calls into; behind a `RefCell` since `Ctx` itself is shared by shared reference everywhere.
+    pub recorder: RefCell<SelectionRecorder>,
+}
+
+impl Ctx<'_> {
+    /// Records an attachment/expansion/setting `key` as sourced (object identities are seeded once in `inventory::seed_authored_from_snapshot` instead).
+    pub(crate) fn authored(&self, key: InventoryKey) {
+        self.recorder.borrow_mut().authored(key);
+    }
+
+    pub(crate) fn considered(&self, key: InventoryKey) {
+        self.recorder.borrow_mut().considered(key);
+    }
+
+    pub(crate) fn selected(&self, key: InventoryKey) {
+        self.recorder.borrow_mut().selected(key);
+    }
+
+    pub(crate) fn represented(&self, key: InventoryKey) {
+        self.recorder.borrow_mut().represented(key);
+    }
+
+    pub(crate) fn synthesized(&self, key: InventoryKey) {
+        self.recorder.borrow_mut().synthesized(key);
+    }
+
+    /// Records `key` rejected and emits the SAME warning a caller would otherwise have pushed alone, so converting a warn-only site to also reject never changes warning prose or counts.
+    pub(crate) fn reject(
+        &self,
+        warnings: &mut Vec<String>,
+        key: InventoryKey,
+        code: &'static str,
+        class: IssueClass,
+        msg: impl Into<String>,
+    ) {
+        let msg = msg.into();
+        warnings.push(msg.clone());
+        self.recorder.borrow_mut().rejected(
+            key,
+            ConversionIssue {
+                code: code.to_string(),
+                class,
+                source: None,
+                fatal: false,
+                message: msg,
+            },
+        );
+    }
+
+    /// Records `key` rejected with no new warning, for a site that was already silent about dropping it.
+    pub(crate) fn reject_quietly(
+        &self,
+        key: InventoryKey,
+        code: &'static str,
+        class: IssueClass,
+        msg: impl Into<String>,
+    ) {
+        self.recorder.borrow_mut().rejected(
+            key,
+            ConversionIssue {
+                code: code.to_string(),
+                class,
+                source: None,
+                fatal: false,
+                message: msg.into(),
+            },
+        );
+    }
 }
 
 /// Everything the compiler appends to as it walks the snapshot's strata-worth of content.

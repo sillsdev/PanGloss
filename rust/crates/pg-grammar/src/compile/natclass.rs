@@ -8,7 +8,7 @@ use hashbrown::HashMap;
 use pg_featstruct::SymbolBits;
 
 use pg_snapshot::phonology::NaturalClass as SnapNaturalClass;
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot};
 
 use crate::chardef::CharDefId;
 use crate::featsys::{FlatIndex, PhonFeatureSystem, TYPE_SEGMENT_SYMBOL};
@@ -16,6 +16,8 @@ use crate::model::{
     AffixAllomorphDef, EnvironmentDef, Grammar, MorphRuleDef, NatClassId, NaturalClass,
     NaturalClassKind, OutputAction, Pattern, PatternNode, PhonRuleDef,
 };
+
+use super::{inventory, issue_codes};
 
 pub(crate) struct NatClassBuild {
     pub defs: Vec<NaturalClass>,
@@ -32,6 +34,7 @@ pub(crate) fn build(
     phon: &PhonFeatureSystem,
     phoneme_of: &HashMap<String, CharDefId>,
     warnings: &mut Vec<String>,
+    recorder: &mut SelectionRecorder,
 ) -> NatClassBuild {
     let mut defs = Vec::new();
     let mut by_guid = HashMap::new();
@@ -45,16 +48,26 @@ pub(crate) fn build(
                 name,
                 phonemes,
             } => {
+                let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
+                recorder.considered(key.clone());
                 let mut resolved = Vec::with_capacity(phonemes.len());
                 let mut ok = true;
                 for p in phonemes {
                     match phoneme_of.get(p) {
                         Some(&cd) => resolved.push(cd),
                         None => {
-                            warnings.push(format!(
-                                "natural class {guid:?} ({name:?}): member phoneme {p:?} does not \
-                                 resolve; class skipped"
-                            ));
+                            recorder.selected(key.clone());
+                            inventory::reject(
+                                recorder,
+                                warnings,
+                                key.clone(),
+                                issue_codes::NATCLASS_SEGMENTS_MEMBER_UNRESOLVED,
+                                IssueClass::InvalidSource,
+                                format!(
+                                    "natural class {guid:?} ({name:?}): member phoneme {p:?} does \
+                                     not resolve; class skipped"
+                                ),
+                            );
                             ok = false;
                             break;
                         }
@@ -63,6 +76,7 @@ pub(crate) fn build(
                 if !ok {
                     continue;
                 }
+                recorder.selected(key.clone());
                 let id = NatClassId(defs.len() as u32);
                 by_guid.insert(guid.clone(), id);
                 by_name.entry(name.clone()).or_insert(id);
@@ -74,12 +88,16 @@ pub(crate) fn build(
                     name: Some(name.clone()),
                     kind: NaturalClassKind::Segments(resolved),
                 });
+                recorder.represented(key);
             }
             SnapNaturalClass::Features {
                 guid,
                 name,
                 features,
             } => {
+                let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
+                recorder.considered(key.clone());
+                recorder.selected(key.clone());
                 let pairs = feature_constraint_pairs(features, phon, warnings, guid);
                 let id = NatClassId(defs.len() as u32);
                 by_guid.insert(guid.clone(), id);
@@ -92,11 +110,17 @@ pub(crate) fn build(
                     name: Some(name.clone()),
                     kind: NaturalClassKind::Feature(pairs),
                 });
+                recorder.represented(key);
             }
         }
     }
 
     // Synthetic "Any" natural class: matches any segment, no constraint beyond the mandatory Type=Segment every FeatureNaturalClass carries.
+    let any_key = InventoryKey::object(InventoryKind::NaturalClass, "__any__");
+    recorder.synthesized(any_key.clone());
+    recorder.considered(any_key.clone());
+    recorder.selected(any_key.clone());
+    recorder.represented(any_key);
     let any_id = NatClassId(defs.len() as u32);
     defs.push(NaturalClass {
         xml_id: "__any__".to_string(),

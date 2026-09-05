@@ -6,19 +6,37 @@ use pg_snapshot::feature::{
 };
 use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Lexicon, Msa, Sense};
 use pg_snapshot::morphology::{
-    AffixSlot, AffixTemplate, InflectionClass, LexEntryInflType, MorphType, Morphology,
-    PartOfSpeech,
+    AffixSlot, AffixTemplate, CompoundConstituentRequirement, CompoundOutcome, CompoundRule,
+    InflectionClass, LexEntryInflType, MorphType, Morphology, PartOfSpeech,
 };
 use pg_snapshot::phonology::{
     BoundaryMarker, MetathesisRule, NaturalClass as SnapNaturalClass, Phoneme, PhonologicalRule,
     Phonology, RuleDirection,
 };
 use pg_snapshot::project::Project;
-use pg_snapshot::{FeatureSystems, Snapshot, WsForm};
+use pg_snapshot::{FeatureSystems, InventoryKey, InventoryKind, Snapshot, WsForm};
 
 use crate::model::{MorphRuleDef, TemplateSlotZone};
 
-use super::{compile_project, environment};
+use super::{compile_project, compile_project_recording, environment};
+
+/// Compiles `snapshot` through the recording seam and asserts the recorder's own invariants hold; returns everything a caller might want to inspect further.
+fn compile_recording_ok(
+    snapshot: &Snapshot,
+) -> (
+    crate::model::Grammar,
+    Vec<String>,
+    pg_snapshot::ConversionInventory,
+    Vec<pg_snapshot::ConversionIssue>,
+) {
+    let (grammar, warnings, recorder) =
+        compile_project_recording(snapshot).expect("must compile");
+    recorder
+        .check_invariants()
+        .expect("recorder invariants must hold");
+    let (inventory, issues) = recorder.finish();
+    (grammar, warnings, inventory, issues)
+}
 
 fn ws(ws: &str, form: &str) -> WsForm {
     WsForm {
@@ -1092,4 +1110,338 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
             .as_deref(),
         Some("TOP")
     );
+}
+
+// --- snapshot-to-grammar selection recording ---------------------------------------------------
+
+#[test]
+fn fixture_recording_authored_minus_considered_is_empty_and_selected_minus_represented_minus_rejected_is_empty(
+) {
+    let (snapshot, _f) = fixture();
+    let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let unaccounted_authored: Vec<_> = inventory
+        .authored
+        .difference(&inventory.considered)
+        .collect();
+    assert!(
+        unaccounted_authored.is_empty(),
+        "authored but never considered: {unaccounted_authored:?}"
+    );
+
+    let unaccounted_selected: Vec<_> = inventory
+        .selected
+        .iter()
+        .filter(|k| !inventory.represented.contains(k) && !inventory.rejected.contains(k))
+        .collect();
+    assert!(
+        unaccounted_selected.is_empty(),
+        "selected but neither represented nor rejected: {unaccounted_selected:?}"
+    );
+
+    let represented_phonemes = inventory
+        .represented
+        .iter()
+        .filter(|k| k.kind == InventoryKind::Phoneme)
+        .count();
+    assert_eq!(represented_phonemes, snapshot.phonology.phonemes.len());
+
+    // Counts snapshot entries: one may yield a LexEntryDef, an mrule, both, or neither.
+    let represented_entries = inventory
+        .represented
+        .iter()
+        .filter(|k| k.kind == InventoryKind::Entry)
+        .count();
+    assert_eq!(represented_entries, snapshot.lexicon.entries.len());
+
+    let represented_allomorphs = inventory
+        .represented
+        .iter()
+        .filter(|k| k.kind == InventoryKind::Allomorph)
+        .count();
+    let grammar_allomorph_count = grammar
+        .entries
+        .iter()
+        .map(|e| e.allomorphs.len())
+        .sum::<usize>()
+        + grammar
+            .mrules
+            .iter()
+            .filter_map(|r| r.affix_allomorphs())
+            .map(|a| a.len())
+            .sum::<usize>();
+    assert_eq!(represented_allomorphs, grammar_allomorph_count);
+}
+
+/// Every existing fixture-derived scenario elsewhere in this file must also leave the recorder's invariants intact; each snapshot here mirrors an existing test's mutation, checked through `compile_recording_ok` rather than duplicating that test's own assertions.
+#[test]
+fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
+    let (mut template_variant, f) = fixture();
+    let template = &mut template_variant.morphology.parts_of_speech[0].affix_templates[0];
+    template.suffix_slots = vec![f.slot.clone()];
+    template.prefix_slots = vec![f.slot.clone()];
+    compile_recording_ok(&template_variant);
+
+    let (mut infl_class_variant, _f) = fixture();
+    infl_class_variant.morphology.parts_of_speech[0]
+        .inflection_classes
+        .push(InflectionClass {
+            guid: "class-default".to_string(),
+            name: "DefaultClass".to_string(),
+            abbreviation: "def".to_string(),
+            children: Vec::new(),
+        });
+    infl_class_variant.morphology.parts_of_speech[0].default_inflection_class =
+        Some("class-default".to_string());
+    match &mut infl_class_variant.lexicon.entries[0].msas[0] {
+        Msa::Stem {
+            inflection_class, ..
+        } => *inflection_class = None,
+        _ => panic!("expected the fixture's stem MSA"),
+    }
+    compile_recording_ok(&infl_class_variant);
+
+    let (mut partial_stem, _f) = fixture();
+    match &mut partial_stem.lexicon.entries[0].msas[0] {
+        Msa::Stem { part_of_speech, .. } => *part_of_speech = None,
+        _ => panic!("expected the fixture's stem MSA"),
+    }
+    compile_recording_ok(&partial_stem);
+
+    let (mut partial_rule, _f) = fixture();
+    match &mut partial_rule.lexicon.entries[1].msas[0] {
+        Msa::Inflectional { slots, .. } => slots.clear(),
+        _ => panic!("expected the fixture's inflectional MSA"),
+    }
+    compile_recording_ok(&partial_rule);
+
+    let (mut no_default_compounding, _f) = fixture();
+    no_default_compounding.morphology.parser_parameters.no_default_compounding = true;
+    compile_recording_ok(&no_default_compounding);
+
+    let (mut clitic_rules, _f) = fixture();
+    clitic_rules.morphology.parser_parameters.not_on_clitics = false;
+    clitic_rules.phonology.rules.push(PhonologicalRule::Rewrite(
+        pg_snapshot::phonology::RewriteRule {
+            guid: "prule-1".to_string(),
+            name: "raise-a".to_string(),
+            direction: RuleDirection::LeftToRight,
+            structural_description: Vec::new(),
+            feature_constraint_variables: Vec::new(),
+            right_hand_sides: vec![pg_snapshot::phonology::RewriteRhs::default()],
+        },
+    ));
+    compile_recording_ok(&clitic_rules);
+
+    let (mut metathesis_variant, _f) = fixture();
+    metathesis_variant
+        .phonology
+        .rules
+        .push(PhonologicalRule::Metathesis(MetathesisRule {
+            guid: "meta-1".to_string(),
+            name: "swap".to_string(),
+            direction: RuleDirection::LeftToRight,
+            structural_description: Vec::new(),
+            left_switch_index: 0,
+            right_switch_index: 1,
+        }));
+    compile_recording_ok(&metathesis_variant);
+
+    let (bracket_env_variant, _f) = {
+        let (mut snapshot, f) = fixture();
+        snapshot
+            .phonology
+            .natural_classes
+            .push(SnapNaturalClass::Segments {
+                guid: "nc-vowel".to_string(),
+                name: "V".to_string(),
+                phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+            });
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: "env-v".to_string(),
+                name: String::new(),
+                representation: "/_[V]".to_string(),
+            });
+        snapshot.lexicon.entries[1].allomorphs[0]
+            .environments
+            .push("env-v".to_string());
+        (snapshot, f)
+    };
+    compile_recording_ok(&bracket_env_variant);
+
+    let (invalid_env_variant, _f) = {
+        let (mut snapshot, f) = fixture();
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: "env-bad".to_string(),
+                name: String::new(),
+                representation: "not-a-valid-environment".to_string(),
+            });
+        snapshot.lexicon.entries[0].allomorphs[0]
+            .environments
+            .push("env-bad".to_string());
+        (snapshot, f)
+    };
+    compile_recording_ok(&invalid_env_variant);
+
+    compile_recording_ok(&circumfix_snapshot(&[], &[]).0);
+    compile_recording_ok(&circumfix_snapshot(&["env-after-vowel"], &[]).0);
+}
+
+/// Pins the fixture's warning vector exactly and proves `compile_project`/`compile_project_recording` agree byte-for-byte -- the recording seam must never change what `compile_project` itself returns.
+#[test]
+fn fixture_warning_vec_is_byte_identical_between_compile_project_and_the_recording_seam() {
+    let (snapshot, _f) = fixture();
+    let (_grammar_plain, warnings_plain) =
+        compile_project(&snapshot).expect("fixture must compile");
+    let (_grammar_recorded, warnings_recorded, _inventory, _issues) =
+        compile_recording_ok(&snapshot);
+    let expected: Vec<String> = Vec::new();
+    assert_eq!(warnings_plain, expected);
+    assert_eq!(warnings_recorded, expected);
+    assert_eq!(warnings_plain, warnings_recorded);
+}
+
+#[test]
+fn unsegmentable_allomorph_is_rejected_with_the_expected_code_and_the_legacy_warning_text() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "xyz")];
+
+    let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("cannot segment") && w.contains("allo-stem")),
+        "expected the legacy 'cannot segment' warning to survive unchanged; got {warnings:?}"
+    );
+    assert_eq!(grammar.entries.len(), 0, "the unsegmentable stem entry must be dropped");
+
+    let key = InventoryKey::object(InventoryKind::Allomorph, "allo-stem".to_string());
+    assert!(
+        inventory.rejected.contains(&key),
+        "the unsegmentable allomorph must be recorded rejected"
+    );
+    assert!(
+        issues
+            .iter()
+            .any(|i| i.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE),
+        "expected an issue carrying the unsegmentable code; got {issues:?}"
+    );
+}
+
+#[test]
+fn a_disabled_compound_rule_is_considered_but_not_selected_with_no_issue() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.compound_rules.push(CompoundRule::Endocentric {
+        guid: "cr-disabled".to_string(),
+        name: "Disabled".to_string(),
+        disabled: true,
+        head_last: false,
+        left: CompoundConstituentRequirement::default(),
+        right: CompoundConstituentRequirement::default(),
+        overriding: CompoundOutcome::default(),
+    });
+
+    let (_grammar, _warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    let key = InventoryKey::object(InventoryKind::CompoundRule, "cr-disabled".to_string());
+    assert!(inventory.considered.contains(&key), "must be considered");
+    assert!(!inventory.selected.contains(&key), "a disabled rule must never be selected");
+    assert!(!inventory.rejected.contains(&key), "a disabled rule is not a rejection");
+    assert!(
+        issues.iter().all(|i| i.message != "cr-disabled"),
+        "a disabled rule must not produce an issue"
+    );
+}
+
+#[test]
+fn an_unresolved_environment_guid_on_a_root_allomorph_is_a_quiet_attachment_rejection() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.lexicon.entries[0].allomorphs[0]
+        .environments
+        .push("dangling-env-guid".to_string());
+
+    let (_grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(
+        warnings.is_empty(),
+        "an unresolved environment guid is silently dropped, never warned: {warnings:?}"
+    );
+    let attachment = InventoryKey::attachment(
+        InventoryKind::Environment,
+        "allo-stem".to_string(),
+        "dangling-env-guid".to_string(),
+        "environment",
+    );
+    assert!(
+        inventory.rejected.contains(&attachment),
+        "the dangling environment attachment must still be recorded rejected"
+    );
+}
+
+#[test]
+fn circumfix_cross_product_expansion_is_synthesized_and_represented() {
+    let (snapshot, _f) = circumfix_snapshot(&[], &[]);
+    let (_grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.iter().all(|w| !w.contains("circumfix")));
+
+    let expansion = InventoryKey::expansion(
+        InventoryKind::Allomorph,
+        "allo-circ-prefix".to_string(),
+        vec!["allo-circ-suffix".to_string()],
+        "circumfix-cross-product",
+    );
+    assert!(inventory.synthesized.contains(&expansion));
+    assert!(inventory.represented.contains(&expansion));
+}
+
+#[test]
+fn default_compounding_synthesizes_exactly_two_compound_rule_atoms_only_when_none_are_authored() {
+    let (snapshot, _f) = fixture();
+    let (_grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    let synthesized_compound_rules = inventory
+        .synthesized
+        .iter()
+        .filter(|k| k.kind == InventoryKind::CompoundRule)
+        .count();
+    assert_eq!(synthesized_compound_rules, 2);
+
+    let (mut snapshot_with_authored, _f2) = fixture();
+    snapshot_with_authored
+        .morphology
+        .compound_rules
+        .push(CompoundRule::Endocentric {
+            guid: "cr-authored".to_string(),
+            name: "Authored".to_string(),
+            disabled: false,
+            head_last: false,
+            left: CompoundConstituentRequirement::default(),
+            right: CompoundConstituentRequirement::default(),
+            overriding: CompoundOutcome::default(),
+        });
+    let (_grammar2, _warnings2, inventory2, _issues2) = compile_recording_ok(&snapshot_with_authored);
+    let synthesized_compound_rules_2 = inventory2
+        .synthesized
+        .iter()
+        .filter(|k| k.kind == InventoryKind::CompoundRule)
+        .count();
+    assert_eq!(synthesized_compound_rules_2, 0);
+}
+
+#[test]
+fn custom_strata_setting_is_recorded_rejected() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
+
+    let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.iter().any(|w| w.contains("Strata")));
+    let key = InventoryKey::setting(InventoryKind::StrataConfiguration, "Strata");
+    assert!(inventory.rejected.contains(&key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED));
 }
