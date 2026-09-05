@@ -41,6 +41,8 @@ mod reachability;
 pub(crate) mod roles;
 mod rules;
 mod templates;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 #[cfg(test)]
 mod tests;
 

@@ -5,6 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# `compile::test_support::assert_grammars_equal` is a field-for-field `Grammar` comparison with no
+# construction authority, unlike pg-foma's `candidate_filter::test_support` (which can build a
+# filter that deletes candidates) -- still feature-gated so no production build carries test-only
+# comparison code, following the same self-dev-dependency pattern.
+test-support = []
+
 [dependencies]
 pg-featstruct.workspace = true
 pg-shape.workspace = true
@@ -18,6 +25,12 @@ serde.workspace = true
 
 [dev-dependencies]
 pg-conformance-fixtures.workspace = true
+# Enables this crate's own `test-support` feature for its test targets without offering it to any
+# other crate -- same pattern as pg-foma's own self dev-dependency (see that crate's Cargo.toml).
+pg-grammar = { path = ".", features = ["test-support"] }
+# tests/conversion_inventory_gate.rs: measures the FieldWorks conversion-loss delta end to end
+# (import through compile). No cycle: pg-fwdata depends only on pg-snapshot, never on pg-grammar.
+pg-fwdata.workspace = true
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
