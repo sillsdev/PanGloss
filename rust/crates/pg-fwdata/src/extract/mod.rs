@@ -12,16 +12,14 @@ pub(crate) mod codes;
 pub(crate) use inventory::tracked_kind;
 
 use pg_snapshot::{
-    ConversionProvenance, InventoryKey, IssueClass, Snapshot, SourceInventoryStatus, SourceRef,
-    Warning, CONVERSION_PROVENANCE_SCHEMA_VERSION,
+    ConversionProvenance, InventoryKey, IssueClass, SelectionRecorder, Snapshot,
+    SourceInventoryStatus, SourceRef, Warning, CONVERSION_PROVENANCE_SCHEMA_VERSION,
 };
 
 use crate::{
     xml::{RawGraph, Record},
     ImportError,
 };
-
-use inventory::SelectionRecorder;
 
 /// Shared extraction context: the raw object graph, accumulating warnings, and writing-system priority lists that only become known once the `project` section has been read.
 pub struct Ctx<'a> {
@@ -38,7 +36,7 @@ pub struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     fn new(graph: &'a RawGraph) -> Self {
         let mut recorder = SelectionRecorder::default();
-        recorder.seed_authored_from_graph(graph);
+        inventory::seed_authored_from_graph(&mut recorder, graph);
         Ctx {
             graph,
             warnings: Vec::new(),
