@@ -13,6 +13,7 @@ inspired_by: ["synthetic circumfix-cross-product and infix-with-drop probe (not 
 sources:
   - "docs/research/circumfix-composite-precedence-census.md"
 requires: []
+fieldworks_producible: true
 words:
   - word: batid
     note: ROOT bare, no mrCross/mrInfixDrop applied -- a plain control.

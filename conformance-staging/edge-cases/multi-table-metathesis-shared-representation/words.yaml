@@ -9,6 +9,13 @@ sources:
   - "docs/conformance/representative-typology-basis.md S1.2.4 (Metathesis) / S1.2.5 (Multi-table: shared-representation-across-tables configuration)"
   - "docs/conformance/multitable-shared-representation-design.md (residual gap this fixture closes)"
 requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Core premise (cross-table metathesis over a shared representation) requires two distinct
+  CharacterDefinitionTables (t0/Inner, t1/Outer) referenced by different Stratum elements; HCLoader
+  builds exactly one table per grammar and reuses it for every stratum (HCLoader.cs:204,227-233,374,
+  2669-2742) -- same gap as edge-cases/cross-table-root-respelling and
+  edge-cases/bistratal-overlapping-segment-representation.
 words:
   - word: xw
     note: >-

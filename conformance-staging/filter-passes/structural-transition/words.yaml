@@ -25,6 +25,7 @@ inspired_by: ["synthetic prefix + suffix agglutinative grammar (not modeling any
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (forbidden morphotactic transition)"
 requires: []
+fieldworks_producible: true
 words:
   - word: kolur
     note: Bare root, no transition to check. Plain control.

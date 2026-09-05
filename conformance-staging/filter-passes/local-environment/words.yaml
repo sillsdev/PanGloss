@@ -28,6 +28,7 @@ inspired_by: ["synthetic Austronesian-style nasal-substitution prefixation (not 
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (impossible certified local environment)"
 requires: [phonology]
+fieldworks_producible: true
 words:
   - word: balo
     note: Bare bilabial-initial root, no prefix and so no nasal to place. Plain control.

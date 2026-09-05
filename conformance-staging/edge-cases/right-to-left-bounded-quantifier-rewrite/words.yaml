@@ -15,6 +15,7 @@ inspired_by: ["synthetic right-to-left bounded-quantifier rewrite probe (not mod
 sources:
   - "docs/conformance/representative-typology-basis.md S1.2.2 (Right-to-left rewrite: additional in-scope pattern shapes)"
 requires: [phonology]
+fieldworks_producible: true
 words:
   - word: acet
     note: >-

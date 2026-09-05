@@ -13,6 +13,7 @@ inspired_by: ["synthetic recursive/self-feeding endocentric compounding probe (n
 sources:
   - "docs/conformance/representative-typology-basis.md S1.2.1 (Compounding: recursive/self-feeding configuration)"
 requires: []
+fieldworks_producible: true
 words:
   - word: tevi
     note: ROOT1 bare root, no compounding -- a plain control.

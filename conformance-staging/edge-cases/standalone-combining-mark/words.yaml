@@ -26,6 +26,7 @@ sources:
   - "docs/fst-plan/foma-fst-plan.md's non-Latin/non-ASCII robustness follow-up (combining marks, NFC vs NFD inputs)"
   - "rust/crates/pg-foma/src/emit.rs boundary_combining_run_symbols (the fix this fixture pins)"
 requires: []
+fieldworks_producible: true
 words:
   - word: pa
     note: >-

@@ -13,6 +13,7 @@ inspired_by: ["synthetic template-slot circumfix probe (not modeling any real la
 sources:
   - "template-slot circumfix containment regression"
 requires: []
+fieldworks_producible: true
 words:
   - word: lodi
     note: ROOT bare, no template slot filled (slotMain is optional) -- a plain control.

@@ -13,6 +13,14 @@ inspired_by: ["synthetic cross-stem material-determination probe (not modeling a
 sources:
   - "cross-stem material-determination containment regression"
 requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  mrSfx's two MorphologicalSubrules (subSfxKa, subSfxKo) each carry a DIFFERENT
+  MorphologicalInput.requiredMPRFeatures value (mprPfxA vs mprPfxB) on the same rule. HCLoader
+  computes one requiredMprFeatures list per MSA and applies it onto every subrule
+  LoadAffixProcessAllomorphs yields alike (HCLoader.cs:966-969, mirrored at :999,:1024,:1042) -- two
+  subrules of one rule can never diverge in this attribute from a FieldWorks project, per
+  PROTOCOL.md section 9's second usage-level check.
 words:
   - word: tolu
     note: ROOT bare, no prefix/suffix applied -- a plain control.

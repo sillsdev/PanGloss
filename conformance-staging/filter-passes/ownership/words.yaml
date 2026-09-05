@@ -19,6 +19,7 @@ inspired_by: ["synthetic prefixing grammar with a root/affix homophone (not mode
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (impossible morpheme ownership)"
 requires: []
+fieldworks_producible: true
 words:
   - word: kolo
     note: Bare root, nothing to designate but the lexical entry itself. Plain control.

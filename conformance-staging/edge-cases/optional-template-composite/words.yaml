@@ -25,6 +25,7 @@ sources:
   - "docs/conformance-staging-plan.md pathology catalog (composite-explosion row)"
   - "docs/fst-plan/morphotactic-composite-pruning.md 2026-07-18 end-to-end result"
 requires: []
+fieldworks_producible: true
 words:
   - word: sipu
     note: >-
