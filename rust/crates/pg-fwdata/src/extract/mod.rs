@@ -155,6 +155,15 @@ pub fn extract(
     graph: &RawGraph,
     filename_stem: &str,
 ) -> Result<(Snapshot, Vec<Warning>), ImportError> {
+    let (snapshot, warnings, _recorder) = extract_recording(graph, filename_stem)?;
+    Ok((snapshot, warnings))
+}
+
+/// As [`extract`], but also returns the unfinished [`SelectionRecorder`] `import_file_measured` reads into an `InventoryDelta`; `conversion_provenance` itself comes from an independently finished clone, so this changes nothing about `extract`'s own behaviour.
+pub(crate) fn extract_recording(
+    graph: &RawGraph,
+    filename_stem: &str,
+) -> Result<(Snapshot, Vec<Warning>, SelectionRecorder), ImportError> {
     let mut ctx = Ctx::new(graph);
 
     let lang_project = project::find_lang_project(&mut ctx);
@@ -169,7 +178,7 @@ pub fn extract(
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
 
-    let (graph_to_snapshot, recorder_issues) = std::mem::take(&mut ctx.recorder).finish();
+    let (graph_to_snapshot, recorder_issues) = ctx.recorder.clone().finish();
     let mut snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
     let mut import_issues = graph.issues.clone();
     import_issues.extend(recorder_issues);
@@ -185,5 +194,5 @@ pub fn extract(
         graph_to_snapshot,
         import_issues,
     };
-    Ok((snapshot, ctx.warnings))
+    Ok((snapshot, ctx.warnings, ctx.recorder))
 }

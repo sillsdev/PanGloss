@@ -30,7 +30,7 @@ mod xml;
 
 use std::path::Path;
 
-use pg_snapshot::{ConversionProvenance, Snapshot, Warning};
+use pg_snapshot::{ConversionProvenance, InventoryDelta, Snapshot, Warning};
 use thiserror::Error;
 
 /// Hard errors from `import_file`: I/O failures, invalid XML or non-`.fwdata` input, and source
@@ -81,6 +81,34 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
     let (snapshot, warnings) = extract::extract(&graph, &filename_stem)?;
     let provenance = snapshot.conversion_provenance.clone();
     Ok((snapshot, ImportReport { warnings, provenance }))
+}
+
+/// As [`import_file`], but also returns the [`InventoryDelta`] derived from the same import's
+/// [`pg_snapshot::SelectionRecorder`] -- a violated invariant is this crate's own bookkeeping bug,
+/// so it panics naming the violation rather than returning an untrustworthy measurement.
+pub fn import_file_measured(
+    path: &Path,
+) -> Result<(Snapshot, ImportReport, InventoryDelta), ImportError> {
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("fwbackup"))
+    {
+        return fwbackup::import_fwbackup_measured(path);
+    }
+    let graph = xml::parse_fwdata(path)?;
+    let filename_stem = file_stem(path);
+    let (snapshot, warnings, recorder) = extract::extract_recording(&graph, &filename_stem)?;
+    let provenance = snapshot.conversion_provenance.clone();
+    if let Err(violation) = recorder.check_invariants() {
+        panic!("import_file_measured: selection recorder invariant violated: {violation}");
+    }
+    let (inventory, issues) = recorder.finish();
+    Ok((
+        snapshot,
+        ImportReport { warnings, provenance },
+        InventoryDelta::from_stage(inventory, issues),
+    ))
 }
 
 pub(crate) fn file_stem(path: &Path) -> String {

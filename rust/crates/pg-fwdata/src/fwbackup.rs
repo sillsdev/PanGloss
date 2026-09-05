@@ -5,11 +5,12 @@ use std::path::Path;
 
 use unicode_normalization::UnicodeNormalization;
 
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryDelta, Snapshot};
 
 use crate::{extract, xml, ImportError, ImportReport};
 
-pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+/// Reads the embedded `.fwdata` graph plus exemplar LDML, shared by `import_fwbackup`/`import_fwbackup_measured`.
+fn read_backup(path: &Path) -> Result<(xml::RawGraph, String, Vec<(String, String)>), ImportError> {
     let file = std::fs::File::open(path).map_err(ImportError::Io)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| ImportError::Backup(format!("{}: {e}", path.display())))?;
@@ -46,15 +47,43 @@ pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), I
         xml::parse_fwdata_reader(std::io::BufReader::new(entry))?
     };
     let stem = crate::file_stem(Path::new(&fwdata_name));
-    let (mut snapshot, warnings) = extract::extract(&graph, &stem)?;
-    let provenance = snapshot.conversion_provenance.clone();
+    Ok((graph, stem, ldml))
+}
 
+/// Applies the default vernacular writing system's LDML exemplar characters onto `snapshot`, if present -- a backup-only enrichment `.fwdata` alone cannot provide.
+fn apply_exemplars(snapshot: &mut Snapshot, ldml: &[(String, String)]) {
     if let Some(default_ws) = snapshot.project.vernacular_writing_systems.first().cloned() {
         if let Some((_, text)) = ldml.iter().find(|(tag, _)| *tag == default_ws) {
             snapshot.project.exemplar_characters = exemplar_characters_from_ldml(text);
         }
     }
+}
+
+pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+    let (graph, stem, ldml) = read_backup(path)?;
+    let (mut snapshot, warnings) = extract::extract(&graph, &stem)?;
+    let provenance = snapshot.conversion_provenance.clone();
+    apply_exemplars(&mut snapshot, &ldml);
     Ok((snapshot, ImportReport { warnings, provenance }))
+}
+
+/// As [`import_fwbackup`], but also returns the [`InventoryDelta`]; panics if the recorder's own invariants are violated rather than return an untrustworthy measurement.
+pub(crate) fn import_fwbackup_measured(
+    path: &Path,
+) -> Result<(Snapshot, ImportReport, InventoryDelta), ImportError> {
+    let (graph, stem, ldml) = read_backup(path)?;
+    let (mut snapshot, warnings, recorder) = extract::extract_recording(&graph, &stem)?;
+    let provenance = snapshot.conversion_provenance.clone();
+    apply_exemplars(&mut snapshot, &ldml);
+    if let Err(violation) = recorder.check_invariants() {
+        panic!("import_fwbackup_measured: selection recorder invariant violated: {violation}");
+    }
+    let (inventory, issues) = recorder.finish();
+    Ok((
+        snapshot,
+        ImportReport { warnings, provenance },
+        InventoryDelta::from_stage(inventory, issues),
+    ))
 }
 
 /// Text elements of the LDML main exemplar set (UnicodeSet syntax), NFD.
