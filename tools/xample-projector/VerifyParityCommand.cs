@@ -15,7 +15,11 @@ namespace XampleProjector
 	/// Structural + HC-engine proof that `project` on an authored project reproduces the fixture
 	/// it was authored from. Reusable as a plain subcommand (no LCM/FieldWorks project touched --
 	/// only the produced HC XML and the sibling XAMPLE files `project` wrote alongside it), so it
-	/// can be driven from Rust later without going through `author` at all.
+	/// can be driven from Rust later without going through `author` at all. Every structural
+	/// expectation (rule/lex-entry shapes, the character table) is derived from the re-parsed
+	/// grammar.xml itself, never hardcoded to one fixture; the HC-engine analysis counts are the
+	/// one thing this command cannot derive (only an oracle knows the correct count for a word),
+	/// so the caller supplies them via repeated <c>--expect WORD=COUNT</c>.
 	/// </summary>
 	internal static class VerifyParityCommand
 	{
@@ -25,6 +29,26 @@ namespace XampleProjector
 				!ArgParser.TryGetOption(args, "--hc-xml", out var hcXmlPath) ||
 				!ArgParser.TryGetOption(args, "--guid-map", out var guidMapPath))
 			{
+				Program.WriteUsage();
+				return ExitCodes.Usage;
+			}
+
+			// The HC-engine check has nothing to check without at least one expectation --
+			// silently running it with zero words would look like a pass while proving nothing.
+			var expectations = new List<(string Word, int Count)>();
+			foreach (var raw in ArgParser.GetOptions(args, "--expect"))
+			{
+				var eq = raw.IndexOf('=');
+				if (eq <= 0 || eq == raw.Length - 1 || !int.TryParse(raw.Substring(eq + 1), out var count))
+				{
+					Console.Error.WriteLine("verify-parity: --expect \"{0}\" is not shaped WORD=COUNT.", raw);
+					return ExitCodes.Usage;
+				}
+				expectations.Add((raw.Substring(0, eq), count));
+			}
+			if (expectations.Count == 0)
+			{
+				Console.Error.WriteLine("verify-parity: at least one --expect WORD=COUNT is required (the HC-engine check has no oracle-independent way to know a correct analysis count).");
 				Program.WriteUsage();
 				return ExitCodes.Usage;
 			}
@@ -66,10 +90,10 @@ namespace XampleProjector
 			{
 				CheckMorphologicalRules(hcDoc, grammar, report);
 				CheckLexicalEntries(hcDoc, grammar, report);
-				CheckCharacterTable(hcDoc, report);
+				CheckCharacterTable(hcDoc, grammar, report);
 				CheckSlotOrder(hcDoc, grammar, report);
-				CheckXampleFiles(hcXmlPath, report);
-				CheckHcEngine(hcXmlPath, report);
+				CheckXampleFiles(hcXmlPath, grammar, report);
+				CheckHcEngine(hcXmlPath, expectations, report);
 
 				// The structural checks above read only grammar.xml and the HC-XML/XAMPLE files
 				// `project` wrote; the guid map is only meaningful against the live authored
@@ -110,6 +134,15 @@ namespace XampleProjector
 
 		private static XElement Stratum(XDocument hcDoc) => hcDoc.Root.Element("Language").Element("Strata").Element("Stratum");
 
+		/// <summary>
+		/// Expected InsertSegments is derived from each traced-back fixture subrule's own
+		/// InsertShape, not hardcoded: HCLoader represents an affix's underlying shape with a
+		/// literal "+" marking where it attaches (HCLoader.cs:2712) -- a PREFIX's shape round-trips
+		/// with the marker trailing (fixture "x" -> "x+", confirmed empirically via a live
+		/// author+project run). No suffix fixture has been round-tripped yet (see README's coverage
+		/// table), so a leading marker ("+x") is this command's best-understood but UNCONFIRMED
+		/// mirror of that same convention for a suffix.
+		/// </summary>
 		private static void CheckMorphologicalRules(XDocument hcDoc, GrammarModel grammar, JObject report)
 		{
 			var rules = Stratum(hcDoc).Element("MorphologicalRuleDefinitions")?.Elements("MorphologicalRule").ToList()
@@ -120,20 +153,29 @@ namespace XampleProjector
 
 			foreach (var rule in rules)
 			{
-				var subrules = rule.Element("MorphologicalSubrules").Elements("MorphologicalSubrule").ToList();
-				if (subrules.Count != 1)
-					throw new ParityMismatchException($"MorphologicalRule id=\"{(string)rule.Attribute("id")}\": expected 1 subrule, found {subrules.Count}");
-				// HCLoader represents a prefix's underlying shape with a trailing literal "+"
-				// (the morph-boundary character every authored project must carry -- HCLoader.cs:2712)
-				// marking where the affix attaches, so the round-tripped InsertSegments text is "x+",
-				// not the bare "x" the fixture's own InsertSegments/PhoneticShape gives -- confirmed
-				// empirically via a live author+project run, not assumed.
-				var insertShape = (string)subrules[0].Element("MorphologicalOutput").Element("InsertSegments")?.Element("PhoneticShape");
-				if (insertShape != "x+")
-					throw new ParityMismatchException($"MorphologicalRule id=\"{(string)rule.Attribute("id")}\": expected InsertSegments \"x+\" (\"x\" plus the prefix's morph-boundary marker), found \"{insertShape}\"");
+				var ruleIdAttr = (string)rule.Attribute("id");
 				var gloss = (string)rule.Element("Gloss");
-				if (gloss == null || !grammar.MorphologicalRules.Values.Any(r => r.MorphemeId == gloss))
-					throw new ParityMismatchException($"MorphologicalRule id=\"{(string)rule.Attribute("id")}\": Gloss \"{gloss}\" does not trace back to a fixture MorphemeId");
+				var fixtureRule = gloss != null ? grammar.MorphologicalRules.Values.FirstOrDefault(r => r.MorphemeId == gloss) : null;
+				if (fixtureRule == null)
+					throw new ParityMismatchException($"MorphologicalRule id=\"{ruleIdAttr}\": Gloss \"{gloss}\" does not trace back to a fixture MorphemeId");
+
+				var producedSubrules = rule.Element("MorphologicalSubrules").Elements("MorphologicalSubrule").ToList();
+				if (producedSubrules.Count != fixtureRule.Subrules.Count)
+				{
+					throw new ParityMismatchException(
+						$"MorphologicalRule id=\"{ruleIdAttr}\" (fixture \"{fixtureRule.Id}\"): expected {fixtureRule.Subrules.Count} subrule(s), found {producedSubrules.Count}");
+				}
+				for (var i = 0; i < producedSubrules.Count; i++)
+				{
+					var fixtureSubrule = fixtureRule.Subrules[i];
+					var expectedInsert = fixtureSubrule.IsPrefix ? fixtureSubrule.InsertShape + "+" : "+" + fixtureSubrule.InsertShape;
+					var insertShape = (string)producedSubrules[i].Element("MorphologicalOutput").Element("InsertSegments")?.Element("PhoneticShape");
+					if (insertShape != expectedInsert)
+					{
+						throw new ParityMismatchException(
+							$"MorphologicalRule id=\"{ruleIdAttr}\" subrule {i}: expected InsertSegments \"{expectedInsert}\" (fixture shape \"{fixtureSubrule.InsertShape}\" plus the morph-boundary marker), found \"{insertShape}\"");
+					}
+				}
 			}
 			report["morphologicalRuleCount"] = rules.Count;
 		}
@@ -153,7 +195,7 @@ namespace XampleProjector
 			report["lexicalEntryCount"] = entries.Count;
 		}
 
-		private static void CheckCharacterTable(XDocument hcDoc, JObject report)
+		private static void CheckCharacterTable(XDocument hcDoc, GrammarModel grammar, JObject report)
 		{
 			var table = hcDoc.Root.Element("Language").Element("CharacterDefinitionTable");
 			var reps = table.Element("SegmentDefinitions").Elements("SegmentDefinition")
@@ -162,7 +204,7 @@ namespace XampleProjector
 				.Distinct()
 				.OrderBy(s => s, StringComparer.Ordinal)
 				.ToList();
-			var expected = new List<string> { "k", "x" };
+			var expected = grammar.Phonemes.SelectMany(p => p.Representations).Distinct().OrderBy(s => s, StringComparer.Ordinal).ToList();
 			if (!reps.SequenceEqual(expected))
 				throw new ParityMismatchException($"expected character table {{{string.Join(",", expected)}}}, found {{{string.Join(",", reps)}}}");
 			report["segmentCount"] = reps.Count;
@@ -229,7 +271,7 @@ namespace XampleProjector
 			report["slotOrderingRule"] = orderingRule;
 		}
 
-		private static void CheckXampleFiles(string hcXmlPath, JObject report)
+		private static void CheckXampleFiles(string hcXmlPath, GrammarModel grammar, JObject report)
 		{
 			var dir = Path.GetDirectoryName(Path.GetFullPath(hcXmlPath));
 			var fileName = Path.GetFileName(hcXmlPath);
@@ -242,8 +284,12 @@ namespace XampleProjector
 				throw new ParityMismatchException($"expected XAMPLE lexicon file not found: {lexPath}");
 			var lexText = File.ReadAllText(lexPath);
 			var entryCount = Regex.Matches(lexText, @"^\\lx ", RegexOptions.Multiline).Count;
-			if (entryCount != 13)
-				throw new ParityMismatchException($"expected 13 XAMPLE lex.txt entries (\\lx records), found {entryCount}");
+			// XAMPLE's lex.txt carries one \lx record per authored morph -- every affix rule's
+			// subrule (each an MoAffixAllomorph) plus every lexical entry's allomorph.
+			var expectedCount = grammar.MorphologicalRules.Values.Sum(r => r.Subrules.Count)
+				+ grammar.LexicalEntries.Sum(e => e.Allomorphs.Count);
+			if (entryCount != expectedCount)
+				throw new ParityMismatchException($"expected {expectedCount} XAMPLE lex.txt entries (\\lx records), found {entryCount}");
 
 			foreach (var suffix in new[] { "adctl.txt", "gram.txt" })
 			{
@@ -254,20 +300,21 @@ namespace XampleProjector
 			report["xampleLexEntryCount"] = entryCount;
 		}
 
-		private static void CheckHcEngine(string hcXmlPath, JObject report)
+		private static void CheckHcEngine(string hcXmlPath, IReadOnlyList<(string Word, int Count)> expectations, JObject report)
 		{
 			var language = XmlLanguageLoader.Load(hcXmlPath);
 			// Never assign any Morpher property beyond the constructor -- every expected.tsv in
 			// machine/conformance was generated the same way (conformance/PROTOCOL.md section 8).
 			var morpher = new Morpher(new TraceManager(), language);
-			var countK = morpher.ParseWord("k").Count();
-			var countXxxxxxK = morpher.ParseWord("xxxxxxk").Count();
-			if (countK != 1)
-				throw new ParityMismatchException($"expected 1 analysis for \"k\", found {countK}");
-			if (countXxxxxxK != 924)
-				throw new ParityMismatchException($"expected 924 analyses for \"xxxxxxk\", found {countXxxxxxK}");
-			report["engineAnalysisCountK"] = countK;
-			report["engineAnalysisCountXxxxxxK"] = countXxxxxxK;
+			var counts = new JObject();
+			foreach (var (word, expectedCount) in expectations)
+			{
+				var actual = morpher.ParseWord(word).Count();
+				if (actual != expectedCount)
+					throw new ParityMismatchException($"expected {expectedCount} analyses for \"{word}\", found {actual}");
+				counts[word] = actual;
+			}
+			report["engineAnalysisCounts"] = counts;
 		}
 
 		/// <summary>

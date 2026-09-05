@@ -16,6 +16,11 @@ namespace XampleProjector
 
 		internal void Note(string fixtureId, Guid guid, string className)
 		{
+			// Backstop, not the primary check -- GrammarParser's document-global id scan is what
+			// should catch a collision before Author() ever runs; this only fires if that scan
+			// missed one, and a plain indexer write here would silently overwrite the earlier entry.
+			if (GuidMap.ContainsKey(fixtureId))
+				throw new GrammarAuthorException($"duplicate GuidMap key \"{fixtureId}\" (already mapped to {GuidMap[fixtureId]}, now {guid}) -- GrammarParser should have refused this id as a duplicate");
 			GuidMap[fixtureId] = guid;
 			NoteCountOnly(className);
 		}
@@ -333,10 +338,8 @@ namespace XampleProjector
 				foreach (var slot in template.Slots)
 				{
 					var ruleIds = slot.RuleIds;
-					var directions = ruleIds.Select(rid => grammar.MorphologicalRules[rid].Subrules[0].IsPrefix).Distinct().ToList();
-					if (directions.Count != 1)
-						throw new GrammarAuthorException($"Slot \"{slot.Name}\" mixes prefix and suffix rules (unsupported)");
-					var isPrefix = directions[0];
+					// GrammarParser.Parse already refused a slot whose rules mix prefix and suffix.
+					var isPrefix = grammar.MorphologicalRules[ruleIds[0]].Subrules[0].IsPrefix;
 
 					var lcmSlot = slotFactory.Create();
 					pos.AffixSlotsOC.Add(lcmSlot);
@@ -357,21 +360,11 @@ namespace XampleProjector
 		private static void CreateCoOccurrenceRules(LcmCache cache, GrammarModel grammar, Dictionary<string, IMoInflAffMsa> ruleMsaMap,
 			Dictionary<string, IMoStemMsa> stemEntryMsaMap, Dictionary<string, IMoForm> alloFormMap, AuthorResult result)
 		{
-			IMoMorphSynAnalysis LookupMsa(string morphemeId)
-			{
-				if (ruleMsaMap.TryGetValue(morphemeId, out var ruleMsa))
-					return ruleMsa;
-				if (stemEntryMsaMap.TryGetValue(morphemeId, out var stemMsa))
-					return stemMsa;
-				throw new GrammarAuthorException($"MorphemeCoOccurrenceRule references \"{morphemeId}\" which is not a known MorphologicalRule or LexicalEntry");
-			}
+			// GrammarParser.Parse already refused a reference to an unknown morpheme/allomorph id.
+			IMoMorphSynAnalysis LookupMsa(string morphemeId) =>
+				ruleMsaMap.TryGetValue(morphemeId, out var ruleMsa) ? ruleMsa : stemEntryMsaMap[morphemeId];
 
-			IMoForm LookupAllo(string alloId)
-			{
-				if (alloFormMap.TryGetValue(alloId, out var form))
-					return form;
-				throw new GrammarAuthorException($"AllomorphCoOccurrenceRule references \"{alloId}\" which is not a known Allomorph or MorphologicalSubrule");
-			}
+			IMoForm LookupAllo(string alloId) => alloFormMap[alloId];
 
 			// The DTD gives MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule no id attribute,
 			// so each is keyed by document order for guidMap/reconciliation purposes.
@@ -451,7 +444,8 @@ namespace XampleProjector
 				Require("AllomorphCoOccurrenceRule", $"allomorphCoOccurrence[{i}]");
 		}
 
-		// HCLoader.GetAdjacency (HCLoader.cs:2241-2255) maps these ints to HC's MorphCoOccurrenceAdjacency.
+		// HCLoader.GetAdjacency (HCLoader.cs:2241-2255) maps these ints to HC's
+		// MorphCoOccurrenceAdjacency. GrammarParser.Parse already refused any other value.
 		private static int AdjacencyOf(string adjacency)
 		{
 			switch (adjacency)
@@ -461,7 +455,7 @@ namespace XampleProjector
 				case "somewhereToRight": return 2;
 				case "adjacentToLeft": return 3;
 				case "adjacentToRight": return 4;
-				default: throw new GrammarAuthorException($"unsupported adjacency value \"{adjacency}\"");
+				default: throw new InvalidOperationException($"unreachable: adjacency \"{adjacency}\" was not validated by GrammarParser");
 			}
 		}
 

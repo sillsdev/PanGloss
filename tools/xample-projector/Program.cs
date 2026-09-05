@@ -108,6 +108,7 @@ namespace XampleProjector
 			Console.WriteLine("  author --grammar <grammar.xml> --out-dir <dir> --name <ProjectName>");
 			Console.WriteLine("         [--vernacular-ws <icu>] [--xample-max-prefixes N] [--xample-max-analyses N]");
 			Console.WriteLine("  verify-parity --grammar <grammar.xml> --hc-xml <projected.hc.xml> --guid-map <author-response.json>");
+			Console.WriteLine("                --expect WORD=COUNT [--expect WORD=COUNT ...] (at least one required)");
 			Console.WriteLine("  --validate-capture <response.json>");
 			Console.WriteLine();
 			Console.WriteLine("FieldWorks install directory: ${0}, default {1}", FieldWorksDirEnvVar, DefaultFieldWorksDir);

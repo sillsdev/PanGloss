@@ -317,12 +317,199 @@ finally {
 }
 }
 
+# --- refusal-before-project-exists probes: GrammarParser.Parse runs before AuthorSession.Run ever
+#     creates a .fwdata, so these need FieldWorks (for the pin check in Program.Main) but NEITHER
+#     the machine submodule NOR Sena 3 -- both grammars are tiny inline fixtures. ---
+$parserRefusalTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-parser-refusal-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $parserRefusalTempRoot -Force | Out-Null
+try {
+	# Finding 1: MorphemeCoOccurrenceRule referencing an unknown id used to refuse only from
+	# inside GrammarAuthor.CreateCoOccurrenceRules, after AuthorSession.Run had already created and
+	# locked a real .fwdata. GrammarParser.Parse now refuses it before any project exists.
+	$unknownRefGrammarXml = @'
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>UnknownCoOccurrenceRefProbe</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+    <MorphemeCoOccurrenceRules>
+      <MorphemeCoOccurrenceRule type="exclude" primaryMorpheme="eK" otherMorphemes="doesNotExist" adjacency="anywhere" />
+    </MorphemeCoOccurrenceRules>
+  </Language>
+</HermitCrabInput>
+'@
+	$unknownRefGrammarPath = Join-Path $parserRefusalTempRoot 'unknown-ref.grammar.xml'
+	Set-Content -Path $unknownRefGrammarPath -Value $unknownRefGrammarXml -Encoding utf8
+	$unknownRefOutDir = Join-Path $parserRefusalTempRoot 'unknown-ref-out'
+	$unknownRefOutput = & $exePath author --grammar $unknownRefGrammarPath --out-dir $unknownRefOutDir --name UnknownRef 2>&1
+	$unknownRefExit = $LASTEXITCODE
+	$unknownRefText = ($unknownRefOutput | Out-String)
+	if ($unknownRefExit -ne 7) {
+		Write-Error "Unknown co-occurrence id refusal probe: expected exit 7, got $unknownRefExit. Output:`n$unknownRefText"
+		exit 1
+	}
+	if ($unknownRefText -notmatch 'doesNotExist') {
+		Write-Error "Unknown co-occurrence id refusal probe: exit was 7 but output does not name 'doesNotExist'. Output:`n$unknownRefText"
+		exit 1
+	}
+	$unknownRefFwdata = Join-Path $unknownRefOutDir 'UnknownRef\UnknownRef.fwdata'
+	if (Test-Path $unknownRefFwdata) {
+		Write-Error "Unknown co-occurrence id refusal probe: exit was 7 but a .fwdata was left on disk at $unknownRefFwdata."
+		exit 1
+	}
+	Write-Host "Unknown co-occurrence id refusal probe OK: exit 7, output names 'doesNotExist', no .fwdata on disk."
+
+	# Finding 3: ids are document-global per the DTD (XML ID type), but DtdProcessing.Ignore means
+	# nothing enforced that -- a PartOfSpeech and a LexicalEntry sharing one id used to silently
+	# collide in AuthorResult.GuidMap. GrammarParser.Parse now refuses the reused id up front.
+	$duplicateIdGrammarXml = @'
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>DuplicateIdProbe</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="dup1"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="dup1" partOfSpeech="dup1">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+'@
+	$duplicateIdGrammarPath = Join-Path $parserRefusalTempRoot 'duplicate-id.grammar.xml'
+	Set-Content -Path $duplicateIdGrammarPath -Value $duplicateIdGrammarXml -Encoding utf8
+	$duplicateIdOutDir = Join-Path $parserRefusalTempRoot 'duplicate-id-out'
+	$duplicateIdOutput = & $exePath author --grammar $duplicateIdGrammarPath --out-dir $duplicateIdOutDir --name DuplicateId 2>&1
+	$duplicateIdExit = $LASTEXITCODE
+	$duplicateIdText = ($duplicateIdOutput | Out-String)
+	if ($duplicateIdExit -ne 7) {
+		Write-Error "Duplicate id refusal probe: expected exit 7, got $duplicateIdExit. Output:`n$duplicateIdText"
+		exit 1
+	}
+	if ($duplicateIdText -notmatch 'dup1') {
+		Write-Error "Duplicate id refusal probe: exit was 7 but output does not name 'dup1'. Output:`n$duplicateIdText"
+		exit 1
+	}
+	$duplicateIdFwdata = Join-Path $duplicateIdOutDir 'DuplicateId\DuplicateId.fwdata'
+	if (Test-Path $duplicateIdFwdata) {
+		Write-Error "Duplicate id refusal probe: exit was 7 but a .fwdata was left on disk at $duplicateIdFwdata."
+		exit 1
+	}
+	Write-Host "Duplicate id refusal probe OK: exit 7, output names 'dup1', no .fwdata on disk."
+}
+finally {
+	Remove-Item -Path $parserRefusalTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # --- author / verify-parity live tests (Task 3 slice B): the `machine` conformance submodule's
 #     own fixtures, not Sena 3 -- independent of whether Sena3 is reachable above. ---
 $conformanceRoot = Join-Path $root '..\..\machine\conformance'
 $pilotGrammar = Join-Path $conformanceRoot 'edge-cases\deep-optional-affix-nesting\grammar.xml'
 $mprRefusalGrammar = Join-Path $conformanceRoot 'languages\prefixal-discontinuous-slot-dependency\grammar.xml'
 $requireRefusalGrammar = Join-Path $conformanceRoot 'languages\suffixing-evidential-adjacency-chain\grammar.xml'
+
+# --- AllomorphCoOccurrenceRule authoring probe (Finding 6: moved above the machine-submodule gate
+#     below so it always runs when FieldWorks is present -- this fixture is this tool's own
+#     testdata, not part of the machine submodule, and needs no submodule at all): pins the fix for
+#     the silent-drop defect (a type="exclude" AllomorphCoOccurrenceRule used to author with no
+#     IMoAlloAdhocProhib created and no refusal at all -- see GrammarAuthor.CreateCoOccurrenceRules),
+#     and now also proves the exclusion actually binds in the live HC engine, not just that an
+#     object was created. ---
+$alloCoOccurGrammar = Join-Path $root 'testdata\allomorph-cooccurrence-probe.grammar.xml'
+$alloCoOccurTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-allo-cooccur-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $alloCoOccurTempRoot -Force | Out-Null
+try {
+	$alloCoOccurOutDir = Join-Path $alloCoOccurTempRoot 'allo-cooccur-out'
+	New-Item -ItemType Directory -Path $alloCoOccurOutDir -Force | Out-Null
+	& $exePath author --grammar $alloCoOccurGrammar --out-dir $alloCoOccurOutDir --name AlloCoOccur
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: 'author' failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$alloCoOccurResponsePath = Join-Path $alloCoOccurOutDir 'author-response.json'
+	$alloCoOccurResponse = Get-Content $alloCoOccurResponsePath -Raw | ConvertFrom-Json
+	if ($alloCoOccurResponse.authored.MoAlloAdhocProhib -ne 1) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: expected authored.MoAlloAdhocProhib == 1, got '$($alloCoOccurResponse.authored.MoAlloAdhocProhib)'."
+		exit 1
+	}
+	if (-not ($alloCoOccurResponse.guidMap.PSObject.Properties.Name -contains 'allomorphCoOccurrence[0]')) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: guidMap is missing 'allomorphCoOccurrence[0]'."
+		exit 1
+	}
+	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: exit 0, authored.MoAlloAdhocProhib == 1, guidMap has 'allomorphCoOccurrence[0]'."
+
+	$alloCoOccurFwdata = Join-Path $alloCoOccurOutDir 'AlloCoOccur\AlloCoOccur.fwdata'
+	$alloCoOccurProjectedOutDir = Join-Path $alloCoOccurTempRoot 'projected'
+	New-Item -ItemType Directory -Path $alloCoOccurProjectedOutDir -Force | Out-Null
+	& $exePath project --project $alloCoOccurFwdata --out-dir $alloCoOccurProjectedOutDir --database AlloCoOccur
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: 'project' (on the authored project) failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$alloCoOccurHcXml = Join-Path $alloCoOccurProjectedOutDir 'AlloCoOccur.hc.xml'
+
+	# The probe grammar has one optional slot (mrP1, prefix "x") over one lexical entry ("k"), and
+	# excludes mrP1's own subrule from co-occurring with that entry's allomorph "anywhere" in a
+	# word -- the ONLY way to produce "xk" at all is that exact combination, so a correct exclusion
+	# makes "xk" unparseable (0 analyses) while the affixless "k" still parses (1 analysis). This is
+	# the probe's own designed semantics, not an oracle-confirmed count (this fixture is not a
+	# `machine` conformance fixture) -- unlike the pilot fixture's counts below.
+	$alloCoOccurVerifyOutput = & $exePath verify-parity --grammar $alloCoOccurGrammar --hc-xml $alloCoOccurHcXml --guid-map $alloCoOccurResponsePath --expect k=1 --expect xk=0
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: 'verify-parity' failed (exit $LASTEXITCODE). Output:`n$($alloCoOccurVerifyOutput | Out-String)"
+		exit 1
+	}
+	$alloCoOccurVerifyJson = $alloCoOccurVerifyOutput | Out-String | ConvertFrom-Json
+	if ($alloCoOccurVerifyJson.engineAnalysisCounts.k -ne 1 -or $alloCoOccurVerifyJson.engineAnalysisCounts.xk -ne 0) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: verify-parity reported unexpected engine counts:`n$($alloCoOccurVerifyOutput | Out-String)"
+		exit 1
+	}
+	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: verify-parity confirms the exclusion binds in the live HC engine (k=1, xk=0)."
+}
+finally {
+	Remove-Item -Path $alloCoOccurTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 if (-not (Test-Path $pilotGrammar)) {
 	Write-Host "SKIPPED (author/verify-parity live tests): machine submodule fixture not found at $pilotGrammar"
@@ -361,8 +548,11 @@ try {
 	Write-Host 'Live project run (on the authored pilot project) OK.'
 
 	$pilotHcXml = Join-Path $projectedOutDir 'Pilot.hc.xml'
-	Write-Host "Running: $exePath verify-parity --grammar `"$pilotGrammar`" --hc-xml `"$pilotHcXml`" --guid-map `"$authorResponsePath`""
-	$verifyOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $authorResponsePath
+	# The pilot's own oracle-confirmed words.yaml is where 1/924 come from (see README) -- the only
+	# two counts this build.ps1 asserts are ones a real oracle run backs, per this repo's oracle
+	# discipline; verify-parity itself derives every other expectation from grammar.xml.
+	Write-Host "Running: $exePath verify-parity --grammar `"$pilotGrammar`" --hc-xml `"$pilotHcXml`" --guid-map `"$authorResponsePath`" --expect k=1 --expect xxxxxxk=924"
+	$verifyOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $authorResponsePath --expect k=1 --expect xxxxxxk=924
 	if ($LASTEXITCODE -ne 0) {
 		Write-Error "'verify-parity' failed (exit $LASTEXITCODE). Output:`n$($verifyOutput | Out-String)"
 		exit $LASTEXITCODE
@@ -370,7 +560,7 @@ try {
 	$verifyJson = $verifyOutput | Out-String | ConvertFrom-Json
 	if ($verifyJson.morphologicalRuleCount -ne 12 -or $verifyJson.lexicalEntryCount -ne 1 -or $verifyJson.segmentCount -ne 2 -or
 		$verifyJson.slotCount -ne 12 -or $verifyJson.xampleLexEntryCount -ne 13 -or
-		$verifyJson.engineAnalysisCountK -ne 1 -or $verifyJson.engineAnalysisCountXxxxxxK -ne 924) {
+		$verifyJson.engineAnalysisCounts.k -ne 1 -or $verifyJson.engineAnalysisCounts.xxxxxxk -ne 924) {
 		Write-Error "verify-parity reported unexpected counts:`n$($verifyOutput | Out-String)"
 		exit 1
 	}
@@ -380,28 +570,6 @@ try {
 		exit 1
 	}
 	Write-Host "verify-parity guid-map binding OK: $($verifyJson.guidMapVerifiedCount) guidMap entries checked against the live authored project."
-
-	# --- AllomorphCoOccurrenceRule authoring probe: pins the fix for the silent-drop defect (a
-	#     type="exclude" AllomorphCoOccurrenceRule used to author with no IMoAlloAdhocProhib
-	#     created and no refusal at all -- see GrammarAuthor.CreateCoOccurrenceRules) ---
-	$alloCoOccurGrammar = Join-Path $root 'testdata\allomorph-cooccurrence-probe.grammar.xml'
-	$alloCoOccurOutDir = Join-Path $authorTempRoot 'allo-cooccur-out'
-	New-Item -ItemType Directory -Path $alloCoOccurOutDir -Force | Out-Null
-	& $exePath author --grammar $alloCoOccurGrammar --out-dir $alloCoOccurOutDir --name AlloCoOccur
-	if ($LASTEXITCODE -ne 0) {
-		Write-Error "AllomorphCoOccurrenceRule authoring probe: 'author' failed (exit $LASTEXITCODE)."
-		exit 1
-	}
-	$alloCoOccurResponse = Get-Content (Join-Path $alloCoOccurOutDir 'author-response.json') -Raw | ConvertFrom-Json
-	if ($alloCoOccurResponse.authored.MoAlloAdhocProhib -ne 1) {
-		Write-Error "AllomorphCoOccurrenceRule authoring probe: expected authored.MoAlloAdhocProhib == 1, got '$($alloCoOccurResponse.authored.MoAlloAdhocProhib)'."
-		exit 1
-	}
-	if (-not ($alloCoOccurResponse.guidMap.PSObject.Properties.Name -contains 'allomorphCoOccurrence[0]')) {
-		Write-Error "AllomorphCoOccurrenceRule authoring probe: guidMap is missing 'allomorphCoOccurrence[0]'."
-		exit 1
-	}
-	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: exit 0, authored.MoAlloAdhocProhib == 1, guidMap has 'allomorphCoOccurrence[0]'."
 
 	# --- verify-parity guid-map binding probes: a swapped or emptied guid map must be refused
 	#     (exit 8), not silently accepted -- both copies live beside the real author-response.json
@@ -413,7 +581,7 @@ try {
 	$swappedResponse.guidMap.slot2 = $slot1Guid
 	$swappedResponsePath = Join-Path $authorOutDir 'author-response-swapped-slots.json'
 	$swappedResponse | ConvertTo-Json -Depth 10 | Set-Content -Path $swappedResponsePath -Encoding utf8
-	$swappedOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $swappedResponsePath 2>&1
+	$swappedOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $swappedResponsePath --expect k=1 --expect xxxxxxk=924 2>&1
 	$swappedExit = $LASTEXITCODE
 	$swappedText = ($swappedOutput | Out-String)
 	if ($swappedExit -ne 8) {
@@ -430,7 +598,7 @@ try {
 	$emptyResponse.guidMap = New-Object PSObject
 	$emptyResponsePath = Join-Path $authorOutDir 'author-response-empty-guidmap.json'
 	$emptyResponse | ConvertTo-Json -Depth 10 | Set-Content -Path $emptyResponsePath -Encoding utf8
-	$emptyOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $emptyResponsePath 2>&1
+	$emptyOutput = & $exePath verify-parity --grammar $pilotGrammar --hc-xml $pilotHcXml --guid-map $emptyResponsePath --expect k=1 --expect xxxxxxk=924 2>&1
 	$emptyExit = $LASTEXITCODE
 	$emptyText = ($emptyOutput | Out-String)
 	if ($emptyExit -ne 8) {
