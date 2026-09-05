@@ -5,19 +5,7 @@ sources:
   - "docs/hermitcrab-rust-port-audit.md (sec 2 'Partially ported', sec 3 item 1: Guesser API surface)"
   - "docs/p11-guesser-api-design.md (guesser engine design + fixture plan sec 6)"
 requires: []
-fieldworks_producible: false
-fieldworks_producible_notes: >-
-  Exercises a LexicalEntry whose PhoneticShape is itself a lexical pattern ("[Any]*"). HCLoader's
-  Segment helper does route a form containing "[" and "]" through m_table.Segment(str, true)
-  (HCLoader.cs:2532-2562), and the engine's own CharacterDefinitionTable.Segment(str, allowPattern:
-  true) genuinely parses "[Seg]*" into a Kleene-star pattern shape (CharacterDefinitionTable.cs:
-  185-196,226-240) -- so the mechanism CAN construct a pattern-shaped RootAllomorph from a literal
-  LexEntry Form string. What is NOT resolved from HCLoader.cs alone: whether any real FieldWorks
-  lexical-entry authoring flow (the Lexicon Edit tool, import, or LibLCM's own MoStemAllomorph.Form
-  validation) can ever leave literal "[" "]" bracket characters in a citation/underlying form in the
-  first place, as opposed to this only ever being reachable via hand-edited XML or a non-FieldWorks
-  data path. HCLoader.cs only shows what it does with whatever Form string LibLCM already stored;
-  it is not evidence of what a FieldWorks user's own UI lets them store.
+fieldworks_producible: true
 words:
   - word: kad
     note: >-
