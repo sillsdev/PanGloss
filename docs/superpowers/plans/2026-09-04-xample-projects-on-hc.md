@@ -67,17 +67,17 @@ the 2026-09-03 Plans 2–4. Plan 1's import work is retained. Read
 - Modify: `rust/crates/pg-fwdata/src/lib.rs` and `pg-snapshot` serialization — preserve import
   issues and conversion provenance across every production path.
 
-- [ ] **Step 1: Remove the obsolete test**
+- [x] **Step 1: Remove the obsolete test**
 
 Delete `xml_loaded_grammars_carry_no_analysis_caps`. The absence of XAMPLE caps from a runtime
 grammar is structural after this task, not an optional-state behavior.
 
-- [ ] **Step 2: Remove runtime cap state**
+- [x] **Step 2: Remove runtime cap state**
 
 Delete `AnalysisCaps`, `Grammar.analysis_caps`, and both `analysis_caps: None` initializers. Keep
 `pg_snapshot::XAmpleParameters`; it is source provenance used by reports and comparison tooling.
 
-- [ ] **Step 3: Distinguish absent from malformed comparison metadata**
+- [x] **Step 3: Distinguish absent from malformed comparison metadata**
 
 Before the search, change the `XAmpleParameters` documentation: absent values remain `None`; no HC
 compiler applies XAMPLE defaults. Interpretation belongs only to migration/comparison tooling.
@@ -106,7 +106,7 @@ Have `extract::Ctx` append these issues to the existing `ImportReport`. Invalid 
 is non-fatal for normal HC because it does not participate in HC semantics, but it must remain
 visible to the comparator.
 
-- [ ] **Step 4: Prove all references are gone**
+- [x] **Step 4: Prove all references are gone**
 
 Run:
 
@@ -117,7 +117,7 @@ rg -n "AnalysisCaps|analysis_caps|ParserProfile|ProfileChoice" rust/crates
 Expected: no production references. References in explicitly superseded Markdown plans do not
 count; no Rust source may retain the experiment.
 
-- [ ] **Step 5: Check all targets without linking**
+- [x] **Step 5: Check all targets without linking**
 
 Run:
 
@@ -129,7 +129,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add rust/crates/pg-snapshot rust/crates/pg-fwdata rust/crates/pg-grammar
@@ -159,7 +159,7 @@ contract, (2) raw-record census, (3) extractor-owner slices, (4) compiler-owner 
 these into one broad agent task. The task is complete only when all seven slices and the final gate
 are complete; slicing is review containment, not a reduction in scope.
 
-- [ ] **Step 1: Add identity-based inventories at their owner seams**
+- [x] **Step 1: Add identity-based inventories at their owner seams**
 
 Counts alone are insufficient because one authored object can expand to several compiled objects.
 Use stable FieldWorks GUIDs plus attachment identities:
@@ -324,7 +324,7 @@ Compiler finalizers consume owner-published lineage and either finalize or revok
 representation atoms after reachability, co-occurrence, and natural-class compaction. They never
 rediscover lineage by scanning the completed grammar.
 
-- [ ] **Step 2: Preserve graph-to-snapshot provenance**
+- [x] **Step 2: Preserve graph-to-snapshot provenance**
 
 Extend `ImportReport` with typed issues and the graph-to-snapshot inventory. Fatal extractor issues
 must not remain ordinary warnings. Store a versioned `conversion_provenance` value in `Snapshot` so
