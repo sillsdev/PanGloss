@@ -1645,6 +1645,34 @@ fn circumfix_cross_product_expansion_is_synthesized_and_represented() {
     assert!(inventory.represented.contains(&expansion));
 }
 
+/// A circumfix's suffix half is built into the grammar too, so it must show up as represented, not merely selected.
+#[test]
+fn circumfix_suffix_half_is_not_silently_omitted() {
+    for (label, prefix_env, suffix_env) in [
+        ("circumfix_unconditioned", [].as_slice(), [].as_slice()),
+        (
+            "circumfix_dangling_env",
+            ["dangling-env-guid"].as_slice(),
+            [].as_slice(),
+        ),
+    ] {
+        let (snapshot, _f) = circumfix_snapshot(prefix_env, suffix_env);
+        let (_grammar, _warnings, delta) =
+            compile_project_measured(&snapshot).expect("circumfix must compile");
+        assert!(
+            delta.silently_omitted.is_empty(),
+            "{label}: silently_omitted must be empty, found {:?}",
+            delta.silently_omitted
+        );
+        let suffix_key =
+            InventoryKey::object(InventoryKind::Allomorph, "allo-circ-suffix".to_string());
+        assert!(
+            delta.inventory.represented.contains(&suffix_key),
+            "{label}: the suffix half's own object key must be represented"
+        );
+    }
+}
+
 #[test]
 fn default_compounding_synthesizes_exactly_two_compound_rule_atoms_only_when_none_are_authored() {
     let (snapshot, _f) = fixture();
