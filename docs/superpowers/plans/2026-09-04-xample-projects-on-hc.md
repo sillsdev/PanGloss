@@ -1273,8 +1273,26 @@ findings not in `fieldworks-producibility.tsv`: `RealizationalRule` is never con
 | `languages/suffixing-evidential-adjacency-chain` | U3 ×4 | **DEPRECATE** (require-polarity has no FieldWorks path in principle) |
 | `edge-cases/loader-isactive-breadth` | `isActive` on 12/13 kinds has no HCLoader analog | **DEPRECATE** (XmlLanguageLoader regression fixture) |
 
-Not yet triaged: the 15 `requires: [phonology]` fixtures, plus `suffixing-extension-slot-ordering`
-and `loader-default-symbol`, which the scan flagged in passing. Whole-corpus triage is still owed.
+**Whole-corpus marking (Step 2, Machine branch `conformance/fieldworks-witnesses`, commits
+`43af40e4` + `e2688c66`): 17 of 36 fixtures are `fieldworks_producible: false`**, not six. Checking
+every grammar rather than the `requires: []` subset found four more non-producible classes:
+
+| class | fixtures | HCLoader evidence |
+|---|---|---|
+| custom-named `MorphologicalPhonologicalRuleFeatureGroup` | `mpr-group-overwrite-without-realizational`, `mpr-overwrite-order-dependence` | only the three hardcoded groups (`HCLoader.cs:168-192`) |
+| two `CharacterDefinitionTable`s across strata | `bistratal-overlapping-segment-representation`, `cross-table-root-respelling`, `rewrite-analysis-feature-neutralization`, `synthesis-stratum-render-stale-table` | one table per grammar reused by every stratum (`HCLoader.cs:204, 227-233, 374, 2669-2742`) |
+| second inactive `PhonologicalFeatureSystem` | `loader-isactive` | one feature system per grammar (`HCLoader.cs:198`) |
+| `isActive="no"` decoys on kinds with no `Disabled` filter | `compounding-breadth`, `feature-system-breadth` | one synthesized `CompoundingSubrule` per rule (`:1842-2001`); no filter on features/values/classes/entries |
+| already known | `suffixing-extension-slot-ordering`, `loader-default-symbol` | `RealizationalRule`; `SymbolicFeature.defaultSymbol` never set (`:2650-2667`) |
+
+`cross-table-root-respelling` is the fixture the FST backend's newest capability was named for; a
+FieldWorks project cannot produce it. Decision for these eleven: deprecate now; the two-table
+premise, the custom-group premise, and the `isActive` decoys have no FieldWorks re-authoring, so
+they are delete-candidates at Step 4 unless the engine-only regression they pin is wanted by
+Machine itself. `feature-gating-breadth` is converted and `true` (oracle self-check mode over all
+36 fixtures; the three affected words' signatures unchanged). The Machine-side loader
+(`WordsYamlLoader`, `words.schema.json`) had to learn the two keys because it refuses unknown
+front-matter keys; a `false` verdict requires non-empty notes at parse time.
 
 - [x] **Step 1: Triage** — per non-producible fixture: offending constructs with HCLoader citations,
   coverage claims, whether each claim is duplicated by a producible fixture, and whether a faithful
