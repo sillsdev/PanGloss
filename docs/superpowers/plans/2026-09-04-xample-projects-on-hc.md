@@ -1251,17 +1251,37 @@ co-occurrence) marks non-producible, do exactly one of:
    work on it, and at the end of this plan either delete it (coverage fully duplicated by producible
    fixtures) or convert it (unique coverage worth keeping).
 
-**Files:** `machine/conformance/fixtures.csv` (or the manifest the triage identifies) gains a
-producibility column with values `fieldworks`, `deprecated-hc-only`; `PROTOCOL.md` states the
-policy; `pg-conformance-fixtures::discover` exposes the column so PanGloss gates can report the two
+**Files:** each fixture's `words.yaml` front matter gains `fieldworks_producible: true|false` (plus
+`fieldworks_producible_notes` naming the offending constructs when `false`), mirroring the existing
+`requires:` convention — NOT `fixtures.csv`, which the triage found stale (25 rows against 36 fixture
+directories) and which nothing re-derives. `PROTOCOL.md` states the policy;
+`pg-conformance-fixtures::discover` exposes the field so PanGloss gates can report the two
 populations separately and never let an `hc-only` fixture stand in for FieldWorks coverage.
 
-- [ ] **Step 1: Triage** — per non-producible fixture: offending constructs with HCLoader citations,
+**Triage outcome (Step 1, scratchpad `fixture-producibility-triage.md`).** Two cross-cutting
+findings not in `fieldworks-producibility.tsv`: `RealizationalRule` is never constructed by HCLoader
+(`HCLoader.cs:977` carries the TODO; four fixtures use it, zero producible witnesses exist), and
+`MprFeatureGroup` is fixed at the three hardcoded groups with `Output` never set (custom groups and
+`outputType="append"` unreachable). Per fixture:
+
+| fixture | blocker | decision |
+|---|---|---|
+| `edge-cases/feature-gating-breadth` | `RealizationalRule` only | **CONVERT now** (rrPast → ordinary rule; 3 words oracle re-derived) |
+| `edge-cases/morphotactic-attribute-breadth` | U1 + U3 + `RealizationalRule` + custom MPR groups | deprecate now; CONVERT at the end (~20/26 words survive) |
+| `languages/fusional-realizational-morphology` | `family` + `RealizationalRule` + per-subrule compound MPR | deprecate now; CONVERT family-blocking third at the end (mpr-gated-exception pattern) |
+| `languages/prefixal-discontinuous-slot-dependency` | U1 + U2 | **DEPRECATE** (premise is template-internal MPR dependency) |
+| `languages/suffixing-evidential-adjacency-chain` | U3 ×4 | **DEPRECATE** (require-polarity has no FieldWorks path in principle) |
+| `edge-cases/loader-isactive-breadth` | `isActive` on 12/13 kinds has no HCLoader analog | **DEPRECATE** (XmlLanguageLoader regression fixture) |
+
+Not yet triaged: the 15 `requires: [phonology]` fixtures, plus `suffixing-extension-slot-ordering`
+and `loader-default-symbol`, which the scan flagged in passing. Whole-corpus triage is still owed.
+
+- [x] **Step 1: Triage** — per non-producible fixture: offending constructs with HCLoader citations,
   coverage claims, whether each claim is duplicated by a producible fixture, and whether a faithful
   FieldWorks re-authoring exists. Recommendation per fixture: convert / deprecate / delete-candidate.
-- [ ] **Step 2: Mark** — add the column and the protocol text on the Machine branch; nothing else
-  changes yet. `pg-conformance-fixtures` reads it; `witnessed_strategy_coverage_gate` and the
-  coverage headline report `fieldworks` and `deprecated-hc-only` counts separately.
+- [ ] **Step 2: Mark** — add the front-matter field to every fixture and the protocol text on the
+  Machine branch; nothing else changes yet. `pg-conformance-fixtures` reads it;
+  `witnessed_strategy_coverage_gate` and the coverage headline report the two counts separately.
 - [ ] **Step 3: Convert** the fixtures the triage marks convertible, one at a time, each with oracle
   re-derivation and an `author` round trip proving producibility.
 - [ ] **Step 4: Retire** — at the end, delete delete-candidates (with the duplicating fixture named
