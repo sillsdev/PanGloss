@@ -721,14 +721,8 @@ namespace XampleProjector
 		// AuthorResult.GuidMap is keyed by all of them in one document-global space.
 		private static void RegisterId(Dictionary<string, string> seenIds, string id, string elementKind)
 		{
-			if (id == null)
-				return;
-			if (seenIds.TryGetValue(id, out var firstKind))
-			{
-				throw new GrammarAuthorException(
-					$"key \"{id}\" is used by both a {firstKind} and a {elementKind} (unsupported -- GuidMap is keyed by one document-global namespace of ids, Names, and synthetic co-occurrence keys)");
-			}
-			seenIds[id] = elementKind;
+			IdRegistry.Register(seenIds, id, elementKind, firstKind =>
+				$"key \"{id}\" is used by both a {firstKind} and a {elementKind} (unsupported -- GuidMap is keyed by one document-global namespace of ids, Names, and synthetic co-occurrence keys)");
 		}
 
 		private static List<string> SplitIds(string value)
