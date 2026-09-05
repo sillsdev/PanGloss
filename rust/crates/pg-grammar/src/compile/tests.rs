@@ -2299,3 +2299,76 @@ fn allomorph_cooccurrence_rule_whose_owner_and_targets_survive_stays_represented
     });
     assert!(found, "the surviving co-occurrence rule must remain on its owner's allomorph");
 }
+
+/// One owner allomorph with TWO co-occurrence rules: pins the per-rule `idx`, never exercised at index >= 1 before this test.
+#[test]
+fn owner_with_two_cooccurrence_rules_revokes_only_the_one_whose_target_is_compacted_away() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-orphan".to_string(),
+        citation_form: vec![ws("sen", "-ka")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph("allo-orphan", MorphType::Suffix, "ka")],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-orphan".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: vec!["slot-never-templated".to_string()],
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    // idx 0 on "allo-suffix": targets "allo-stem", which survives compaction -- must stay represented.
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
+        guid: "coocc-idx0-survives".to_string(),
+        disabled: false,
+        primary: "allo-suffix".to_string(),
+        others: vec!["allo-stem".to_string()],
+        adjacency: Adjacency::Anywhere,
+    });
+    // idx 1 on the SAME owner "allo-suffix": targets "allo-orphan", which is compacted away -- must be revoked.
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
+        guid: "coocc-idx1-revoked".to_string(),
+        disabled: false,
+        primary: "allo-suffix".to_string(),
+        others: vec!["allo-orphan".to_string()],
+        adjacency: Adjacency::Anywhere,
+    });
+
+    let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert_eq!(
+        warnings,
+        vec![
+            "allomorph co-occurrence rule: an 'others' target was dropped by mrule reachability \
+             compaction; reference removed"
+                .to_string()
+        ],
+        "only the idx-1 rule's target compaction produces a warning"
+    );
+
+    let survives =
+        InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-idx0-survives".to_string());
+    let revoked =
+        InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-idx1-revoked".to_string());
+    assert!(inventory.represented.contains(&survives), "idx 0's rule must stay represented");
+    assert!(!inventory.rejected.contains(&survives), "idx 0's rule must not be revoked");
+    assert!(inventory.rejected.contains(&revoked), "idx 1's rule must be revoked");
+    assert!(!inventory.represented.contains(&revoked), "idx 1's rule must not stay represented");
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE));
+
+    let mut surviving_coocc_count = 0usize;
+    for r in &grammar.mrules {
+        if let MorphRuleDef::AffixProcess(d) = r {
+            for a in &d.allomorphs {
+                surviving_coocc_count += a.co_occurrence.len();
+            }
+        }
+    }
+    assert_eq!(
+        surviving_coocc_count, 1,
+        "exactly the idx-0 rule must remain on the compiled allomorph"
+    );
+}
