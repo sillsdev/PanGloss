@@ -867,6 +867,8 @@ dependencies = [
  "hashbrown 0.15.5",
  "pg-conformance-fixtures",
  "pg-featstruct",
+ "pg-fwdata",
+ "pg-grammar",
  "pg-shape",
  "pg-snapshot",
  "quick-xml",
