@@ -374,8 +374,11 @@ asking about more words is incremental.
 
 **The grammar hash is the only destructive event.** On a mismatch the next `batch --stats` wipes and
 starts fresh, and says so — a silent wipe would look like the accumulation feature failing. The hash
-is over the `Snapshot` (`Snapshot::to_json()`) for `.json`/`.fwdata` inputs, so edits that cannot
-affect parsing do not invalidate. **An `.xml` grammar hashes its raw file bytes instead**, because
+is over the `Snapshot`'s semantic projection (`Snapshot::grammar_hash()`: every field except
+`conversionProvenance`) for `.json`/`.fwdata` inputs, so edits that cannot affect parsing do not
+invalidate — and, as of the `conversionProvenance` schema, neither does an import that changes only
+its diagnostics; this is an intentional one-time digest migration. **An `.xml` grammar hashes its
+raw file bytes instead**, because
 `pg_grammar::load()` produces no `Snapshot` for that path -- so a comment- or whitespace-only edit to
 an XML grammar does force a wipe. Fail-closed, never silently wrong, but not the stated property. Note this is not free: a `.fwdata` input imports in-memory straight to a
 compiled grammar with no JSON written, so hashing costs one serialization pass per run.

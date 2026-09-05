@@ -27,7 +27,7 @@ architecture (`.fwdata → pg-fwdata → Snapshot → pg_grammar::compile → Gr
   omitted rather than emitted as `[]`, except where a field is expected on essentially every
   instance (e.g. `LexEntry.allomorphs`), in which case it's always present, even if empty.
 - **Validation philosophy.** `Snapshot::validate()` returns `Vec<String>` **warnings** for
-  dangling GUID references. It is not exhaustive (see §8) and never turns a reference problem
+  dangling GUID references. It is not exhaustive (see §9) and never turns a reference problem
   into a hard error — real FieldWorks projects contain stale references (the motivating example
   in `docs/fwdata-import-plan.md` §1 is a stale `MoMorphAdhocProhib` that crashes the legacy C#
   exporter), and this pipeline must tolerate them.
@@ -49,6 +49,7 @@ architecture (`.fwdata → pg-fwdata → Snapshot → pg_grammar::compile → Gr
 | `phonology` | [`Phonology`](#4-phonology) | |
 | `morphology` | [`Morphology`](#5-morphology) | |
 | `lexicon` | [`Lexicon`](#6-lexicon) | |
+| `conversionProvenance` | [`ConversionProvenance`](#7-conversionprovenance) | Optional (`#[serde(default)]`); see §7. |
 
 ## 2. `project`
 
@@ -472,7 +473,25 @@ treatment of the two as mutually exclusive in practice).
 | `variant` | `guid`, `componentLexemes: guid[]`, `variantEntryTypes: guid[]` | `LexEntryRef` with `VariantEntryTypesRS` populated. `componentLexemes` ← `ComponentLexemesRS` (the main entry/sense this is a variant of — each guid may be a `LexEntry` **or** a `LexSense`, LCM's `CmObject` union; resolvers must check both `lexicon.entries` and each entry's `senses`). `variantEntryTypes` ← `VariantEntryTypesRS` — each guid may be a plain `LexEntryType` or a `morphology.lexEntryInflTypes` guid (`HCLoader.GetInflTypes`'s `as ILexEntryInflType` downcast, HCLoader.cs:657-679); `HCLoader.LoadLexEntries`/`LoadMorphologicalRules` walk exactly this shape when `entry.SensesOS.Count == 0` (HCLoader.cs:628-651, 852-871) to attach the variant's allomorphs to the *main* entry's MSAs. |
 | `complexForm` | `guid`, `componentLexemes: guid[]`, `complexEntryTypes: guid[]` | `LexEntryRef` with `ComplexEntryTypesRS` populated. Not walked by `HCLoader` today; carried for completeness/forward-compatibility. |
 
-## 7. `WsForm` (shared primitive)
+## 7. `conversionProvenance`
+
+**Status:** schema only (this section documents the type; nothing in `pg-fwdata`/`pg-grammar`
+populates it yet). Absent from a document entirely (every snapshot written before this schema
+existed), it deserializes as `schemaVersion: 0` with `sourceInventoryStatus: "unknown"` —
+`ConversionProvenance`'s `Default`, and never to be read as "cleanly imported". Excluded from
+`Snapshot::grammar_hash`'s digest — that digest's semantic fields are exactly
+`format`/`version`/`project`/`featureSystems`/`phonology`/`morphology`/`lexicon` — so an edit here
+alone never invalidates a grammar-hash-keyed cache.
+
+| Field | Type | Notes |
+|---|---|---|
+| `schemaVersion` | integer | `1` for a document written by this build; `0` reads as "no provenance was ever recorded". `Snapshot`'s own `format`/`version` envelope is unrelated. |
+| `sourceInventoryStatus` | `"importedComplete" \| "importedWithFatalIssues" \| "synthetic" \| "unknown"` | Whether a real import produced this snapshot, and whether it completed cleanly. `"unknown"` at `schemaVersion: 1` and any status other than `"unknown"` at `schemaVersion: 0` are both impossible pairs — `ConversionProvenance::validate` rejects them. |
+| `sourceCensus` | object | A raw tally of the source graph's object classes (`totalOccurrences`, `classOccurrences`, `unhandledClassOccurrences`, `orderedHeaderSha256`) — the denominator `graphToSnapshot`'s stages are measured against. |
+| `graphToSnapshot` | object | Six `InventoryKey` sets — `authored`, `considered`, `selected`, `represented`, `rejected`, `synthesized` — one per conversion-pipeline stage. An `InventoryKey` is a `{ kind, identity }` pair; `identity` is one of `object` (a single guid), `attachment` (owner/target/role), `expansion` (owner/member guids/role), or `setting` (a bare name) — built only through `InventoryKey`'s constructors, never by hand-concatenating strings. |
+| `importIssues` | array | Problems noticed while converting: `code`, `class` (`malformedSource \| invalidSource \| ambiguousSource \| unrepresentableForHc \| substrateUnresolvable \| migrationDifference`), an optional `source` pointer (`{ kind, id }`), `fatal`, and a human-readable `message`. |
+
+## 8. `WsForm` (shared primitive)
 
 ```json
 { "ws": "en", "form": "dog" }
@@ -483,7 +502,7 @@ identified by tag, not object GUID, in the raw `.fwdata` XML itself (`AUni ws=".
 `AStr ws="..."` attributes). Used for every LCM `MultiUnicode`/`MultiString` field this format
 carries.
 
-## 8. What `Snapshot::validate()` checks (and doesn't)
+## 9. What `Snapshot::validate()` checks (and doesn't)
 
 `validate()` is a **light** structural check, not an exhaustive schema validator. It resolves:
 
@@ -513,7 +532,7 @@ against):
   are opaque strings re-tokenized by the compiler (T3), not structured references this crate can
   resolve.
 
-## 9. Deferred / out of scope for this crate
+## 10. Deferred / out of scope for this crate
 
 - **The `MoMorphType` guid→`MorphType` mapping table.** The actual well-known GUID constants
   (`MoMorphTypeTags.kguidMorph*`) live in the compiled `SIL.LCModel` NuGet package, which is not

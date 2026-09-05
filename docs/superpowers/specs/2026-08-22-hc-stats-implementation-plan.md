@@ -18,9 +18,12 @@ Per-text reporting is **not** in this plan — it needs text and occurrence extr
 Small, and everything else assumes them.
 
 **Grammar hash.** Expose a digest of the loaded grammar so `batch --stats` can decide whether to
-wipe. Hash `Snapshot::to_json()`, not the `.fwdata` bytes, so edits that cannot affect parsing do not
-invalidate. Note the cost: a `.fwdata` input currently imports in-memory straight to a compiled
-grammar with no JSON written, so this adds one serialization pass per run.
+wipe. Hash a SHA-256 of the semantic projection of the `Snapshot` — every field except
+`conversionProvenance` — not the `.fwdata` bytes, so edits that cannot affect parsing do not
+invalidate. This is a one-time digest migration: excluding `conversionProvenance` means an import
+that changes only its diagnostics never invalidates the stats cache either. Note the cost: a
+`.fwdata` input currently imports in-memory straight to a compiled grammar with no JSON written, so
+this adds one serialization pass per run.
 
 - Touches: `pg-cli`'s `load_grammar` dispatch, `pg-snapshot`.
 - Verify: same project hashes identically across two loads; a gloss-only edit does not change it; a
