@@ -38,6 +38,7 @@ mod lexicon;
 mod mpr;
 mod natclass;
 mod reachability;
+pub(crate) mod roles;
 mod rules;
 mod templates;
 #[cfg(test)]
@@ -54,7 +55,7 @@ use crate::featsys::PhonFeatureSystem;
 use crate::model::*;
 use crate::GrammarError;
 
-use pg_snapshot::{ConversionIssue, InventoryKey, IssueClass, SelectionRecorder, Snapshot};
+use pg_snapshot::{InventoryKey, IssueClass, SelectionRecorder, Snapshot};
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
@@ -67,6 +68,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
 
 /// As [`compile_project`], but also returns the [`SelectionRecorder`] every owner below wrote its
 /// snapshot-to-grammar selection decisions into — the seam a later slice's measured API reads.
+/// Recording happens before `reachability::compact_mrules`/`trim_unreachable_morpheme_coocurrence`/`natclass::compact_to_referenced` run, so `represented` is a pre-compaction claim, not a claim about the returned `Grammar` after compaction.
 pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
 ) -> Result<(Grammar, Vec<String>, SelectionRecorder), GrammarError> {
@@ -516,7 +518,7 @@ impl Ctx<'_> {
         self.recorder.borrow_mut().synthesized(key);
     }
 
-    /// Records `key` rejected and emits the SAME warning a caller would otherwise have pushed alone, so converting a warn-only site to also reject never changes warning prose or counts.
+    /// Delegates to `inventory::reject` so the `ConversionIssue` construction exists in exactly one place, shared with the phases that run before `Ctx` exists.
     pub(crate) fn reject(
         &self,
         warnings: &mut Vec<String>,
@@ -525,21 +527,10 @@ impl Ctx<'_> {
         class: IssueClass,
         msg: impl Into<String>,
     ) {
-        let msg = msg.into();
-        warnings.push(msg.clone());
-        self.recorder.borrow_mut().rejected(
-            key,
-            ConversionIssue {
-                code: code.to_string(),
-                class,
-                source: None,
-                fatal: false,
-                message: msg,
-            },
-        );
+        inventory::reject(&mut self.recorder.borrow_mut(), warnings, key, code, class, msg);
     }
 
-    /// Records `key` rejected with no new warning, for a site that was already silent about dropping it.
+    /// As [`Ctx::reject`], but pushes no warning, for a site that was already silent about dropping it.
     pub(crate) fn reject_quietly(
         &self,
         key: InventoryKey,
@@ -547,16 +538,46 @@ impl Ctx<'_> {
         class: IssueClass,
         msg: impl Into<String>,
     ) {
-        self.recorder.borrow_mut().rejected(
-            key,
-            ConversionIssue {
-                code: code.to_string(),
-                class,
-                source: None,
-                fatal: false,
-                message: msg.into(),
-            },
-        );
+        inventory::reject_quietly(&mut self.recorder.borrow_mut(), key, code, class, msg);
+    }
+
+    /// The `authored → considered → selected → represented|rejected` sequence every attachment-resolution site repeats; `resolved` picks the branch, with the loud (warning-pushing) rejection path.
+    pub(crate) fn record_attachment(
+        &self,
+        warnings: &mut Vec<String>,
+        key: InventoryKey,
+        resolved: bool,
+        code: &'static str,
+        class: IssueClass,
+        msg: impl Into<String>,
+    ) {
+        self.authored(key.clone());
+        self.considered(key.clone());
+        self.selected(key.clone());
+        if resolved {
+            self.represented(key);
+        } else {
+            self.reject(warnings, key, code, class, msg);
+        }
+    }
+
+    /// As [`Ctx::record_attachment`], but silent on rejection.
+    pub(crate) fn record_attachment_quietly(
+        &self,
+        key: InventoryKey,
+        resolved: bool,
+        code: &'static str,
+        class: IssueClass,
+        msg: impl Into<String>,
+    ) {
+        self.authored(key.clone());
+        self.considered(key.clone());
+        self.selected(key.clone());
+        if resolved {
+            self.represented(key);
+        } else {
+            self.reject_quietly(key, code, class, msg);
+        }
     }
 }
 

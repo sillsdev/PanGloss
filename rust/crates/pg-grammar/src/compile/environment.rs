@@ -4,7 +4,7 @@ use pg_snapshot::{InventoryKey, InventoryKind, IssueClass};
 
 use crate::model::{AnchorSide, EnvironmentDef, Pattern, PatternNode, SimpleContext};
 
-use super::{issue_codes, Ctx};
+use super::{issue_codes, roles, Ctx};
 
 /// Resolves environment guids into `EnvironmentDef`s, dropping (with a warning) any that fail to resolve or parse; shared by `build_root_allomorph` and `build_circumfix_allomorphs`.
 pub(crate) fn resolve_environment_defs<'a>(
@@ -19,7 +19,7 @@ pub(crate) fn resolve_environment_defs<'a>(
             InventoryKind::Environment,
             allo_guid.to_string(),
             env_guid.to_string(),
-            "environment",
+            roles::ENVIRONMENT,
         );
         ctx.authored(attachment.clone());
         ctx.considered(attachment.clone());

@@ -233,9 +233,9 @@ fn add_infl_class(
     Ok(())
 }
 
-/// The synthesized MPR-group composite (`"inflClasses"`/`"exceptionFeatures"`/`"lexEntryInflTypes"`), distinct from the individual inflection-class/rule-feature atoms folded into it.
+/// The synthesized MPR-group composite (`"inflClasses"`/`"exceptionFeatures"`/`"lexEntryInflTypes"`), distinct from the individual inflection-class/rule-feature atoms folded into it; a `setting` key since the group itself owns no guid.
 fn record_synthesized_mpr_group(recorder: &mut SelectionRecorder, name: &str) {
-    let key = InventoryKey::object(InventoryKind::RuleFeature, name.to_string());
+    let key = InventoryKey::setting(InventoryKind::RuleFeature, name.to_string());
     recorder.synthesized(key.clone());
     recorder.considered(key.clone());
     recorder.selected(key.clone());

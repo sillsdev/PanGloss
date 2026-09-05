@@ -1,7 +1,7 @@
 //! Unit tests for `pg_grammar::compile`, built entirely from code-constructed `Snapshot` values (no `.fwdata`/oracle files).
 
 use pg_snapshot::feature::{
-    ClosedFeature, FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind,
+    ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind,
     FeatureValueSymbol,
 };
 use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Lexicon, Msa, Sense};
@@ -552,6 +552,27 @@ fn inflectional_msa_with_no_slots_is_a_partial_rule() {
     );
     // With no slots referencing it, the template's one slot has no loaded affix and the whole template must be dropped.
     assert!(grammar.templates.is_empty());
+}
+
+/// `chardef::build`'s morph-boundary fallback (no authored `+` representation) must be recorded rejected, with the legacy warning text unchanged. Default compounding is suppressed: it unconditionally segments a literal `"+"` (`compounding::plus_join`), an unrelated pre-existing assumption this test must not trip.
+#[test]
+fn missing_morph_boundary_marker_is_recorded_rejected_with_the_legacy_warning_text() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.phonology.boundary_markers.retain(|b| b.guid != "bd-plus");
+    snapshot.morphology.parser_parameters.no_default_compounding = true;
+
+    let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("no boundary marker representation '+' found")),
+        "expected the legacy morph-boundary fallback warning to survive unchanged; got {warnings:?}"
+    );
+    let key = InventoryKey::setting(InventoryKind::BoundaryMarker, "morph-boundary".to_string());
+    assert!(inventory.rejected.contains(&key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::BOUNDARY_MORPH_MARKER_UNRESOLVED));
 }
 
 // --- 6. parser-parameter handling ---------------------------------------------------------------
@@ -1227,13 +1248,8 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
 
 // --- snapshot-to-grammar selection recording ---------------------------------------------------
 
-#[test]
-fn fixture_recording_authored_minus_considered_is_empty_and_selected_minus_represented_minus_rejected_is_empty(
-) {
-    let (snapshot, _f) = fixture();
-    let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
-
+/// Every authored key must be considered, and every selected key must reach represented or rejected -- the two cross-stage bookkeeping checks `SelectionRecorder::check_invariants` itself does not enforce (it only relates adjacent stages), so callers assert them directly.
+fn assert_no_authored_or_selected_falls_through(inventory: &pg_snapshot::ConversionInventory) {
     let unaccounted_authored: Vec<_> = inventory
         .authored
         .difference(&inventory.considered)
@@ -1252,6 +1268,16 @@ fn fixture_recording_authored_minus_considered_is_empty_and_selected_minus_repre
         unaccounted_selected.is_empty(),
         "selected but neither represented nor rejected: {unaccounted_selected:?}"
     );
+}
+
+#[test]
+fn fixture_recording_authored_minus_considered_is_empty_and_selected_minus_represented_minus_rejected_is_empty(
+) {
+    let (snapshot, _f) = fixture();
+    let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    assert_no_authored_or_selected_falls_through(&inventory);
 
     let represented_phonemes = inventory
         .represented
@@ -1285,6 +1311,25 @@ fn fixture_recording_authored_minus_considered_is_empty_and_selected_minus_repre
             .map(|a| a.len())
             .sum::<usize>();
     assert_eq!(represented_allomorphs, grammar_allomorph_count);
+
+    // An `EntryRef::Variant` authors its own `EntryReference` atom (see `inventory::seed_authored_from_snapshot`), so the same check must hold once one is present.
+    let (mut variant_snapshot, f) = fixture();
+    variant_snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-variant".to_string(),
+        citation_form: vec![ws("sen", "kumi")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-variant", MorphType::Stem, "kumi")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-variant-authored-considered".to_string(),
+            component_lexemes: vec![f.stem_entry.clone()],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+    let (_grammar2, warnings2, inventory2, _issues2) = compile_recording_ok(&variant_snapshot);
+    assert!(warnings2.is_empty(), "unexpected warnings: {warnings2:?}");
+    assert_no_authored_or_selected_falls_through(&inventory2);
 }
 
 /// Every existing fixture-derived scenario elsewhere in this file must also leave the recorder's invariants intact; each snapshot here mirrors an existing test's mutation, checked through `compile_recording_ok` rather than duplicating that test's own assertions.
@@ -1580,17 +1625,14 @@ fn variant_entry_expansion_atom_is_synthesized_and_represented() {
     );
 }
 
-/// Pins the fixture's warning vector exactly and proves `compile_project`/`compile_project_recording` agree byte-for-byte -- the recording seam must never change what `compile_project` itself returns.
+/// `compile_project` is a thin wrapper that calls `compile_project_recording` and discards the recorder, so this can only prove that delegation is intact -- it cannot detect a regression in the recording seam itself, since `compile_project` has no independent implementation to diverge from it (the fixture's own warning-free pin lives on `stem_and_inflectional_affix_and_template_compile_into_expected_grammar`, via `compile_project` directly).
 #[test]
-fn fixture_warning_vec_is_byte_identical_between_compile_project_and_the_recording_seam() {
+fn compile_project_delegates_to_compile_project_recording_and_discards_the_recorder() {
     let (snapshot, _f) = fixture();
     let (_grammar_plain, warnings_plain) =
         compile_project(&snapshot).expect("fixture must compile");
     let (_grammar_recorded, warnings_recorded, _inventory, _issues) =
         compile_recording_ok(&snapshot);
-    let expected: Vec<String> = Vec::new();
-    assert_eq!(warnings_plain, expected);
-    assert_eq!(warnings_recorded, expected);
     assert_eq!(warnings_plain, warnings_recorded);
 }
 
@@ -1730,4 +1772,83 @@ fn custom_strata_setting_is_recorded_rejected() {
     assert!(issues
         .iter()
         .any(|i| i.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED));
+}
+
+/// `is_valid_rule_form`'s three reject sites must select the allomorph before rejecting it (`rejected ⊆ selected`), for both the positionless-infix and the bracket-pattern (reduplication) routes.
+#[test]
+fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-invalid-forms".to_string(),
+        citation_form: vec![ws("sen", "invalid")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![
+            simple_allomorph("allo-infix-nopos", MorphType::Infix, "t"),
+            simple_allomorph("allo-bracket-form", MorphType::Suffix, "[X]"),
+        ],
+        msas: vec![Msa::Unclassified {
+            guid: "msa-invalid-forms".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+
+    let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("reduplication/bracket-pattern") && w.contains("allo-bracket-form")),
+        "expected the legacy reduplication warning to survive unchanged; got {warnings:?}"
+    );
+
+    let infix_key = InventoryKey::object(InventoryKind::Allomorph, "allo-infix-nopos".to_string());
+    assert!(
+        inventory.selected.contains(&infix_key),
+        "the positionless infix allomorph must be selected before rejection"
+    );
+    assert!(inventory.rejected.contains(&infix_key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM));
+
+    let bracket_key = InventoryKey::object(InventoryKind::Allomorph, "allo-bracket-form".to_string());
+    assert!(
+        inventory.selected.contains(&bracket_key),
+        "the bracket-pattern allomorph must be selected before rejection"
+    );
+    assert!(inventory.rejected.contains(&bracket_key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED));
+}
+
+/// `build_phon_features`'s complex-feature drop must select the feature before rejecting it (`rejected ⊆ selected`).
+#[test]
+fn complex_phonological_feature_is_recorded_selected_before_rejected() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.feature_systems.phonological.complex_features.push(ComplexFeature {
+        guid: "cf-phon".to_string(),
+        name: "PhonComplex".to_string(),
+        abbreviation: "pc".to_string(),
+        feature_type: None,
+    });
+
+    let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("phonological complex feature")),
+        "expected the legacy complex-feature warning to survive unchanged; got {warnings:?}"
+    );
+    let key = InventoryKey::object(InventoryKind::FeatureDefinition, "cf-phon".to_string());
+    assert!(
+        inventory.selected.contains(&key),
+        "the complex phonological feature must be selected before rejection"
+    );
+    assert!(inventory.rejected.contains(&key));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED));
 }

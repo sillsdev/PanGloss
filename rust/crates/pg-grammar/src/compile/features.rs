@@ -282,9 +282,11 @@ pub(crate) fn build_phon_features(
         ));
         // One combined warning covers every complex feature, so each is recorded rejected without pushing a second warning per feature.
         for cf in &fs.complex_features {
+            let key = InventoryKey::object(InventoryKind::FeatureDefinition, cf.guid.clone());
+            recorder.selected(key.clone());
             super::inventory::reject_quietly(
                 recorder,
-                InventoryKey::object(InventoryKind::FeatureDefinition, cf.guid.clone()),
+                key,
                 issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED,
                 IssueClass::UnrepresentableForHc,
                 "unsupported: phonological complex feature ignored (the Rust engine's \

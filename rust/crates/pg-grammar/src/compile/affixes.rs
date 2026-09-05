@@ -13,6 +13,7 @@ use crate::model::{
 
 use super::environment;
 use super::issue_codes;
+use super::roles;
 use super::{Acc, Ctx};
 
 /// Which concatenative shape an affix morph type implies; `None` for a type this compiler does not build a rule for (circumfix, bare clitic/particle, phrase-shaped).
@@ -204,22 +205,19 @@ pub(crate) fn build_affix_rule(
                     InventoryKind::RuleFeature,
                     msa_guid.clone(),
                     f.clone(),
-                    "required",
+                    roles::REQUIRED,
                 );
-                ctx.authored(attachment.clone());
-                ctx.considered(attachment.clone());
-                ctx.selected(attachment.clone());
-                if let Some(s) = ctx.mpr.exception_feature(f) {
+                let resolved = ctx.mpr.exception_feature(f);
+                ctx.record_attachment(
+                    warnings,
+                    attachment,
+                    resolved.is_some(),
+                    issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
+                    IssueClass::InvalidSource,
+                    format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
+                );
+                if let Some(s) = resolved {
                     set = set.union(s);
-                    ctx.represented(attachment);
-                } else {
-                    ctx.reject(
-                        warnings,
-                        attachment,
-                        issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
-                        IssueClass::InvalidSource,
-                        format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
-                    );
                 }
             }
             if let Some(ic) = from_inflection_class {
@@ -227,23 +225,19 @@ pub(crate) fn build_affix_rule(
                     InventoryKind::InflectionClass,
                     msa_guid.clone(),
                     ic.clone(),
-                    "required",
+                    roles::REQUIRED,
                 );
-                ctx.authored(attachment.clone());
-                ctx.considered(attachment.clone());
-                ctx.selected(attachment.clone());
-                match ctx.mpr.infl_class_with_descendants(ic) {
-                    Some(s) => {
-                        set = set.union(s);
-                        ctx.represented(attachment);
-                    }
-                    None => ctx.reject(
-                        warnings,
-                        attachment,
-                        issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
-                        IssueClass::InvalidSource,
-                        format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
-                    ),
+                let resolved = ctx.mpr.infl_class_with_descendants(ic);
+                ctx.record_attachment(
+                    warnings,
+                    attachment,
+                    resolved.is_some(),
+                    issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
+                    IssueClass::InvalidSource,
+                    format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
+                );
+                if let Some(s) = resolved {
+                    set = set.union(s);
                 }
             }
             set
@@ -257,22 +251,19 @@ pub(crate) fn build_affix_rule(
                     InventoryKind::RuleFeature,
                     msa_guid.clone(),
                     f.clone(),
-                    "required",
+                    roles::REQUIRED,
                 );
-                ctx.authored(attachment.clone());
-                ctx.considered(attachment.clone());
-                ctx.selected(attachment.clone());
-                if let Some(s) = ctx.mpr.exception_feature(f) {
+                let resolved = ctx.mpr.exception_feature(f);
+                ctx.record_attachment(
+                    warnings,
+                    attachment,
+                    resolved.is_some(),
+                    issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
+                    IssueClass::InvalidSource,
+                    format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
+                );
+                if let Some(s) = resolved {
                     set = set.union(s);
-                    ctx.represented(attachment);
-                } else {
-                    ctx.reject(
-                        warnings,
-                        attachment,
-                        issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
-                        IssueClass::InvalidSource,
-                        format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
-                    );
                 }
             }
             set
@@ -291,22 +282,19 @@ pub(crate) fn build_affix_rule(
                     InventoryKind::RuleFeature,
                     msa_guid.clone(),
                     f.clone(),
-                    "out",
+                    roles::OUT,
                 );
-                ctx.authored(attachment.clone());
-                ctx.considered(attachment.clone());
-                ctx.selected(attachment.clone());
-                if let Some(s) = ctx.mpr.exception_feature(f) {
+                let resolved = ctx.mpr.exception_feature(f);
+                ctx.record_attachment(
+                    warnings,
+                    attachment,
+                    resolved.is_some(),
+                    issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
+                    IssueClass::InvalidSource,
+                    format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
+                );
+                if let Some(s) = resolved {
                     set = set.union(s);
-                    ctx.represented(attachment);
-                } else {
-                    ctx.reject(
-                        warnings,
-                        attachment,
-                        issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
-                        IssueClass::InvalidSource,
-                        format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
-                    );
                 }
             }
             if let Some(ic) = to_inflection_class {
@@ -314,23 +302,19 @@ pub(crate) fn build_affix_rule(
                     InventoryKind::InflectionClass,
                     msa_guid.clone(),
                     ic.clone(),
-                    "out",
+                    roles::OUT,
                 );
-                ctx.authored(attachment.clone());
-                ctx.considered(attachment.clone());
-                ctx.selected(attachment.clone());
-                match ctx.mpr.infl_class_single(ic) {
-                    Some(s) => {
-                        set = set.union(s);
-                        ctx.represented(attachment);
-                    }
-                    None => ctx.reject(
-                        warnings,
-                        attachment,
-                        issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
-                        IssueClass::InvalidSource,
-                        format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
-                    ),
+                let resolved = ctx.mpr.infl_class_single(ic);
+                ctx.record_attachment(
+                    warnings,
+                    attachment,
+                    resolved.is_some(),
+                    issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
+                    IssueClass::InvalidSource,
+                    format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
+                );
+                if let Some(s) = resolved {
+                    set = set.union(s);
                 }
             }
             set
@@ -342,40 +326,24 @@ pub(crate) fn build_affix_rule(
         Msa::Derivational {
             from_stem_name: Some(sn),
             ..
-        } => match ctx.stem_name_by_guid.get(sn) {
-            Some(&id) => {
-                let attachment = InventoryKey::attachment(
-                    InventoryKind::StemName,
-                    msa_guid.clone(),
-                    sn.clone(),
-                    "required",
-                );
-                ctx.authored(attachment.clone());
-                ctx.considered(attachment.clone());
-                ctx.selected(attachment.clone());
-                ctx.represented(attachment);
-                Some(id)
-            }
-            None => {
-                let attachment = InventoryKey::attachment(
-                    InventoryKind::StemName,
-                    msa_guid.clone(),
-                    sn.clone(),
-                    "required",
-                );
-                ctx.authored(attachment.clone());
-                ctx.considered(attachment.clone());
-                ctx.selected(attachment.clone());
-                ctx.reject(
-                    warnings,
-                    attachment,
-                    issue_codes::MSA_STEM_NAME_UNRESOLVED,
-                    IssueClass::InvalidSource,
-                    format!("MSA {msa_guid:?}: stem name {sn:?} does not resolve"),
-                );
-                None
-            }
-        },
+        } => {
+            let attachment = InventoryKey::attachment(
+                InventoryKind::StemName,
+                msa_guid.clone(),
+                sn.clone(),
+                roles::REQUIRED,
+            );
+            let id = ctx.stem_name_by_guid.get(sn).copied();
+            ctx.record_attachment(
+                warnings,
+                attachment,
+                id.is_some(),
+                issue_codes::MSA_STEM_NAME_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("MSA {msa_guid:?}: stem name {sn:?} does not resolve"),
+            );
+            id
+        }
         _ => None,
     };
 
@@ -551,7 +519,7 @@ fn build_circumfix_allomorphs(
                 InventoryKind::Allomorph,
                 prefix.guid.clone(),
                 vec![suffix.guid.clone()],
-                "circumfix-cross-product",
+                roles::CIRCUMFIX_CROSS_PRODUCT,
             );
             ctx.synthesized(expansion.clone());
             ctx.considered(expansion.clone());
@@ -652,6 +620,8 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -
     match allo.morph_type {
         MorphType::Infix | MorphType::InfixingInterfix => {
             if allo.positions.is_empty() {
+                // `selected` before `reject_quietly`, not once for the whole function: the catch-all arm below must stay unselected (see its own comment).
+                ctx.selected(key.clone());
                 ctx.reject_quietly(
                     key,
                     issue_codes::ALLOMORPH_NOT_RULE_FORM,
@@ -672,6 +642,7 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -
         | MorphType::Enclitic => {
             let form = super::best_ws(&allo.forms, None).unwrap_or("");
             if form.contains('[') {
+                ctx.selected(key.clone());
                 ctx.reject(
                     warnings,
                     key,
@@ -686,6 +657,7 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -
                 return false;
             }
             if form.trim().is_empty() {
+                ctx.selected(key.clone());
                 ctx.reject_quietly(
                     key,
                     issue_codes::ALLOMORPH_NOT_RULE_FORM,
@@ -697,7 +669,7 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -
                 true
             }
         }
-        // Bare Clitic/Particle/Stem/Root/... are never rule forms for this filter, and no `reject_quietly` here: `lexicon.rs`'s stem/clitic bucket owns this allomorph guid's represented/rejected identity instead.
+        // Bare Clitic/Particle/Stem/Root/... are never rule forms for this filter, and no `selected`/`reject_quietly` here: `lexicon.rs`'s stem/clitic bucket owns this allomorph guid's selected/represented/rejected identity instead.
         _ => false,
     }
 }
@@ -938,7 +910,7 @@ fn resolve_environments(
             InventoryKind::Environment,
             allo_guid.to_string(),
             g.to_string(),
-            "environment",
+            roles::ENVIRONMENT,
         );
         ctx.authored(attachment.clone());
         ctx.considered(attachment.clone());
