@@ -16,11 +16,11 @@ namespace XampleProjector
 
 		internal void Note(string fixtureId, Guid guid, string className)
 		{
-			// Backstop, not the primary check -- GrammarParser's document-global id scan is what
-			// should catch a collision before Author() ever runs; this only fires if that scan
-			// missed one, and a plain indexer write here would silently overwrite the earlier entry.
+			// GrammarParser.RegisterId proves every key here is unique before Author() ever runs
+			// (build.ps1's "Duplicate id refusal probe" and "Duplicate slot-name refusal probe");
+			// reaching this is a defect in that proof, not a refusable grammar.xml.
 			if (GuidMap.ContainsKey(fixtureId))
-				throw new GrammarAuthorException($"duplicate GuidMap key \"{fixtureId}\" (already mapped to {GuidMap[fixtureId]}, now {guid}) -- GrammarParser should have refused this id as a duplicate");
+				throw new InvalidOperationException($"unreachable: duplicate GuidMap key \"{fixtureId}\" (already mapped to {GuidMap[fixtureId]}, now {guid})");
 			GuidMap[fixtureId] = guid;
 			NoteCountOnly(className);
 		}
@@ -338,7 +338,6 @@ namespace XampleProjector
 				foreach (var slot in template.Slots)
 				{
 					var ruleIds = slot.RuleIds;
-					// GrammarParser.Parse already refused a slot whose rules mix prefix and suffix.
 					var isPrefix = grammar.MorphologicalRules[ruleIds[0]].Subrules[0].IsPrefix;
 
 					var lcmSlot = slotFactory.Create();
@@ -360,7 +359,8 @@ namespace XampleProjector
 		private static void CreateCoOccurrenceRules(LcmCache cache, GrammarModel grammar, Dictionary<string, IMoInflAffMsa> ruleMsaMap,
 			Dictionary<string, IMoStemMsa> stemEntryMsaMap, Dictionary<string, IMoForm> alloFormMap, AuthorResult result)
 		{
-			// GrammarParser.Parse already refused a reference to an unknown morpheme/allomorph id.
+			// build.ps1's "Unknown co-occurrence id refusal probe" pins that an unresolvable id
+			// here already refused in GrammarParser.Parse.
 			IMoMorphSynAnalysis LookupMsa(string morphemeId) =>
 				ruleMsaMap.TryGetValue(morphemeId, out var ruleMsa) ? ruleMsa : stemEntryMsaMap[morphemeId];
 
@@ -444,8 +444,7 @@ namespace XampleProjector
 				Require("AllomorphCoOccurrenceRule", $"allomorphCoOccurrence[{i}]");
 		}
 
-		// HCLoader.GetAdjacency (HCLoader.cs:2241-2255) maps these ints to HC's
-		// MorphCoOccurrenceAdjacency. GrammarParser.Parse already refused any other value.
+		// HCLoader.GetAdjacency (HCLoader.cs:2241-2255) maps these ints to HC's MorphCoOccurrenceAdjacency.
 		private static int AdjacencyOf(string adjacency)
 		{
 			switch (adjacency)

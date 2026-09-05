@@ -107,9 +107,12 @@ command is meant to run against any grammar `author` can accept, not only the pi
   marker trailing (fixture `"x"` -> `"x+"`, confirmed empirically via a live author+project run).
   No suffix fixture has been round-tripped yet (see the coverage table below), so a leading marker
   (`"+x"`) is this command's best-understood but UNCONFIRMED mirror of that same convention for a
-  suffix; the expected character-table representations are the fixture's own declared phoneme
-  representations; the expected XAMPLE `lex.txt` `\lx ` record count is one per authored morph
-  (every affix subrule plus every lexical entry allomorph);
+  suffix -- a match against a suffix subrule is never silently reported as a confirmed pass: when
+  ANY suffix subrule is checked, the response's `insertConventionConfirmed` is `false` (`true`
+  when every checked subrule is a prefix) and a console line names the gap; the expected
+  character-table representations are the fixture's own declared phoneme representations; the
+  expected XAMPLE `lex.txt` `\lx ` record count is one per authored morph (every affix subrule
+  plus every lexical entry allomorph);
 - the produced `AffixTemplate`'s slot order, traced back to the fixture's own `MorphemeId`s via each
   produced rule's `Gloss` (the only trace an authored rule carries forward -- HCLoader never lets a
   fixture force its own literal `MorphemeId` onto the HC engine's `Morpheme.Id`, see `author`'s own
@@ -241,12 +244,17 @@ created -- a refused grammar leaves no partial project on disk. This includes ev
 lived inside `GrammarAuthor` and could only fire after `AuthorSession.Run` had already created and
 locked a real `.fwdata` (a slot mixing prefix and suffix rules; a `MorphemeCoOccurrenceRule`/
 `AllomorphCoOccurrenceRule` referencing an unknown id; an unsupported `adjacency` value):
-`GrammarAuthor` itself refuses nothing, per its own doc comment. `GrammarParser.Parse` also tracks
-every `id` attribute seen across the whole document and refuses the first one reused across element
-kinds (naming both) -- the DTD types `id` as document-global (XML ID) but `DtdProcessing.Ignore`
-means nothing else enforces that, and `alloFormMap`/`AuthorResult.GuidMap` are plain dictionaries
-keyed by fixture id that would otherwise silently overwrite on a collision (`AuthorResult.Note`
-throwing on a duplicate key is a defensive backstop for this, not the primary check).
+`GrammarAuthor` itself refuses nothing (`AuthorResult.Note`'s duplicate-key check throws
+`InvalidOperationException("unreachable: ...")`, a defect signal, never a
+`GrammarAuthorException` -- see `build.ps1`'s duplicate-id and duplicate-slot-name refusal probes
+below). `GrammarParser.Parse` tracks every DTD `id` attribute, every `AffixTemplate`/`Slot` `Name`
+text, and every synthetic `morphemeCoOccurrence[i]`/`allomorphCoOccurrence[i]` key in one
+document-global dictionary, and refuses the first one reused across kinds (naming both) -- every
+string `AuthorResult.GuidMap` (a plain dictionary keyed by fixture id/Name/synthetic key) will
+ever be keyed by is proven unique here before any project exists. Two `AffixTemplate`s each
+declaring a `Slot` with the same `Name` (legal by the DTD, since slot names are template-local in
+HermitCrab but `GuidMap` flattens them into one namespace) is refused the same way as a duplicate
+`id`.
 
 Supported:
 - `PartsOfSpeech/PartOfSpeech` -> `IPartOfSpeechFactory`.
@@ -396,8 +404,10 @@ from a live run rather than assuming it.
 & .\tools\xample-projector\build.ps1 -Mode test    # build, --validate-capture every checked-in
                                                     # testdata capture, and (whichever of these are
                                                     # reachable) a live 'project' run against a
-                                                    # throwaway copy of Sena 3; two GrammarParser
-                                                    # refusal-before-project-exists probes (needs
+                                                    # throwaway copy of Sena 3; three GrammarParser
+                                                    # refusal-before-project-exists probes (unknown
+                                                    # co-occurrence id; duplicate id; duplicate
+                                                    # slot name across two AffixTemplates -- needs
                                                     # FieldWorks only, no submodule); the
                                                     # AllomorphCoOccurrenceRule authoring + engine
                                                     # probe (also needs no submodule); PLUS a live
@@ -422,9 +432,9 @@ FieldWorks install directory: `$env:PANGLOSS_FIELDWORKS_DIR`, default
 pilot-fixture `author`/`verify-parity` live tests instead read the `machine` git submodule at this
 repo's own root (`machine\conformance\edge-cases\deep-optional-affix-nesting\grammar.xml` and two
 fixtures under `machine\conformance\languages\` for the construct-refusal probes) and are skipped,
-independently of the Sena 3 tests, if that submodule isn't initialized. The two
-`GrammarParser`-refusal probes (unknown co-occurrence id; duplicate id) and
-`testdata\allomorph-cooccurrence-probe.grammar.xml` (this tool's own fixture, not part of the
+independently of the Sena 3 tests, if that submodule isn't initialized. The three
+`GrammarParser`-refusal probes (unknown co-occurrence id; duplicate id; duplicate slot name across
+two `AffixTemplate`s) and `testdata\allomorph-cooccurrence-probe.grammar.xml` (this tool's own fixture, not part of the
 `machine` submodule) need no submodule at all, and run whenever FieldWorks itself is present --
 independently of both the Sena 3 tests and the pilot-fixture tests.
 
