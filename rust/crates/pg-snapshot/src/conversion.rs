@@ -141,7 +141,7 @@ pub struct ConversionInventory {
 }
 
 /// Accumulates one conversion stage's selection inventory (one set per pipeline stage, plus rejection issues); every mutation names its stage and nothing here re-decides what the caller already decided.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SelectionRecorder {
     inventory: ConversionInventory,
     issues: Vec<ConversionIssue>,
