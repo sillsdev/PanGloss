@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -18,12 +17,30 @@ namespace XampleProjector
 	/// </summary>
 	internal static class XampleProjection
 	{
+		/// <summary>
+		/// A path written during projection, and whether repeating the SAME projection is
+		/// expected to reproduce identical bytes at that path. The GAFAWS PositionAnalyzer's own
+		/// output file is the one exception (measured: differs run to run over the identical
+		/// input) -- every other file is deterministic given the same source project.
+		/// </summary>
+		private readonly struct TouchedFile
+		{
+			internal string Path { get; }
+			internal bool Deterministic { get; }
+
+			internal TouchedFile(string path, bool deterministic)
+			{
+				Path = path;
+				Deterministic = deterministic;
+			}
+		}
+
 		internal static List<GeneratedFile> Generate(LcmCache cache, string fieldWorksDir, string outDir, string database)
 		{
 			var lp = cache.LanguageProject;
-			var model = RunStep("M3 export (grammar and lexicon)",
+			var model = ProjectionStep.Run("M3 export (grammar and lexicon)",
 				() => M3ModelExportServices.ExportGrammarAndLexicon(lp));
-			var template = RunStep("M3 export (GAFAWS templates)",
+			var template = ProjectionStep.Run("M3 export (GAFAWS templates)",
 				() => M3ModelExportServices.ExportGafaws(lp.PartsOfSpeechOA.PossibilitiesOS));
 
 			// One path can be written more than once (each POS-with-templates iteration below
@@ -31,48 +48,27 @@ namespace XampleProjector
 			// touched and describe each from its FINAL on-disk state once, after every write is
 			// done -- otherwise an earlier, now-stale write's digest would be reported instead
 			// of what the file actually contains.
-			var touchedPaths = new List<string>();
+			var touchedPaths = new List<TouchedFile>();
 			touchedPaths.AddRange(PrepareTemplatesForXAmpleFiles(model, template, fieldWorksDir, outDir, database));
 
 			foreach (var element in model.Elements())
 				RemoveDottedCircles(element);
 
 			touchedPaths.AddRange(MakeAmpleFiles(model, fieldWorksDir, outDir, database));
-			return RunStep("describing generated files",
-				() => touchedPaths.Distinct().Select(GeneratedFile.Describe).ToList());
-		}
 
-		// Every failure inside this pipeline must surface as a ProjectionException naming the
-		// step that failed, never a raw exception -- a caller needs "which step" to diagnose a
-		// bad output directory, a missing transform, or a GAFAWS mismatch, and ProjectCommand
-		// maps ProjectionException to the documented exit 5.
-		private static void RunStep(string stepName, Action action)
-		{
-			RunStep<object>(stepName, () => { action(); return null; });
-		}
-
-		private static T RunStep<T>(string stepName, Func<T> func)
-		{
-			try
-			{
-				return func();
-			}
-			catch (ProjectionException)
-			{
-				throw;
-			}
-			catch (Exception ex)
-			{
-				throw new ProjectionException($"{stepName} failed: {ex.Message}", ex);
-			}
+			var uniqueByPath = touchedPaths
+				.GroupBy(t => t.Path)
+				.Select(g => new TouchedFile(g.Key, g.First().Deterministic));
+			return ProjectionStep.Run("describing generated files",
+				() => uniqueByPath.Select(t => GeneratedFile.Describe(outDir, t.Path, t.Deterministic)).ToList());
 		}
 
 		// --- ported from M3ToXAmpleTransformer.PrepareTemplatesForXAmpleFiles / DefineUndefinedSlots /
 		// GetUndefinedSlots / InsertOrderclassInfo / TransformPosInfoToGafawsInputFormat / ApplyGafawsAlgorithm ---
 
-		private static List<string> PrepareTemplatesForXAmpleFiles(XDocument domModel, XDocument domTemplate, string fieldWorksDir, string outDir, string database)
+		private static List<TouchedFile> PrepareTemplatesForXAmpleFiles(XDocument domModel, XDocument domTemplate, string fieldWorksDir, string outDir, string database)
 		{
-			var touchedPaths = new List<string>();
+			var touchedPaths = new List<TouchedFile>();
 			foreach (var templateElem in domTemplate.Root.Elements("PartsOfSpeech").Elements("PartOfSpeech")
 				.Where(pe => pe.DescendantsAndSelf().Elements("AffixTemplates").Elements("MoInflAffixTemplate")
 					.Any(te => te.Element("PrefixSlots") != null || te.Element("SuffixSlots") != null)))
@@ -82,21 +78,23 @@ namespace XampleProjector
 				var gafawsInputPath = Path.Combine(outDir, database + "gafawsData.xml");
 				var gafawsTransform = LoadTransform(fieldWorksDir, "FxtM3ParserToGAFAWS");
 				var templateDom = new XDocument(new XElement(templateElem));
-				RunStep($"GAFAWS XSL transform (FxtM3ParserToGAFAWS) writing {gafawsInputPath}", () =>
+				ProjectionStep.Run($"GAFAWS XSL transform (FxtM3ParserToGAFAWS) writing {gafawsInputPath}", () =>
 				{
 					using (var writer = new StreamWriter(gafawsInputPath))
 						gafawsTransform.Transform(templateDom.CreateNavigator(), null, writer);
 				});
-				touchedPaths.Add(gafawsInputPath);
+				touchedPaths.Add(new TouchedFile(gafawsInputPath, deterministic: true));
 
 				var pa = new PositionAnalyzer();
-				var resultFile = RunStep($"GAFAWS PositionAnalyzer.Process reading {gafawsInputPath}",
+				var resultFile = ProjectionStep.Run($"GAFAWS PositionAnalyzer.Process reading {gafawsInputPath}",
 					() => pa.Process(gafawsInputPath));
 				if (string.IsNullOrEmpty(resultFile))
 					continue;
-				touchedPaths.Add(resultFile);
+				// Measured: PositionAnalyzer's own output file differs byte-for-byte between two
+				// runs over the identical input -- never treat it as reproducible.
+				touchedPaths.Add(new TouchedFile(resultFile, deterministic: false));
 
-				RunStep($"GAFAWS orderclass insertion from {resultFile}",
+				ProjectionStep.Run($"GAFAWS orderclass insertion from {resultFile}",
 					() => InsertOrderclassInfo(domModel, resultFile));
 			}
 			return touchedPaths;
@@ -167,21 +165,21 @@ namespace XampleProjector
 
 		// --- ported from M3ToXAmpleTransformer.MakeAmpleFiles, parameterized on outDir instead of %TEMP% ---
 
-		private static List<string> MakeAmpleFiles(XDocument model, string fieldWorksDir, string outDir, string database)
+		private static List<TouchedFile> MakeAmpleFiles(XDocument model, string fieldWorksDir, string outDir, string database)
 		{
-			return new List<string>
+			return new List<TouchedFile>
 			{
-				TransformToFile(model, fieldWorksDir, "FxtM3ParserToXAmpleADCtl", Path.Combine(outDir, database + "adctl.txt")),
-				TransformToFile(model, fieldWorksDir, "FxtM3ParserToToXAmpleGrammar", Path.Combine(outDir, database + "gram.txt")),
-				TransformToFile(model, fieldWorksDir, "FxtM3ParserToXAmpleWordGrammarDebuggingXSLT", Path.Combine(outDir, database + "XAmpleWordGrammarDebugger.xsl")),
-				TransformToFile(model, fieldWorksDir, "FxtM3ParserToXAmpleLex", Path.Combine(outDir, database + "lex.txt")),
+				new TouchedFile(TransformToFile(model, fieldWorksDir, "FxtM3ParserToXAmpleADCtl", Path.Combine(outDir, database + "adctl.txt")), deterministic: true),
+				new TouchedFile(TransformToFile(model, fieldWorksDir, "FxtM3ParserToToXAmpleGrammar", Path.Combine(outDir, database + "gram.txt")), deterministic: true),
+				new TouchedFile(TransformToFile(model, fieldWorksDir, "FxtM3ParserToXAmpleWordGrammarDebuggingXSLT", Path.Combine(outDir, database + "XAmpleWordGrammarDebugger.xsl")), deterministic: true),
+				new TouchedFile(TransformToFile(model, fieldWorksDir, "FxtM3ParserToXAmpleLex", Path.Combine(outDir, database + "lex.txt")), deterministic: true),
 			};
 		}
 
 		private static string TransformToFile(XDocument model, string fieldWorksDir, string xslName, string outPath)
 		{
 			var xslt = LoadTransform(fieldWorksDir, xslName);
-			RunStep($"XAMPLE XSL transform ({xslName}) writing {outPath}", () =>
+			ProjectionStep.Run($"XAMPLE XSL transform ({xslName}) writing {outPath}", () =>
 			{
 				using (var writer = new StreamWriter(outPath))
 					xslt.Transform(model.CreateNavigator(), null, writer);
@@ -194,16 +192,12 @@ namespace XampleProjector
 			var path = Path.Combine(fieldWorksDir, "Transforms", "Application", xslName + ".xsl");
 			if (!File.Exists(path))
 				throw new ProjectionException($"missing XAMPLE transform: {path}");
-			try
+			return ProjectionStep.Run($"loading XAMPLE transform {path}", () =>
 			{
 				var xslt = new XslCompiledTransform();
 				xslt.Load(path);
 				return xslt;
-			}
-			catch (Exception ex)
-			{
-				throw new ProjectionException($"failed to load XAMPLE transform {path}: {ex.Message}", ex);
-			}
+			});
 		}
 	}
 }

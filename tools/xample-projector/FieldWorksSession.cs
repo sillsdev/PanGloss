@@ -15,7 +15,7 @@ namespace XampleProjector
 	/// </summary>
 	internal static class FieldWorksSession
 	{
-		internal static int Run(string projectPath, Func<LcmCache, DiagnosticLogger, int> body)
+		internal static int Run(string fieldWorksDir, string projectPath, Func<LcmCache, DiagnosticLogger, int> body)
 		{
 			if (!File.Exists(projectPath))
 			{
@@ -38,6 +38,19 @@ namespace XampleProjector
 			{
 				using (var cache = LcmCache.CreateCacheFromExistingData(projectId, "en", logger, dirs, settings, progress))
 				{
+					// The disk-based FieldWorksPins.Verify already ran in Main before any
+					// FieldWorks type was touched; this is the earliest point the assemblies
+					// this process actually resolved and loaded can be inspected, so it is the
+					// first check that reports what RAN rather than what merely sat on disk.
+					var loadedMismatches = FieldWorksPins.VerifyLoaded(fieldWorksDir);
+					if (loadedMismatches.Count > 0)
+					{
+						Console.Error.WriteLine("A FieldWorks assembly actually loaded by this process does not match the pinned build:");
+						foreach (var mismatch in loadedMismatches)
+							Console.Error.WriteLine("  {0}: expected {1}, actually loaded {2}", mismatch.FileName, mismatch.Expected, mismatch.Actual);
+						return ExitCodes.PinMismatch;
+					}
+
 					return body(cache, logger);
 				}
 			}

@@ -15,39 +15,46 @@
   "database": "Sena3",
   "generated": [
     {
-      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3.hc.xml",
+      "path": "Sena3.hc.xml",
       "sha256": "639845b30868e910e68416f3b2baf76922202d525ba1f570443a0cf419dfa202",
-      "bytes": 1379931
+      "bytes": 1379931,
+      "deterministic": true
     },
     {
-      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3gafawsData.xml",
+      "path": "Sena3gafawsData.xml",
       "sha256": "d3d41f4a2d2b2b0d2d4c5e5cc594be1a144e14f882c643af5e13dfe8ce088f0a",
-      "bytes": 5592
+      "bytes": 5592,
+      "deterministic": true
     },
     {
-      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\OUTSena3gafawsData.xml",
-      "sha256": "550322bd704fad24236c55194b1146a7a070ba57ec19b17e50c1fcc0beb5f55d",
-      "bytes": 6592
+      "path": "OUTSena3gafawsData.xml",
+      "sha256": "a4a58a30517828d5a1e8fe308caf3a45de130a4f8283c044c713661a93265e2e",
+      "bytes": 6592,
+      "deterministic": false
     },
     {
-      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3adctl.txt",
+      "path": "Sena3adctl.txt",
       "sha256": "150e69c2c574553a14ee21f25155c99c0273fe864779c3b9d1e645c7450024a0",
-      "bytes": 5203
+      "bytes": 5203,
+      "deterministic": true
     },
     {
-      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3gram.txt",
+      "path": "Sena3gram.txt",
       "sha256": "7015da99f85e27f2bbb331ab49fc998f18ea8eca8ba2df8ecde90873d00acb40",
-      "bytes": 171371
+      "bytes": 171371,
+      "deterministic": true
     },
     {
-      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3XAmpleWordGrammarDebugger.xsl",
+      "path": "Sena3XAmpleWordGrammarDebugger.xsl",
       "sha256": "b981701ec1effcc5137556b1ab031183cf46526f8b74d74f05b58179525c3478",
-      "bytes": 1117204
+      "bytes": 1117204,
+      "deterministic": true
     },
     {
-      "path": "C:\\Users\\johnm\\AppData\\Local\\Temp\\claude\\C--Users-johnm-Documents-repos-PanGloss\\bc330f0f-f251-44d0-8443-a5a9e6100a62\\scratchpad\\sena3-inspect-test\\project-out\\Sena3lex.txt",
+      "path": "Sena3lex.txt",
       "sha256": "bcc8ba97d943ca6b40418ae6710b4880d55e201a0de92d47e9aa64698b361ff7",
-      "bytes": 154133
+      "bytes": 154133,
+      "deterministic": true
     }
   ],
   "hcLoadDiagnostics": [

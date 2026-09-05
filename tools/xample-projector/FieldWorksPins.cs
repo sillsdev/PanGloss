@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 
 namespace XampleProjector
 {
@@ -57,6 +59,45 @@ namespace XampleProjector
 			}
 
 			return mismatches;
+		}
+
+		/// <summary>
+		/// Verifies the assemblies actually loaded into THIS process -- not merely what sits on
+		/// disk under <paramref name="fieldWorksDir"/> -- both loaded from the pinned directory
+		/// and at the pinned version. A disk-only check (<see cref="Verify"/>) cannot catch the
+		/// .NET assembly-resolve order picking up a same-named DLL from somewhere else on the
+		/// search path; this makes the pin check about what RAN. Call only after code that
+		/// forces these assemblies to load (e.g. right after LcmCache opens) -- calling it any
+		/// earlier would report every assembly as "not loaded".
+		/// </summary>
+		internal static IReadOnlyList<PinMismatch> VerifyLoaded(string fieldWorksDir)
+		{
+			var mismatches = new List<PinMismatch>();
+			CheckLoadedAssembly(mismatches, fieldWorksDir, "ParserCore.dll",
+				typeof(SIL.FieldWorks.WordWorks.Parser.HCLoader).Assembly);
+			CheckLoadedAssembly(mismatches, fieldWorksDir, "SIL.LCModel.dll",
+				typeof(SIL.LCModel.LcmCache).Assembly);
+			CheckLoadedAssembly(mismatches, fieldWorksDir, "SIL.Machine.Morphology.HermitCrab.dll",
+				typeof(SIL.Machine.Morphology.HermitCrab.Language).Assembly);
+			CheckLoadedAssembly(mismatches, fieldWorksDir, "SIL.Machine.dll",
+				typeof(SIL.Machine.Annotations.Annotation<>).Assembly);
+			return mismatches;
+		}
+
+		private static void CheckLoadedAssembly(List<PinMismatch> mismatches, string fieldWorksDir, string pinnedFileName, Assembly loaded)
+		{
+			var expectedPath = Path.GetFullPath(Path.Combine(fieldWorksDir, pinnedFileName));
+			var loadedPath = Path.GetFullPath(loaded.Location);
+			if (!string.Equals(expectedPath, loadedPath, StringComparison.OrdinalIgnoreCase))
+			{
+				mismatches.Add(new PinMismatch(pinnedFileName, expectedPath, loadedPath));
+				return;
+			}
+
+			var expectedVersion = ExpectedFileVersions[pinnedFileName];
+			var loadedVersion = FileVersionInfo.GetVersionInfo(loadedPath).FileVersion;
+			if (loadedVersion != expectedVersion)
+				mismatches.Add(new PinMismatch(pinnedFileName, expectedVersion, loadedVersion));
 		}
 	}
 }
