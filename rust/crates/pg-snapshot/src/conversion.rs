@@ -145,6 +145,8 @@ pub struct ConversionInventory {
 pub struct SelectionRecorder {
     inventory: ConversionInventory,
     issues: Vec<ConversionIssue>,
+    /// Owner-selected literal text for substrate inference; independent of the stage sets below.
+    text_uses: Vec<(SourceRef, String)>,
 }
 
 impl SelectionRecorder {
@@ -175,6 +177,17 @@ impl SelectionRecorder {
 
     pub fn is_represented(&self, key: &InventoryKey) -> bool {
         self.inventory.represented.contains(key)
+    }
+
+    /// Publishes one owner's already-selected literal text (substrate-inference input); see the
+    /// `text_uses` field doc for why this never touches `check_invariants`' stage sets.
+    pub fn record_text_use(&mut self, source: SourceRef, text: &str) {
+        self.text_uses.push((source, text.to_string()));
+    }
+
+    /// Every literal text use published so far, in recording order.
+    pub fn text_uses(&self) -> &[(SourceRef, String)] {
+        &self.text_uses
     }
 
     /// Moves an already-`represented` key to `rejected`, for a key a post-hoc reachability/reference
@@ -657,6 +670,30 @@ mod tests {
                 message: "test".to_string(),
             },
         );
+    }
+
+    #[test]
+    fn record_text_use_is_independent_of_the_stage_invariants() {
+        let mut r = SelectionRecorder::default();
+        r.record_text_use(
+            SourceRef {
+                kind: "allomorph".to_string(),
+                id: "allo-1".to_string(),
+            },
+            "quma",
+        );
+        assert_eq!(
+            r.text_uses(),
+            &[(
+                SourceRef {
+                    kind: "allomorph".to_string(),
+                    id: "allo-1".to_string(),
+                },
+                "quma".to_string(),
+            )]
+        );
+        // Recording usage touches no stage set, so an otherwise-empty recorder still satisfies its own invariants.
+        assert!(r.check_invariants().is_ok());
     }
 
     #[test]
