@@ -18,6 +18,17 @@ namespace XampleProjector
 	/// DbRef hvo the way SIL.FieldWorks.WordWorks.Parser.XAmpleParser.TryCreateParseMorph does
 	/// (Src\LexText\ParserCore\XAmpleParser.cs:234-331) -- but reporting a guid, not the bare hvo,
 	/// since an hvo is only stable within one LcmCache session and this tool opens a fresh one.
+	///
+	/// <c>DescribeMorph</c>'s MSI resolution is a simplified subset of <c>TryCreateParseMorph</c>
+	/// (that class is internal, so it cannot be called directly -- see this project's own README
+	/// "Provenance"): it handles the common "bare MSA hvo" and "lexEntryHvo.refIndex.msaHvo" (a
+	/// real stem MSA at the trailing hvo) shapes, but NOT case 3 (a bare LexEntry hvo, no dots --
+	/// XAmpleParser.cs:264-265) or case 4's sense-derived fallback when the trailing hvo does not
+	/// resolve to an <c>IMoMorphSynAnalysis</c> (XAmpleParser.cs:317-322, via
+	/// <c>MorphServices.GetMainOrFirstSenseOfVariant</c>). Both unhandled shapes report
+	/// <c>msaGuid: null</c> rather than a wrong-but-plausible guid -- a known, narrower residual
+	/// gap than the one this fix closes, with no live fixture yet to validate a correct
+	/// implementation against.
 	/// </summary>
 	internal static class ParseCommand
 	{
@@ -326,21 +337,39 @@ namespace XampleProjector
 			}
 
 			// An irregularly inflected variant's MSI DbRef is "lexEntryHvo.refIndex.msaHvo"
-			// (XAmpleParser.cs:266-286; the format itself is spelled out at 266-269); only the
-			// trailing hvo identifies the MSA itself.
-			var msaHvoText = msiHvoText?.Split('.').LastOrDefault() ?? msiHvoText;
-			var msaGuidOrHvo = msiHvoText;
-			if (int.TryParse(msaHvoText, out var msaHvo) && repo.TryGetObject(msaHvo, out ICmObject msaObj))
+			// (XAmpleParser.cs:266-270): the leading hvo is the variant LexEntry sharing the
+			// trailing MSA with other variants of the same headword. Composed below as
+			// "{variantEntryGuid}#{msaGuid}" -- the SAME composite key
+			// pg_grammar::compile::lexicon::build_variant_stem_entry gives that variant on the HC
+			// side (xml_key: format!("{}#{}", variant_entry.guid, guid)) -- so a variant HC
+			// distinguishes by entry is no longer silently collapsed to one shared key here.
+			var dbRefParts = msiHvoText?.Split('.');
+			string variantEntryGuid = null;
+			var msaHvoText = msiHvoText;
+			if (dbRefParts != null && dbRefParts.Length == 3)
 			{
-				msaGuidOrHvo = msaObj.Guid.ToString();
-				if (morphnameOrGloss == null && msaObj is IMoMorphSynAnalysis msa)
+				msaHvoText = dbRefParts[2];
+				if (int.TryParse(dbRefParts[0], out var variantEntryHvo) && repo.TryGetObject(variantEntryHvo, out ICmObject variantEntryObj))
+					variantEntryGuid = variantEntryObj.Guid.ToString();
+			}
+
+			// An unresolved DbRef, or one that resolves to something other than a real MSA (e.g.
+			// case 3's bare LexEntry hvo, XAmpleParser.cs:264-265, which this tool's simplified
+			// resolution does not fully replicate -- see ParseCommand's own module doc), reports
+			// as an explicit absence (null), never the raw hvo/dotted DbRef text: that text is
+			// engine-internal, not a guid, and a caller must never mistake it for one.
+			string msaGuid = null;
+			if (int.TryParse(msaHvoText, out var msaHvo) && repo.TryGetObject(msaHvo, out ICmObject msaObj) && msaObj is IMoMorphSynAnalysis msa)
+			{
+				msaGuid = variantEntryGuid != null ? $"{variantEntryGuid}#{msa.Guid}" : msa.Guid.ToString();
+				if (morphnameOrGloss == null)
 					morphnameOrGloss = GlossOf(msa.Owner as ILexEntry);
 			}
 
 			return new JObject
 			{
 				["form"] = formText,
-				["msaGuid"] = msaGuidOrHvo,
+				["msaGuid"] = msaGuid,
 				["morphnameOrGloss"] = morphnameOrGloss,
 				["type"] = formType,
 			};
