@@ -847,7 +847,7 @@ git commit -m "grammar: typed lossless conversion policies and issues"
 - Modify: `rust/crates/pg-grammar/src/compile/mod.rs`
 - Modify: `rust/crates/pg-grammar/src/compile/tests.rs`
 
-- [ ] **Step 1: Write failing substrate tests**
+- [x] **Step 1: Write failing substrate tests**
 
 Extend the existing `fixture()` in `compile/tests.rs`; it already creates a complete snapshot and
 exposes the stem allomorph at `[0].allomorphs[0]`. Add these complete tests (import
@@ -974,13 +974,13 @@ runtime punctuation/category predicate.
 The tests assert analyses, compiled allomorph counts, table contents, and typed issues—not warning
 strings.
 
-- [ ] **Step 2: Expose literal tokens from the environment owner**
+- [x] **Step 2: Expose literal tokens from the environment owner** -- built and unit-tested, but deliberately NOT wired into the pipeline; the gap is held by an `#[ignore]`d test naming it, not a comment.
 
 Factor `environment::tokenize` so the same token stream supports both pattern construction and a
 new `environment::literal_text_elements(representation)`. The latter returns literal grapheme text
 only; it excludes `_`, `#`, optionality syntax, and natural-class names. Do not add a second parser.
 
-- [ ] **Step 3: Publish actual usage from its owners**
+- [x] **Step 3: Publish actual usage from its owners**
 
 Extend the `SelectionRecorder` introduced in Task 2 with `record_text_use(SourceRef, &str)`. Each
 owner's `prepare` function calls it only after making its normal active/disabled, morph-type, and
@@ -989,7 +989,7 @@ writing-system selection. `substrate::complete` consumes this published stream; 
 `Prepared*` value, so collection and compilation cannot disagree. An owner that selects a construct
 but cannot expose its text emits `conversion.unsupported-construct`; it is not silently ignored.
 
-- [ ] **Step 4: Implement iterative completion**
+- [x] **Step 4: Implement iterative completion**
 
 Use the same segmentation logic as the final `CharDefTable`. On failure, identify the Unicode text
 element at the failure offset, classify it from the selected vernacular LDML exemplar set, authored
@@ -1024,7 +1024,7 @@ fn inferred_raw_def(original_representation: &str, kind: CharDefKind) -> RawChar
 Use that helper rather than rebuilding inferred definitions at call sites. The character table keeps
 the observed representation and performs its existing NFD lookup normalization.
 
-- [ ] **Step 5: Wire the seam**
+- [x] **Step 5: Wire the seam**
 
 In `compile_project_with`, order the phases:
 
@@ -1052,7 +1052,7 @@ The pseudocode names orchestration, not a new decision owner: each `Prepared*` t
 function stays in its existing owning module. Preserve one decision owner for collision detection
 and table finalization.
 
-- [ ] **Step 6: Run the focused gate and check**
+- [x] **Step 6: Run the focused gate and check** -- `lossless_conversion_gate` does not exist; ran `conversion_inventory_gate` (the real equivalent) plus the new `compile_real_projects_gate`.
 
 ```powershell
 & .\rust\tools\pg.ps1 -Mode test -Package pg-grammar -TestTarget lossless_conversion_gate
@@ -1062,7 +1062,7 @@ and table finalization.
 Expected: PASS; the inventory gate shows fewer omitted allomorphs and no regression in the opposite
 direction.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add rust/crates/pg-grammar
@@ -1163,7 +1163,7 @@ may request this policy.
 Expected: PASS. Existing tests that expected warning-and-drop are rewritten to expect refusal or
 explicit `MeasureOnly` output.
 
-- [x] **Step 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
 git add rust/crates/pg-grammar
@@ -1218,7 +1218,7 @@ receives an already completed `Grammar` or runs the same lossless compiler.
 
 Expected: PASS. The worker round-trip test proves omitted `characterSubstrate` resolves to `auto`.
 
-- [x] **Step 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
 git add rust/crates/pg-cli rust/crates/pg-foma
@@ -1475,7 +1475,7 @@ Confirm from fresh output that:
 Move resolved questions from §9 to the relevant verified section. Keep unresolved questions visible.
 Do not turn a single fixture observation into a universal engine claim.
 
-- [x] **Step 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```powershell
 git add docs rust
