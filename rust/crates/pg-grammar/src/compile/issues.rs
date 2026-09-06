@@ -28,11 +28,9 @@ pub struct SubstrateReport {
 }
 
 /// One character definition inferred from usage rather than read off an authored declaration.
-/// Deliberately carries no feature-value field: the [`RawCharDef`] an inferred char becomes must
+/// Deliberately carries no feature-value field: the `RawCharDef` an inferred char becomes must
 /// have an empty `feature_values`, since a feature system unifies segments by declared features
 /// and an inference has none to declare.
-///
-/// [`RawCharDef`]: crate::chardef::RawCharDef
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InferredChar {
     pub representation: String,
@@ -62,7 +60,7 @@ pub struct CompileOutput {
 
 /// Returned by [`super::compile_project_with`] under `Refuse` when any collected issue is fatal:
 /// an imported fatal issue, or `source_inventory_status == Unknown` (via
-/// [`SOURCE_PROVENANCE_UNKNOWN`]).
+/// `SOURCE_PROVENANCE_UNKNOWN`).
 #[derive(Debug, thiserror::Error)]
 #[error("FieldWorks project cannot be converted to HC without semantic loss")]
 pub struct ConversionError {

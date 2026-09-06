@@ -96,9 +96,9 @@ $MaxBlockLines = 3
 $categories = [ordered]@{
     # Left-boundaried: unanchored, these match the tail of a legitimate research filename.
     'plan-reference'  = 'openspec[/\\]changes|(?<![\w-])(tasks|design|spec)\.md|docs/fst-plan|IMPLEMENTATION-READINESS'
-    # `Phase`/`Stage` are case-SENSITIVE so "stage 1"/"stage 2" as real algorithm vocabulary survives.
+    # `Phase`/`Stage` are case-sensitive (real algorithm vocabulary survives); `task N`'s decimal is optional (a bare "Task N" used to slip past this).
     # See docs/research/comment-hygiene-checker-design.md
-    'step-marker'     = 'Step \d+ of \d+|Step \d+ \(|§P\d|(?-i:Phase [A-Z]\b)|(?-i:Stage \d[A-Z]?\b)|task \d+\.\d+|D\d+ decision'
+    'step-marker'     = 'Step \d+ of \d+|Step \d+ \(|§P\d|(?-i:Phase [A-Z]\b)|(?-i:Stage \d[A-Z]?\b)|task \d+(\.\d+)?\b|D\d+ decision'
     'wiring-status'   = 'purely additive|Purely additive|not wired|NOT wired|reachable from no|Reachable from no|not yet consumed|Not yet consumed'
     'date-in-comment' = '\b20\d\d-\d\d-\d\d\b'
     'history-prose'   = 'used to read|previously read|this paragraph|renamed from|was stale|corrected in place'

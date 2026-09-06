@@ -2429,7 +2429,7 @@ fn compile_project_measured_changes_no_behaviour_versus_compile_project() {
     assert_grammars_equal(&grammar_plain, &grammar_measured);
 }
 
-// --- Task 4: typed compile options/issues -----------------------------------------------------
+// --- typed compile options/issues ---------------------------------------------------------------
 
 /// No `..` rest pattern: a new field on either type fails to compile until named here too.
 #[test]
