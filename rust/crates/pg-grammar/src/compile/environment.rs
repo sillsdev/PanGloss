@@ -318,3 +318,42 @@ pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<()
     }
     Ok(())
 }
+
+/// Literal grapheme text a context/environment string carries, for substrate-completion usage --
+/// built on the same [`tokenize`] stream [`nodes_from_tokens`] consumes, so the two can never
+/// disagree on what counts as a token; excludes `_`/`#`/natural-class brackets, and descends into
+/// (but drops the parens of) an optional group so the text inside still counts. A malformed string
+/// (per [`tokenize`]) contributes no text, matching every other caller's tolerant treatment of one.
+pub(crate) fn literal_text_elements(representation: &str) -> Vec<String> {
+    let body = representation
+        .trim()
+        .strip_prefix('/')
+        .unwrap_or_else(|| representation.trim());
+    let mut out = Vec::new();
+    for side in body.splitn(2, '_') {
+        collect_literal_tokens(side, &mut out);
+    }
+    out
+}
+
+fn collect_literal_tokens(s: &str, out: &mut Vec<String>) {
+    let Ok(tokens) = tokenize(s) else { return };
+    for tok in &tokens {
+        match tok.chars().next() {
+            Some('#') | Some('[') => {}
+            Some('(') => collect_literal_tokens(&tok[1..tok.len() - 1], out),
+            Some(_) => out.push(tok.clone()),
+            None => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::literal_text_elements;
+
+    #[test]
+    fn literal_text_elements_excludes_natural_classes_stem_placeholder_and_anchors() {
+        assert_eq!(literal_text_elements("/[V]q_#"), vec!["q".to_string()]);
+    }
+}
