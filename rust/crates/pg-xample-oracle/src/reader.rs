@@ -104,7 +104,7 @@ struct RawAnalysis {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawMorph {
-    #[allow(dead_code)] // Display-only shape text; see `AnalysisSignature`'s own doc for why identity never reads this.
+    #[allow(dead_code)] // Display-only realized shape text; this reader's model never uses it for identity.
     form: Option<String>,
     #[serde(rename = "msaGuid")]
     msa_guid: Option<String>,
@@ -240,6 +240,7 @@ mod tests {
 
     #[test]
     fn synthesized_capped_result_reports_reached_max_analyses() {
+        // Synthesized because reachedMaxAnalyses never fired against the live witness: --max-analyses 1..2000 against 'xxxxxxk' (924 real analyses) always returned exactly the requested count with reachedMaxAnalyses still false.
         let parsed = read_parse_response(CAPPED).expect("synthetic fixture must parse");
         let word = word_result(&parsed, "capped");
         assert_eq!(word.reached_max_analyses, Some(2));

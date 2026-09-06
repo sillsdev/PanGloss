@@ -76,6 +76,7 @@ fn signature_from_word_analysis(
 ) -> Result<AnalysisSignature, HcNormalizationError> {
     let identity =
         AnalysisIdentity::project(analysis, grammar).map_err(HcNormalizationError::Identity)?;
+    // identity.root_index is dropped: the XAMPLE side has no root-position field either, so two HC reduplication analyses differing only in root attachment would collapse to one signature -- a comparability ceiling, not a bug.
     let mut msa_ids = Vec::with_capacity(identity.morphemes.len());
     for key in identity.morphemes {
         msa_ids.push(key.ok_or(HcNormalizationError::UnexpectedGuessedSlot)?);
