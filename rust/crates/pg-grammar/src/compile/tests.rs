@@ -2856,6 +2856,41 @@ fn text_use_collection_covers_every_represented_allomorph() {
     );
 }
 
+// --- position-remap mismap regression (a real corpus went from compiling to refusing) -----------
+
+/// A precomposed base+diacritic must never cause the NEXT, already-registered character to be re-selected -- the real-Sena-3 "b" duplicate-representation panic, reproduced synthetically.
+#[test]
+fn precomposed_diacritic_never_reselects_the_next_already_registered_character() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.phonology.phonemes.push(phoneme("ph-b", "b"));
+    snapshot.project.exemplar_characters.push("b".to_string());
+    // "a"/"b" are registered, precomposed "\u{e1}" is not: greedy matching stalls on its own mark.
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "s\u{e1}b")];
+
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("must not panic; the mismap must be reported as an issue, never as a duplicate registration");
+    assert!(
+        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && i.fatal),
+        "expected a fatal substrate.position-unmapped issue; got {:?}",
+        out.issues
+    );
+    assert_eq!(out.substrate.inferred_segments.len(), 0, "\"b\" must not be re-inferred");
+    assert_eq!(out.substrate.ambiguous_uses.len(), 1);
+
+    let refused = compile_project_with(&snapshot, CompileOptions::default());
+    assert!(
+        matches!(refused, Err(GrammarError::Conversion(_))),
+        "the production Refuse path must refuse this, never silently drop or crash"
+    );
+}
+
 /// Target behavior, not current: no owner yet publishes environment-string text into substrate completion, so this stays `#[ignore]`d (visible) rather than silently absent, until one does.
 #[test]
 #[ignore = "environment-sourced substrate completion is not wired; see literal_text_elements"]
