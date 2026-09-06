@@ -47,18 +47,21 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
     for boundary in &out.substrate.inferred_boundaries {
         eprintln!("  inferred boundary: {:?} ({:?})", boundary.representation, boundary.evidence);
     }
+    for issue in out.issues.iter().filter(|i| i.code == "substrate.classification-ambiguous") {
+        eprintln!("  ambiguous: {}", issue.message);
+    }
 
     let unexpected: Vec<&str> = out
         .issues
         .iter()
         .filter(|i| i.code == "substrate.classification-ambiguous")
         .map(|i| i.message.as_str())
-        .filter(|m| !['-', '\'', ':'].iter().any(|c| m.contains(&c.to_string())))
+        .filter(|m| unexpected_ambiguous_char(m))
         .collect();
     assert!(
         unexpected.is_empty(),
-        "{project_dir_name}: ambiguous issue over a character outside the known `-`/`'`/`:` set: \
-         {unexpected:#?}"
+        "{project_dir_name}: ambiguous issue over a character outside the known \
+         `-`/`'`/`:`/`_`/`^` set: {unexpected:#?}"
     );
 
     // A ratchet, not a target: today's count stays legible while a new regression fails.
@@ -74,10 +77,40 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
     );
 }
 
+/// Matches `ambiguous_issue`'s literal `{ch:?} at position` fragment -- a plain substring search over the whole message is vacuous, since the fixed template text always itself contains a `:` and `{ch:?}`'s own Debug-escaping quotes.
+fn unexpected_ambiguous_char(message: &str) -> bool {
+    const KNOWN_CHARS: [char; 5] = ['-', '\'', ':', '_', '^'];
+    !KNOWN_CHARS.iter().any(|c| message.contains(&format!("{c:?} at position")))
+}
+
+#[cfg(test)]
+mod unexpected_ambiguous_char_tests {
+    use super::unexpected_ambiguous_char;
+
+    /// The bug this guards: a bare `:`/`'` substring search matches every message regardless of the actual failing character, since the fixed template text contains both.
+    #[test]
+    fn a_known_character_is_not_flagged() {
+        let msg = "cannot segment \"alt:.nkhundu\": ':' at position 3 is neither a vernacular \
+                   exemplar, an authored boundary, nor in the safe boundary table; refusing \
+                   rather than guessing whether it is a segment or a boundary";
+        assert!(!unexpected_ambiguous_char(msg));
+    }
+
+    #[test]
+    fn a_genuinely_new_character_is_flagged() {
+        let msg = "cannot segment \"pakati_na_kati\": '_' at position 6 is neither a vernacular \
+                   exemplar, an authored boundary, nor in the safe boundary table; refusing \
+                   rather than guessing whether it is a segment or a boundary";
+        // '_' is already in KNOWN_CHARS, so substitute a truly unknown character instead.
+        let msg_with_unknown_char = msg.replace('_', "~");
+        assert!(unexpected_ambiguous_char(&msg_with_unknown_char));
+    }
+}
+
 #[test]
 fn sena3_compiles_through_compile_project_with() {
-    // Ratchet baseline: stem + affix usage collection, 57 ambiguous (undeclared `-`/`'`/`:` in reduplicated citation forms and affix allomorphs; Sena 3's plain-fwdata import never populates exemplar_characters), 0 unresolved.
-    compile_and_report("Sena 3", 57, 0);
+    // Ratchet baseline (post sibling-LDML-load fix): `-`/`'` now infer as exemplar segments; the remaining 18 ambiguous are `:` (LDML's separate "punctuation" exemplar type, never the main set), `_` and `^` (neither is in any LDML exemplar type), 0 unresolved.
+    compile_and_report("Sena 3", 18, 0);
 }
 
 #[test]
