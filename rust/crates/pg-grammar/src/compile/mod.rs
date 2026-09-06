@@ -34,9 +34,11 @@ mod environment;
 mod features;
 pub(crate) mod inventory;
 pub(crate) mod issue_codes;
+pub mod issues;
 mod lexicon;
 mod mpr;
 mod natclass;
+pub mod options;
 mod reachability;
 pub(crate) mod roles;
 mod rules;
@@ -57,17 +59,28 @@ use crate::featsys::PhonFeatureSystem;
 use crate::model::*;
 use crate::GrammarError;
 
-use pg_snapshot::{InventoryKey, IssueClass, SelectionRecorder, Snapshot};
+use pg_snapshot::{
+    ConversionIssue, InventoryDelta, InventoryKey, IssueClass, SelectionRecorder,
+    SourceInventoryStatus, Snapshot,
+};
 
 use inventory::{Lineage, LineageTarget};
+use issues::{ConversionError, SubstrateReport};
+pub use issues::CompileOutput;
+pub use options::{CompileOptions, ResolvedSubstratePolicy, SemanticLossPolicy, SubstratePolicy};
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
 /// allomorphs/entries — see the module doc). Only a handful of hard limits inherited from
 /// `mod@crate::load` — >64 symbols in a feature, >64 total MPR features — surface as `Err`.
+///
+/// A thin, source-compatible wrapper over [`compile_project_with`] under
+/// [`CompileOptions::default`]; `Task 7` moves production callers to the structured output and
+/// deprecates this tuple form.
 pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), GrammarError> {
-    let (grammar, warnings, _recorder) = compile_project_recording(snapshot)?;
-    Ok((grammar, warnings))
+    let out = compile_project_with(snapshot, CompileOptions::default())?;
+    let messages = out.issues.iter().map(|issue| issue.message.clone()).collect();
+    Ok((out.grammar, messages))
 }
 
 /// As [`compile_project`], but also returns the conversion-loss measurement derived from the same
@@ -82,6 +95,67 @@ pub fn compile_project_measured(
     }
     let (inventory, issues) = recorder.finish();
     Ok((grammar, warnings, pg_snapshot::InventoryDelta::from_stage(inventory, issues)))
+}
+
+/// Compiles under an explicit [`CompileOptions`], returning every conversion issue (import-stage
+/// plus this compile) alongside the `Grammar`. Behaviour is unchanged from [`compile_project`] for
+/// this task: `options.substrate` is accepted but not yet consulted (later tasks wire substrate
+/// inference to it), and every compile-stage warning becomes a non-fatal [`ConversionIssue`] under
+/// [`issues::LEGACY_WARNING`] -- a per-site code/class migration is follow-on work, not this one.
+///
+/// The issue collector starts from `snapshot.conversion_provenance` (import-stage issues, plus a
+/// synthesized fatal [`issues::SOURCE_PROVENANCE_UNKNOWN`] issue when the source provenance itself
+/// is unresolved) before any compiler owner runs, so a graph-to-snapshot failure is never dropped
+/// just because this compile stage found nothing wrong of its own. Under
+/// [`SemanticLossPolicy::Refuse`], any fatal issue in that combined collection refuses the compile
+/// with [`GrammarError::Conversion`]; under [`SemanticLossPolicy::MeasureOnly`] every issue is
+/// still returned, but never refused -- reserved for the structural inventory gate, never a
+/// production entry point.
+pub fn compile_project_with(
+    snapshot: &Snapshot,
+    options: CompileOptions,
+) -> Result<CompileOutput, GrammarError> {
+    let mut issues: Vec<ConversionIssue> = snapshot.conversion_provenance.import_issues.clone();
+    if snapshot.conversion_provenance.source_inventory_status == SourceInventoryStatus::Unknown {
+        issues.push(ConversionIssue {
+            code: issues::SOURCE_PROVENANCE_UNKNOWN.to_string(),
+            class: IssueClass::AmbiguousSource,
+            source: None,
+            fatal: true,
+            message: "conversion provenance is unknown; cannot certify this conversion's \
+                      completeness"
+                .to_string(),
+        });
+    }
+
+    let (grammar, warnings, recorder) = compile_project_recording(snapshot)?;
+    if let Err(violation) = recorder.check_invariants() {
+        panic!("compile_project_with: selection recorder invariant violated: {violation}");
+    }
+    let (recorded_inventory, recorded_issues) = recorder.finish();
+    let inventory = InventoryDelta::from_stage(recorded_inventory, recorded_issues);
+
+    issues.extend(warnings.into_iter().map(|message| ConversionIssue {
+        code: issues::LEGACY_WARNING.to_string(),
+        class: IssueClass::MigrationDifference,
+        source: None,
+        fatal: false,
+        message,
+    }));
+
+    let substrate = SubstrateReport::default();
+    let refuses = options.semantic_loss == SemanticLossPolicy::Refuse
+        && issues.iter().any(|issue| issue.fatal);
+    if refuses {
+        return Err(GrammarError::Conversion(ConversionError { issues, substrate }));
+    }
+
+    Ok(CompileOutput {
+        grammar,
+        issues,
+        substrate,
+        inventory,
+    })
 }
 
 /// As [`compile_project`], but also returns the [`SelectionRecorder`] every owner below wrote its
