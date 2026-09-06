@@ -80,9 +80,11 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
     }
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
-    let (mut snapshot, warnings) = extract::extract(&graph, &filename_stem)?;
+    let (mut snapshot, mut warnings) = extract::extract(&graph, &filename_stem)?;
     let provenance = snapshot.conversion_provenance.clone();
-    fwbackup::apply_exemplars(&mut snapshot, &read_sibling_writing_system_store(path));
+    let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
+    fwbackup::apply_exemplars(&mut snapshot, &ldml);
+    warnings.extend(ldml_warning);
     Ok((snapshot, ImportReport { warnings, provenance }))
 }
 
@@ -101,9 +103,11 @@ pub fn import_file_measured(
     }
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
-    let (mut snapshot, warnings, recorder) = extract::extract_recording(&graph, &filename_stem)?;
+    let (mut snapshot, mut warnings, recorder) = extract::extract_recording(&graph, &filename_stem)?;
     let provenance = snapshot.conversion_provenance.clone();
-    fwbackup::apply_exemplars(&mut snapshot, &read_sibling_writing_system_store(path));
+    let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
+    fwbackup::apply_exemplars(&mut snapshot, &ldml);
+    warnings.extend(ldml_warning);
     if let Err(violation) = recorder.check_invariants() {
         panic!("import_file_measured: selection recorder invariant violated: {violation}");
     }
@@ -115,26 +119,60 @@ pub fn import_file_measured(
     ))
 }
 
-/// Reads every `WritingSystemStore/*.ldml` file next to `fwdata_path` on disk, if that directory exists; empty (never an error) when it does not, matching `.fwbackup`'s own tolerant absence of embedded LDML.
-fn read_sibling_writing_system_store(fwdata_path: &Path) -> Vec<(String, String)> {
+/// Reads every `WritingSystemStore/*.ldml` file next to `fwdata_path`; a missing directory is silent (matches `.fwbackup`'s tolerant absence of embedded LDML), but an existing, unreadable one -- a different fact from "never shipped" -- returns a warning rather than looking identical to it.
+fn read_sibling_writing_system_store(fwdata_path: &Path) -> (Vec<(String, String)>, Option<Warning>) {
     let Some(parent) = fwdata_path.parent() else {
-        return Vec::new();
+        return (Vec::new(), None);
     };
-    let Ok(entries) = std::fs::read_dir(parent.join("WritingSystemStore")) else {
-        return Vec::new();
+    let dir = parent.join("WritingSystemStore");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Vec::new(), None),
+        Err(e) => {
+            return (
+                Vec::new(),
+                Some(Warning::new(
+                    extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
+                    format!("{}: {e}", dir.display()),
+                )),
+            )
+        }
     };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let entry_path = entry.path();
-            if entry_path.extension().and_then(|e| e.to_str()) != Some("ldml") {
-                return None;
+    let mut pairs = Vec::new();
+    let mut warning = None;
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                warning.get_or_insert_with(|| {
+                    Warning::new(
+                        extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
+                        format!("{}: {e}", dir.display()),
+                    )
+                });
+                continue;
             }
-            let tag = entry_path.file_stem()?.to_str()?.to_string();
-            let text = std::fs::read_to_string(&entry_path).ok()?;
-            Some((tag, text))
-        })
-        .collect()
+        };
+        let entry_path = entry.path();
+        if entry_path.extension().and_then(|e| e.to_str()) != Some("ldml") {
+            continue;
+        }
+        let Some(tag) = entry_path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+            continue;
+        };
+        match std::fs::read_to_string(&entry_path) {
+            Ok(text) => pairs.push((tag, text)),
+            Err(e) => {
+                warning.get_or_insert_with(|| {
+                    Warning::new(
+                        extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
+                        format!("{}: {e}", entry_path.display()),
+                    )
+                });
+            }
+        }
+    }
+    (pairs, warning)
 }
 
 pub(crate) fn file_stem(path: &Path) -> String {
