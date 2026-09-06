@@ -58,3 +58,6 @@ pub(crate) const INVALID_ACTIVE_PARSER: &str = "invalid-source.active-parser";
 pub(crate) const DUPLICATE_GUID: &str = "invalid-source.duplicate-guid";
 /// A tracked (allowed-class) `<rt>` record has no `guid` attribute, or an empty one.
 pub(crate) const MISSING_GUID: &str = "invalid-source.missing-guid";
+/// A sibling `WritingSystemStore/` directory exists but an entry inside it could not be read (as
+/// opposed to the directory never having been shipped at all, which is silent and not a warning).
+pub(crate) const WRITING_SYSTEM_STORE_UNREADABLE: &str = "fwdata.writing-system-store-unreadable";
