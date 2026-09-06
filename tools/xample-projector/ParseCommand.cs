@@ -89,14 +89,27 @@ namespace XampleProjector
 			{
 				string dynamicFilesDir;
 				var patched = overrides.Count > 0;
+				var candidateWorkDir = patched
+					? Path.Combine(Path.GetTempPath(), "xample-projector-parse-" + Guid.NewGuid().ToString("N"))
+					: null;
 				try
 				{
 					dynamicFilesDir = !patched
 						? projectDir
-						: PatchedDynamicFilesDir(projectDir, database, Path.Combine(Path.GetTempPath(), "xample-projector-parse-" + Guid.NewGuid().ToString("N")), overrides);
+						: PatchedDynamicFilesDir(projectDir, database, candidateWorkDir, overrides);
 				}
 				catch (Exception ex)
 				{
+					// PatchedDynamicFilesDir can throw after its own Directory.CreateDirectory already
+					// succeeded (a File.Copy/File.WriteAllLines failure partway through), which would
+					// otherwise leak candidateWorkDir with no cleanup -- the finally block below only
+					// runs once dynamicFilesDir is assigned, i.e. never on this path. Same best-effort
+					// delete as that finally block, for the same reason.
+					if (candidateWorkDir != null)
+					{
+						try { Directory.Delete(candidateWorkDir, recursive: true); }
+						catch (Exception) { /* best-effort cleanup only */ }
+					}
 					Console.Error.WriteLine("Parse engine load failure: could not patch adctl.txt: {0}", ex.Message);
 					return ExitCodes.ParseEngineFailure;
 				}
