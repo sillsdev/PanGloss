@@ -20,12 +20,22 @@ pub(crate) struct CharDefBuild {
     pub morph_bdry: CharDefId,
 }
 
-pub(crate) fn build(
+/// Every `RawCharDef` authored so far, before the table is built -- `substrate::complete` appends onto this.
+pub(crate) struct RawCharDefBuild {
+    pub raw_defs: Vec<RawCharDef>,
+    pub seen_nfd: hashbrown::HashSet<String>,
+    pub phoneme_of: HashMap<String, CharDefId>,
+    pub boundary_of: HashMap<String, CharDefId>,
+    pub null_bdry: CharDefId,
+}
+
+/// The authored/synthesized `RawCharDef` inventory alone, before `finalize` builds the real table.
+pub(crate) fn build_raw(
     snapshot: &Snapshot,
     phon: &PhonFeatureSystem,
     warnings: &mut Vec<String>,
     recorder: &mut SelectionRecorder,
-) -> Result<CharDefBuild, GrammarError> {
+) -> Result<RawCharDefBuild, GrammarError> {
     let default_ws = snapshot
         .project
         .vernacular_writing_systems
@@ -151,6 +161,29 @@ pub(crate) fn build(
         recorder,
     );
 
+    Ok(RawCharDefBuild {
+        raw_defs,
+        seen_nfd,
+        phoneme_of,
+        boundary_of,
+        null_bdry,
+    })
+}
+
+/// Builds the real table from a (possibly substrate-completed) `RawCharDefBuild`; pairs with `build_raw`.
+pub(crate) fn finalize(
+    raw: RawCharDefBuild,
+    phon: &PhonFeatureSystem,
+    warnings: &mut Vec<String>,
+    recorder: &mut SelectionRecorder,
+) -> Result<CharDefBuild, GrammarError> {
+    let RawCharDefBuild {
+        raw_defs,
+        phoneme_of,
+        boundary_of,
+        null_bdry,
+        ..
+    } = raw;
     let table = CharDefTable::from_raw("main".to_string(), None, raw_defs, phon)?;
 
     // The morph-boundary lookup is a derived fact, not a snapshot object -- there is nothing upstream to author it against.

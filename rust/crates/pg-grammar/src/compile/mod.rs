@@ -42,6 +42,7 @@ pub mod options;
 mod reachability;
 pub(crate) mod roles;
 mod rules;
+mod substrate;
 mod templates;
 #[cfg(feature = "test-support")]
 pub mod test_support;
@@ -84,10 +85,15 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
 /// As [`compile_project`], but also returns the conversion-loss measurement derived from the same
 /// recorder -- a violated recorder invariant is a bug in this compiler's own bookkeeping, so it
 /// panics naming the violation rather than returning a measurement that cannot be trusted.
+///
+/// Resolves substrate policy the same way [`CompileOptions::default`] would (`Auto`, discarding
+/// the [`SubstrateReport`]/substrate-only issues) -- structural inventory measurement predates
+/// substrate completion and no caller of this API has asked for either.
 pub fn compile_project_measured(
     snapshot: &Snapshot,
 ) -> Result<(Grammar, Vec<String>, pg_snapshot::InventoryDelta), GrammarError> {
-    let (grammar, warnings, recorder) = compile_project_recording(snapshot)?;
+    let (grammar, warnings, recorder, _substrate, _substrate_issues) =
+        compile_project_recording(snapshot, SubstratePolicy::default())?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_measured: selection recorder invariant violated: {violation}");
     }
@@ -96,9 +102,8 @@ pub fn compile_project_measured(
 }
 
 /// Compiles under an explicit [`CompileOptions`], returning every conversion issue (import-stage
-/// plus this compile) alongside the `Grammar`. Behaviour is unchanged from [`compile_project`] for
-/// this task: `options.substrate` is accepted but not yet consulted (later tasks wire substrate
-/// inference to it), and every compile-stage warning becomes a non-fatal [`ConversionIssue`] under
+/// plus this compile) alongside the `Grammar`. `options.substrate` resolves and drives
+/// `substrate::complete`; every compile-stage warning becomes a non-fatal [`ConversionIssue`] under
 /// `issues::LEGACY_WARNING` -- a per-site code/class migration is follow-on work, not this one.
 ///
 /// The issue collector starts from `snapshot.conversion_provenance` (import-stage issues, plus a
@@ -126,7 +131,8 @@ pub fn compile_project_with(
         });
     }
 
-    let (grammar, warnings, recorder) = compile_project_recording(snapshot)?;
+    let (grammar, warnings, recorder, substrate, substrate_issues) =
+        compile_project_recording(snapshot, options.substrate)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
@@ -140,8 +146,8 @@ pub fn compile_project_with(
         fatal: false,
         message,
     }));
+    issues.extend(substrate_issues);
 
-    let substrate = SubstrateReport::default();
     let refuses = options.semantic_loss == SemanticLossPolicy::Refuse
         && issues.iter().any(|issue| issue.fatal);
     if refuses {
@@ -156,12 +162,17 @@ pub fn compile_project_with(
     })
 }
 
-/// As [`compile_project`], but also returns the [`SelectionRecorder`] every owner below wrote its
-/// snapshot-to-grammar selection decisions into — the seam a later slice's measured API reads.
-/// Recording happens before `reachability::compact_mrules`/`trim_unreachable_morpheme_coocurrence`/`natclass::compact_to_referenced` run, so `represented` is a pre-compaction claim, not a claim about the returned `Grammar` after compaction.
+/// As [`compile_project`], but also returns the [`SelectionRecorder`], [`SubstrateReport`], and
+/// substrate-only issues -- the seams a later slice's measured API and [`compile_project_with`]
+/// read. Recording happens before
+/// `reachability::compact_mrules`/`trim_unreachable_morpheme_coocurrence`/`natclass::compact_to_referenced`
+/// run, so `represented` is a pre-compaction claim, not a claim about the returned `Grammar` after
+/// compaction.
 pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
-) -> Result<(Grammar, Vec<String>, SelectionRecorder), GrammarError> {
+    substrate_policy: SubstratePolicy,
+) -> Result<(Grammar, Vec<String>, SelectionRecorder, SubstrateReport, Vec<ConversionIssue>), GrammarError>
+{
     let mut warnings: Vec<String> = Vec::new();
     let mut recorder = SelectionRecorder::default();
     let mut lineage = Lineage::default();
@@ -176,14 +187,40 @@ pub(crate) fn compile_project_recording(
     // --- phonological feature system -----------------------------------------------------------
     let phon_features = features::build_phon_features(snapshot, &mut warnings, &mut recorder)?;
 
-    // --- character-definition table from phonemes ----------------------------------------------
+    // --- text usage: owners publish literal text they already selected, for substrate inference -
+    lexicon::collect_text_uses(snapshot, &mut recorder);
+
+    // --- character-definition table, completed from usage under a resolved CompleteFromUsage ---
+    let raw = chardef::build_raw(snapshot, &phon_features, &mut warnings, &mut recorder)?;
+    let resolved_substrate = substrate_policy.resolve(
+        snapshot.morphology.parser_parameters.active_parser,
+        snapshot.morphology.parser_parameters.accept_unspecified_graphemes,
+    );
+    let authored_boundary_reps: hashbrown::HashSet<String> = snapshot
+        .phonology
+        .boundary_markers
+        .iter()
+        .flat_map(|b| b.representations.iter().map(|f| crate::nfd::nfd(&f.form)))
+        .collect();
+    let substrate::SubstrateCompletion {
+        raw: completed_raw,
+        report: substrate_report,
+        issues: mut substrate_issues,
+    } = substrate::complete(
+        recorder.text_uses(),
+        &snapshot.project.exemplar_characters,
+        &authored_boundary_reps,
+        raw,
+        &phon_features,
+        resolved_substrate,
+    );
     let chardef::CharDefBuild {
         table: char_table,
         phoneme_of,
         boundary_of,
         null_bdry,
         morph_bdry,
-    } = chardef::build(snapshot, &phon_features, &mut warnings, &mut recorder)?;
+    } = chardef::finalize(completed_raw, &phon_features, &mut warnings, &mut recorder)?;
     let table_id = TableId(0);
 
     // --- natural classes (+ synthetic "Any") ----------------------------------------------------
@@ -201,6 +238,13 @@ pub(crate) fn compile_project_recording(
         &mut recorder,
         &mut lineage,
     );
+
+    // A migration difference, never fatal: see `substrate::feature_rule_migration_issues`'s own doc.
+    substrate_issues.extend(substrate::feature_rule_migration_issues(
+        &char_table,
+        &substrate_report.inferred_segments,
+        &natural_classes,
+    ));
 
     // --- grammar-tier FS interner: the empty FS is interned first (FsId 0) ---------------------
     let mut fs_interner: Interner<FeatureStruct> = Interner::with_capacity(64);
@@ -425,7 +469,7 @@ pub(crate) fn compile_project_recording(
 
     grammar.final_template_prune_facts()?;
 
-    Ok((grammar, warnings, recorder))
+    Ok((grammar, warnings, recorder, substrate_report, substrate_issues))
 }
 
 /// Ad-hoc co-occurrence rules resolved against the now-complete `acc.allomorph_guid_index`/`acc.msa_guid_index` registries; a dangling reference is a warning, never a hard failure.

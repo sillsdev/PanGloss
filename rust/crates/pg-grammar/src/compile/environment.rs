@@ -319,11 +319,7 @@ pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<()
     Ok(())
 }
 
-/// Literal grapheme text a context/environment string carries, for substrate-completion usage --
-/// built on the same [`tokenize`] stream [`nodes_from_tokens`] consumes, so the two can never
-/// disagree on what counts as a token; excludes `_`/`#`/natural-class brackets, and descends into
-/// (but drops the parens of) an optional group so the text inside still counts. A malformed string
-/// (per [`tokenize`]) contributes no text, matching every other caller's tolerant treatment of one.
+/// Literal grapheme text only: excludes `_`/`#`/class brackets, descends into optional-group parens.
 pub(crate) fn literal_text_elements(representation: &str) -> Vec<String> {
     let body = representation
         .trim()
