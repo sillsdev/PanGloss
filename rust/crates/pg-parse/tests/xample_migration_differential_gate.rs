@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pg_grammar::compile::{CompileOptions, CompileOutput};
-use pg_grammar::featsys::FlatIndex;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 use pg_xample_oracle::fieldworks::{self, MutateResponse, ProjectResponse, Projector};
@@ -125,28 +124,15 @@ fn assert_substrate_report_matches_manifest(clone_output: &CompileOutput, expect
         "'{MUTATION_CASE_ID}': substrate report's inferred segments must equal the manifest's inferred_segments"
     );
 
-    // Every non-Type lane must sit at the feature system's own unspecified-lane mask: an authored feature value on an inferred char would move a lane off it, which is exactly what makes this assertion able to fail.
+    // This witness declares zero authored phonological features (phon_features.is_empty()), so every lane here is trivially the unspecified mask regardless of inference -- not evidence of anything. The real, falsifiable featureless proof needs a feature-bearing grammar and lives in pg-grammar's own compile::tests::inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment, which InferredChar's own field list (no feature slot at all) is designed to keep true by construction.
     let table = &clone_output.grammar.char_tables[0];
-    let phon = &clone_output.grammar.phon_features;
     for inferred in &clone_output.substrate.inferred_segments {
         let nfd_rep = pg_grammar::nfd::nfd(&inferred.representation);
-        let id = table
-            .lookup_nfd(&nfd_rep)
-            .unwrap_or_else(|| panic!("inferred segment {:?} must be in the compiled char table", inferred.representation));
-        let lanes = table.get(id).feature_lanes();
-        for i in 0..phon.len() {
-            let flat = FlatIndex(i as u32);
-            if flat == phon.type_flat() {
-                continue;
-            }
-            assert_eq!(
-                lanes[i],
-                phon.mask(flat),
-                "inferred segment {:?}: lane {i} is not the unspecified wildcard mask, so this \
-                 char def carries an authored feature restriction and is not featureless",
-                inferred.representation
-            );
-        }
+        assert!(
+            table.lookup_nfd(&nfd_rep).is_some(),
+            "inferred segment {:?} must be in the compiled char table",
+            inferred.representation
+        );
     }
 }
 
