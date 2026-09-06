@@ -623,14 +623,17 @@ fail. So Step 6 lands in two parts, and the second is not optional:
   renumbering passes while a single changed value does not. The earlier erase-based method masked
   both a `\wc` category corruption and a same-slot reference swap; both are now caught.
   The missing substrate assertion is held by a failing marker, not a comment.
-- [ ] **Step 6b** — after Task 5: assert the substrate report's featureless inferred segments equal
-  the manifest's `inferred_segments`, and retire the marker.
+- [x] **Step 6b** — done. The manifest's `inferred_segments: [x, k]` now matches the mutated
+  clone's real `SubstrateReport`, and the failing marker is retired. **`compared_mutation` moved
+  0 -> 3**: substrate completion makes the all-phonemes-removed clone compile and HC-parse all three
+  accepted words, so the migration differential finally measures across the migration rather than
+  only before it. Ratchets untouched and still holding at 0/0 over the larger set:
+  `compared_baseline=3 compared_mutation=3 compared_total=6`, `XAMPLE_ONLY_total=0 HC_ONLY_total=0`.
 
-**Integration order.** `research/xample-task3` carries one deliberately-red test until Step 6b, so it
-is NOT merged into `research/xample-phonology` yet — a permanently-red mainline hides the next real
-failure. Land Task 5 first, then rebase task3 onto it, wire Step 6b, and integrate both together.
+**Integration order (resolved).** Task 5 landed, task3 rebased onto it, Step 6b retired the marker,
+and both are now integrated into `research/xample-phonology`.
 
-- [ ] **Step 7: Check and commit in ownership order**
+- [x] **Step 7: Check and commit in ownership order**
 
 ```powershell
 & .\tools\xample-projector\build.ps1 -Mode test
