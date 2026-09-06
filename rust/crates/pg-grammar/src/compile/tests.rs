@@ -2629,6 +2629,28 @@ fn inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment()
     );
 }
 
+/// A root form carrying `[C]`-style pattern syntax must compile exactly as it does without substrate completion -- `[`/`]` must never be checked as an undeclared literal.
+#[test]
+fn pattern_bearing_root_form_is_not_treated_as_an_undeclared_literal() {
+    let (mut snapshot, _f) = fixture();
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "k[V]t")];
+
+    let out = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("a pattern-bearing root form must still compile");
+    assert!(out.substrate.ambiguous_uses.is_empty());
+    assert!(out.substrate.inferred_segments.is_empty());
+    assert!(out.substrate.inferred_boundaries.is_empty());
+    assert_eq!(out.grammar.entries[0].allomorphs.len(), 1);
+}
+
 // --- affix-form substrate collection (review R1/R3) ---------------------------------------------
 
 /// The blocking review repro: a SUFFIX allomorph's form (not the stem) carries the missing exemplar.
