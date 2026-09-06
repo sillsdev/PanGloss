@@ -8,19 +8,31 @@ use std::collections::BTreeMap;
 ///
 /// `msa_ids` and `category_id` are stable LCM guids (the XAMPLE side) or the equivalent HC XML
 /// `id=` keys (the HC side, via `pg_parse::identity::AnalysisIdentity`) — never hvos, never
-/// engine-generated text. `surface_nfd` is the NFD-normalized surface form both engines were asked
-/// to parse.
+/// engine-generated text. A `msa_ids` entry is either a bare guid, or (an irregularly inflected
+/// variant sharing its MSA with other variants) `"{variantEntryGuid}#{msaGuid}"` — the same
+/// composite key `pg_grammar::compile::lexicon::build_variant_stem_entry` gives that variant on
+/// the HC side, so a variant HC distinguishes by entry is no longer collapsed to one shared key on
+/// the XAMPLE side either (`ParseCommand.cs`'s `DescribeMorph`) — any other shape is pinned refused
+/// by `hvo_shaped_msa_guid_is_refused_not_trusted`. `surface_nfd` is the NFD-normalized surface form
+/// both engines were asked to parse.
+///
+/// Two comparability ceilings remain, different in KIND, not just degree.
+/// `crate::hc::signature_from_word_analysis` drops `AnalysisIdentity::root_index` because XAMPLE's
+/// JSON has no root-position field either — SYMMETRIC: both sides lose the same information, so
+/// neither can fabricate a divergence from it. A narrower variant gap is ASYMMETRIC still:
+/// `DescribeMorph` composes the guid pair above only when a variant's MSI DbRef directly names a
+/// resolvable MSA hvo (`XAmpleParser.cs`'s case 4, `stemMsa != null`); a bare-LexEntry-hvo variant
+/// (case 3) or case 4's own sense-derived fallback instead report `msaGuid: null`, refused by
+/// `crate::reader::ReadError::MissingMsaGuid` rather than silently collapsed — a refused read, never
+/// a false divergence, but with no live fixture yet to regenerate a capture exercising either shape.
 ///
 /// `morphemes` is NOT identity, and is EXCLUDED from `Eq`/`Ord` below (hand-written, not derived):
 /// it carries the projector's own `morphnameOrGloss` (XAMPLE) or `MorphemeInfo::gloss` (HC) — a
 /// human label an author chose for their own reading convenience, and the two engines have no
 /// reason to spell it identically for the same morpheme (`ParseCommand.cs`'s `morphnameOrGloss`
 /// reads LibLCM's `BestVernacularAlternative`/`BestAnalysisAlternative`; HC's `gloss_of` reads
-/// `Grammar::morphemes[_].gloss` — unrelated strings, same GUID). Neither the parse JSON
-/// (`msaGuid` is the only per-morph guid the projector emits) nor a same-instructions constraint
-/// against modifying `tools/xample-projector/**` leaves a stable per-morph key to promote
-/// `morphemes` to instead, so it stays a non-comparing label carried alongside the key rather than
-/// inside it — a real GUID-bearing field would be the better fix if the projector ever emits one.
+/// `Grammar::morphemes[_].gloss` — unrelated strings, same GUID), so it stays a non-comparing label
+/// carried alongside the key rather than inside it.
 #[derive(Debug, Clone)]
 pub struct AnalysisSignature {
     pub morphemes: Vec<String>,

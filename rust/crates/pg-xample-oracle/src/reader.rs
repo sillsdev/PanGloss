@@ -33,6 +33,10 @@ pub enum ReadError {
     /// A morph entry named no `msaGuid` — the one field this crate's identity model cannot do
     /// without (`crate::model::AnalysisSignature` docs).
     MissingMsaGuid { word: String, analysis_index: usize, morph_index: usize },
+    /// `msaGuid` was present but not guid-shaped (a bare hvo, or an unresolved
+    /// `"lexEntryHvo.refIndex.msaHvo"` DbRef leaking through) — never trusted as an identity, even
+    /// though a caller reading only for absence (`MissingMsaGuid`) would miss it.
+    MalformedMsaGuid { word: String, analysis_index: usize, morph_index: usize, value: String },
 }
 
 impl fmt::Display for ReadError {
@@ -52,6 +56,11 @@ impl fmt::Display for ReadError {
                 f,
                 "word '{word}', analysis #{analysis_index}, morph #{morph_index}: no msaGuid \
                  (this reader has no display-text fallback for morpheme identity)"
+            ),
+            ReadError::MalformedMsaGuid { word, analysis_index, morph_index, value } => write!(
+                f,
+                "word '{word}', analysis #{analysis_index}, morph #{morph_index}: msaGuid \
+                 '{value}' is not guid-shaped (expected a guid or 'guid#guid')"
             ),
         }
     }
@@ -104,15 +113,31 @@ struct RawAnalysis {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawMorph {
-    #[allow(dead_code)] // Display-only realized shape text; this reader's model never uses it for identity.
+    #[allow(dead_code)] // Unread here, but must stay a modeled field: deny_unknown_fields would otherwise refuse every real morph object that carries it.
     form: Option<String>,
     #[serde(rename = "msaGuid")]
     msa_guid: Option<String>,
     #[serde(rename = "morphnameOrGloss")]
     morphname_or_gloss: Option<String>,
     #[serde(rename = "type")]
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Unread here, but must stay a modeled field: deny_unknown_fields would otherwise refuse every real morph object that carries it.
     kind: Option<String>,
+}
+
+/// A trusted `msaGuid` shape: one bare 36-char guid, or two joined by `#` (`crate::model::AnalysisSignature`'s own doc names why).
+fn is_guid_shaped_msa_id(value: &str) -> bool {
+    fn is_guid(s: &str) -> bool {
+        let bytes = s.as_bytes();
+        bytes.len() == 36
+            && bytes.iter().enumerate().all(|(i, &b)| {
+                if matches!(i, 8 | 13 | 18 | 23) {
+                    b == b'-'
+                } else {
+                    b.is_ascii_hexdigit()
+                }
+            })
+    }
+    is_guid(value) || value.split_once('#').is_some_and(|(a, b)| is_guid(a) && is_guid(b))
 }
 
 /// Parse one `parse --out <response.json>` document.
@@ -135,13 +160,11 @@ pub fn read_parse_response(json_text: &str) -> Result<ParsedParseResponse, ReadE
 
 fn read_word(raw_word: &RawWord) -> Result<XampleResult, ReadError> {
     let mut analyses: BTreeMap<AnalysisSignature, usize> = BTreeMap::new();
-    let mut total = 0usize;
     for (analysis_index, raw_analysis) in raw_word.analyses.iter().enumerate() {
         let signature = read_analysis(&raw_word.word, analysis_index, raw_analysis)?;
         *analyses.entry(signature).or_insert(0) += 1;
-        total += 1;
     }
-    let reached_max_analyses = raw_word.reached_max_analyses.then_some(total);
+    let reached_max_analyses = raw_word.reached_max_analyses.then_some(raw_word.analyses.len());
     Ok(XampleResult { analyses, reached_max_analyses, engine_error: raw_word.engine_error.clone() })
 }
 
@@ -158,6 +181,14 @@ fn read_analysis(
             analysis_index,
             morph_index,
         })?;
+        if !is_guid_shaped_msa_id(&msa_guid) {
+            return Err(ReadError::MalformedMsaGuid {
+                word: word.to_string(),
+                analysis_index,
+                morph_index,
+                value: msa_guid,
+            });
+        }
         msa_ids.push(msa_guid);
         morphemes.push(morph.morphname_or_gloss.clone().unwrap_or_default());
     }
@@ -177,6 +208,7 @@ mod tests {
     const MANY: &str = include_str!("../tests/data/captured-parse-many.json");
     const DUPLICATE: &str = include_str!("../tests/data/synthetic-duplicate-analyses.json");
     const CAPPED: &str = include_str!("../tests/data/synthetic-capped-result.json");
+    const HVO_SHAPED: &str = include_str!("../tests/data/synthetic-hvo-shaped-msa-guid.json");
 
     fn word_result<'a>(parsed: &'a ParsedParseResponse, word: &str) -> &'a XampleResult {
         &parsed
@@ -297,5 +329,12 @@ mod tests {
         let text = serde_json::to_string(&root).unwrap();
         let err = read_parse_response(&text).expect_err("a morph with no msaGuid must be refused");
         assert!(matches!(err, ReadError::MissingMsaGuid { .. }));
+    }
+
+    #[test]
+    fn hvo_shaped_msa_guid_is_refused_not_trusted() {
+        let err =
+            read_parse_response(HVO_SHAPED).expect_err("an hvo-shaped msaGuid must be refused");
+        assert!(matches!(err, ReadError::MalformedMsaGuid { ref value, .. } if value == "123456"));
     }
 }
