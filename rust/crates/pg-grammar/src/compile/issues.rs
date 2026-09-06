@@ -15,11 +15,13 @@ pub(crate) const LEGACY_WARNING: &str = "grammar.legacy-warning";
 pub(crate) const SOURCE_PROVENANCE_UNKNOWN: &str = "conversion.source-provenance-unknown";
 
 /// `substrate::complete`'s `Strict`-policy code: a recorded usage cannot segment and the project
-/// declared no closed-inventory-completion policy to fix it.
+/// declared no closed-inventory-completion policy to fix it. Non-fatal and per-allomorph -- see
+/// `substrate`'s module doc.
 pub(crate) const SUBSTRATE_UNSEGMENTABLE_FORM: &str = "conversion.unsegmentable-form";
 
 /// `substrate::complete`'s ambiguous-classification code: a failing character is neither an
-/// exemplar, an authored boundary, nor in the versioned safe-boundary table.
+/// exemplar, an authored boundary, nor in the versioned safe-boundary table. Non-fatal and
+/// per-allomorph -- see `substrate`'s module doc.
 pub(crate) const SUBSTRATE_CLASSIFICATION_AMBIGUOUS: &str = "substrate.classification-ambiguous";
 
 /// `substrate::feature_rule_migration_issues`'s code: an inferred (featureless) segment satisfies
@@ -33,6 +35,7 @@ pub(crate) const UNSUPPORTED_CONSTRUCT: &str = "conversion.unsupported-construct
 
 /// `substrate::complete`'s code when a failure position remaps to an already-registered character
 /// (a decomposed-diacritic artifact of `segment::remap_error_position`'s own documented heuristic).
+/// Non-fatal and per-allomorph -- see `substrate`'s module doc.
 pub(crate) const SUBSTRATE_POSITION_UNMAPPED: &str = "substrate.position-unmapped";
 
 /// What the compiler had to infer about the phonological substrate rather than read off a closed

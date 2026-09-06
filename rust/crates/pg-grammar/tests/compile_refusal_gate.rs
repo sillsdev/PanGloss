@@ -115,8 +115,8 @@ fn compile_project_refusal_differential_gate() {
     );
 }
 
-/// Whether `compile_project`'s production `Refuse` path is expected to succeed per real corpus today; update only as a deliberate, named decision -- Sena 3 is `false` (18 ambiguous uses trace to genuine authored data, not a compiler bug: an inline editorial note, an underscore-joined citation, a symbolic affix-insertion code).
-const REAL_CORPUS_BASELINE: &[(&str, bool)] = &[("Sena 3", false), ("Amharic", true)];
+/// Whether `compile_project`'s production `Refuse` path is expected to succeed per real corpus today; update only as a deliberate, named decision -- Sena 3 is now `true`: its 18 substrate-unresolved uses (an inline editorial note, an underscore-joined citation, a symbolic affix-insertion code) are each pinned to one allomorph via `SourceRef` and are non-fatal per `substrate`'s module doc, so the compiled grammar drops only those allomorphs (`ALLOMORPH_UNSEGMENTABLE`) rather than refusing the whole project over thousands of otherwise-good entries.
+const REAL_CORPUS_BASELINE: &[(&str, bool)] = &[("Sena 3", true), ("Amharic", true)];
 
 /// Turns a real-corpus compile regression into a hard failure instead of a `--nocapture`-only line someone has to happen to read; a control that cannot act (no real corpus present) must say so, not pass quietly.
 #[test]

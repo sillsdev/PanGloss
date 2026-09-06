@@ -137,6 +137,8 @@ pub fn compile_project_with(
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
     let (recorded_inventory, recorded_issues) = recorder.finish();
+    // Only the fatal half: every non-fatal recorder issue already has a `warnings`-derived LEGACY_WARNING mirror below, and folding those in too would double-report the same drop.
+    issues.extend(recorded_issues.iter().filter(|i| i.fatal).cloned());
     let inventory = InventoryDelta::from_stage(recorded_inventory, recorded_issues);
 
     issues.extend(warnings.into_iter().map(|message| ConversionIssue {
@@ -520,25 +522,33 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
                     continue;
                 };
                 let mut other_ids = Vec::with_capacity(others.len());
-                let mut ok = true;
+                let mut unresolved = Vec::new();
                 for o in others {
                     match acc.allomorph_guid_index.get(o) {
                         Some(&id) => other_ids.push(id),
-                        None => {
-                            warnings.push(format!(
-                                "ad-hoc allomorph prohibition: allomorph {o:?} does not resolve; \
-                                 rule skipped"
-                            ));
-                            ok = false;
-                        }
+                        None => unresolved.push(o.clone()),
                     }
                 }
-                if !ok || other_ids.is_empty() {
+                if !unresolved.is_empty() {
+                    // primary_id resolved, so dropping this would silently permit a combination it was authored to prohibit.
+                    ctx.refuse(
+                        key,
+                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!(
+                            "ad-hoc allomorph prohibition on active allomorph {primary:?}: \
+                             'others' target(s) {unresolved:?} do not resolve; refusing rather \
+                             than silently dropping a prohibition on a real allomorph"
+                        ),
+                    );
+                    continue;
+                }
+                if other_ids.is_empty() {
                     ctx.reject_quietly(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                         IssueClass::InvalidSource,
-                        "ad-hoc allomorph prohibition: an 'others' target does not resolve",
+                        "ad-hoc allomorph prohibition: 'others' is empty, nothing to prohibit",
                     );
                     continue;
                 }
@@ -596,25 +606,33 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
                     continue;
                 };
                 let mut other_ids = Vec::with_capacity(others.len());
-                let mut ok = true;
+                let mut unresolved = Vec::new();
                 for o in others {
                     match acc.msa_guid_index.get(o) {
                         Some(&id) => other_ids.push(id),
-                        None => {
-                            warnings.push(format!(
-                                "ad-hoc morpheme prohibition: morpheme {o:?} does not resolve; \
-                                 rule skipped"
-                            ));
-                            ok = false;
-                        }
+                        None => unresolved.push(o.clone()),
                     }
                 }
-                if !ok || other_ids.is_empty() {
+                if !unresolved.is_empty() {
+                    // primary_id resolved, so dropping this would silently permit a combination it was authored to prohibit.
+                    ctx.refuse(
+                        key,
+                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!(
+                            "ad-hoc morpheme prohibition on active morpheme {primary:?}: \
+                             'others' target(s) {unresolved:?} do not resolve; refusing rather \
+                             than silently dropping a prohibition on a real morpheme"
+                        ),
+                    );
+                    continue;
+                }
+                if other_ids.is_empty() {
                     ctx.reject_quietly(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                         IssueClass::InvalidSource,
-                        "ad-hoc morpheme prohibition: an 'others' target does not resolve",
+                        "ad-hoc morpheme prohibition: 'others' is empty, nothing to prohibit",
                     );
                     continue;
                 }
@@ -721,6 +739,26 @@ impl Ctx<'_> {
         msg: impl Into<String>,
     ) {
         inventory::reject(&mut self.recorder.borrow_mut(), warnings, key, code, class, msg);
+    }
+
+    /// As [`Ctx::reject`], but fatal -- for a construct attached to something already active, where dropping it would change what the grammar accepts. Unlike [`Ctx::reject`], never touches the legacy `warnings` channel: `compile_project_with` folds only the FATAL half of the recorder's own issues into its top-level result, so this is the one path that actually reaches that gate.
+    pub(crate) fn refuse(
+        &self,
+        key: InventoryKey,
+        code: &'static str,
+        class: IssueClass,
+        msg: impl Into<String>,
+    ) {
+        self.recorder.borrow_mut().rejected(
+            key,
+            ConversionIssue {
+                code: code.to_string(),
+                class,
+                source: None,
+                fatal: true,
+                message: msg.into(),
+            },
+        );
     }
 
     /// As [`Ctx::reject`], but pushes no warning, for a site that was already silent about dropping it.

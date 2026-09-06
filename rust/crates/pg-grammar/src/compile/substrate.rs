@@ -1,4 +1,4 @@
-//! Completes a phonological substrate from `SelectionRecorder::text_uses` under `CompleteFromUsage`; never walks `Snapshot` directly, and never infers anything under `Strict`.
+//! Completes a phonological substrate from `SelectionRecorder::text_uses` under `CompleteFromUsage`; never walks `Snapshot` directly, and never infers anything under `Strict`. Every issue below is per-allomorph and non-fatal: the owner that builds that allomorph (`lexicon`, `affixes`) independently re-fails the same segmentation and drops just that one, non-fatally, via `ALLOMORPH_UNSEGMENTABLE`.
 
 use hashbrown::HashSet;
 
@@ -86,12 +86,13 @@ fn position_mismap(raw: &RawCharDefBuild, text: &str, position: usize) -> Result
     }
 }
 
+/// Non-fatal and per-allomorph -- see the module doc's granularity note.
 fn unsegmentable_issue(source: &SourceRef, text: &str, ch: char, position: usize) -> ConversionIssue {
     ConversionIssue {
         code: issues::SUBSTRATE_UNSEGMENTABLE_FORM.to_string(),
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
-        fatal: true,
+        fatal: false,
         message: format!(
             "cannot segment {text:?}: no character definition matches {ch:?} at position \
              {position}, and this project's resolved substrate policy does not complete a \
@@ -100,12 +101,13 @@ fn unsegmentable_issue(source: &SourceRef, text: &str, ch: char, position: usize
     }
 }
 
+/// Non-fatal and per-allomorph for the same reason as [`unsegmentable_issue`].
 fn ambiguous_issue(source: &SourceRef, text: &str, ch: char, position: usize) -> ConversionIssue {
     ConversionIssue {
         code: issues::SUBSTRATE_CLASSIFICATION_AMBIGUOUS.to_string(),
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
-        fatal: true,
+        fatal: false,
         message: format!(
             "cannot segment {text:?}: {ch:?} at position {position} is neither a vernacular \
              exemplar, an authored boundary, nor in the safe boundary table; refusing rather than \
@@ -114,7 +116,7 @@ fn ambiguous_issue(source: &SourceRef, text: &str, ch: char, position: usize) ->
     }
 }
 
-/// Covers both `position_mismap` shapes with one code -- the root defect and the correct response (refuse, never guess or duplicate) are identical either way.
+/// Covers both `position_mismap` shapes with one code; non-fatal and per-allomorph as [`unsegmentable_issue`].
 fn unmapped_position_issue(
     source: &SourceRef,
     text: &str,
@@ -129,7 +131,7 @@ fn unmapped_position_issue(
         code: issues::SUBSTRATE_POSITION_UNMAPPED.to_string(),
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
-        fatal: true,
+        fatal: false,
         message: format!(
             "cannot segment {text:?}: the failure position {position} {detail}; the true failing \
              element is likely a standalone combining mark from a decomposed character with no \
