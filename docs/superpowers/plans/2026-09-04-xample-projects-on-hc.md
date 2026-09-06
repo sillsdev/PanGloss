@@ -611,12 +611,24 @@ segments equal the manifest's `inferred_segments`" — needs `SubstrateReport`, 
 and Task 4 only declares. Writing it now against an always-empty report would be a gate that cannot
 fail. So Step 6 lands in two parts, and the second is not optional:
 
-- [ ] **Step 6a** — everything except that clause: baseline run, `empty-phoneme-inventory` mutation
-  run, `compared`/`XAMPLE_ONLY`/`HC_ONLY` accounting with dated ratchets, byte-identical XAMPLE
-  control/dictionary/grammar files, twice-run determinism, and the before/after source-hash
-  assertion. The missing substrate assertion is held by a failing marker, not a comment.
+- [x] **Step 6a** — everything except that clause. Measured live against the real FieldWorks witness
+  and the real XAMPLE engine: `compared_baseline=3 XAMPLE_ONLY_baseline=0 HC_ONLY_baseline=0`,
+  `compared_mutation=0` (HC correctly refuses the phoneme-less clone with `invalid shape` on every
+  word, so the mutation side contributes nothing until Task 5). The counters are printed split, never
+  folded into one total. Building this found two real comparability bugs no unit test had seen —
+  XAMPLE never populates `category_id`, and HC's surface was read from a per-analysis resynthesis
+  carrying morph-boundary markers instead of the literal word (divergence 926 -> 925 -> 0).
+  "Byte-identical XAMPLE files" is unachievable (FieldWorks writes hvo-based ids); the comparison
+  CANONICALIZES each hvo to its first-appearance index rather than erasing it, so a consistent
+  renumbering passes while a single changed value does not. The earlier erase-based method masked
+  both a `\wc` category corruption and a same-slot reference swap; both are now caught.
+  The missing substrate assertion is held by a failing marker, not a comment.
 - [ ] **Step 6b** — after Task 5: assert the substrate report's featureless inferred segments equal
   the manifest's `inferred_segments`, and retire the marker.
+
+**Integration order.** `research/xample-task3` carries one deliberately-red test until Step 6b, so it
+is NOT merged into `research/xample-phonology` yet — a permanently-red mainline hides the next real
+failure. Land Task 5 first, then rebase task3 onto it, wire Step 6b, and integrate both together.
 
 - [ ] **Step 7: Check and commit in ownership order**
 
