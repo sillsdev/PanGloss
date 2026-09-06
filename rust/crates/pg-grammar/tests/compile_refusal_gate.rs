@@ -6,15 +6,43 @@ use pg_grammar::compile::{CompileOptions, SemanticLossPolicy};
 use pg_grammar::{compile_project, compile_project_measured, compile_project_with};
 use pg_snapshot::IssueClass;
 
-/// Every `.fwdata`/`.fwbackup` this repository has committed -- the only valid gate input.
-fn checked_in_fixtures() -> Vec<(&'static str, PathBuf)> {
-    vec![(
-        "pg-fwdata/tests/data/fixture.fwdata",
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../pg-fwdata/tests/data/fixture.fwdata"),
-    )]
+/// `git rev-parse --show-toplevel`, run from this crate's own manifest dir.
+fn repo_root() -> PathBuf {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("git rev-parse must run -- required to discover checked-in fixtures");
+    assert!(out.status.success(), "git rev-parse --show-toplevel failed: {}", String::from_utf8_lossy(&out.stderr));
+    PathBuf::from(String::from_utf8(out.stdout).expect("git output must be utf8").trim())
 }
 
-/// A real FieldWorks project outside this repo, reported only -- mirrors `pg-cli`'s own lookup.
+/// Every `.fwdata`/`.fwbackup` git actually tracks under `root` -- discovered, not hardcoded, so a second one added later cannot be silently missed and an empty/wrong root cannot pass vacuously.
+fn discover_committed_fixtures(root: &Path) -> Vec<(String, PathBuf)> {
+    let out = std::process::Command::new("git")
+        .args(["ls-files"])
+        .current_dir(root)
+        .output()
+        .expect("git ls-files must run -- required to discover checked-in fixtures");
+    assert!(out.status.success(), "git ls-files failed: {}", String::from_utf8_lossy(&out.stderr));
+    let listing = String::from_utf8(out.stdout).expect("git ls-files output must be utf8");
+    listing
+        .lines()
+        .filter(|line| line.ends_with(".fwdata") || line.ends_with(".fwbackup"))
+        .map(|line| (line.to_string(), root.join(line)))
+        .collect()
+}
+
+fn checked_in_fixtures() -> Vec<(String, PathBuf)> {
+    let fixtures = discover_committed_fixtures(&repo_root());
+    assert!(
+        !fixtures.is_empty(),
+        "discovery found zero checked-in .fwdata/.fwbackup files -- a wrong root must not pass vacuously"
+    );
+    fixtures
+}
+
+/// A real FieldWorks project outside this repo, reported only, never a gate input.
 fn real_corpus(project_dir_name: &str) -> Option<PathBuf> {
     let base = std::env::var("PANGLOSS_FW_PROJECTS_DIR").map(PathBuf::from).unwrap_or_else(|_| {
         PathBuf::from(r"C:\Users\johnm\Documents\repos\FieldWorks\DistFiles\Projects")
@@ -26,6 +54,7 @@ fn real_corpus(project_dir_name: &str) -> Option<PathBuf> {
 /// Ratchet: today's measured count of checked-in fixtures newly refused, not a target.
 const MAX_NEWLY_REFUSING: usize = 1;
 
+/// nextest hides this test's stdout report (the agree/refusing/permitted split, the Sena/Amharic lines) on a PASSING run; pass `-- --nocapture` to see it, or read it on failure.
 #[test]
 fn compile_project_refusal_differential_gate() {
     let mut newly_refusing = Vec::new();
