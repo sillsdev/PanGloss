@@ -45,17 +45,27 @@ impl fmt::Display for HcNormalizationError {
 impl std::error::Error for HcNormalizationError {}
 
 /// Normalize a whole word's [`ParseOutcome`] into the same multiset shape a `parse` capture reads
-/// into (`crate::reader::read_parse_response`), so the two are directly comparable.
+/// into (`crate::reader::read_parse_response`), so the two are directly comparable. `word` is the
+/// literal surface both engines were asked to parse -- used for every analysis's `surface_nfd`
+/// rather than any per-analysis resynthesis `outcome` itself carries, per
+/// [`crate::model::AnalysisSignature::surface_nfd`]'s own doc ("the NFD-normalized surface form
+/// both engines were asked to parse"). This matters beyond phrasing: a resynthesized surface can
+/// legitimately carry an engine's own internal morph-boundary marker for a multi-affix chain
+/// (measured against `edge-cases/deep-optional-affix-nesting`'s 12-slot case) that the literal
+/// input word never had, which would fabricate a divergence against XAMPLE's own clean surface
+/// report for the identical input.
 pub fn xample_result_from_hc_outcome(
     outcome: &ParseOutcome,
     grammar: &Grammar,
+    word: &str,
 ) -> Result<XampleResult, HcNormalizationError> {
     if outcome.guessed {
         return Err(HcNormalizationError::GuessedAnalysesNotComparable);
     }
+    let surface_nfd: String = word.nfd().collect();
     let mut analyses: BTreeMap<AnalysisSignature, usize> = BTreeMap::new();
-    for (analysis, (_, surface)) in outcome.structured.iter().zip(outcome.analyses.iter()) {
-        let signature = signature_from_word_analysis(analysis, surface, grammar)?;
+    for analysis in &outcome.structured {
+        let signature = signature_from_word_analysis(analysis, &surface_nfd, grammar)?;
         *analyses.entry(signature).or_insert(0) += 1;
     }
     let reached_max_analyses = outcome.capped.then_some(outcome.structured.len());
@@ -71,7 +81,7 @@ pub fn xample_result_from_hc_outcome(
 
 fn signature_from_word_analysis(
     analysis: &WordAnalysis,
-    surface: &str,
+    surface_nfd: &str,
     grammar: &Grammar,
 ) -> Result<AnalysisSignature, HcNormalizationError> {
     let identity =
@@ -86,7 +96,7 @@ fn signature_from_word_analysis(
         morphemes,
         msa_ids,
         category_id: identity.category,
-        surface_nfd: surface.nfd().collect(),
+        surface_nfd: surface_nfd.to_string(),
     })
 }
 
@@ -161,7 +171,7 @@ mod tests {
         let g = two_slot_grammar();
         let m = Morpher::new(&g, usize::MAX);
         let outcome = m.parse_word("k");
-        let result = xample_result_from_hc_outcome(&outcome, &g).expect("k must normalize");
+        let result = xample_result_from_hc_outcome(&outcome, &g, "k").expect("k must normalize");
         assert_eq!(result.analyses.values().sum::<usize>(), 1);
         assert_eq!(result.engine_error, None);
         assert_eq!(result.reached_max_analyses, None);
@@ -176,7 +186,7 @@ mod tests {
         let g = two_slot_grammar();
         let m = Morpher::new(&g, usize::MAX);
         let outcome = m.parse_word("xk");
-        let result = xample_result_from_hc_outcome(&outcome, &g).expect("xk must normalize");
+        let result = xample_result_from_hc_outcome(&outcome, &g, "xk").expect("xk must normalize");
         assert_eq!(result.analyses.len(), 2, "P1-fired and P2-fired are distinct analyses");
         assert_eq!(result.analyses.values().sum::<usize>(), 2);
         let msa_id_sets: Vec<&Vec<String>> = result.analyses.keys().map(|s| &s.msa_ids).collect();
@@ -185,12 +195,25 @@ mod tests {
     }
 
     #[test]
+    fn surface_nfd_is_the_literal_input_word_not_any_engine_resynthesis() {
+        // A caller-supplied word can never carry a resynthesized morph-boundary marker.
+        let g = two_slot_grammar();
+        let m = Morpher::new(&g, usize::MAX);
+        let outcome = m.parse_word("xk");
+        let result = xample_result_from_hc_outcome(&outcome, &g, "xk").expect("xk must normalize");
+        for signature in result.analyses.keys() {
+            assert_eq!(signature.surface_nfd, "xk");
+        }
+    }
+
+    #[test]
     fn unparseable_word_normalizes_to_invalid_shape_engine_error() {
         let g = two_slot_grammar();
         let m = Morpher::new(&g, usize::MAX);
         // "q" has no representation in the character table, so it never segments.
         let outcome = m.parse_word("q");
-        let result = xample_result_from_hc_outcome(&outcome, &g).expect("q must normalize (empty, not an error state HC lacks a flag for)");
+        let result = xample_result_from_hc_outcome(&outcome, &g, "q")
+            .expect("q must normalize (empty, not an error state HC lacks a flag for)");
         if outcome.invalid_shape {
             assert!(result.engine_error.as_deref().unwrap_or_default().contains("invalid shape"));
         }

@@ -125,6 +125,7 @@ pg-fwdata = { path = "crates/pg-fwdata" }
 pg-assess = { path = "crates/pg-assess" }
 pg-stats = { path = "crates/pg-stats" }
 pg-conformance-fixtures = { path = "crates/pg-conformance-fixtures" }
+pg-xample-oracle = { path = "crates/pg-xample-oracle" }
 pg-grammar-gen = { path = "crates/pg-grammar-gen" }
 # `.pgpack` container (R2A / `make-wasm-analysis-only`): ADR 0004 required-runtime-feature
 # containment, consumed by `pg-wasm`'s load path (see that crate's `src/pack.rs`).
