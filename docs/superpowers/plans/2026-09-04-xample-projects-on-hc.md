@@ -649,7 +649,7 @@ git commit -m "oracle: establish pre-change XAMPLE migration baseline"
 - Modify: `rust/crates/pg-grammar/src/lib.rs`
 - Modify: `rust/crates/pg-grammar/src/compile/tests.rs`
 
-- [ ] **Step 1: Write option-resolution tests**
+- [x] **Step 1: Write option-resolution tests**
 
 ```rust
 #[test]
@@ -671,7 +671,7 @@ fn auto_completes_xample_authored_or_explicitly_accepted_unspecified_graphemes()
 
 Also assert that neither options nor outputs contain `ParserProfile` or XAMPLE cap state.
 
-- [ ] **Step 2: Define policies**
+- [x] **Step 2: Define policies**
 
 ```rust
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -705,7 +705,7 @@ pub struct CompileOptions {
 `MeasureOnly` exists only for the structural inventory gate. Production CLI/worker and XAMPLE
 result-comparator HC callers use `Refuse`.
 
-- [ ] **Step 3: Define typed issues and output**
+- [x] **Step 3: Define typed issues and output**
 
 Use the serializable `IssueClass`, `SourceRef`, and `ConversionIssue` types introduced in Task 2.
 Add the compiler/substrate result types:
@@ -772,7 +772,7 @@ impl GrammarError {
 `InferredChar` deliberately has no feature-value field. The substrate unit test inspects the
 generated `RawCharDef` and proves its `feature_values` vector is empty.
 
-- [ ] **Step 4: Add the orchestration API without changing behavior yet**
+- [x] **Step 4: Add the orchestration API without changing behavior yet**
 
 Add:
 
@@ -806,7 +806,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
 Task 7 moves production callers to the structured output. The tuple wrapper remains only for
 source compatibility and is deprecated after that audit.
 
-- [ ] **Step 5: Run focused tests and check**
+- [x] **Step 5: Run focused tests and check**
 
 ```powershell
 & .\rust\tools\pg.ps1 -Mode quick -Package pg-grammar
@@ -815,7 +815,7 @@ source compatibility and is deprecated after that audit.
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add rust/crates/pg-grammar
@@ -1127,7 +1127,7 @@ may request this policy.
 Expected: PASS. Existing tests that expected warning-and-drop are rewritten to expect refusal or
 explicit `MeasureOnly` output.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add rust/crates/pg-grammar
@@ -1182,7 +1182,7 @@ receives an already completed `Grammar` or runs the same lossless compiler.
 
 Expected: PASS. The worker round-trip test proves omitted `characterSubstrate` resolves to `auto`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add rust/crates/pg-cli rust/crates/pg-foma
@@ -1439,7 +1439,7 @@ Confirm from fresh output that:
 Move resolved questions from §9 to the relevant verified section. Keep unresolved questions visible.
 Do not turn a single fixture observation into a universal engine claim.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add docs rust
