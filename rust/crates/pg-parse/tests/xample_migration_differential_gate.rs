@@ -218,12 +218,19 @@ fn xample_migration_differential_gate() {
         .unwrap_or_else(|e| panic!("baseline import+compile must succeed (this project is the source of truth): {e}"));
     let base_hc = hc_results_by_word(&base_grammar, ACCEPTED_WORDS);
 
-    let mut compared = 0usize;
-    let mut xample_only = 0usize;
-    let mut hc_only = 0usize;
+    let mut compared_baseline = 0usize;
+    let mut xample_only_baseline = 0usize;
+    let mut hc_only_baseline = 0usize;
     println!("--- baseline (real project) ---");
     for word in ACCEPTED_WORDS {
-        accumulate(word, &base_xample[*word], &base_hc[*word], &mut compared, &mut xample_only, &mut hc_only);
+        accumulate(
+            word,
+            &base_xample[*word],
+            &base_hc[*word],
+            &mut compared_baseline,
+            &mut xample_only_baseline,
+            &mut hc_only_baseline,
+        );
     }
 
     // --- empty-phoneme-inventory mutation ---
@@ -276,17 +283,27 @@ fn xample_migration_differential_gate() {
     }
 
     // Never asserted equal to baseline: a successful compile does not mean the character substrate is complete, so accumulate's own usability gate absorbs the expected divergence.
+    let mut compared_mutation = 0usize;
+    let mut xample_only_mutation = 0usize;
+    let mut hc_only_mutation = 0usize;
     match import_and_compile(&clone_fwdata) {
         Ok(clone_grammar) => {
             let clone_hc = hc_results_by_word(&clone_grammar, ACCEPTED_WORDS);
             for word in ACCEPTED_WORDS {
-                accumulate(word, &clone_xample[*word], &clone_hc[*word], &mut compared, &mut xample_only, &mut hc_only);
+                accumulate(
+                    word,
+                    &clone_xample[*word],
+                    &clone_hc[*word],
+                    &mut compared_mutation,
+                    &mut xample_only_mutation,
+                    &mut hc_only_mutation,
+                );
             }
         }
         Err(e) => {
             println!(
-                "NOTE: mutated-clone import+compile did not succeed without character-substrate \
-                 completion (expected pre-Task-5): {e}"
+                "NOTE: mutated-clone import+compile did not succeed -- character-substrate \
+                 completion is not yet implemented: {e}"
             );
         }
     }
@@ -322,15 +339,21 @@ fn xample_migration_differential_gate() {
         "the checked-in witness itself must be byte-for-byte unchanged after this whole run"
     );
 
-    println!("compared={compared} XAMPLE_ONLY={xample_only} HC_ONLY={hc_only}");
+    // Printed separately, always, even when zero: a zero folded into a combined total is a trap.
+    let compared = compared_baseline + compared_mutation;
+    let xample_only = xample_only_baseline + xample_only_mutation;
+    let hc_only = hc_only_baseline + hc_only_mutation;
+    println!("compared_baseline={compared_baseline} XAMPLE_ONLY_baseline={xample_only_baseline} HC_ONLY_baseline={hc_only_baseline}");
+    println!("compared_mutation={compared_mutation} XAMPLE_ONLY_mutation={xample_only_mutation} HC_ONLY_mutation={hc_only_mutation}");
+    println!("compared_total={compared} XAMPLE_ONLY_total={xample_only} HC_ONLY_total={hc_only}");
     assert!(compared > 0, "at least one word must have run through both engines usably");
     assert!(
         xample_only <= XAMPLE_ONLY_RATCHET,
-        "XAMPLE_ONLY={xample_only} exceeds the ratchet ({XAMPLE_ONLY_RATCHET}) -- a new divergence, or the ratchet needs a fresh measurement"
+        "XAMPLE_ONLY_total={xample_only} exceeds the ratchet ({XAMPLE_ONLY_RATCHET}) -- a new divergence, or the ratchet needs a fresh measurement"
     );
     assert!(
         hc_only <= HC_ONLY_RATCHET,
-        "HC_ONLY={hc_only} exceeds the ratchet ({HC_ONLY_RATCHET}) -- a new divergence, or the ratchet needs a fresh measurement"
+        "HC_ONLY_total={hc_only} exceeds the ratchet ({HC_ONLY_RATCHET}) -- a new divergence, or the ratchet needs a fresh measurement"
     );
 
     // Keep response objects alive for the assertions above; also silence unused-field lints without deny_unknown_fields drift.
@@ -394,12 +417,12 @@ fn accumulate_counts_a_real_divergence_in_both_directions() {
 #[test]
 fn empty_phoneme_inventory_substrate_report_matches_manifest_inferred_segments() {
     panic!(
-        "BLOCKED on Task 5 (character-substrate completion, `pg_grammar::compile::substrate` / \
-         `SubstrateReport`): that type does not exist on this branch, so the \
-         `empty-phoneme-inventory` case's manifest `inferred_segments` (machine/conformance/\
-         edge-cases/deep-optional-affix-nesting/fieldworks/phonology-mutations.yaml) cannot yet be \
-         compared against a compiled grammar's inferred, featureless character definitions. Wire \
-         this comparison once `pg_grammar::compile_project_with` returns a populated \
+        "BLOCKED: character-substrate completion (`pg_grammar::compile::substrate` / \
+         `SubstrateReport`) does not exist on this branch, so the `empty-phoneme-inventory` \
+         case's manifest `inferred_segments` (machine/conformance/edge-cases/\
+         deep-optional-affix-nesting/fieldworks/phonology-mutations.yaml) cannot yet be compared \
+         against a compiled grammar's inferred, featureless character definitions. Wire this \
+         comparison once `pg_grammar::compile_project_with` returns a populated \
          `SubstrateReport`, and delete this panic."
     );
 }
