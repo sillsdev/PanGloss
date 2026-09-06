@@ -3,7 +3,8 @@
 use std::path::{Path, PathBuf};
 
 /// Path prefixes (relative to `rust/crates/`) allowed to mention `MeasureOnly` at all.
-const ALLOWED_PREFIXES: &[&str] = &["pg-grammar/src/compile/", "pg-grammar/tests/"];
+const ALLOWED_PREFIXES: &[&str] =
+    &["pg-grammar/src/compile/", "pg-grammar/tests/", "pg-fwdata/tests/"];
 
 fn crates_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..")

@@ -188,7 +188,9 @@ pub(crate) fn compile_project_recording(
     let phon_features = features::build_phon_features(snapshot, &mut warnings, &mut recorder)?;
 
     // --- text usage: owners publish literal text they already selected, for substrate inference -
+    let mut substrate_issues: Vec<ConversionIssue> = Vec::new();
     lexicon::collect_text_uses(snapshot, &mut recorder);
+    affixes::collect_text_uses(snapshot, &mut recorder, &mut substrate_issues);
 
     // --- character-definition table, completed from usage under a resolved CompleteFromUsage ---
     let raw = chardef::build_raw(snapshot, &phon_features, &mut warnings, &mut recorder)?;
@@ -205,7 +207,7 @@ pub(crate) fn compile_project_recording(
     let substrate::SubstrateCompletion {
         raw: completed_raw,
         report: substrate_report,
-        issues: mut substrate_issues,
+        issues: complete_issues,
     } = substrate::complete(
         recorder.text_uses(),
         &snapshot.project.exemplar_characters,
@@ -214,6 +216,7 @@ pub(crate) fn compile_project_recording(
         &phon_features,
         resolved_substrate,
     );
+    substrate_issues.extend(complete_issues);
     let chardef::CharDefBuild {
         table: char_table,
         phoneme_of,
