@@ -1068,6 +1068,27 @@ git commit -m "grammar: complete featureless character substrate from authored u
 
 ## Task 6: Replace semantic warning-and-drop paths with refusal
 
+**Decide this first (2026-09-06, raised by Task 5''s review).** Task 5''s three substrate issues
+(`substrate.classification-ambiguous`, `substrate.position-unmapped`, `conversion.unsegmentable-form`)
+hard-code `fatal: true` and are spliced into `issues` at `compile/mod.rs:149`, which refuses the
+WHOLE grammar. The compiler already has a per-allomorph convention for structurally identical
+defects: `ALLOMORPH_UNSEGMENTABLE` (`lexicon.rs:372`, `affixes.rs:522/535/844`) drops the one
+allomorph it cannot segment, reports it via `ctx.reject`, and is folded into a NON-fatal
+`ConversionIssue` at `mod.rs:142-148` so the rest of the grammar compiles. Bracket-pattern affixes,
+unsupported rule forms and unsegmentable stems all already work that way.
+
+The measured consequence: **Sena 3 no longer compiles at all** under production `Refuse`, over 18
+characters traced to a linguist''s editorial note (`"alt: nkhundu-nkhundu"`), an underscore-joined
+phrasal citation (`"pakati_na_kati"`), and a symbolic affix code (`"^0"`) — in a project with
+thousands of good entries. The new issues already carry a precise `SourceRef` naming the offending
+allomorph, which is exactly the information `ctx.reject` turns into a quiet per-allomorph drop.
+
+The reviewer''s recommendation, recorded here so this task starts from it rather than rediscovering
+it: refuse the ALLOMORPH and report, not the grammar — consistent with the established convention,
+attributable to a small set of entries rather than contaminating the shared character table, and
+matching this repo''s own "<100% recall is a compiler gap, not a bypass", since refusing outright
+guarantees 0% recall for a whole project over one bad note. Settle it explicitly before writing code.
+
 **Files:**
 
 - Modify: every owner under `rust/crates/pg-grammar/src/compile/` found by the audit
