@@ -101,10 +101,11 @@ pub fn compile_project_measured(
     Ok((grammar, warnings, pg_snapshot::InventoryDelta::from_stage(inventory, issues)))
 }
 
-/// Compiles under an explicit [`CompileOptions`], returning every conversion issue (import-stage
-/// plus this compile) alongside the `Grammar`. `options.substrate` resolves and drives
-/// `substrate::complete`; every compile-stage warning becomes a non-fatal [`ConversionIssue`] under
-/// `issues::LEGACY_WARNING` -- a per-site code/class migration is follow-on work, not this one.
+/// Compiles under an explicit [`CompileOptions`], returning every conversion issue (import-stage,
+/// every owner's own recorder issue, and this compile's substrate issues) alongside the `Grammar`.
+/// `options.substrate` resolves and drives `substrate::complete`; a `warnings`-only site with no
+/// recorder call of its own still becomes a non-fatal [`ConversionIssue`] under
+/// `issues::LEGACY_WARNING` -- a per-site code/class migration for those is follow-on work.
 ///
 /// The issue collector starts from `snapshot.conversion_provenance` (import-stage issues, plus a
 /// synthesized fatal `issues::SOURCE_PROVENANCE_UNKNOWN` issue when the source provenance itself
@@ -137,18 +138,26 @@ pub fn compile_project_with(
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
     let (recorded_inventory, recorded_issues) = recorder.finish();
-    // Only the fatal half: every non-fatal recorder issue already has a `warnings`-derived LEGACY_WARNING mirror below, and folding those in too would double-report the same drop.
-    issues.extend(recorded_issues.iter().filter(|i| i.fatal).cloned());
-    let inventory = InventoryDelta::from_stage(recorded_inventory, recorded_issues);
-
-    issues.extend(warnings.into_iter().map(|message| ConversionIssue {
-        code: issues::LEGACY_WARNING.to_string(),
-        class: IssueClass::MigrationDifference,
-        source: None,
-        fatal: false,
-        message,
-    }));
+    // A recorder issue's real code supersedes its own identical-message `warnings` mirror, if any.
+    let legacy_warning_issues: Vec<ConversionIssue> = {
+        let recorded_messages: hashbrown::HashSet<&str> =
+            recorded_issues.iter().map(|i| i.message.as_str()).collect();
+        warnings
+            .into_iter()
+            .filter(|message| !recorded_messages.contains(message.as_str()))
+            .map(|message| ConversionIssue {
+                code: issues::LEGACY_WARNING.to_string(),
+                class: IssueClass::MigrationDifference,
+                source: None,
+                fatal: false,
+                message,
+            })
+            .collect()
+    };
+    issues.extend(recorded_issues.iter().cloned());
+    issues.extend(legacy_warning_issues);
     issues.extend(substrate_issues);
+    let inventory = InventoryDelta::from_stage(recorded_inventory, recorded_issues);
 
     let refuses = options.semantic_loss == SemanticLossPolicy::Refuse
         && issues.iter().any(|issue| issue.fatal);
@@ -292,6 +301,7 @@ pub(crate) fn compile_project_recording(
         default_analysis_ws: snapshot.project.analysis_writing_systems.first().cloned(),
         recorder: RefCell::new(recorder),
         lineage: RefCell::new(lineage),
+        pending_cooccurrence_refusals: RefCell::new(Vec::new()),
     };
 
     let mut acc = Acc {
@@ -384,6 +394,7 @@ pub(crate) fn compile_project_recording(
     // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
     let mut recorder = ctx.recorder.into_inner();
     let lineage = ctx.lineage.into_inner();
+    let pending_cooccurrence_refusals = ctx.pending_cooccurrence_refusals.into_inner();
 
     let strata = vec![
         StratumDef {
@@ -455,6 +466,7 @@ pub(crate) fn compile_project_recording(
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.
     let (removed_mrules, removed_allomorph_cooccurrence) =
         reachability::compact_mrules(&mut grammar, &mut warnings);
+    resolve_pending_cooccurrence_refusals(&mut recorder, pending_cooccurrence_refusals, &removed_mrules);
     let removed_cooccurrence = reachability::trim_unreachable_morpheme_coocurrence(&mut grammar);
 
     // `pg-fwdata` extracts every declared natural class unconditionally, so compact to only those actually referenced now that every other compile step has had its chance to resolve one (see `natclass::compact_to_referenced`'s own doc).
@@ -487,6 +499,17 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
             SnapAdjacency::AdjacentToLeft => CoOccurrenceAdjacency::AdjacentToLeft,
             SnapAdjacency::AdjacentToRight => CoOccurrenceAdjacency::AdjacentToRight,
         }
+    }
+
+    // A morpheme owned by an affix mrule might still be pruned as unreachable dead code by reachability compaction; a stem-entry morpheme never is.
+    let mut morpheme_owning_mrule: HashMap<u32, MRuleId> = HashMap::new();
+    for (i, def) in acc.mrules.iter().enumerate() {
+        let morpheme = match def {
+            MorphRuleDef::AffixProcess(d) => d.morpheme,
+            MorphRuleDef::Realizational(d) => d.morpheme,
+            MorphRuleDef::Compounding(_) => continue,
+        };
+        morpheme_owning_mrule.insert(morpheme.0, MRuleId(i as u32));
     }
 
     for rule in &snapshot.morphology.adhoc_prohibitions {
@@ -527,16 +550,28 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
                 }
                 if !unresolved.is_empty() {
                     // primary_id resolved, so dropping this would silently permit a combination it was authored to prohibit.
-                    ctx.refuse(
-                        key,
-                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
-                        IssueClass::InvalidSource,
-                        format!(
-                            "ad-hoc allomorph prohibition on active allomorph {primary:?}: \
-                             'others' target(s) {unresolved:?} do not resolve; refusing rather \
-                             than silently dropping a prohibition on a real allomorph"
-                        ),
+                    let message = format!(
+                        "ad-hoc allomorph prohibition on active allomorph {primary:?}: \
+                         'others' target(s) {unresolved:?} do not resolve; refusing rather \
+                         than silently dropping a prohibition on a real allomorph"
                     );
+                    match acc.allomorph_owners[primary_id.0 as usize] {
+                        // A root-owned allomorph always survives reachability compaction, so there is nothing to defer.
+                        AllomorphOwner::Root(..) => ctx.refuse(
+                            key,
+                            issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                            IssueClass::InvalidSource,
+                            message,
+                        ),
+                        // An affix-owned primary's own mrule might still be pruned as unreachable dead code -- defer until that is known.
+                        AllomorphOwner::Affix(mr, _) => ctx.defer_cooccurrence_refusal(
+                            key,
+                            issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                            IssueClass::InvalidSource,
+                            message,
+                            mr,
+                        ),
+                    }
                     continue;
                 }
                 if other_ids.is_empty() {
@@ -611,16 +646,28 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
                 }
                 if !unresolved.is_empty() {
                     // primary_id resolved, so dropping this would silently permit a combination it was authored to prohibit.
-                    ctx.refuse(
-                        key,
-                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
-                        IssueClass::InvalidSource,
-                        format!(
-                            "ad-hoc morpheme prohibition on active morpheme {primary:?}: \
-                             'others' target(s) {unresolved:?} do not resolve; refusing rather \
-                             than silently dropping a prohibition on a real morpheme"
-                        ),
+                    let message = format!(
+                        "ad-hoc morpheme prohibition on active morpheme {primary:?}: \
+                         'others' target(s) {unresolved:?} do not resolve; refusing rather \
+                         than silently dropping a prohibition on a real morpheme"
                     );
+                    match morpheme_owning_mrule.get(&primary_id.0) {
+                        // A stem-entry morpheme always survives reachability compaction, so there is nothing to defer.
+                        None => ctx.refuse(
+                            key,
+                            issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                            IssueClass::InvalidSource,
+                            message,
+                        ),
+                        // An affix-owned primary's own mrule might still be pruned as unreachable dead code -- defer until that is known.
+                        Some(&mr) => ctx.defer_cooccurrence_refusal(
+                            key,
+                            issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                            IssueClass::InvalidSource,
+                            message,
+                            mr,
+                        ),
+                    }
                     continue;
                 }
                 if other_ids.is_empty() {
@@ -645,6 +692,43 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, wa
                     },
                 );
             }
+        }
+    }
+}
+
+/// Decides every `PendingCooccurrenceRefusal` `strata_assign_co_occurrence` deferred, now that `removed_mrules` (old ids) says which affix mrules reachability compaction pruned as dead code.
+fn resolve_pending_cooccurrence_refusals(
+    recorder: &mut SelectionRecorder,
+    pending: Vec<PendingCooccurrenceRefusal>,
+    removed_mrules: &[u32],
+) {
+    for p in pending {
+        if removed_mrules.contains(&p.mrule.0) {
+            recorder.rejected(
+                p.key,
+                ConversionIssue {
+                    code: p.code.to_string(),
+                    class: IssueClass::UnreachableInGrammar,
+                    source: None,
+                    fatal: false,
+                    message: format!(
+                        "{}; the primary's own mrule is unreachable after reachability \
+                         compaction, so this would have been dropped as dead code regardless",
+                        p.message
+                    ),
+                },
+            );
+        } else {
+            recorder.rejected(
+                p.key,
+                ConversionIssue {
+                    code: p.code.to_string(),
+                    class: p.class,
+                    source: None,
+                    fatal: true,
+                    message: p.message,
+                },
+            );
         }
     }
 }
@@ -690,6 +774,21 @@ pub(crate) struct Ctx<'a> {
     pub recorder: RefCell<SelectionRecorder>,
     /// Which owner published which `represented` keys, read only by `inventory::finalize`.
     pub lineage: RefCell<Lineage>,
+    /// Co-occurrence refusals whose primary is affix-owned, so reachability (running after this
+    /// context is done) might still prune the primary's own mrule as dead code -- resolved by
+    /// `resolve_pending_cooccurrence_refusals` once `removed_mrules` is known.
+    pub pending_cooccurrence_refusals: RefCell<Vec<PendingCooccurrenceRefusal>>,
+}
+
+/// One `strata_assign_co_occurrence` refusal candidate deferred past reachability compaction:
+/// `mrule` names the PRIMARY's owning affix rule, whose survival decides fatal (still reachable, a
+/// real drop) vs. non-fatal (reachability would have pruned it as dead code regardless).
+pub(crate) struct PendingCooccurrenceRefusal {
+    key: InventoryKey,
+    code: &'static str,
+    class: IssueClass,
+    message: String,
+    mrule: MRuleId,
 }
 
 impl Ctx<'_> {
@@ -737,7 +836,7 @@ impl Ctx<'_> {
         inventory::reject(&mut self.recorder.borrow_mut(), warnings, key, code, class, msg);
     }
 
-    /// As [`Ctx::reject`], but fatal -- for a construct attached to something already active, where dropping it would change what the grammar accepts. Unlike [`Ctx::reject`], never touches the legacy `warnings` channel: `compile_project_with` folds only the FATAL half of the recorder's own issues into its top-level result, so this is the one path that actually reaches that gate.
+    /// As [`Ctx::reject`], but fatal -- for a construct attached to something already active, where dropping it would change what the grammar accepts. Unlike [`Ctx::reject`], never touches the legacy `warnings` channel: it carries its own real code into `compile_project_with`'s top-level result already.
     pub(crate) fn refuse(
         &self,
         key: InventoryKey,
@@ -755,6 +854,23 @@ impl Ctx<'_> {
                 message: msg.into(),
             },
         );
+    }
+
+    /// As [`Ctx::refuse`], but for a co-occurrence primary that is affix-owned: reachability
+    /// compaction (which runs after this `Ctx` is gone) might still prune the primary's own mrule
+    /// as dead code, so the fatal/non-fatal call is deferred to
+    /// `resolve_pending_cooccurrence_refusals` rather than decided here.
+    pub(crate) fn defer_cooccurrence_refusal(
+        &self,
+        key: InventoryKey,
+        code: &'static str,
+        class: IssueClass,
+        message: String,
+        mrule: MRuleId,
+    ) {
+        self.pending_cooccurrence_refusals
+            .borrow_mut()
+            .push(PendingCooccurrenceRefusal { key, code, class, message, mrule });
     }
 
     /// As [`Ctx::reject`], but pushes no warning, for a site that was already silent about dropping it.

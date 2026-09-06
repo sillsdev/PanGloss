@@ -72,10 +72,12 @@ pub enum InferenceEvidence {
     SafeBoundaryTable { version: u16 },
 }
 
-/// [`super::compile_project_with`]'s successful result: the compiled `Grammar`, every conversion
-/// issue collected across the import and compile stages, the substrate inference report, and the
-/// same measurement [`super::compile_project_measured`] returns -- not merged with the import
-/// stage's own inventory.
+/// [`super::compile_project_with`]'s successful result: the compiled `Grammar`, the substrate
+/// inference report, and the same measurement [`super::compile_project_measured`] returns (`inventory`,
+/// not merged with the import stage's own inventory). `issues` is every conversion issue collected
+/// across the import and compile stages -- import-stage issues, every owner's own recorder issue
+/// (real code, not a generic mirror), any `warnings`-only site's `LEGACY_WARNING`, and substrate
+/// issues; `inventory.issues` carries the recorder's own subset again, unmerged with the other two.
 #[derive(Debug)]
 pub struct CompileOutput {
     pub grammar: Grammar,

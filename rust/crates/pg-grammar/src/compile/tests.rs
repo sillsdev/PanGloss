@@ -11,8 +11,8 @@ use pg_snapshot::morphology::{
     PartOfSpeech,
 };
 use pg_snapshot::phonology::{
-    BoundaryMarker, MetathesisRule, NaturalClass as SnapNaturalClass, Phoneme, PhonologicalRule,
-    Phonology, RuleDirection,
+    BoundaryMarker, MetathesisRule, NaturalClass as SnapNaturalClass, PhonContext, Phoneme,
+    PhonologicalRule, Phonology, RuleDirection,
 };
 use pg_snapshot::project::Project;
 use pg_snapshot::{
@@ -322,15 +322,16 @@ fn invalid_environment_string_is_a_warning_not_an_error() {
         .environments
         .push("env-bad".to_string());
 
-    let (grammar, warnings) = compile_project(&snapshot).expect("must still compile");
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
     assert!(
-        warnings
+        out.issues
             .iter()
-            .any(|w| w.contains("env-bad") || w.contains("must start with")),
-        "expected a warning about the invalid environment; got {warnings:?}"
+            .any(|i| i.code == super::issue_codes::ENVIRONMENT_INVALID && !i.fatal),
+        "expected a non-fatal ENVIRONMENT_INVALID issue; got {:?}",
+        out.issues
     );
     assert_eq!(
-        grammar.entries.len(),
+        out.grammar.entries.len(),
         1,
         "the stem entry must still compile"
     );
@@ -520,7 +521,16 @@ fn inflectional_msa_with_no_slots_is_a_partial_rule() {
     }
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
-    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(
+        warnings,
+        vec![
+            "template slot has no loaded affix rules".to_string(),
+            "template-slot attachment: slot has no loaded affix rules".to_string(),
+            "affix template has no slots with any loaded affix rule".to_string(),
+        ],
+        "these three quiet (reject_quietly) rejections are now visible here: compile_project_with \
+         folds every recorder issue into `issues`, not just the fatal half"
+    );
     let affix_rules: Vec<_> = grammar
         .mrules
         .iter()
@@ -653,16 +663,17 @@ fn metathesis_rule_is_unsupported_and_warns_rather_than_erroring() {
             right_switch_index: 1,
         }));
 
-    let (grammar, warnings) =
-        compile_project(&snapshot).expect("metathesis must not be a hard error");
+    let out = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("metathesis must not be a hard error");
     assert!(
-        warnings
+        out.issues
             .iter()
-            .any(|w| w.contains("unsupported") && w.contains("metathesis")),
-        "expected an 'unsupported: metathesis ...' warning; got {warnings:?}"
+            .any(|i| i.code == super::issue_codes::RULE_METATHESIS_UNSUPPORTED && !i.fatal),
+        "expected a non-fatal RULE_METATHESIS_UNSUPPORTED issue; got {:?}",
+        out.issues
     );
     assert!(
-        grammar.prules.is_empty(),
+        out.grammar.prules.is_empty(),
         "the metathesis rule itself must not appear in the grammar"
     );
 }
@@ -1621,7 +1632,7 @@ fn an_unresolved_environment_guid_on_a_root_allomorph_is_a_quiet_attachment_reje
         .environments
         .push("dangling-env-guid".to_string());
 
-    let (_grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
         warnings.is_empty(),
         "an unresolved environment guid is silently dropped, never warned: {warnings:?}"
@@ -1635,6 +1646,10 @@ fn an_unresolved_environment_guid_on_a_root_allomorph_is_a_quiet_attachment_reje
     assert!(
         inventory.rejected.contains(&attachment),
         "the dangling environment attachment must still be recorded rejected"
+    );
+    assert!(
+        issues.iter().any(|i| i.code == super::issue_codes::ENVIRONMENT_UNRESOLVED && !i.fatal),
+        "expected a non-fatal ENVIRONMENT_UNRESOLVED issue; got {issues:?}"
     );
 }
 
@@ -1724,9 +1739,7 @@ fn custom_strata_setting_is_recorded_rejected() {
     assert!(warnings.iter().any(|w| w.contains("Strata")));
     let key = InventoryKey::setting(InventoryKind::StrataConfiguration, "Strata");
     assert!(inventory.rejected.contains(&key));
-    assert!(issues
-        .iter()
-        .any(|i| i.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED));
+    assert!(issues.iter().any(|i| i.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED && !i.fatal));
 }
 
 /// `is_valid_rule_form`'s three reject sites must select the allomorph before rejecting it (`rejected ⊆ selected`), for both the positionless-infix and the bracket-pattern (reduplication) routes.
@@ -1885,6 +1898,156 @@ fn template_only_mrule_orphaned_by_no_template_is_revoked_unreachable_after_comp
         "the orphaned mrule must not survive compaction: {:?}",
         grammar.mrules
     );
+}
+
+/// An affix (not root) allomorph whose literal text cannot be segmented is a recall gap for that one allomorph, matching the root case pinned elsewhere.
+#[test]
+fn affix_allomorph_unsegmentable_text_is_a_recall_gap_not_a_project_refusal() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "qa")]; // "q" is not declared anywhere in this fixture's phonology
+
+    let out = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("one unrepresentable affix allomorph must not refuse the whole project");
+    assert!(out.issues.iter().any(|i| i.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE && !i.fatal));
+    assert!(
+        out.grammar.mrules.iter().all(|r| match r {
+            MorphRuleDef::AffixProcess(d) => d.allomorphs.is_empty(),
+            _ => true,
+        }) || out.grammar.mrules.is_empty(),
+        "the affix rule must end up with zero allomorphs (and be compacted away as unreachable)"
+    );
+}
+
+/// A `Segments`-kind natural class referencing a phoneme guid that never resolves is a non-fatal, per-class recall gap.
+#[test]
+fn natclass_segments_member_unresolved_is_non_fatal() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
+        guid: "nc-bad".to_string(),
+        name: "Bad".to_string(),
+        phonemes: vec!["ph-does-not-exist".to_string()],
+    });
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    assert!(
+        out.issues
+            .iter()
+            .any(|i| i.code == super::issue_codes::NATCLASS_SEGMENTS_MEMBER_UNRESOLVED && !i.fatal),
+        "expected a non-fatal NATCLASS_SEGMENTS_MEMBER_UNRESOLVED issue; got {:?}",
+        out.issues
+    );
+}
+
+/// A compound rule side whose part-of-speech guid does not resolve is a non-fatal drop of that one attribution, not a project refusal.
+#[test]
+fn compound_rule_side_pos_unresolved_is_non_fatal() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.no_default_compounding = true;
+    snapshot.morphology.compound_rules.push(CompoundRule::Endocentric {
+        guid: "crule-bad-pos".to_string(),
+        name: "bad".to_string(),
+        disabled: false,
+        head_last: true,
+        left: CompoundConstituentRequirement {
+            part_of_speech: Some("pos-does-not-exist".to_string()),
+            exception_features: Vec::new(),
+        },
+        right: CompoundConstituentRequirement::default(),
+        overriding: CompoundOutcome::default(),
+    });
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    assert!(
+        out.issues
+            .iter()
+            .any(|i| i.code == super::issue_codes::COMPOUND_SIDE_POS_UNRESOLVED && !i.fatal),
+        "expected a non-fatal COMPOUND_SIDE_POS_UNRESOLVED issue; got {:?}",
+        out.issues
+    );
+}
+
+/// A phonological rewrite rule whose right-hand side is malformed fails to build, non-fatally: the rule is dropped, not the project.
+#[test]
+fn phonological_rule_build_failure_is_non_fatal() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.phonology.rules.push(PhonologicalRule::Rewrite(pg_snapshot::phonology::RewriteRule {
+        guid: "prule-bad".to_string(),
+        name: "bad".to_string(),
+        direction: RuleDirection::LeftToRight,
+        structural_description: vec![PhonContext::Segment { phoneme: "ph-does-not-exist".to_string() }],
+        feature_constraint_variables: Vec::new(),
+        right_hand_sides: Vec::new(),
+    }));
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    assert!(
+        out.issues.iter().any(|i| i.code == super::issue_codes::RULE_BUILD_FAILED && !i.fatal),
+        "expected a non-fatal RULE_BUILD_FAILED issue; got {:?}",
+        out.issues
+    );
+    assert!(
+        out.grammar.prules.is_empty(),
+        "the malformed rule itself must not appear in the grammar"
+    );
+}
+
+/// A co-occurrence prohibition whose PRIMARY is affix-owned and whose owning mrule reachability compaction later prunes as dead code (never referenced by any template slot) must not refuse the project: it would have been dropped regardless, so refusing it here is a false positive over code that was never going to survive anyway.
+#[test]
+fn cooccurrence_refusal_on_a_primary_whose_own_mrule_is_pruned_by_reachability_is_non_fatal() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-orphan".to_string(),
+        citation_form: vec![ws("sen", "-ka")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph("allo-orphan", MorphType::Suffix, "ka")],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-orphan".to_string(),
+            part_of_speech: Some(_f.noun_pos.clone()),
+            slots: vec!["slot-never-templated".to_string()],
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
+        guid: "coocc-on-dead-code".to_string(),
+        disabled: false,
+        primary: "allo-orphan".to_string(),
+        others: vec!["allo-does-not-exist".to_string()],
+        adjacency: Adjacency::Anywhere,
+    });
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect(
+        "a co-occurrence refusal over a primary that reachability prunes as dead code must not \
+         refuse the whole project",
+    );
+    assert!(out
+        .inventory
+        .issues
+        .iter()
+        .any(|i| i.code == "grammar.adhoc-prohibition.unresolved" && !i.fatal));
+}
+
+/// Paired control for the test above, same owner code path: a primary that STAYS reachable (the fixture's own template-filling suffix) still refuses over the identical dangling-others shape -- the deferral in `resolve_pending_cooccurrence_refusals` only changes the dead-code case, never the live one.
+#[test]
+fn cooccurrence_refusal_on_a_reachable_affix_owned_primary_still_refuses() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
+        guid: "coocc-on-live-code".to_string(),
+        disabled: false,
+        primary: "allo-suffix".to_string(),
+        others: vec!["allo-does-not-exist".to_string()],
+        adjacency: Adjacency::Anywhere,
+    });
+
+    let err = compile_project_with(&snapshot, CompileOptions::default()).expect_err(
+        "a co-occurrence refusal over a primary that survives reachability compaction must still refuse",
+    );
+    assert!(err
+        .issues()
+        .iter()
+        .any(|i| i.code == "grammar.adhoc-prohibition.unresolved" && i.fatal));
 }
 
 /// An unnamed, unreferenced, non-last natural class is revoked; a referenced one and `__any__` stay represented.
@@ -2501,6 +2664,70 @@ fn ambiguous_symbol_without_ldml_drops_only_that_allomorph() {
         .iter()
         .any(|i| i.code == "substrate.classification-ambiguous" && !i.fatal));
     assert_eq!(out.grammar.entries.len(), 0, "the fixture's only entry (the stem) is dropped");
+}
+
+/// Pins the claim `substrate`'s module doc makes (rather than leaving it an unlinked prose claim): a substrate-unresolved literal and the real owner's independent segmentation failure land on the SAME allomorph, both non-fatal -- refusing at the substrate layer would duplicate, not add to, the owner's own decision.
+#[test]
+fn substrate_issue_and_the_real_owners_drop_agree_on_the_same_allomorph() {
+    let (mut snapshot, _) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
+
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            substrate: SubstratePolicy::Strict,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("must compile");
+    let substrate_hit = out.issues.iter().any(|i| {
+        i.code == "conversion.unsegmentable-form"
+            && !i.fatal
+            && i.source.as_ref().is_some_and(|s| s.id == "allo-stem")
+    });
+    let owner_key = InventoryKey::object(InventoryKind::Allomorph, "allo-stem".to_string());
+    let owner_hit = out.inventory.inventory.rejected.contains(&owner_key)
+        && out
+            .inventory
+            .issues
+            .iter()
+            .any(|i| i.code == "grammar.allomorph.unsegmentable" && !i.fatal);
+    assert!(
+        substrate_hit && owner_hit,
+        "expected both the substrate issue and the owner's own drop on allo-stem; top-level={:?} inventory={:?}",
+        out.issues,
+        out.inventory.issues
+    );
+}
+
+/// Regression pin for a probe/builder segmenter mismatch: `substrate::complete`'s probe used to consult `segment_phonemes_only` (built for environment-string validation, which deliberately SKIPS Boundary-kind char defs), while the real owner (`lexicon::build_root_allomorph`) uses `segment_with_patterns`, whose literal-match loop accepts Segment AND Boundary. A literal authored boundary marker inside an ordinary root form used to misfire a false `substrate.position-unmapped`; the probe now shares `segment` (both kinds, no patterns) with the owners.
+#[test]
+fn a_literal_authored_boundary_marker_inside_a_root_form_is_not_a_false_substrate_refusal() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku+ma")];
+
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            substrate: SubstratePolicy::Strict,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("a literal authored boundary marker must segment, not misfire a substrate refusal");
+    assert!(
+        out.issues
+            .iter()
+            .all(|i| i.code != "substrate.position-unmapped" && i.code != "conversion.unsegmentable-form"),
+        "expected no substrate issue at all; got {:?}",
+        out.issues
+    );
+    assert_eq!(
+        out.grammar.entries.len(),
+        1,
+        "the stem allomorph must be fully represented, not dropped over a false positive"
+    );
 }
 
 #[test]
