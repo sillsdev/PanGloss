@@ -19,13 +19,13 @@ use super::{Acc, Ctx};
 
 /// Which concatenative shape an affix morph type implies; `None` for a type this compiler does not build a rule for (circumfix, bare clitic/particle, phrase-shaped).
 #[derive(Copy, Clone)]
-enum Shape {
+pub(crate) enum Shape {
     Prefix,
     Suffix,
     Infix,
 }
 
-fn shape_of(mt: MorphType) -> Option<Shape> {
+pub(crate) fn shape_of(mt: MorphType) -> Option<Shape> {
     match mt {
         // Proclitic patterns like a prefix, enclitic like a suffix; clitic-ness lives in stratum placement (`lexicon::build`), not in the allomorph pattern shape.
         MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic => {
@@ -459,7 +459,7 @@ pub(crate) fn build_affix_rule(
 }
 
 /// Whether `mt` is a circumfix's leading half.
-fn is_circumfix_prefix_half(mt: MorphType) -> bool {
+pub(crate) fn is_circumfix_prefix_half(mt: MorphType) -> bool {
     matches!(
         mt,
         MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic
@@ -467,7 +467,7 @@ fn is_circumfix_prefix_half(mt: MorphType) -> bool {
 }
 
 /// Whether `mt` is a circumfix's trailing half.
-fn is_circumfix_suffix_half(mt: MorphType) -> bool {
+pub(crate) fn is_circumfix_suffix_half(mt: MorphType) -> bool {
     matches!(
         mt,
         MorphType::Suffix | MorphType::SuffixingInterfix | MorphType::Enclitic
@@ -620,6 +620,11 @@ fn build_circumfix_allomorphs(
     out
 }
 
+/// Whether `form` is a reduplication/bracket-pattern affix shape rather than literal text -- shared by `is_valid_rule_form`'s rejection and by `collect_text_uses`'s substrate-usage collection, so the two classify the same shape identically.
+pub(crate) fn is_bracket_pattern_form(form: &str) -> bool {
+    form.contains('[')
+}
+
 /// Simplified `IsValidRuleForm`: bracket-pattern (reduplication) forms are not implemented (warned, dropped) rather than gated on environment validity. Records the allomorph rejected only where this filter is the allomorph's one plausible route to a rule form (infix/prefix/suffix-shaped); a morph type that structurally can never be a rule form (bare stem/clitic/particle/phrase) is left considered-but-not-selected, mirroring a disabled compound rule rather than a failure.
 fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -> bool {
     if let Some(process) = &allo.process {
@@ -653,7 +658,7 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx, warnings: &mut Vec<String>) -
         | MorphType::Proclitic
         | MorphType::Enclitic => {
             let form = super::best_ws(&allo.forms, None).unwrap_or("");
-            if form.contains('[') {
+            if is_bracket_pattern_form(form) {
                 ctx.selected(key.clone());
                 ctx.reject(
                     warnings,

@@ -27,6 +27,10 @@ pub(crate) const SUBSTRATE_CLASSIFICATION_AMBIGUOUS: &str = "substrate.classific
 pub(crate) const SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE: &str =
     "migration.inferred-segment-with-feature-rule";
 
+/// A text-use collector's code: the owner selected a construct (a bracket-pattern/reduplication
+/// affix form) but that construct is not literal text, so it cannot publish a usage for it.
+pub(crate) const UNSUPPORTED_CONSTRUCT: &str = "conversion.unsupported-construct";
+
 /// What the compiler had to infer about the phonological substrate rather than read off a closed
 /// declaration, plus what it could not resolve at all. Populated by `substrate::complete` under
 /// [`ResolvedSubstratePolicy::CompleteFromUsage`]; always empty under
