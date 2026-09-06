@@ -15,12 +15,20 @@ use pg_snapshot::phonology::{
     Phonology, RuleDirection,
 };
 use pg_snapshot::project::Project;
-use pg_snapshot::{FeatureSystems, InventoryKey, InventoryKind, Snapshot, WsForm};
+use pg_snapshot::{
+    ActiveParser, ConversionIssue, FeatureSystems, InventoryKey, InventoryKind, IssueClass,
+    SourceInventoryStatus, Snapshot, WsForm,
+};
 
 use crate::model::{MorphRuleDef, TemplateSlotZone};
+use crate::GrammarError;
 
 use super::test_support::assert_grammars_equal;
-use super::{compile_project, compile_project_measured, compile_project_recording, environment};
+use super::{
+    compile_project, compile_project_measured, compile_project_recording, compile_project_with,
+    environment, CompileOptions, CompileOutput, ResolvedSubstratePolicy, SemanticLossPolicy,
+    SubstratePolicy,
+};
 
 /// Compiles `snapshot` through the recording seam and asserts the recorder's own invariants hold; returns everything a caller might want to inspect further.
 fn compile_recording_ok(
@@ -2419,4 +2427,133 @@ fn compile_project_measured_changes_no_behaviour_versus_compile_project() {
         assert_eq!(a, b, "warnings must be byte-identical element by element");
     }
     assert_grammars_equal(&grammar_plain, &grammar_measured);
+}
+
+// --- Task 4: typed compile options/issues -----------------------------------------------------
+
+/// No `..` rest pattern: a new field on either type fails to compile until named here too.
+#[test]
+fn compile_options_and_output_carry_exactly_their_declared_fields() {
+    let CompileOptions {
+        substrate,
+        semantic_loss,
+    } = CompileOptions::default();
+    assert_eq!(substrate, SubstratePolicy::Auto);
+    assert_eq!(semantic_loss, SemanticLossPolicy::Refuse);
+
+    let (snapshot, _f) = fixture();
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let CompileOutput {
+        grammar,
+        issues,
+        substrate,
+        inventory,
+    } = out;
+    assert_eq!(grammar.entries.len(), 1);
+    assert!(issues.is_empty());
+    assert!(substrate.inferred_segments.is_empty());
+    assert!(inventory.inventory.rejected.is_empty());
+}
+
+/// `compile_project_with` under default options must match `compile_project` message-for-message.
+#[test]
+fn compile_project_with_default_options_matches_compile_project() {
+    let (snapshot, _f) = fixture();
+    let (grammar_tuple, warnings_tuple) = compile_project(&snapshot).expect("must compile");
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let messages: Vec<String> = out.issues.iter().map(|i| i.message.clone()).collect();
+    assert_eq!(messages, warnings_tuple);
+    assert_grammars_equal(&grammar_tuple, &out.grammar);
+}
+
+/// Every compile-stage warning arrives as a non-fatal issue, on a snapshot that actually warns.
+#[test]
+fn every_compile_stage_warning_becomes_a_non_fatal_conversion_issue() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
+    let (_grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(
+        warnings.iter().any(|w| w.contains("Strata")),
+        "fixture must still produce the legacy Strata warning; got {warnings:?}"
+    );
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    assert_eq!(out.issues.len(), warnings.len());
+    for issue in &out.issues {
+        assert!(!issue.fatal, "adapted compile-stage issue must be non-fatal: {issue:?}");
+    }
+    assert!(out
+        .issues
+        .iter()
+        .any(|i| i.message.contains("Strata") && !i.fatal));
+}
+
+/// `Refuse` rejects a fatal imported issue; `MeasureOnly` on the same snapshot retains it instead.
+#[test]
+fn refuse_rejects_a_fatal_imported_issue_but_measure_only_retains_it() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.conversion_provenance.import_issues.push(ConversionIssue {
+        code: "test.imported-fatal".to_string(),
+        class: IssueClass::InvalidSource,
+        source: None,
+        fatal: true,
+        message: "test: a fatal import-stage issue".to_string(),
+    });
+
+    let err = compile_project_with(&snapshot, CompileOptions::default())
+        .expect_err("a fatal imported issue must refuse under Refuse");
+    assert!(matches!(err, GrammarError::Conversion(_)));
+    assert!(err.issues().iter().any(|i| i.code == "test.imported-fatal"));
+
+    let measured = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("MeasureOnly must never refuse");
+    assert!(measured.issues.iter().any(|i| i.code == "test.imported-fatal" && i.fatal));
+}
+
+/// Unknown source provenance is fatal under `Refuse` too; `MeasureOnly` retains it instead.
+#[test]
+fn refuse_rejects_unknown_source_provenance_but_measure_only_retains_it() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.conversion_provenance.source_inventory_status = SourceInventoryStatus::Unknown;
+
+    let err = compile_project_with(&snapshot, CompileOptions::default())
+        .expect_err("unknown source provenance must refuse under Refuse");
+    assert!(err
+        .issues()
+        .iter()
+        .any(|i| i.code == "conversion.source-provenance-unknown" && i.fatal));
+
+    let measured = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("MeasureOnly must never refuse");
+    assert!(measured
+        .issues
+        .iter()
+        .any(|i| i.code == "conversion.source-provenance-unknown" && i.fatal));
+}
+
+/// `GrammarError::issues()` returns `&[]` for every non-`Conversion` variant.
+#[test]
+fn grammar_error_issues_is_empty_for_non_conversion_variants() {
+    let err = GrammarError::Semantic("test".to_string());
+    assert!(err.issues().is_empty());
+}
+
+/// `resolve` takes only `ActiveParser`; no `ParserProfile`/XAMPLE cap type is even in scope here.
+#[test]
+fn options_and_output_types_never_carry_parser_profile_or_xample_cap_state() {
+    let _ = ActiveParser::XAmple;
+    let resolved = SubstratePolicy::Auto.resolve(ActiveParser::XAmple, false);
+    assert_eq!(resolved, ResolvedSubstratePolicy::CompleteFromUsage);
 }

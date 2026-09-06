@@ -33,6 +33,9 @@ use thiserror::Error;
 
 use chardef::{CharDefKind, CharDefTable, RawCharDef, RawFeatureValue};
 use featsys::{PhonFeatureSystem, RawFeature};
+use pg_snapshot::ConversionIssue;
+
+use compile::issues::ConversionError;
 
 /// Errors surfaced by grammar loading. `Unsupported` drives managed fallback (plan §8 layer 6).
 #[derive(Debug, Error)]
@@ -43,10 +46,22 @@ pub enum GrammarError {
     Unsupported(String),
     #[error("grammar semantic error: {0}")]
     Semantic(String),
+    #[error(transparent)]
+    Conversion(#[from] ConversionError),
     #[error("duplicate character-definition representation: {0}")]
     DuplicateRepresentation(String),
     #[error("cannot compile compounding: {0}")]
     UnsegmentableBoundary(String),
+}
+
+impl GrammarError {
+    /// Every [`ConversionIssue`] this error carries, or `&[]` for a variant that carries none.
+    pub fn issues(&self) -> &[ConversionIssue] {
+        match self {
+            GrammarError::Conversion(e) => &e.issues,
+            _ => &[],
+        }
+    }
 }
 
 /// The compiled phonological census of a grammar: its symbolic feature system plus every
