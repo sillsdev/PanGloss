@@ -320,6 +320,7 @@ pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<()
 }
 
 /// Literal grapheme text only: excludes `_`/`#`/class brackets, descends into optional-group parens.
+#[allow(dead_code)] // unwired -- see the `#[ignore]`d environment_only_undeclared_exemplar_is_completed_from_usage test
 pub(crate) fn literal_text_elements(representation: &str) -> Vec<String> {
     let body = representation
         .trim()
@@ -332,6 +333,7 @@ pub(crate) fn literal_text_elements(representation: &str) -> Vec<String> {
     out
 }
 
+#[allow(dead_code)] // unwired -- see the `#[ignore]`d environment_only_undeclared_exemplar_is_completed_from_usage test
 fn collect_literal_tokens(s: &str, out: &mut Vec<String>) {
     let Ok(tokens) = tokenize(s) else { return };
     for tok in &tokens {
