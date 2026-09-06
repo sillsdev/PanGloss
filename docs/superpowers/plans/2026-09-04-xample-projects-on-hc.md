@@ -1304,9 +1304,11 @@ front-matter keys; a `false` verdict requires non-empty notes at parse time.
   `pangloss coverage` print the three buckets; `producibility_marking_gate` ratchets `Unmarked`
   (62 today: 33 upstream at the current pin + 29 `conformance-staging/**`). Branch
   `research/xample-task8b` (`20bfc3d3`), under review.
-- [ ] **Step 2b: Mark the 29 `conformance-staging/**` fixtures** with the same triage (they are
-  this repo's own and were never scanned), then advance the `machine/` gitlink to the witness
-  branch once it is pushed, so the ratchet can fall to 0.
+- [x] **Step 2b: Mark the `conformance-staging/**` fixtures** with the same triage (they are
+  this repo's own and were never scanned). All 38 are marked (29 edge-cases + 9 filter-passes);
+  adversarial re-check disproved six first-pass marks, corrected on the same branch. The ratchet is
+  now per-scope: `local` 0, `all` 33. **Outstanding:** advance the `machine/` gitlink to the witness
+  branch once it is pushed, so the `all` ratchet can fall to 0 as well.
 - [ ] **Step 3: Convert** the fixtures the triage marks convertible, one at a time, each with oracle
   re-derivation and an `author` round trip proving producibility.
 - [ ] **Step 4: Retire** — at the end, delete delete-candidates (with the duplicating fixture named
