@@ -444,7 +444,7 @@ This differential must produce a non-empty baseline before Tasks 5 and 6 change 
 refusal behavior. Task 2's structural inventory is necessary but not a substitute. Machine owns
 the source evidence; all executable mutation and comparison code in this task belongs to PanGloss.
 
-- [ ] **Step 1: Add one canonical Machine fixture source and a declarative mutation contract**
+- [x] **Step 1: Add one canonical Machine fixture source and a declarative mutation contract**
 
 Do this work on a Machine branch first. Extend `conformance/PROTOCOL.md` without adding a Machine
 runtime dependency: an eligible fixture may have `fieldworks/project.fwdata`, any project-side
@@ -484,7 +484,7 @@ V1 has only `remove_phoneme` and `remove_all_phonemes`. It has no representation
 free-form query, inferred `unused` selector, or fixture-local executable script. The manifest
 asserts relationships to the unmodified baseline and does not duplicate `words.yaml` expectations.
 
-- [ ] **Step 2: Define one source projection contract**
+- [x] **Step 2: Define one source projection contract**
 
 The comparator takes a `.fwdata`/`.fwbackup` path plus test words. It launches a version-pinned,
 PanGloss-owned helper against the installed FieldWorks assemblies. The helper can project the
@@ -517,7 +517,7 @@ HCLoader baseline structurally through that shared seam and behaviorally through
 `words.yaml` replay; do not require byte identity for generated IDs, element ordering, formatting,
 or comments.
 
-- [ ] **Step 3: Materialize each mutation fail-closed through LibLCM**
+- [x] **Step 3: Materialize each mutation fail-closed through LibLCM** (C# half: `MutateCommand`, driven by `build.ps1 -Mode test`. Rust half -- `pg-xample-oracle::fixture`/`::fieldworks` -- lands with Step 6.)
 
 Parse `phonology-mutations.yaml` in `pg-xample-oracle::fixture`, verify `base_sha256`, and send only
 typed operations to the managed helper's versioned JSON interface. The managed result contains:
@@ -551,7 +551,7 @@ Hash the canonical source before and after the live test and assert it is unchan
 case twice and compare the generated XAMPLE file digests and mutation ledger. Do not require raw
 temporary `.fwdata` bytes to match: FieldWorks persistence metadata may legitimately change.
 
-- [ ] **Step 4: Add runtime-only DLL discovery and exact bindings**
+- [x] **Step 4: Add runtime-only DLL discovery and exact bindings** -- DEVIATED, see the crate module doc: `pg-xample-oracle` consumes `xample-projector parse`'s JSON instead of binding `xample64.dll` via `libloading`, because that C# command already owns how the engine is invoked. No `libloading` dependency and no half-built `ffi.rs` exist.
 
 Use `libloading`; do not link `xample64.dll` at build time. Bind the exported functions and calling
 convention from the installed header/wrapper, including `AmpleCreateSetup`, `AmpleDeleteSetup`,
@@ -559,7 +559,7 @@ convention from the installed header/wrapper, including `AmpleCreateSetup`, `Amp
 `AmpleParseText`. Wrap the setup pointer in RAII and copy returned strings before the next call.
 Unit-test symbol/result parsing against captured engine output.
 
-- [ ] **Step 5: Define comparable results precisely**
+- [x] **Step 5: Define comparable results precisely**
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -605,6 +605,18 @@ it while HC executes it. This is measured behavior, not `OutsideSubset`. Portabl
 skip the live run when FieldWorks/XAMPLE is absent, but must exercise a checked captured-result
 parser with source/generated-file digests. The configured research-machine acceptance run may not
 skip.
+
+**Split (2026-09-05).** One clause of this step — "a substrate report whose featureless inferred
+segments equal the manifest's `inferred_segments`" — needs `SubstrateReport`, which Task 5 populates
+and Task 4 only declares. Writing it now against an always-empty report would be a gate that cannot
+fail. So Step 6 lands in two parts, and the second is not optional:
+
+- [ ] **Step 6a** — everything except that clause: baseline run, `empty-phoneme-inventory` mutation
+  run, `compared`/`XAMPLE_ONLY`/`HC_ONLY` accounting with dated ratchets, byte-identical XAMPLE
+  control/dictionary/grammar files, twice-run determinism, and the before/after source-hash
+  assertion. The missing substrate assertion is held by a failing marker, not a comment.
+- [ ] **Step 6b** — after Task 5: assert the substrate report's featureless inferred segments equal
+  the manifest's `inferred_segments`, and retire the marker.
 
 - [ ] **Step 7: Check and commit in ownership order**
 
