@@ -238,6 +238,21 @@ fn dangling_environment_reference_does_not_crash_import() {
         .any(|w| w.contains("00000000-0000-0000-0000-0000000000ff")));
 }
 
+/// Import tolerates the dangling `PhEnvironment` reference above; `pg_grammar::compile_project` does not.
+#[test]
+fn compile_project_refuses_this_fixture_over_the_dangling_environment_reference() {
+    let (snap, _) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let err = pg_grammar::compile_project(&snap).expect_err(
+        "this fixture's dangling PhEnvironment reference is a fatal import issue; \
+         compile_project must refuse it under the default SemanticLossPolicy::Refuse",
+    );
+    let codes: Vec<&str> = err.issues().iter().map(|issue| issue.code.as_str()).collect();
+    assert!(
+        codes.contains(&"fwdata.dangling-reference"),
+        "refusal must name the dangling-reference code; got {codes:?}"
+    );
+}
+
 /// Two structurally different situations -- import-time "unrecognized morph-type guid" and validate-time "dangling environment reference" -- must get different codes.
 #[test]
 fn structurally_different_warnings_get_different_codes() {

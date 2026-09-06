@@ -71,12 +71,10 @@ pub use options::{CompileOptions, ResolvedSubstratePolicy, SemanticLossPolicy, S
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
-/// allomorphs/entries — see the module doc). Only a handful of hard limits inherited from
-/// `mod@crate::load` — >64 symbols in a feature, >64 total MPR features — surface as `Err`.
-///
-/// A thin, source-compatible wrapper over [`compile_project_with`] under
-/// [`CompileOptions::default`]; `Task 7` moves production callers to the structured output and
-/// deprecates this tuple form.
+/// allomorphs/entries — see the module doc). A handful of hard limits inherited from
+/// `mod@crate::load` (>64 symbols in a feature, >64 total MPR features) surface as `Err`, and so
+/// does [`SemanticLossPolicy::Refuse`]'s own fatal-conversion-issue check — see
+/// [`compile_project_with`], which this is a thin, source-compatible wrapper over.
 pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), GrammarError> {
     let out = compile_project_with(snapshot, CompileOptions::default())?;
     let messages = out.issues.iter().map(|issue| issue.message.clone()).collect();
@@ -101,10 +99,10 @@ pub fn compile_project_measured(
 /// plus this compile) alongside the `Grammar`. Behaviour is unchanged from [`compile_project`] for
 /// this task: `options.substrate` is accepted but not yet consulted (later tasks wire substrate
 /// inference to it), and every compile-stage warning becomes a non-fatal [`ConversionIssue`] under
-/// [`issues::LEGACY_WARNING`] -- a per-site code/class migration is follow-on work, not this one.
+/// `issues::LEGACY_WARNING` -- a per-site code/class migration is follow-on work, not this one.
 ///
 /// The issue collector starts from `snapshot.conversion_provenance` (import-stage issues, plus a
-/// synthesized fatal [`issues::SOURCE_PROVENANCE_UNKNOWN`] issue when the source provenance itself
+/// synthesized fatal `issues::SOURCE_PROVENANCE_UNKNOWN` issue when the source provenance itself
 /// is unresolved) before any compiler owner runs, so a graph-to-snapshot failure is never dropped
 /// just because this compile stage found nothing wrong of its own. Under
 /// [`SemanticLossPolicy::Refuse`], any fatal issue in that combined collection refuses the compile

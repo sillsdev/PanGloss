@@ -23,7 +23,7 @@ pub mod nfd;
 pub mod segment;
 pub mod stats_identity;
 
-pub use compile::{compile_project, compile_project_measured};
+pub use compile::{compile_project, compile_project_measured, compile_project_with};
 pub use load::load;
 
 use quick_xml::events::{BytesEnd, BytesStart, Event};

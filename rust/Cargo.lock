@@ -847,6 +847,7 @@ dependencies = [
 name = "pg-fwdata"
 version = "0.2.0"
 dependencies = [
+ "pg-grammar",
  "pg-snapshot",
  "quick-xml",
  "serde",
