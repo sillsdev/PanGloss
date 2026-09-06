@@ -115,6 +115,50 @@ fn compile_project_refusal_differential_gate() {
     );
 }
 
+/// Whether `compile_project`'s production `Refuse` path is expected to succeed per real corpus today; update only as a deliberate, named decision -- Sena 3 is `false` (18 ambiguous uses trace to genuine authored data, not a compiler bug: an inline editorial note, an underscore-joined citation, a symbolic affix-insertion code).
+const REAL_CORPUS_BASELINE: &[(&str, bool)] = &[("Sena 3", false), ("Amharic", true)];
+
+/// Turns a real-corpus compile regression into a hard failure instead of a `--nocapture`-only line someone has to happen to read; a control that cannot act (no real corpus present) must say so, not pass quietly.
+#[test]
+fn real_corpus_refusal_baseline_gate() {
+    let mut found_any = false;
+    let mut regressed = Vec::new();
+    for (project, expected_compiles) in REAL_CORPUS_BASELINE {
+        let Some(path) = real_corpus(project) else {
+            println!("{project}: not present on this machine -- cannot check its baseline");
+            continue;
+        };
+        found_any = true;
+        let (snapshot, _report) = pg_fwdata::import_file(&path)
+            .unwrap_or_else(|e| panic!("{project}: must import: {e}"));
+        let compiles = compile_project(&snapshot).is_ok();
+        println!(
+            "{project}: production Refuse compiles={compiles} (baseline expects \
+             {expected_compiles})"
+        );
+        if *expected_compiles && !compiles {
+            regressed.push(*project);
+        }
+        if !*expected_compiles && compiles {
+            println!(
+                "{project}: NEWLY COMPILES under Refuse -- update REAL_CORPUS_BASELINE to `true` \
+                 and record why, this is good news but must be a deliberate decision"
+            );
+        }
+    }
+    assert!(
+        found_any,
+        "no real corpus in REAL_CORPUS_BASELINE was found on this machine (checked \
+         PANGLOSS_FW_PROJECTS_DIR and the default sibling-checkout path) -- this gate cannot \
+         verify anything and must say so loudly rather than pass quietly"
+    );
+    assert!(
+        regressed.is_empty(),
+        "a real corpus that used to compile under the production Refuse policy no longer does: \
+         {regressed:?} -- this must be a deliberate, reviewed decision, never a side effect"
+    );
+}
+
 /// Pins the import/compile cross-layer severity disagreement over the fixture's dangling environment reference.
 #[test]
 fn import_and_compile_layers_disagree_about_the_dangling_environment_reference() {
