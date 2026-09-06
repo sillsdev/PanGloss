@@ -1,5 +1,6 @@
 //! The Rust side of the XAMPLE migration comparator: a result model both engines can be projected
-//! into ([`model`]).
+//! into ([`model`]), a reader for `xample-projector parse`'s JSON output ([`reader`]), and the
+//! normalization from `pg-parse`'s own analysis output into the same model ([`hc`]).
 //!
 //! # Deviation from the original plan: JSON, not `libloading` over `xample64.dll`
 //!
@@ -12,9 +13,13 @@
 //! would be a second implementation of that decision, free to drift from the C# path the moment
 //! either changed, which is exactly what this repo's own rule ("never re-derive a decision another
 //! module makes — call it, or extract it") forbids. So this crate consumes that command's JSON
-//! output instead of linking the DLL itself (see `reader`, added next).
+//! output instead of linking the DLL itself.
 #![forbid(unsafe_code)]
 
+pub mod hc;
 pub mod model;
+pub mod reader;
 
+pub use hc::{xample_result_from_hc_outcome, HcNormalizationError};
 pub use model::{AnalysisSignature, XampleResult};
+pub use reader::{read_parse_response, ParsedParseResponse, ReadError};
