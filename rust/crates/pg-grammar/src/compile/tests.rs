@@ -2742,3 +2742,28 @@ fn text_use_collection_covers_every_represented_allomorph() {
         "represented allomorph(s) with no recorded text use: {missing:?}"
     );
 }
+
+/// Target behavior, not current: no owner yet publishes environment-string text into substrate completion, so this stays `#[ignore]`d (visible) rather than silently absent, until one does.
+#[test]
+#[ignore = "environment-sourced substrate completion is not wired; see literal_text_elements"]
+fn environment_only_undeclared_exemplar_is_completed_from_usage() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.project.exemplar_characters.push("q".to_string());
+    snapshot.phonology.environments.push(pg_snapshot::phonology::Environment {
+        guid: "env-q".to_string(),
+        name: String::new(),
+        representation: "/q_".to_string(),
+    });
+    snapshot.lexicon.entries[1].allomorphs[0]
+        .environments
+        .push("env-q".to_string());
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    assert_eq!(
+        out.substrate.inferred_segments.len(),
+        1,
+        "an exemplar character used only inside an environment must still be inferred"
+    );
+    assert_eq!(out.substrate.inferred_segments[0].representation, "q");
+}
