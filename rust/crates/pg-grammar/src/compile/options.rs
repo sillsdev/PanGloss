@@ -79,6 +79,10 @@ mod tests {
             ResolvedSubstratePolicy::CompleteFromUsage
         );
         assert_eq!(
+            SubstratePolicy::Auto.resolve(ActiveParser::XAmple, true),
+            ResolvedSubstratePolicy::CompleteFromUsage
+        );
+        assert_eq!(
             SubstratePolicy::Auto.resolve(ActiveParser::Hc, true),
             ResolvedSubstratePolicy::CompleteFromUsage
         );

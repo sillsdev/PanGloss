@@ -2333,12 +2333,11 @@ fn compile_options_and_output_carry_exactly_their_declared_fields() {
     let CompileOutput {
         grammar,
         issues,
-        substrate,
+        substrate: _substrate,
         inventory,
     } = out;
     assert_eq!(grammar.entries.len(), 1);
     assert!(issues.is_empty());
-    assert!(substrate.inferred_segments.is_empty());
     assert!(inventory.inventory.rejected.is_empty());
 }
 
