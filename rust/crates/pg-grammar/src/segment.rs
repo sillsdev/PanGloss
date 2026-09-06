@@ -265,7 +265,7 @@ pub fn segment_with_patterns(
 }
 
 /// The char-def-set a `[ClassName]` pattern reference carries: a `Segments`-kind class is exactly its member list; a `Feature`-kind class is every segment whose lanes satisfy every pinned constraint.
-fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
+pub(crate) fn nat_class_cd_set(table: &CharDefTable, nc: &NaturalClass) -> CdSet {
     match &nc.kind {
         NaturalClassKind::Segments(segs) => {
             CdSet::Members(CdBits::from_ids(segs.iter().map(|cd| cd.0)))

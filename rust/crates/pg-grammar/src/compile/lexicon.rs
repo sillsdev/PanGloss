@@ -4,7 +4,7 @@ use hashbrown::HashMap;
 
 use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Msa, Sense};
 use pg_snapshot::morphology::{LexEntryInflType, MorphType};
-use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SelectionRecorder, SourceRef, Snapshot};
 
 use crate::model::{LexEntryDef, LexEntryId, MRuleId, RootAllomorphDef, StratumId};
 use crate::GrammarError;
@@ -14,6 +14,33 @@ use super::{affixes, issue_codes, roles, Acc, Ctx};
 /// Whether `entry` has no senses of its own, so its `EntryRef::Variant`s get walked for a main-entry link.
 pub(crate) fn entry_yields_variant_refs(entry: &LexEntry) -> bool {
     entry.senses.is_empty()
+}
+
+/// Publishes each lex-entry-form allomorph's own selected text (`is_lex_entry_form`/`best_ws`/`format_form`, matching `build_stem_entry`), never an affix-rule form, so a bracket-pattern allomorph cannot spuriously refuse under `Strict`.
+pub(crate) fn collect_text_uses(snapshot: &Snapshot, recorder: &mut SelectionRecorder) {
+    let default_ws = snapshot
+        .project
+        .vernacular_writing_systems
+        .first()
+        .map(String::as_str);
+    for entry in &snapshot.lexicon.entries {
+        for allo in &entry.allomorphs {
+            if !is_lex_entry_form(allo, false) && !is_lex_entry_form(allo, true) {
+                continue;
+            }
+            let Some(form) = super::best_ws(&allo.forms, default_ws) else {
+                continue;
+            };
+            let form = super::format_form(form);
+            recorder.record_text_use(
+                SourceRef {
+                    kind: "allomorph".to_string(),
+                    id: allo.guid.clone(),
+                },
+                &form,
+            );
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

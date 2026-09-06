@@ -39,8 +39,8 @@ fn compile_recording_ok(
     pg_snapshot::ConversionInventory,
     Vec<pg_snapshot::ConversionIssue>,
 ) {
-    let (grammar, warnings, recorder) =
-        compile_project_recording(snapshot).expect("must compile");
+    let (grammar, warnings, recorder, _substrate, _substrate_issues) =
+        compile_project_recording(snapshot, SubstratePolicy::default()).expect("must compile");
     recorder
         .check_invariants()
         .expect("recorder invariants must hold");
@@ -2442,4 +2442,189 @@ fn options_and_output_types_never_carry_parser_profile_or_xample_cap_state() {
     let _ = ActiveParser::XAmple;
     let resolved = SubstratePolicy::Auto.resolve(ActiveParser::XAmple, false);
     assert_eq!(resolved, ResolvedSubstratePolicy::CompleteFromUsage);
+}
+
+// --- substrate completion from owner-published usage -------------------------------------------
+
+#[test]
+fn xample_authored_project_infers_missing_exemplar_segment() {
+    let (mut snapshot, _) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.project.exemplar_characters.push("q".to_string());
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("lossless compile");
+    assert_eq!(out.substrate.inferred_segments.len(), 1);
+    assert_eq!(out.substrate.inferred_segments[0].representation, "q");
+    assert_eq!(out.grammar.entries[0].allomorphs.len(), 1);
+    assert!(out.grammar.char_tables[0].lookup_nfd("q").is_some());
+}
+
+#[test]
+fn strict_hc_project_refuses_the_same_missing_segment() {
+    let (mut snapshot, _) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
+
+    let err = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            substrate: SubstratePolicy::Strict,
+            ..CompileOptions::default()
+        },
+    )
+    .expect_err("strict compilation must refuse q");
+    assert!(err.issues().iter().any(|i| {
+        i.code == "conversion.unsegmentable-form" && i.source.as_ref().is_some_and(|s| s.id == "allo-stem")
+    }));
+}
+
+#[test]
+fn ambiguous_symbol_without_ldml_refuses_instead_of_guessing_boundary_or_segment() {
+    let (mut snapshot, _) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku§ma")];
+
+    let err = compile_project_with(&snapshot, CompileOptions::default())
+        .expect_err("symbol role is not authoritative without LDML");
+    assert!(err.issues().iter().any(|i| i.code == "substrate.classification-ambiguous"));
+}
+
+#[test]
+fn accept_unspecified_graphemes_changes_the_effect_not_just_the_message() {
+    let (mut snapshot, _) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
+    snapshot.morphology.parser_parameters.accept_unspecified_graphemes = true;
+    snapshot.project.exemplar_characters.push("q".to_string());
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("flag must act");
+    assert_eq!(out.grammar.entries[0].allomorphs.len(), 1);
+    assert!(out.grammar.char_tables[0].lookup_nfd("q").is_some());
+}
+
+/// A closed feature, a `Feature`-kind natural class over it, and a rewrite rule referencing that class; returns the feature's guid.
+fn add_feature_based_rule_that_can_match_unspecified_q(snapshot: &mut Snapshot) -> String {
+    let feature_guid = "feat-frontness".to_string();
+    let front_guid = "val-front".to_string();
+    let back_guid = "val-back".to_string();
+    snapshot.feature_systems.phonological.closed_features.push(ClosedFeature {
+        guid: feature_guid.clone(),
+        name: "Frontness".to_string(),
+        abbreviation: "frnt".to_string(),
+        values: vec![
+            FeatureValueSymbol {
+                guid: front_guid.clone(),
+                name: "front".to_string(),
+                abbreviation: "fr".to_string(),
+            },
+            FeatureValueSymbol {
+                guid: back_guid,
+                name: "back".to_string(),
+                abbreviation: "bk".to_string(),
+            },
+        ],
+    });
+    let nc_guid = "nc-front".to_string();
+    snapshot.phonology.natural_classes.push(SnapNaturalClass::Features {
+        guid: nc_guid.clone(),
+        name: "Front".to_string(),
+        features: FeatureStructure {
+            values: vec![FeatureValue {
+                feature: feature_guid.clone(),
+                value: FeatureValueKind::Closed { value: front_guid },
+            }],
+        },
+    });
+    let class_context = || pg_snapshot::phonology::PhonContext::NaturalClass {
+        natural_class: nc_guid.clone(),
+        plus_variables: Vec::new(),
+        minus_variables: Vec::new(),
+    };
+    snapshot.phonology.rules.push(PhonologicalRule::Rewrite(
+        pg_snapshot::phonology::RewriteRule {
+            guid: "prule-front-raise".to_string(),
+            name: "front-raise".to_string(),
+            direction: RuleDirection::LeftToRight,
+            structural_description: vec![class_context()],
+            feature_constraint_variables: Vec::new(),
+            right_hand_sides: vec![pg_snapshot::phonology::RewriteRhs {
+                structural_change: vec![class_context()],
+                ..pg_snapshot::phonology::RewriteRhs::default()
+            }],
+        },
+    ));
+    feature_guid
+}
+
+/// The ordinary HC "featureless segment" shape an inferred segment's `RawCharDef` must compile identically to.
+fn add_explicit_featureless_segment(snapshot: &mut Snapshot, rep: &str) {
+    snapshot.phonology.phonemes.push(Phoneme {
+        guid: format!("ph-explicit-{rep}"),
+        name: rep.to_string(),
+        representations: vec![ws("sen", rep)],
+        features: None,
+        basic_ipa_symbol: None,
+    });
+}
+
+/// Pinned to the class's non-matching value (`Frontness = back`), so its lanes must differ from a featureless segment's.
+fn add_explicit_feature_valued_segment(snapshot: &mut Snapshot, rep: &str, feature_guid: &str) {
+    snapshot.phonology.phonemes.push(Phoneme {
+        guid: format!("ph-valued-{rep}"),
+        name: rep.to_string(),
+        representations: vec![ws("sen", rep)],
+        features: Some(FeatureStructure {
+            values: vec![FeatureValue {
+                feature: feature_guid.to_string(),
+                value: FeatureValueKind::Closed {
+                    value: "val-back".to_string(),
+                },
+            }],
+        }),
+        basic_ipa_symbol: None,
+    });
+}
+
+/// Checks the fact `pg-grammar` itself owns -- compiled `feature_lanes` -- rather than running a parser or FST engine, since both live in crates that depend on `pg-grammar` itself.
+#[test]
+fn inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment() {
+    let (mut snapshot, _) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.project.exemplar_characters.push("q".to_string());
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
+    let feature_guid = add_feature_based_rule_that_can_match_unspecified_q(&mut snapshot);
+
+    let inferred = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("ordinary HC unspecified-feature semantics is defined");
+    assert!(inferred
+        .issues
+        .iter()
+        .any(|i| i.code == "migration.inferred-segment-with-feature-rule"));
+
+    let q_id = inferred.grammar.char_tables[0]
+        .lookup_nfd("q")
+        .expect("q must be in the compiled table");
+    let inferred_lanes = inferred.grammar.char_tables[0].get(q_id).feature_lanes().to_vec();
+
+    let mut explicit_snapshot = snapshot.clone();
+    add_explicit_featureless_segment(&mut explicit_snapshot, "q");
+    let explicit = compile_project_with(&explicit_snapshot, CompileOptions::default()).unwrap();
+    let explicit_id = explicit.grammar.char_tables[0].lookup_nfd("q").unwrap();
+    let explicit_lanes = explicit.grammar.char_tables[0].get(explicit_id).feature_lanes();
+    assert_eq!(
+        inferred_lanes, explicit_lanes,
+        "an inferred segment must carry the exact same unspecified-feature semantics as an \
+         authored featureless one"
+    );
+
+    let mut valued_snapshot = snapshot;
+    add_explicit_feature_valued_segment(&mut valued_snapshot, "q", &feature_guid);
+    let valued = compile_project_with(&valued_snapshot, CompileOptions::default()).unwrap();
+    let valued_id = valued.grammar.char_tables[0].lookup_nfd("q").unwrap();
+    let valued_lanes = valued.grammar.char_tables[0].get(valued_id).feature_lanes();
+    assert_ne!(
+        inferred_lanes, valued_lanes,
+        "an explicitly feature-valued segment must NOT share the inferred segment's wildcard lanes"
+    );
 }
