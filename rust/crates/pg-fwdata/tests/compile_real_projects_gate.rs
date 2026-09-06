@@ -109,8 +109,8 @@ mod unexpected_ambiguous_char_tests {
 
 #[test]
 fn sena3_compiles_through_compile_project_with() {
-    // Ratchet baseline (post sibling-LDML-load fix): `-`/`'` now infer as exemplar segments; the remaining 18 ambiguous are `:` (LDML's separate "punctuation" exemplar type, never the main set), `_` and `^` (neither is in any LDML exemplar type), 0 unresolved.
-    compile_and_report("Sena 3", 18, 0);
+    // Ratchet baseline (post substrate-probe/builder segmenter-agreement fix): 9 of the previous 18 were false positives from `substrate::complete`'s probe skipping Boundary-kind matches a real builder accepts (see `substrate`'s module doc); the remaining 9 ambiguous are `:` (LDML's separate "punctuation" exemplar type, never the main set) and `_` (not in any LDML exemplar type), 0 unresolved.
+    compile_and_report("Sena 3", 9, 0);
 }
 
 #[test]

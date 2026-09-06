@@ -1,4 +1,4 @@
-//! Completes a phonological substrate from `SelectionRecorder::text_uses` under `CompleteFromUsage`; never walks `Snapshot` directly, and never infers anything under `Strict`. Every issue below is per-allomorph and non-fatal: the owner that builds that allomorph (`lexicon`, `affixes`) independently re-fails the same segmentation and drops just that one, non-fatally, via `ALLOMORPH_UNSEGMENTABLE`.
+//! Completes a phonological substrate from `SelectionRecorder::text_uses` under `CompleteFromUsage`; never walks `Snapshot` directly, and never infers anything under `Strict`. Every issue below is per-allomorph and non-fatal; see `compile::tests::substrate_issue_and_the_real_owners_drop_agree_on_the_same_allomorph` for the redundancy this relies on.
 
 use hashbrown::HashSet;
 
@@ -8,7 +8,7 @@ use crate::chardef::{CharDefKind, CharDefTable, RawCharDef};
 use crate::featsys::PhonFeatureSystem;
 use crate::model::{NaturalClass, NaturalClassKind};
 use crate::nfd::nfd;
-use crate::segment::{nat_class_cd_set, segment_phonemes_only};
+use crate::segment::{nat_class_cd_set, segment};
 
 use super::chardef::RawCharDefBuild;
 use super::issues::{self, InferenceEvidence, InferredChar, SubstrateReport};
@@ -169,7 +169,7 @@ pub(crate) fn complete(
     if policy == ResolvedSubstratePolicy::Strict {
         let table = probe_table(&raw.raw_defs, phon);
         for (source, text) in text_uses {
-            if let Err(invalid) = segment_phonemes_only(&table, text) {
+            if let Err(invalid) = segment(&table, text) {
                 match position_mismap(&raw, text, invalid.position) {
                     Ok(ch) => issues.push(unsegmentable_issue(source, text, ch, invalid.position)),
                     Err(mismap_ch) => {
@@ -188,7 +188,7 @@ pub(crate) fn complete(
         let table = probe_table(&raw.raw_defs, phon);
         let mut to_add: Option<(char, CharDefKind, InferenceEvidence)> = None;
         for (source, text) in text_uses {
-            let Err(invalid) = segment_phonemes_only(&table, text) else {
+            let Err(invalid) = segment(&table, text) else {
                 continue;
             };
             let ch = match position_mismap(&raw, text, invalid.position) {
