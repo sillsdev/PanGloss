@@ -3,6 +3,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use pg_grammar::compile::{CompileOptions, CompileOutput};
+use pg_grammar::featsys::FlatIndex;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 use pg_xample_oracle::fieldworks::{self, MutateResponse, ProjectResponse, Projector};
@@ -14,7 +16,7 @@ use sha2::{Digest, Sha256};
 const ACCEPTED_WORDS: &[&str] = &["k", "xxxxxxk", "xxxxxxxxxxxxk"];
 const MUTATION_CASE_ID: &str = "empty-phoneme-inventory";
 
-// A ratchet, not a target: today's measured count over the 3 accepted words is 0 in each direction.
+// A ratchet, not a target: today's measured count over baseline plus the mutated clone is 0 in each direction.
 const XAMPLE_ONLY_RATCHET: usize = 0;
 const HC_ONLY_RATCHET: usize = 0;
 
@@ -48,13 +50,12 @@ fn copy_witness_project(witness_dir: &Path, dest_dir: &Path) -> PathBuf {
     dest_fwdata
 }
 
-// The unmodified pg_fwdata/pg_grammar pipeline (no substrate completion); Err, never a panic, so a caller can treat failure as expected.
-fn import_and_compile(fwdata_path: &Path) -> Result<Grammar, String> {
+// The real pg_fwdata/pg_grammar pipeline, substrate report included; Err, never a panic, so a caller can treat failure as expected.
+fn import_and_compile(fwdata_path: &Path) -> Result<CompileOutput, String> {
     let (snapshot, _report) =
         pg_fwdata::import_file(fwdata_path).map_err(|e| format!("import_file: {e}"))?;
-    let (grammar, _warnings) =
-        pg_grammar::compile_project(&snapshot).map_err(|e| format!("compile_project: {e}"))?;
-    Ok(grammar)
+    pg_grammar::compile_project_with(&snapshot, CompileOptions::default())
+        .map_err(|e| format!("compile_project_with: {e}"))
 }
 
 // Every accepted word's HC result, in the same XampleResult shape a parse capture reads into.
@@ -104,6 +105,47 @@ fn accumulate(word: &str, xample: &XampleResult, hc: &XampleResult, compared: &m
         let xample_count = xample.analyses.get(sig).copied().unwrap_or(0);
         if count > xample_count {
             *hc_only += count - xample_count;
+        }
+    }
+}
+
+// The manifest's `inferred_segments` names representations only, as a set; feature-emptiness is checked separately below since a representation match alone would not prove that.
+fn assert_substrate_report_matches_manifest(clone_output: &CompileOutput, expected: &[String]) {
+    let mut got: Vec<String> = clone_output
+        .substrate
+        .inferred_segments
+        .iter()
+        .map(|c| c.representation.clone())
+        .collect();
+    got.sort();
+    let mut expected = expected.to_vec();
+    expected.sort();
+    assert_eq!(
+        got, expected,
+        "'{MUTATION_CASE_ID}': substrate report's inferred segments must equal the manifest's inferred_segments"
+    );
+
+    // Every non-Type lane must sit at the feature system's own unspecified-lane mask: an authored feature value on an inferred char would move a lane off it, which is exactly what makes this assertion able to fail.
+    let table = &clone_output.grammar.char_tables[0];
+    let phon = &clone_output.grammar.phon_features;
+    for inferred in &clone_output.substrate.inferred_segments {
+        let nfd_rep = pg_grammar::nfd::nfd(&inferred.representation);
+        let id = table
+            .lookup_nfd(&nfd_rep)
+            .unwrap_or_else(|| panic!("inferred segment {:?} must be in the compiled char table", inferred.representation));
+        let lanes = table.get(id).feature_lanes();
+        for i in 0..phon.len() {
+            let flat = FlatIndex(i as u32);
+            if flat == phon.type_flat() {
+                continue;
+            }
+            assert_eq!(
+                lanes[i],
+                phon.mask(flat),
+                "inferred segment {:?}: lane {i} is not the unspecified wildcard mask, so this \
+                 char def carries an authored feature restriction and is not featureless",
+                inferred.representation
+            );
         }
     }
 }
@@ -214,9 +256,9 @@ fn xample_migration_differential_gate() {
         .unwrap_or_else(|e| panic!("baseline 'parse' failed: {e}"));
     let base_xample = xample_results_by_word(&base_parse);
 
-    let base_grammar = import_and_compile(&base_fwdata)
+    let base_output = import_and_compile(&base_fwdata)
         .unwrap_or_else(|e| panic!("baseline import+compile must succeed (this project is the source of truth): {e}"));
-    let base_hc = hc_results_by_word(&base_grammar, ACCEPTED_WORDS);
+    let base_hc = hc_results_by_word(&base_output.grammar, ACCEPTED_WORDS);
 
     let mut compared_baseline = 0usize;
     let mut xample_only_baseline = 0usize;
@@ -287,8 +329,8 @@ fn xample_migration_differential_gate() {
     let mut xample_only_mutation = 0usize;
     let mut hc_only_mutation = 0usize;
     match import_and_compile(&clone_fwdata) {
-        Ok(clone_grammar) => {
-            let clone_hc = hc_results_by_word(&clone_grammar, ACCEPTED_WORDS);
+        Ok(clone_output) => {
+            let clone_hc = hc_results_by_word(&clone_output.grammar, ACCEPTED_WORDS);
             for word in ACCEPTED_WORDS {
                 accumulate(
                     word,
@@ -299,11 +341,12 @@ fn xample_migration_differential_gate() {
                     &mut hc_only_mutation,
                 );
             }
+            assert_substrate_report_matches_manifest(&clone_output, &case.expect.inferred_segments);
         }
         Err(e) => {
             println!(
                 "NOTE: mutated-clone import+compile did not succeed -- character-substrate \
-                 completion is not yet implemented: {e}"
+                 completion did not resolve this project: {e}"
             );
         }
     }
@@ -410,19 +453,5 @@ fn accumulate_counts_a_real_divergence_in_both_directions() {
     assert!(
         xample_only > XAMPLE_ONLY_RATCHET || hc_only > HC_ONLY_RATCHET,
         "a genuine divergence must be able to exceed this gate's own ratchets"
-    );
-}
-
-// Deliberately failing: SubstrateReport does not exist on this branch yet -- see the panic message.
-#[test]
-fn empty_phoneme_inventory_substrate_report_matches_manifest_inferred_segments() {
-    panic!(
-        "BLOCKED: character-substrate completion (`pg_grammar::compile::substrate` / \
-         `SubstrateReport`) does not exist on this branch, so the `empty-phoneme-inventory` \
-         case's manifest `inferred_segments` (machine/conformance/edge-cases/\
-         deep-optional-affix-nesting/fieldworks/phonology-mutations.yaml) cannot yet be compared \
-         against a compiled grammar's inferred, featureless character definitions. Wire this \
-         comparison once `pg_grammar::compile_project_with` returns a populated \
-         `SubstrateReport`, and delete this panic."
     );
 }

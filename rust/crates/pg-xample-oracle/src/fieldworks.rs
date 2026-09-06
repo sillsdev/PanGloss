@@ -56,8 +56,8 @@ fn repo_root() -> PathBuf {
 
 /// Locates a built `XampleProjector.exe`, honouring [`PROJECTOR_EXE_ENV`]. Never invokes `dotnet`
 /// or MSBuild itself -- `tools/xample-projector/build.ps1 -Mode test` is the one place that builds
-/// it (Task 3 Step 7 runs that before this crate's own tests), so a missing exe here means the
-/// build step was skipped, not that this crate should silently build one.
+/// it, so a missing exe here means the build step was skipped, not that this crate should
+/// silently build one.
 pub fn locate_projector_exe() -> Result<PathBuf, FieldworksError> {
     if let Ok(over) = std::env::var(PROJECTOR_EXE_ENV) {
         let path = PathBuf::from(&over);
