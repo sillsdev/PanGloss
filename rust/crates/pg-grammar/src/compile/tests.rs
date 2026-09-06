@@ -2460,34 +2460,47 @@ fn xample_authored_project_infers_missing_exemplar_segment() {
     assert!(out.grammar.char_tables[0].lookup_nfd("q").is_some());
 }
 
+/// A single unsegmentable allomorph is a recall gap for that one entry, not a meaning change to the rest of the grammar -- see `substrate`'s module doc.
 #[test]
-fn strict_hc_project_refuses_the_same_missing_segment() {
+fn strict_hc_project_drops_only_the_allomorph_with_the_missing_segment() {
     let (mut snapshot, _) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
 
-    let err = compile_project_with(
+    let out = compile_project_with(
         &snapshot,
         CompileOptions {
             substrate: SubstratePolicy::Strict,
             ..CompileOptions::default()
         },
     )
-    .expect_err("strict compilation must refuse q");
-    assert!(err.issues().iter().any(|i| {
-        i.code == "conversion.unsegmentable-form" && i.source.as_ref().is_some_and(|s| s.id == "allo-stem")
+    .expect("a single unrepresentable allomorph must not refuse the whole project");
+    assert!(out.issues.iter().any(|i| {
+        i.code == "conversion.unsegmentable-form"
+            && !i.fatal
+            && i.source.as_ref().is_some_and(|s| s.id == "allo-stem")
     }));
+    assert_eq!(
+        out.grammar.entries.len(),
+        0,
+        "the fixture's only entry (the stem) has zero loadable allomorphs and is dropped -- the suffix, which never used this text, is unaffected (it just carries no LexEntryDef of its own)"
+    );
 }
 
+/// As the segment-decl case above, but for a genuinely ambiguous character: still a recall gap, not a whole-project refusal.
 #[test]
-fn ambiguous_symbol_without_ldml_refuses_instead_of_guessing_boundary_or_segment() {
+fn ambiguous_symbol_without_ldml_drops_only_that_allomorph() {
     let (mut snapshot, _) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku§ma")];
 
-    let err = compile_project_with(&snapshot, CompileOptions::default())
-        .expect_err("symbol role is not authoritative without LDML");
-    assert!(err.issues().iter().any(|i| i.code == "substrate.classification-ambiguous"));
+    let out = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("symbol role is not authoritative without LDML, but that drops one allomorph, not the project");
+    assert!(out
+        .issues
+        .iter()
+        .any(|i| i.code == "substrate.classification-ambiguous" && !i.fatal));
+    assert_eq!(out.grammar.entries.len(), 0, "the fixture's only entry (the stem) is dropped");
 }
 
 #[test]
@@ -2764,8 +2777,8 @@ fn precomposed_diacritic_mid_word_never_reselects_the_next_already_registered_ch
     )
     .expect("must not panic; the mismap must be reported as an issue, never as a duplicate registration");
     assert!(
-        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && i.fatal),
-        "expected a fatal substrate.position-unmapped issue; got {:?}",
+        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && !i.fatal),
+        "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
         out.issues
     );
     assert_eq!(out.substrate.inferred_segments.len(), 0, "\"b\" must not be re-inferred");
@@ -2773,8 +2786,8 @@ fn precomposed_diacritic_mid_word_never_reselects_the_next_already_registered_ch
 
     let refused = compile_project_with(&snapshot, CompileOptions::default());
     assert!(
-        matches!(refused, Err(GrammarError::Conversion(_))),
-        "the production Refuse path must refuse this, never silently drop or crash"
+        refused.is_ok(),
+        "production Refuse must accept this: one unmapped allomorph is a recall gap, not a meaning change"
     );
 }
 
@@ -2795,8 +2808,8 @@ fn precomposed_diacritic_word_final_refuses_instead_of_panicking_past_the_end() 
     )
     .expect("must not panic; a mismapped word-final position must be reported as an issue");
     assert!(
-        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && i.fatal),
-        "expected a fatal substrate.position-unmapped issue; got {:?}",
+        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && !i.fatal),
+        "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
         out.issues
     );
     assert_eq!(out.substrate.inferred_segments.len(), 0);
@@ -2804,8 +2817,8 @@ fn precomposed_diacritic_word_final_refuses_instead_of_panicking_past_the_end() 
 
     let refused = compile_project_with(&snapshot, CompileOptions::default());
     assert!(
-        matches!(refused, Err(GrammarError::Conversion(_))),
-        "the production Refuse path must refuse this, never silently drop or crash"
+        refused.is_ok(),
+        "production Refuse must accept this: one unmapped allomorph is a recall gap, not a meaning change"
     );
 }
 
@@ -2825,8 +2838,8 @@ fn precomposed_diacritic_word_final_refuses_under_strict_too() {
     )
     .expect("must not panic under Strict either");
     assert!(
-        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && i.fatal),
-        "expected a fatal substrate.position-unmapped issue; got {:?}",
+        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && !i.fatal),
+        "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
         out.issues
     );
 
@@ -2838,8 +2851,8 @@ fn precomposed_diacritic_word_final_refuses_under_strict_too() {
         },
     );
     assert!(
-        matches!(refused, Err(GrammarError::Conversion(_))),
-        "the production Refuse path must refuse this, never silently drop or crash"
+        refused.is_ok(),
+        "production Refuse must accept this: one unmapped allomorph is a recall gap, not a meaning change"
     );
 }
 
