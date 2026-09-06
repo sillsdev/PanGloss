@@ -165,19 +165,26 @@ function Get-ContentDerivedGuidLabelMap {
 	$xdoc = [System.Xml.Linq.XDocument]::Load($Path)
 	$records = @{}
 	$childrenByOwner = @{}
+	# Document order, NOT guid value -- the only remaining tie-break (below) must stay invariant to
+	# a guid rename that leaves every element in its on-disk position unmoved (build.ps1's own
+	# comment elsewhere notes a .fwdata's <rt> records ARE written guid-sorted, which is exactly why
+	# this is tracked as a separate positional list rather than re-derived from $records.Keys, whose
+	# Hashtable enumeration order depends on the guid strings' hash codes instead).
+	$recordOrder = New-Object System.Collections.Generic.List[string]
 	foreach ($rt in $xdoc.Root.Elements([System.Xml.Linq.XName]'rt')) {
 		$guid = $rt.Attribute('guid').Value
 		$class = $rt.Attribute('class').Value
 		$ownerAttr = $rt.Attribute('ownerguid')
 		$owner = if ($ownerAttr) { $ownerAttr.Value } else { $null }
 		$records[$guid] = [pscustomobject]@{ Class = $class; OwnerGuid = $owner; Element = $rt; Label = $null }
+		$recordOrder.Add($guid)
 		if ($owner) {
 			if (-not $childrenByOwner.ContainsKey($owner)) { $childrenByOwner[$owner] = New-Object System.Collections.Generic.List[string] }
 			$childrenByOwner[$owner].Add($guid)
 		}
 	}
 
-	foreach ($guid in @($records.Keys)) {
+	foreach ($guid in $recordOrder) {
 		$rec = $records[$guid]
 		foreach ($fieldName in $script:LabelDirectFieldNames) {
 			$text = Get-XmlFieldText -RecordElement $rec.Element -FieldName $fieldName
@@ -189,42 +196,53 @@ function Get-ContentDerivedGuidLabelMap {
 	# LexEntry), its resolved owner's label (e.g. an allomorph or MSA, via its owning LexEntry), or
 	# -- when neither applies -- a signature of its OWN referenced content once every reference in
 	# it has settled (e.g. a co-occurrence rule, via the morpheme/allomorph it targets). Computed as
-	# CANDIDATES across the whole pass, then committed together, so two records that would land on
-	# the identical candidate are caught and tie-broken by content (Get-RecordSignature) rather than
-	# one silently claiming the label first depending on enumeration order.
+	# CANDIDATES across the whole pass, in DOCUMENT order (never Hashtable enumeration order, which
+	# depends on the guid strings themselves), then committed together, so two records that would
+	# land on the identical candidate are caught and tie-broken by content (Get-RecordSignature,
+	# with each side's own document-order position as the final, explicit fallback for a genuine
+	# content tie) rather than by an enumeration order that need not agree between two projects
+	# whose equivalent records carry different real guids.
 	$progress = $true
 	while ($progress) {
 		$progress = $false
-		$candidates = @{}
-		foreach ($guid in @($records.Keys)) {
+		$candidateList = New-Object System.Collections.Generic.List[object]
+		foreach ($guid in $recordOrder) {
 			$rec = $records[$guid]
 			if ($rec.Label) { continue }
 			$kids = $childrenByOwner[$guid]
 			$senseKid = if ($kids) { $kids | Where-Object { $records[$_].Class -eq 'LexSense' -and $records[$_].Label } | Select-Object -First 1 }
 			if ($senseKid) {
 				$suffix = $records[$senseKid].Label.Substring($records[$senseKid].Label.IndexOf(':') + 1)
-				$candidates[$guid] = "$($rec.Class):$suffix"
+				$candidateList.Add([pscustomobject]@{ Guid = $guid; Value = "$($rec.Class):$suffix" })
 			}
 			elseif ($rec.OwnerGuid -and $records.ContainsKey($rec.OwnerGuid) -and $records[$rec.OwnerGuid].Label) {
-				$candidates[$guid] = "$($rec.Class):$($records[$rec.OwnerGuid].Label)"
+				$candidateList.Add([pscustomobject]@{ Guid = $guid; Value = "$($rec.Class):$($records[$rec.OwnerGuid].Label)" })
 			}
 			elseif (($script:OwnContentLabelClasses -contains $rec.Class) -and
 				-not (Get-UnresolvedKnownReferenceGuids -RecordElement $rec.Element -Records $records)) {
 				$signature = Get-RecordSignature -RecordElement $rec.Element -Records $records
-				$candidates[$guid] = "$($rec.Class):$signature"
+				$candidateList.Add([pscustomobject]@{ Guid = $guid; Value = "$($rec.Class):$signature" })
 			}
 		}
-		if ($candidates.Count -eq 0) { break }
+		if ($candidateList.Count -eq 0) { break }
 		$progress = $true
-		foreach ($group in ($candidates.GetEnumerator() | Group-Object -Property Value)) {
-			$members = @($group.Group.Name)
+		foreach ($group in ($candidateList | Group-Object -Property Value)) {
+			$members = @($group.Group.Guid)
 			if ($members.Count -eq 1) {
 				$records[$members[0]].Label = $group.Name
 				continue
 			}
-			$ordered = $members | Sort-Object -Property @{ Expression = { Get-RecordSignature -RecordElement $records[$_].Element -Records $records } }
+			# Sig is guid-value-independent (Get-RecordSignature); Index is this project's own
+			# document-order position, so a genuine Sig tie (two records with truly identical own
+			# content -- interchangeable by construction) still resolves the SAME way every time
+			# this file is processed, rather than by which one Sort-Object's stability happens to
+			# keep first.
+			$ordered = ($members | ForEach-Object -Begin { $i = 0 } -Process {
+				[pscustomobject]@{ Guid = $_; Sig = (Get-RecordSignature -RecordElement $records[$_].Element -Records $records); Index = $i }
+				$i++
+			}) | Sort-Object -Property Sig, Index
 			for ($i = 0; $i -lt $ordered.Count; $i++) {
-				$records[$ordered[$i]].Label = "$($group.Name)#$i"
+				$records[$ordered[$i].Guid].Label = "$($group.Name)#$i"
 			}
 		}
 	}
@@ -766,6 +784,65 @@ try {
 }
 finally {
 	Remove-Item -Path $badVersionManifestPath -Force -ErrorAction SilentlyContinue
+}
+
+# --- Get-ContentDerivedGuidLabelMap tie-break guid-rename probe: needs no FieldWorks project at
+#     all beyond XampleProjector.exe's own portable check-label-uniqueness, so it runs
+#     unconditionally. Constructs a genuine content tie (two records owned by the same, already-
+#     labeled owner, with byte-identical own content -- "TestChild:TestOwner:Widget" both times) and
+#     asserts that renaming EVERY guid in the file to a fresh value, without moving any element's
+#     on-disk position, still resolves the tie to the SAME "#0"/"#1" assignment. Before this fix,
+#     that tie was broken by sorting a Hashtable keyed by the guid strings themselves, whose
+#     enumeration order depends on which guids happen to be in it -- exactly what a rename changes;
+#     the fixpoint loop now iterates $recordOrder (document position) instead, so the tie-break is a
+#     function of ON-DISK POSITION, invariant to a rename that does not reorder anything. ---
+$tieBreakDir = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-tiebreak-probe-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $tieBreakDir -Force | Out-Null
+try {
+	$ownerGuid = [System.Guid]::NewGuid().ToString()
+	$g1 = [System.Guid]::NewGuid().ToString()
+	$g2 = [System.Guid]::NewGuid().ToString()
+	$original = @"
+<languageProject>
+  <rt class="TestOwner" guid="$ownerGuid">
+    <Name><AUni ws="en">Widget</AUni></Name>
+  </rt>
+  <rt class="TestChild" guid="$g1" ownerguid="$ownerGuid">
+    <Foo>bar</Foo>
+  </rt>
+  <rt class="TestChild" guid="$g2" ownerguid="$ownerGuid">
+    <Foo>bar</Foo>
+  </rt>
+</languageProject>
+"@
+	$originalPath = Join-Path $tieBreakDir 'original.fwdata'
+	Set-Content -Path $originalPath -Value $original -Encoding utf8 -NoNewline
+
+	$renamedOwnerGuid = [System.Guid]::NewGuid().ToString()
+	$renamedG1 = [System.Guid]::NewGuid().ToString()
+	$renamedG2 = [System.Guid]::NewGuid().ToString()
+	$renamed = $original
+	foreach ($pair in @(, @($ownerGuid, $renamedOwnerGuid), @($g1, $renamedG1), @($g2, $renamedG2))) {
+		$renamed = $renamed -replace [regex]::Escape($pair[0]), $pair[1]
+	}
+	$renamedPath = Join-Path $tieBreakDir 'renamed.fwdata'
+	Set-Content -Path $renamedPath -Value $renamed -Encoding utf8 -NoNewline
+
+	$originalLabels = Get-ContentDerivedGuidLabelMap -Path $originalPath -CheckExePath $exePath
+	$renamedLabels = Get-ContentDerivedGuidLabelMap -Path $renamedPath -CheckExePath $exePath
+
+	if ($originalLabels[$g1] -ne 'TestChild:TestOwner:Widget#0' -or $originalLabels[$g2] -ne 'TestChild:TestOwner:Widget#1') {
+		Write-Error "tie-break guid-rename probe: the synthetic fixture did not produce the expected genuine tie -- got g1='$($originalLabels[$g1])' g2='$($originalLabels[$g2])'. Re-check the probe's premise."
+		exit 1
+	}
+	if ($originalLabels[$g1] -ne $renamedLabels[$renamedG1] -or $originalLabels[$g2] -ne $renamedLabels[$renamedG2]) {
+		Write-Error "tie-break guid-rename probe FAILED: renaming every guid to a fresh value (same on-disk element order) changed which physical record is labeled '#0' vs '#1' -- original g1/g2 = '$($originalLabels[$g1])'/'$($originalLabels[$g2])', renamed g1/g2 = '$($renamedLabels[$renamedG1])'/'$($renamedLabels[$renamedG2])'."
+		exit 1
+	}
+	Write-Host "tie-break guid-rename probe OK: a genuine content tie ('TestChild:TestOwner:Widget') between two records resolves to the SAME #0/#1 assignment before and after every guid in the file is renamed to a fresh value."
+}
+finally {
+	Remove-Item -Path $tieBreakDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 $fieldWorksDir = $env:PANGLOSS_FIELDWORKS_DIR

@@ -546,7 +546,12 @@ naming the version found and the version supported). When that file exists, `bui
    same `IdRegistry.Register` guarded insert `GrammarParser` uses for grammar.xml id/Name uniqueness)
    if two guids would render identically. When two records land on the identical candidate label
    (e.g. two allomorphs on one entry, or two co-occurrence rules sharing the same unlabeled owner),
-   the tie is broken by each record's own content signature (`Get-RecordSignature`).
+   the tie is broken by each record's own content signature (`Get-RecordSignature`) and, for a
+   GENUINE content tie (two records with byte-identical own content -- interchangeable by
+   construction), by that record's position in the project's own `.fwdata` document order -- never by
+   which guid happens to enumerate first out of a Hashtable, which depends on the guid VALUES
+   themselves and need not agree between two projects whose equivalent records carry different real
+   guids.
 
    **Content-derived labeling: known residual blind spot.** A record whose class is not on the
    `$script:OwnContentLabelClasses` allowlist AND whose owner also has no label of its own is left
@@ -560,8 +565,8 @@ naming the version found and the version supported). When that file exists, `bui
    distinguishes between two instances of any of these classes -- there is no wiring GrammarAuthor
    could ever assign differently between them for a swap to make visible.
 
-   `build.ps1 -Mode test` runs two permanent negative probes proving the above by effect, not by
-   message:
+   `build.ps1 -Mode test` runs three permanent negative probes proving each of the above by effect,
+   not by message:
    - `Test-ContentDerivedLabelCatchesWiringSwap` swaps two affix rules' target-slot guids in a copy
      of a genuine project and asserts the comparison now reports a difference (with a control
      confirming the OLD blanket-`GUID` blind stays blind to the identical perturbation).
@@ -569,9 +574,17 @@ naming the version found and the version supported). When that file exists, `bui
      records' excluded-allomorph reference (`testdata\allomorph-cooccurrence-probe.grammar.xml` was
      extended with a second, independent rule pair so the fixture has two such records to swap
      between).
+   - A guid-rename probe (needs no FieldWorks project at all) constructs a genuine content tie
+     between two synthetic records and asserts that renaming every guid in the file to a fresh value,
+     without moving any element's on-disk position, still resolves the tie to the same `#0`/`#1`
+     assignment -- run against the PRE-fix tie-break, the identical rename measurably flips that
+     assignment about a third of the time (Hashtable enumeration order tracks the guid strings, which
+     the rename changes; document-order tracks the file, which it does not).
 
-   So the witness cannot silently drift from what `author` actually produces, and a wiring-only
-   regression cannot silently pass as a literal-text match either.
+   So the witness cannot silently drift from what `author` actually produces, a wiring-only
+   regression cannot silently pass as a literal-text match, and the map's own tie-break cannot
+   silently disagree between two projects that differ only in which random guids LCM happened to
+   assign.
 
 When the witness file is absent (an older `machine` checkout, or a partial one), `build.ps1` prints
 `SKIPPED (checked-in FieldWorks witness): ...` naming the expected path and falls back to authoring
