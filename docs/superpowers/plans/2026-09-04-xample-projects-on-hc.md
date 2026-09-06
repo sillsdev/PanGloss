@@ -365,7 +365,7 @@ record is nonfatal. Cover at least lexicon/allomorph, MSA, environment, natural 
 co-occurrence, compound, and phonological/affix-process extraction. This is the import half of the
 lossless gate; Task 6 covers compiler-side loss.
 
-- [ ] **Step 3: Expose measurement without changing behavior**
+- [x] **Step 3: Expose measurement without changing behavior**
 
 ```rust
 pub fn compile_project_measured(
@@ -376,7 +376,7 @@ pub fn compile_project_measured(
 `compile_project` temporarily discards only the returned inventory. Task 4 folds it into
 `CompileOutput`; it does not rebuild the measurement.
 
-- [ ] **Step 4: Write and record the bidirectional gate**
+- [x] **Step 4: Write and record the bidirectional gate**
 
 Import each checked-in `.fwdata`/`.fwbackup` fixture afresh, compile it, and include one
 serialize/reload round trip. Print the graph, snapshot, and grammar inventories and composed delta.
@@ -391,7 +391,7 @@ inventory family. A missing fixture directory or empty census is failure.
 & .\rust\tools\pg.ps1 -Mode check -Package pg-grammar
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add rust/crates/pg-snapshot rust/crates/pg-fwdata rust/crates/pg-grammar
