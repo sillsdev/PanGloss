@@ -13,6 +13,12 @@ pg-grammar.workspace = true
 unicode-normalization.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `fixture.rs`'s `phonology-mutations.yaml` reader.
+serde_yaml.workspace = true
+# `fixture.rs`'s `base_sha256` verification and `fieldworks.rs`'s own project-digest checks.
+sha2.workspace = true
+# `fieldworks.rs`'s hvo-blind XAMPLE-file comparison (see that module's own doc).
+regex.workspace = true
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]

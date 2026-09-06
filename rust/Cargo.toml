@@ -94,6 +94,12 @@ libc = "0.2"
 # only compression method FieldWorks itself writes.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
+# `pg-xample-oracle::fieldworks`'s hvo-blind XAMPLE-file comparison: FieldWorks' own M3 dump writes
+# every referenced object by its raw, per-load-session hvo (see that module's own doc), so a
+# base-vs-mutated-clone comparison must blind a small, closed set of hvo-bearing token shapes
+# rather than every digit -- ported from `tools/xample-projector/build.ps1`'s
+# already-proven `Get-HvoBlindLines`.
+regex = "1"
 
 # `pg-stats`' per-project statistics cache. `bundled` compiles SQLite from vendored C source so
 # there is no system libsqlite3 to install or version-match across machines and worktrees.

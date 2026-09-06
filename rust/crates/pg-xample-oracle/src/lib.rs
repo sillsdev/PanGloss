@@ -16,10 +16,14 @@
 //! output instead of linking the DLL itself.
 #![forbid(unsafe_code)]
 
+pub mod fieldworks;
+pub mod fixture;
 pub mod hc;
 pub mod model;
 pub mod reader;
 
+pub use fieldworks::{FieldworksError, Projector};
+pub use fixture::{FixtureError, MutationCase, MutationOperation, PhonologyMutations};
 pub use hc::{xample_result_from_hc_outcome, HcNormalizationError};
 pub use model::{AnalysisSignature, XampleResult};
 pub use reader::{read_parse_response, ParsedParseResponse, ReadError};
