@@ -27,6 +27,10 @@ serde_json.workspace = true
 
 [dev-dependencies]
 pg-conformance-fixtures.workspace = true
+# `tests/xample_migration_differential_gate.rs`.
+pg-xample-oracle.workspace = true
+pg-fwdata.workspace = true
+sha2.workspace = true
 
 [features]
 # OFF by default — never part of a normal `cargo build`. `pg-ffi`'s abort-safety test (plan §8

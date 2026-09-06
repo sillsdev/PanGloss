@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 /// by `hvo_shaped_msa_guid_is_refused_not_trusted`. `surface_nfd` is the NFD-normalized surface form
 /// both engines were asked to parse.
 ///
-/// Two comparability ceilings remain, different in KIND, not just degree.
+/// Three comparability ceilings remain, different in KIND, not just degree.
 /// `crate::hc::signature_from_word_analysis` drops `AnalysisIdentity::root_index` because XAMPLE's
 /// JSON has no root-position field either — SYMMETRIC: both sides lose the same information, so
 /// neither can fabricate a divergence from it. A narrower variant gap is ASYMMETRIC still:
@@ -25,14 +25,26 @@ use std::collections::BTreeMap;
 /// (case 3) or case 4's own sense-derived fallback instead report `msaGuid: null`, refused by
 /// `crate::reader::ReadError::MissingMsaGuid` rather than silently collapsed — a refused read, never
 /// a false divergence, but with no live fixture yet to regenerate a capture exercising either shape.
+/// `category_id` is a THIRD, measured against a real category-bearing grammar rather than assumed:
+/// `tools/xample-projector/README.md`'s own `parse` doc already flags its `categoryId` extraction
+/// as "a best-effort read... no fixture in this slice's live proof exercises a non-null value,
+/// so it is unverified" — and running this crate's differential gate against
+/// `edge-cases/deep-optional-affix-nesting` (every lexical entry and rule carries `posV`) confirmed
+/// it: XAMPLE reported `categoryId: null` for every analysis while HC's own identity resolved a real
+/// part-of-speech guid, would-be diverging 100% of analyses on a field neither engine's absence of
+/// which says anything about the grammar. Symmetric with `root_index`, so treated the same way.
 ///
-/// `morphemes` is NOT identity, and is EXCLUDED from `Eq`/`Ord` below (hand-written, not derived):
-/// it carries the projector's own `morphnameOrGloss` (XAMPLE) or `MorphemeInfo::gloss` (HC) — a
-/// human label an author chose for their own reading convenience, and the two engines have no
-/// reason to spell it identically for the same morpheme (`ParseCommand.cs`'s `morphnameOrGloss`
-/// reads LibLCM's `BestVernacularAlternative`/`BestAnalysisAlternative`; HC's `gloss_of` reads
+/// `morphemes` and `category_id` are NOT identity, and are EXCLUDED from `Eq`/`Ord` below
+/// (hand-written, not derived). `morphemes` carries the projector's own `morphnameOrGloss` (XAMPLE)
+/// or `MorphemeInfo::gloss` (HC) — a human label an author chose for their own reading convenience,
+/// and the two engines have no reason to spell it identically for the same morpheme
+/// (`ParseCommand.cs`'s `morphnameOrGloss` reads LibLCM's
+/// `BestVernacularAlternative`/`BestAnalysisAlternative`; HC's `gloss_of` reads
 /// `Grammar::morphemes[_].gloss` — unrelated strings, same GUID), so it stays a non-comparing label
-/// carried alongside the key rather than inside it.
+/// carried alongside the key rather than inside it. `category_id` stays in the struct as an
+/// informational field (still readable, still serialized where a caller wants it) for the same
+/// reason: comparing it would compare XAMPLE's structural inability to report it against whatever
+/// HC happens to resolve, which is not a fact about either engine's analysis of the word.
 #[derive(Debug, Clone)]
 pub struct AnalysisSignature {
     pub morphemes: Vec<String>,
@@ -42,9 +54,9 @@ pub struct AnalysisSignature {
 }
 
 impl AnalysisSignature {
-    /// The tuple `Eq`/`Ord` actually compare — every identity field, `morphemes` deliberately absent.
-    fn identity_key(&self) -> (&[String], &Option<String>, &str) {
-        (&self.msa_ids, &self.category_id, &self.surface_nfd)
+    /// The tuple `Eq`/`Ord` actually compare — every identity field, `morphemes`/`category_id` deliberately absent.
+    fn identity_key(&self) -> (&[String], &str) {
+        (&self.msa_ids, &self.surface_nfd)
     }
 }
 
@@ -165,6 +177,21 @@ mod tests {
         let mut analyses = BTreeMap::new();
         *analyses.entry(a).or_insert(0) += 1;
         *analyses.entry(b).or_insert(0) += 1;
+        assert_eq!(analyses.len(), 1, "the two arrivals must collapse into one multiset entry");
+        assert_eq!(*analyses.values().next().unwrap(), 2, "and their counts must sum");
+    }
+
+    #[test]
+    fn signatures_differing_only_in_category_id_are_equal_and_merge_counts() {
+        // category_id must not participate in identity: XAMPLE's own categoryId is unpopulated.
+        let mut xample_side = sig(&["K"], &["guid-k"], "k");
+        xample_side.category_id = None;
+        let mut hc_side = sig(&["K"], &["guid-k"], "k");
+        hc_side.category_id = Some("pos-guid".to_string());
+        assert_eq!(xample_side, hc_side, "category_id must never participate in AnalysisSignature identity");
+        let mut analyses = BTreeMap::new();
+        *analyses.entry(xample_side).or_insert(0) += 1;
+        *analyses.entry(hc_side).or_insert(0) += 1;
         assert_eq!(analyses.len(), 1, "the two arrivals must collapse into one multiset entry");
         assert_eq!(*analyses.values().next().unwrap(), 2, "and their counts must sum");
     }
