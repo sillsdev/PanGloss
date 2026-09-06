@@ -523,18 +523,55 @@ naming the version found and the version supported). When that file exists, `bui
    belongs to, which POS a rule requires, and which LexEntry (via its own `LexSense` gloss) an
    allomorph belongs to all survive normalization -- a wiring-only difference between two otherwise
    identical fragments (e.g. two affix rules' target slots swapped) makes the normalized text
-   differ, where blanking everything to `GUID` could not. Label uniqueness is PROVEN, not assumed:
-   `XampleProjector.exe check-label-uniqueness` refuses (the same `IdRegistry.Register` guarded
-   insert `GrammarParser` uses for grammar.xml id/Name uniqueness) if two guids would render
-   identically. A record with none of those fields (e.g. a bare `MoInflAffMsa`) is left unlabeled
-   and falls through to the existing blanket `GUID` blind -- harmless here, since GrammarAuthor never
-   needs to tell two such records apart except by what they reference, and what they reference IS
-   labeled. `build.ps1 -Mode test` also runs `Test-ContentDerivedLabelCatchesWiringSwap`, a permanent
-   negative probe that swaps two affix rules' target-slot guids in a copy of a genuine project and
-   asserts the comparison now reports a difference (and, as a control, that the OLD blanket-`GUID`
-   blind stays blind to the identical perturbation) -- so the witness cannot silently drift from what
-   `author` actually produces, and a wiring-only regression cannot silently pass as a literal-text
-   match either.
+   differ, where blanking everything to `GUID` could not. A record with none of those fields (e.g.
+   `MoInflAffMsa`, `MoAffixAllomorph`) instead borrows its resolved owner's label (via the owning
+   `LexEntry`), which is enough to distinguish two allomorphs on the same entry by content instead of
+   refusing outright.
+
+   Two record classes GrammarAuthor DOES create several of, but whose shared owner
+   (`MoMorphData`/`MorphologicalDataOA`, a project-global singleton GrammarAuthor never names) has no
+   label of its own to borrow, get a THIRD fallback: `MoMorphAdhocProhib`/`MoAlloAdhocProhib`
+   (co-occurrence rules) derive a candidate from their OWN referenced content (which morpheme or
+   allomorph they exclude), computed once every reference they contain has itself settled. Without
+   this, two structurally-identical co-occurrence rules differing only in WHICH morpheme/allomorph
+   they target normalized to the same multiset -- neither record had its own identity, so
+   `Get-NormalizedFwdataText`'s final sort could not tell "rule A excludes X, rule B excludes Y" from
+   "rule A excludes Y, rule B excludes X". This fallback is a narrow, explicit allowlist
+   (`$script:OwnContentLabelClasses`), not a blanket rule for every unowned record: applying it
+   generally to FieldWorks' OWN scaffold objects (below) turned their harmless, expected variation
+   between independently created projects into a false witness-drift failure, which is exactly the
+   failure mode a scoped allowlist avoids.
+
+   Label uniqueness is PROVEN, not assumed: `XampleProjector.exe check-label-uniqueness` refuses (the
+   same `IdRegistry.Register` guarded insert `GrammarParser` uses for grammar.xml id/Name uniqueness)
+   if two guids would render identically. When two records land on the identical candidate label
+   (e.g. two allomorphs on one entry, or two co-occurrence rules sharing the same unlabeled owner),
+   the tie is broken by each record's own content signature (`Get-RecordSignature`).
+
+   **Content-derived labeling: known residual blind spot.** A record whose class is not on the
+   `$script:OwnContentLabelClasses` allowlist AND whose owner also has no label of its own is left
+   unlabeled and falls through to the existing blanket `GUID` blind. Measured against the pilot
+   fixture's own checked-in witness (151 records total): 37 stay unlabeled, and every one is
+   FieldWorks' own scaffold -- objects GrammarAuthor never creates and never gives any distinguishing
+   content -- `CmPossibilityList` (19), `CmAnnotationDefn` (4), `CmPossibility` (3), `CmAgent` (3),
+   `FsFeatureSystem` (2), and one each of `PhPhonemeSet`, `PhPhonData`, `MoMorphData`, `RnResearchNbk`,
+   `LexDb`, `LangProject` (the last five are project-global singletons; there is only ever one of
+   each, so nothing needs telling apart). This is harmless PRECISELY because GrammarAuthor never
+   distinguishes between two instances of any of these classes -- there is no wiring GrammarAuthor
+   could ever assign differently between them for a swap to make visible.
+
+   `build.ps1 -Mode test` runs two permanent negative probes proving the above by effect, not by
+   message:
+   - `Test-ContentDerivedLabelCatchesWiringSwap` swaps two affix rules' target-slot guids in a copy
+     of a genuine project and asserts the comparison now reports a difference (with a control
+     confirming the OLD blanket-`GUID` blind stays blind to the identical perturbation).
+   - `Test-ContentDerivedLabelCatchesCoOccurrenceSwap` does the same for two `MoAlloAdhocProhib`
+     records' excluded-allomorph reference (`testdata\allomorph-cooccurrence-probe.grammar.xml` was
+     extended with a second, independent rule pair so the fixture has two such records to swap
+     between).
+
+   So the witness cannot silently drift from what `author` actually produces, and a wiring-only
+   regression cannot silently pass as a literal-text match either.
 
 When the witness file is absent (an older `machine` checkout, or a partial one), `build.ps1` prints
 `SKIPPED (checked-in FieldWorks witness): ...` naming the expected path and falls back to authoring

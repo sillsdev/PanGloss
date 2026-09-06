@@ -7,11 +7,11 @@ $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $csproj = Join-Path $root 'XampleProjector.csproj'
 
-# Task 5 (author determinism, strengthened): a .fwdata is plain XML with random guids and
-# timestamps sprinkled through it, so a byte diff across two independent 'author' runs is
-# meaningless until both are normalized the same way -- known guids become their fixture id
-# (readable AND still catches an id resolving to the wrong object), everything else collapses to
-# fixed placeholders so only real structural differences survive the diff.
+# A .fwdata is plain XML with random guids and timestamps sprinkled through it, so a byte diff
+# across two independent 'author' runs is meaningless until both are normalized the same way --
+# known guids become their fixture id (readable AND still catches an id resolving to the wrong
+# object), everything else collapses to fixed placeholders so only real structural differences
+# survive the diff.
 function Get-GuidToFixtureIdMap {
 	param($AuthorResponse)
 	$map = @{}
@@ -76,6 +76,16 @@ function Get-NormalizedFwdataText {
 # MoStemAllomorph) is labeled through its owner instead (see the owner-based pass below).
 $script:LabelDirectFieldNames = 'Name', 'Gloss', 'Representation', 'StringRepresentation', 'Abbreviation'
 
+# Classes allowed to fall back to an own-content signature (below, once neither a direct field nor
+# an owner works) when GrammarAuthor actually creates several of them targeting DIFFERENT things --
+# NOT a blanket fallback: a project also carries scaffold objects FieldWorks itself populates
+# (CmAnnotationDefn, CmPossibilityList, ...) that GrammarAuthor never touches and whose own content
+# can legitimately differ between two independently created projects for reasons that have nothing
+# to do with the grammar (list-membership ordering, locale-driven defaults). Measured: labeling
+# those by content turned harmless, expected variation into a false witness-drift failure -- the
+# allowlist keeps the new fallback scoped to the reviewer-demonstrated gap it exists to close.
+$script:OwnContentLabelClasses = 'MoMorphAdhocProhib', 'MoAlloAdhocProhib'
+
 function Get-XmlFieldText {
 	param([System.Xml.Linq.XElement]$RecordElement, [string]$FieldName)
 	$field = $RecordElement.Element([System.Xml.Linq.XName]$FieldName)
@@ -92,12 +102,14 @@ function Get-XmlFieldText {
 }
 
 # A deterministic, content-only tie-break key for two records that would otherwise receive the
-# identical owner-derived candidate label (e.g. two allomorphs owned by the same LexEntry): every
-# child element's own text, with any nested guid resolved to its OWN already-known label (or the
-# blanket "GUID" placeholder, never the raw guid -- a raw guid would reintroduce exactly the
+# identical candidate label (e.g. two allomorphs owned by the same LexEntry, or two co-occurrence
+# rules that share this project's one MoMorphData -- LibLCM's `MorphologicalDataOA` -- owner):
+# every child element's own text, with any nested guid resolved to its OWN already-known label (or
+# the blanket "GUID" placeholder, never the raw guid -- a raw guid would reintroduce exactly the
 # random, run-specific ordering this whole function exists to remove). Never touches the record's
 # own identity/owner attributes, which differ by construction and would make every signature
-# trivially unique for the wrong reason.
+# trivially unique for the wrong reason. Also used (below) to derive a candidate FOR a record with
+# no better option, from its own referenced content rather than an owner's.
 function Get-RecordSignature {
 	param([System.Xml.Linq.XElement]$RecordElement, [hashtable]$Records)
 	$text = ($RecordElement.Elements() | ForEach-Object { $_.ToString() }) -join ''
@@ -105,6 +117,20 @@ function Get-RecordSignature {
 		param($m)
 		if ($Records.ContainsKey($m.Value) -and $Records[$m.Value].Label) { $Records[$m.Value].Label } else { 'GUID' }
 	})
+}
+
+# Guids appearing in RecordElement's own content that name a KNOWN record (this project's own LCM
+# object) which has not settled a label YET -- as opposed to one that will never get a label at
+# all, which Get-RecordSignature already renders as the permanent "GUID" placeholder. Gates the
+# own-content candidate below so it is only computed once every reference it contains is FINAL,
+# never a same-round "GUID" placeholder that could make two genuinely different targets collide.
+function Get-UnresolvedKnownReferenceGuids {
+	param([System.Xml.Linq.XElement]$RecordElement, [hashtable]$Records)
+	$text = ($RecordElement.Elements() | ForEach-Object { $_.ToString() }) -join ''
+	return [regex]::Matches($text, '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}') |
+		ForEach-Object { $_.Value } |
+		Where-Object { $Records.ContainsKey($_) -and -not $Records[$_].Label } |
+		Select-Object -Unique
 }
 
 # Builds a guid -> content-derived label map from a SINGLE project's own .fwdata, independent of
@@ -119,12 +145,20 @@ function Get-RecordSignature {
 # resolved owner's or owned child's label -- the one reverse relationship this needs is LexEntry's
 # owned LexSense (its Gloss); every other reference target GrammarAuthor creates (PartOfSpeech,
 # PhPhoneme, PhBdryMarker, PhNCSegments, ProdRestrict, MoInflAffixSlot, MoInflAffixTemplate)
-# already carries a direct field. What a bare MSA or co-occurrence-rule record POINTS AT gets a
-# real label even though that record's own identity does not strictly need one -- it still gets
-# one here (via its owner), which is what makes an ambiguous case (two allomorphs on the same
-# entry) resolvable by content instead of refusing outright. A record this cannot label at all
-# falls through to Get-NormalizedFwdataText's existing blanket "GUID" blind, unchanged from before
-# this function existed.
+# already carries a direct field. A record whose OWNER also has none of this AND whose class is on
+# the narrow $script:OwnContentLabelClasses allowlist (MoMorphAdhocProhib/MoAlloAdhocProhib, owned
+# by the never-Named MoMorphData singleton -- a second reviewer-demonstrated gap: two such rules
+# differing only in WHICH morpheme/allomorph they target used to normalize identically) instead
+# derives a candidate from its OWN referenced content (Get-RecordSignature), deferred via
+# Get-UnresolvedKnownReferenceGuids until every reference it contains has itself settled, so the
+# candidate reflects each target's FINAL label. See that allowlist's own comment for why this is NOT
+# a blanket fallback for every unowned record. What a bare MSA POINTS AT gets a real label even
+# though that record's own identity does not strictly need one -- it still gets one here (via its
+# owner), which is what makes an ambiguous case (two allomorphs on the same entry) resolvable by
+# content instead of refusing outright. A record this cannot label at all (see README's
+# "content-derived labeling: known residual blind spot" for which, and why) falls through to
+# Get-NormalizedFwdataText's existing blanket "GUID" blind, unchanged from before this function
+# existed.
 function Get-ContentDerivedGuidLabelMap {
 	param([string]$Path, [string]$CheckExePath)
 
@@ -152,11 +186,12 @@ function Get-ContentDerivedGuidLabelMap {
 	}
 
 	# Fixpoint: a record with no direct field of its own borrows its owned LexSense's Gloss (e.g.
-	# LexEntry), or else its resolved owner's label (e.g. an allomorph or MSA, via its owning
-	# LexEntry). Computed as CANDIDATES across the whole pass, then committed together, so two
-	# records that would land on the identical candidate are caught and tie-broken by content
-	# (Get-RecordSignature) rather than one silently claiming the label first depending on
-	# enumeration order.
+	# LexEntry), its resolved owner's label (e.g. an allomorph or MSA, via its owning LexEntry), or
+	# -- when neither applies -- a signature of its OWN referenced content once every reference in
+	# it has settled (e.g. a co-occurrence rule, via the morpheme/allomorph it targets). Computed as
+	# CANDIDATES across the whole pass, then committed together, so two records that would land on
+	# the identical candidate are caught and tie-broken by content (Get-RecordSignature) rather than
+	# one silently claiming the label first depending on enumeration order.
 	$progress = $true
 	while ($progress) {
 		$progress = $false
@@ -172,6 +207,11 @@ function Get-ContentDerivedGuidLabelMap {
 			}
 			elseif ($rec.OwnerGuid -and $records.ContainsKey($rec.OwnerGuid) -and $records[$rec.OwnerGuid].Label) {
 				$candidates[$guid] = "$($rec.Class):$($records[$rec.OwnerGuid].Label)"
+			}
+			elseif (($script:OwnContentLabelClasses -contains $rec.Class) -and
+				-not (Get-UnresolvedKnownReferenceGuids -RecordElement $rec.Element -Records $records)) {
+				$signature = Get-RecordSignature -RecordElement $rec.Element -Records $records
+				$candidates[$guid] = "$($rec.Class):$signature"
 			}
 		}
 		if ($candidates.Count -eq 0) { break }
@@ -338,14 +378,11 @@ function Test-XampleFileCorruptionIsCaught {
 	}
 }
 
-# Negative probe (BLOCKING review finding): the witness-drift comparison must be able to FAIL on a
-# wiring-only difference, not just a literal-text one. Swap which of two structurally-identical
-# MoInflAffMsa records' <Slots> reference points at which MoInflAffixSlot -- a materially different
-# grammar (it reassigns which slot each affix rule fills), and the reviewer's own demonstrated shape
-# (there: a Slot reassigned between two Parts of Speech; here: a Slot reassigned between two affix
-# rules, the same reference-target class the pilot fixture actually has more than one of) -- and
-# assert content-derived labeling reports a real difference where the OLD blanket-"GUID" blind
-# (both sides normalized with an empty map) reports none.
+# Proves the witness-drift comparison can FAIL on a wiring-only difference, not just a
+# literal-text one: swaps which of two structurally-identical MoInflAffMsa records' <Slots>
+# reference points at which MoInflAffixSlot, then asserts content-derived labeling reports a real
+# difference where the OLD blanket-"GUID" blind (both sides normalized with an empty map) reports
+# none.
 function Test-ContentDerivedLabelCatchesWiringSwap {
 	param([string]$SourceFwdata, [string]$ExePath, [string]$Label)
 	$swapDir = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-wiring-swap-probe-" + [System.Guid]::NewGuid().ToString('N'))
@@ -406,6 +443,80 @@ function Test-ContentDerivedLabelCatchesWiringSwap {
 			exit 1
 		}
 		Write-Host "  wiring-swap probe control OK ($Label): the OLD blanket-GUID blind (empty map both sides) is confirmed blind to the same perturbation content-derived labeling now catches."
+	}
+	finally {
+		Remove-Item -Path $swapDir -Recurse -Force -ErrorAction SilentlyContinue
+	}
+}
+
+# Same shape as Test-ContentDerivedLabelCatchesWiringSwap, for the OTHER reviewer-demonstrated gap:
+# two structurally-identical MoAlloAdhocProhib records (owned by the never-Named MoMorphData
+# singleton, so neither had ANY label before this fix) that differ only in which
+# allomorph they exclude used to normalize to the same multiset -- Sort-Object over the record list
+# cannot tell "A excludes X, B excludes Y" from "A excludes Y, B excludes X" once both records'
+# OWN identity is blind. Swaps ONLY the <RestOfAllos> reference (leaving each record's
+# <FirstAllomorph> -- its OTHER, unperturbed anchor -- untouched, exactly as the wiring-swap probe
+# above touches only <Slots>), then asserts the same real-difference-vs-blind-control shape.
+function Test-ContentDerivedLabelCatchesCoOccurrenceSwap {
+	param([string]$SourceFwdata, [string]$ExePath, [string]$Label)
+	$swapDir = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-cooccur-swap-probe-" + [System.Guid]::NewGuid().ToString('N'))
+	New-Item -ItemType Directory -Path $swapDir -Force | Out-Null
+	try {
+		$swappedPath = Join-Path $swapDir 'swapped.fwdata'
+		Copy-Item -Path $SourceFwdata -Destination $swappedPath -Force
+		$text = Get-Content -Raw -Path $swappedPath
+
+		$prohibPattern = '<rt class="MoAlloAdhocProhib"[^>]*>[\s\S]*?<RestOfAllos>\s*<objsur guid="([0-9a-fA-F-]{36})"[^/]*/>\s*</RestOfAllos>[\s\S]*?</rt>'
+		$prohibMatches = [regex]::Matches($text, $prohibPattern)
+		if ($prohibMatches.Count -lt 2) {
+			Write-Error "$Label`: co-occurrence-swap probe needs at least 2 MoAlloAdhocProhib records with a <RestOfAllos> reference in $SourceFwdata, found $($prohibMatches.Count)."
+			exit 1
+		}
+		$matchA = $prohibMatches[0]
+		$matchB = $prohibMatches[1]
+		$targetGuidA = $matchA.Groups[1].Value
+		$targetGuidB = $matchB.Groups[1].Value
+		if ($targetGuidA -eq $targetGuidB) {
+			Write-Error "$Label`: co-occurrence-swap probe's first two MoAlloAdhocProhib records already exclude the same allomorph ($targetGuidA) -- cannot construct a real perturbation from them."
+			exit 1
+		}
+
+		# Swap ONLY the two matched records' own <RestOfAllos> reference -- a whole-document
+		# find/replace of the two target guids would also rename the ALLOMORPH records' own
+		# identity (and every other reference to them), which is a consistent rename (invisible to
+		# any comparison), not a rewiring. Splicing by match index/length, later match first, keeps
+		# the earlier match's index valid and touches nothing outside these two records' own
+		# <RestOfAllos> element.
+		$blockAReplacement = $matchA.Value -replace [regex]::Escape($targetGuidA), $targetGuidB
+		$blockBReplacement = $matchB.Value -replace [regex]::Escape($targetGuidB), $targetGuidA
+		$swappedText = $text.Remove($matchB.Index, $matchB.Length).Insert($matchB.Index, $blockBReplacement)
+		$swappedText = $swappedText.Remove($matchA.Index, $matchA.Length).Insert($matchA.Index, $blockAReplacement)
+		if ($swappedText -eq $text) {
+			Write-Error "$Label`: co-occurrence-swap probe failed to actually change anything."
+			exit 1
+		}
+		Set-Content -Path $swappedPath -Value $swappedText -Encoding utf8 -NoNewline
+
+		$genuineLabels = Get-ContentDerivedGuidLabelMap -Path $SourceFwdata -CheckExePath $ExePath
+		$swappedLabels = Get-ContentDerivedGuidLabelMap -Path $swappedPath -CheckExePath $ExePath
+		$genuineNormalized = Get-NormalizedFwdataText -Path $SourceFwdata -GuidToFixtureId $genuineLabels
+		$swappedNormalized = Get-NormalizedFwdataText -Path $swappedPath -GuidToFixtureId $swappedLabels
+		if ($genuineNormalized -eq $swappedNormalized) {
+			Write-Error "$Label`: co-occurrence-swap probe FAILED to catch a wiring-only perturbation (swapped excluded allomorph $targetGuidA <-> $targetGuidB between two MoAlloAdhocProhib records) -- content-derived labeling is over-broad."
+			exit 1
+		}
+		Write-Host "  co-occurrence-swap probe OK ($Label): reassigning which of two co-occurrence rules excludes allomorph $targetGuidA vs $targetGuidB is caught by content-derived labeling (normalized text differs)."
+
+		# The control: the OLD blanket-"GUID" blind (empty map both sides) must still be BLIND to
+		# the identical perturbation -- confirms the probe is actually exercising the fixed code
+		# path, not a difference from some other cause.
+		$genuineBlank = Get-NormalizedFwdataText -Path $SourceFwdata -GuidToFixtureId @{}
+		$swappedBlank = Get-NormalizedFwdataText -Path $swappedPath -GuidToFixtureId @{}
+		if ($genuineBlank -ne $swappedBlank) {
+			Write-Error "$Label`: co-occurrence-swap probe's own control failed -- the OLD blanket-GUID blind was expected to stay BLIND to this perturbation, but it reported a difference. Re-check the probe's premise."
+			exit 1
+		}
+		Write-Host "  co-occurrence-swap probe control OK ($Label): the OLD blanket-GUID blind (empty map both sides) is confirmed blind to the same perturbation content-derived labeling now catches."
 	}
 	finally {
 		Remove-Item -Path $swapDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -1042,15 +1153,17 @@ try {
 	}
 	$alloCoOccurResponsePath = Join-Path $alloCoOccurOutDir 'author-response.json'
 	$alloCoOccurResponse = Get-Content $alloCoOccurResponsePath -Raw | ConvertFrom-Json
-	if ($alloCoOccurResponse.authored.MoAlloAdhocProhib -ne 1) {
-		Write-Error "AllomorphCoOccurrenceRule authoring probe: expected authored.MoAlloAdhocProhib == 1, got '$($alloCoOccurResponse.authored.MoAlloAdhocProhib)'."
+	if ($alloCoOccurResponse.authored.MoAlloAdhocProhib -ne 2) {
+		Write-Error "AllomorphCoOccurrenceRule authoring probe: expected authored.MoAlloAdhocProhib == 2, got '$($alloCoOccurResponse.authored.MoAlloAdhocProhib)'."
 		exit 1
 	}
-	if (-not ($alloCoOccurResponse.guidMap.PSObject.Properties.Name -contains 'allomorphCoOccurrence[0]')) {
-		Write-Error "AllomorphCoOccurrenceRule authoring probe: guidMap is missing 'allomorphCoOccurrence[0]'."
-		exit 1
+	foreach ($guidMapKey in @('allomorphCoOccurrence[0]', 'allomorphCoOccurrence[1]')) {
+		if (-not ($alloCoOccurResponse.guidMap.PSObject.Properties.Name -contains $guidMapKey)) {
+			Write-Error "AllomorphCoOccurrenceRule authoring probe: guidMap is missing '$guidMapKey'."
+			exit 1
+		}
 	}
-	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: exit 0, authored.MoAlloAdhocProhib == 1, guidMap has 'allomorphCoOccurrence[0]'."
+	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: exit 0, authored.MoAlloAdhocProhib == 2, guidMap has both 'allomorphCoOccurrence[0]' and 'allomorphCoOccurrence[1]'."
 
 	$alloCoOccurFwdata = Join-Path $alloCoOccurOutDir 'AlloCoOccur\AlloCoOccur.fwdata'
 	$alloCoOccurProjectedOutDir = Join-Path $alloCoOccurTempRoot 'projected'
@@ -1062,23 +1175,27 @@ try {
 	}
 	$alloCoOccurHcXml = Join-Path $alloCoOccurProjectedOutDir 'AlloCoOccur.hc.xml'
 
-	# The probe grammar has one optional slot (mrP1, prefix "x") over one lexical entry ("k"), and
-	# excludes mrP1's own subrule from co-occurring with that entry's allomorph "anywhere" in a
-	# word -- the ONLY way to produce "xk" at all is that exact combination, so a correct exclusion
-	# makes "xk" unparseable (0 analyses) while the affixless "k" still parses (1 analysis). This is
-	# the probe's own designed semantics, not an oracle-confirmed count (this fixture is not a
-	# `machine` conformance fixture) -- unlike the pilot fixture's counts below.
-	$alloCoOccurVerifyOutput = & $exePath verify-parity --grammar $alloCoOccurGrammar --hc-xml $alloCoOccurHcXml --guid-map $alloCoOccurResponsePath --expect k=1 --expect xk=0
+	# The probe grammar has one optional slot (mrP1/mrP2, prefixes "x"/"y") over two lexical entries
+	# ("k"/"l"), and excludes each rule's own subrule from co-occurring with ITS OWN paired entry's
+	# allomorph "anywhere" in a word -- the ONLY way to produce "xk" (resp. "yl") at all is that
+	# exact combination, so a correct exclusion makes "xk" and "yl" unparseable (0 analyses) while
+	# the affixless "k"/"l" still parse (1 analysis each). This is the probe's own designed
+	# semantics, not an oracle-confirmed count (this fixture is not a `machine` conformance
+	# fixture) -- unlike the pilot fixture's counts below.
+	$alloCoOccurVerifyOutput = & $exePath verify-parity --grammar $alloCoOccurGrammar --hc-xml $alloCoOccurHcXml --guid-map $alloCoOccurResponsePath --expect k=1 --expect xk=0 --expect l=1 --expect yl=0
 	if ($LASTEXITCODE -ne 0) {
 		Write-Error "AllomorphCoOccurrenceRule authoring probe: 'verify-parity' failed (exit $LASTEXITCODE). Output:`n$($alloCoOccurVerifyOutput | Out-String)"
 		exit 1
 	}
 	$alloCoOccurVerifyJson = $alloCoOccurVerifyOutput | Out-String | ConvertFrom-Json
-	if ($alloCoOccurVerifyJson.engineAnalysisCounts.k -ne 1 -or $alloCoOccurVerifyJson.engineAnalysisCounts.xk -ne 0) {
+	if ($alloCoOccurVerifyJson.engineAnalysisCounts.k -ne 1 -or $alloCoOccurVerifyJson.engineAnalysisCounts.xk -ne 0 -or
+		$alloCoOccurVerifyJson.engineAnalysisCounts.l -ne 1 -or $alloCoOccurVerifyJson.engineAnalysisCounts.yl -ne 0) {
 		Write-Error "AllomorphCoOccurrenceRule authoring probe: verify-parity reported unexpected engine counts:`n$($alloCoOccurVerifyOutput | Out-String)"
 		exit 1
 	}
-	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: verify-parity confirms the exclusion binds in the live HC engine (k=1, xk=0)."
+	Write-Host "AllomorphCoOccurrenceRule authoring probe OK: verify-parity confirms both exclusions bind in the live HC engine (k=1, xk=0, l=1, yl=0)."
+
+	Test-ContentDerivedLabelCatchesCoOccurrenceSwap -SourceFwdata $alloCoOccurFwdata -ExePath $exePath -Label 'AllomorphCoOccurrenceRule authoring probe'
 }
 finally {
 	Remove-Item -Path $alloCoOccurTempRoot -Recurse -Force -ErrorAction SilentlyContinue
