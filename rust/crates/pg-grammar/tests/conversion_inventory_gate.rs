@@ -91,6 +91,23 @@ fn print_inventory(stage: &str, inventory: &ConversionInventory) {
     );
 }
 
+/// How many keys of a large category to print by name before eliding the rest.
+const KEY_LISTING_CAP: usize = 20;
+
+/// Prints up to [`KEY_LISTING_CAP`] keys from `keys` under `label`, eliding and counting the rest.
+fn print_keys(label: &str, keys: &BTreeSet<pg_snapshot::InventoryKey>) {
+    if keys.is_empty() {
+        return;
+    }
+    println!("    {label} ({}):", keys.len());
+    for key in keys.iter().take(KEY_LISTING_CAP) {
+        println!("      {key:?}");
+    }
+    if keys.len() > KEY_LISTING_CAP {
+        println!("      ... and {} more elided", keys.len() - KEY_LISTING_CAP);
+    }
+}
+
 fn print_delta(stage: &str, delta: &InventoryDelta) {
     println!(
         "  {stage} delta: silently_omitted={} unclassified={} synthesized_only={} rejected={}",
@@ -99,6 +116,9 @@ fn print_delta(stage: &str, delta: &InventoryDelta) {
         delta.synthesized_only.len(),
         delta.inventory.rejected.len(),
     );
+    print_keys("silently_omitted", &delta.silently_omitted);
+    print_keys("unclassified", &delta.unclassified);
+    print_keys("synthesized_only", &delta.synthesized_only);
 }
 
 fn assert_ratchet(fixture: &str, stage: &str, delta: &InventoryDelta, ratchet: &Ratchet) {
