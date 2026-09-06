@@ -50,8 +50,8 @@ fn read_backup(path: &Path) -> Result<(xml::RawGraph, String, Vec<(String, Strin
     Ok((graph, stem, ldml))
 }
 
-/// Applies the default vernacular writing system's LDML exemplar characters onto `snapshot`, if present -- a backup-only enrichment `.fwdata` alone cannot provide.
-fn apply_exemplars(snapshot: &mut Snapshot, ldml: &[(String, String)]) {
+/// Applies the default vernacular writing system's LDML exemplar characters onto `snapshot`, if present -- also called for a plain `.fwdata` import against its sibling `WritingSystemStore/` (`lib.rs::read_sibling_writing_system_store`), not only from an embedded backup copy.
+pub(crate) fn apply_exemplars(snapshot: &mut Snapshot, ldml: &[(String, String)]) {
     if let Some(default_ws) = snapshot.project.vernacular_writing_systems.first().cloned() {
         if let Some((_, text)) = ldml.iter().find(|(tag, _)| *tag == default_ws) {
             snapshot.project.exemplar_characters = exemplar_characters_from_ldml(text);

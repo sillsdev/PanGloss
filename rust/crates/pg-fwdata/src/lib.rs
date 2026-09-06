@@ -1,6 +1,7 @@
 //! `pg-fwdata` imports FieldWorks `.fwdata` project files and `.fwbackup` archives into
-//! `pg_snapshot::Snapshot` values. Backup imports extract the embedded `.fwdata` and use
-//! `WritingSystemStore/*.ldml` data for vernacular exemplar characters.
+//! `pg_snapshot::Snapshot` values. Vernacular exemplar characters come from
+//! `WritingSystemStore/*.ldml`: a backup's own embedded copy, or -- for a plain `.fwdata` --
+//! a sibling `WritingSystemStore/` directory next to it on disk, if one exists.
 //!
 //! # Two layers, one crate
 //!
@@ -64,10 +65,11 @@ pub struct ImportReport {
 }
 
 /// Import a `.fwdata` project file or `.fwbackup` archive into a `Snapshot` plus an `ImportReport`
-/// of anything tolerated along the way. Backup archives provide the embedded `.fwdata` and may
-/// provide vernacular exemplar characters through `WritingSystemStore/*.ldml`. For a direct
-/// `.fwdata` import, the input file stem becomes `project.name`; for a `.fwbackup` import, the
-/// embedded top-level `.fwdata` entry stem becomes `project.name`.
+/// of anything tolerated along the way. Vernacular exemplar characters come from
+/// `WritingSystemStore/*.ldml` -- a backup's embedded copy, or a plain `.fwdata`'s sibling
+/// directory on disk, if either is present; absent either way, `exemplar_characters` stays empty.
+/// For a direct `.fwdata` import, the input file stem becomes `project.name`; for a `.fwbackup`
+/// import, the embedded top-level `.fwdata` entry stem becomes `project.name`.
 pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
     if path
         .extension()
@@ -78,8 +80,9 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
     }
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
-    let (snapshot, warnings) = extract::extract(&graph, &filename_stem)?;
+    let (mut snapshot, warnings) = extract::extract(&graph, &filename_stem)?;
     let provenance = snapshot.conversion_provenance.clone();
+    fwbackup::apply_exemplars(&mut snapshot, &read_sibling_writing_system_store(path));
     Ok((snapshot, ImportReport { warnings, provenance }))
 }
 
@@ -98,8 +101,9 @@ pub fn import_file_measured(
     }
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
-    let (snapshot, warnings, recorder) = extract::extract_recording(&graph, &filename_stem)?;
+    let (mut snapshot, warnings, recorder) = extract::extract_recording(&graph, &filename_stem)?;
     let provenance = snapshot.conversion_provenance.clone();
+    fwbackup::apply_exemplars(&mut snapshot, &read_sibling_writing_system_store(path));
     if let Err(violation) = recorder.check_invariants() {
         panic!("import_file_measured: selection recorder invariant violated: {violation}");
     }
@@ -109,6 +113,28 @@ pub fn import_file_measured(
         ImportReport { warnings, provenance },
         InventoryDelta::from_stage(inventory, issues),
     ))
+}
+
+/// Reads every `WritingSystemStore/*.ldml` file next to `fwdata_path` on disk, if that directory exists; empty (never an error) when it does not, matching `.fwbackup`'s own tolerant absence of embedded LDML.
+fn read_sibling_writing_system_store(fwdata_path: &Path) -> Vec<(String, String)> {
+    let Some(parent) = fwdata_path.parent() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(parent.join("WritingSystemStore")) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let entry_path = entry.path();
+            if entry_path.extension().and_then(|e| e.to_str()) != Some("ldml") {
+                return None;
+            }
+            let tag = entry_path.file_stem()?.to_str()?.to_string();
+            let text = std::fs::read_to_string(&entry_path).ok()?;
+            Some((tag, text))
+        })
+        .collect()
 }
 
 pub(crate) fn file_stem(path: &Path) -> String {
