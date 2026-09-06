@@ -48,6 +48,19 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
         eprintln!("  inferred boundary: {:?} ({:?})", boundary.representation, boundary.evidence);
     }
 
+    let unexpected: Vec<&str> = out
+        .issues
+        .iter()
+        .filter(|i| i.code == "substrate.classification-ambiguous")
+        .map(|i| i.message.as_str())
+        .filter(|m| !['-', '\'', ':'].iter().any(|c| m.contains(&c.to_string())))
+        .collect();
+    assert!(
+        unexpected.is_empty(),
+        "{project_dir_name}: ambiguous issue over a character outside the known `-`/`'`/`:` set: \
+         {unexpected:#?}"
+    );
+
     // A ratchet, not a target: today's count stays legible while a new regression fails.
     assert!(
         out.substrate.ambiguous_uses.len() <= max_ambiguous,
@@ -63,8 +76,8 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
 
 #[test]
 fn sena3_compiles_through_compile_project_with() {
-    // Ratchet baseline: stem-only usage collection, 40 ambiguous (undeclared `-`/`'`/`:` in reduplicated citation forms, Sena 3's plain-fwdata import never populates exemplar_characters), 0 unresolved.
-    compile_and_report("Sena 3", 40, 0);
+    // Ratchet baseline: stem + affix usage collection, 57 ambiguous (undeclared `-`/`'`/`:` in reduplicated citation forms and affix allomorphs; Sena 3's plain-fwdata import never populates exemplar_characters), 0 unresolved.
+    compile_and_report("Sena 3", 57, 0);
 }
 
 #[test]

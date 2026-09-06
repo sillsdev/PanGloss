@@ -2741,3 +2741,95 @@ fn inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment()
         "an explicitly feature-valued segment must NOT share the inferred segment's wildcard lanes"
     );
 }
+
+// --- affix-form substrate collection (review R1/R3) ---------------------------------------------
+
+/// The blocking review repro: a SUFFIX allomorph's form (not the stem) carries the missing exemplar.
+#[test]
+fn xample_authored_project_infers_a_missing_exemplar_segment_from_a_suffix_form() {
+    let (mut snapshot, _) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.project.exemplar_characters.push("q".to_string());
+    snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "qta")];
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("lossless compile");
+    assert_eq!(out.substrate.inferred_segments.len(), 1);
+    assert_eq!(out.substrate.inferred_segments[0].representation, "q");
+    assert!(out.grammar.char_tables[0].lookup_nfd("q").is_some());
+    let affix_rules: Vec<_> = out
+        .grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(affix_rules.len(), 1, "the suffix rule must not have vanished into a warning");
+    assert_eq!(affix_rules[0].allomorphs.len(), 1);
+}
+
+/// A bracket-pattern/reduplication affix form must compile exactly as it did without substrate completion, and now also publish `conversion.unsupported-construct`.
+#[test]
+fn bracket_pattern_affix_form_still_compiles_unaffected_and_publishes_unsupported_construct() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "[X]")];
+
+    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    assert!(
+        out.issues
+            .iter()
+            .any(|i| i.message.contains("reduplication/bracket-pattern") && !i.fatal),
+        "the legacy reduplication warning must survive unchanged: {:?}",
+        out.issues
+    );
+    assert!(
+        out.issues
+            .iter()
+            .any(|i| i.code == "conversion.unsupported-construct" && !i.fatal),
+        "expected a non-fatal conversion.unsupported-construct issue; got {:?}",
+        out.issues
+    );
+    assert!(out.substrate.inferred_segments.is_empty());
+    assert!(out.substrate.inferred_boundaries.is_empty());
+    assert!(out.substrate.ambiguous_uses.is_empty());
+    assert!(
+        out.grammar.char_tables[0].lookup_nfd("X").is_none(),
+        "bracket-pattern text must never be treated as a literal character"
+    );
+    let _ = f;
+}
+
+/// Every allomorph the compiler actually represents must have had its text published by one of the two collectors, or they have drifted.
+#[test]
+fn text_use_collection_covers_every_represented_allomorph() {
+    let (snapshot, _f) = fixture();
+    let mut recorder = pg_snapshot::SelectionRecorder::default();
+    super::lexicon::collect_text_uses(&snapshot, &mut recorder);
+    let mut collection_issues = Vec::new();
+    super::affixes::collect_text_uses(&snapshot, &mut recorder, &mut collection_issues);
+    assert!(collection_issues.is_empty());
+    let collected: std::collections::BTreeSet<String> =
+        recorder.text_uses().iter().map(|(source, _)| source.id.clone()).collect();
+
+    let (_grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    let represented_allomorphs: Vec<String> = inventory
+        .represented
+        .iter()
+        .filter(|k| k.kind == InventoryKind::Allomorph)
+        .filter_map(|k| match &k.identity {
+            pg_snapshot::InventoryIdentity::Object { guid } => Some(guid.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(!represented_allomorphs.is_empty());
+    let missing: Vec<_> = represented_allomorphs
+        .iter()
+        .filter(|guid| !collected.contains(*guid))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "represented allomorph(s) with no recorded text use: {missing:?}"
+    );
+}

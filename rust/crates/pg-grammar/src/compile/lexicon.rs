@@ -16,7 +16,7 @@ pub(crate) fn entry_yields_variant_refs(entry: &LexEntry) -> bool {
     entry.senses.is_empty()
 }
 
-/// Publishes each lex-entry-form allomorph's own selected text (`is_lex_entry_form`/`best_ws`/`format_form`, matching `build_stem_entry`), never an affix-rule form, so a bracket-pattern allomorph cannot spuriously refuse under `Strict`.
+/// Publishes each lex-entry-form allomorph's own selected text (`is_lex_entry_form`/`best_ws`/`format_form`, matching `build_stem_entry`), never an affix-rule form, so a bracket-pattern allomorph cannot spuriously refuse under `Strict`. A root form carrying `[C]`-style pattern syntax is skipped: `build_root_allomorph` segments it with the pattern-aware segmenter, never the phoneme-only one substrate completion uses, so checking it here would misclassify `[`/`]` as an undeclared literal.
 pub(crate) fn collect_text_uses(snapshot: &Snapshot, recorder: &mut SelectionRecorder) {
     let default_ws = snapshot
         .project
@@ -32,6 +32,9 @@ pub(crate) fn collect_text_uses(snapshot: &Snapshot, recorder: &mut SelectionRec
                 continue;
             };
             let form = super::format_form(form);
+            if affixes::is_bracket_pattern_form(&form) {
+                continue;
+            }
             recorder.record_text_use(
                 SourceRef {
                     kind: "allomorph".to_string(),

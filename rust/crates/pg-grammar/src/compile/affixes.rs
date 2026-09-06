@@ -3,7 +3,10 @@
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Msa, RuleMapping};
 use pg_snapshot::morphology::MorphType;
 use pg_snapshot::phonology::PhonContext;
-use pg_snapshot::{InventoryKey, InventoryKind, IssueClass};
+use pg_snapshot::{
+    ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, SourceRef,
+    Snapshot,
+};
 
 use crate::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, EnvironmentDef, MRuleId,
@@ -623,6 +626,70 @@ fn build_circumfix_allomorphs(
 /// Whether `form` is a reduplication/bracket-pattern affix shape rather than literal text -- shared by `is_valid_rule_form`'s rejection and by `collect_text_uses`'s substrate-usage collection, so the two classify the same shape identically.
 pub(crate) fn is_bracket_pattern_form(form: &str) -> bool {
     form.contains('[')
+}
+
+/// Publishes literal text from every affix-shaped allomorph (concatenative, circumfix half, or an `MoAffixProcess`'s `RuleMapping::InsertSegments`); a bracket-pattern form publishes `conversion.unsupported-construct` instead.
+pub(crate) fn collect_text_uses(
+    snapshot: &Snapshot,
+    recorder: &mut SelectionRecorder,
+    issues: &mut Vec<ConversionIssue>,
+) {
+    let default_ws = snapshot
+        .project
+        .vernacular_writing_systems
+        .first()
+        .map(String::as_str);
+    for entry in &snapshot.lexicon.entries {
+        for allo in &entry.allomorphs {
+            let source = SourceRef {
+                kind: "allomorph".to_string(),
+                id: allo.guid.clone(),
+            };
+
+            if let Some(process) = &allo.process {
+                for step in &process.output {
+                    if let RuleMapping::InsertSegments { text } = step {
+                        let text = text.trim();
+                        if !text.is_empty() {
+                            recorder.record_text_use(source.clone(), text);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            if allo.is_abstract {
+                continue;
+            }
+            let Some(shape) = shape_of(allo.morph_type) else {
+                continue;
+            };
+            if matches!(shape, Shape::Infix) && allo.positions.is_empty() {
+                continue;
+            }
+
+            let form = super::best_ws(&allo.forms, default_ws).unwrap_or("");
+            let form = super::format_form(form);
+            if form.trim().is_empty() {
+                continue;
+            }
+            if is_bracket_pattern_form(&form) {
+                issues.push(ConversionIssue {
+                    code: super::issues::UNSUPPORTED_CONSTRUCT.to_string(),
+                    class: IssueClass::UnrepresentableForHc,
+                    source: Some(source),
+                    fatal: false,
+                    message: format!(
+                        "allomorph {:?}: reduplication/bracket-pattern affix form {form:?} is not \
+                         literal text; substrate completion cannot check or infer from it",
+                        allo.guid
+                    ),
+                });
+                continue;
+            }
+            recorder.record_text_use(source, &form);
+        }
+    }
 }
 
 /// Simplified `IsValidRuleForm`: bracket-pattern (reduplication) forms are not implemented (warned, dropped) rather than gated on environment validity. Records the allomorph rejected only where this filter is the allomorph's one plausible route to a rule form (infix/prefix/suffix-shaped); a morph type that structurally can never be a rule form (bare stem/clitic/particle/phrase) is left considered-but-not-selected, mirroring a disabled compound rule rather than a failure.
