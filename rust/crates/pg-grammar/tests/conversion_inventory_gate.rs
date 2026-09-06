@@ -61,9 +61,8 @@ fn compile_ratchet(fixture: &str) -> Ratchet {
     match fixture {
         // Measured today's session; see this test's own --no-capture output for the breakdown.
         "fixture.fwdata" => Ratchet {
-            silently_omitted: 1,
             synthesized_only: 9,
-            rejected: 9,
+            rejected: 10,
             ..ZERO_RATCHET
         },
         other => panic!("no compile ratchet recorded for fixture {other:?}"),
