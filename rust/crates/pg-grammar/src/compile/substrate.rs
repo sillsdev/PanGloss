@@ -72,14 +72,18 @@ fn classify(
     Classification::Ambiguous
 }
 
-/// Always in range by construction of `InvalidShape`; an out-of-range position is this module's own bug, so it panics rather than guessing.
-fn failing_char(text: &str, position: usize) -> char {
-    text.chars().nth(position).unwrap_or_else(|| {
-        panic!(
-            "substrate::complete: segmentation failure position {position} out of range for \
-             {text:?}"
-        )
-    })
+/// `None` when `position` is past the end of `text` -- `remap_error_position`'s recompose-the-prefix heuristic can place a word-final standalone combining mark there, which is a mismap, not this module's own bug.
+fn failing_char(text: &str, position: usize) -> Option<char> {
+    text.chars().nth(position)
+}
+
+/// `Ok` is a trustworthy failing character; `Err` is a `remap_error_position` mismap that must refuse rather than be treated as the real failure -- `None` when `position` is past the end of the word (word-final combining mark, no original position at all), `Some` when it lands mid-word on an already-registered character (the next real character after the mark).
+fn position_mismap(raw: &RawCharDefBuild, text: &str, position: usize) -> Result<char, Option<char>> {
+    match failing_char(text, position) {
+        None => Err(None),
+        Some(ch) if raw.seen_nfd.contains(&nfd(&ch.to_string())) => Err(Some(ch)),
+        Some(ch) => Ok(ch),
+    }
 }
 
 fn unsegmentable_issue(source: &SourceRef, text: &str, ch: char, position: usize) -> ConversionIssue {
@@ -110,23 +114,26 @@ fn ambiguous_issue(source: &SourceRef, text: &str, ch: char, position: usize) ->
     }
 }
 
-/// `ch` is already registered, so it is a `remap_error_position` mismap, not the true failure.
+/// Covers both `position_mismap` shapes with one code -- the root defect and the correct response (refuse, never guess or duplicate) are identical either way.
 fn unmapped_position_issue(
     source: &SourceRef,
     text: &str,
-    ch: char,
+    ch: Option<char>,
     position: usize,
 ) -> ConversionIssue {
+    let detail = match ch {
+        Some(ch) => format!("remaps to {ch:?}, which is already a registered character"),
+        None => "is past the end of the word (word-final combining mark)".to_string(),
+    };
     ConversionIssue {
         code: issues::SUBSTRATE_POSITION_UNMAPPED.to_string(),
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
         fatal: true,
         message: format!(
-            "cannot segment {text:?}: the failure position {position} remaps to {ch:?}, which is \
-             already a registered character; the true failing element is likely a standalone \
-             combining mark from a decomposed character with no clean original-text position, so \
-             refusing rather than re-inferring a duplicate"
+            "cannot segment {text:?}: the failure position {position} {detail}; the true failing \
+             element is likely a standalone combining mark from a decomposed character with no \
+             clean original-text position, so refusing rather than guessing or duplicating"
         ),
     }
 }
@@ -161,8 +168,12 @@ pub(crate) fn complete(
         let table = probe_table(&raw.raw_defs, phon);
         for (source, text) in text_uses {
             if let Err(invalid) = segment_phonemes_only(&table, text) {
-                let ch = failing_char(text, invalid.position);
-                issues.push(unsegmentable_issue(source, text, ch, invalid.position));
+                match position_mismap(&raw, text, invalid.position) {
+                    Ok(ch) => issues.push(unsegmentable_issue(source, text, ch, invalid.position)),
+                    Err(mismap_ch) => {
+                        issues.push(unmapped_position_issue(source, text, mismap_ch, invalid.position))
+                    }
+                }
                 report.unresolved_uses.push(source.clone());
             }
         }
@@ -170,6 +181,7 @@ pub(crate) fn complete(
     }
 
     let mut already_reported: Vec<(SourceRef, char)> = Vec::new();
+    let mut already_reported_unmapped: Vec<(SourceRef, usize)> = Vec::new();
     loop {
         let table = probe_table(&raw.raw_defs, phon);
         let mut to_add: Option<(char, CharDefKind, InferenceEvidence)> = None;
@@ -177,16 +189,18 @@ pub(crate) fn complete(
             let Err(invalid) = segment_phonemes_only(&table, text) else {
                 continue;
             };
-            let ch = failing_char(text, invalid.position);
-            if raw.seen_nfd.contains(&nfd(&ch.to_string())) {
-                let key = (source.clone(), ch);
-                if !already_reported.contains(&key) {
-                    issues.push(unmapped_position_issue(source, text, ch, invalid.position));
-                    report.ambiguous_uses.push(source.clone());
-                    already_reported.push(key);
+            let ch = match position_mismap(&raw, text, invalid.position) {
+                Ok(ch) => ch,
+                Err(mismap_ch) => {
+                    let key = (source.clone(), invalid.position);
+                    if !already_reported_unmapped.contains(&key) {
+                        issues.push(unmapped_position_issue(source, text, mismap_ch, invalid.position));
+                        report.ambiguous_uses.push(source.clone());
+                        already_reported_unmapped.push(key);
+                    }
+                    continue;
                 }
-                continue;
-            }
+            };
             match classify(ch, &exemplar_nfd, authored_boundary_reps) {
                 Classification::Segment(evidence) => {
                     to_add = Some((ch, CharDefKind::Segment, evidence));

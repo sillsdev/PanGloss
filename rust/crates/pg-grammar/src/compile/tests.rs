@@ -2858,9 +2858,9 @@ fn text_use_collection_covers_every_represented_allomorph() {
 
 // --- position-remap mismap regression (a real corpus went from compiling to refusing) -----------
 
-/// A precomposed base+diacritic must never cause the NEXT, already-registered character to be re-selected -- the real-Sena-3 "b" duplicate-representation panic, reproduced synthetically.
+/// Mid-word sub-case: the mismapped position lands on the NEXT, already-registered character -- the real-Sena-3 "b" duplicate-representation panic, reproduced synthetically.
 #[test]
-fn precomposed_diacritic_never_reselects_the_next_already_registered_character() {
+fn precomposed_diacritic_mid_word_never_reselects_the_next_already_registered_character() {
     let (mut snapshot, _f) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.phonology.phonemes.push(phoneme("ph-b", "b"));
@@ -2885,6 +2885,71 @@ fn precomposed_diacritic_never_reselects_the_next_already_registered_character()
     assert_eq!(out.substrate.ambiguous_uses.len(), 1);
 
     let refused = compile_project_with(&snapshot, CompileOptions::default());
+    assert!(
+        matches!(refused, Err(GrammarError::Conversion(_))),
+        "the production Refuse path must refuse this, never silently drop or crash"
+    );
+}
+
+/// Word-final sub-case: the mismapped position lands PAST THE END of the word, with no "next" character to land on at all -- previously an unconditional panic in `failing_char` itself, not caught by any duplicate-registration guard.
+#[test]
+fn precomposed_diacritic_word_final_refuses_instead_of_panicking_past_the_end() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    // "s"/"a" are registered, "\u{e1}" is not, and the word ends right after it: no next character.
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "s\u{e1}")];
+
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("must not panic; a mismapped word-final position must be reported as an issue");
+    assert!(
+        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && i.fatal),
+        "expected a fatal substrate.position-unmapped issue; got {:?}",
+        out.issues
+    );
+    assert_eq!(out.substrate.inferred_segments.len(), 0);
+    assert_eq!(out.substrate.ambiguous_uses.len(), 1);
+
+    let refused = compile_project_with(&snapshot, CompileOptions::default());
+    assert!(
+        matches!(refused, Err(GrammarError::Conversion(_))),
+        "the production Refuse path must refuse this, never silently drop or crash"
+    );
+}
+
+/// The same word-final mismap under `Strict` -- `Strict`'s single pass and `CompleteFromUsage`'s loop share `position_mismap`, so both call sites must refuse, never panic.
+#[test]
+fn precomposed_diacritic_word_final_refuses_under_strict_too() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "s\u{e1}")];
+
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            substrate: SubstratePolicy::Strict,
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+        },
+    )
+    .expect("must not panic under Strict either");
+    assert!(
+        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && i.fatal),
+        "expected a fatal substrate.position-unmapped issue; got {:?}",
+        out.issues
+    );
+
+    let refused = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            substrate: SubstratePolicy::Strict,
+            ..CompileOptions::default()
+        },
+    );
     assert!(
         matches!(refused, Err(GrammarError::Conversion(_))),
         "the production Refuse path must refuse this, never silently drop or crash"
