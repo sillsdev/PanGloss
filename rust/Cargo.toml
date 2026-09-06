@@ -25,6 +25,7 @@ members = [
     "crates/pg-worker-containment",
     "crates/pg-assess",
     "crates/pg-stats",
+    "crates/pg-xample-oracle",
 ]
 
 # Doc-comment link integrity. `broken_intra_doc_links` only WARNS by default, and a warning nobody
