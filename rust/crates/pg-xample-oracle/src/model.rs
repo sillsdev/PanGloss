@@ -1,6 +1,7 @@
 //! The comparable result model: one [`AnalysisSignature`] per analysis, counted into a
 //! [`XampleResult`] multiset per word.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 /// One analysis's identity, keyed for cross-engine comparison.
@@ -10,18 +11,49 @@ use std::collections::BTreeMap;
 /// engine-generated text. `surface_nfd` is the NFD-normalized surface form both engines were asked
 /// to parse.
 ///
-/// `morphemes` is deliberately NOT part of any engine's identity: it carries the projector's own
-/// `morphnameOrGloss` (XAMPLE) or `MorphemeInfo::gloss` (HC) — a human label an author chose for
-/// their own reading convenience, not a stable key, and the two engines have no reason to spell it
-/// identically for the same morpheme. It exists purely so a divergence report can show what a
-/// mismatched analysis names its pieces; a comparison must never use it to decide whether two
-/// analyses are the same one, only `msa_ids`/`category_id`/`surface_nfd` may decide that.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// `morphemes` is NOT identity, and is EXCLUDED from `Eq`/`Ord` below (hand-written, not derived):
+/// it carries the projector's own `morphnameOrGloss` (XAMPLE) or `MorphemeInfo::gloss` (HC) — a
+/// human label an author chose for their own reading convenience, and the two engines have no
+/// reason to spell it identically for the same morpheme (`ParseCommand.cs`'s `morphnameOrGloss`
+/// reads LibLCM's `BestVernacularAlternative`/`BestAnalysisAlternative`; HC's `gloss_of` reads
+/// `Grammar::morphemes[_].gloss` — unrelated strings, same GUID). Neither the parse JSON
+/// (`msaGuid` is the only per-morph guid the projector emits) nor a same-instructions constraint
+/// against modifying `tools/xample-projector/**` leaves a stable per-morph key to promote
+/// `morphemes` to instead, so it stays a non-comparing label carried alongside the key rather than
+/// inside it — a real GUID-bearing field would be the better fix if the projector ever emits one.
+#[derive(Debug, Clone)]
 pub struct AnalysisSignature {
     pub morphemes: Vec<String>,
     pub msa_ids: Vec<String>,
     pub category_id: Option<String>,
     pub surface_nfd: String,
+}
+
+impl AnalysisSignature {
+    /// The tuple `Eq`/`Ord` actually compare — every identity field, `morphemes` deliberately absent.
+    fn identity_key(&self) -> (&[String], &Option<String>, &str) {
+        (&self.msa_ids, &self.category_id, &self.surface_nfd)
+    }
+}
+
+impl PartialEq for AnalysisSignature {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity_key() == other.identity_key()
+    }
+}
+
+impl Eq for AnalysisSignature {}
+
+impl PartialOrd for AnalysisSignature {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for AnalysisSignature {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.identity_key().cmp(&other.identity_key())
+    }
 }
 
 /// One word's XAMPLE (or HC, once normalized — see `crate::hc`) result.
@@ -34,15 +66,15 @@ pub struct AnalysisSignature {
 /// substitute for one another:
 /// - `Some(n)` in `reached_max_analyses` means the engine stopped after `n` analyses without
 ///   exhausting the search — this result is a LOWER bound, not the complete analysis set. Because
-///   it participates in `PartialEq`/`Ord` alongside `analyses`, two results with an identical
+///   it participates in the derived `PartialEq` alongside `analyses`, two results with an identical
 ///   member set but different `reached_max_analyses` never compare equal (see
-///   `capped_result_is_distinguishable_from_uncapped_with_same_members` below) — a caller cannot
+///   `xample_result_partial_eq_must_keep_comparing_reached_max_analyses` below) — a caller cannot
 ///   accidentally treat a capped multiset as if it were exhaustive just because its members match.
 /// - `Some(_)` in `engine_error` means the engine reported a failure for this word. `analyses` may
 ///   still be non-empty (a partial result before the failure) or empty; either way, an empty
 ///   `analyses` with `engine_error: None` is a genuine "zero analyses" answer, and the two must
 ///   never be conflated by checking emptiness alone (see
-///   `engine_error_is_distinguishable_from_empty_success` below).
+///   `xample_result_partial_eq_must_keep_comparing_engine_error` below).
 #[derive(Debug, Clone, PartialEq)]
 pub struct XampleResult {
     pub analyses: BTreeMap<AnalysisSignature, usize>,
@@ -74,7 +106,8 @@ mod tests {
     }
 
     #[test]
-    fn capped_result_is_distinguishable_from_uncapped_with_same_members() {
+    fn xample_result_partial_eq_must_keep_comparing_reached_max_analyses() {
+        // A fence against a future hand-written XampleResult comparison dropping this field the way AnalysisSignature's derive once dropped its morphemes exclusion.
         let mut analyses = BTreeMap::new();
         analyses.insert(sig(&["P1", "K"], &["guid-p1", "guid-k"], "xk"), 1);
         let capped = XampleResult {
@@ -94,7 +127,8 @@ mod tests {
     }
 
     #[test]
-    fn engine_error_is_distinguishable_from_empty_success() {
+    fn xample_result_partial_eq_must_keep_comparing_engine_error() {
+        // Same fence as above, for engine_error: an empty analyses set alone must never look like success.
         let empty_success = XampleResult {
             analyses: BTreeMap::new(),
             reached_max_analyses: None,
@@ -109,6 +143,18 @@ mod tests {
             empty_success, empty_failure,
             "an engine error must never read as an ordinary empty result"
         );
+    }
+
+    #[test]
+    fn signatures_differing_only_in_display_morphemes_are_equal_and_merge_counts() {
+        let a = sig(&["P1", "K"], &["guid-p1", "guid-k"], "xk");
+        let b = sig(&["different-label", "other-label"], &["guid-p1", "guid-k"], "xk");
+        assert_eq!(a, b, "morphemes must never participate in AnalysisSignature identity");
+        let mut analyses = BTreeMap::new();
+        *analyses.entry(a).or_insert(0) += 1;
+        *analyses.entry(b).or_insert(0) += 1;
+        assert_eq!(analyses.len(), 1, "the two arrivals must collapse into one multiset entry");
+        assert_eq!(*analyses.values().next().unwrap(), 2, "and their counts must sum");
     }
 
     #[test]
