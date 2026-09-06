@@ -110,6 +110,27 @@ fn ambiguous_issue(source: &SourceRef, text: &str, ch: char, position: usize) ->
     }
 }
 
+/// `ch` is already registered, so it is a `remap_error_position` mismap, not the true failure.
+fn unmapped_position_issue(
+    source: &SourceRef,
+    text: &str,
+    ch: char,
+    position: usize,
+) -> ConversionIssue {
+    ConversionIssue {
+        code: issues::SUBSTRATE_POSITION_UNMAPPED.to_string(),
+        class: IssueClass::SubstrateUnresolvable,
+        source: Some(source.clone()),
+        fatal: true,
+        message: format!(
+            "cannot segment {text:?}: the failure position {position} remaps to {ch:?}, which is \
+             already a registered character; the true failing element is likely a standalone \
+             combining mark from a decomposed character with no clean original-text position, so \
+             refusing rather than re-inferring a duplicate"
+        ),
+    }
+}
+
 /// `complete`'s result; a fatal issue here is the caller's to fold into its own gate.
 pub(crate) struct SubstrateCompletion {
     pub raw: RawCharDefBuild,
@@ -157,6 +178,15 @@ pub(crate) fn complete(
                 continue;
             };
             let ch = failing_char(text, invalid.position);
+            if raw.seen_nfd.contains(&nfd(&ch.to_string())) {
+                let key = (source.clone(), ch);
+                if !already_reported.contains(&key) {
+                    issues.push(unmapped_position_issue(source, text, ch, invalid.position));
+                    report.ambiguous_uses.push(source.clone());
+                    already_reported.push(key);
+                }
+                continue;
+            }
             match classify(ch, &exemplar_nfd, authored_boundary_reps) {
                 Classification::Segment(evidence) => {
                     to_add = Some((ch, CharDefKind::Segment, evidence));

@@ -31,6 +31,10 @@ pub(crate) const SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE: &str =
 /// affix form) but that construct is not literal text, so it cannot publish a usage for it.
 pub(crate) const UNSUPPORTED_CONSTRUCT: &str = "conversion.unsupported-construct";
 
+/// `substrate::complete`'s code when a failure position remaps to an already-registered character
+/// (a decomposed-diacritic artifact of `segment::remap_error_position`'s own documented heuristic).
+pub(crate) const SUBSTRATE_POSITION_UNMAPPED: &str = "substrate.position-unmapped";
+
 /// What the compiler had to infer about the phonological substrate rather than read off a closed
 /// declaration, plus what it could not resolve at all. Populated by `substrate::complete` under
 /// [`ResolvedSubstratePolicy::CompleteFromUsage`]; always empty under
