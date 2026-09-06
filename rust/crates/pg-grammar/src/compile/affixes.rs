@@ -765,6 +765,15 @@ fn build_affix_allomorphs_for(
             )),
         }
     }
+    // Selected as a rule form but every pass failed to build one: reject it rather than leave it silently unrepresented.
+    if out.is_empty() {
+        ctx.reject_quietly(
+            InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()),
+            issue_codes::ALLOMORPH_UNSEGMENTABLE,
+            IssueClass::UnrepresentableForHc,
+            "every environment pass failed to build a concatenative allomorph",
+        );
+    }
     out
 }
 
