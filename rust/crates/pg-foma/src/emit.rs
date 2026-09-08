@@ -1474,6 +1474,7 @@ fn write_pattern_root_entry(
 }
 
 /// What one root allomorph's shape would cost to enumerate, measured WITHOUT enumerating it.
+#[cfg(feature = "test-support")]
 pub struct RootVariantFact {
     /// `entry<id>(morpheme=<name>)#allo<n>`, the same label `collect_roots` reports uncovered items under.
     pub label: String,
@@ -1488,6 +1489,7 @@ pub struct RootVariantFact {
     pub variants: Option<u128>,
 }
 
+#[cfg(feature = "test-support")]
 impl RootVariantFact {
     /// Unbounded, or past [`REP_VARIANT_WARN_THRESHOLD`] -- i.e. worth a census row. Only the
     /// unbounded half means spellings are actually missing; breadth alone costs memory, not recall.
@@ -1510,6 +1512,7 @@ impl RootVariantFact {
 /// costs no more than one that fits. It walks strata and entries in `collect_roots`'s order and
 /// shares `node_alternatives` with `pattern_variants`, so a row here describes the shape the
 /// emitter really faces.
+#[cfg(feature = "test-support")]
 pub fn root_variant_census(g: &Grammar) -> Vec<RootVariantFact> {
     let mut out = Vec::new();
     for sd in &g.strata {
@@ -3733,6 +3736,7 @@ pub(crate) fn probe_would_refuse(g: &Grammar) -> bool {
 /// capability gap: the standalone-derivational loop reports a role it cannot route, while structural
 /// synthesis covers that same rule through `pg_rules::morph::synthesize`. Telling the two apart is
 /// what decides whether a refusal belongs in the envelope or the emitter.
+#[cfg(feature = "test-support")]
 pub fn structurally_routed_rule_ordinals(g: &Grammar) -> Vec<u32> {
     structural_candidate_rules(g)
         .into_iter()
@@ -4707,6 +4711,7 @@ pub fn composite_scale_hint(g: &Grammar) -> (bool, usize, usize) {
 /// only cardinality — the census C4 handoff test needs this to prove a rule reaches this set
 /// specifically, rather than merely inferring it from a count that could shift for an unrelated
 /// reason.
+#[cfg(feature = "test-support")]
 pub struct CompositeCandidateDiagnostics {
     pub preexpand_candidates: Vec<(u32, &'static str)>,
     pub structural_probe_would_refuse: bool,
@@ -4715,6 +4720,7 @@ pub struct CompositeCandidateDiagnostics {
 }
 
 /// See `CompositeCandidateDiagnostics`.
+#[cfg(feature = "test-support")]
 pub fn composite_candidate_rules(g: &Grammar) -> CompositeCandidateDiagnostics {
     let preexpand_candidates = (0..g.mrules.len() as u32)
         .filter_map(|i| {
