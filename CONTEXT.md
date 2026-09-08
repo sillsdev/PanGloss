@@ -84,7 +84,9 @@ PanGloss is one engine delivered in capability-specific forms:
 
 - **Inference deployment** — browser/WASM, word-processor, and native C hosts load a precompiled
   analysis artifact and perform bounded analysis, spell checking, and glossing. They do not compile
-  grammars or FSTs.
+  grammars or FSTs. In its current form, `pg-ffi` (the C ABI crate) does not yet meet this: it calls
+  `pg_foma::analyzer::FomaProposer::new` directly, so it belongs to the native build deployment
+  below until it is split or given its own precompiled-artifact load path.
 - **Native build deployment** — FieldWorks and AI-framework hosts use the C ABI and native CLI to
   import grammar sources, compile analysis artifacts, run compiler-health audits, compare grammar
   versions, and diagnose Rust/FST behavior.
