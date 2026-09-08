@@ -466,7 +466,10 @@ pub fn compile_completed_backend(
     requested_strategy: EmissionStrategy,
     request: &CompileAttempt,
 ) -> Result<CompletedBackendBuild, CompletedBuildError> {
-    let measured = compile_completed_backend_for_measurement(grammar, requested_strategy, request)?;
+    // Computed once per attempt and threaded to every seam that needs an admission decision.
+    let selection = crate::backend_selection::select_backends_for_grammar(grammar);
+    let measured =
+        compile_completed_backend_for_measurement(grammar, &selection, requested_strategy, request)?;
     let admission = crate::production_admission::assess_completed_fst(grammar, requested_strategy)
         .map_err(|error| CompletedBuildError::PartialFactsUnavailable(error.to_string()))?;
     if admission.blocks_publication() {
@@ -482,6 +485,7 @@ pub fn compile_completed_backend(
 /// The backend-specific compile with no admission decision attached; private so the worker's finite execution envelope stays the only outside way to run it.
 fn compile_completed_backend_for_measurement(
     grammar: &Grammar,
+    selection: &crate::backend_selection::BackendSelection,
     requested_strategy: EmissionStrategy,
     request: &CompileAttempt,
 ) -> Result<CompletedBackendBuild, CompletedBuildError> {
@@ -524,7 +528,7 @@ fn compile_completed_backend_for_measurement(
         EmissionStrategy::TemplatedUnderlyingTokens => {
             // Refused before emitting, per ADR-0001, mirroring `analyzer::FomaProposer::new`'s own gate.
             if let Err(diagnostics) =
-                crate::capability_gate::refuse_unless_admitted(grammar, requested_strategy)
+                crate::capability_gate::refuse_unless_admitted_in(selection, requested_strategy)
             {
                 return Err(CompletedBuildError::CapabilityRefused(diagnostics));
             }
@@ -801,9 +805,10 @@ mod tests {
         grammar.entries[0].partial = true;
         let strategy = EmissionStrategy::TunedSurfaceProbed;
         let attempt = CompileAttempt::try_new().expect("attempt id must construct");
+        let selection = crate::backend_selection::select_backends_for_grammar(&grammar);
 
         let measured =
-            compile_completed_backend_for_measurement(&grammar, strategy, &attempt)
+            compile_completed_backend_for_measurement(&grammar, &selection, strategy, &attempt)
                 .expect("the contained measurement attempt must complete for a partial grammar");
         assert!(
             !measured.payload_bytes().is_empty(),

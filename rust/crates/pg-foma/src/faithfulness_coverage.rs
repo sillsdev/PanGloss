@@ -43,8 +43,8 @@ use pg_grammar::model::Grammar;
 use crate::backend_runtime::{
     word_proposal_containment, RunEvaluationCache, RuntimeBudget, WordEvidence,
 };
-use crate::backend_selection::{select_backends, BackendReport};
-use crate::capability::CharacteristicKind;
+use crate::backend_selection::select_backends;
+use crate::capability::{CharacteristicKind, CompileDecision};
 use crate::coverage_seam::{self, MeasuredOutcome, Observation, Verdict};
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
@@ -196,9 +196,7 @@ pub fn observe_fixture_containment(
     let mut not_attempted: Vec<(EmissionStrategy, ContainmentOutcome)> = Vec::new();
     let mut selected_strategies: Vec<EmissionStrategy> = Vec::new();
     for &strategy in ALL_STRATEGIES {
-        let representable = selection
-            .report_for(strategy)
-            .is_some_and(BackendReport::can_represent);
+        let representable = !matches!(selection.decision_for(strategy), CompileDecision::Refuse(_));
         if representable {
             selected_strategies.push(strategy);
         } else {
