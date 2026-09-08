@@ -1,13 +1,11 @@
 //! Strategy-aware capability accounting: a compiler that cannot represent a construct must not be offered as selectable for a grammar that uses it.
 //! See docs/research/pg-foma-strategy-aware-capability-gate-notes.md for the defect this pins and why.
 
-use foma::options::FomaOptions;
-
 use pg_conformance_fixtures::{discover_scoped, ConformanceScope, FixtureRef, Root};
 use pg_foma::backend_selection::select_backends_for_grammar;
 use pg_foma::capability::{
     compose_envelope, compose_envelope_for_strategy, default_registry, CharacteristicKind,
-    CompileDecision,
+    CompileDecision, PredicateRegistry,
 };
 use pg_foma::enumerate::{
     enumerate_default, prules_in_order, CandidateRole, EmissionStrategy, LoweredCandidate,
@@ -19,8 +17,6 @@ use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma::lowering_adapter::LoweringAdapter;
 use pg_foma::plan::Plan;
-use pg_foma::replace::SegAlphabet;
-use pg_foma::selection::select_plan;
 use pg_foma::strategy_coverage::{
     representation_of, unrepresentable_kinds, StrategyRepresentation,
 };
@@ -127,6 +123,21 @@ fn enumerated_plan(g: &Grammar) -> Plan {
     enumerate_default(g, &ro, phon.as_ref())
 }
 
+/// Each candidate's own strategy-aware `CompileDecision`, in input order.
+fn strategy_aware_decisions(
+    candidates: &[LoweredCandidate],
+    g: &Grammar,
+    registry: &PredicateRegistry,
+) -> Vec<CompileDecision> {
+    let semantics = GrammarSemantics::derive(g);
+    candidates
+        .iter()
+        .map(|candidate| {
+            compose_envelope_for_strategy(&semantics, &candidate.plan, candidate.strategy(), registry)
+        })
+        .collect()
+}
+
 /// Two candidates with the identical plan differing only in `EmissionStrategy`; `PlanComposed` first so a filter that silently did nothing would leave it chosen (the roots tie, so no tie-break can rescue the assertion).
 fn two_strategy_candidates(plan: &Plan) -> Vec<LoweredCandidate> {
     vec![
@@ -157,35 +168,24 @@ fn a_strategy_that_cannot_represent_a_construct_is_not_selectable_for_a_grammar_
 
     let plan = enumerated_plan(&g);
     let candidates = two_strategy_candidates(&plan);
-    let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let ro = prules_in_order(&g);
-    let outcome = select_plan(
-        &candidates,
-        &g,
-        &default_registry(),
-        &FomaOptions::default(),
-        &alphabet,
-        &ro,
-    );
+    let decisions = strategy_aware_decisions(&candidates, &g, &default_registry());
 
-    let plan_composed = &outcome.considered[0];
-    let tuned = &outcome.considered[1];
+    let plan_composed = &decisions[0];
+    let tuned = &decisions[1];
 
     assert!(
-        !plan_composed.is_admissible(),
+        matches!(plan_composed, CompileDecision::Refuse(_)),
         "PlanComposed's proposer (uflexc) emits no lexc line for a Role::Process (ablaut) \
          allomorph, so it cannot propose the construct at all -- it must not be selectable. \
-         Decision was {:?}",
-        plan_composed.decision
+         Decision was {plan_composed:?}"
     );
     assert!(
-        tuned.is_admissible(),
+        !matches!(tuned, CompileDecision::Refuse(_)),
         "TunedSurfaceProbed handles Role::Process through build_structural_composites and must \
-         stay selectable -- the account is per-strategy, not a blanket refusal. Decision was {:?}",
-        tuned.decision
+         stay selectable -- the account is per-strategy, not a blanket refusal. Decision was {tuned:?}"
     );
     // The refusal has to be legible, not just a bool: it names the strategy, the construct, and the account that produced it.
-    let CompileDecision::Refuse(diagnostics) = &plan_composed.decision else {
+    let CompileDecision::Refuse(diagnostics) = plan_composed else {
         panic!("expected a Refuse carrying diagnostics");
     };
     let hit = diagnostics
@@ -294,17 +294,10 @@ fn a_grammar_using_no_strategy_conditional_construct_is_unaffected() {
     }
 
     let candidates = two_strategy_candidates(&plan);
-    let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let ro = prules_in_order(&g);
-    let outcome = select_plan(
-        &candidates,
-        &g,
-        &registry,
-        &FomaOptions::default(),
-        &alphabet,
-        &ro,
-    );
-    assert!(outcome.considered.iter().all(|c| c.is_admissible()));
+    let decisions = strategy_aware_decisions(&candidates, &g, &registry);
+    assert!(decisions
+        .iter()
+        .all(|decision| !matches!(decision, CompileDecision::Refuse(_))));
 }
 
 /// The account can only lower a decision, never raise it: `meet` is a greatest lower bound, so no grammar/strategy pair can become more admissible by this change.

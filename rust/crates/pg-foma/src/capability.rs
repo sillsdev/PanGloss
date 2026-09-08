@@ -1272,12 +1272,15 @@ thread_local! {
 }
 
 /// How many times `characterize` has run on the current thread (see `CHARACTERIZE_CALLS`).
+/// Test-support only, so a counter no production code needs stays out of the product interface.
+#[cfg(feature = "test-support")]
 pub fn characterize_call_count() -> u64 {
     CHARACTERIZE_CALLS.with(std::cell::Cell::get)
 }
 
 /// Zeroes the current thread's `characterize_call_count`, so a caller can measure one scoped
-/// operation rather than a running total.
+/// operation rather than a running total. Test-support only, same reasoning as that function.
+#[cfg(feature = "test-support")]
 pub fn reset_characterize_call_count() {
     CHARACTERIZE_CALLS.with(|c| c.set(0));
 }

@@ -179,7 +179,7 @@ pub mod faithfulness_coverage;
 pub mod gate;
 /// [`grammar_semantics::
 /// GrammarSemantics`], the ONE immutable typed owner of this crate's grammar-derived semantic
-/// facts. Capability (`capability`/`backend_selection`/`characterization`/`selection`), registry
+/// facts. Capability (`capability`/`backend_selection`/`characterization`), registry
 /// applicability (`backend_registry::Applicability`), backend-space accounting
 /// (`backend_space::GrammarFacts`) and the phonology existence gate (`junctions::PhonologyProbe`)
 /// are projections over it rather than four independent grammar walks. See that module's own
@@ -303,14 +303,6 @@ pub mod readiness_verdict;
 /// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
 /// rewrite rule, used by `build` and `gate`.
 pub mod replace;
-/// [`selection::
-/// select_plan`] -- filters `enumerate::enumerate_candidates`'s candidate list to those whose
-/// `capability::compose_envelope` decision is not `Refuse` (capability-safe by construction),
-/// then picks the minimum measured `states + arcs` (via `build::build_controllable`), tie-broken
-/// by root `plan::NodeId` (a content address). A library capability -- no production compile
-/// path calls it today, a deliberately separate and still-open question; see that module's own doc
-/// for the full filter/rank/tie-break contract.
-pub mod selection;
 /// Typed per-(grammar, words) backend measurement extracted from `examples/conf_matrix.rs` -- see
 /// this module's own doc for why `IdentityDivergence` is exposed rather than recomputed, and why it
 /// names no fixture-loading type (fixture discovery is a caller's concern, not the Compiler's).
@@ -319,8 +311,8 @@ pub mod scoreboard;
 /// PROPOSE each `capability::CharacteristicKind`. `capability::Disposition::ConfirmOnly` is
 /// defined as "recall-preserving only if the proposer proposes the superset", and until this module
 /// existed nothing checked WHICH proposer was in use -- so one compiler's coverage was silently
-/// inherited by all three. Consulted by `capability::compose_envelope_for_strategy`, which
-/// `selection::select_plan` calls at the point a candidate becomes selectable.
+/// inherited by all three. Consulted by `capability::compose_envelope_for_strategy`, the seam a
+/// per-strategy admission decision is composed through.
 pub mod strategy_coverage;
 /// Joins `strategy_coverage`'s table against a real per-fixture measurement -- the check that
 /// table never previously had. See that module's own doc for the sound/unsound direction split.
