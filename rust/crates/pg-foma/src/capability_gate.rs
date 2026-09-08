@@ -28,8 +28,8 @@
 
 use pg_grammar::model::Grammar;
 
-use crate::backend_selection::select_backends;
-use crate::capability::CapabilityDiagnostic;
+use crate::backend_selection::{select_backends, BackendSelection};
+use crate::capability::{CapabilityDiagnostic, CompileDecision};
 use crate::enumerate::EmissionStrategy;
 use crate::grammar_semantics::GrammarSemantics;
 
@@ -39,23 +39,29 @@ use crate::grammar_semantics::GrammarSemantics;
 /// reaches hundreds of thousands of lexc lines), and a construct the backend cannot represent is
 /// knowable from the characterization alone.
 ///
-/// A backend with no report at all is admitted rather than refused. "I could not look" must never
-/// read as a refusal any more than it may read as a pass; a strategy absent from the envelope is
-/// outside this gate's knowledge, and inventing a verdict for it would be the silent guess this
-/// module exists to remove.
+/// A convenience wrapper: derives a `BackendSelection` and delegates to
+/// `refuse_unless_admitted_in`. A caller that already holds a `BackendSelection` for this compile
+/// attempt should call that directly instead of paying for a second grammar walk.
 pub fn refuse_unless_admitted(
     g: &Grammar,
     strategy: EmissionStrategy,
 ) -> Result<(), Vec<CapabilityDiagnostic>> {
     let semantics = GrammarSemantics::derive(g);
-    let selection = select_backends(&semantics);
-    let Some(report) = selection.report_for(strategy) else {
-        return Ok(());
-    };
-    if report.can_represent() {
-        return Ok(());
+    refuse_unless_admitted_in(&select_backends(&semantics), strategy)
+}
+
+/// `refuse_unless_admitted` over an already-computed `BackendSelection` -- the one owner of "is
+/// this backend admitted" (`BackendSelection::decision_for`), never re-derived here. Fails CLOSED
+/// on a missing report, matching `decision_for`'s own contract; `admission_single_owner_gate.rs`
+/// measures that this arm is a guard, not live policy, for every discovered conformance fixture.
+pub fn refuse_unless_admitted_in(
+    selection: &BackendSelection,
+    strategy: EmissionStrategy,
+) -> Result<(), Vec<CapabilityDiagnostic>> {
+    match selection.decision_for(strategy) {
+        CompileDecision::Admit | CompileDecision::ConfirmOnly => Ok(()),
+        CompileDecision::Refuse(diagnostics) => Err(diagnostics),
     }
-    Err(report.declined_on().to_vec())
 }
 
 /// One line per refused construct, in the vocabulary ADR-0001 asks a refusal to carry.

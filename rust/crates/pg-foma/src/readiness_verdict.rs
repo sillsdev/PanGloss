@@ -636,18 +636,8 @@ pub fn certify_with_semantics(
     measurements: Option<&Measurements>,
     policy: &ThresholdPolicy,
 ) -> ReadinessReport {
-    let selection = select_backends(semantics);
-    let decision = match selection.report_for(FomaProposer::EMISSION_STRATEGY) {
-        Some(report) => report.decision().clone(),
-        // Fail closed: an unreported backend is not an admitted one.
-        None => CompileDecision::Refuse(vec![CapabilityDiagnostic {
-            predicate: "readiness.backend-not-reported",
-            construct: FomaProposer::EMISSION_STRATEGY.label().to_string(),
-            witness: "no compatibility report was composed for the backend this certificate would \
-                      be about"
-                .to_string(),
-        }]),
-    };
+    // One owner: `BackendSelection::decision_for`, the same one `capability_gate` calls.
+    let decision = select_backends(semantics).decision_for(FomaProposer::EMISSION_STRATEGY);
     let capability = CapabilitySummary::from_decision(&decision);
 
     let blocked_reason = match trust {

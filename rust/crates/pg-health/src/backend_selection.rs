@@ -314,4 +314,36 @@ impl BackendSelection {
     pub fn report_for(&self, strategy: EmissionStrategy) -> Option<&BackendReport> {
         self.reports.iter().find(|r| r.strategy == strategy)
     }
+
+    /// `strategy`'s own admission decision -- the one fact every caller that needs "is this backend
+    /// admitted" should read, rather than re-deriving it from `report_for` with its own `None`
+    /// handling. Fails CLOSED on a missing report: uncertainty about a backend's own capability
+    /// verdict is a refusal, never a pass. `pg_foma`'s `every_all_strategies_member_is_reported`
+    /// and `admission_single_owner_gate.rs` pin that this arm is a guard, never live policy, for a
+    /// real `pg_foma::backend_selection::select_backends` selection.
+    pub fn decision_for(&self, strategy: EmissionStrategy) -> CompileDecision {
+        match self.report_for(strategy) {
+            Some(report) => report.decision().clone(),
+            None => CompileDecision::Refuse(vec![CapabilityDiagnostic {
+                predicate: "selection.backend-not-reported",
+                construct: strategy.label().to_string(),
+                witness: "no compatibility report was composed for this backend".to_string(),
+            }]),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A missing report must fail closed as `Refuse`, not silently admit.
+    #[test]
+    fn decision_for_refuses_a_missing_report() {
+        let selection = BackendSelection::from_reports(vec![]);
+        assert!(matches!(
+            selection.decision_for(EmissionStrategy::TunedSurfaceProbed),
+            CompileDecision::Refuse(_)
+        ));
+    }
 }

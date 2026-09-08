@@ -143,3 +143,51 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
 pub fn select_backends_for_grammar(g: &Grammar) -> BackendSelection {
     select_backends(&GrammarSemantics::derive(g))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ADMIT_XML: &str = r#"<HermitCrabInput><Language><Name>BackendSelectionFixture</Name>
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <Strata>
+        <Stratum characterDefinitionTable="t1">
+          <Name>S</Name>
+          <LexicalEntries>
+            <LexicalEntry id="e1"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
+          </LexicalEntries>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
+
+    /// Mirrors `tests/admission_single_owner_gate.rs`'s whole-fixture-set measurement as a unit test.
+    #[test]
+    fn every_all_strategies_member_is_reported() {
+        let g = pg_grammar::load(ADMIT_XML).expect("fixture must load");
+        let selection = select_backends_for_grammar(&g);
+        for &strategy in ALL_STRATEGIES {
+            assert!(
+                selection.report_for(strategy).is_some(),
+                "{strategy:?} has no report; decision_for's fail-closed arm just became live policy"
+            );
+        }
+    }
+
+    /// A composed report's own decision passes through unchanged.
+    #[test]
+    fn decision_for_returns_the_composed_reports_own_decision() {
+        let g = pg_grammar::load(ADMIT_XML).expect("fixture must load");
+        let selection = select_backends_for_grammar(&g);
+        for &strategy in ALL_STRATEGIES {
+            let expected = selection
+                .report_for(strategy)
+                .expect("pinned above: every strategy has a report")
+                .decision()
+                .clone();
+            assert_eq!(selection.decision_for(strategy), expected);
+        }
+    }
+}
