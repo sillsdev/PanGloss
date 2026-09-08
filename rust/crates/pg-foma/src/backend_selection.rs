@@ -23,8 +23,8 @@ use pg_grammar::model::Grammar;
 use crate::advice_catalog::builtin_catalog;
 pub use pg_health::backend_selection::{AdviceReference, BackendReport, BackendSelection, BackendStatus};
 use crate::capability::{
-    compose_envelope_across_strategies, default_grammar_wide_checks, default_registry,
-    CapabilityContributions, CapabilityDiagnostic, CompileDecision, StrategyEnvelope,
+    compose_envelope_across_strategies, compose_envelope_with_semantics, default_grammar_wide_checks,
+    default_registry, CapabilityContributions, CapabilityDiagnostic, CompileDecision, StrategyEnvelope,
 };
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
@@ -124,6 +124,27 @@ fn build_backend_selection(envelope: &StrategyEnvelope) -> BackendSelection {
     BackendSelection::from_reports(reports)
 }
 
+/// The ADVISORY-ONLY, best-of-every-backend `CompileDecision` -- the BEST verdict any compiler
+/// offers, joined via `crate::capability::StrategyEnvelope::global`. A free function, not a method
+/// on `pg_health::backend_selection::BackendSelection`: it composes its OWN envelope over
+/// `crate::capability::baseline_grammar_wide_checks` rather than reading an existing selection's
+/// reports (which are composed over the richer `default_grammar_wide_checks` a real per-backend
+/// decision needs), and that composition needs this crate's capability registry -- machinery
+/// `pg-health` does not and must not depend on. A non-`Refuse` here says nothing about the backend
+/// a caller is about to run -- `BackendSelection::decision_for` is the entry point that decides.
+pub fn best_case_across_backends(semantics: &GrammarSemantics<'_>) -> CompileDecision {
+    let g = semantics.grammar();
+    let phon = PhonologyProbe::new_with_semantics(semantics);
+    let plan = enumerate_default(g, semantics.prules_in_order(), phon.as_ref());
+    let registry = default_registry();
+    compose_envelope_with_semantics(semantics, &plan, &registry)
+}
+
+/// [`best_case_across_backends`] over a bare `&Grammar`, deriving the semantics itself.
+pub fn best_case_for_grammar(g: &Grammar) -> CompileDecision {
+    best_case_across_backends(&GrammarSemantics::derive(g))
+}
+
 /// Selects over an already-derived `crate::grammar_semantics::GrammarSemantics` — the primary form,
 /// since deriving one runs the whole `crate::capability::characterize` walk and a caller that
 /// already holds a semantics should never pay for a second.
@@ -189,5 +210,149 @@ mod tests {
                 .clone();
             assert_eq!(selection.decision_for(strategy), expected);
         }
+    }
+
+    // Folded in from the former `capability_entry.rs`, same fixtures and expected verdicts.
+
+    /// An ordinary affix + iterative-rewrite grammar must evaluate to `Admit` through `best_case` too.
+    #[test]
+    fn best_case_admits_ordinary_affix_and_iterative_rewrite_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>Ordinary</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /><Segment segment="cb" /></SegmentNaturalClass></NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1">
+              <Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="pr1" morphologicalRules="mr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <MorphologicalRule id="mr1">
+                  <Name>-a</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput>
+                        <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
+                      </MorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="stem" />
+                        <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                      </MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>b</PhoneticShape></Allomorph></Allomorphs>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = pg_grammar::load(XML).expect("fixture must load");
+
+        assert_eq!(
+            best_case_across_backends(&GrammarSemantics::derive(&g)),
+            CompileDecision::Admit
+        );
+    }
+
+    /// A single, non-recursive `Compounding` rule must evaluate to `ConfirmOnly` through `best_case` too.
+    #[test]
+    fn best_case_confirm_only_for_non_recursive_compounding_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = pg_grammar::load(XML).expect("fixture must load");
+
+        assert_eq!(
+            best_case_across_backends(&GrammarSemantics::derive(&g)),
+            CompileDecision::ConfirmOnly
+        );
+    }
+
+    /// A self-feeding (`multipleApplication="2"`) `Compounding` rule evaluates to `ConfirmOnly` through `best_case` too, not bare `Refuse`.
+    #[test]
+    fn best_case_confirm_only_for_recursive_compounding_grammar() {
+        const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="cr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <CompoundingRule id="cr1" multipleApplication="2">
+                  <Name>Compound</Name>
+                  <CompoundingSubrules>
+                    <CompoundingSubrule>
+                      <HeadMorphologicalInput>
+                        <PhoneticSequence id="h0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </HeadMorphologicalInput>
+                      <NonHeadMorphologicalInput>
+                        <PhoneticSequence id="n0"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </NonHeadMorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="n0" />
+                        <CopyFromInput index="h0" />
+                      </MorphologicalOutput>
+                    </CompoundingSubrule>
+                  </CompoundingSubrules>
+                </CompoundingRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
+        let g = pg_grammar::load(XML).expect("fixture must load");
+
+        assert_eq!(
+            best_case_across_backends(&GrammarSemantics::derive(&g)),
+            CompileDecision::ConfirmOnly
+        );
     }
 }

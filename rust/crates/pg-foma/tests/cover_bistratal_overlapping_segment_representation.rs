@@ -3,8 +3,8 @@
 use std::fs;
 use std::path::Path;
 
+use pg_foma::backend_selection::best_case_for_grammar;
 use pg_foma::capability::CompileDecision;
-use pg_foma::capability_entry::best_case_across_backends_for_grammar;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
@@ -30,7 +30,7 @@ fn capability_gate_confirm_only_for_shared_representation_across_tables() {
         "fixture must declare exactly 2 tables"
     );
     assert_eq!(
-        best_case_across_backends_for_grammar(&g),
+        best_case_for_grammar(&g),
         CompileDecision::ConfirmOnly,
         "two tables sharing a representation must ConfirmOnly, never Refuse or Admit, after the \
          cross-table aliasing fix"

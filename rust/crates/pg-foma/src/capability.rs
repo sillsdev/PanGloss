@@ -2001,10 +2001,10 @@ pub(crate) fn simultaneous_rule_admitted_for_compile(
 /// distinguish "the risky rule is a Rewrite" from "the risky rule is a Metathesis" anyway — moot now
 /// that both kinds are covered by the same recall argument. In practice this was advisory-only
 /// exposure even before the fix, never a live compile-blocking gap: `CompileDecision` is check-only
-/// (`capability_entry.rs`'s
-/// own doc — "nothing here alters what `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs` actually
-/// compile"), so `crate::replace::compile_metathesis_rule` already compiles whatever it can either
-/// way; only the ADVISORY verdict this predicate reports is what's affected.
+/// (`crate::backend_selection::best_case_across_backends`'s own doc — nothing here alters what
+/// `emit.rs`/`gate.rs`/`replace.rs`/`preexpand.rs` actually compile), so
+/// `crate::replace::compile_metathesis_rule` already compiles whatever it can either way; only the
+/// ADVISORY verdict this predicate reports is what's affected.
 ///
 /// # Disposition
 /// - **Zero or one table observed at all:** vacuously `Admit` (this predicate has nothing to say —

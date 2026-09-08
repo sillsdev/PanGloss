@@ -518,7 +518,7 @@ pub fn compute_interaction_coverage(
 // Assembly glue: building a Plan + CharacteristicsProfile the way a real caller would
 
 /// Assembles `g`'s reified `Plan` (`enumerate_default`) and `CharacteristicsProfile` the way a
-/// real caller would — mirrors `crate::capability_entry::best_case_across_backends`'s setup, but
+/// real caller would — mirrors `crate::backend_selection::best_case_across_backends`'s setup, but
 /// returns both pieces instead of folding them into a `crate::capability::CompileDecision`.
 ///
 /// Both halves come off ONE

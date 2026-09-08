@@ -3865,8 +3865,8 @@ pub fn eager_route_refuses_mixed_circumfix_zone(g: &Grammar) -> bool {
 /// `gate::partition_entries`, belongs to `gate.rs`'s separate compile entry point, which this
 /// mainline lexc-emission path never calls at all -- see `emit_with_budget_profiled`'s own doc.)
 ///
-/// `prules_in_order`/`alphabet` mirror `crate::capability_entry::best_case_across_backends`'s own
-/// construction of these same `enumerate_default` inputs (that module's own doc: this crate's
+/// `prules_in_order`/`alphabet` mirror `crate::backend_selection::best_case_across_backends`'s own
+/// construction of these same `enumerate_default` inputs (that function's own doc: this crate's
 /// mainline lexc-emission path doesn't build a `Replace` cascade at all, so `prules_in_order` isn't
 /// already a local anywhere in `emit.rs` -- built the same way every other real construction site in
 /// this crate does: `g`'s strata, in order, flattened over each stratum's own `phonologicalRules` id

@@ -5,8 +5,8 @@ use std::fs;
 use std::path::Path;
 
 use pg_foma::analyzer::FomaProposer;
+use pg_foma::backend_selection::best_case_for_grammar;
 use pg_foma::capability::CompileDecision;
-use pg_foma::capability_entry::best_case_across_backends_for_grammar;
 use pg_foma::characterization::{ClosureStopReason, ClosureTerminal};
 use pg_foma::emit;
 use pg_grammar::model::Grammar;
@@ -44,7 +44,7 @@ fn characterize_reports_the_computed_depth_bound_for_the_staged_fixture() {
 fn capability_gate_is_now_confirm_only_for_the_computed_depth_bound() {
     let g = load();
     assert_eq!(
-        best_case_across_backends_for_grammar(&g),
+        best_case_for_grammar(&g),
         CompileDecision::ConfirmOnly,
         "a self-feeding CompoundingRule (multipleApplication > 1) must now evaluate to ConfirmOnly \
          -- crate::emit's depth-budgeted compound loop closes the construction gap that used to make \

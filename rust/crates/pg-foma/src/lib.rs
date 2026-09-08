@@ -91,8 +91,9 @@ pub mod backend_cards {
 /// The selector: `backend_selection::select_backends` turns
 /// `capability::StrategyEnvelope`'s per-backend compatibility reports into a choice — which
 /// backend(s) can compile a grammar, and the named construct each excluded one declined on. No
-/// path, one path and several are all ordinary answers. Check-only, on the same terms as
-/// `capability_entry`.
+/// path, one path and several are all ordinary answers. `backend_selection::
+/// best_case_across_backends` is check-only in the same sense: an advisory, whole-grammar join,
+/// never a per-backend decision.
 pub mod backend_selection;
 pub mod backend_space;
 /// [`build::
@@ -111,19 +112,11 @@ pub mod candidate_filter;
 /// Gates SELECTION, not compilation: `compose_envelope_for_strategy` decides what `selection`
 /// may offer, while the compile passes themselves are untouched.
 pub mod capability;
-/// A production-shaped convenience entry point into `capability::compose_envelope`:
-/// `capability_entry::best_case_across_backends` assembles `characterize` + `enumerate_default`'s
-/// inputs the way `emit::emit_with_budget`'s own setup does (`surface_table` + [`replace::
-/// SegAlphabet`], `PhonologyProbe::new`, stratum-cascade `prules_in_order`) and returns the
-/// ADVISORY-ONLY, best-of-every-backend `CompileDecision` from one call -- never the per-backend
-/// verdict a real compile is licensed by; see that module's own doc for the distinction and
-/// `backend_selection` for the entry point that decides.
-pub mod capability_entry;
 pub mod capability_gate;
 /// The
 /// cheap, pre-compile health pass -- `characterization::characterization_findings` turns
 /// `capability::characterize`'s already-computed `capability::CharacteristicsProfile` and
-/// `capability_entry::best_case_across_backends`'s already-resolved, advisory-only
+/// `backend_selection::best_case_across_backends`'s already-resolved, advisory-only
 /// `capability::CompileDecision` into `health::HealthFinding`s BEFORE any foma compile is
 /// attempted -- semantic uncertainty
 /// (`Refuse`), cost uncertainty (`ConfirmOnly`/unbounded quantifiers), and bounded-product findings
@@ -186,7 +179,7 @@ pub mod faithfulness_coverage;
 pub mod gate;
 /// [`grammar_semantics::
 /// GrammarSemantics`], the ONE immutable typed owner of this crate's grammar-derived semantic
-/// facts. Capability (`capability`/`capability_entry`/`characterization`/`selection`), registry
+/// facts. Capability (`capability`/`backend_selection`/`characterization`/`selection`), registry
 /// applicability (`backend_registry::Applicability`), backend-space accounting
 /// (`backend_space::GrammarFacts`) and the phonology existence gate (`junctions::PhonologyProbe`)
 /// are projections over it rather than four independent grammar walks. See that module's own

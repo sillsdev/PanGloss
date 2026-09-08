@@ -17,7 +17,7 @@
 //!   (`crate::capability::QuantifierPatternDetail::all_bounded`,
 //!   `crate::capability::UnorderedStratumDetail::rule_count`) feed this module's
 //!   cardinality findings verbatim — never re-walked from the grammar.
-//! - `crate::capability_entry::best_case_across_backends` — an ADVISORY-ONLY, whole-grammar join
+//! - `crate::backend_selection::best_case_across_backends` — an ADVISORY-ONLY, whole-grammar join
 //!   over every backend's compatibility report (see that function's own doc), composing
 //!   `characterize` with the predicate registry (`crate::capability::compose_envelope`/
 //!   `crate::capability::default_registry`) into one final `crate::capability::CompileDecision`.
@@ -69,8 +69,8 @@ use std::sync::Mutex;
 use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
+use crate::backend_selection::best_case_across_backends;
 use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
-use crate::capability_entry::best_case_across_backends;
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
@@ -402,7 +402,6 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capability_entry::best_case_across_backends;
 
     /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no characterization finding at all.
     #[test]
