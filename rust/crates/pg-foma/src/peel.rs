@@ -116,12 +116,13 @@ use crate::tags::Candidate;
 /// rules() == false` — never depends on it: most constructs are fully lowered and impose no
 /// runtime requirement).
 ///
-/// **Declared here; consuming it is `pg-pack`'s responsibility.** `pg-pack` is a separate
-/// crate/single-owner boundary this module does not cross; this constant is the stable identifier
-/// a `pg-pack` manifest-builder should read `ReduplicationPeeler::has_redup_rules` against and
-/// push into the pack's required set, rather than inventing a second ad hoc name for the same
-/// operation.
-pub const RUNTIME_FEATURE_REDUPLICATION_PEEL: &str = "reduplication.peel";
+/// **Declared in `pg-health`; consuming it is `pg-pack`'s responsibility.** `pg-pack` is a
+/// separate crate/single-owner boundary this module does not cross; this constant is the stable
+/// identifier a `pg-pack` manifest-builder should read `ReduplicationPeeler::has_redup_rules`
+/// against and push into the pack's required set, rather than inventing a second ad hoc name for
+/// the same operation. Re-exported here at its historical path so this crate's own callers are
+/// unaffected by the move.
+pub use pg_health::runtime_features::RUNTIME_FEATURE_REDUPLICATION_PEEL;
 
 /// `ComposeBudget::check_chain_depth`'s `site` label for every check this module makes.
 const CHAIN_DEPTH_SITE: &str = "peel::ReduplicationPeeler::propose_for_residual";

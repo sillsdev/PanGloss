@@ -767,6 +767,7 @@ dependencies = [
  "pg-fwdata",
  "pg-grammar",
  "pg-grammar-gen",
+ "pg-health",
  "pg-parse",
  "pg-rules",
  "pg-shape",
@@ -827,6 +828,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pg-health"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pg-lexicon"
 version = "0.2.0"
 dependencies = [
@@ -856,7 +865,7 @@ version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "foma",
- "pg-foma",
+ "pg-health",
  "serde",
  "serde_json",
  "sha2",
@@ -942,8 +951,8 @@ name = "pg-wasm"
 version = "0.2.0"
 dependencies = [
  "console_error_panic_hook",
- "pg-foma",
  "pg-grammar",
+ "pg-health",
  "pg-lexicon",
  "pg-pack",
  "pg-parse",

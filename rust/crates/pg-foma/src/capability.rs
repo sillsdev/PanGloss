@@ -1621,8 +1621,9 @@ pub fn characterize(g: &Grammar) -> CharacteristicsProfile {
 
 // ---- CapabilityPredicate + PredicateVerdict + EvidenceProvenance + CapabilityDiagnostic ----
 
-/// A predicate's stable identity (e.g. `"simultaneous.subrule-overlap"`).
-pub type PredicateId = &'static str;
+/// `PredicateId` and `CapabilityDiagnostic` are plain data the pack format also reads, so they
+/// live in `pg-health`; re-exported here at their historical path.
+pub use pg_health::capability::{CapabilityDiagnostic, PredicateId};
 
 /// Where a predicate's evidence comes from.
 ///
@@ -1639,17 +1640,6 @@ pub enum EvidenceProvenance {
     /// as `SimultaneousSubruleOverlapPredicate` does today — directly-readable model fields like
     /// `required_mpr`/`excluded_mpr`/`self_opaquing`).
     Structural,
-}
-
-/// A `Refuse` verdict's typed payload: which predicate refused, what construct/config, and a
-/// human-readable witness: compilation fails with a typed diagnostic naming the construct and
-/// configuration.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[must_use = "a capability verdict that is computed and dropped decides nothing"]
-pub struct CapabilityDiagnostic {
-    pub predicate: PredicateId,
-    pub construct: String,
-    pub witness: String,
 }
 
 /// A capability predicate's verdict for one plan node.
@@ -3571,28 +3561,13 @@ impl<'a> CapabilityContributions<'a> {
 
 // ---- Bottom-up envelope composition + the compile decision ----
 
-/// The overall, whole-plan compile decision `compose_envelope` returns: a node verdict is the
-/// meet of its children's verdicts and its own predicate, with `Refuse` dominating and any
-/// `ConfirmOnly` demoting the subtree. Distinct from
+/// `compose_envelope`'s overall, whole-plan verdict is plain data the pack format also reads, so
+/// it lives in `pg-health`; re-exported here at its historical path. Distinct from
 /// `PredicateVerdict` (a PER-PREDICATE, single-node verdict, carrying at most one
 /// `CapabilityDiagnostic`): composing a whole plan can collect refusals from many different
-/// nodes/observations, and a caller should see all of them, not just whichever one `meet` folded
-/// in first — this type widens the single diagnostic to a deduplicated `Vec` at exactly the point
-/// those per-node/per-observation verdicts get folded together.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[must_use = "a capability verdict that is computed and dropped decides nothing"]
-pub enum CompileDecision {
-    /// Every construct in the plan is `Proven`, or has a predicate-proven `PredicateVerdict::Admit`.
-    /// Admission-filtering is licensed.
-    Admit,
-    /// At least one construct rests at (or was proven no better than) `ConfirmOnly`, and NONE is
-    /// refused. Propose the superset, no admission-filtering — first-class, not a failure.
-    ConfirmOnly,
-    /// At least one construct is refused. Carries EVERY `CapabilityDiagnostic` collected while
-    /// composing the plan (content-deduplicated — see `meet`'s own doc), not just the first, so a
-    /// caller sees every problem in one pass rather than one compile attempt at a time.
-    Refuse(Vec<CapabilityDiagnostic>),
-}
+/// nodes/observations, and `CompileDecision::Refuse` widens that to a deduplicated `Vec` at
+/// exactly the point those per-node/per-observation verdicts get folded together.
+pub use pg_health::capability::CompileDecision;
 
 /// The lattice, made explicit: `Refuse` dominates `ConfirmOnly` dominates `Admit`/`Proven` —
 /// `meet(a, b)` is this lattice's greatest-lower-bound over the total order `Admit < ConfirmOnly <

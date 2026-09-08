@@ -6,6 +6,7 @@ members = [
     "crates/pg-grammar",
     "crates/pg-featstruct",
     "crates/pg-shape",
+    "crates/pg-health",
     "crates/pg-foma",
     "crates/pg-fst",
     "crates/pg-rules",
@@ -97,6 +98,10 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 pg-grammar = { path = "crates/pg-grammar" }
 pg-featstruct = { path = "crates/pg-featstruct" }
 pg-shape = { path = "crates/pg-shape" }
+# The compiler's report vocabulary as plain data (health findings, backend compatibility-report
+# shapes, required-runtime-feature constants) -- wasm32-safe by construction (serde/serde_json
+# only), so `pg-wasm`/`pg-pack` depend on this instead of the compiler crate below.
+pg-health = { path = "crates/pg-health" }
 pg-foma = { path = "crates/pg-foma" }
 pg-fst = { path = "crates/pg-fst" }
 pg-rules = { path = "crates/pg-rules" }

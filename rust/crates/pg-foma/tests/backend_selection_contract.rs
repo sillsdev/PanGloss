@@ -4,7 +4,8 @@ use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::health::{FindingCode, Severity};
 
 fn refused(strategy: EmissionStrategy) -> BackendReport {
-    BackendReport::refused(
+    // Not `BackendReport::refused`: that is pg-health's data-only half; this attaches catalog advice.
+    pg_foma::backend_selection::refused(
         strategy,
         CompileDecision::Refuse(vec![CapabilityDiagnostic {
             predicate: "synthetic.test-only",

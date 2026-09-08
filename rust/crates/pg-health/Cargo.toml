@@ -1,0 +1,17 @@
+[package]
+name = "pg-health"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The FST-health finding schema's canonical JSON. Nothing else: this crate must stay buildable
+# for wasm32-unknown-unknown with no `foma`/construction machinery anywhere in its graph — see
+# this crate's own `lib.rs` doc.
+serde.workspace = true
+serde_json.workspace = true
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

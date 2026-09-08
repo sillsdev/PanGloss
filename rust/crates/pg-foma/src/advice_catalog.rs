@@ -92,27 +92,21 @@ impl EvidenceKind {
     }
 }
 
-/// Estimated effort for one remedy applied to one shape.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum RemedyEffort {
-    Easy,
-    Medium,
-    Hard,
-}
+/// Estimated effort for one remedy applied to one shape. A plain-data type shared with the pack
+/// format, so it lives in `pg-health`; re-exported here at its historical path.
+pub use pg_health::advice::RemedyEffort;
 
-impl RemedyEffort {
-    fn parse(value: &str) -> Result<Self, CatalogError> {
-        match value.to_ascii_lowercase().as_str() {
-            "easy" => Ok(Self::Easy),
-            "medium" => Ok(Self::Medium),
-            "hard" => Ok(Self::Hard),
-            _ => Err(CatalogError::InvalidValue {
-                field: "effort".to_string(),
-                value: value.to_string(),
-                detail: "expected easy, medium, or hard".to_string(),
-            }),
-        }
+// Free functions, not inherent methods: `RemedyEffort` is now `pg_health`'s type.
+fn parse_remedy_effort(value: &str) -> Result<RemedyEffort, CatalogError> {
+    match value.to_ascii_lowercase().as_str() {
+        "easy" => Ok(RemedyEffort::Easy),
+        "medium" => Ok(RemedyEffort::Medium),
+        "hard" => Ok(RemedyEffort::Hard),
+        _ => Err(CatalogError::InvalidValue {
+            field: "effort".to_string(),
+            value: value.to_string(),
+            detail: "expected easy, medium, or hard".to_string(),
+        }),
     }
 }
 
@@ -416,7 +410,7 @@ pub fn render_remedy_group(entry: &AdviceEntry) -> String {
         rendered.push_str(&format!(
             "- {} [{}]: {} If its prerequisites hold, this change would make this backend work for your language.\n",
             remedy.remedy_key,
-            remedy.effort.as_str(),
+            remedy_effort_as_str(remedy.effort),
             remedy.description
         ));
         if !remedy.prerequisites.is_empty() {
@@ -459,13 +453,11 @@ impl EvidenceKind {
     }
 }
 
-impl RemedyEffort {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Easy => "easy",
-            Self::Medium => "medium",
-            Self::Hard => "hard",
-        }
+fn remedy_effort_as_str(effort: RemedyEffort) -> &'static str {
+    match effort {
+        RemedyEffort::Easy => "easy",
+        RemedyEffort::Medium => "medium",
+        RemedyEffort::Hard => "hard",
     }
 }
 
@@ -539,7 +531,7 @@ fn parse_remedy_field(
         "rank" => remedy.rank = parse_u32(value, line, key)?,
         "remedy_key" | "key" => remedy.remedy_key = parse_string(value, line, key)?,
         "description" | "text" => remedy.description = parse_string(value, line, key)?,
-        "effort" => remedy.effort = RemedyEffort::parse(&parse_string(value, line, key)?)?,
+        "effort" => remedy.effort = parse_remedy_effort(&parse_string(value, line, key)?)?,
         "prerequisites" | "requires" => remedy.prerequisites = parse_string_array(value, line)?,
         "contraindications" | "contraindicated_when" => {
             remedy.contraindications = parse_string_array(value, line)?

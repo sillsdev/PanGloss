@@ -342,34 +342,10 @@ impl LoweredCandidate {
 /// comparable by `oracle::differential_oracle` and certifiable against the same full-HC corpus —
 /// and, before this type existed, they had never been compared, because only one of them was ever
 /// offered as a candidate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum EmissionStrategy {
-    /// Interpret `plan` with `build::build_controllable`: the only strategy honouring a plan's assembly shape and expressing a permutation, but it builds the controllable subtree only, omitting whatever marker leaves contribute.
-    #[default]
-    PlanComposed,
-    /// `emit::emit` (surface-probed) + rules: whole-grammar, every construct covered, ignoring `plan` entirely since this compiler derives its own topology.
-    TunedSurfaceProbed,
-    /// `emit::emit_underlying_templated` + a compiled rewrite cascade: whole-grammar, composite-free, also ignoring `plan` for the same reason.
-    TemplatedUnderlyingTokens,
-}
-
-impl EmissionStrategy {
-    /// Whether this strategy realizes the whole grammar rather than the controllable subtree only.
-    /// A caller comparing candidates across strategies needs this: a `PlanComposed` candidate on a
-    /// marker-carrying grammar is not measuring the same object as either whole-grammar strategy.
-    pub fn is_whole_grammar(self) -> bool {
-        !matches!(self, Self::PlanComposed)
-    }
-
-    /// Stable identifier for reports and backend ids.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::PlanComposed => "plan-composed",
-            Self::TunedSurfaceProbed => "tuned-surface-probed",
-            Self::TemplatedUnderlyingTokens => "templated-underlying-tokens",
-        }
-    }
-}
+///
+/// Plain data the pack format and the Runtime also read (a compiled pack names the backend it
+/// came from), so the type itself lives in `pg-health`; re-exported here at its historical path.
+pub use pg_health::strategy::EmissionStrategy;
 
 /// The candidate
 /// ENUMERATOR — every legal, **buildable** topology this crate can emit for `g` today, as
