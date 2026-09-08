@@ -255,9 +255,9 @@ pass a toy composed-rule test in `f0_viability.rs`); the blocker is the emitter 
 plus the translation burden for `pg_rules::rewrite`'s real semantics (~3.5k LOC: POS/MPR
 gates, alpha agreement, self-opaquing fixpoints, direction/iteration modes).
 
-### Step 5 — SHIPPED (`pg-foma/examples/precision_bench.rs`)
+### Step 5 — SHIPPED (`pg-foma/examples/lab/precision_bench.rs`)
 
-`cargo run -p pg-foma --release --example precision_bench` prints the per-grammar,
+`rust/tools/pg.ps1 -Mode run -Example lab -- precision_bench` prints the per-grammar,
 per-preset matrix. Measured 2026-07-16 (100 Sena / 100 Indonesian / 40 Amharic corpus words):
 
 | grammar | env constraints (total/keep/strip) | states Strip→AllFlags | compile Strip→AllFlags | candidates/word | confirm total |

@@ -49,7 +49,7 @@ Every candidate follows red-green-refactor and is reported with exact command, S
 
 ```powershell
 cargo test -p pg-foma --release --test p6_templated_morphotactics_gate -- --include-ignored --nocapture --test-threads=1
-cargo run --release -p pg-foma --example p6_deep_truncation_chain_perf_trace
+rust/tools/pg.ps1 -Mode run -Example lab -- p6_deep_truncation_chain_perf_trace
 ```
 
 ## Explicitly rejected shortcuts

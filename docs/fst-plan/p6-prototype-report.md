@@ -178,7 +178,8 @@ needs recall."
 ---
 
 ## 4. Indonesian parity numbers (all figures from an actual executed run, `cargo run --release -p
-pg-foma --example p6_replace_prototype`)
+pg-foma --example p6_replace_prototype`; that example now lives at
+`rust/tools/pg.ps1 -Mode run -Example lab -- p6_replace_prototype`)
 
 - **Rules**: 5 phonological rules, all `Iterative`/`LeftToRight`. 4 compiled (prule1, prule2,
   prule4, prule5); prule3 skipped (`Quantifier`, redup-only, §3).

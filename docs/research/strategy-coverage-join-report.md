@@ -1,10 +1,10 @@
 # The `strategy_coverage` table x measurement join
 
 Measured at `719c2773bfdecbf8d4abedb690382a6197b826c9` by
-`rust/crates/pg-foma/examples/strategy_coverage_join_report.rs`. Reproduce:
+`rust/crates/pg-foma/examples/lab/strategy_coverage_join_report.rs`. Reproduce:
 
 ```
-rust/tools/pg.ps1 -Mode run -Example strategy_coverage_join_report
+rust/tools/pg.ps1 -Mode run -Example lab -- strategy_coverage_join_report
 ```
 
 `rust/crates/pg-foma/src/strategy_coverage.rs`'s table asserts, per `(EmissionStrategy,

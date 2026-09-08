@@ -1,11 +1,11 @@
 # Which backends handle which conformance fixtures, and why
 
-Measured at `9d1a9d76` by `rust/crates/pg-foma/examples/conf_matrix.rs`, scored against the HC-Rust
-oracle, 61 fixtures x 3 `EmissionStrategy` = 183 cells. Reproduce:
+Measured at `9d1a9d76` by `rust/crates/pg-foma/examples/lab/conf_matrix.rs`, scored against the
+HC-Rust oracle, 61 fixtures x 3 `EmissionStrategy` = 183 cells. Reproduce:
 
 ```
 $env:PANGLOSS_CONFORMANCE_SCOPE = 'all'
-rust/tools/pg.ps1 -Mode run -Example conf_matrix
+rust/tools/pg.ps1 -Mode run -Example lab -- conf_matrix
 ```
 
 `PANGLOSS_CONFORMANCE_SCOPE=all` is required first — `pg_conformance_fixtures::discover` panics if

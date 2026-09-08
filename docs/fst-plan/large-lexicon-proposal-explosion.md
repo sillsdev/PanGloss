@@ -254,8 +254,7 @@ grep -v '^#' samples/data/sena-worst-words.txt | grep -v '^\s*$' > <scratch>/sen
 #    (and reconfirmed here) under Path A
 
 # Standard dead-end-census cross-check (Path A only, per its own hardcoded emit::emit construction)
-cargo build -p pg-foma --release --example deadend_census
-CENSUS_SENA_CAP=3 timeout -s KILL 180 ./rust/target/release/examples/deadend_census.exe sena 3
+# now: rust/tools/pg.ps1 -Mode run -Example lab -- deadend_census sena 3   (CENSUS_SENA_CAP=3 at the time)
 # -> pibubu/piratu/mbali candidate counts match the probe's Path A column exactly; pinned outliers'
 #    d1/d3/d4/d5 shape matches the grammar's pre-existing, already-censused ambiguity story
 ```
