@@ -7,17 +7,17 @@
 //!
 //! Field declaration order below follows this crate's own [serde] default
 //! (unmodified struct-field order), the same "canonical JSON" convention `pg-snapshot` and
-//! `pg_foma::health` already use.
+//! `pg_health::health` already use.
 
 use serde::{Deserialize, Serialize};
 
 use crate::compat::RequiredRuntimeFeatures;
 use crate::license::LicenseDeclaration;
 use crate::signature::SignatureBlock;
-use pg_foma::advice_catalog::RemedyEffort;
-use pg_foma::backend_selection::{BackendReport, BackendSelection, BackendStatus};
-use pg_foma::capability::CompileDecision;
-use pg_foma::health::{HealthFinding, HealthReport, Metric, MetricValue, ValueProvenance};
+use pg_health::advice::RemedyEffort;
+use pg_health::backend_selection::{BackendReport, BackendSelection, BackendStatus};
+use pg_health::capability::CompileDecision;
+use pg_health::health::{HealthFinding, HealthReport, Metric, MetricValue, ValueProvenance};
 
 /// This manifest schema's own version. Bump only on a wire-incompatible change to
 /// `PackManifest`'s shape — independent of `crate::format::CONTAINER_VERSION` (the container
@@ -139,7 +139,7 @@ pub struct PackManifest {
     /// The required-runtime-feature set this pack was built against.
     pub required_runtime_features: RequiredRuntimeFeatures,
     /// The FST-health raw admission/findings/audit-record report (reusing
-    /// `pg_foma::health::HealthReport`/`Severity`/`HealthReport::admission` verbatim --
+    /// `pg_health::health::HealthReport`/`Severity`/`HealthReport::admission` verbatim --
     /// never redefined here).
     pub fst_health: HealthReport,
     /// Findings and advice for every considered backend, successful or failed.
@@ -165,7 +165,7 @@ pub struct PackManifest {
 impl PackManifest {
     /// Canonical machine-readable form: pretty-printed, two-space indent, fields in Rust
     /// declaration order (serde's unmodified default) — the same "canonical JSON" convention
-    /// `pg_snapshot::Snapshot::to_json`/`pg_foma::health::HealthReport::to_json` already
+    /// `pg_snapshot::Snapshot::to_json`/`pg_health::health::HealthReport::to_json` already
     /// establish. Infallible for the same reason `Snapshot::to_json` is: every field here is a
     /// plain data type with a total `Serialize` impl.
     pub fn to_canonical_json(&self) -> String {
@@ -193,7 +193,7 @@ impl PackManifest {
 mod tests {
     use super::*;
     use crate::compat::RequiredRuntimeFeatures;
-    use pg_foma::health::HealthReport;
+    use pg_health::health::HealthReport;
 
     fn synthetic_manifest() -> PackManifest {
         PackManifest {

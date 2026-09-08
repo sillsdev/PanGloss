@@ -62,7 +62,7 @@ const DIGEST_LEN: usize = 32;
 
 /// Versioned per-section and total byte ceilings. These are deliberately conservative, provisional
 /// container-level allocation ceilings for this additive step -- distinct from, and not derived
-/// from, `pg_foma::health`'s FST-payload severity bands (which judge a *compiled FST's* health,
+/// from, `pg_health::health`'s FST-payload severity bands (which judge a *compiled FST's* health,
 /// not this container's allocation safety) -- flagged as a judgment call for later calibration,
 /// mirroring R6's own "final numerical calibration is a late gate" stance for its own budgets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +143,7 @@ fn validate_manifest_schema(manifest: &PackManifest) -> Result<(), PgPackError> 
 }
 
 fn validate_health_schema(manifest: &PackManifest) -> Result<(), PgPackError> {
-    if manifest.fst_health.schema_version != pg_foma::health::HEALTH_SCHEMA_VERSION {
+    if manifest.fst_health.schema_version != pg_health::health::HEALTH_SCHEMA_VERSION {
         return Err(PgPackError::UnsupportedHealthSchema {
             found: manifest.fst_health.schema_version,
         });
@@ -413,7 +413,7 @@ pub fn read_pack(bytes: &[u8]) -> Result<ReadPack, PgPackError> {
 mod tests {
     use super::*;
     use crate::compat::RequiredRuntimeFeatures;
-    use pg_foma::health::HealthReport;
+    use pg_health::health::HealthReport;
 
     fn synthetic_manifest_for(runtime_payload: &[u8], foma_payload: &[u8]) -> PackManifest {
         PackManifest {

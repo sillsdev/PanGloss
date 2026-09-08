@@ -8,7 +8,7 @@
 //! `format` for the exact byte layout, `format::write_pack`/`format::read_pack` for the
 //! writer/reader, and `manifest::PackManifest` for every field the manifest carries: the
 //! required-runtime-feature set (`compat::RequiredRuntimeFeatures`), the
-//! FST-health admission (`pg_foma::health::HealthReport`, reused verbatim, never redefined), an optional license
+//! FST-health admission (`pg_health::health::HealthReport`, reused verbatim, never redefined), an optional license
 //! declaration (`license::LicenseDeclaration`), and an optional Ed25519 publisher signature
 //! (`signature::SignatureBlock`) whose state (`signature::SignatureState`) is reported but
 //! never gates a read.
@@ -22,11 +22,13 @@
 //! metadata about that compilation. Extending `pg-snapshot` would conflate two different artifacts
 //! that serve different consumers (`pg-fwdata`→`pg_grammar::compile` vs. a distributed Language
 //! Pack loaded by a Runtime) and would force a dependency edge from `pg-snapshot` onto
-//! `pg_foma::health` (needed to reuse `HealthReport`) that `pg-snapshot` — deliberately one of the
-//! most upstream, dependency-light crates in this workspace (only `serde`/`serde_json`/`thiserror`
-//! today) — has no other reason to carry. A new crate depending on `pg-foma` (for `health`) keeps
-//! that dependency where it is actually needed and introduces no cycle: nothing in `pg-foma`'s own
-//! dependency graph depends on this crate.
+//! `pg_health::health` (needed to reuse `HealthReport`) that `pg-snapshot` — deliberately one of
+//! the most upstream, dependency-light crates in this workspace (only `serde`/`serde_json`/
+//! `thiserror` today) — has no other reason to carry. This crate depends on `pg-health` rather
+//! than `pg-foma` itself: `pg-health` is the plain-data subset of the compiler's report
+//! vocabulary with no `foma`/construction machinery in its own graph, which is what keeps this
+//! crate (and, through it, the Runtime) out of the compiler's wasm32 build graph — see
+//! `pg-wasm/tests/wasm_excludes_compiler.rs`.
 #![forbid(unsafe_code)]
 
 pub mod compat;

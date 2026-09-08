@@ -19,11 +19,11 @@ sha2.workspace = true
 # keypair itself — that is external signing tooling's job per `make-wasm-analysis-only` design.md:
 # "signing tooling accepts the private key outside the package").
 ed25519-dalek.workspace = true
-# Reuses `HealthReport`/`Severity`/admission as-is for the manifest's FST-health field (task brief:
-# "do not redefine it") rather than duplicating the schema. `pg-pack` is not depended on by
-# anything yet (this change is purely additive/not wired in), so adding this dependency introduces
-# no cycle.
-pg-foma.workspace = true
+# Reuses `HealthReport`/`Severity`/admission and the backend compatibility-report shapes as-is for
+# the manifest, rather than duplicating the schema. `pg-health` is plain data with no compiler or
+# `foma` dependency, so this stays out of the Runtime's wasm32 build graph (see `pg-wasm`'s own
+# Cargo.toml comment and `pg-wasm/tests/wasm_excludes_compiler.rs`).
+pg-health.workspace = true
 
 [dev-dependencies]
 # Round-trip tests exercising REAL foma binary-memory bytes (gzip magic bytes, non-UTF8 content)
