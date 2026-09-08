@@ -568,24 +568,24 @@ impl PgPack {
         .to_string()
     }
 
-    /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`, reused
+    /// The FST-health "admission result" (`pg_health::health::HealthReport::admission`, reused
     /// verbatim -- see `pack::LoadedPack::fst_health_admission`'s doc), as its lowercase
     /// `Severity` name (`"within_limits"`, `"elevated"`, `"large_multiplier"`,
     /// `"not_production_ready"`, `"machine_limit"`, or `"cannot_represent"`).
     #[wasm_bindgen(js_name = fstHealthAdmission)]
     pub fn fst_health_admission(&self) -> String {
         match self.loaded.fst_health_admission() {
-            pg_foma::health::Severity::WithinLimits => "within_limits",
-            pg_foma::health::Severity::Elevated => "elevated",
-            pg_foma::health::Severity::LargeMultiplier => "large_multiplier",
-            pg_foma::health::Severity::NotProductionReady => "not_production_ready",
-            pg_foma::health::Severity::MachineLimit => "machine_limit",
-            pg_foma::health::Severity::CannotRepresent => "cannot_represent",
+            pg_health::health::Severity::WithinLimits => "within_limits",
+            pg_health::health::Severity::Elevated => "elevated",
+            pg_health::health::Severity::LargeMultiplier => "large_multiplier",
+            pg_health::health::Severity::NotProductionReady => "not_production_ready",
+            pg_health::health::Severity::MachineLimit => "machine_limit",
+            pg_health::health::Severity::CannotRepresent => "cannot_represent",
         }
         .to_string()
     }
 
-    /// The complete FST-health report (`pg_foma::health::HealthReport`, reused verbatim) as its
+    /// The complete FST-health report (`pg_health::health::HealthReport`, reused verbatim) as its
     /// own canonical JSON shape -- every finding, not just the aggregated admission severity.
     #[wasm_bindgen(js_name = fstHealthReport)]
     pub fn fst_health_report(&self) -> Result<JsValue, JsValue> {

@@ -11,17 +11,19 @@
 //!
 //! `load_pack` also surfaces, at load time, the pack's `pg_pack::SignatureState` (reported for
 //! the caller's information only; it never gates a load, exactly as `pg_pack::read_pack` itself
-//! already guarantees). The FST-health admission field is `pg_foma::health::HealthReport` reused
+//! already guarantees). The FST-health admission field is `pg_health::health::HealthReport` reused
 //! verbatim through `pg_pack::PackManifest::fst_health` — this module does not redefine, re-
 //! derive, or duplicate that schema; see `LoadedPack::fst_health_admission`.
 //!
 //! # Analysis-only boundary
-//! This module depends only on `pg_pack` (plain data types: manifest and compat) and reuses
-//! `pg_foma::health` (also plain data). It performs zero FST/lexc compilation, links no compiler
-//! constructor, and never calls `pg_foma::analyzer::FomaProposer::new` or any other emit/compile
-//! entry point — the one thing it does is validate an already-compiled artifact's manifest and
-//! report on it. It does not (yet) construct a working analyzer from the packaged runtime/foma
-//! payload bytes; that is a separate, larger "WASM
+//! This module depends only on `pg_pack` and `pg_health` (both plain data types: manifest, compat,
+//! and health/backend-report shapes). Neither is the FST compiler: this crate's own Cargo
+//! dependency graph carries no `pg-foma` and no `foma` at all for the wasm32 target, checked by
+//! `pg-wasm/tests/wasm_excludes_compiler.rs`'s `cargo metadata` walk rather than asserted in prose
+//! here. This module performs zero FST/lexc compilation, links no compiler constructor, and never
+//! calls an emit/compile entry point — the one thing it does is validate an already-compiled
+//! artifact's manifest and report on it. It does not (yet) construct a working analyzer from the
+//! packaged runtime/foma payload bytes; that is a separate, larger "WASM
 //! analysis-only loading" scope (deserializing the Rust-HermitCrab runtime payload and
 //! reconstructing the foma proposer from its existing binary-memory encoding via
 //! `foma::io::fsm_read_binary_mem` — never recompiling it). This module is the load-time gate
@@ -36,7 +38,7 @@ use pg_pack::{
 /// runtime operation contribute — e.g. reduplication's query-time peel op). Freeform, stable,
 /// delanguaged identifiers; this module does not mint a registry, it only names the ones this
 /// Runtime build actually implements today.
-pub use pg_foma::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL as OP_REDUPLICATION_PEEL;
+pub use pg_health::runtime_features::RUNTIME_FEATURE_REDUPLICATION_PEEL as OP_REDUPLICATION_PEEL;
 
 /// This Runtime build's own declared **provided** runtime-feature set (the other half of
 /// the `required ⊆ provided` containment check) — never read from any `.pgpack` file, always
@@ -45,7 +47,8 @@ pub use pg_foma::peel::RUNTIME_FEATURE_REDUPLICATION_PEEL as OP_REDUPLICATION_PE
 /// - `payload_format_versions`: every `.pgpack` container framing version this build's
 ///   `pg_pack::read_pack` understands (currently just `pg_pack::CONTAINER_VERSION`).
 /// - `runtime_operations`: stable operation identifiers this build's analysis pipeline actually
-///   implements (today: `OP_REDUPLICATION_PEEL`, backing `pg_foma::peel::ReduplicationPeeler`).
+///   implements (today: `OP_REDUPLICATION_PEEL`, the compiler-side reduplication-peel identifier
+///   `pg_health::runtime_features` declares so both sides read the same string).
 /// - `foma_feature_level`/`hc_port_semver`: this build's own foma-feature level and this crate's
 ///   own semantic version (`CARGO_PKG_VERSION_*`, read at compile time) as the Rust-HermitCrab
 ///   port version.
@@ -116,10 +119,10 @@ pub struct LoadedPack {
 }
 
 impl LoadedPack {
-    /// The FST-health "admission result" (`pg_foma::health::HealthReport::admission`,
+    /// The FST-health "admission result" (`pg_health::health::HealthReport::admission`,
     /// reused verbatim — this module never redefines or re-derives the health schema). It is the
     /// worst raw severity among the report's findings.
-    pub fn fst_health_admission(&self) -> pg_foma::health::Severity {
+    pub fn fst_health_admission(&self) -> pg_health::health::Severity {
         self.manifest.fst_health.admission()
     }
 }
@@ -158,7 +161,7 @@ pub fn load_pack(bytes: &[u8]) -> Result<LoadedPack, PackLoadError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pg_foma::health::HealthReport;
+    use pg_health::health::HealthReport;
     use pg_pack::LicenseDeclaration;
 
     fn synthetic_required(runtime_operations: Vec<String>) -> RequiredRuntimeFeatures {
@@ -209,7 +212,7 @@ mod tests {
         assert_eq!(loaded.signature_state, SignatureState::Unsigned);
         assert_eq!(
             loaded.fst_health_admission(),
-            pg_foma::health::Severity::WithinLimits
+            pg_health::health::Severity::WithinLimits
         );
     }
 

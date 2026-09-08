@@ -17,7 +17,11 @@ pg-lexicon.workspace = true
 # `.pgpack` load-time compatibility (ADR 0004 required ⊆ provided containment) -- see `src/pack.rs`.
 # Reuses `pg-pack`'s manifest/compat types verbatim; this crate never redefines them.
 pg-pack.workspace = true
-pg-foma.workspace = true
+# The compiler's health/backend-report/runtime-feature vocabulary as plain data -- NOT `pg-foma`
+# itself, which carries `foma` (the FST compiler) unconditionally. Depending on `pg-health` instead
+# is what keeps this crate's wasm32 build graph analysis-only; see `src/pack.rs`'s own doc and
+# `tests/wasm_excludes_compiler.rs`.
+pg-health.workspace = true
 thiserror.workspace = true
 wasm-bindgen = "0.2"
 serde = { version = "1", features = ["derive"] }
