@@ -75,14 +75,15 @@ use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod assess;
-mod backend_report;
+// The report vocabulary is this binary's documented interface, so it is declared `pub` like a library module.
+pub mod backend_report;
 mod coverage;
 mod fst_health;
 mod make_report;
 mod pack;
 mod plan_diagram;
-mod readiness_policy;
-mod readiness_verdict;
+pub mod readiness_policy;
+pub mod readiness_verdict;
 mod recipe_optimize;
 mod stats_cmd;
 mod surface;
@@ -111,8 +112,7 @@ fn reject_unknown_option(command: &str, arg: &str) -> Result<(), String> {
     spec.reject_unknown_option(arg)
 }
 
-/// The `(status, signature)` shape shared by `batch`'s sequential and parallel TSV writers for a
-/// word that neither timed out nor was skipped -- capped or not, the signature is always reported.
+/// The `(status, signature)` pair both batch writers emit for a word that neither timed out nor was skipped.
 fn row_status(outcome: &pg_parse::ParseOutcome) -> (&'static str, String) {
     if outcome.capped {
         ("CAP", outcome.signature())

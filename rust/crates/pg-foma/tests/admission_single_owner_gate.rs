@@ -1,8 +1,4 @@
-//! Differential measurement: the capability gate and the selector's own report must be reading the same admission fact, checked BEFORE either is changed to share one owner.
-//!
-//! Deliberately scoped to (a) the gate and (b) the selector's own report only: a readiness-verdict
-//! cross-check would need `pg_foma::capability_gate`, a seam this crate's own Cargo.toml documents
-//! as scoped to this crate's own test targets and not offered to any other crate.
+//! Differential measurement: the capability gate and the selector's own report must read the same admission fact.
 
 use pg_conformance_fixtures::{discover_scoped, ConformanceScope};
 use pg_foma::backend_selection::{select_backends, BackendReport};

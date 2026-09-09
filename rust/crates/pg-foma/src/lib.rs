@@ -57,9 +57,7 @@
 //! with `pg-parse` promoted, and this crate's own wasm32 check in CI/`README`.
 #![forbid(unsafe_code)]
 
-// One macro for pg-foma's ~26 test-support-gated "workbench" modules: each is compiled `pub`
-// under `test-support` for other crates' tests to reach, and `pub(crate)` with
-// `#[allow(dead_code)]` otherwise, and hand-writing that pair 26 times let them drift.
+// Workbench modules are `pub` only under `test-support`; one macro keeps the 26 gated pairs from drifting.
 macro_rules! workbench_module {
     ($(#[$meta:meta])* pub mod $name:ident $($body:tt)*) => {
         $(#[$meta])*

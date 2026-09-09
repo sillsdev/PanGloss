@@ -96,9 +96,7 @@ pub(crate) fn assert_rendered_text_eq(actual: &str, expected: &str) {
     }
 }
 
-/// Normalizes only `expected`'s newlines; `actual` must already be canonical LF. Used for golden
-/// JSON fixtures this crate itself produces (which are always LF), read against a checked-in file
-/// that may carry CRLF from a Windows checkout.
+/// Normalizes only `expected`'s newlines (a checked-in golden may carry CRLF); `actual` must already be canonical LF.
 #[track_caller]
 pub(crate) fn assert_canonical_lf_text_eq(actual: &str, expected: &str) {
     let expected_normalized = normalize_newlines(expected);
