@@ -259,7 +259,7 @@ const MAX_UNORDERED_POWERSET_RULES: usize = 6;
 /// There is deliberately no cap. A count is a size question, and a size question must not be
 /// answered by discarding spellings the grammar really allows -- that is under-generation, which
 /// ADR-0001 forbids outright. Measured worst finite products over the reference grammars are Aweti
-/// 4096, Mbugwe 256, Sena 8, Amharic 8, Indonesian 4 ([`root_variant_census`]); the former cap of 64
+/// 4096, Mbugwe 256, Sena 8, Amharic 8, Indonesian 4 (`root_variant_census`, `test-support` only); the former cap of 64
 /// refused two real languages over ordinary breadth, because a twelve-segment root whose segments
 /// each carry two spellings is 2^12 and a six-vowel Bantu stem with optional tone marking is 2^6.
 /// Any constant chosen here would refuse the next language with one more segment.
@@ -1068,7 +1068,7 @@ fn node_base_alternatives(
     reps
 }
 
-/// One interior shape node's alternatives, shared by [`pattern_variants`] and [`root_variant_census`] so the census cannot drift from the emitter it measures.
+/// One interior shape node's alternatives, shared by [`pattern_variants`] and `root_variant_census` (`test-support` only) so the census cannot drift from the emitter it measures.
 fn node_alternatives(
     table: &CharDefTable,
     shape: &Shape,
