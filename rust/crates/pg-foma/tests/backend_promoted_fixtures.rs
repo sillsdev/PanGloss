@@ -1,4 +1,5 @@
 use pg_conformance_fixtures::{assert_matches_oracle, discover, Root};
+use pg_foma::backend::Backend;
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;

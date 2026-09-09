@@ -48,7 +48,7 @@ use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::lowering_adapter::LoweringAdapter;
+use crate::backend::LoweringAdapter;
 use crate::replace::SegAlphabet;
 use crate::strategy_coverage::{representation_of, StrategyRepresentation, ALL_STRATEGIES};
 

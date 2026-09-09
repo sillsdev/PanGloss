@@ -4,11 +4,11 @@ use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::health::{FindingCode, Severity};
 
 fn refused(strategy: EmissionStrategy) -> BackendReport {
-    // Not `BackendReport::refused`: that is pg-health's data-only half; this attaches catalog advice.
+    // Not `BackendReport::refused` (pg-health's data-only half); the predicate id must be real and registered, since `capability_shape_key`'s advice-shape lookup is closed and panics on one it does not own.
     pg_foma::backend_selection::refused(
         strategy,
         CompileDecision::Refuse(vec![CapabilityDiagnostic {
-            predicate: "synthetic.test-only",
+            predicate: "surface-probe.root-spelling-cap",
             construct: "unsupported".to_string(),
             witness: "synthetic".to_string(),
         }]),

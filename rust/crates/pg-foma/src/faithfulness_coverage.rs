@@ -49,7 +49,7 @@ use crate::coverage_seam::{self, MeasuredOutcome, Observation, Verdict};
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::lowering_adapter::LoweringAdapter;
+use crate::backend::LoweringAdapter;
 use crate::strategy_coverage::ALL_STRATEGIES;
 
 /// Why a containment comparison never ran, moved to `crate::coverage_seam` so

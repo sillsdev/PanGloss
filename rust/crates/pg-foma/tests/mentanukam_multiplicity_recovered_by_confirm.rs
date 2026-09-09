@@ -11,7 +11,7 @@ use pg_foma::backend_runtime::{
 use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::lowering_adapter::LoweringAdapter;
+use pg_foma::backend::LoweringAdapter;
 
 fn load() -> pg_grammar::model::Grammar {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))

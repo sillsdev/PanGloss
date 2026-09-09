@@ -99,7 +99,7 @@ use pg_grammar::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef};
 
 use crate::gate::{find_gated_subrules, partition_entries};
 use crate::junctions::PhonologyProbe;
-use crate::lowering_adapter::LoweringAdapter;
+use crate::backend::{Backend, LoweringAdapter};
 use crate::oracle::permute_gate_groups;
 use crate::plan::{
     ComposeStrategy, FragmentSpec, GateGroupSpec, GatePartitionSpec, GatedSubruleRef, NodeId, Plan,
@@ -287,7 +287,7 @@ impl CandidateRole {
 ///    it is the REPORTED selection axis (`RuntimeEvaluation::realized_strategy`,
 ///    `BackendOptimizationReport::winner_strategy`, `strategy_coverage`), measured to be the
 ///    decisive one — two whole-grammar compilers win two different languages. The
-///    two are 1:1 in both directions (`lowering_adapter`'s own
+///    two are 1:1 in both directions (`backend`'s own
 ///    `every_strategy_has_exactly_one_adapter_and_back`), so `Self::strategy` is a projection,
 ///    not a second source of truth.
 /// 2. **The baseline fact lives here**, as `CandidateRole` — see that type for the two measured

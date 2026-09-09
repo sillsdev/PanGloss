@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use pg_foma::backend::Backend;
 use pg_foma::backend_optimizer::{
     choose_strategy_with_policy, optimize_with_evaluator, AdaptivePolicy, Budget, BudgetUsage,
     CandidateEvaluator, CandidateState, ConfirmationEvidence, ConstraintTopology,
@@ -442,7 +443,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         LoweredCandidate {
             label: "baseline",
             plan: baseline.clone(),
-            adapter: pg_foma::lowering_adapter::LoweringAdapter::ControllablePlanCompose,
+            adapter: pg_foma::backend::LoweringAdapter::ControllablePlanCompose,
             // The one candidate that IS the grammar's default compilation, stated here so the evaluator never infers it from position.
             role: CandidateRole::Baseline,
         },

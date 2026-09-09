@@ -15,7 +15,7 @@ use pg_foma::faithfulness_coverage::{
 };
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::lowering_adapter::LoweringAdapter;
+use pg_foma::backend::LoweringAdapter;
 use pg_foma::plan::Plan;
 use pg_foma::strategy_coverage::{
     representation_of, unrepresentable_kinds, StrategyRepresentation,

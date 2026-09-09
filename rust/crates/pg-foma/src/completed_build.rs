@@ -482,86 +482,95 @@ pub fn compile_completed_backend(
     Ok(measured)
 }
 
-/// The backend-specific compile with no admission decision attached; private so the worker's finite execution envelope stays the only outside way to run it.
+/// The backend-specific compile with no admission decision attached; private so the worker's finite execution envelope stays the only outside way to run it. Dispatches through `crate::backend::Backend`, the sole owner of which of the three per-arm bodies below runs for a given `requested_strategy`.
 fn compile_completed_backend_for_measurement(
     grammar: &Grammar,
     selection: &crate::backend_selection::BackendSelection,
     requested_strategy: EmissionStrategy,
     request: &CompileAttempt,
 ) -> Result<CompletedBackendBuild, CompletedBuildError> {
+    crate::backend::backend_for(requested_strategy).compile_for_measurement(grammar, selection, request)
+}
+
+/// `TunedSurfaceProbed`'s own measurement compile, called through `crate::backend::Backend::compile_for_measurement`.
+pub(crate) fn compile_tuned_surface_for_measurement(
+    grammar: &Grammar,
+    request: &CompileAttempt,
+) -> Result<CompletedBackendBuild, CompletedBuildError> {
+    let requested_strategy = EmissionStrategy::TunedSurfaceProbed;
     let grammar_id = grammar_identity(grammar);
-    match requested_strategy {
-        EmissionStrategy::TunedSurfaceProbed => {
-            let emitted = crate::emit::emit_tuned_surface_for_request(grammar);
-            let report = emitted.report;
-            let closure = report.closure_evidence.as_ref().ok_or_else(|| {
-                CompletedBuildError::IncompleteEvidence(
-                    "TunedSurface emitted no closure certificate".to_string(),
-                )
-            })?;
-            validate_closure(closure)?;
-            validate_emit_report(&report)?;
-            let mut network =
-                fsm_lexc_parse_string(&FomaOptions::default(), None, &emitted.lexc_source)
-                    .ok_or_else(|| {
-                        CompletedBuildError::Compiler(
-                            "TunedSurface lexc failed to compile".to_string(),
-                        )
-                    })?;
-            prepare_network_for_apply(&mut network);
-            let model_fingerprint = finished_net_digest(&network);
-            let completion_proof = CompletionProof::TunedClosure {
-                terminal: closure.terminal,
-                worklist_empty: closure.evidence.worklist_empty,
-                pending_successor_count: closure.evidence.pending_successor_count,
-            };
-            let proposer = FomaProposer::from_precompiled_network(&network, report);
-            build_from_proposer(
-                requested_strategy,
-                grammar_id,
-                request,
-                proposer,
-                model_fingerprint,
-                completion_proof,
-            )
-        }
-        EmissionStrategy::TemplatedUnderlyingTokens => {
-            // Refused before emitting, per ADR-0001, mirroring `analyzer::FomaProposer::new`'s own gate.
-            if let Err(diagnostics) =
-                crate::capability_gate::refuse_unless_admitted_in(selection, requested_strategy)
-            {
-                return Err(CompletedBuildError::CapabilityRefused(diagnostics));
-            }
-            let output = compile_templated_morphotactics(grammar)
-                .map_err(|error| CompletedBuildError::Compiler(error.to_string()))?;
-            let report = output.proposer.report.as_ref().ok_or_else(|| {
-                CompletedBuildError::IncompleteEvidence(
-                    "templated compiler emitted no report".to_string(),
-                )
-            })?;
-            validate_emit_report(report)?;
-            let skipped = output.profile.skipped_rules.len() + report.counts.allomorphs_skipped;
-            if skipped != 0 {
-                return Err(CompletedBuildError::IncompleteEvidence(format!(
-                    "templated compiler skipped {skipped} rule/allomorph items"
-                )));
-            }
-            let completion_proof = CompletionProof::TemplatedFullEmission {
-                uncovered_count: report.uncovered.len(),
-                skipped_count: skipped,
-            };
-            let model_fingerprint = finished_net_digest(&output.network);
-            build_from_proposer(
-                requested_strategy,
-                grammar_id,
-                request,
-                output.proposer,
-                model_fingerprint,
-                completion_proof,
-            )
-        }
-        strategy => Err(CompletedBuildError::UnsupportedStrategy(strategy)),
+    let emitted = crate::emit::emit_tuned_surface_for_request(grammar);
+    let report = emitted.report;
+    let closure = report.closure_evidence.as_ref().ok_or_else(|| {
+        CompletedBuildError::IncompleteEvidence(
+            "TunedSurface emitted no closure certificate".to_string(),
+        )
+    })?;
+    validate_closure(closure)?;
+    validate_emit_report(&report)?;
+    let mut network = fsm_lexc_parse_string(&FomaOptions::default(), None, &emitted.lexc_source)
+        .ok_or_else(|| {
+            CompletedBuildError::Compiler("TunedSurface lexc failed to compile".to_string())
+        })?;
+    prepare_network_for_apply(&mut network);
+    let model_fingerprint = finished_net_digest(&network);
+    let completion_proof = CompletionProof::TunedClosure {
+        terminal: closure.terminal,
+        worklist_empty: closure.evidence.worklist_empty,
+        pending_successor_count: closure.evidence.pending_successor_count,
+    };
+    let proposer = FomaProposer::from_precompiled_network(&network, report);
+    build_from_proposer(
+        requested_strategy,
+        grammar_id,
+        request,
+        proposer,
+        model_fingerprint,
+        completion_proof,
+    )
+}
+
+/// `TemplatedUnderlyingTokens`'s own measurement compile, called through `crate::backend::Backend::compile_for_measurement`.
+pub(crate) fn compile_templated_underlying_for_measurement(
+    grammar: &Grammar,
+    selection: &crate::backend_selection::BackendSelection,
+    request: &CompileAttempt,
+) -> Result<CompletedBackendBuild, CompletedBuildError> {
+    let requested_strategy = EmissionStrategy::TemplatedUnderlyingTokens;
+    let grammar_id = grammar_identity(grammar);
+    // Refused before emitting, per ADR-0001, mirroring `analyzer::FomaProposer::new`'s own gate.
+    if let Err(diagnostics) =
+        crate::capability_gate::refuse_unless_admitted_in(selection, requested_strategy)
+    {
+        return Err(CompletedBuildError::CapabilityRefused(diagnostics));
     }
+    let output = compile_templated_morphotactics(grammar)
+        .map_err(|error| CompletedBuildError::Compiler(error.to_string()))?;
+    let report = output.proposer.report.as_ref().ok_or_else(|| {
+        CompletedBuildError::IncompleteEvidence(
+            "templated compiler emitted no report".to_string(),
+        )
+    })?;
+    validate_emit_report(report)?;
+    let skipped = output.profile.skipped_rules.len() + report.counts.allomorphs_skipped;
+    if skipped != 0 {
+        return Err(CompletedBuildError::IncompleteEvidence(format!(
+            "templated compiler skipped {skipped} rule/allomorph items"
+        )));
+    }
+    let completion_proof = CompletionProof::TemplatedFullEmission {
+        uncovered_count: report.uncovered.len(),
+        skipped_count: skipped,
+    };
+    let model_fingerprint = finished_net_digest(&output.network);
+    build_from_proposer(
+        requested_strategy,
+        grammar_id,
+        request,
+        output.proposer,
+        model_fingerprint,
+        completion_proof,
+    )
 }
 
 /// Select the explicitly requested route's matching, fully trusted completed build.

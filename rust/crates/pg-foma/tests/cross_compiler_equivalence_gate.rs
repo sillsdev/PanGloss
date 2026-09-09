@@ -13,7 +13,7 @@ use pg_foma::backend_runtime::{
     WordEvidence,
 };
 use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
-use pg_foma::lowering_adapter::LoweringAdapter;
+use pg_foma::backend::LoweringAdapter;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 
 const FIXTURE: &str = "template-category-sharing";

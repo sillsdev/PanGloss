@@ -81,6 +81,8 @@ pub mod backend_mechanism;
 pub(crate) mod backend_mechanism;
 /// Extensible, budget-aware offline search and confirmed-only backend selection.
 pub mod backend_optimizer;
+/// `backend::LoweringAdapter`, the typed compiler axis a candidate carries (1:1 with `enumerate::EmissionStrategy`), plus the `backend::Backend` trait and closed adapter table every compile dispatch goes through.
+pub mod backend;
 /// Extensible registry of realizable compilation-backend families.
 pub mod backend_registry;
 /// Schema-versioned machine and human views over backend-optimization runs.
@@ -249,10 +251,6 @@ pub mod junctions;
 pub mod lower;
 #[cfg(not(feature = "test-support"))]
 pub(crate) mod lower;
-/// `lowering_adapter::LoweringAdapter`, the typed compiler axis a candidate carries: which of
-/// this crate's compilers lowers it into a network. 1:1 with `enumerate::EmissionStrategy`, which
-/// stays the axis reports and `strategy_coverage` speak in.
-pub mod lowering_adapter;
 /// The ONE derivation of a
 /// `backend_mechanism::MechanismGraph`, taking `grammar_semantics::GrammarSemantics` and no
 /// `&Grammar` at all. Builds and verifies data only -- see that module's own doc for why the

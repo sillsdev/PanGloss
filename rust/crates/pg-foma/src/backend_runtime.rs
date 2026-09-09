@@ -13,7 +13,7 @@ use crate::enumerate::{EmissionStrategy, LoweredCandidate};
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
-use crate::lowering_adapter::LoweringAdapter;
+use crate::backend::{Backend, LoweringAdapter};
 use crate::parity::{
     certified_occurrence, IdentityDivergence, IdentityMismatchDirection, OccurrenceIdentities,
     ParitySide,
@@ -2113,7 +2113,7 @@ pub fn assess_accuracy_with_cache(
         .collect()
 }
 
-/// Realizes one candidate into the proposer the accuracy check will propose from — the same network the certification path measures, by construction.
+/// Realizes one candidate into the proposer the accuracy check will propose from — the same network the certification path measures, by construction. Dispatches through `crate::backend::Backend`, the sole owner of which of the three `realize_*_proposer` functions below runs for a given adapter.
 #[allow(clippy::type_complexity)]
 fn realize_accuracy_proposer(
     candidate: &LoweredCandidate,
@@ -2123,40 +2123,42 @@ fn realize_accuracy_proposer(
     prules: &[&PhonRuleDef],
     _cache: &mut RunEvaluationCache,
 ) -> Result<(EmissionStrategy, FomaProposer), (EmissionStrategy, String)> {
-    if candidate.adapter.interprets_plan() {
+    let backend = candidate.adapter;
+    if backend.interprets_plan() {
         if let Some(reason) = unbuildable_marker_reason(candidate, grammar) {
             return Err((EmissionStrategy::PlanComposed, reason));
         }
     }
-    match candidate.adapter {
-        LoweringAdapter::TunedSurfaceEmit => FomaProposer::new(grammar)
-            .map(|proposer| (EmissionStrategy::TunedSurfaceProbed, proposer))
-            .map_err(|e| {
-                (
-                    EmissionStrategy::TunedSurfaceProbed,
-                    format!("tuned emit path failed to build: {e}"),
-                )
-            }),
-        LoweringAdapter::TemplatedUnderlyingEmit => {
-            crate::templated_compile::compile_templated_morphotactics(grammar)
-                .map(|output| (EmissionStrategy::TemplatedUnderlyingTokens, output.proposer))
-                .map_err(|e| {
-                    (
-                        EmissionStrategy::TemplatedUnderlyingTokens,
-                        format!("templated underlying-token path failed to build: {e}"),
-                    )
-                })
-        }
-        LoweringAdapter::ControllablePlanCompose => {
-            match realize_plan_composed(candidate, grammar, opts, alphabet, prules) {
-                RealizedPlanComposed::Ready { proposer, .. } => {
-                    Ok((EmissionStrategy::PlanComposed, proposer))
-                }
-                RealizedPlanComposed::Failed { certification, .. } => Err((
-                    EmissionStrategy::PlanComposed,
-                    format!("candidate network could not be realized: {certification:?}"),
-                )),
-            }
+    backend
+        .realize_accuracy_proposer(candidate, grammar, opts, alphabet, prules)
+        .map(|proposer| (backend.strategy(), proposer))
+        .map_err(|reason| (backend.strategy(), reason))
+}
+
+/// `TunedSurfaceEmit`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
+pub(crate) fn realize_tuned_surface_proposer(grammar: &Grammar) -> Result<FomaProposer, String> {
+    FomaProposer::new(grammar).map_err(|e| format!("tuned emit path failed to build: {e}"))
+}
+
+/// `TemplatedUnderlyingEmit`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
+pub(crate) fn realize_templated_underlying_proposer(grammar: &Grammar) -> Result<FomaProposer, String> {
+    crate::templated_compile::compile_templated_morphotactics(grammar)
+        .map(|output| output.proposer)
+        .map_err(|e| format!("templated underlying-token path failed to build: {e}"))
+}
+
+/// `ControllablePlanCompose`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
+pub(crate) fn realize_controllable_plan_proposer(
+    candidate: &LoweredCandidate,
+    grammar: &Grammar,
+    opts: &FomaOptions,
+    alphabet: &SegAlphabet<'_>,
+    prules: &[&PhonRuleDef],
+) -> Result<FomaProposer, String> {
+    match realize_plan_composed(candidate, grammar, opts, alphabet, prules) {
+        RealizedPlanComposed::Ready { proposer, .. } => Ok(proposer),
+        RealizedPlanComposed::Failed { certification, .. } => {
+            Err(format!("candidate network could not be realized: {certification:?}"))
         }
     }
 }

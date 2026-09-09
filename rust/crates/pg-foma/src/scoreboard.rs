@@ -41,7 +41,7 @@ use crate::capability::PredicateId;
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::lowering_adapter::LoweringAdapter;
+use crate::backend::LoweringAdapter;
 use crate::parity::IdentityDivergence;
 use crate::strategy_coverage::ALL_STRATEGIES;
 use crate::strategy_coverage_join::envelope_refusal_predicates;

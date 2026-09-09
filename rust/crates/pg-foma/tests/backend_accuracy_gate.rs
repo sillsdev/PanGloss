@@ -9,7 +9,7 @@ use pg_foma::backend_runtime::{
 };
 use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::lowering_adapter::LoweringAdapter;
+use pg_foma::backend::LoweringAdapter;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 const FIXTURE: &str = "backend-gated-generic";

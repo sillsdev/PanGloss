@@ -8,7 +8,7 @@ use pg_foma::backend_runtime::{
 use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::lowering_adapter::LoweringAdapter;
+use pg_foma::backend::LoweringAdapter;
 use pg_grammar::model::Grammar;
 
 /// The nine disputed (fixture name, category) pairs under measurement.

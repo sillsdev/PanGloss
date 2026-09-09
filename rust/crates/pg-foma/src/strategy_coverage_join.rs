@@ -43,7 +43,7 @@ use crate::conformance_coverage::construct_ids_for;
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::lowering_adapter::LoweringAdapter;
+use crate::backend::LoweringAdapter;
 use crate::strategy_coverage::StrategyRepresentation;
 use pg_grammar::model::Grammar;
 

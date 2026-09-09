@@ -67,7 +67,7 @@ fn every_distinct_plan_fully_confirms_or_refuses_markers_explicitly() {
     plans.push(pg_foma::enumerate::LoweredCandidate {
         label: "baseline",
         plan: baseline,
-        adapter: pg_foma::lowering_adapter::LoweringAdapter::ControllablePlanCompose,
+        adapter: pg_foma::backend::LoweringAdapter::ControllablePlanCompose,
         // This candidate carries the grammar's own default plan.
         role: pg_foma::enumerate::CandidateRole::Baseline,
     });

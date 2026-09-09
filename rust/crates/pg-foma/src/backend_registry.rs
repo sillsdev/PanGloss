@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::enumerate::{CandidateRole, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
-use crate::lowering_adapter::LoweringAdapter;
+use crate::backend::{Backend, LoweringAdapter};
 use crate::oracle::{
     permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
 };
