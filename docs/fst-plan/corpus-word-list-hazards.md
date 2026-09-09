@@ -137,8 +137,10 @@ Measured with the CLI's `batch` subcommand (`rust/target/release/pangloss.exe ba
 <words.txt> <out.tsv>`), **default engine** (HC oracle, `--engine=default` is implicit and never
 capability-enforced). Columns are `index, word, <candidate/step count>, status, signature`; a
 signature of `-` means no successful parse. `status` is `ok` (ran to completion — parse or no
-parse), `SKIPPED` (`InvalidShapeException`: a character outside the char table), or `TIMEOUT`
-(hit `--word-timeout-ms` before finishing).
+parse), `SKIPPED` (`InvalidShapeException`: a character outside the char table), `TIMEOUT`
+(hit `--word-timeout-ms` before finishing), or `CAP` (hit `--step-cap` before finishing; the
+signature column is the partial, unconfirmed analysis reached so far, not a result). None of the
+runs below used `--step-cap`, so no `CAP` rows appear in this sample.
 
 **This is a sample, not a full-corpus run**, capped per the task at ~40 words. The exact slice for
 every corpus is **the raw file's lines 1-40** (`sed -n '1,40p' samples/data/<name>-words.txt`) —

@@ -11,10 +11,11 @@
 //! others (heavier narrowing/expansion analysis), so a step-count cap alone cannot bound wall-clock
 //! time per word. `--word-timeout-ms N` arms a wall-clock deadline on the same shared
 //! `pg_rules::stratum::StepBudget` the step cap already uses; whichever bound fires first wins,
-//! and each is reported distinctly — a step-cap-exhausted word still writes its (partial) `ok` row
-//! with `CAP` on stderr (unchanged), while a timed-out word writes a `TIMEOUT` row with signature
-//! `-` (see the TSV row format below). Omitted (the default) is a complete no-op: no clock is ever
-//! read, and every existing invocation's output is unchanged.
+//! and each is reported distinctly — a step-cap-exhausted word writes a `CAP` status row (its
+//! signature column is the partial, unconfirmed signature reached before the cap fired, kept for
+//! inspection, never a result) alongside the same `CAP` marker on stderr, while a timed-out word
+//! writes a `TIMEOUT` row with signature `-`. Omitted (the default) is a complete no-op: no clock
+//! is ever read, and every existing invocation's output is unchanged.
 //!
 //! ## `--threads` and the two TSV-writing modes
 //! C#'s own `BatchCommand` has two mutually exclusive dispatch modes with genuinely different TSV
@@ -722,8 +723,10 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 if outcome.capped {
                     capped_words += 1;
                     eprintln!("CAP\t{i}\t{word}");
+                    ("CAP", outcome.signature())
+                } else {
+                    ("ok", outcome.signature())
                 }
-                ("ok", outcome.signature())
             };
             // Diagnostic only: raw StepBudget tick count for this word, regardless of whether the cap fired.
             if std::env::var("HC_STEP_STATS").is_ok() {
@@ -803,8 +806,10 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 if r.outcome.capped {
                     capped_words += 1;
                     eprintln!("CAP\t{i}\t{word}");
+                    ("CAP", r.outcome.signature())
+                } else {
+                    ("ok", r.outcome.signature())
                 }
-                ("ok", r.outcome.signature())
             };
             write_batch_row(
                 &mut w,
@@ -1050,6 +1055,24 @@ mod tests {
             assert_ne!(
                 fields[4], "-",
                 "threads={threads}: \"kat\" should analyze to a real signature"
+            );
+        }
+    }
+
+    /// `--step-cap 0` fires the step cap on the very first budget check, in both thread modes: a
+    /// capped word must be typed `CAP`, not presented as a completed `ok` row, per CONTEXT.md's
+    /// atomic word-analysis result (an incomplete outcome is never a definitive result).
+    #[test]
+    fn step_cap_zero_writes_cap_row_both_thread_modes() {
+        for (tag, threads) in [("seq-cap", "1"), ("par-cap", "2")] {
+            let lines = run_batch_tsv(tag, &["--step-cap", "0", "--threads", threads]);
+            let result_line = lines.last().expect("at least one line");
+            let fields: Vec<&str> = result_line.split('\t').collect();
+            assert_eq!(fields.len(), 5, "threads={threads}: {fields:?}");
+            assert_eq!(fields[3], "CAP", "threads={threads}: {fields:?}");
+            assert!(
+                !fields[4].is_empty(),
+                "threads={threads}: partial signature column must not be empty: {fields:?}"
             );
         }
     }
