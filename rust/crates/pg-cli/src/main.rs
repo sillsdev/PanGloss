@@ -111,6 +111,16 @@ fn reject_unknown_option(command: &str, arg: &str) -> Result<(), String> {
     spec.reject_unknown_option(arg)
 }
 
+/// The `(status, signature)` shape shared by `batch`'s sequential and parallel TSV writers for a
+/// word that neither timed out nor was skipped -- capped or not, the signature is always reported.
+fn row_status(outcome: &pg_parse::ParseOutcome) -> (&'static str, String) {
+    if outcome.capped {
+        ("CAP", outcome.signature())
+    } else {
+        ("ok", outcome.signature())
+    }
+}
+
 #[cfg(feature = "developer-tools")]
 const REPORT_DEVELOPER_HELP: &str = " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
@@ -644,10 +654,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 if outcome.capped {
                     capped_words += 1;
                     eprintln!("CAP\t{i}\t{word}");
-                    ("CAP", outcome.signature())
-                } else {
-                    ("ok", outcome.signature())
                 }
+                row_status(&outcome)
             };
             // Diagnostic only: raw StepBudget tick count for this word, regardless of whether the cap fired.
             if std::env::var("HC_STEP_STATS").is_ok() {
@@ -727,10 +735,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 if r.outcome.capped {
                     capped_words += 1;
                     eprintln!("CAP\t{i}\t{word}");
-                    ("CAP", r.outcome.signature())
-                } else {
-                    ("ok", r.outcome.signature())
                 }
+                row_status(&r.outcome)
             };
             write_batch_row(
                 &mut w,
