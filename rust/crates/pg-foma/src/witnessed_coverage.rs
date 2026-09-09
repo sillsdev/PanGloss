@@ -40,9 +40,8 @@ use std::panic::{self, AssertUnwindSafe};
 use foma::options::FomaOptions;
 use pg_grammar::model::Grammar;
 
-use crate::analyzer::FomaProposer;
-use crate::backend_selection::{select_backends, BackendReport};
-use crate::capability::CharacteristicKind;
+use crate::backend_selection::select_backends;
+use crate::capability::{CharacteristicKind, CompileDecision};
 use crate::coverage_seam::{self, MeasuredOutcome, NotAttemptedReason, Verdict};
 use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
@@ -103,23 +102,28 @@ pub type GrammarObservation = coverage_seam::Observation<BackendOutcome>;
 /// may still be refused publication; keeping the two apart is what stops a readiness policy from
 /// masquerading as a compiler that could not build the grammar.
 ///
-/// Each arm is the same entry point `crate::backend_runtime`'s own per-adapter realization uses, so
-/// a witness collected here names a compiler the runtime can actually run:
-/// `crate::analyzer::FomaProposer::new` for the surface probe,
-/// `crate::templated_compile::compile_templated_morphotactics` for the templated cascade, and
-/// `crate::build::build_controllable` plus the mandatory
-/// `crate::build::finish_controllable_net` for the plan composer. Both whole-grammar backends
-/// derive their own topology and take no plan, exactly as `crate::enumerate::EmissionStrategy`'s
-/// own doc describes.
-pub fn compile_with_backend_for_measurement(g: &Grammar, strategy: EmissionStrategy) -> Result<(), String> {
+/// Not routed through `crate::backend::Backend::compile_for_measurement`: that method's
+/// `PlanComposed` adapter's unconditional refusal is pinned by
+/// `plan_composed_backend_refuses_measurement_unconditionally`, because production measurement
+/// never runs the plan composer without a specific candidate plan. This module exists to WITNESS
+/// what each backend can compile, plan-composed included, so it cannot dispatch through a method
+/// that structurally excludes the one backend it most needs to measure. Nor is it
+/// `realize_accuracy_proposer`: that method scores one `LoweredCandidate`'s plan, and this function
+/// has none — `compile_plan_composed` below probes the grammar's own DEFAULT plan via
+/// `crate::enumerate::enumerate_default`, an independent, candidate-free build. The two
+/// whole-grammar arms below do call the same functions `crate::backend_runtime`'s own per-adapter
+/// realization calls, so a witness collected here still names a compiler the runtime can actually
+/// run.
+pub fn compile_with_backend_for_measurement(
+    g: &Grammar,
+    strategy: EmissionStrategy,
+) -> Result<(), String> {
     match strategy {
-        EmissionStrategy::TunedSurfaceProbed => FomaProposer::new(g)
-            .map(|_| ())
-            .map_err(|e| format!("tuned surface emit failed to build: {e}")),
+        EmissionStrategy::TunedSurfaceProbed => {
+            crate::backend_runtime::realize_tuned_surface_proposer(g).map(|_| ())
+        }
         EmissionStrategy::TemplatedUnderlyingTokens => {
-            crate::templated_compile::compile_templated_morphotactics(g)
-                .map(|_| ())
-                .map_err(|e| format!("templated underlying-token path failed to build: {e}"))
+            crate::backend_runtime::realize_templated_underlying_proposer(g).map(|_| ())
         }
         EmissionStrategy::PlanComposed => compile_plan_composed(g),
     }
@@ -195,9 +199,10 @@ pub fn observe_grammar_with(
         .iter()
         .copied()
         .map(|strategy| {
-            let representable = selection
-                .report_for(strategy)
-                .is_some_and(BackendReport::can_represent);
+            let representable = matches!(
+                selection.decision_for(strategy),
+                CompileDecision::Admit | CompileDecision::ConfirmOnly
+            );
             if !representable {
                 return (strategy, BackendOutcome::RefusedBySelector);
             }

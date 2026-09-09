@@ -1,6 +1,7 @@
 //! Production evaluator for backend plans.
 
 use crate::analyzer::FomaProposer;
+use crate::backend::backend_for;
 use crate::backend_accuracy::{AccuracyCounters, AccuracyVerdict, CandidateAccuracy};
 use crate::backend_optimizer::{
     Certification, CorpusCompletenessEvidence, CorpusExclusion, OracleEligibilityConfig, Score,
@@ -13,7 +14,6 @@ use crate::enumerate::{EmissionStrategy, LoweredCandidate};
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
-use crate::backend::backend_for;
 use crate::parity::{
     certified_occurrence, IdentityDivergence, IdentityMismatchDirection, OccurrenceIdentities,
     ParitySide,
@@ -781,7 +781,7 @@ pub struct RuntimeEvaluationObservation {
 
 /// `Clone` so `RunEvaluationCache` can serve one candidate's whole measurement to the next candidate compiling to the identical network; the clone is bounded by the distinct-net count, not the plan count. No separate `divergence` field: `RuntimeEvaluation::divergence` is this candidate's divergence, and a second copy here would only invite drift.
 #[derive(Debug, Clone)]
-struct EvaluatedPlan {
+pub struct EvaluatedPlan {
     evaluation: RuntimeEvaluation,
     words: Option<Vec<WordEvidence>>,
 }
@@ -1311,9 +1311,9 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     // Computed once and shared by every return below: a pure function of (grammar, strategy), not of `words`.
     let production_health = match assess_completed_fst(grammar, realized_strategy) {
         Ok(admission) => admission.health().clone(),
-        Err(e) => unassessed_production_health(format!(
-            "production admission assessment failed: {e}"
-        )),
+        Err(e) => {
+            unassessed_production_health(format!("production admission assessment failed: {e}"))
+        }
     };
     let mut actual = Vec::new();
     let mut observed_proposals = OBSERVE.then(|| Vec::with_capacity(words.len()));
@@ -1519,7 +1519,7 @@ fn build_failed_evaluated(
 }
 
 /// `EmissionStrategy::TunedSurfaceProbed`: the default compilation of this grammar, through `FomaProposer::new` (emit -> lexc -> foma compile) rather than `build_controllable`.
-fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
+pub(crate) fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     words: &[String],
     expected: &[(String, Vec<WordAnalysis>)],
@@ -1569,7 +1569,7 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
 }
 
 /// `EmissionStrategy::TemplatedUnderlyingTokens`: compiles the whole grammar through `emit_underlying_templated` plus a real compiled rewrite cascade, deriving its own topology like the tuned path, so it must only ever be offered as its own candidate, never as the realization of another candidate's plan; its char-def TOKEN-space lexc must keep the segment query encoder `compile_templated_morphotactics` already attaches, since adding or omitting a second one is the space-mismatch that manufactures false zero-candidate results.
-fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
+pub(crate) fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     words: &[String],
     expected: &[(String, Vec<WordAnalysis>)],
@@ -1804,6 +1804,157 @@ pub fn finished_net_digests(
         .collect()
 }
 
+/// Per-candidate inputs to `crate::backend::Backend::evaluate_for_corpus`: the run-invariant
+/// grammar/corpus/budget pieces every backend reads, plus the net-reuse cache and confirm-side
+/// pieces only the plan-composing backend's own realization consults.
+// Two lifetimes, not one: `'g` is how long `grammar` (and everything borrowed from it, including
+// `confirm_pieces`'s own `Morpher<'g>`) is good for, while `'b` is only how long THIS call's
+// mutable borrow of `cache`/`confirm_pieces`/`reuse_prefix` lasts. Collapsing them to one lifetime
+// forces every per-iteration reborrow to live as long as `grammar` itself, which a `FnMut` closure
+// called once per candidate cannot satisfy.
+pub struct CorpusEvalContext<'g, 'b> {
+    pub grammar: &'g Grammar,
+    pub words: &'g [String],
+    pub expected: &'g [(String, Vec<WordAnalysis>)],
+    pub budget: RuntimeBudget,
+    pub observe: bool,
+    pub opts: &'g FomaOptions,
+    pub alphabet: &'g SegAlphabet<'g>,
+    pub prules: &'g [&'g PhonRuleDef],
+    pub cache: &'b mut RunEvaluationCache,
+    pub confirm_pieces: &'b mut Option<(
+        crate::peel::ReduplicationPeeler,
+        Vec<Option<crate::confirm::MorphemeOwner>>,
+        pg_parse::Morpher<'g>,
+    )>,
+    pub reuse_prefix: &'b mut Option<(String, String)>,
+}
+
+/// `crate::backend::PlanComposed`'s own corpus-evaluation realization, called through
+/// `crate::backend::Backend::evaluate_for_corpus`. The two whole-grammar backends derive an
+/// independent network per call and touch neither `ctx.cache` nor `ctx.confirm_pieces`; this is the
+/// one backend that needs them, for the net-level dedup `docs/research/pg-foma-recipe-runtime-design-notes.md` describes.
+pub(crate) fn evaluate_plan_composed_for_corpus(
+    candidate: &LoweredCandidate,
+    ctx: &mut CorpusEvalContext<'_, '_>,
+) -> EvaluatedPlan {
+    if let Some(reason) = unbuildable_marker_reason(candidate, ctx.grammar) {
+        let production_health = unassessed_production_health(format!("unsupported: {reason}"));
+        return failed_evaluated_over(
+            EmissionStrategy::PlanComposed,
+            Certification::Unsupported { reason },
+            0,
+            ctx.expected.len() as u64,
+            production_health,
+        );
+    }
+    let (proposer, score0, build, net_digest) =
+        match realize_plan_composed(candidate, ctx.grammar, ctx.opts, ctx.alphabet, ctx.prules) {
+            RealizedPlanComposed::Ready {
+                proposer,
+                states,
+                arcs,
+                build,
+                net_digest,
+            } => (proposer, (states, arcs), build, net_digest),
+            RealizedPlanComposed::Failed {
+                certification,
+                build,
+            } => {
+                let production_health = unassessed_production_health(format!(
+                    "plan realization failed to build: {certification:?}"
+                ));
+                return failed_evaluated_over(
+                    EmissionStrategy::PlanComposed,
+                    certification,
+                    build,
+                    ctx.expected.len() as u64,
+                    production_health,
+                );
+            }
+        };
+    // Net-level dedup: an earlier candidate's measurement is served verbatim except `build` (this candidate's own) and `apply` (reported as 0, never the donor's), with the breach ladder re-run over the reconstructed score rather than copied.
+    // See `docs/research/pg-foma-recipe-runtime-design-notes.md` for why each of those three exclusions is load-bearing rather than incidental.
+    let reuse_key = (ctx.cache.net_dedup_enabled() && ctx.budget.apply.is_none()).then(|| {
+        let (identity, corpus) = ctx
+            .reuse_prefix
+            .get_or_insert_with(|| (grammar_identity(ctx.grammar), corpus_hash(ctx.words)));
+        net_reuse_key(identity, corpus, ctx.observe, &net_digest)
+    });
+    let reused = reuse_key
+        .as_deref()
+        .and_then(|key| ctx.cache.net_measurement(key).cloned());
+    match reused {
+        Some(donor) => {
+            let mut reused = donor;
+            reused.evaluation.score.build = build;
+            reused.evaluation.score.apply = 0;
+            let score = reused.evaluation.score;
+            if let Some((dimension, value, limit)) = budget_breach(&score, ctx.budget) {
+                reused.evaluation.certification = Certification::ResourceBreach {
+                    dimension: dimension.into(),
+                    value,
+                    limit,
+                };
+                reused.evaluation.divergence =
+                    IdentityDivergence::not_compared(ctx.expected.len() as u64);
+            }
+            ctx.cache.count_net_dedup_hit(ctx.words.len(), score);
+            reused
+        }
+        None => {
+            let (peeler, owners, morpher) = ctx.confirm_pieces.take().unwrap_or_else(|| {
+                (
+                    crate::peel::ReduplicationPeeler::new(ctx.grammar),
+                    crate::confirm::build_morpheme_owners(ctx.grammar),
+                    pg_parse::Morpher::new(ctx.grammar, usize::MAX),
+                )
+            });
+            let mut analyzer = FomaAnalyzer::from_cached_with_morpher(
+                ctx.grammar,
+                proposer,
+                peeler,
+                owners,
+                morpher,
+                crate::candidate_filter::CandidateFilterSettings::off(),
+            );
+            let measured = if ctx.observe {
+                measure_and_certify_observed(
+                    EmissionStrategy::PlanComposed,
+                    ctx.grammar,
+                    &mut analyzer,
+                    ctx.words,
+                    ctx.expected,
+                    ctx.budget,
+                    score0.0,
+                    score0.1,
+                    build,
+                )
+            } else {
+                measure_and_certify(
+                    EmissionStrategy::PlanComposed,
+                    ctx.grammar,
+                    &mut analyzer,
+                    ctx.words,
+                    ctx.expected,
+                    ctx.budget,
+                    score0.0,
+                    score0.1,
+                    build,
+                )
+            };
+            // Hand the grammar-static confirm pieces back for the next candidate: confirm never mutates them, so the next candidate gets objects indistinguishable from a fresh rebuild.
+            let (_spent_proposer, peeler, owners, morpher, _filter) =
+                analyzer.into_parts_with_morpher();
+            *ctx.confirm_pieces = Some((peeler, owners, morpher));
+            if let Some(reuse_key) = reuse_key {
+                ctx.cache.record_net_measurement(reuse_key, &measured);
+            }
+            measured
+        }
+    }
+}
+
 fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     grammar: &Grammar,
     plans: &[LoweredCandidate],
@@ -1863,143 +2014,20 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     let evaluated: Vec<EvaluatedPlan> = plans
         .iter()
         .map(|candidate| {
-            if backend_for(candidate.adapter).interprets_plan() {
-                if let Some(reason) = unbuildable_marker_reason(candidate, grammar) {
-                    let production_health = unassessed_production_health(format!(
-                        "unsupported: {reason}"
-                    ));
-                    return failed_evaluated_over(
-                        EmissionStrategy::PlanComposed,
-                        Certification::Unsupported { reason },
-                        0,
-                        expected.len() as u64,
-                        production_health,
-                    );
-                }
-            }
-            // Strategy dispatch comes first: the two whole-grammar strategies never touch build_controllable, so routing them through the composed path below would attribute the wrong compiler's network to the candidate. Not a `crate::backend::Backend` method: this routes corpus EVALUATION mode, a third job distinct from `compile_for_measurement`/`realize_accuracy_proposer`.
-            match candidate.adapter {
-                EmissionStrategy::PlanComposed => {}
-                EmissionStrategy::TunedSurfaceProbed => {
-                    return if OBSERVE {
-                        evaluate_via_tuned_emit_mode::<true>(grammar, words, &expected, budget)
-                    } else {
-                        evaluate_via_tuned_emit_mode::<false>(grammar, words, &expected, budget)
-                    }
-                }
-                EmissionStrategy::TemplatedUnderlyingTokens => {
-                    return if OBSERVE {
-                        evaluate_via_templated_emit_mode::<true>(grammar, words, &expected, budget)
-                    } else {
-                        evaluate_via_templated_emit_mode::<false>(grammar, words, &expected, budget)
-                    }
-                }
-            }
-            let (proposer, score0, build, net_digest) =
-                match realize_plan_composed(candidate, grammar, &opts, &alphabet, &prules) {
-                    RealizedPlanComposed::Ready {
-                        proposer,
-                        states,
-                        arcs,
-                        build,
-                        net_digest,
-                    } => (proposer, (states, arcs), build, net_digest),
-                    RealizedPlanComposed::Failed {
-                        certification,
-                        build,
-                    } => {
-                        let production_health = unassessed_production_health(format!(
-                            "plan realization failed to build: {certification:?}"
-                        ));
-                        return failed_evaluated_over(
-                            EmissionStrategy::PlanComposed,
-                            certification,
-                            build,
-                            expected.len() as u64,
-                            production_health,
-                        )
-                    }
-                };
-            // Net-level dedup: an earlier candidate's measurement is served verbatim except `build` (this candidate's own) and `apply` (reported as 0, never the donor's), with the breach ladder re-run over the reconstructed score rather than copied.
-            // See `docs/research/pg-foma-recipe-runtime-design-notes.md` for why each of those three exclusions is load-bearing rather than incidental.
-            let reuse_key = (cache.net_dedup_enabled() && budget.apply.is_none()).then(|| {
-                let (identity, corpus) = reuse_prefix
-                    .get_or_insert_with(|| (grammar_identity(grammar), corpus_hash(words)));
-                net_reuse_key(identity, corpus, OBSERVE, &net_digest)
-            });
-            let reused = reuse_key
-                .as_deref()
-                .and_then(|key| cache.net_measurement(key).cloned());
-            let measured = match reused {
-                Some(donor) => {
-                    let mut reused = donor;
-                    reused.evaluation.score.build = build;
-                    reused.evaluation.score.apply = 0;
-                    let score = reused.evaluation.score;
-                    if let Some((dimension, value, limit)) = budget_breach(&score, budget) {
-                        reused.evaluation.certification = Certification::ResourceBreach {
-                            dimension: dimension.into(),
-                            value,
-                            limit,
-                        };
-                        reused.evaluation.divergence =
-                            IdentityDivergence::not_compared(expected.len() as u64);
-                    }
-                    cache.count_net_dedup_hit(words.len(), score);
-                    reused
-                }
-                None => {
-                    let (peeler, owners, morpher) = confirm_pieces.take().unwrap_or_else(|| {
-                        (
-                            crate::peel::ReduplicationPeeler::new(grammar),
-                            crate::confirm::build_morpheme_owners(grammar),
-                            pg_parse::Morpher::new(grammar, usize::MAX),
-                        )
-                    });
-                    let mut analyzer = FomaAnalyzer::from_cached_with_morpher(
-                        grammar,
-                        proposer,
-                        peeler,
-                        owners,
-                        morpher,
-                        crate::candidate_filter::CandidateFilterSettings::off(),
-                    );
-                    let measured = if OBSERVE {
-                        measure_and_certify_observed(
-                            EmissionStrategy::PlanComposed,
-                            grammar,
-                            &mut analyzer,
-                            words,
-                            &expected,
-                            budget,
-                            score0.0,
-                            score0.1,
-                            build,
-                        )
-                    } else {
-                        measure_and_certify(
-                            EmissionStrategy::PlanComposed,
-                            grammar,
-                            &mut analyzer,
-                            words,
-                            &expected,
-                            budget,
-                            score0.0,
-                            score0.1,
-                            build,
-                        )
-                    };
-                    // Hand the grammar-static confirm pieces back for the next candidate: confirm never mutates them, so the next candidate gets objects indistinguishable from a fresh rebuild.
-                    let (_spent_proposer, peeler, owners, morpher, _filter) =
-                        analyzer.into_parts_with_morpher();
-                    confirm_pieces = Some((peeler, owners, morpher));
-                    if let Some(reuse_key) = reuse_key {
-                        cache.record_net_measurement(reuse_key, &measured);
-                    }
-                    measured
-                }
+            let mut ctx = CorpusEvalContext {
+                grammar,
+                words,
+                expected: expected.as_slice(),
+                budget,
+                observe: OBSERVE,
+                opts: &opts,
+                alphabet: &alphabet,
+                prules: prules.as_slice(),
+                cache: &mut *cache,
+                confirm_pieces: &mut confirm_pieces,
+                reuse_prefix: &mut reuse_prefix,
             };
-            measured
+            backend_for(candidate.adapter).evaluate_for_corpus(candidate, &mut ctx)
         })
         .collect();
     // Folded here, after the closure's mutable borrow of `cache` ends, so every path out of this function contributes its divergence exactly once.
@@ -2141,7 +2169,9 @@ pub(crate) fn realize_tuned_surface_proposer(grammar: &Grammar) -> Result<FomaPr
 }
 
 /// `crate::backend::TemplatedUnderlyingTokens`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
-pub(crate) fn realize_templated_underlying_proposer(grammar: &Grammar) -> Result<FomaProposer, String> {
+pub(crate) fn realize_templated_underlying_proposer(
+    grammar: &Grammar,
+) -> Result<FomaProposer, String> {
     crate::templated_compile::compile_templated_morphotactics(grammar)
         .map(|output| output.proposer)
         .map_err(|e| format!("templated underlying-token path failed to build: {e}"))
@@ -2157,9 +2187,9 @@ pub(crate) fn realize_controllable_plan_proposer(
 ) -> Result<FomaProposer, String> {
     match realize_plan_composed(candidate, grammar, opts, alphabet, prules) {
         RealizedPlanComposed::Ready { proposer, .. } => Ok(proposer),
-        RealizedPlanComposed::Failed { certification, .. } => {
-            Err(format!("candidate network could not be realized: {certification:?}"))
-        }
+        RealizedPlanComposed::Failed { certification, .. } => Err(format!(
+            "candidate network could not be realized: {certification:?}"
+        )),
     }
 }
 
@@ -2307,7 +2337,8 @@ mod tests {
     }
 
     #[test]
-    fn identity_mismatch_direction_separates_recall_miss_from_over_generation_at_the_certify_seam() {
+    fn identity_mismatch_direction_separates_recall_miss_from_over_generation_at_the_certify_seam()
+    {
         // The three sites above are all symmetric (Both) mismatches; this pins the asymmetric cases through the SAME public entry point `faithfulness_coverage`/gates actually call.
         let g = fixture();
         // Candidate is missing `wa(0)` and offers nothing extra: a pure recall miss (ADR-0001's "never miss").
@@ -2525,7 +2556,10 @@ mod tests {
 
     fn candidate(morphemes: &[u32], root_index: i32) -> crate::tags::Candidate {
         crate::tags::Candidate {
-            morphemes: morphemes.iter().map(|&m| pg_grammar::model::MorphemeId(m)).collect(),
+            morphemes: morphemes
+                .iter()
+                .map(|&m| pg_grammar::model::MorphemeId(m))
+                .collect(),
             root_index,
         }
     }
@@ -2574,15 +2608,14 @@ mod tests {
         let clean_health = HealthReport::new(vec![]);
         let blocked_health = unassessed_production_health("test block".into());
 
-        let evaluation = |certification: Certification, production_health: HealthReport| {
-            RuntimeEvaluation {
+        let evaluation =
+            |certification: Certification, production_health: HealthReport| RuntimeEvaluation {
                 certification,
                 score,
                 realized_strategy: EmissionStrategy::PlanComposed,
                 divergence,
                 production_health,
-            }
-        };
+            };
 
         assert!(
             evaluation(confirmed.clone(), clean_health.clone()).selectable(),

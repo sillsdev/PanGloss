@@ -3,12 +3,13 @@
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 use crate::analyzer::FomaProposer;
+use crate::backend_runtime::{CorpusEvalContext, EvaluatedPlan};
 use crate::backend_selection::BackendSelection;
 use crate::completed_build::{CompileAttempt, CompletedBackendBuild, CompletedBuildError};
 use crate::enumerate::{EmissionStrategy, LoweredCandidate};
 use crate::replace::SegAlphabet;
 
-/// The single interface every compiler backend implements. `strategy`/`interprets_plan` are plain facts a caller needs without running anything; `compile_for_measurement`/`realize_accuracy_proposer` are the two REAL entry points the old per-module matches dispatched to, kept as two methods rather than one because they take different inputs and produce different outputs: `compile_for_measurement` takes a `Grammar` and a `CompileAttempt` and produces an evidenced `CompletedBackendBuild`, while `realize_accuracy_proposer` takes a `LoweredCandidate` plus an alphabet and rule set and produces a bare `FomaProposer` -- a shared signature would have to loosen one side or the other to fit both shapes.
+/// The single interface every compiler backend implements. `strategy`/`interprets_plan` are plain facts a caller needs without running anything; `compile_for_measurement`, `realize_accuracy_proposer` and `evaluate_for_corpus` are the three REAL entry points the old per-module matches dispatched to, kept as three methods rather than one because each takes different inputs and produces a different output: `compile_for_measurement` takes a `Grammar` and a `CompileAttempt` and produces an evidenced `CompletedBackendBuild`; `realize_accuracy_proposer` takes a `LoweredCandidate` plus an alphabet and rule set and produces a bare `FomaProposer`; `evaluate_for_corpus` takes a `CorpusEvalContext` and produces a fully propose-and-confirm-scored `EvaluatedPlan` -- a shared signature would have to loosen every side to fit all three shapes.
 pub trait Backend: Send + Sync {
     /// The `EmissionStrategy` this backend realizes. Exhaustive in both directions with [`backend_for`], so the correspondence is compiler-checked, not documented.
     fn strategy(&self) -> EmissionStrategy;
@@ -30,6 +31,20 @@ pub trait Backend: Send + Sync {
         alphabet: &SegAlphabet<'_>,
         prules: &[&PhonRuleDef],
     ) -> Result<FomaProposer, String>;
+    /// Realizes one candidate for CORPUS evaluation (propose+confirm scored over a word list) --
+    /// `crate::backend_runtime::evaluate_plans_with_cache_mode`'s own per-candidate step, a third job
+    /// distinct from [`Self::compile_for_measurement`] (an evidenced build, no propose/confirm) and
+    /// [`Self::realize_accuracy_proposer`] (a bare proposer, no propose/confirm either). The two
+    /// whole-grammar backends read only `ctx.grammar`/`ctx.words`/`ctx.expected`/`ctx.budget`/`ctx.observe`;
+    /// the plan-composing backend additionally consults `ctx.opts`/`ctx.alphabet`/`ctx.prules` to
+    /// realize the candidate's own plan, and `ctx.cache`/`ctx.confirm_pieces`/`ctx.reuse_prefix` for its
+    /// own net-level dedup, which the other two never need because each derives an independent network
+    /// per call.
+    fn evaluate_for_corpus(
+        &self,
+        candidate: &LoweredCandidate,
+        ctx: &mut CorpusEvalContext<'_, '_>,
+    ) -> EvaluatedPlan;
 }
 
 /// `crate::build::build_controllable`: the only backend that reads a candidate's own `Plan` at all, and the one with no production measurement compile (`crate::completed_build`'s own pinned `plan_composed_has_no_production_compile_arm`).
@@ -67,6 +82,14 @@ impl Backend for PlanComposed {
             candidate, grammar, opts, alphabet, prules,
         )
     }
+
+    fn evaluate_for_corpus(
+        &self,
+        candidate: &LoweredCandidate,
+        ctx: &mut CorpusEvalContext<'_, '_>,
+    ) -> EvaluatedPlan {
+        crate::backend_runtime::evaluate_plan_composed_for_corpus(candidate, ctx)
+    }
 }
 
 /// `crate::emit`'s surface probe via `FomaProposer::new`: whole-grammar, derives its own topology and ignores the plan.
@@ -99,6 +122,28 @@ impl Backend for LexcMainline {
         _prules: &[&PhonRuleDef],
     ) -> Result<FomaProposer, String> {
         crate::backend_runtime::realize_tuned_surface_proposer(grammar)
+    }
+
+    fn evaluate_for_corpus(
+        &self,
+        _candidate: &LoweredCandidate,
+        ctx: &mut CorpusEvalContext<'_, '_>,
+    ) -> EvaluatedPlan {
+        if ctx.observe {
+            crate::backend_runtime::evaluate_via_tuned_emit_mode::<true>(
+                ctx.grammar,
+                ctx.words,
+                ctx.expected,
+                ctx.budget,
+            )
+        } else {
+            crate::backend_runtime::evaluate_via_tuned_emit_mode::<false>(
+                ctx.grammar,
+                ctx.words,
+                ctx.expected,
+                ctx.budget,
+            )
+        }
     }
 }
 
@@ -134,6 +179,28 @@ impl Backend for TemplatedUnderlyingTokens {
         _prules: &[&PhonRuleDef],
     ) -> Result<FomaProposer, String> {
         crate::backend_runtime::realize_templated_underlying_proposer(grammar)
+    }
+
+    fn evaluate_for_corpus(
+        &self,
+        _candidate: &LoweredCandidate,
+        ctx: &mut CorpusEvalContext<'_, '_>,
+    ) -> EvaluatedPlan {
+        if ctx.observe {
+            crate::backend_runtime::evaluate_via_templated_emit_mode::<true>(
+                ctx.grammar,
+                ctx.words,
+                ctx.expected,
+                ctx.budget,
+            )
+        } else {
+            crate::backend_runtime::evaluate_via_templated_emit_mode::<false>(
+                ctx.grammar,
+                ctx.words,
+                ctx.expected,
+                ctx.budget,
+            )
+        }
     }
 }
 
