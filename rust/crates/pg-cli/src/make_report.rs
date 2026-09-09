@@ -12,8 +12,8 @@ use pg_foma::health::HealthReport;
 use pg_foma::plan_diagram::{
     build_plan_document_with_semantics, render_mermaid, MermaidRender, RenderMode,
 };
-use pg_foma::readiness_policy::{policy_v1, ThresholdPolicy};
-use pg_foma::readiness_verdict::{
+use crate::readiness_policy::{policy_v1, ThresholdPolicy};
+use crate::readiness_verdict::{
     certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
     Measurements, ReadinessReport, Tier, TrustStatus,
 };
@@ -831,9 +831,9 @@ mod tests {
 
     // The `&Grammar` front ends, used only by the golden-render test below; the live command drives the `_with_semantics` forms off its one shared owner.
     use pg_foma::plan_diagram::build_plan_document;
-    use pg_foma::readiness_verdict::certify;
+    use crate::readiness_verdict::certify;
     // Test-only: hoisting these to the module head made the production build warn on every compile.
-    use pg_foma::readiness_verdict::{CoverageAssessment, LatencyMeasurement};
+    use crate::readiness_verdict::{CoverageAssessment, LatencyMeasurement};
 
     fn scratch_dir(tag: &str) -> std::path::PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);

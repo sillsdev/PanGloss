@@ -75,11 +75,14 @@ use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod assess;
+mod backend_report;
 mod coverage;
 mod fst_health;
 mod make_report;
 mod pack;
 mod plan_diagram;
+mod readiness_policy;
+mod readiness_verdict;
 mod recipe_optimize;
 mod stats_cmd;
 mod surface;

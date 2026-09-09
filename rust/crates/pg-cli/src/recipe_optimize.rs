@@ -15,7 +15,7 @@ use pg_foma::backend_optimizer::{
 use pg_foma::backend_registry::{
     Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION,
 };
-use pg_foma::backend_report::{
+use crate::backend_report::{
     BackendOptimizationReport, CandidateReport, PruningWaterfall, SearchAccounting,
     BACKEND_REPORT_SCHEMA_VERSION, DETERMINISTIC_SCORE_SCHEMA_VERSION,
 };
@@ -709,7 +709,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             overflowed: false,
         }
     };
-    let counts = pg_foma::backend_report::SpaceCounts {
+    let counts = crate::backend_report::SpaceCounts {
         syntactic: c.syntactic.value,
         attested: c.attested.value,
         static_count: states.len() as u64,

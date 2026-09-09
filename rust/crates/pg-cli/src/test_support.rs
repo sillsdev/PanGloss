@@ -62,7 +62,7 @@ fn trailing_newline_count(input: &str) -> usize {
     input.chars().rev().take_while(|&ch| ch == '\n').count()
 }
 
-fn text_mismatch_message(actual: &str, expected: &str) -> String {
+fn text_mismatch_message(kind: &str, actual: &str, expected: &str) -> String {
     let index = first_mismatch(actual, expected).expect("a mismatch is required");
     let (line, column) = line_column(actual, index);
     let at_eof = index >= actual.chars().count() || index >= expected.chars().count();
@@ -73,7 +73,7 @@ fn text_mismatch_message(actual: &str, expected: &str) -> String {
         ""
     };
     format!(
-        "rendered text mismatch at line {line}, column {column}{eof}{trailing}; \
+        "{kind} mismatch at line {line}, column {column}{eof}{trailing}; \
          actual context: {:?}; expected context: {:?}",
         escaped_context(actual, index),
         escaped_context(expected, index),
@@ -87,7 +87,25 @@ pub(crate) fn assert_rendered_text_eq(actual: &str, expected: &str) {
     if actual_normalized != expected_normalized {
         panic!(
             "{}",
-            text_mismatch_message(actual_normalized.as_ref(), expected_normalized.as_ref())
+            text_mismatch_message(
+                "rendered text",
+                actual_normalized.as_ref(),
+                expected_normalized.as_ref()
+            )
+        );
+    }
+}
+
+/// Normalizes only `expected`'s newlines; `actual` must already be canonical LF. Used for golden
+/// JSON fixtures this crate itself produces (which are always LF), read against a checked-in file
+/// that may carry CRLF from a Windows checkout.
+#[track_caller]
+pub(crate) fn assert_canonical_lf_text_eq(actual: &str, expected: &str) {
+    let expected_normalized = normalize_newlines(expected);
+    if actual != expected_normalized {
+        panic!(
+            "{}",
+            text_mismatch_message("canonical LF text", actual, expected_normalized.as_ref())
         );
     }
 }

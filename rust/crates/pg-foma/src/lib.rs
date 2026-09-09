@@ -97,8 +97,6 @@ pub mod backend;
 pub mod backend_optimizer;
 /// Extensible registry of realizable compilation-backend families.
 pub mod backend_registry;
-/// Schema-versioned machine and human views over backend-optimization runs.
-pub mod backend_report;
 pub mod backend_runtime;
 workbench_module! {
     /// Opaque trusted compiler output and selector-owned runtime handoff.
@@ -334,22 +332,6 @@ workbench_module! {
     pub mod profile;
 }
 /// The declared,
-/// versioned threshold policy — `readiness_policy::ThresholdPolicy`/[`readiness_policy::
-/// Threshold`]/`readiness_policy::Calibration` — a certification verdict (`readiness_verdict`)
-/// is measured against, same "define the versioned schema" precedent
-/// as `health`/`plan_diagram`. See that module's own doc for exactly which seeded values are
-/// measured vs. explicitly-marked un-calibrated placeholders.
-pub mod readiness_policy;
-/// The tiered
-/// certification verdict — `readiness_verdict::certify` evaluates a grammar's REAL capability
-/// decision (always resolving it itself, through the gated backend's own report from
-/// `backend_selection::select_backends` -- never the whole-grammar join), its ADR-0005 trust
-/// status, and its measured facts against a `readiness_policy::ThresholdPolicy`, producing a
-/// `readiness_verdict::ReadinessReport` that distinguishes `not-yet` (actionable by the language
-/// team) from `not-supported` (actionable only by compiler work) and never lets an override-
-/// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
-/// rule contract.
-pub mod readiness_verdict;
 /// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
 /// rewrite rule, used by `build` and `gate`.
 pub mod replace;

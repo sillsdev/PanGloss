@@ -12,7 +12,7 @@
 //!   `Proven`), but at least one threshold is missed or a required check could not be assessed.
 //!   Actionable by the language team — more lexicon, better data, a smaller pack.
 //! - `Tier::NotSupported`: either (a) the grammar carries a permanent
-//!   `crate::capability::CompileDecision::Refuse` — the **real** verdict this module always
+//!   `pg_foma::capability::CompileDecision::Refuse` — the **real** verdict this module always
 //!   computes itself (never a caller-supplied guess, never inferred from a failure to run), or (b) the
 //!   artifact carries a capability override (`trust=unproven`) — see the next section. Actionable
 //!   only by compiler work (or, for (b), a clean recompile without the override).
@@ -65,10 +65,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::analyzer::FomaProposer;
-use crate::backend_selection::select_backends;
-use crate::capability::{CapabilityDiagnostic, CompileDecision};
-use crate::grammar_semantics::GrammarSemantics;
+use pg_foma::analyzer::FomaProposer;
+use pg_foma::backend_selection::select_backends;
+use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
+use pg_foma::grammar_semantics::GrammarSemantics;
 use crate::readiness_policy::ThresholdPolicy;
 use pg_grammar::model::Grammar;
 
@@ -189,7 +189,7 @@ pub enum CheckKind {
 }
 
 /// A measured or threshold value, in whatever unit its `CheckKind` uses -- shares one shape
-/// across all six checks rather than six near-identical structs (mirrors `crate::health::
+/// across all six checks rather than six near-identical structs (mirrors `pg_foma::health::
 /// MetricValue`'s own closed-enum convention).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
@@ -203,7 +203,7 @@ pub enum CheckValue {
 }
 
 /// The outcome of one check. **Closed, four variants, no catch-all match anywhere in this module**
-/// (the same discipline `crate::health`/`crate::plan` document for their own closed enums) --
+/// (the same discipline `pg_foma::health`/`pg_foma::plan` document for their own closed enums) --
 /// `CheckOutcome::Blocked` is a structurally distinct variant from `CheckOutcome::Pass`, so an
 /// override-blocked check cannot be confused with a passed one even by a renderer that pattern-
 /// matches loosely.
@@ -270,7 +270,7 @@ impl From<&CapabilityDiagnostic> for RefusalCitation {
 }
 
 /// The real capability decision this report was computed from (`certify` always resolves it
-/// itself, through the gated backend's own report from `crate::backend_selection::select_backends`
+/// itself, through the gated backend's own report from `pg_foma::backend_selection::select_backends`
 /// -- see `certify_with_semantics`'s own doc, "Which backend the certificate is about").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "decision", rename_all = "snake_case")]
@@ -331,7 +331,7 @@ impl ReadinessReport {
         matches!(self.tier, Tier::Certified)
     }
 
-    /// Canonical machine-readable form -- same convention as `crate::health`/`crate::
+    /// Canonical machine-readable form -- same convention as `pg_foma::health`/`pg_foma::
     /// coverage_ledger`/`crate::readiness_policy`.
     pub fn to_canonical_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("ReadinessReport serialization is infallible")
@@ -622,11 +622,11 @@ pub fn certify(
 /// This does NOT weaken the rule that certification never accepts a caller-supplied capability
 /// verdict: a `GrammarSemantics` is a pure, deterministic function of the grammar, not a verdict,
 /// and this function still computes the `CompileDecision` itself through
-/// `crate::backend_selection::select_backends`. The thing a caller cannot do — hand in a `Refuse`
+/// `pg_foma::backend_selection::select_backends`. The thing a caller cannot do — hand in a `Refuse`
 /// it decided on its own — remains impossible.
 ///
 /// # Which backend the certificate is about
-/// `crate::analyzer::FomaProposer::EMISSION_STRATEGY`'s own report, not the whole-grammar join
+/// `pg_foma::analyzer::FomaProposer::EMISSION_STRATEGY`'s own report, not the whole-grammar join
 /// over every backend. A certificate describes the artifact a `pangloss` run would produce, and
 /// that artifact comes from exactly one backend; the join would let another backend's ability
 /// certify an artifact it never built.
@@ -1124,4 +1124,134 @@ mod tests {
     }
 
     const GOLDEN_JSON: &str = include_str!("readiness_verdict_golden.json");
+
+    /// Pins that the `not-supported` tier cites a real predicate refusal, using all three
+    /// reference grammars, which currently refuse on exactly `mpr-group.overwrite-output`. Loads
+    /// real grammars from gitignored `samples/data/`, so unconditionally `#[ignore]`d with a
+    /// self-skip guard; run locally with `--include-ignored`.
+    mod certification_gate {
+        use std::path::{Path, PathBuf};
+
+        use super::{certify, CapabilitySummary, CheckOutcome, Tier, TrustStatus};
+        use crate::readiness_policy::policy_v1;
+        use pg_grammar::model::Grammar;
+
+        fn sample_path(name: &str) -> PathBuf {
+            let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+            manifest_dir.join("../../../samples/data").join(name)
+        }
+
+        /// Self-skip guard: gitignored real-corpus fixtures aren't present in a fresh clone or CI.
+        fn have(name: &str) -> bool {
+            sample_path(name).exists()
+        }
+
+        fn load_grammar(xml_name: &str) -> Grammar {
+            let path = sample_path(xml_name);
+            let xml = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {xml_name}: {e}"))
+        }
+
+        /// Runs the not-supported-cites-a-real-refusal assertion against one reference grammar.
+        fn assert_not_supported_names_overwrite_output(xml_name: &str) {
+            let g = load_grammar(xml_name);
+            let policy = policy_v1();
+
+            // No compiled artifact/measurements at all — this grammar is refused before anything would compile.
+            let report = certify(&g, &TrustStatus::Proven, None, &policy);
+
+            assert_eq!(
+                report.tier,
+                Tier::NotSupported,
+                "{xml_name}: expected the not-supported tier for a permanently-refused grammar, got {:?}",
+                report.tier
+            );
+
+            let refusals = match &report.capability {
+                CapabilitySummary::Refuse { refusals } => refusals,
+                other => panic!(
+                    "{xml_name}: expected CapabilitySummary::Refuse (per docs/benchmark-matrix.md's own \
+                     finding that every reference grammar carries the permanent mpr-group.overwrite-output \
+                     carve-out), got {other:?} -- if this construct's disposition has genuinely changed, \
+                     pick a different verified-refused fixture"
+                ),
+            };
+            assert!(
+                !refusals.is_empty(),
+                "{xml_name}: the not-supported tier must cite at least one real refusal"
+            );
+            assert!(
+                refusals
+                    .iter()
+                    .any(|r| r.predicate == "mpr-group.overwrite-output"),
+                "{xml_name}: expected mpr-group.overwrite-output among the real refusals, got {refusals:?}"
+            );
+            // Every cited refusal must name both a predicate and a construct — an empty string would be a citation in name only.
+            for r in refusals {
+                assert!(
+                    !r.predicate.is_empty(),
+                    "{xml_name}: refusal must name a predicate: {r:?}"
+                );
+                assert!(
+                    !r.construct.is_empty(),
+                    "{xml_name}: refusal must name a construct: {r:?}"
+                );
+            }
+
+            // Every check must be forced to NotAssessed, never silently rendered as passed — there is no compiled artifact to measure at all.
+            assert!(
+                report
+                    .checks
+                    .iter()
+                    .all(|c| matches!(c.outcome, CheckOutcome::NotAssessed { .. })),
+                "{xml_name}: every check must be NotAssessed with no compiled artifact: {:?}",
+                report.checks
+            );
+            assert!(
+                !report.is_certified(),
+                "{xml_name}: a not-supported grammar must never certify"
+            );
+
+            // The report's notes must explain the not-supported tier in terms of the real capability evaluation — a bare "not passing" is useless.
+            assert!(
+                report.notes.iter().any(|n| n.contains("NOT SUPPORTED")),
+                "{xml_name}: report notes must explain the not-supported tier: {:?}",
+                report.notes
+            );
+        }
+
+        #[test]
+        #[ignore = "needs local gitignored corpus data (samples/data/indonesian-hc.xml); run with \
+                    --include-ignored"]
+        fn indonesian_reference_grammar_is_not_supported_citing_overwrite_output() {
+            if !have("indonesian-hc.xml") {
+                eprintln!("skip: samples/data/indonesian-hc.xml not present locally");
+                return;
+            }
+            assert_not_supported_names_overwrite_output("indonesian-hc.xml");
+        }
+
+        #[test]
+        #[ignore = "needs local gitignored corpus data (samples/data/amharic-hc.xml); run with \
+                    --include-ignored"]
+        fn amharic_reference_grammar_is_not_supported_citing_overwrite_output() {
+            if !have("amharic-hc.xml") {
+                eprintln!("skip: samples/data/amharic-hc.xml not present locally");
+                return;
+            }
+            assert_not_supported_names_overwrite_output("amharic-hc.xml");
+        }
+
+        #[test]
+        #[ignore = "needs local gitignored corpus data (samples/data/sena-hc.xml); run with \
+                    --include-ignored"]
+        fn sena_reference_grammar_is_not_supported_citing_overwrite_output() {
+            if !have("sena-hc.xml") {
+                eprintln!("skip: samples/data/sena-hc.xml not present locally");
+                return;
+            }
+            assert_not_supported_names_overwrite_output("sena-hc.xml");
+        }
+    }
 }

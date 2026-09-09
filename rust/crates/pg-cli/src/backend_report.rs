@@ -1,5 +1,5 @@
 //! Canonical, replayable optimization evidence.
-use crate::backend_optimizer::{
+use pg_foma::backend_optimizer::{
     Budget, BudgetUsage, Certification, CorpusCompletenessEvidence, Score, SearchQuality, Strategy,
     Termination,
 };
@@ -10,8 +10,8 @@ use crate::backend_optimizer::{
 /// Reports from a prior schema are not comparable and must not silently deserialize as if current.
 pub const BACKEND_REPORT_SCHEMA_VERSION: u32 = 5;
 pub const DETERMINISTIC_SCORE_SCHEMA_VERSION: u32 = 2;
-use crate::backend_space::FeasibleCount;
-use crate::backend_space::PilotSummary;
+use pg_foma::backend_space::FeasibleCount;
+use pg_foma::backend_space::PilotSummary;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SpaceCounts {
     pub syntactic: u64,
@@ -26,7 +26,7 @@ pub struct CandidateReport {
     pub certification: Certification,
     pub score: Option<Score>,
     /// Orthogonal to `certification`: true when this candidate's completed FST is not eligible for
-    /// production publication (see `crate::backend_runtime::RuntimeEvaluation::production_health`),
+    /// production publication (see `pg_foma::backend_runtime::RuntimeEvaluation::production_health`),
     /// independent of whether it also reproduced the oracle. `#[serde(default)]` so a report
     /// written before this field existed still parses -- as `false`, i.e. not known to be blocked,
     /// which is the only backward-compatible reading for evidence that predates this question ever
@@ -235,11 +235,11 @@ impl BackendOptimizationReport {
                     .map(|score| (candidate.id.clone(), candidate.certification.clone(), score))
             })
             .collect();
-        let expected_frontier = crate::backend_optimizer::pareto_frontier(&ranking);
+        let expected_frontier = pg_foma::backend_optimizer::pareto_frontier(&ranking);
         if self.frontier != expected_frontier {
             return Err("serialized frontier does not match recomputed frontier");
         }
-        let expected_winner = crate::backend_optimizer::select_confirmed(&ranking);
+        let expected_winner = pg_foma::backend_optimizer::select_confirmed(&ranking);
         if self.winner != expected_winner {
             return Err("serialized winner does not match recomputed winner");
         }
@@ -517,7 +517,7 @@ mod tests {
             &["w".to_string()],
             &["w".to_string()],
             vec![],
-            crate::backend_optimizer::OracleEligibilityConfig {
+            pg_foma::backend_optimizer::OracleEligibilityConfig {
                 step_cap: 20_000,
                 memory_ceiling_bytes: 1 << 33,
                 liveness_net_ns: 300_000_000_000,

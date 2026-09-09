@@ -5,7 +5,7 @@
 //! that produced it and an older certificate stays interpretable after the numbers move.
 //!
 //! This module owns the schema and today's seed
-//! values only; it does not gate any compile path, mirroring `crate::health`/`crate::plan_diagram`'s
+//! values only; it does not gate any compile path, mirroring `pg_foma::health`/`pg_foma::plan_diagram`'s
 //! own "define the versioned schema first" precedent.
 //!
 //! # Calibration is a first-class field, not a doc comment
@@ -44,7 +44,7 @@
 //!   projected onto a device nobody has benchmarked.
 //! - **`pack_size_max_bytes`, `Calibration::Placeholder`**: no full-scale (10^4-10^5 entry) pack
 //!   has ever been built and measured end-to-end, so there is no real evidence to calibrate a
-//!   device-storage-appropriate cap against. Reuses [`crate::health::IDEAL_MAX_BYTES`] directly
+//!   device-storage-appropriate cap against. Reuses [`pg_foma::health::IDEAL_MAX_BYTES`] directly
 //!   as a starting reference point ONLY, because that is the one artifact-size policy already
 //!   declared anywhere in this repo — not itself derived from a device memory/storage budget.
 //! - **`lexicon_min_entries`, `Calibration::Placeholder`**: no full-scale reference grammar has
@@ -149,7 +149,7 @@ pub struct ThresholdPolicy {
 
 impl ThresholdPolicy {
     /// Canonical machine-readable form: pretty-printed, two-space indent, fields in Rust
-    /// declaration order — the same "canonical JSON" convention `crate::health`/`crate::
+    /// declaration order — the same "canonical JSON" convention `pg_foma::health`/`pg_foma::
     /// coverage_ledger` already establish.
     pub fn to_canonical_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("ThresholdPolicy serialization is infallible")
@@ -177,11 +177,11 @@ pub fn policy_v1() -> ThresholdPolicy {
             evidence about any other device class.)"
             .to_string(),
         pack_size_max_bytes: Threshold::new(
-            crate::health::IDEAL_MAX_BYTES,
+            pg_foma::health::IDEAL_MAX_BYTES,
             Calibration::placeholder(
                 "No full-scale (10^4-10^5 entry) .pgpack has been built and measured end-to-end, \
                  so there is no real evidence to calibrate a device-storage-appropriate cap \
-                 against. Reuses crate::health::IDEAL_MAX_BYTES directly as a starting reference \
+                 against. Reuses pg_foma::health::IDEAL_MAX_BYTES directly as a starting reference \
                  point only -- that is the one artifact-size policy already declared in this repo, \
                  not itself derived from a device memory/storage budget. Replace once a real \
                  pack-size-vs-device-capacity study exists (see calibrate-fst-resource-envelopes \
