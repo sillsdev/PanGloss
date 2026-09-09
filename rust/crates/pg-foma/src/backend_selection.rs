@@ -76,6 +76,14 @@ fn capability_shape_key(diagnostic: &CapabilityDiagnostic) -> &'static str {
     }
 }
 
+/// Test-support access to the exact shape-key resolution `refused` uses internally, so a gate can
+/// pin the (predicate, shape key) table this module actually produces rather than a
+/// reimplementation of the same logic that could silently drift from it.
+#[cfg(feature = "test-support")]
+pub fn capability_shape_key_for_test(diagnostic: &CapabilityDiagnostic) -> &'static str {
+    capability_shape_key(diagnostic)
+}
+
 /// This crate's own completion of `BackendReport::refused`: the data-only refusal `pg-health`
 /// builds, plus the embedded advice catalog's shapes and remedies for every declined diagnostic —
 /// the half of `refused` that needs the capability registry and catalog `pg-health` cannot depend
