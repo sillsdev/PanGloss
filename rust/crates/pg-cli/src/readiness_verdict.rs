@@ -333,9 +333,7 @@ impl ReadinessReport {
         matches!(self.tier, Tier::Certified)
     }
 
-    /// Canonical machine-readable form -- same convention as `pg_foma::health`/`pg_foma::
-    /// coverage_ledger`/`crate::readiness_policy`. Test-only: no production caller round-trips a
-    /// `ReadinessReport` through JSON.
+    /// Canonical machine-readable form, the same pretty-printed convention `pg_foma::health` uses.
     #[cfg(test)]
     pub fn to_canonical_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("ReadinessReport serialization is infallible")
