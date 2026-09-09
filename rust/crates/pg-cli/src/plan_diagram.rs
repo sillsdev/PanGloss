@@ -23,7 +23,10 @@ pub fn run_plan_diagram(args: &[String]) -> Result<(), String> {
                 let v = &s["--threshold=".len()..];
                 threshold = Some(v.parse().map_err(|_| format!("invalid --threshold: {v}"))?);
             }
-            s => positional.push(s),
+            s => {
+                crate::reject_unknown_option("plan-diagram", s)?;
+                positional.push(s);
+            }
         }
     }
 

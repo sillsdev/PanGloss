@@ -82,6 +82,7 @@ mod pack;
 mod plan_diagram;
 mod recipe_optimize;
 mod stats_cmd;
+mod surface;
 mod trace_render;
 
 /// Accepts experimental FST controls only in `developer-tools` builds, before positional parsing.
@@ -100,12 +101,11 @@ fn accept_developer_flag(arg: &str) -> Result<(), String> {
     }
 }
 
-fn reject_unknown_option(arg: &str) -> Result<(), String> {
-    if arg.starts_with("--") {
-        Err(format!("unknown option: {arg}"))
-    } else {
-        Ok(())
-    }
+/// `command`'s own `surface::CommandSpec`, looked up by name, judges `arg`.
+fn reject_unknown_option(command: &str, arg: &str) -> Result<(), String> {
+    let spec = surface::find_command(command)
+        .unwrap_or_else(|| panic!("`{command}` must have a surface::COMMANDS row"));
+    spec.reject_unknown_option(arg)
 }
 
 #[cfg(feature = "developer-tools")]
@@ -130,133 +130,51 @@ fn run() -> ExitCode {
             println!("pangloss {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
-        Some("batch") => match run_batch(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss batch: {e}");
-                ExitCode::FAILURE
-            }
+        // `--describe` is a flag alias handled here; `pangloss describe` uses the table below.
+        Some("--describe") => surface::run_describe(&args[2..]),
+        Some(name) => match surface::find_command(name) {
+            Some(spec) => (spec.handler)(&args[2..]),
+            None => print_usage_and_fail(),
         },
-        Some("generate") => match run_generate(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss generate: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("parse") => match run_parse(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss parse: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("import") => match run_import(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss import: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("compare") => assess::exit(assess::run_compare(&args[2..]), "compare"),
-        Some("golden-diff") => assess::exit(assess::run_golden_diff(&args[2..]), "golden-diff"),
-        Some("investigate") => assess::exit(assess::run_investigate(&args[2..]), "investigate"),
-        Some("fst-health") => match fst_health::run_fst_health(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss fst-health: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("coverage") => match coverage::run_coverage(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss coverage: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("plan-diagram") => match plan_diagram::run_plan_diagram(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss plan-diagram: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("make-report") => match make_report::run_make_report(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss make-report: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("stats") => match stats_cmd::run_stats(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss stats: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("recipe-optimize") => match recipe_optimize::run_recipe_optimize(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss recipe-optimize: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("__recipe-optimize-child") => match recipe_optimize::run_recipe_optimize(&args[2..]) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("pangloss __recipe-optimize-child: {e}");
-                ExitCode::FAILURE
-            }
-        },
-        Some("__compile-worker-child") => {
-            let stdin = std::io::stdin();
-            let stdout = std::io::stdout();
-            match pg_foma::worker::run_worker_child(stdin.lock(), stdout.lock()) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("pangloss __compile-worker-child: {e}");
-                    ExitCode::FAILURE
-                }
-            }
-        }
-        _ => {
-            eprintln!(
-                "pangloss {} — HermitCrab Rust engine CLI\n\
-                 usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
-                 usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-                 usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
-                 usage: pangloss import <project.fwdata> <out.json>\n\
-                 usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
-                 usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
-                 usage: pangloss investigate <report.json> --case <caseId> [--report <path>]\n\
-                 usage: pangloss fst-health <grammar> [<out.json>]\n\
-                 usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
-                 usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
-                 usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{} [--authorized-by=<name>] [--reason=<text>]\n\
-                 usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
-                 usage: pangloss stats <project-or-grammar> [options] (run `pangloss stats` with no arguments to print the full current option list)\n\
-                 \n\
-                 <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
-                 pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
-                 FieldWorks project file (.fwdata, imported in-memory and compiled on the fly).\n\
-                 \n\
-                 --guess (`batch`/`parse`, HC-rust port gap G3,\n\
-                 docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
-                 to the pre-existing behavior. When passed, an out-of-lexicon word whose normal\n\
-                 analysis is empty is retried via the lexical-pattern guesser (P11,\n\
-                 docs/p11-guesser-api-design.md); a resulting analysis is always clearly marked\n\
-                 guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
-                 `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.\n\
-                 --always-enforce-final-templates is result-changing: enforce template order even\n\
-                 when partial-rule rescue would otherwise allow an interleaving.",
-                env!("CARGO_PKG_VERSION"),
-                REPORT_DEVELOPER_HELP
-            );
-            ExitCode::FAILURE
-        }
+        None => print_usage_and_fail(),
     }
+}
+
+fn print_usage_and_fail() -> ExitCode {
+    eprintln!(
+        "pangloss {} — HermitCrab Rust engine CLI\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
+         usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
+         usage: pangloss import <project.fwdata> <out.json>\n\
+         usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
+         usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
+         usage: pangloss investigate <report.json> --case <caseId> [--report <path>]\n\
+         usage: pangloss fst-health <grammar> [<out.json>]\n\
+         usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
+         usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
+         usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{}\n\
+         usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
+         usage: pangloss stats <project-or-grammar> [options] (run `pangloss stats` with no arguments to print the full current option list)\n\
+         usage: pangloss --describe | pangloss describe (machine-readable JSON of every subcommand and flag, from the same table run() dispatches on)\n\
+         \n\
+         <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
+         pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
+         FieldWorks project file (.fwdata, imported in-memory and compiled on the fly).\n\
+         \n\
+         --guess (`batch`/`parse`, HC-rust port gap G3,\n\
+         docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
+         to the pre-existing behavior. When passed, an out-of-lexicon word whose normal\n\
+         analysis is empty is retried via the lexical-pattern guesser (P11,\n\
+         docs/p11-guesser-api-design.md); a resulting analysis is always clearly marked\n\
+         guessed, never presented as confirmed -- `parse` prints an extra `guessed:` line,\n\
+         `batch` appends a 6th `guessed` TSV column, both only when --guess is passed.\n\
+         --always-enforce-final-templates is result-changing: enforce template order even\n\
+         when partial-rule rescue would otherwise allow an interleaving.",
+        env!("CARGO_PKG_VERSION"),
+        REPORT_DEVELOPER_HELP
+    );
+    ExitCode::FAILURE
 }
 
 /// `import <project.fwdata> <out.json>`: runs `pg-fwdata` over a FieldWorks project file and writes the resulting snapshot to `<out.json>`, printing import and validate warnings under separate headings; only a hard `ImportError` fails the command, since this pipeline must tolerate stale/dangling real-world project data.
@@ -372,7 +290,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             }
             "--guess" => guess = true,
             s => {
-                reject_unknown_option(s)?;
+                reject_unknown_option("parse", s)?;
                 positional.push(s);
             }
         }
@@ -639,7 +557,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 cache_path_arg = Some(s["--cache=".len()..].to_string());
             }
             s => {
-                reject_unknown_option(s)?;
+                reject_unknown_option("batch", s)?;
                 positional.push(s);
             }
         }

@@ -1825,6 +1825,82 @@ mod tests {
         dir
     }
 
+    /// Cross-checks `run_stats`'s bare `--flag` literals against the `stats` `CommandSpec`.
+    mod flag_spec_matches_parser_literals {
+        use crate::surface::find_command;
+
+        /// `run_stats`'s exact source text, found by brace-counting from its signature.
+        fn run_stats_source() -> &'static str {
+            let source = include_str!("stats_cmd.rs");
+            let start = source
+                .find("pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {")
+                .expect("run_stats signature must exist in this file");
+            let body = &source[start..];
+            let mut depth = 0i32;
+            let mut end = None;
+            for (i, c) in body.char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(i + 1);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            &body[..end.expect("run_stats must have a matching closing brace")]
+        }
+
+        /// Quoted `--flag`/`--flag=` literals only -- excludes prose sentences (they have spaces).
+        fn bare_flag_literals(source: &str) -> Vec<String> {
+            let mut out = Vec::new();
+            let mut rest = source;
+            while let Some(start) = rest.find('"') {
+                let after = &rest[start + 1..];
+                let Some(end) = after.find('"') else { break };
+                let literal = &after[..end];
+                if let Some(name) = literal.strip_prefix("--") {
+                    let name = name.strip_suffix('=').unwrap_or(name);
+                    if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
+                    {
+                        out.push(format!("--{name}"));
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            out.sort();
+            out.dedup();
+            out
+        }
+
+        #[test]
+        fn every_bare_flag_literal_in_run_stats_is_declared_in_the_spec() {
+            let spec = find_command("stats").expect("stats must be in COMMANDS");
+            for name in bare_flag_literals(run_stats_source()) {
+                assert!(
+                    spec.flag(&name).is_some(),
+                    "run_stats matches on {name} but the `stats` CommandSpec doesn't declare it"
+                );
+            }
+        }
+
+        #[test]
+        fn every_declared_flag_appears_literally_in_run_stats() {
+            let spec = find_command("stats").expect("stats must be in COMMANDS");
+            let literals = bare_flag_literals(run_stats_source());
+            for flag in spec.flags {
+                assert!(
+                    literals.contains(&flag.name.to_string()),
+                    "stats CommandSpec declares {} but run_stats's source never matches it literally",
+                    flag.name
+                );
+            }
+        }
+    }
+
     /// One conformance fixture's grammar plus a word guaranteed not `expect_skip`.
     fn fixture_grammar_and_word(category: &str, name: &str) -> (String, String) {
         let fixtures = pg_conformance_fixtures::discover();
@@ -1889,7 +1965,10 @@ mod tests {
         let err = refuse_if_final_template_policy_differs(&cache, &path, true)
             .expect_err("legacy rows must refuse the result-changing policy");
         assert!(err.contains(path.to_str().unwrap()), "error: {err}");
-        assert!(err.contains("false") && err.contains("true"), "error: {err}");
+        assert!(
+            err.contains("false") && err.contains("true"),
+            "error: {err}"
+        );
     }
 
     #[test]
@@ -1918,14 +1997,10 @@ mod tests {
         let dir = scratch_dir("policy-separate");
         let default_path = dir.join("default.sqlite3");
         let override_path = dir.join("override.sqlite3");
-        let default_cache = seed_policy_cache(
-            &default_path,
-            r#"{"always_enforce_final_templates":false}"#,
-        );
-        let override_cache = seed_policy_cache(
-            &override_path,
-            r#"{"always_enforce_final_templates":true}"#,
-        );
+        let default_cache =
+            seed_policy_cache(&default_path, r#"{"always_enforce_final_templates":false}"#);
+        let override_cache =
+            seed_policy_cache(&override_path, r#"{"always_enforce_final_templates":true}"#);
         refuse_if_final_template_policy_differs(&default_cache, &default_path, false).unwrap();
         refuse_if_final_template_policy_differs(&override_cache, &override_path, true).unwrap();
     }
@@ -2169,7 +2244,10 @@ mod tests {
         );
         let err = crate::run_batch(&second).expect_err("policy switch must be rejected");
         assert!(err.contains(cache_path.to_str().unwrap()), "error: {err}");
-        assert!(err.contains("false") && err.contains("true"), "error: {err}");
+        assert!(
+            err.contains("false") && err.contains("true"),
+            "error: {err}"
+        );
     }
 
     #[test]

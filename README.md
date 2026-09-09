@@ -167,6 +167,12 @@ See [Optimize a grammar with PanGloss stats](docs/optimize-grammar-with-stats.md
 human- and AI-readable workflow, report semantics, drill-down filters, machine-readable output, and
 interpretation cautions.
 
+## Discovering the CLI's own surface
+
+`pangloss --describe` (or `pangloss describe`) prints every subcommand and flag `main.rs` actually
+dispatches on as JSON, including hidden internal subcommands (marked `"hidden": true`) -- useful
+for pinning an external test double to the real CLI surface rather than to prose documentation.
+
 ## Layout
 
 - `rust/` — the engine workspace (crate map in [`rust/README.md`](rust/README.md)). Key crates:

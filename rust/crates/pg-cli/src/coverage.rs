@@ -394,6 +394,7 @@ pub fn run_coverage(args: &[String]) -> Result<(), String> {
                 grammar_path = Some(s["--grammar=".len()..].to_string());
             }
             s => {
+                crate::reject_unknown_option("coverage", s)?;
                 if out_path.is_some() {
                     return Err(format!(
                         "usage: coverage [--json] [--grammar=<path>] [<out.json>]; unexpected extra \

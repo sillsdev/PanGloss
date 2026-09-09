@@ -626,9 +626,8 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
                 crate::accept_developer_flag(a)?;
                 allow_unproven = true;
             }
-            // --authorized-by/--reason were parsed here and discarded; an override is authorized where it is exercised, and stamping one at render time would forge it.
             s => {
-                crate::reject_unknown_option(s)?;
+                crate::reject_unknown_option("make-report", s)?;
                 positional.push(s);
             }
         }
