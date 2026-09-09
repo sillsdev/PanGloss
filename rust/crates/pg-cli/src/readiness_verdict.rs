@@ -70,6 +70,8 @@ use pg_foma::backend_selection::select_backends;
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use crate::readiness_policy::ThresholdPolicy;
+// Test-only: production code holds a `GrammarSemantics`, never a bare `Grammar` (see `certify`).
+#[cfg(test)]
 use pg_grammar::model::Grammar;
 
 /// This report's own wire-shape version (independent of [`crate::readiness_policy::
@@ -332,11 +334,14 @@ impl ReadinessReport {
     }
 
     /// Canonical machine-readable form -- same convention as `pg_foma::health`/`pg_foma::
-    /// coverage_ledger`/`crate::readiness_policy`.
+    /// coverage_ledger`/`crate::readiness_policy`. Test-only: no production caller round-trips a
+    /// `ReadinessReport` through JSON.
+    #[cfg(test)]
     pub fn to_canonical_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("ReadinessReport serialization is infallible")
     }
 
+    #[cfg(test)]
     pub fn from_json(json: &str) -> serde_json::Result<Self> {
         serde_json::from_str(json)
     }
@@ -607,6 +612,9 @@ fn build_notes(trust: &TrustStatus, capability: &CapabilitySummary, tier: Tier) 
 /// artifact exists to measure (e.g. the grammar was refused before compilation ever produced one);
 /// each measurement's own coverage sub-field is independently `CoverageAssessment::NotAssessed`
 /// or `CoverageAssessment::Attested` regardless of whether the rest of `measurements` is present.
+/// Test-only: every production caller already holds a `GrammarSemantics` and calls
+/// `certify_with_semantics` directly.
+#[cfg(test)]
 pub fn certify(
     g: &Grammar,
     trust: &TrustStatus,
@@ -1125,10 +1133,7 @@ mod tests {
 
     const GOLDEN_JSON: &str = include_str!("readiness_verdict_golden.json");
 
-    /// Pins that the `not-supported` tier cites a real predicate refusal, using all three
-    /// reference grammars, which currently refuse on exactly `mpr-group.overwrite-output`. Loads
-    /// real grammars from gitignored `samples/data/`, so unconditionally `#[ignore]`d with a
-    /// self-skip guard; run locally with `--include-ignored`.
+    /// Pins that `not-supported` cites a real refusal on all three reference grammars; `#[ignore]`d and self-skipping since it needs gitignored `samples/data/`.
     mod certification_gate {
         use std::path::{Path, PathBuf};
 

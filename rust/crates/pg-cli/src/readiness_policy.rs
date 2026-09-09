@@ -150,7 +150,9 @@ pub struct ThresholdPolicy {
 impl ThresholdPolicy {
     /// Canonical machine-readable form: pretty-printed, two-space indent, fields in Rust
     /// declaration order — the same "canonical JSON" convention `pg_foma::health`/`pg_foma::
-    /// coverage_ledger` already establish.
+    /// coverage_ledger` already establish. Test-only: no production caller writes a policy back
+    /// out (`--policy` only ever reads one via `from_json`).
+    #[cfg(test)]
     pub fn to_canonical_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("ThresholdPolicy serialization is infallible")
     }
