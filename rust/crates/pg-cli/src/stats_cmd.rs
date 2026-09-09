@@ -1642,7 +1642,10 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             }
             "--out" => out_path = Some(it.next().ok_or("--out requires a value")?.clone()),
             s if s.starts_with("--out=") => out_path = Some(s["--out=".len()..].to_string()),
-            s => positional.push(s),
+            s => {
+                crate::reject_unknown_option("stats", s)?;
+                positional.push(s);
+            }
         }
     }
 
@@ -1831,76 +1834,58 @@ mod tests {
         dir
     }
 
-    /// Cross-checks `run_stats`'s bare `--flag` literals against the `stats` `CommandSpec`.
-    mod flag_spec_matches_parser_literals {
+    /// Drives `run_stats` directly rather than scraping its source for matching literals.
+    mod flag_spec_drives_the_parser {
+        use crate::stats_cmd::run_stats;
         use crate::surface::find_command;
 
-        /// `run_stats`'s exact source text, found by brace-counting from its signature.
-        fn run_stats_source() -> &'static str {
-            let source = include_str!("stats_cmd.rs");
-            let start = source
-                .find("pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {")
-                .expect("run_stats signature must exist in this file");
-            let body = &source[start..];
-            let mut depth = 0i32;
-            let mut end = None;
-            for (i, c) in body.char_indices() {
-                match c {
-                    '{' => depth += 1,
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            end = Some(i + 1);
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            &body[..end.expect("run_stats must have a matching closing brace")]
-        }
-
-        /// Quoted `--flag`/`--flag=` literals only -- excludes prose sentences (they have spaces).
-        fn bare_flag_literals(source: &str) -> Vec<String> {
-            let mut out = Vec::new();
-            let mut rest = source;
-            while let Some(start) = rest.find('"') {
-                let after = &rest[start + 1..];
-                let Some(end) = after.find('"') else { break };
-                let literal = &after[..end];
-                if let Some(name) = literal.strip_prefix("--") {
-                    let name = name.strip_suffix('=').unwrap_or(name);
-                    if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '-')
-                    {
-                        out.push(format!("--{name}"));
-                    }
-                }
-                rest = &after[end + 1..];
-            }
-            out.sort();
-            out.dedup();
-            out
+        /// A scratch `--cache` path so `run_stats` reaches argument validation for every flag below.
+        fn base_args(cache_dir: &std::path::Path) -> Vec<String> {
+            vec![
+                "irrelevant-project".to_string(),
+                "--cache".to_string(),
+                cache_dir
+                    .join("cache.sqlite3")
+                    .to_string_lossy()
+                    .into_owned(),
+            ]
         }
 
         #[test]
-        fn every_bare_flag_literal_in_run_stats_is_declared_in_the_spec() {
-            let spec = find_command("stats").expect("stats must be in COMMANDS");
-            for name in bare_flag_literals(run_stats_source()) {
-                assert!(
-                    spec.flag(&name).is_some(),
-                    "run_stats matches on {name} but the `stats` CommandSpec doesn't declare it"
-                );
-            }
+        fn unknown_flag_is_rejected_with_the_shared_message() {
+            let dir = super::scratch_dir("stats-unknown-flag");
+            let mut args = base_args(&dir);
+            args.push("--bogus-flag".to_string());
+            let error = run_stats(&args).expect_err("an undeclared flag must be rejected");
+            assert_eq!(error, "unknown option: --bogus-flag");
         }
 
+        /// Drives `run_stats` with each declared flag; acceptance means "not rejected as unknown".
         #[test]
-        fn every_declared_flag_appears_literally_in_run_stats() {
+        fn every_declared_flag_is_accepted_by_run_stats() {
             let spec = find_command("stats").expect("stats must be in COMMANDS");
-            let literals = bare_flag_literals(run_stats_source());
             for flag in spec.flags {
+                if flag.name == "--cache" {
+                    continue; // already exercised by every call via base_args
+                }
+                let dir = super::scratch_dir("stats-declared-flag");
+                let mut args = base_args(&dir);
+                args.push(flag.name.to_string());
+                if flag.takes_value {
+                    let value = match flag.name {
+                        "--group" => "object",
+                        "--direction" => "analysis",
+                        "--sort" => "time",
+                        "--format" => "text",
+                        "--top" => "1",
+                        _ => "x",
+                    };
+                    args.push(value.to_string());
+                }
+                let result = run_stats(&args);
                 assert!(
-                    literals.contains(&flag.name.to_string()),
-                    "stats CommandSpec declares {} but run_stats's source never matches it literally",
+                    !matches!(&result, Err(e) if e.starts_with("unknown option:")),
+                    "{}: expected the parser to accept this declared flag, got {result:?}",
                     flag.name
                 );
             }

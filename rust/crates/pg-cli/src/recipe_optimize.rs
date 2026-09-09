@@ -193,9 +193,9 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             }
             "oracle-memory-ceiling-bytes" => r.oracle_memory_ceiling = Some(n),
             _ => {
-                return Err(RecipeOptimizeError::Usage(format!(
-                    "unknown option: --{key}"
-                )))
+                // Delegates so the message matches every other subcommand's parser.
+                crate::reject_unknown_option("recipe-optimize", &format!("--{key}"))
+                    .map_err(RecipeOptimizeError::Usage)?;
             }
         }
         i += 2;
@@ -958,89 +958,41 @@ mod tests {
 
     use super::{parse_args, read_progress_rows, RecipeOptimizeError};
 
-    /// Cross-checks `parse_args`'s bare match-arm keys against the `recipe-optimize` `CommandSpec`.
-    mod flag_spec_matches_parser_literals {
+    /// Drives `parse_args` directly rather than scraping its source for matching literals.
+    mod flag_spec_drives_the_parser {
+        use crate::recipe_optimize::{parse_args, RecipeOptimizeError};
         use crate::surface::find_command;
 
-        fn parse_args_source() -> &'static str {
-            let source = include_str!("recipe_optimize.rs");
-            let start = source
-                .find("pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeError> {")
-                .expect("parse_args signature must exist in this file");
-            let body = &source[start..];
-            let mut depth = 0i32;
-            let mut end = None;
-            for (i, c) in body.char_indices() {
-                match c {
-                    '{' => depth += 1,
-                    '}' => {
-                        depth -= 1;
-                        if depth == 0 {
-                            end = Some(i + 1);
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            &body[..end.expect("parse_args must have a matching closing brace")]
-        }
-
-        /// Drops each line's `//` comment tail, so quoted English prose can't look like a key.
-        fn strip_line_comments(source: &str) -> String {
-            source
-                .lines()
-                .map(|line| line.split("//").next().unwrap_or(""))
-                .collect::<Vec<_>>()
-                .join("\n")
-        }
-
-        /// Quoted literals matching `[a-z-]+` only -- excludes prose error messages (they have spaces).
-        fn bare_key_literals(source: &str) -> Vec<String> {
-            let source = strip_line_comments(source);
-            let mut out = Vec::new();
-            let mut rest = source.as_str();
-            while let Some(start) = rest.find('"') {
-                let after = &rest[start + 1..];
-                let Some(end) = after.find('"') else { break };
-                let literal = &after[..end];
-                let starts_with_letter = literal.starts_with(|c: char| c.is_ascii_lowercase());
-                if starts_with_letter && literal.chars().all(|c| c.is_ascii_lowercase() || c == '-')
-                {
-                    out.push(literal.to_string());
-                }
-                rest = &after[end + 1..];
-            }
-            out.sort();
-            out.dedup();
-            out
+        fn base_args() -> Vec<String> {
+            vec!["grammar.xml".into(), "words.txt".into(), "out".into()]
         }
 
         #[test]
-        fn every_bare_key_literal_in_parse_args_is_declared_in_the_spec() {
-            let spec =
-                find_command("recipe-optimize").expect("recipe-optimize must be in COMMANDS");
-            for key in bare_key_literals(parse_args_source()) {
-                let flag_name = format!("--{key}");
-                assert!(
-                    spec.flag(&flag_name).is_some(),
-                    "parse_args matches on \"{key}\" but the `recipe-optimize` CommandSpec doesn't \
-                     declare {flag_name}"
-                );
-            }
+        fn unknown_flag_is_rejected_with_the_shared_message() {
+            let mut args = base_args();
+            args.push("--bogus-flag".into());
+            args.push("1".into());
+            let error = parse_args(&args).expect_err("an undeclared flag must be rejected");
+            assert_eq!(
+                error,
+                RecipeOptimizeError::Usage("unknown option: --bogus-flag".to_string())
+            );
         }
 
+        /// Drives `parse_args` with each declared flag in turn, so a value-taking flag gets a value.
         #[test]
-        fn every_declared_flag_appears_literally_in_parse_args() {
+        fn every_declared_flag_is_accepted_by_parse_args() {
             let spec =
                 find_command("recipe-optimize").expect("recipe-optimize must be in COMMANDS");
-            let literals = bare_key_literals(parse_args_source());
             for flag in spec.flags {
-                let key = flag.name.trim_start_matches("--");
+                let mut args = base_args();
+                args.push(flag.name.to_string());
+                if flag.takes_value {
+                    args.push("1".to_string());
+                }
                 assert!(
-                    literals.contains(&key.to_string()),
-                    "recipe-optimize CommandSpec declares {} but parse_args's source never \
-                     matches \"{key}\" literally",
+                    parse_args(&args).is_ok(),
+                    "{}: expected parse_args to accept this declared flag",
                     flag.name
                 );
             }
