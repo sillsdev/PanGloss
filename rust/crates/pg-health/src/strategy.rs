@@ -29,4 +29,41 @@ impl EmissionStrategy {
             Self::TemplatedUnderlyingTokens => "templated-underlying-tokens",
         }
     }
+
+    /// The inverse of [`Self::label`]. The single owner of the label<->strategy mapping, so a
+    /// caller parsing an external route string (a worker wire frame, a CLI flag) never re-derives
+    /// its own copy of this correspondence.
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "plan-composed" => Some(Self::PlanComposed),
+            "tuned-surface-probed" => Some(Self::TunedSurfaceProbed),
+            "templated-underlying-tokens" => Some(Self::TemplatedUnderlyingTokens),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: [EmissionStrategy; 3] = [
+        EmissionStrategy::PlanComposed,
+        EmissionStrategy::TunedSurfaceProbed,
+        EmissionStrategy::TemplatedUnderlyingTokens,
+    ];
+
+    /// `from_label` must invert `label` for every variant, or a route string round-trip silently drifts.
+    #[test]
+    fn label_and_from_label_round_trip() {
+        for strategy in ALL {
+            assert_eq!(EmissionStrategy::from_label(strategy.label()), Some(strategy));
+        }
+    }
+
+    /// An unrecognized route string must never resolve to a strategy by accident.
+    #[test]
+    fn from_label_rejects_unknown_strings() {
+        assert_eq!(EmissionStrategy::from_label("not-a-real-strategy"), None);
+    }
 }

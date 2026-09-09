@@ -364,13 +364,9 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
     }
 }
 
+/// `EmissionStrategy::from_label` is the single owner of the label<->strategy mapping; this used to re-parse it independently.
 fn strategy_from_worker_route(route: &str) -> Result<EmissionStrategy, String> {
-    match route {
-        "tuned-surface-probed" => Ok(EmissionStrategy::TunedSurfaceProbed),
-        "templated-underlying-tokens" => Ok(EmissionStrategy::TemplatedUnderlyingTokens),
-        "plan-composed" => Ok(EmissionStrategy::PlanComposed),
-        _ => Err(format!("unknown selected backend route {route:?}")),
-    }
+    EmissionStrategy::from_label(route).ok_or_else(|| format!("unknown selected backend route {route:?}"))
 }
 
 /// Carries a selected payload until the result header and optional raw frame are written.
