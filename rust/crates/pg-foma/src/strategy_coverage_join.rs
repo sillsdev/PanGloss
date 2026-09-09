@@ -36,9 +36,11 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::backend_optimizer::Certification;
-use crate::backend_runtime::{evaluate_plans_observed_with_cache, RunEvaluationCache, RuntimeBudget};
+use crate::backend_runtime::{
+    evaluate_plans_observed_with_cache, RunEvaluationCache, RuntimeBudget,
+};
 use crate::backend_selection::select_backends;
-use crate::capability::{CharacteristicKind, PredicateId};
+use crate::capability::{CharacteristicKind, CompileDecision, PredicateId};
 use crate::conformance_coverage::construct_ids_for;
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
@@ -152,23 +154,25 @@ pub fn classify_with_witnesses(
 /// not exact rather than panicking, matching every other "could not measure" path in this crate's
 /// own measurement instruments.
 /// Which predicates the capability envelope cites when it declines `strategy` for `grammar`; empty
-/// when it admits, and empty when the envelope has no report for that strategy (absence is not a
-/// refusal, matching `crate::capability_gate::refuse_unless_admitted`'s own rule).
+/// when it admits. Routed through `BackendSelection::decision_for`, which fails CLOSED on a missing
+/// report -- a real (if practically unreached, per `every_all_strategies_member_is_reported`)
+/// grammar/strategy pair with no composed report comes back as a one-predicate refusal
+/// (`"selection.backend-not-reported"`), never as silent admission.
 ///
 /// This is the ATTRIBUTABLE direction this module's own doc says the fixture-outcome join lacks. An
 /// aggregate "not exact under this strategy" names only the fixture, because a fixture exercises
 /// several kinds at once; a refusal names the predicate that produced it, so a refused cell is
 /// evidence about that predicate specifically and nothing else.
-pub fn envelope_refusal_predicates(grammar: &Grammar, strategy: EmissionStrategy) -> Vec<PredicateId> {
+pub fn envelope_refusal_predicates(
+    grammar: &Grammar,
+    strategy: EmissionStrategy,
+) -> Vec<PredicateId> {
     let semantics = GrammarSemantics::derive(grammar);
     let selection = select_backends(&semantics);
-    let Some(report) = selection.report_for(strategy) else {
+    let CompileDecision::Refuse(diagnostics) = selection.decision_for(strategy) else {
         return Vec::new();
     };
-    if report.can_represent() {
-        return Vec::new();
-    }
-    let mut out: Vec<PredicateId> = report.declined_on().iter().map(|d| d.predicate).collect();
+    let mut out: Vec<PredicateId> = diagnostics.iter().map(|d| d.predicate).collect();
     out.sort_unstable();
     out.dedup();
     out
@@ -196,11 +200,16 @@ pub fn negative_witness_index<'a>(
     index
 }
 
-pub fn measure_fixture_exact(grammar: &Grammar, words: &[String], strategy: EmissionStrategy) -> bool {
+pub fn measure_fixture_exact(
+    grammar: &Grammar,
+    words: &[String],
+    strategy: EmissionStrategy,
+) -> bool {
     let semantics = GrammarSemantics::derive(grammar);
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let baseline_plan = enumerate_default(grammar, semantics.prules_in_order(), phonology.as_ref());
-    let Ok(mut cache) = RunEvaluationCache::prepare(grammar, words, RuntimeBudget::default()) else {
+    let Ok(mut cache) = RunEvaluationCache::prepare(grammar, words, RuntimeBudget::default())
+    else {
         return false;
     };
     let candidate = LoweredCandidate {
@@ -237,7 +246,11 @@ mod tests {
             StrategyRepresentation::RepresentsWithKnownGap,
             StrategyRepresentation::CannotRepresent,
         ] {
-            assert_eq!(classify(rep, false, false), JoinVerdict::NoEvidence, "{rep:?}");
+            assert_eq!(
+                classify(rep, false, false),
+                JoinVerdict::NoEvidence,
+                "{rep:?}"
+            );
         }
     }
 
@@ -282,12 +295,18 @@ mod tests {
     }
 
     fn exactness(label: &str, exact: bool) -> FixtureExactness {
-        FixtureExactness { label: label.to_string(), exact }
+        FixtureExactness {
+            label: label.to_string(),
+            exact,
+        }
     }
 
     #[test]
     fn witnesses_prefer_exact_fixtures_and_name_the_contradiction() {
-        let exhibiting = [exactness("refuses-here", false), exactness("works-here", true)];
+        let exhibiting = [
+            exactness("refuses-here", false),
+            exactness("works-here", true),
+        ];
         let (verdict, witnesses) =
             classify_with_witnesses(StrategyRepresentation::CannotRepresent, &exhibiting);
         assert_eq!(verdict, JoinVerdict::Contradicted);
@@ -312,7 +331,10 @@ mod tests {
                 continue; // Unmappable kinds (none today) have nothing to recover from.
             }
             let recovered = kinds_exercised_by(&ids);
-            assert!(recovered.contains(&kind), "{kind:?} not recovered from its own ids {ids:?}");
+            assert!(
+                recovered.contains(&kind),
+                "{kind:?} not recovered from its own ids {ids:?}"
+            );
         }
     }
 
