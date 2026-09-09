@@ -75,7 +75,7 @@ use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
 
 mod assess;
-// The report vocabulary is this binary's documented interface, so it is declared `pub` like a library module.
+// `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 pub mod backend_report;
 mod coverage;
 mod fst_health;

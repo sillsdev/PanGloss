@@ -1807,11 +1807,12 @@ pub fn finished_net_digests(
 /// Per-candidate inputs to `crate::backend::Backend::evaluate_for_corpus`: the run-invariant
 /// grammar/corpus/budget pieces every backend reads, plus the net-reuse cache and confirm-side
 /// pieces only the plan-composing backend's own realization consults.
-// Two lifetimes, not one: `'g` is how long `grammar` (and everything borrowed from it, including
-// `confirm_pieces`'s own `Morpher<'g>`) is good for, while `'b` is only how long THIS call's
-// mutable borrow of `cache`/`confirm_pieces`/`reuse_prefix` lasts. Collapsing them to one lifetime
-// forces every per-iteration reborrow to live as long as `grammar` itself, which a `FnMut` closure
-// called once per candidate cannot satisfy.
+///
+/// Two lifetimes, not one: `'g` is how long `grammar` (and everything borrowed from it, including
+/// `confirm_pieces`'s own `Morpher<'g>`) is good for, while `'b` is only how long one call's
+/// mutable borrow of `cache`/`confirm_pieces`/`reuse_prefix` lasts. Collapsing them forces every
+/// per-candidate reborrow to live as long as `grammar`, which a `FnMut` called once per candidate
+/// cannot satisfy.
 pub struct CorpusEvalContext<'g, 'b> {
     pub grammar: &'g Grammar,
     pub words: &'g [String],
