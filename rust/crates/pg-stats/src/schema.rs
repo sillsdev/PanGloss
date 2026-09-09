@@ -8,7 +8,7 @@ use crate::error::StatsError;
 const SCHEMA_SQL: &str = include_str!("schema.sql");
 
 /// Bumped when `schema.sql` changes shape. A cache is wiped, never migrated, on a mismatch.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// Bumped by hand when what a counter means changes; recorded per run rather than wiped on.
 pub const COUNTER_SEMANTICS_VERSION: i64 = 2;

@@ -278,6 +278,7 @@ fn finish_stats_flush(
         options_hash,
         options_json,
         created_utc: now_utc_string(),
+        step_cap: options.step_cap,
     };
 
     let analyzed = records.len();
@@ -327,6 +328,11 @@ pub(crate) fn run_batch_stats_hc(
         &cache_path,
         always_enforce_final_templates,
     )?;
+    // A cache hit under `existing_words` below is not interchangeable across step caps.
+    outcome
+        .cache
+        .refuse_if_step_cap_differs(step_cap)
+        .map_err(|e| e.to_string())?;
 
     let refs: Vec<&str> = words.iter().map(String::as_str).collect();
     let existing = outcome
@@ -1950,6 +1956,7 @@ mod tests {
             options_hash: "options".to_string(),
             options_json: options_json.to_string(),
             created_utc: "unix:0".to_string(),
+            step_cap: None,
         };
         outcome.cache.flush(&run, &[]).unwrap();
         outcome.cache
@@ -2669,6 +2676,7 @@ mod tests {
             options_hash: "opts".to_string(),
             options_json: "{}".to_string(),
             created_utc: "unix:0".to_string(),
+            step_cap: None,
         };
         let word_record = pg_stats::WordRecord {
             form: "onlyword".to_string(),
@@ -2757,6 +2765,7 @@ mod tests {
             options_hash: "opts".to_string(),
             options_json: "{}".to_string(),
             created_utc: "unix:0".to_string(),
+            step_cap: None,
         };
         let make_fact = |key: &str, morpheme_key: &str, attempts: u64| pg_stats::FactRecord {
             object_key: key.to_string(),
@@ -2901,6 +2910,7 @@ mod tests {
             options_hash: "opts".to_string(),
             options_json: "{}".to_string(),
             created_utc: "unix:0".to_string(),
+            step_cap: None,
         };
         outcome
             .cache
@@ -3196,6 +3206,7 @@ mod tests {
             options_hash: "opts".to_string(),
             options_json: "{}".to_string(),
             created_utc: "unix:0".to_string(),
+            step_cap: None,
         };
         outcome
             .cache
@@ -3263,6 +3274,7 @@ mod tests {
             options_hash: "opts".to_string(),
             options_json: "{}".to_string(),
             created_utc: "unix:0".to_string(),
+            step_cap: None,
         };
         outcome
             .cache

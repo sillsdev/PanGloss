@@ -590,6 +590,7 @@ mod tests {
             options_hash: "opts-a".to_string(),
             options_json: "{}".to_string(),
             created_utc: "2026-08-22T00:00:00Z".to_string(),
+            step_cap: None,
         }
     }
 

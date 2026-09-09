@@ -13,7 +13,7 @@ use crate::model::{
     FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator, WordRecord,
 };
 use crate::schema;
-use crate::util::to_i64;
+use crate::util::{format_step_cap, step_cap_from_storage, step_cap_to_storage, to_i64};
 
 /// An open stats cache: one SQLite connection, WAL mode, a caller-chosen busy timeout.
 pub struct StatsCache {
@@ -117,6 +117,21 @@ impl StatsCache {
         rows.collect::<Result<HashSet<_>, _>>().map_err(Into::into)
     }
 
+    /// Errors when this cache already holds a run recorded under a step cap other than
+    /// `requested`. Unlike engine or grammar hash, an absent recorded step cap imposes no
+    /// constraint by itself (a run that recorded none, e.g. `foma`, cannot conflict with anything)
+    /// -- only two differing recorded values conflict. Call this before deciding which words to
+    /// skip (`existing_words`): a cache hit produced under a different cap is not interchangeable
+    /// with one produced under `requested`, since a word that hit the old cap might complete under
+    /// a larger one, or vice versa.
+    pub fn refuse_if_step_cap_differs(&self, requested: usize) -> Result<(), StatsError> {
+        let requested_storage = step_cap_to_storage(requested)?;
+        match conflicting_step_cap(&self.conn, requested_storage)? {
+            Some(existing_storage) => Err(step_cap_mismatch(existing_storage, requested)),
+            None => Ok(()),
+        }
+    }
+
     /// Returns the stable id for `(key, kind)`, inserting a new `object` row on first sight.
     /// `morpheme` is only ever `Some` for a `lex_entry` object; every other kind interns the
     /// `morpheme` sentinel (id 0).
@@ -207,9 +222,20 @@ impl StatsCache {
             )?;
         }
 
+        let step_cap_storage = run.step_cap.map(step_cap_to_storage).transpose()?;
+        if let Some(requested_storage) = step_cap_storage {
+            if let Some(existing_storage) = conflicting_step_cap(&tx, requested_storage)? {
+                return Err(step_cap_mismatch(
+                    existing_storage,
+                    run.step_cap
+                        .expect("step_cap_storage is only Some when run.step_cap is Some"),
+                ));
+            }
+        }
+
         tx.execute(
-            "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns, step_cap)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 schema::SCHEMA_VERSION,
                 schema::COUNTER_SEMANTICS_VERSION,
@@ -222,6 +248,7 @@ impl StatsCache {
                 run.created_utc,
                 to_i64("word_count", words.len() as u64)?,
                 to_i64("total_elapsed_ns", total_elapsed_ns)?,
+                step_cap_storage,
             ],
         )?;
         let run_id = tx.last_insert_rowid();
@@ -315,6 +342,27 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
         ],
     )?;
     Ok(())
+}
+
+/// The stored step cap of any run in `run` that differs from `requested_storage`, if any.
+fn conflicting_step_cap(
+    conn: &Connection,
+    requested_storage: i64,
+) -> Result<Option<i64>, StatsError> {
+    conn.query_row(
+        "SELECT step_cap FROM run WHERE step_cap IS NOT NULL AND step_cap <> ?1 LIMIT 1",
+        params![requested_storage],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+fn step_cap_mismatch(existing_storage: i64, requested: usize) -> StatsError {
+    StatsError::StepCapMismatch {
+        existing: format_step_cap(step_cap_from_storage(existing_storage)),
+        requested: format_step_cap(requested),
+    }
 }
 
 /// `object`'s `UNIQUE(key, kind)` index makes `INSERT OR IGNORE` + `SELECT` race-safe across processes.
@@ -431,6 +479,7 @@ mod tests {
             options_hash: "opts-a".to_string(),
             options_json: "{}".to_string(),
             created_utc: "2026-08-22T00:00:00Z".to_string(),
+            step_cap: None,
         }
     }
 
@@ -806,5 +855,82 @@ mod tests {
             })
             .unwrap();
         assert_eq!(distinct_hashes, 1);
+    }
+
+    #[test]
+    fn reopening_at_a_different_step_cap_is_refused_before_any_word_is_skipped() {
+        let dir = TempDir::new("pg-stats-step-cap-mismatch");
+        let cache_path = dir.path().join("cache.sqlite3");
+
+        let mut first = StatsCache::open(&cache_path, "hash-a").unwrap();
+        let mut run_a = sample_run();
+        run_a.step_cap = Some(100);
+        first.cache.flush(&run_a, &[sample_word("apu")]).unwrap();
+        drop(first);
+
+        let mut second = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
+        let err = second
+            .refuse_if_step_cap_differs(200)
+            .expect_err("a cache holding a run at step cap 100 must refuse a step cap 200 report");
+        assert!(matches!(err, StatsError::StepCapMismatch { .. }), "{err}");
+        assert!(
+            err.to_string().contains("100") && err.to_string().contains("200"),
+            "{err}"
+        );
+
+        // The same value must never be refused, or every ordinary re-run of `--stats` would break.
+        second
+            .refuse_if_step_cap_differs(100)
+            .expect("the same step cap must not be refused");
+
+        // flush() itself must also refuse, not only the early pg-cli-side check.
+        let mut run_b = sample_run();
+        run_b.step_cap = Some(200);
+        let flush_err = second
+            .flush(&run_b, &[sample_word("beta")])
+            .expect_err("flush() itself must also refuse a conflicting step cap");
+        assert!(
+            matches!(flush_err, StatsError::StepCapMismatch { .. }),
+            "{flush_err}"
+        );
+    }
+
+    #[test]
+    fn a_run_that_records_no_step_cap_never_conflicts() {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let mut hc_run = sample_run();
+        hc_run.step_cap = Some(100);
+        outcome.cache.flush(&hc_run, &[sample_word("apu")]).unwrap();
+
+        // A run recording no step cap (e.g. an engine with no such concept) is never a conflict.
+        let mut no_cap_run = sample_run();
+        no_cap_run.step_cap = None;
+        outcome
+            .cache
+            .flush(&no_cap_run, &[sample_word("beta")])
+            .expect("a run recording no step cap must never conflict with one that does");
+
+        outcome
+            .cache
+            .refuse_if_step_cap_differs(100)
+            .expect("a NULL-recording run must not poison the compatibility check");
+    }
+
+    #[test]
+    fn unbounded_step_cap_round_trips_through_storage() {
+        let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+        let mut run = sample_run();
+        run.step_cap = Some(usize::MAX);
+        outcome.cache.flush(&run, &[sample_word("apu")]).unwrap();
+
+        outcome
+            .cache
+            .refuse_if_step_cap_differs(usize::MAX)
+            .expect("the same unbounded cap must round-trip and not be refused");
+        let err = outcome
+            .cache
+            .refuse_if_step_cap_differs(100)
+            .expect_err("unbounded must still be distinguishable from a finite cap");
+        assert!(err.to_string().contains("unbounded"), "{err}");
     }
 }

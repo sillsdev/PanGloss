@@ -27,6 +27,12 @@ pub enum StatsError {
     #[error("stats cache is for grammar `{existing}`, cannot append grammar `{requested}`")]
     GrammarMismatch { existing: String, requested: String },
 
+    #[error(
+        "stats cache already holds runs at step cap {existing}; a report cannot span two step \
+         caps -- point --cache at another path for a step cap {requested} run"
+    )]
+    StepCapMismatch { existing: String, requested: String },
+
     #[error("stats cache schema version {existing} is incompatible with {requested}")]
     SchemaMismatch { existing: i64, requested: i64 },
 

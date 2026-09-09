@@ -22,7 +22,11 @@ CREATE TABLE IF NOT EXISTS run (
   options_json        TEXT    NOT NULL,
   created_utc         TEXT    NOT NULL,
   word_count          INTEGER NOT NULL,
-  total_elapsed_ns    INTEGER NOT NULL
+  total_elapsed_ns    INTEGER NOT NULL,
+  -- `--step-cap`'s storage form: NULL when this run recorded no cap (an engine that has no such
+  -- concept, e.g. `foma`); -1 is the `usize::MAX` ("unbounded") sentinel, since that value does
+  -- not fit i64's positive range. Only non-NULL values are ever compared for a compatibility check.
+  step_cap            INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS object (
