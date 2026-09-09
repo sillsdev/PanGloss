@@ -977,9 +977,7 @@ mod tests {
         }
     }
 
-    /// `--step-cap 0` fires the step cap on the very first budget check, in both thread modes: a
-    /// capped word must be typed `CAP`, not presented as a completed `ok` row, per CONTEXT.md's
-    /// atomic word-analysis result (an incomplete outcome is never a definitive result).
+    /// `--step-cap 0` fires on the first budget check in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
     #[test]
     fn step_cap_zero_writes_cap_row_both_thread_modes() {
         for (tag, threads) in [("seq-cap", "1"), ("par-cap", "2")] {

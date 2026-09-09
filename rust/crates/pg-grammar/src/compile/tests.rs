@@ -550,9 +550,7 @@ fn absent_compound_rules_synthesize_the_two_defaults_when_not_suppressed() {
     );
 }
 
-/// A character-definition table with no phonemes and no boundary markers cannot segment the
-/// synthesized default compounding rules' "+" join -- reproduces the "2 lex entries, 0 phonemes"
-/// FieldWorks import that used to panic instead of refusing.
+/// A table with no phonemes and no boundary cannot segment the default compounding rules' "+" join; this must refuse, never panic.
 #[test]
 fn compounding_over_a_table_with_no_phonemes_or_boundary_refuses_instead_of_panicking() {
     let (mut snapshot, _f) = fixture();
