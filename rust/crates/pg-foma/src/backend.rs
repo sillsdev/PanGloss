@@ -8,7 +8,7 @@ use crate::completed_build::{CompileAttempt, CompletedBackendBuild, CompletedBui
 use crate::enumerate::{EmissionStrategy, LoweredCandidate};
 use crate::replace::SegAlphabet;
 
-/// The single interface every compiler backend implements. `strategy`/`interprets_plan` are plain facts a caller needs without running anything; `compile_for_measurement`/`realize_accuracy_proposer` are the two REAL entry points the old per-module matches dispatched to, kept as two methods rather than one because their callers need different artifacts for different reasons -- see this module's own doc and the report that shipped this trait for why a shared signature was rejected.
+/// The single interface every compiler backend implements. `strategy`/`interprets_plan` are plain facts a caller needs without running anything; `compile_for_measurement`/`realize_accuracy_proposer` are the two REAL entry points the old per-module matches dispatched to, kept as two methods rather than one because they take different inputs and produce different outputs: `compile_for_measurement` takes a `Grammar` and a `CompileAttempt` and produces an evidenced `CompletedBackendBuild`, while `realize_accuracy_proposer` takes a `LoweredCandidate` plus an alphabet and rule set and produces a bare `FomaProposer` -- a shared signature would have to loosen one side or the other to fit both shapes.
 pub trait Backend: Send + Sync {
     /// The `EmissionStrategy` this backend realizes. Exhaustive in both directions with [`backend_for`], so the correspondence is compiler-checked, not documented.
     fn strategy(&self) -> EmissionStrategy;
@@ -50,7 +50,9 @@ impl Backend for PlanComposed {
         _selection: &BackendSelection,
         _request: &CompileAttempt,
     ) -> Result<CompletedBackendBuild, CompletedBuildError> {
-        Err(CompletedBuildError::UnsupportedStrategy(EmissionStrategy::PlanComposed))
+        Err(CompletedBuildError::UnsupportedStrategy(
+            EmissionStrategy::PlanComposed,
+        ))
     }
 
     fn realize_accuracy_proposer(
@@ -61,7 +63,9 @@ impl Backend for PlanComposed {
         alphabet: &SegAlphabet<'_>,
         prules: &[&PhonRuleDef],
     ) -> Result<FomaProposer, String> {
-        crate::backend_runtime::realize_controllable_plan_proposer(candidate, grammar, opts, alphabet, prules)
+        crate::backend_runtime::realize_controllable_plan_proposer(
+            candidate, grammar, opts, alphabet, prules,
+        )
     }
 }
 
@@ -116,7 +120,9 @@ impl Backend for TemplatedUnderlyingTokens {
         selection: &BackendSelection,
         request: &CompileAttempt,
     ) -> Result<CompletedBackendBuild, CompletedBuildError> {
-        crate::completed_build::compile_templated_underlying_for_measurement(grammar, selection, request)
+        crate::completed_build::compile_templated_underlying_for_measurement(
+            grammar, selection, request,
+        )
     }
 
     fn realize_accuracy_proposer(
@@ -136,7 +142,8 @@ static LEXC_MAINLINE: LexcMainline = LexcMainline;
 static TEMPLATED_UNDERLYING_TOKENS: TemplatedUnderlyingTokens = TemplatedUnderlyingTokens;
 
 /// The closed adapter table, in `crate::strategy_coverage::ALL_STRATEGIES` declaration order.
-pub static ALL_BACKENDS: [&'static dyn Backend; 3] = [&PLAN_COMPOSED, &LEXC_MAINLINE, &TEMPLATED_UNDERLYING_TOKENS];
+pub static ALL_BACKENDS: [&'static dyn Backend; 3] =
+    [&PLAN_COMPOSED, &LEXC_MAINLINE, &TEMPLATED_UNDERLYING_TOKENS];
 
 /// The one backend realizing `strategy`, and the one remaining match on `EmissionStrategy` this seam allows -- every other caller goes through this function or `ALL_BACKENDS` rather than matching the enum itself.
 pub fn backend_for(strategy: EmissionStrategy) -> &'static dyn Backend {
@@ -157,19 +164,27 @@ mod tests {
         for &strategy in crate::strategy_coverage::ALL_STRATEGIES {
             assert_eq!(backend_for(strategy).strategy(), strategy);
         }
-        let mut covered: Vec<EmissionStrategy> =
-            ALL_BACKENDS.iter().map(|backend| backend.strategy()).collect();
+        let mut covered: Vec<EmissionStrategy> = ALL_BACKENDS
+            .iter()
+            .map(|backend| backend.strategy())
+            .collect();
         covered.sort_by_key(|strategy| strategy.label());
         let mut expected: Vec<EmissionStrategy> = crate::strategy_coverage::ALL_STRATEGIES.to_vec();
         expected.sort_by_key(|strategy| strategy.label());
-        assert_eq!(covered, expected, "ALL_BACKENDS must cover every strategy exactly once");
+        assert_eq!(
+            covered, expected,
+            "ALL_BACKENDS must cover every strategy exactly once"
+        );
     }
 
     /// Exactly one backend interprets a plan.
     #[test]
     fn exactly_one_backend_interprets_a_plan() {
         assert_eq!(
-            ALL_BACKENDS.iter().filter(|backend| backend.interprets_plan()).count(),
+            ALL_BACKENDS
+                .iter()
+                .filter(|backend| backend.interprets_plan())
+                .count(),
             1
         );
     }
@@ -198,7 +213,9 @@ mod tests {
             .compile_for_measurement(&grammar, &selection, &request);
         assert!(matches!(
             result,
-            Err(CompletedBuildError::UnsupportedStrategy(EmissionStrategy::PlanComposed))
+            Err(CompletedBuildError::UnsupportedStrategy(
+                EmissionStrategy::PlanComposed
+            ))
         ));
     }
 }
