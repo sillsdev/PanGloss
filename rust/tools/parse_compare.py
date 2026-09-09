@@ -65,9 +65,11 @@ def analyses(sig):
 
 def classify(a, b, strict_multiset):
     (sa, sga), (sb, sgb) = a, b
-    if sa == "CAP" or sb == "CAP":
+    if "CAP" in (sa, sb) and {sa, sb} <= {"CAP", "ok"}:
         # A capped signature is a partial, unconfirmed snapshot on whichever side hit the
         # cap -- even a byte-identical pair proves nothing, so this never lands in IDENTICAL.
+        # CAP against TIMEOUT or SKIPPED is a real status change (a logical budget versus a
+        # wall clock) and falls through to STATUS_DIFF.
         return "CAPPED"
     if sga == sgb and sa == sb:
         return "IDENTICAL"
