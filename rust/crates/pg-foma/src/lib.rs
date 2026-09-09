@@ -57,60 +57,60 @@
 //! with `pg-parse` promoted, and this crate's own wasm32 check in CI/`README`.
 #![forbid(unsafe_code)]
 
+// One macro for pg-foma's ~26 test-support-gated "workbench" modules: each is compiled `pub`
+// under `test-support` for other crates' tests to reach, and `pub(crate)` with
+// `#[allow(dead_code)]` otherwise, and hand-writing that pair 26 times let them drift.
+macro_rules! workbench_module {
+    ($(#[$meta:meta])* pub mod $name:ident $($body:tt)*) => {
+        $(#[$meta])*
+        #[cfg(feature = "test-support")]
+        pub mod $name $($body)*
+        #[cfg(not(feature = "test-support"))]
+        #[allow(dead_code)]
+        pub(crate) mod $name $($body)*
+    };
+}
+
 #[cfg(test)]
 mod test_support;
 
 /// Versioned, structured backend advice keyed by compiler-observed grammar shapes.
 pub mod advice_catalog;
 pub mod analyzer;
-/// **The accuracy question, split off from the speed question.** Confirmation-free undergeneration
-/// detection by admission-key set containment against the run's already-shared oracle result — zero
-/// full-HC confirmation calls per candidate. Deliberately says NOTHING about cost; ranking stays
-/// `backend_optimizer::Score`'s job. Read that module's own doc for the soundness argument and the
-/// one hazard it is counted against.
-#[cfg(feature = "test-support")]
-pub mod backend_accuracy;
-// Workbench modules are unused in a product build by design; suppress the resulting dead_code noise.
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod backend_accuracy;
+workbench_module! {
+    /// **The accuracy question, split off from the speed question.** Confirmation-free undergeneration
+    /// detection by admission-key set containment against the run's already-shared oracle result — zero
+    /// full-HC confirmation calls per candidate. Deliberately says NOTHING about cost; ranking stays
+    /// `backend_optimizer::Score`'s job. Read that module's own doc for the soundness argument and the
+    /// one hazard it is counted against.
+    pub mod backend_accuracy;
+}
 /// Static, machine-independent capability cards for the executable backends.
 mod backend_cards_data;
-/// Serializable mechanism vocabulary and fail-closed executable-backend graph validation.
-#[cfg(feature = "test-support")]
-pub mod backend_mechanism;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod backend_mechanism;
-/// Extensible, budget-aware offline search and confirmed-only backend selection.
-pub mod backend_optimizer;
+workbench_module! {
+    /// Serializable mechanism vocabulary and fail-closed executable-backend graph validation.
+    pub mod backend_mechanism;
+}
 /// `backend::Backend`, the interface every compiler backend implements, plus the closed `backend::ALL_BACKENDS` table (`PlanComposed`, `LexcMainline`, `TemplatedUnderlyingTokens`) every compile dispatch goes through.
 pub mod backend;
+/// Extensible, budget-aware offline search and confirmed-only backend selection.
+pub mod backend_optimizer;
 /// Extensible registry of realizable compilation-backend families.
 pub mod backend_registry;
 /// Schema-versioned machine and human views over backend-optimization runs.
 pub mod backend_report;
 pub mod backend_runtime;
-/// Opaque trusted compiler output and selector-owned runtime handoff.
-#[cfg(feature = "test-support")]
-pub mod completed_build;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod completed_build;
-#[cfg(feature = "test-support")]
-pub mod backend_cards {
-    pub use super::backend_cards_data::{
-        catalog, checked_in_relative_path, render_markdown, BackendCard, BigO, Envelope,
-        EnvelopeControl, CARD_SCHEMA_VERSION,
-    };
+workbench_module! {
+    /// Opaque trusted compiler output and selector-owned runtime handoff.
+    pub mod completed_build;
 }
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod backend_cards {
-    pub use super::backend_cards_data::{
-        catalog, checked_in_relative_path, render_markdown, BackendCard, BigO, Envelope,
-        EnvelopeControl, CARD_SCHEMA_VERSION,
-    };
+workbench_module! {
+    pub mod backend_cards {
+        pub use super::backend_cards_data::{
+            catalog, checked_in_relative_path, render_markdown, BackendCard, BigO, Envelope,
+            EnvelopeControl, CARD_SCHEMA_VERSION,
+        };
+    }
 }
 /// The selector: `backend_selection::select_backends` turns
 /// `capability::StrategyEnvelope`'s per-backend compatibility reports into a choice — which
@@ -120,19 +120,17 @@ pub(crate) mod backend_cards {
 /// never a per-backend decision.
 pub mod backend_selection;
 pub mod backend_space;
-/// [`build::
-/// build_controllable`], a `plan::Plan` interpreter for the controllable subtree (the `Gate`
-/// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
-/// enumerate_default`] emits) into a real, composed `foma::types::Fsm` -- proven equivalent to
-/// `gate::compile_gated_grammar`'s own direct-compile output by an apply-based test.
-/// Composite/structural-composite markers stay out of scope (that path's artifact type is a lexc
-/// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
-/// per-group-Replace-variance obstacle this step surfaced.
-#[cfg(feature = "test-support")]
-pub mod build;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod build;
+workbench_module! {
+    /// [`build::
+    /// build_controllable`], a `plan::Plan` interpreter for the controllable subtree (the `Gate`
+    /// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
+    /// enumerate_default`] emits) into a real, composed `foma::types::Fsm` -- proven equivalent to
+    /// `gate::compile_gated_grammar`'s own direct-compile output by an apply-based test.
+    /// Composite/structural-composite markers stay out of scope (that path's artifact type is a lexc
+    /// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
+    /// per-group-Replace-variance obstacle this step surfaced.
+    pub mod build;
+}
 pub mod candidate_filter;
 /// The
 /// `CharacteristicsProfile` projection, the `CapabilityPredicate` trait + `PredicateVerdict`, the
@@ -140,11 +138,9 @@ pub mod candidate_filter;
 /// Gates SELECTION, not compilation: `compose_envelope_for_strategy` decides what `selection`
 /// may offer, while the compile passes themselves are untouched.
 pub mod capability;
-#[cfg(feature = "test-support")]
-pub mod capability_gate;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod capability_gate;
+workbench_module! {
+    pub mod capability_gate;
+}
 /// The
 /// cheap, pre-compile health pass -- `characterization::characterization_findings` turns
 /// `capability::characterize`'s already-computed `capability::CharacteristicsProfile` and
@@ -155,14 +151,12 @@ pub(crate) mod capability_gate;
 /// (`Unordered`-stratum rule counts, a grammar-wide mrule x prule product). See that module's own
 /// doc for the full design and judgment calls.
 pub mod characterization;
-/// Composition-path budget guards for (`replace`, `gate`, `uflexc`) -- size/count caps plus an
-/// opt-in wall-clock deadline for every
-/// compose/union/minimize call on that path. See that module's own doc for the full design.
-#[cfg(feature = "test-support")]
-pub mod compose_budget;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod compose_budget;
+workbench_module! {
+    /// Composition-path budget guards for (`replace`, `gate`, `uflexc`) -- size/count caps plus an
+    /// opt-in wall-clock deadline for every
+    /// compose/union/minimize call on that path. See that module's own doc for the full design.
+    pub mod compose_budget;
+}
 pub mod composite;
 pub mod confirm;
 /// The
@@ -183,21 +177,17 @@ pub mod conformance_coverage;
 /// citation table). **Evidence, not a gate**: a report input, not a compile-time check — see
 /// that module's own doc.
 pub mod coverage_ledger;
-/// The shared walk + fold `witnessed_coverage` and `faithfulness_coverage` build their own
-/// `(CharacteristicKind, EmissionStrategy)` reports from -- see that module's own doc.
-#[cfg(feature = "test-support")]
-pub mod coverage_seam;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod coverage_seam;
-/// A feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
-/// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
-/// `replace`'s rule cascade? Standalone, additive, same status as `replace`/`uflexc`.
-#[cfg(feature = "test-support")]
-pub mod e2_infix_probe;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod e2_infix_probe;
+workbench_module! {
+    /// The shared walk + fold `witnessed_coverage` and `faithfulness_coverage` build their own
+    /// `(CharacteristicKind, EmissionStrategy)` reports from -- see that module's own doc.
+    pub mod coverage_seam;
+}
+workbench_module! {
+    /// A feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
+    /// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
+    /// `replace`'s rule cascade? Standalone, additive, same status as `replace`/`uflexc`.
+    pub mod e2_infix_probe;
+}
 pub mod emit;
 /// `enumerate_default`, which
 /// builds today's compilation topology for a `Grammar` as a single reified `plan::Plan`, verified
@@ -211,17 +201,15 @@ pub mod emit;
 /// to `gate.rs`'s own, separate compile entry point; see that module's own doc for full scope and
 /// the judgment calls it surfaces.
 pub mod enumerate;
-/// The per-STRATEGY FAITHFULNESS account: whether a backend's proposal set CONTAINS every analysis
-/// full Rust HermitCrab finds, for each discovered fixture exhibiting a
-/// `capability::CharacteristicKind`. Complements `witnessed_coverage` (which proves only that a
-/// backend COMPILED a grammar containing a construct) by running the real propose+observe pipeline
-/// (`backend_runtime::evaluate_plans_observed_with_cache`) and comparing against the same oracle.
-/// See that module's own doc for the containment relation and the denominator discipline.
-#[cfg(feature = "test-support")]
-pub mod faithfulness_coverage;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod faithfulness_coverage;
+workbench_module! {
+    /// The per-STRATEGY FAITHFULNESS account: whether a backend's proposal set CONTAINS every analysis
+    /// full Rust HermitCrab finds, for each discovered fixture exhibiting a
+    /// `capability::CharacteristicKind`. Complements `witnessed_coverage` (which proves only that a
+    /// backend COMPILED a grammar containing a construct) by running the real propose+observe pipeline
+    /// (`backend_runtime::evaluate_plans_observed_with_cache`) and comparing against the same oracle.
+    /// See that module's own doc for the containment relation and the denominator discipline.
+    pub mod faithfulness_coverage;
+}
 /// Static MPR/POS subrule gating, a sibling of `replace`/`uflexc`. See that module's doc for
 /// the design and why it is a flag-free static partition rather than a flag-diacritics encoding.
 pub mod gate;
@@ -249,73 +237,61 @@ pub mod health;
 /// that module's own doc for the exact input -> finding mapping.
 pub mod health_evaluator;
 pub mod junctions;
-/// The shared
-/// pattern/environment → FST lowering seam -- `lower::lower_span` lowers one subrule's
-/// `left_env · lhs_focus · right_env` triple into foma acceptors, `lower::spans_overlap` tests
-/// two such spans for a non-empty intersection. `lower::Slot`/`lower::pattern_slots`/
-/// `lower::resolve_alpha_tuples`/`lower::render_slots`/`lower::AlphaAssignment`/
-/// `lower::TupleReport` are defined HERE, the canonical pattern-lowering vocabulary, with
-/// `replace` re-exporting them at their old paths for its own rewrite-rule compilation and every
-/// other existing caller; see that module's own doc for full scope, what stayed in
-/// `replace` (`SegAlphabet`, `owning_table`) and why, and the judgment calls it surfaces.
-#[cfg(feature = "test-support")]
-pub mod lower;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod lower;
-/// The ONE derivation of a
-/// `backend_mechanism::MechanismGraph`, taking `grammar_semantics::GrammarSemantics` and no
-/// `&Grammar` at all. Builds and verifies data only -- see that module's own doc for why the
-/// signature is the enforcement.
-#[cfg(feature = "test-support")]
-pub mod mechanism_provider;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod mechanism_provider;
+workbench_module! {
+    /// The shared
+    /// pattern/environment → FST lowering seam -- `lower::lower_span` lowers one subrule's
+    /// `left_env · lhs_focus · right_env` triple into foma acceptors, `lower::spans_overlap` tests
+    /// two such spans for a non-empty intersection. `lower::Slot`/`lower::pattern_slots`/
+    /// `lower::resolve_alpha_tuples`/`lower::render_slots`/`lower::AlphaAssignment`/
+    /// `lower::TupleReport` are defined HERE, the canonical pattern-lowering vocabulary, with
+    /// `replace` re-exporting them at their old paths for its own rewrite-rule compilation and every
+    /// other existing caller; see that module's own doc for full scope, what stayed in
+    /// `replace` (`SegAlphabet`, `owning_table`) and why, and the judgment calls it surfaces.
+    pub mod lower;
+}
+workbench_module! {
+    /// The ONE derivation of a
+    /// `backend_mechanism::MechanismGraph`, taking `grammar_semantics::GrammarSemantics` and no
+    /// `&Grammar` at all. Builds and verifies data only -- see that module's own doc for why the
+    /// signature is the enforcement.
+    pub mod mechanism_provider;
+}
 pub(crate) mod morphotactics;
-/// **The speed question's cheap first-pass filter, split off from the accuracy question.** A purely
-/// STATIC structural inspection of a finished `foma::types::Fsm` -- cycles and self-loops in the
-/// continuation graph, zero-width (input-epsilon) cycles specifically, and the per-state
-/// branching/ambiguity distribution -- computed without applying a single word. Deliberately says
-/// NOTHING about size as a preference: on the private `sena` grammar the plan-composed net is 50x
-/// SMALLER and ~1300x slower to apply than the hand-spun one, so every size metric picks the wrong
-/// candidate. Read that module's own doc for the mechanism, and for the hard scope rule: it is a
-/// first-pass filter and a regression tripwire that can never suppress a proposal, and no `Score`
-/// field, ranking key, eligibility predicate or certification verdict consults it -- grep for
-/// callers of its public functions to confirm.
-#[cfg(feature = "test-support")]
-pub mod net_shape;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod net_shape;
-/// The
-/// differential-correctness oracle -- `oracle::differential_oracle` builds two `plan::Plan`s
-/// via `build::build_controllable` and compares their `apply_up` result sets, reporting the
-/// shortest disagreeing word plus symmetric difference on mismatch; `oracle::permute_gate_groups`
-/// is the second same-relation topology generator this module's own tests diff against. Cheap,
-/// always-on tier only (an expensive exact-equivalence stretch tier and any real confirm-engine
-/// integration are explicitly out of scope; see that module's own doc).
-#[cfg(feature = "test-support")]
-pub mod oracle;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod oracle;
-/// Grammar-derived backend-space bounds, pruning accounting, and pilot measurements.
-#[cfg(feature = "test-support")]
-pub mod ordering_witnesses;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod ordering_witnesses;
-/// The backend parity RELATION, stated once: deduplicated `pg_parse::identity::AnalysisIdentity`
-/// set equality per word occurrence, plus the typed faults that make a candidate non-selectable
-/// without ever being reported as disagreement. `backend_runtime::certify_word` is the only
-/// production consumer; it lives here rather than there so the relation can be read, tested, and
-/// changed without reading the evaluator that applies it.
-#[cfg(feature = "test-support")]
-pub mod parity;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod parity;
+workbench_module! {
+    /// **The speed question's cheap first-pass filter, split off from the accuracy question.** A purely
+    /// STATIC structural inspection of a finished `foma::types::Fsm` -- cycles and self-loops in the
+    /// continuation graph, zero-width (input-epsilon) cycles specifically, and the per-state
+    /// branching/ambiguity distribution -- computed without applying a single word. Deliberately says
+    /// NOTHING about size as a preference: on the private `sena` grammar the plan-composed net is 50x
+    /// SMALLER and ~1300x slower to apply than the hand-spun one, so every size metric picks the wrong
+    /// candidate. Read that module's own doc for the mechanism, and for the hard scope rule: it is a
+    /// first-pass filter and a regression tripwire that can never suppress a proposal, and no `Score`
+    /// field, ranking key, eligibility predicate or certification verdict consults it -- grep for
+    /// callers of its public functions to confirm.
+    pub mod net_shape;
+}
+workbench_module! {
+    /// The
+    /// differential-correctness oracle -- `oracle::differential_oracle` builds two `plan::Plan`s
+    /// via `build::build_controllable` and compares their `apply_up` result sets, reporting the
+    /// shortest disagreeing word plus symmetric difference on mismatch; `oracle::permute_gate_groups`
+    /// is the second same-relation topology generator this module's own tests diff against. Cheap,
+    /// always-on tier only (an expensive exact-equivalence stretch tier and any real confirm-engine
+    /// integration are explicitly out of scope; see that module's own doc).
+    pub mod oracle;
+}
+workbench_module! {
+    /// Grammar-derived backend-space bounds, pruning accounting, and pilot measurements.
+    pub mod ordering_witnesses;
+}
+workbench_module! {
+    /// The backend parity RELATION, stated once: deduplicated `pg_parse::identity::AnalysisIdentity`
+    /// set equality per word occurrence, plus the typed faults that make a candidate non-selectable
+    /// without ever being reported as disagreement. `backend_runtime::certify_word` is the only
+    /// production consumer; it lives here rather than there so the relation can be read, tested, and
+    /// changed without reading the evaluator that applies it.
+    pub mod parity;
+}
 pub mod peel;
 /// The content-addressed compilation-`Plan` data type -- compilation topology as enumerable data,
 /// so a compiler can be composed rather than hand-written. Built by `enumerate`, interpreted
@@ -338,31 +314,25 @@ pub mod plan_diagram;
 /// `oracle::permute_gate_groups` + `oracle::differential_oracle`). **BUILD-BREAKING**: see that
 /// module's own doc for the mapping and `tests/plan_interaction_coverage_gate.rs` for the gate.
 pub mod plan_interaction_coverage;
-#[cfg(feature = "test-support")]
-pub mod precision;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod precision;
+workbench_module! {
+    pub mod precision;
+}
 pub(crate) mod preexpand;
-/// The one post-compile FST production-admission decision —
-/// [`production_admission::assess_completed_fst`] — that every strategy consults instead of
-/// re-deriving grammar partiality for itself.
-#[cfg(feature = "test-support")]
-pub mod production_admission;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod production_admission;
-/// The compile-time
-/// **profile** type -- `profile::CompileProfile`/`profile::CompileStage`/[`profile::
-/// GroupLineCount`] -- collected from the PRODUCTION
-/// `emit::emit_with_budget_profiled` -> `foma::lexcread::fsm_lexc_parse_string` path
-/// (`analyzer::FomaProposer::new_proposer`). See that module's
-/// own doc for the more expensive profiling this stays clear of.
-#[cfg(feature = "test-support")]
-pub mod profile;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod profile;
+workbench_module! {
+    /// The one post-compile FST production-admission decision —
+    /// [`production_admission::assess_completed_fst`] — that every strategy consults instead of
+    /// re-deriving grammar partiality for itself.
+    pub mod production_admission;
+}
+workbench_module! {
+    /// The compile-time
+    /// **profile** type -- `profile::CompileProfile`/`profile::CompileStage`/[`profile::
+    /// GroupLineCount`] -- collected from the PRODUCTION
+    /// `emit::emit_with_budget_profiled` -> `foma::lexcread::fsm_lexc_parse_string` path
+    /// (`analyzer::FomaProposer::new_proposer`). See that module's
+    /// own doc for the more expensive profiling this stays clear of.
+    pub mod profile;
+}
 /// The declared,
 /// versioned threshold policy — `readiness_policy::ThresholdPolicy`/[`readiness_policy::
 /// Threshold`]/`readiness_policy::Calibration` — a certification verdict (`readiness_verdict`)
@@ -383,66 +353,52 @@ pub mod readiness_verdict;
 /// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
 /// rewrite rule, used by `build` and `gate`.
 pub mod replace;
-/// Typed per-(grammar, words) backend measurement extracted from `examples/conf_matrix.rs` -- see
-/// this module's own doc for why `IdentityDivergence` is exposed rather than recomputed, and why it
-/// names no fixture-loading type (fixture discovery is a caller's concern, not the Compiler's).
-#[cfg(feature = "test-support")]
-pub mod scoreboard;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod scoreboard;
-/// The per-STRATEGY construct-coverage account: which of this crate's compilers can actually
-/// PROPOSE each `capability::CharacteristicKind`. `capability::Disposition::ConfirmOnly` is
-/// defined as "recall-preserving only if the proposer proposes the superset", and until this module
-/// existed nothing checked WHICH proposer was in use -- so one compiler's coverage was silently
-/// inherited by all three. Consulted by `capability::compose_envelope_for_strategy`, the seam a
-/// per-strategy admission decision is composed through.
-#[cfg(feature = "test-support")]
-pub mod strategy_coverage;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod strategy_coverage;
-/// Joins `strategy_coverage`'s table against a real per-fixture measurement -- the check that
-/// table never previously had. See that module's own doc for the sound/unsound direction split.
-#[cfg(feature = "test-support")]
-pub mod strategy_coverage_join;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod strategy_coverage_join;
-/// Exact shared templated-morphotactics compile pipeline and its stage profile.
-#[cfg(feature = "test-support")]
-pub mod structural_allomorph;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod structural_allomorph;
-#[cfg(feature = "test-support")]
-pub mod tags;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod tags;
-#[cfg(feature = "test-support")]
-pub mod templated_compile;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod templated_compile;
+workbench_module! {
+    /// Typed per-(grammar, words) backend measurement extracted from `examples/conf_matrix.rs` -- see
+    /// this module's own doc for why `IdentityDivergence` is exposed rather than recomputed, and why it
+    /// names no fixture-loading type (fixture discovery is a caller's concern, not the Compiler's).
+    pub mod scoreboard;
+}
+workbench_module! {
+    /// The per-STRATEGY construct-coverage account: which of this crate's compilers can actually
+    /// PROPOSE each `capability::CharacteristicKind`. `capability::Disposition::ConfirmOnly` is
+    /// defined as "recall-preserving only if the proposer proposes the superset", and until this module
+    /// existed nothing checked WHICH proposer was in use -- so one compiler's coverage was silently
+    /// inherited by all three. Consulted by `capability::compose_envelope_for_strategy`, the seam a
+    /// per-strategy admission decision is composed through.
+    pub mod strategy_coverage;
+}
+workbench_module! {
+    /// Joins `strategy_coverage`'s table against a real per-fixture measurement -- the check that
+    /// table never previously had. See that module's own doc for the sound/unsound direction split.
+    pub mod strategy_coverage_join;
+}
+workbench_module! {
+    /// Exact shared templated-morphotactics compile pipeline and its stage profile.
+    pub mod structural_allomorph;
+}
+workbench_module! {
+    pub mod tags;
+}
+workbench_module! {
+    pub mod templated_compile;
+}
 /// A feasibility prototype sibling of `replace`: the underlying-form lexc emitter.
 pub mod uflexc;
 /// Structural facts and semantics for `MorphRuleOrder::Unordered`, including the load-bearing
 /// finding that the "ordering-union proposal" is an EXISTING mechanism
 /// (`crate::emit::build_deriv_chain`), not a new one.
 pub(crate) mod unordered;
-/// The COLLECTED half of the per-strategy construct account: `witnessed_coverage::observe_grammar`
-/// characterizes a grammar, asks `backend_selection` which backends may run it, and then actually
-/// compiles with each one, crediting a `(capability::CharacteristicKind, enumerate::
-/// EmissionStrategy)` pair only when that backend's own compile returned `Ok`. Where
-/// `strategy_coverage` is a reviewed table and `coverage_ledger`'s unwitnessed counts are derived
-/// from hand-written citations, this module's positive evidence is produced by running. The
-/// cannot-represent half necessarily stays declarative -- a run yields positive evidence only.
-#[cfg(feature = "test-support")]
-pub mod witnessed_coverage;
-#[cfg(not(feature = "test-support"))]
-#[allow(dead_code)]
-pub(crate) mod witnessed_coverage;
+workbench_module! {
+    /// The COLLECTED half of the per-strategy construct account: `witnessed_coverage::observe_grammar`
+    /// characterizes a grammar, asks `backend_selection` which backends may run it, and then actually
+    /// compiles with each one, crediting a `(capability::CharacteristicKind, enumerate::
+    /// EmissionStrategy)` pair only when that backend's own compile returned `Ok`. Where
+    /// `strategy_coverage` is a reviewed table and `coverage_ledger`'s unwitnessed counts are derived
+    /// from hand-written citations, this module's positive evidence is produced by running. The
+    /// cannot-represent half necessarily stays declarative -- a run yields positive evidence only.
+    pub mod witnessed_coverage;
+}
 pub(crate) mod word_timer;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod worker;
