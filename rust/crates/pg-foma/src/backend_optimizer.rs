@@ -169,7 +169,7 @@ impl CorpusCompletenessEvidence {
     /// this evidence rather than extending it into an authoritative identity system. Exclusions
     /// are already in requested order because their ordinals are the caller's requested ordinals;
     /// rejecting any other order keeps serialized evidence and its ledger hash deterministic.
-    pub(crate) fn from_selection(
+    pub fn from_selection(
         requested: &[String],
         included: &[String],
         exclusions: Vec<CorpusExclusion>,
