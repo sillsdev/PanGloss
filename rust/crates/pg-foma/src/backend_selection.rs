@@ -39,41 +39,32 @@ fn grammar_wide_shape_keys() -> HashMap<crate::capability::PredicateId, &'static
         .collect()
 }
 
+/// `PredicateId` -> `CapabilityPredicate::shape_key`, mirroring `grammar_wide_shape_keys` above for the per-plan-node predicate axis.
+fn registered_predicate_shape_keys() -> HashMap<crate::capability::PredicateId, &'static str> {
+    default_registry()
+        .predicates()
+        .iter()
+        .map(|predicate| (predicate.id(), predicate.shape_key()))
+        .collect()
+}
+
+/// Every `Refuse` diagnostic's predicate id must resolve to a declared shape key: a `GrammarWideCheck`'s own field, a registered `CapabilityPredicate`'s own field, or `strategy_floor`'s named constant (the one refusal with no registry entry to own a `shape_key` method, `capability.rs`'s own doc on that constant explains why). A closed registry has no unknown members, so any other id panics naming it rather than guessing.
 fn capability_shape_key(diagnostic: &CapabilityDiagnostic) -> &'static str {
     if let Some(&key) = grammar_wide_shape_keys().get(diagnostic.predicate) {
         return key;
     }
-    match diagnostic.predicate {
-        "circumfix-output-action.faithful-structural-composite" => "late-structural-reachability",
-        "reduplication.peel-eligible-rule-kind" => "nonregular-process-morphology",
-        "compounding.non-recursive" | "quantifier.bounded-expansion" => "repeated-application",
-        "unordered-application.chain-depth-bounded" => "unordered-interactions",
-        "multi-table.faithful-table-threading"
-        | "right-to-left-rewrite.faithful-reversal-construction"
-        | "metathesis.faithful-swap-construction"
-        | "simultaneous.subrule-overlap"
-        | "epenthesis.structural-composite-route" => "wide-phonology",
-        _ if diagnostic
-            .construct
-            .to_ascii_lowercase()
-            .contains("truncat")
-            || diagnostic.construct.to_ascii_lowercase().contains("delet") =>
-        {
-            "structural-deletion-or-truncation"
-        }
-        _ if diagnostic.construct.to_ascii_lowercase().contains("slot") => {
-            "optional-slot-branching"
-        }
-        _ if diagnostic.construct.to_ascii_lowercase().contains("null")
-            || diagnostic
-                .construct
-                .to_ascii_lowercase()
-                .contains("zero-surface") =>
-        {
-            "null-cycle"
-        }
-        _ => "nonregular-process-morphology",
+    if diagnostic.predicate == crate::capability::STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE {
+        return crate::capability::STRATEGY_FLOOR_NOT_REPRESENTABLE_SHAPE_KEY;
     }
+    if let Some(&key) = registered_predicate_shape_keys().get(diagnostic.predicate) {
+        return key;
+    }
+    panic!(
+        "no GrammarWideCheck, registered CapabilityPredicate, or strategy-floor constant declares \
+         a shape key for predicate id {:?} -- the advice-shape registry is closed, so an unknown \
+         id here is a bug in whichever caller minted it, not a grammar to route around",
+        diagnostic.predicate
+    );
 }
 
 /// Test-support access to the exact shape-key resolution `refused` uses internally, so a gate can
@@ -176,6 +167,28 @@ pub fn select_backends_for_grammar(g: &Grammar) -> BackendSelection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every registered predicate's and grammar-wide check's own declared shape key must be a real catalog entry, or `refused`'s `expect("every capability-refusal shape must exist in the advice catalog")` is one bad key away from panicking in production.
+    #[test]
+    fn every_declared_shape_key_exists_in_the_advice_catalog() {
+        let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
+        for predicate in default_registry().predicates() {
+            let key = predicate.shape_key();
+            assert!(
+                catalog.entry_for(key).is_some(),
+                "{:?} declares shape key {key:?}, which has no catalog entry",
+                predicate.id()
+            );
+        }
+        for check in default_grammar_wide_checks() {
+            let key = check.shape_key();
+            assert!(
+                catalog.entry_for(key).is_some(),
+                "{:?} declares shape key {key:?}, which has no catalog entry",
+                check.id()
+            );
+        }
+    }
 
     const ADMIT_XML: &str = r#"<HermitCrabInput><Language><Name>BackendSelectionFixture</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>

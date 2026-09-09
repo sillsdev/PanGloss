@@ -1676,6 +1676,8 @@ pub const DERIVATION_LAYER_STRATEGIES: &[EmissionStrategy] = &[
 pub trait CapabilityPredicate {
     /// e.g. `"simultaneous.subrule-overlap"`.
     fn id(&self) -> PredicateId;
+    /// The `crate::advice_catalog` remedy shape this predicate's refusal maps to.
+    fn shape_key(&self) -> &'static str;
     /// Which `CharacteristicKind`(s) this predicate claims to discharge.
     fn discharges(&self) -> &[CharacteristicKind];
     /// Which `crate::enumerate::EmissionStrategy`s this predicate's judgement actually constrains —
@@ -1754,6 +1756,10 @@ pub struct SimultaneousSubruleOverlapPredicate;
 impl CapabilityPredicate for SimultaneousSubruleOverlapPredicate {
     fn id(&self) -> PredicateId {
         "simultaneous.subrule-overlap"
+    }
+
+    fn shape_key(&self) -> &'static str {
+        "wide-phonology"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -2043,6 +2049,10 @@ impl CapabilityPredicate for MultiTableFaithfulThreadingPredicate {
         "multi-table.faithful-table-threading"
     }
 
+    fn shape_key(&self) -> &'static str {
+        "wide-phonology"
+    }
+
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::MultiTable]
     }
@@ -2115,6 +2125,10 @@ pub struct RightToLeftRewriteFaithfulReversalPredicate;
 impl CapabilityPredicate for RightToLeftRewriteFaithfulReversalPredicate {
     fn id(&self) -> PredicateId {
         "right-to-left-rewrite.faithful-reversal-construction"
+    }
+
+    fn shape_key(&self) -> &'static str {
+        "wide-phonology"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -2240,6 +2254,10 @@ pub struct MetathesisFaithfulSwapPredicate;
 impl CapabilityPredicate for MetathesisFaithfulSwapPredicate {
     fn id(&self) -> PredicateId {
         "metathesis.faithful-swap-construction"
+    }
+
+    fn shape_key(&self) -> &'static str {
+        "wide-phonology"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -2436,6 +2454,10 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
         "circumfix-output-action.faithful-structural-composite"
     }
 
+    fn shape_key(&self) -> &'static str {
+        "late-structural-reachability"
+    }
+
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::CircumfixOutputAction]
     }
@@ -2544,6 +2566,10 @@ pub struct ReduplicationPeelSupportedPredicate;
 impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
     fn id(&self) -> PredicateId {
         "reduplication.peel-eligible-rule-kind"
+    }
+
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -2662,6 +2688,10 @@ impl CapabilityPredicate for CompoundingRecursionSafePredicate {
         "compounding.non-recursive"
     }
 
+    fn shape_key(&self) -> &'static str {
+        "repeated-application"
+    }
+
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::Compounding]
     }
@@ -2722,6 +2752,10 @@ pub struct UnorderedOrderingUnionPredicate;
 impl CapabilityPredicate for UnorderedOrderingUnionPredicate {
     fn id(&self) -> PredicateId {
         "unordered-application.chain-depth-bounded"
+    }
+
+    fn shape_key(&self) -> &'static str {
+        "unordered-interactions"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -2833,6 +2867,10 @@ impl CapabilityPredicate for MprGroupAppendNonNarrowingPredicate {
         "mpr-group.append-output"
     }
 
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
+    }
+
     fn discharges(&self) -> &[CharacteristicKind] {
         &[CharacteristicKind::MprGroupAppend]
     }
@@ -2886,6 +2924,10 @@ pub struct MprGroupOverwritePredicate;
 impl CapabilityPredicate for MprGroupOverwritePredicate {
     fn id(&self) -> PredicateId {
         "mpr-group.overwrite-output"
+    }
+
+    fn shape_key(&self) -> &'static str {
+        "nonregular-process-morphology"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -2972,6 +3014,10 @@ pub struct QuantifierBoundedExpansionPredicate;
 impl CapabilityPredicate for QuantifierBoundedExpansionPredicate {
     fn id(&self) -> PredicateId {
         "quantifier.bounded-expansion"
+    }
+
+    fn shape_key(&self) -> &'static str {
+        "repeated-application"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -3121,6 +3167,10 @@ pub struct EpenthesisStructuralRoutePredicate;
 impl CapabilityPredicate for EpenthesisStructuralRoutePredicate {
     fn id(&self) -> PredicateId {
         "epenthesis.structural-composite-route"
+    }
+
+    fn shape_key(&self) -> &'static str {
+        "wide-phonology"
     }
 
     fn discharges(&self) -> &[CharacteristicKind] {
@@ -4257,6 +4307,11 @@ pub fn compose_envelope_for_strategy(
     )
 }
 
+/// `strategy_floor`'s own refusal id -- not a registered `CapabilityPredicate` or `GrammarWideCheck` (it has no plan node and applies identically to every strategy), so `crate::backend_selection::capability_shape_key` reads this constant directly rather than the registry lookup those two shapes go through.
+pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE: &str = "strategy-coverage.construct-not-representable";
+/// The shape key `crate::backend_selection::capability_shape_key` returns for [`STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE`].
+pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_SHAPE_KEY: &str = "nonregular-process-morphology";
+
 // The per-strategy account's contribution alone; `compose_over_predicates` folds in the dispositions.
 fn strategy_floor(strategy: EmissionStrategy, kind: CharacteristicKind) -> CompileDecision {
     use crate::strategy_coverage::StrategyRepresentation;
@@ -4267,7 +4322,7 @@ fn strategy_floor(strategy: EmissionStrategy, kind: CharacteristicKind) -> Compi
         StrategyRepresentation::RepresentsWithKnownGap => CompileDecision::ConfirmOnly,
         StrategyRepresentation::CannotRepresent => {
             CompileDecision::Refuse(vec![CapabilityDiagnostic {
-                predicate: "strategy-coverage.construct-not-representable",
+                predicate: STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE,
                 construct: format!("{kind:?}"),
                 witness: format!(
                     "EmissionStrategy::{strategy:?} ({}) cannot represent {kind:?}: its proposer \
@@ -7219,6 +7274,9 @@ mod tests {
         impl CapabilityPredicate for ProvenOnlyPredicate {
             fn id(&self) -> PredicateId {
                 "test.proven-only"
+            }
+            fn shape_key(&self) -> &'static str {
+                "nonregular-process-morphology"
             }
             fn discharges(&self) -> &[CharacteristicKind] {
                 &[CharacteristicKind::Affixation]
