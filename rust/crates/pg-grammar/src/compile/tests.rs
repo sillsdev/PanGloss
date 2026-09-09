@@ -550,6 +550,29 @@ fn absent_compound_rules_synthesize_the_two_defaults_when_not_suppressed() {
     );
 }
 
+/// A character-definition table with no phonemes and no boundary markers cannot segment the
+/// synthesized default compounding rules' "+" join -- reproduces the "2 lex entries, 0 phonemes"
+/// FieldWorks import that used to panic instead of refusing.
+#[test]
+fn compounding_over_a_table_with_no_phonemes_or_boundary_refuses_instead_of_panicking() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.phonology.phonemes.clear();
+    snapshot.phonology.boundary_markers.clear();
+
+    let err = compile_project(&snapshot)
+        .expect_err("a table that cannot segment '+' must be a typed refusal, not a panic");
+    match err {
+        crate::GrammarError::UnsegmentableBoundary(msg) => {
+            assert!(msg.contains("main"), "message should name the table: {msg}");
+            assert!(
+                msg.contains('+'),
+                "message should name the boundary marker: {msg}"
+            );
+        }
+        other => panic!("expected UnsegmentableBoundary, got {other:?}"),
+    }
+}
+
 #[test]
 fn custom_strata_parser_parameter_warns_and_falls_back_to_the_default_layout() {
     let (mut snapshot, _f) = fixture();
@@ -668,7 +691,8 @@ fn circumfix_snapshot(
 #[test]
 fn an_unconditioned_circumfix_entry_builds_the_half_cross_product() {
     let (snapshot, _f) = circumfix_snapshot(&[], &[]);
-    let (grammar, warnings) = compile_project(&snapshot).expect("circumfix must not be a hard error");
+    let (grammar, warnings) =
+        compile_project(&snapshot).expect("circumfix must not be a hard error");
     assert!(
         !warnings.iter().any(|w| w.contains("circumfix")),
         "an unconditioned circumfix is representable, so nothing about it should be warned: {warnings:?}"

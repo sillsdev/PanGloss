@@ -28,7 +28,7 @@ pub(crate) fn build(
     if snapshot.morphology.compound_rules.is_empty()
         && !snapshot.morphology.parser_parameters.no_default_compounding
     {
-        for id in default_compounding_rules(ctx, acc) {
+        for id in default_compounding_rules(ctx, acc)? {
             morphology_mrules.push(id);
         }
         return Ok(());
@@ -54,7 +54,7 @@ pub(crate) fn build(
             } => {
                 if let Some(id) = build_endo(
                     name, *head_last, left, right, overriding, max_apps, ctx, acc, warnings,
-                ) {
+                )? {
                     morphology_mrules.push(id);
                 }
             }
@@ -65,7 +65,7 @@ pub(crate) fn build(
                 to,
                 ..
             } => {
-                for id in build_exo(name, left, right, to, max_apps, ctx, acc, warnings) {
+                for id in build_exo(name, left, right, to, max_apps, ctx, acc, warnings)? {
                     morphology_mrules.push(id);
                 }
             }
@@ -86,14 +86,14 @@ fn head_nonhead_patterns(ctx: &Ctx) -> (Vec<Pattern>, Vec<Pattern>) {
 }
 
 /// The two synthesized defaults, head-first and head-second, both with no POS/MPR requirements.
-fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Vec<MRuleId> {
+fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Result<Vec<MRuleId>, GrammarError> {
     let mut out = Vec::new();
     for (name, head_first) in [
         ("Default Left Head Compounding", true),
         ("Default Right Head Compounding", false),
     ] {
         let (head_lhs, non_head_lhs) = head_nonhead_patterns(ctx);
-        let rhs = plus_join(head_first, ctx);
+        let rhs = plus_join(head_first, ctx)?;
         let empty = acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY);
         let mrule_id = MRuleId(acc.mrules.len() as u32);
         acc.mrules
@@ -121,13 +121,18 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Vec<MRuleId> {
             }));
         out.push(mrule_id);
     }
-    out
+    Ok(out)
 }
 
 /// `Copy(head), "+", Copy(nonhead)` or the reverse, depending on which constituent comes first.
-fn plus_join(head_first: bool, ctx: &Ctx) -> Vec<OutputAction> {
-    let plus =
-        crate::segment::segment(ctx.table, "+").expect("'+' always segments (morph boundary)");
+fn plus_join(head_first: bool, ctx: &Ctx) -> Result<Vec<OutputAction>, GrammarError> {
+    let plus = crate::segment::segment(ctx.table, "+").map_err(|e| {
+        GrammarError::UnsegmentableBoundary(format!(
+            "table {:?} cannot segment the morph boundary \"+\" ({e}); a table needs at least \
+             its boundary/phoneme definitions",
+            ctx.table.xml_id()
+        ))
+    })?;
     let insert = OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {
@@ -135,7 +140,7 @@ fn plus_join(head_first: bool, ctx: &Ctx) -> Vec<OutputAction> {
             shape: plus,
         },
     };
-    if head_first {
+    Ok(if head_first {
         vec![
             OutputAction::Copy(PartRef::Head(0)),
             insert,
@@ -147,7 +152,7 @@ fn plus_join(head_first: bool, ctx: &Ctx) -> Vec<OutputAction> {
             insert,
             OutputAction::Copy(PartRef::Head(0)),
         ]
-    }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -161,14 +166,18 @@ fn build_endo(
     ctx: &Ctx,
     acc: &mut Acc,
     warnings: &mut Vec<String>,
-) -> Option<MRuleId> {
+) -> Result<Option<MRuleId>, GrammarError> {
     let (head_side, non_head_side) = if head_last {
         (right, left)
     } else {
         (left, right)
     };
-    let head_required_syn_fs = side_required_fs(head_side, ctx, acc, warnings)?;
-    let non_head_required_syn_fs = side_required_fs(non_head_side, ctx, acc, warnings)?;
+    let Some(head_required_syn_fs) = side_required_fs(head_side, ctx, acc, warnings) else {
+        return Ok(None);
+    };
+    let Some(non_head_required_syn_fs) = side_required_fs(non_head_side, ctx, acc, warnings) else {
+        return Ok(None);
+    };
     let out_pos = overriding
         .part_of_speech
         .as_deref()
@@ -177,7 +186,7 @@ fn build_endo(
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
             warnings.push(format!("compound rule {name:?}: {e}; skipped"));
-            return None;
+            return Ok(None);
         }
     };
     let out_mpr = overriding
@@ -187,7 +196,7 @@ fn build_endo(
         .unwrap_or(crate::model::MprSet::EMPTY);
 
     let (head_lhs, non_head_lhs) = head_nonhead_patterns(ctx);
-    let rhs = plus_join(!head_last, ctx);
+    let rhs = plus_join(!head_last, ctx)?;
 
     let mrule_id = MRuleId(acc.mrules.len() as u32);
     acc.mrules
@@ -213,7 +222,7 @@ fn build_endo(
                 rhs,
             }],
         }));
-    Some(mrule_id)
+    Ok(Some(mrule_id))
 }
 
 /// Produces *two* rules, one per output-head order, since an exocentric compound's morphosyntax is stipulated rather than inherited.
@@ -227,12 +236,12 @@ fn build_exo(
     ctx: &Ctx,
     acc: &mut Acc,
     warnings: &mut Vec<String>,
-) -> Vec<MRuleId> {
+) -> Result<Vec<MRuleId>, GrammarError> {
     let Some(left_fs) = side_required_fs(left, ctx, acc, warnings) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let Some(right_fs) = side_required_fs(right, ctx, acc, warnings) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let out_pos = to
         .part_of_speech
@@ -242,7 +251,7 @@ fn build_exo(
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
             warnings.push(format!("compound rule {name:?}: {e}; skipped"));
-            return Vec::new();
+            return Ok(Vec::new());
         }
     };
     let out_mpr = to
@@ -257,7 +266,7 @@ fn build_exo(
     // "right compound rule": head = right, non-head = left, output = nonhead+"+"+head.
     {
         let (head_lhs, non_head_lhs) = head_nonhead_patterns(ctx);
-        let rhs = plus_join(false, ctx);
+        let rhs = plus_join(false, ctx)?;
         let mrule_id = MRuleId(acc.mrules.len() as u32);
         acc.mrules
             .push(MorphRuleDef::Compounding(CompoundingRuleDef {
@@ -287,7 +296,7 @@ fn build_exo(
     // "left compound rule": head = left, non-head = right, output = head+"+"+nonhead.
     {
         let (head_lhs, non_head_lhs) = head_nonhead_patterns(ctx);
-        let rhs = plus_join(true, ctx);
+        let rhs = plus_join(true, ctx)?;
         let mrule_id = MRuleId(acc.mrules.len() as u32);
         acc.mrules
             .push(MorphRuleDef::Compounding(CompoundingRuleDef {
@@ -314,7 +323,7 @@ fn build_exo(
             }));
         out.push(mrule_id);
     }
-    out
+    Ok(out)
 }
 
 fn side_required_fs(

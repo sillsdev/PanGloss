@@ -44,6 +44,8 @@ pub enum GrammarError {
     Semantic(String),
     #[error("duplicate character-definition representation: {0}")]
     DuplicateRepresentation(String),
+    #[error("cannot compile compounding: {0}")]
+    UnsegmentableBoundary(String),
 }
 
 /// The compiled phonological census of a grammar: its symbolic feature system plus every
