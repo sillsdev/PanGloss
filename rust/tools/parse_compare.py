@@ -9,17 +9,24 @@ Batch TSV format (one word may appear on two lines: a STARTED sentinel then the
 result):
     idx  word  time_ms  status  signature
 where `signature` is a ';'-separated list of per-analysis parse strings, or '-'
-for zero analyses.
+for zero analyses. `status` is one of `ok`, `CAP` (the step cap fired; `signature`
+is the partial, unconfirmed result reached before it did), `TIMEOUT`, or `SKIPPED`
+(both report `signature` as '-').
 
 For every word present in both files we bucket the pair into:
     IDENTICAL       signatures are byte-identical
     MULTISET_EQUAL  same analyses with same duplicate counts, only order differs
     SET_EQUAL       same *set* of analyses, but duplicate counts differ
+    CAPPED          either side's status is CAP -- a partial result, not comparable
     STATUS_DIFF     status differs (e.g. ok vs TIMEOUT/SKIPPED)
     DIFFERENT       the analysis sets genuinely differ
 
 A word is "parse-exact" if it is IDENTICAL, MULTISET_EQUAL, or SET_EQUAL and the
 status matches -- i.e. we have the correct analysis and only ordering/dups differ.
+CAPPED is neither parse-exact nor a genuine difference: a step-cap-exhausted
+signature is a partial, unconfirmed snapshot, so comparing it proves nothing about
+whether the two engines agree -- it is reported as its own category instead of
+inflating either PARSE-EXACT or NOT-parse-exact.
 
 Usage:
     python parse_compare.py <rust.tsv> <reference.tsv> [--show N] [--multiset]
@@ -58,6 +65,10 @@ def analyses(sig):
 
 def classify(a, b, strict_multiset):
     (sa, sga), (sb, sgb) = a, b
+    if sa == "CAP" or sb == "CAP":
+        # A capped signature is a partial, unconfirmed snapshot on whichever side hit the
+        # cap -- even a byte-identical pair proves nothing, so this never lands in IDENTICAL.
+        return "CAPPED"
     if sga == sgb and sa == sb:
         return "IDENTICAL"
     if sa != sb:
@@ -94,17 +105,20 @@ def main():
     only_ref = ref.keys() - rust.keys()
 
     buckets = {k: [] for k in
-               ("IDENTICAL", "MULTISET_EQUAL", "SET_EQUAL", "STATUS_DIFF", "DIFFERENT")}
+               ("IDENTICAL", "MULTISET_EQUAL", "SET_EQUAL", "CAPPED", "STATUS_DIFF", "DIFFERENT")}
     for w in common:
         buckets[classify(rust[w], ref[w], strict_multiset)].append(w)
 
     n = len(common)
     exact = sum(len(buckets[k]) for k in PARSE_EXACT)
+    capped = len(buckets["CAPPED"])
+    # CAPPED is excluded from both PARSE-EXACT and NOT-parse-exact: exact + capped + not_exact == n.
+    not_exact = n - exact - capped
     print(f"rust     : {args[0]}")
     print(f"reference: {args[1]}")
     print(f"words in both: {n}   only-in-rust: {len(only_rust)}   only-in-ref: {len(only_ref)}")
     print("-" * 60)
-    for k in ("IDENTICAL", "MULTISET_EQUAL", "SET_EQUAL", "STATUS_DIFF", "DIFFERENT"):
+    for k in ("IDENTICAL", "MULTISET_EQUAL", "SET_EQUAL", "CAPPED", "STATUS_DIFF", "DIFFERENT"):
         c = len(buckets[k])
         pct = 100.0 * c / n if n else 0.0
         print(f"  {k:<15} {c:>6}  ({pct:5.1f}%)")
@@ -112,10 +126,12 @@ def main():
     print(f"  byte-exact     {len(buckets['IDENTICAL']):>6}  ({100.0*len(buckets['IDENTICAL'])/n if n else 0:5.1f}%)")
     print(f"  PARSE-EXACT    {exact:>6}  ({100.0*exact/n if n else 0:5.1f}%)   "
           f"(identical + reorder-only + dup-count-only)")
-    print(f"  NOT parse-exact{n-exact:>6}  ({100.0*(n-exact)/n if n else 0:5.1f}%)   "
-          f"(status or analysis-set differs)")
+    print(f"  CAPPED         {capped:>6}  ({100.0*capped/n if n else 0:5.1f}%)   "
+          f"(step cap fired on rust and/or reference -- partial, not comparable)")
+    print(f"  NOT parse-exact{not_exact:>6}  ({100.0*not_exact/n if n else 0:5.1f}%)   "
+          f"(status or analysis-set differs, excludes CAPPED)")
 
-    for k in ("STATUS_DIFF", "SET_EQUAL", "DIFFERENT"):
+    for k in ("CAPPED", "STATUS_DIFF", "SET_EQUAL", "DIFFERENT"):
         ws = sorted(buckets[k])
         if not ws:
             continue
