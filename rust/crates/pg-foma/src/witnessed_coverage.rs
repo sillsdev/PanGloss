@@ -48,7 +48,6 @@ use crate::emit::surface_table;
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::backend::LoweringAdapter;
 use crate::replace::SegAlphabet;
 use crate::strategy_coverage::{representation_of, StrategyRepresentation, ALL_STRATEGIES};
 
@@ -113,16 +112,16 @@ pub type GrammarObservation = coverage_seam::Observation<BackendOutcome>;
 /// derive their own topology and take no plan, exactly as `crate::enumerate::EmissionStrategy`'s
 /// own doc describes.
 pub fn compile_with_backend_for_measurement(g: &Grammar, strategy: EmissionStrategy) -> Result<(), String> {
-    match LoweringAdapter::for_strategy(strategy) {
-        LoweringAdapter::TunedSurfaceEmit => FomaProposer::new(g)
+    match strategy {
+        EmissionStrategy::TunedSurfaceProbed => FomaProposer::new(g)
             .map(|_| ())
             .map_err(|e| format!("tuned surface emit failed to build: {e}")),
-        LoweringAdapter::TemplatedUnderlyingEmit => {
+        EmissionStrategy::TemplatedUnderlyingTokens => {
             crate::templated_compile::compile_templated_morphotactics(g)
                 .map(|_| ())
                 .map_err(|e| format!("templated underlying-token path failed to build: {e}"))
         }
-        LoweringAdapter::ControllablePlanCompose => compile_plan_composed(g),
+        EmissionStrategy::PlanComposed => compile_plan_composed(g),
     }
 }
 

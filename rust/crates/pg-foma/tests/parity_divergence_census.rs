@@ -4,9 +4,8 @@
 use pg_conformance_fixtures::{discover, FixtureRef, Root};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
-use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
+use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::backend::LoweringAdapter;
 use pg_foma::parity::IdentityDivergence;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
@@ -30,7 +29,7 @@ fn baseline_only(grammar: &Grammar) -> Vec<LoweredCandidate> {
     vec![LoweredCandidate {
         label: "divergence-census-baseline",
         plan: baseline_plan(grammar),
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         role: CandidateRole::Baseline,
     }]
 }

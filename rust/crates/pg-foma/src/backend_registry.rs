@@ -7,9 +7,9 @@ use std::fmt;
 use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
-use crate::enumerate::{CandidateRole, LoweredCandidate};
+use crate::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
-use crate::backend::{Backend, LoweringAdapter};
+use crate::backend::backend_for;
 use crate::oracle::{
     permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
 };
@@ -651,8 +651,8 @@ struct SeededFamily {
     id: &'static str,
     applicability: Applicability,
     transform: SafeTransform,
-    /// Which compiler realizes this family: `PlanComposed` for plan-rewrite families (`transform` varies), or a whole-grammar strategy whose `transform` is always `Identity`.
-    adapter: LoweringAdapter,
+    /// Which compiler realizes this family: `EmissionStrategy::PlanComposed` for plan-rewrite families (`transform` varies), or a whole-grammar strategy whose `transform` is always `Identity`.
+    adapter: EmissionStrategy,
     ordering: &'static [(&'static str, &'static str)],
 }
 
@@ -664,8 +664,8 @@ impl SeededFamily {
             parameters: vec![Parameter {
                 name: "topology".to_owned(),
                 // For a whole-grammar strategy the varying axis is the compiler, not the plan rewrite, so name that instead of reporting a relabelled `topology=baseline`.
-                domain: vec![if !self.adapter.interprets_plan() {
-                    self.adapter.strategy().label().to_owned()
+                domain: vec![if !backend_for(self.adapter).interprets_plan() {
+                    self.adapter.label().to_owned()
                 } else {
                     match self.transform {
                         SafeTransform::Identity => "baseline",
@@ -728,7 +728,7 @@ impl Materializer for SeededFamily {
             plan,
             adapter: self.adapter,
             // Derived, never declared: `Identity` under a plan-interpreting adapter hands back the baseline plan verbatim, so it alone is this grammar's default compilation.
-            role: if self.transform == SafeTransform::Identity && self.adapter.interprets_plan() {
+            role: if self.transform == SafeTransform::Identity && backend_for(self.adapter).interprets_plan() {
                 CandidateRole::Baseline
             } else {
                 CandidateRole::Alternative
@@ -753,21 +753,21 @@ const SEEDS: &[SeededFamily] = &[
         id: FAMILY_ORDERED_MORPHOPHONOLOGY,
         applicability: Applicability::Always,
         transform: SafeTransform::Identity,
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         ordering: &[("morphology", "phonology")],
     },
     SeededFamily {
         id: FAMILY_CLASS_EXCEPTION_CASCADE,
         applicability: Applicability::HasGatedExceptions,
         transform: SafeTransform::GatePermutation,
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         ordering: &[("class-partition", "exception-cascade")],
     },
     SeededFamily {
         id: FAMILY_COMPLETE_TEMPLATE,
         applicability: Applicability::HasTemplates,
         transform: SafeTransform::UnionPermutation,
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         ordering: &[("template-selection", "phonology")],
     },
     SeededFamily {
@@ -775,21 +775,21 @@ const SEEDS: &[SeededFamily] = &[
         // A "specialized branch" is a narrower partition of the same entries over the same cascade, which is exactly what bisection names.
         applicability: Applicability::HasSplittableGateGroup,
         transform: SafeTransform::PartitionBisect,
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         ordering: &[("branch-selection", "shared-cascade")],
     },
     SeededFamily {
         id: FAMILY_COPY_BRANCH,
         applicability: Applicability::HasReduplication,
         transform: SafeTransform::UnionPermutation,
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         ordering: &[("copy", "repair")],
     },
     SeededFamily {
         id: FAMILY_BOUNDED_METATHESIS,
         applicability: Applicability::HasMetathesis,
         transform: SafeTransform::Identity,
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         ordering: &[("match", "switch")],
     },
     SeededFamily {
@@ -797,7 +797,7 @@ const SEEDS: &[SeededFamily] = &[
         // Maximal refinement (one sub-group per entry); gated on `HasSplittableGateGroup` because that is the property this transform actually needs, not `HasMultipleStrata`.
         applicability: Applicability::HasSplittableGateGroup,
         transform: SafeTransform::PartitionFanOut,
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         ordering: &[("lower-stratum", "upper-stratum")],
     },
     SeededFamily {
@@ -805,7 +805,7 @@ const SEEDS: &[SeededFamily] = &[
         id: FAMILY_SURFACE_PROBE_MORPHOLOGY,
         applicability: Applicability::Always,
         transform: SafeTransform::Identity,
-        adapter: LoweringAdapter::TunedSurfaceEmit,
+        adapter: EmissionStrategy::TunedSurfaceProbed,
         ordering: &[("morphology", "phonology")],
     },
     SeededFamily {
@@ -814,7 +814,7 @@ const SEEDS: &[SeededFamily] = &[
         // Widened from `HasPhonology`: a phonology-free, template-bearing grammar has morphotactics this compiler represents faithfully with no rewrite cascade to justify (see `Applicability::HasPhonologyOrTemplates`).
         applicability: Applicability::HasPhonologyOrTemplates,
         transform: SafeTransform::Identity,
-        adapter: LoweringAdapter::TemplatedUnderlyingEmit,
+        adapter: EmissionStrategy::TemplatedUnderlyingTokens,
         ordering: &[("morphotactics", "phonology")],
     },
 ];
@@ -919,13 +919,13 @@ mod tests {
                     instance.family_id
                 );
                 assert!(
-                    candidate.adapter.interprets_plan(),
+                    backend_for(candidate.adapter).interprets_plan(),
                     "{}: only the plan-interpreting adapter can be a plan's own compilation",
                     instance.family_id
                 );
             } else {
                 let rewrites_the_plan = candidate.plan.root() != base.root();
-                let different_compiler = !candidate.adapter.interprets_plan();
+                let different_compiler = !backend_for(candidate.adapter).interprets_plan();
                 assert!(
                     rewrites_the_plan || different_compiler,
                     "{}: an Alternative must differ from the baseline in its PLAN or its COMPILER; a \
@@ -1028,7 +1028,7 @@ mod tests {
                 Ok(LoweredCandidate {
                     label,
                     plan: c.baseline.clone(),
-                    adapter: LoweringAdapter::ControllablePlanCompose,
+                    adapter: EmissionStrategy::PlanComposed,
                     role: CandidateRole::Alternative,
                 })
             }) as MaterializerFn
@@ -1065,7 +1065,7 @@ mod tests {
                         Ok(LoweredCandidate {
                             label: "synthetic-tie",
                             plan: context.baseline.clone(),
-                            adapter: LoweringAdapter::ControllablePlanCompose,
+                            adapter: EmissionStrategy::PlanComposed,
                             role: CandidateRole::Alternative,
                         })
                     },

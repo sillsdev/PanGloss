@@ -789,6 +789,7 @@ mod profile_tests {
     //! Profiled construction must populate a real `CompileProfile` on success, match the non-profiled entry points byte-for-byte, and still produce a profile on a typed build failure.
 
     use super::*;
+    use crate::backend::Backend;
     use crate::profile::CompileStage;
 
     /// Same minimal single-root fixture shape as `apply_budget_tests::FIXTURE`.
@@ -853,13 +854,13 @@ mod profile_tests {
         assert!(profile.total_lexc_lines.is_some_and(|v| v > 0));
     }
 
-    /// `FomaProposer::EMISSION_STRATEGY` must name the same compiler `crate::backend::LoweringAdapter::TunedSurfaceEmit` does, since that adapter's own contract is `FomaProposer::new`.
+    /// `FomaProposer::EMISSION_STRATEGY` must name the same compiler `crate::backend::LexcMainline` does, since that backend's own contract is `FomaProposer::new`.
     #[test]
     fn the_named_backend_is_the_one_this_constructor_builds() {
         assert_eq!(
-            crate::backend::LoweringAdapter::for_strategy(FomaProposer::EMISSION_STRATEGY),
-            crate::backend::LoweringAdapter::TunedSurfaceEmit,
-            "the gate's named backend and this constructor's own lowering adapter must agree"
+            FomaProposer::EMISSION_STRATEGY,
+            crate::backend::LexcMainline.strategy(),
+            "the gate's named backend and this constructor's own strategy must agree"
         );
         assert!(
             FomaProposer::EMISSION_STRATEGY.is_whole_grammar(),

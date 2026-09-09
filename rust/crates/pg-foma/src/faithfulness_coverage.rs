@@ -49,7 +49,6 @@ use crate::coverage_seam::{self, MeasuredOutcome, Observation, Verdict};
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::backend::LoweringAdapter;
 use crate::strategy_coverage::ALL_STRATEGIES;
 
 /// Why a containment comparison never ran, moved to `crate::coverage_seam` so
@@ -225,7 +224,7 @@ pub fn observe_fixture_containment(
         .map(|&strategy| LoweredCandidate {
             label: "faithfulness-containment-sweep",
             plan: baseline_plan.clone(),
-            adapter: LoweringAdapter::for_strategy(strategy),
+            adapter: strategy,
             // Only the plan-composing adapter reads this shared baseline plan, so it alone is baseline.
             role: if strategy == EmissionStrategy::PlanComposed {
                 CandidateRole::Baseline

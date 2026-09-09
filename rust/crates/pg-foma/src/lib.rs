@@ -81,7 +81,7 @@ pub mod backend_mechanism;
 pub(crate) mod backend_mechanism;
 /// Extensible, budget-aware offline search and confirmed-only backend selection.
 pub mod backend_optimizer;
-/// `backend::LoweringAdapter`, the typed compiler axis a candidate carries (1:1 with `enumerate::EmissionStrategy`), plus the `backend::Backend` trait and closed adapter table every compile dispatch goes through.
+/// `backend::Backend`, the interface every compiler backend implements, plus the closed `backend::ALL_BACKENDS` table (`PlanComposed`, `LexcMainline`, `TemplatedUnderlyingTokens`) every compile dispatch goes through.
 pub mod backend;
 /// Extensible registry of realizable compilation-backend families.
 pub mod backend_registry;

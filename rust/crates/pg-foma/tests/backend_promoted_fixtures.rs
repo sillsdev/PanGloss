@@ -1,5 +1,4 @@
 use pg_conformance_fixtures::{assert_matches_oracle, discover, Root};
-use pg_foma::backend::Backend;
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
@@ -62,7 +61,7 @@ fn promoted_backend_fixtures_replay_and_offer_distinct_plans_or_elimination_evid
         // Counted over plan-composed candidates only: a whole-grammar strategy is a different compiler carrying the same plan, so counting it here would answer a question neither branch below asks.
         let plan_candidates = candidates
             .iter()
-            .filter(|(_, c)| c.adapter.interprets_plan())
+            .filter(|(_, c)| pg_foma::backend::backend_for(c.adapter).interprets_plan())
             .count();
         if name == "backend-template-generic" {
             assert_eq!(plan_candidates, 1, "the checked-in elimination report is only valid while no distinct template Plan exists");
@@ -80,7 +79,7 @@ fn promoted_backend_fixtures_replay_and_offer_distinct_plans_or_elimination_evid
         // Plan-composed candidates only: `build_candidate` errors on a candidate naming a different compiler; a whole-grammar strategy's buildability is covered in `backend_emission_strategy_gate.rs`.
         for (_, candidate) in candidates
             .into_iter()
-            .filter(|(_, c)| c.adapter.interprets_plan())
+            .filter(|(_, c)| pg_foma::backend::backend_for(c.adapter).interprets_plan())
         {
             pg_foma::backend_runtime::build_candidate(
                 &candidate,

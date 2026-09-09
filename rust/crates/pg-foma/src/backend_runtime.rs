@@ -13,7 +13,7 @@ use crate::enumerate::{EmissionStrategy, LoweredCandidate};
 use crate::health::{
     FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
-use crate::backend::{Backend, LoweringAdapter};
+use crate::backend::backend_for;
 use crate::parity::{
     certified_occurrence, IdentityDivergence, IdentityMismatchDirection, OccurrenceIdentities,
     ParitySide,
@@ -1051,14 +1051,14 @@ pub fn certify_corpus_with_execution_evidence(
 /// Builds a candidate's network with the plan-composing interpreter.
 ///
 /// # Panics
-/// If `candidate`'s `LoweringAdapter` is not the one that interprets a plan. That is deliberate,
+/// If `candidate`'s strategy is not the one that interprets a plan. That is deliberate,
 /// and it is a refusal rather than a fallback: this function can only ever produce
 /// `build_controllable`'s controllable-subtree network, so honouring such a candidate by building it
 /// anyway would hand the caller a network from a DIFFERENT compiler than the one the candidate
 /// names, with nothing in the result saying so. Every measurement drawn from it would then be
 /// attributed to a compiler that never ran. Callers holding mixed candidates must dispatch on
 /// `candidate.adapter` (as `evaluate_plans_with_cache` does) or filter on
-/// `LoweringAdapter::interprets_plan` first.
+/// `crate::backend::Backend::interprets_plan` first.
 pub fn build_candidate(
     candidate: &LoweredCandidate,
     opts: &FomaOptions,
@@ -1067,7 +1067,7 @@ pub fn build_candidate(
     prules: &[&PhonRuleDef],
 ) -> Result<crate::gate::GatedCompileResult, ComposeError> {
     assert!(
-        candidate.adapter.interprets_plan(),
+        backend_for(candidate.adapter).interprets_plan(),
         "build_candidate cannot realize {:?}: it only ever composes a plan into the controllable \
          subtree's network, so building this candidate here would measure a different compiler than \
          the one it names. Dispatch on `candidate.adapter` instead.",
@@ -1617,7 +1617,7 @@ fn evaluate_via_templated_emit_mode<const OBSERVE: bool>(
     }
 }
 
-/// Evaluates every candidate through its own `LoweringAdapter` and the production
+/// Evaluates every candidate through its own `EmissionStrategy`/`crate::backend::Backend` and the production
 /// propose→confirm pipeline. The caller-provided order is preserved.
 ///
 /// A plan that needs composite/structural marker subtrees is refused because
@@ -1684,7 +1684,7 @@ pub fn evaluate_plans_observed_with_cache(
         .collect()
 }
 
-/// One `LoweringAdapter::ControllablePlanCompose` candidate, realized into an owned, apply-ready proposer.
+/// One `crate::backend::PlanComposed` candidate, realized into an owned, apply-ready proposer.
 enum RealizedPlanComposed {
     Ready {
         proposer: FomaProposer,
@@ -1785,9 +1785,9 @@ pub fn finished_net_digests(
     plans
         .iter()
         .map(|candidate| {
-            if !candidate.adapter.interprets_plan() {
+            if !backend_for(candidate.adapter).interprets_plan() {
                 return Err(format!(
-                    "whole-grammar adapter {:?} is not realized by build_controllable",
+                    "whole-grammar strategy {:?} is not realized by build_controllable",
                     candidate.adapter
                 ));
             }
@@ -1863,7 +1863,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     let evaluated: Vec<EvaluatedPlan> = plans
         .iter()
         .map(|candidate| {
-            if candidate.adapter.interprets_plan() {
+            if backend_for(candidate.adapter).interprets_plan() {
                 if let Some(reason) = unbuildable_marker_reason(candidate, grammar) {
                     let production_health = unassessed_production_health(format!(
                         "unsupported: {reason}"
@@ -1877,17 +1877,17 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                     );
                 }
             }
-            // Adapter dispatch comes first: the two whole-grammar adapters never touch build_controllable, so routing them through the composed path below would attribute the wrong compiler's network to the candidate.
+            // Strategy dispatch comes first: the two whole-grammar strategies never touch build_controllable, so routing them through the composed path below would attribute the wrong compiler's network to the candidate. Not a `crate::backend::Backend` method: this routes corpus EVALUATION mode, a third job distinct from `compile_for_measurement`/`realize_accuracy_proposer`.
             match candidate.adapter {
-                LoweringAdapter::ControllablePlanCompose => {}
-                LoweringAdapter::TunedSurfaceEmit => {
+                EmissionStrategy::PlanComposed => {}
+                EmissionStrategy::TunedSurfaceProbed => {
                     return if OBSERVE {
                         evaluate_via_tuned_emit_mode::<true>(grammar, words, &expected, budget)
                     } else {
                         evaluate_via_tuned_emit_mode::<false>(grammar, words, &expected, budget)
                     }
                 }
-                LoweringAdapter::TemplatedUnderlyingEmit => {
+                EmissionStrategy::TemplatedUnderlyingTokens => {
                     return if OBSERVE {
                         evaluate_via_templated_emit_mode::<true>(grammar, words, &expected, budget)
                     } else {
@@ -2123,7 +2123,7 @@ fn realize_accuracy_proposer(
     prules: &[&PhonRuleDef],
     _cache: &mut RunEvaluationCache,
 ) -> Result<(EmissionStrategy, FomaProposer), (EmissionStrategy, String)> {
-    let backend = candidate.adapter;
+    let backend = backend_for(candidate.adapter);
     if backend.interprets_plan() {
         if let Some(reason) = unbuildable_marker_reason(candidate, grammar) {
             return Err((EmissionStrategy::PlanComposed, reason));
@@ -2135,19 +2135,19 @@ fn realize_accuracy_proposer(
         .map_err(|reason| (backend.strategy(), reason))
 }
 
-/// `TunedSurfaceEmit`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
+/// `crate::backend::LexcMainline`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
 pub(crate) fn realize_tuned_surface_proposer(grammar: &Grammar) -> Result<FomaProposer, String> {
     FomaProposer::new(grammar).map_err(|e| format!("tuned emit path failed to build: {e}"))
 }
 
-/// `TemplatedUnderlyingEmit`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
+/// `crate::backend::TemplatedUnderlyingTokens`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
 pub(crate) fn realize_templated_underlying_proposer(grammar: &Grammar) -> Result<FomaProposer, String> {
     crate::templated_compile::compile_templated_morphotactics(grammar)
         .map(|output| output.proposer)
         .map_err(|e| format!("templated underlying-token path failed to build: {e}"))
 }
 
-/// `ControllablePlanCompose`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
+/// `crate::backend::PlanComposed`'s own proposer realization, called through `crate::backend::Backend::realize_accuracy_proposer`.
 pub(crate) fn realize_controllable_plan_proposer(
     candidate: &LoweredCandidate,
     grammar: &Grammar,

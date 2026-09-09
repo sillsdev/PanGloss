@@ -7,9 +7,8 @@ use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{
     assess_accuracy_with_cache, evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget,
 };
-use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
+use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::backend::LoweringAdapter;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 const FIXTURE: &str = "backend-gated-generic";
@@ -222,7 +221,7 @@ fn a_removed_proposal_is_reported_as_the_exact_lost_analysis() {
         label: "accuracy-negative-control",
         plan: baseline_plan(&grammar),
         // Whole-grammar emission isolates missing-analysis accuracy from the marker capability gate.
-        adapter: LoweringAdapter::TunedSurfaceEmit,
+        adapter: EmissionStrategy::TunedSurfaceProbed,
         role: CandidateRole::Alternative,
     }];
     let assessed = assess_accuracy_with_cache(

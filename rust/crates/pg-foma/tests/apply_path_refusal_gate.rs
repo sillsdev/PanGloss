@@ -9,9 +9,8 @@ use pg_foma::backend_runtime::{
 use pg_foma::compose_budget::{
     DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET, DEFAULT_EVALUATION_APPLY_PATH_BUDGET,
 };
-use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
+use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::backend::LoweringAdapter;
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
 /// The two fixtures the process used to die on -- byte-identical grammars but for `<Name>`.
@@ -26,7 +25,7 @@ fn baseline_only(grammar: &Grammar) -> Vec<LoweredCandidate> {
     vec![LoweredCandidate {
         label: "apply-path-refusal-gate-baseline",
         plan: enumerate_default(grammar, &prules, phonology.as_ref()),
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         role: CandidateRole::Baseline,
     }]
 }

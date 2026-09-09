@@ -41,7 +41,6 @@ use crate::capability::PredicateId;
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::backend::LoweringAdapter;
 use crate::parity::IdentityDivergence;
 use crate::strategy_coverage::ALL_STRATEGIES;
 use crate::strategy_coverage_join::envelope_refusal_predicates;
@@ -183,7 +182,7 @@ pub fn measure(label: &str, grammar: &Grammar, words: &[String]) -> ScoredFixtur
         let candidate = LoweredCandidate {
             label: "conf-matrix",
             plan: baseline_plan.clone(),
-            adapter: LoweringAdapter::for_strategy(strategy),
+            adapter: strategy,
             role: if strategy == EmissionStrategy::PlanComposed {
                 CandidateRole::Baseline
             } else {

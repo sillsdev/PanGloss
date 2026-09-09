@@ -11,7 +11,6 @@ use pg_foma::backend_runtime::{
 use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::backend::LoweringAdapter;
 
 fn load() -> pg_grammar::model::Grammar {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -35,7 +34,7 @@ fn mentanukam_proposes_once_but_confirms_the_oracles_full_multiplicity() {
         let candidate = LoweredCandidate {
             label: "mentanukam-multiplicity",
             plan: baseline_plan.clone(),
-            adapter: LoweringAdapter::for_strategy(strategy),
+            adapter: strategy,
             role: CandidateRole::Alternative,
         };
         let mut cache = RunEvaluationCache::prepare(&g, &words, RuntimeBudget::default())

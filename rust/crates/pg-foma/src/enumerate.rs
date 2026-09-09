@@ -99,7 +99,6 @@ use pg_grammar::model::{Grammar, LexEntryId, PRuleId, PhonRuleDef};
 
 use crate::gate::{find_gated_subrules, partition_entries};
 use crate::junctions::PhonologyProbe;
-use crate::backend::{Backend, LoweringAdapter};
 use crate::oracle::permute_gate_groups;
 use crate::plan::{
     ComposeStrategy, FragmentSpec, GateGroupSpec, GatePartitionSpec, GatedSubruleRef, NodeId, Plan,
@@ -280,34 +279,31 @@ impl CandidateRole {
 /// user-facing description — see `crate::selection::select_plan`'s own doc for how this feeds a
 /// caller's provenance report.
 ///
-/// # Why the compiler axis is a typed adapter, and the baseline fact lives here
-/// 1. **The compiler axis is a typed `LoweringAdapter`, not an `EmissionStrategy`.** Lowering
-///    dispatches on the adapter the candidate itself carries instead of on a second enum that had
-///    to be kept in correspondence with it by hand. `EmissionStrategy` survives, deliberately:
-///    it is the REPORTED selection axis (`RuntimeEvaluation::realized_strategy`,
+/// # Why the compiler axis is `EmissionStrategy`, and the baseline fact lives here
+/// 1. **The compiler axis is `EmissionStrategy` itself**, not a second enum kept in
+///    correspondence with it by hand (`crate::backend::backend_for` is the one place that turns a
+///    strategy into behaviour, via the `crate::backend::Backend` trait). It is also the REPORTED
+///    selection axis (`RuntimeEvaluation::realized_strategy`,
 ///    `BackendOptimizationReport::winner_strategy`, `strategy_coverage`), measured to be the
-///    decisive one — two whole-grammar compilers win two different languages. The
-///    two are 1:1 in both directions (`backend`'s own
-///    `every_strategy_has_exactly_one_adapter_and_back`), so `Self::strategy` is a projection,
-///    not a second source of truth.
+///    decisive one — two whole-grammar compilers win two different languages.
 /// 2. **The baseline fact lives here**, as `CandidateRole` — see that type for the two measured
 ///    failures of putting it anywhere else.
 #[derive(Debug)]
 pub struct LoweredCandidate {
     pub label: &'static str,
     pub plan: Plan,
-    /// WHICH compiler lowers this candidate into a network. A different axis from `plan`, which
-    /// describes assembly SHAPE within the one adapter that reads a plan at all.
-    pub adapter: LoweringAdapter,
+    /// WHICH compiler realizes this candidate. A different axis from `plan`, which describes
+    /// assembly SHAPE within the one strategy that reads a plan at all
+    /// (`crate::backend::Backend::interprets_plan`).
+    pub adapter: EmissionStrategy,
     /// Whether this candidate is the grammar's default compilation.
     pub role: CandidateRole,
 }
 
 impl LoweredCandidate {
-    /// The `EmissionStrategy` this candidate's adapter realizes — the axis reports and
-    /// `strategy_coverage` speak in. A projection of `Self::adapter`, never independent of it.
+    /// This candidate's `EmissionStrategy` — the axis reports and `strategy_coverage` speak in.
     pub fn strategy(&self) -> EmissionStrategy {
-        self.adapter.strategy()
+        self.adapter
     }
 
     pub fn is_baseline(&self) -> bool {
@@ -404,7 +400,7 @@ pub fn enumerate_candidates(
     let mut candidates = vec![LoweredCandidate {
         label: "default",
         plan: default_plan,
-        adapter: LoweringAdapter::ControllablePlanCompose,
+        adapter: EmissionStrategy::PlanComposed,
         // Stated here rather than inferred from position, which is the whole point of `CandidateRole`.
         role: CandidateRole::Baseline,
     }];
@@ -414,7 +410,7 @@ pub fn enumerate_candidates(
         candidates.push(LoweredCandidate {
             label: "gate-group-permuted",
             plan: permuted,
-            adapter: LoweringAdapter::ControllablePlanCompose,
+            adapter: EmissionStrategy::PlanComposed,
             role: CandidateRole::Alternative,
         });
     }

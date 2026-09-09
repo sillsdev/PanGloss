@@ -13,7 +13,6 @@ use pg_foma::backend_runtime::{
     WordEvidence,
 };
 use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
-use pg_foma::backend::LoweringAdapter;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 
 const FIXTURE: &str = "template-category-sharing";
@@ -581,7 +580,7 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
         .map(|&strategy| LoweredCandidate {
             label: "red1-compounding-cross-compiler",
             plan: baseline_plan.clone(),
-            adapter: LoweringAdapter::for_strategy(strategy),
+            adapter: strategy,
             // The plan-composing candidate carries the grammar's default plan and so is baseline; the two whole-grammar adapters never read a plan, so their role is never consulted.
             role: baseline_role(strategy),
         })
@@ -667,7 +666,7 @@ fn plan_composed_distinguishes_headedness_ambiguity_red2() {
         .map(|&strategy| LoweredCandidate {
             label: "red2-head-ambiguous-compounding",
             plan: baseline_plan.clone(),
-            adapter: LoweringAdapter::for_strategy(strategy),
+            adapter: strategy,
             role: baseline_role(strategy),
         })
         .collect();

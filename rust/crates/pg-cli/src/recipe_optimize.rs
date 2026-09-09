@@ -7,7 +7,6 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use pg_foma::backend::Backend;
 use pg_foma::backend_optimizer::{
     choose_strategy_with_policy, optimize_with_evaluator, AdaptivePolicy, Budget, BudgetUsage,
     CandidateEvaluator, CandidateState, ConfirmationEvidence, ConstraintTopology,
@@ -443,7 +442,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         LoweredCandidate {
             label: "baseline",
             plan: baseline.clone(),
-            adapter: pg_foma::backend::LoweringAdapter::ControllablePlanCompose,
+            adapter: pg_foma::enumerate::EmissionStrategy::PlanComposed,
             // The one candidate that IS the grammar's default compilation, stated here so the evaluator never infers it from position.
             role: CandidateRole::Baseline,
         },
@@ -474,7 +473,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             RecipeOptimizeError::Runtime("materialized recipe has no root".into())
         })?;
         // A plan-composed candidate keeps the bare root as its id; a whole-grammar strategy must not, since it reuses the baseline plan and a bare-root id would collide with it.
-        let id = if !plan.adapter.interprets_plan() {
+        let id = if !pg_foma::backend::backend_for(plan.adapter).interprets_plan() {
             format!("{root}@{}", plan.strategy().label())
         } else {
             root.to_string()

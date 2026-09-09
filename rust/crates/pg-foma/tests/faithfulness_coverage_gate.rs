@@ -113,7 +113,6 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
     };
     use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
     use pg_foma::junctions::PhonologyProbe;
-    use pg_foma::backend::LoweringAdapter;
 
     const FIXTURE: &str = "template-category-sharing";
     const STRATEGIES: [EmissionStrategy; 3] = [
@@ -155,7 +154,7 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
         .map(|&strategy| LoweredCandidate {
             label: "faithfulness-falsification",
             plan: baseline_plan.clone(),
-            adapter: LoweringAdapter::for_strategy(strategy),
+            adapter: strategy,
             role: if strategy == EmissionStrategy::PlanComposed {
                 CandidateRole::Baseline
             } else {

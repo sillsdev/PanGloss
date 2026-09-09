@@ -43,7 +43,6 @@ use crate::conformance_coverage::construct_ids_for;
 use crate::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
-use crate::backend::LoweringAdapter;
 use crate::strategy_coverage::StrategyRepresentation;
 use pg_grammar::model::Grammar;
 
@@ -207,7 +206,7 @@ pub fn measure_fixture_exact(grammar: &Grammar, words: &[String], strategy: Emis
     let candidate = LoweredCandidate {
         label: "strategy-coverage-join",
         plan: baseline_plan,
-        adapter: LoweringAdapter::for_strategy(strategy),
+        adapter: strategy,
         role: if strategy == EmissionStrategy::PlanComposed {
             CandidateRole::Baseline
         } else {

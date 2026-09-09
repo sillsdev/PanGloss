@@ -15,7 +15,6 @@ use pg_foma::faithfulness_coverage::{
 };
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::junctions::PhonologyProbe;
-use pg_foma::backend::LoweringAdapter;
 use pg_foma::plan::Plan;
 use pg_foma::strategy_coverage::{
     representation_of, unrepresentable_kinds, StrategyRepresentation,
@@ -144,13 +143,13 @@ fn two_strategy_candidates(plan: &Plan) -> Vec<LoweredCandidate> {
         LoweredCandidate {
             label: "plan-composed",
             plan: plan.clone(),
-            adapter: LoweringAdapter::ControllablePlanCompose,
+            adapter: EmissionStrategy::PlanComposed,
             role: CandidateRole::Baseline,
         },
         LoweredCandidate {
             label: "tuned-surface-probed",
             plan: plan.clone(),
-            adapter: LoweringAdapter::TunedSurfaceEmit,
+            adapter: EmissionStrategy::TunedSurfaceProbed,
             // A whole-grammar adapter never reads a plan, so it is a different compiler, never "the baseline plan's compilation".
             role: CandidateRole::Alternative,
         },
