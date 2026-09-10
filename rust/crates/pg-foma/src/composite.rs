@@ -602,9 +602,10 @@ impl<'g> FomaAnalyzer<'g> {
     /// fails to foma-compile. There is no per-grammar fallback tier: this
     /// composite IS the mainline for every grammar, so a compile failure here is an emitter gap to
     /// fix, not a routing decision — the `Err` just surfaces it to the caller.
-    // See the `#[allow(clippy::result_large_err)]` justification on `FomaProposer::new`
-    // (crate::analyzer): FomaError is a deliberately small, flat enum and boxing its largest
-    // variant would change the public enum's shape for every downstream `match`.
+    ///
+    /// `clippy::result_large_err` is allowed for the same reason as `FomaProposer::new`
+    /// (`crate::analyzer`): `FomaError` is deliberately a small, flat enum, and boxing its largest
+    /// variant would change the public enum's shape for every downstream `match`.
     #[allow(clippy::result_large_err)]
     pub fn new(g: &'g Grammar) -> Result<Self, FomaError> {
         let proposer = FomaProposer::new(g)?;

@@ -268,6 +268,8 @@ function Get-BlockKind {
             continue
         }
         if ($l.Trim() -eq '') { continue }
+        # A trailing `//` block now split off the `///` above it still sits before the real item.
+        if ($l -match '^\s*//') { continue }
         # `pub(crate)` is API, but `pub` inside a PRIVATE module reaches nobody; requiring both makes
         # this mean reachability rather than spelling. See docs/research/comment-hygiene-checker-design.md
         if ($l -match '^\s*pub(\s|\()') { if ($InPublicModule) { return 'api' } else { return 'impl' } }
@@ -305,6 +307,15 @@ function Get-BlockAnchor {
     return $null
 }
 
+# Adjacency isn't sameness: grouping `///`/`//!` with a trailing `//` let the `//` inherit the doc's kind.
+function Get-RustMarkerKind {
+    param([string]$Line)
+    if ($Line -match '^\s*//!') { return 'inner-doc' }
+    if ($Line -match '^\s*///') { return 'outer-doc' }
+    if ($Line -match '^\s*//') { return 'plain' }
+    return 'block'
+}
+
 foreach ($f in $files) {
     $isRust = $f.Extension -eq '.rs'
     $commentLine = $commentLineByExt[$f.Extension]
@@ -313,6 +324,7 @@ foreach ($f in $files) {
     $lineNo = 0
     $blockLines = New-Object System.Collections.Generic.List[string]
     $blockStart = 0
+    $blockMarkerKind = $null
 
     # The sentinel lets end-of-block evaluation run once after the loop instead of being duplicated.
     $realLines = @([System.IO.File]::ReadLines($f.FullName))
@@ -322,25 +334,8 @@ foreach ($f in $files) {
     # See docs/research/comment-hygiene-checker-design.md
     $mask = Get-CommentLineMask -Lines $realLines -Extension $f.Extension
 
-    foreach ($line in $allLines) {
-        $lineNo++
-        $isComment = ($line -ne '<<EOF-SENTINEL>>') -and $mask[$lineNo - 1]
-
-        if ($isComment) {
-            if ($blockLines.Count -eq 0) { $blockStart = $lineNo }
-            $blockLines.Add($line)
-
-            foreach ($cat in $categories.Keys) {
-                if ($null -eq $categories[$cat]) { continue }
-                if ($line -match $categories[$cat]) {
-                    $counts[$cat]++
-                    if ($List) { $hits[$cat] += "$rel`:$lineNo`: $($line.Trim())" }
-                }
-            }
-            continue
-        }
-
-        if ($blockLines.Count -eq 0) { continue }
+    # Dot-sourced so both boundaries below share this scope's $blockLines/$counts, not a copy.
+    $evalBlock = {
         $text = $blockLines -join "`n"
 
         if ($isRust -or $delims) {
@@ -446,6 +441,35 @@ foreach ($f in $files) {
         }
 
         $blockLines.Clear()
+    }
+
+    foreach ($line in $allLines) {
+        $lineNo++
+        $isComment = ($line -ne '<<EOF-SENTINEL>>') -and $mask[$lineNo - 1]
+
+        if ($isComment) {
+            # A marker change (`///`/`//!` vs `//`) ends the run: a doc block must not donate its kind.
+            if ($isRust -and $blockLines.Count -gt 0 -and (Get-RustMarkerKind $line) -ne $blockMarkerKind) {
+                . $evalBlock
+            }
+            if ($blockLines.Count -eq 0) {
+                $blockStart = $lineNo
+                $blockMarkerKind = if ($isRust) { Get-RustMarkerKind $line } else { $null }
+            }
+            $blockLines.Add($line)
+
+            foreach ($cat in $categories.Keys) {
+                if ($null -eq $categories[$cat]) { continue }
+                if ($line -match $categories[$cat]) {
+                    $counts[$cat]++
+                    if ($List) { $hits[$cat] += "$rel`:$lineNo`: $($line.Trim())" }
+                }
+            }
+            continue
+        }
+
+        if ($blockLines.Count -eq 0) { continue }
+        . $evalBlock
     }
 }
 

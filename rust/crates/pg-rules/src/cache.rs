@@ -153,13 +153,13 @@ pub(crate) struct AllomorphCache {
 /// One `RuleCache::prules` slot: which kind of compiled cache depends on the corresponding
 /// `g.prules[pid.0]`'s own `PhonRuleDef` variant — always the matching one, by construction
 /// (`RuleCache::build` maps `g.prules` 1:1, in order).
-// `clippy::large_enum_variant` is unsatisfiable here in both directions, so it is allowed
-// deliberately rather than papered over: `Metathesis` IS boxed (below), which already shrank this
-// enum from ~440 to 232 bytes per `Vec` slot; what remains is the lint complaining about the
-// *difference* between a 232-byte `Rewrite` and an 8-byte boxed `Metathesis`. Boxing `Rewrite` too
-// would silence it only by adding a pointer chase to the hot confirm path (nearly every rule in a
-// real grammar is a rewrite rule, and `prule_rewrite` is called per rule per word), which is a worse
-// trade than a lint warning. Revisit only if `PruleCache` itself grows materially.
+///
+/// `clippy::large_enum_variant` is unsatisfiable here in both directions: `Metathesis` is boxed
+/// (below), which already shrank this enum from ~440 to 232 bytes per `Vec` slot, and the lint is
+/// now the remaining difference between a 232-byte `Rewrite` and an 8-byte boxed `Metathesis`.
+/// Boxing `Rewrite` too would silence it only by adding a pointer chase to the hot confirm path
+/// (`prule_rewrite` runs per rule per word, and most real-grammar rules are rewrites), a worse
+/// trade than a lint warning. Revisit only if this enum grows materially.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum PruleCacheEntry {
     Rewrite(PruleCache),

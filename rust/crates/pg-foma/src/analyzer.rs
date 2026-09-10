@@ -257,9 +257,10 @@ impl FomaProposer {
     /// Emit `g`'s lexc source, compile it, and build the (word-independent) `ApplyHandle` once.
     /// Returns a typed error for invalid lexc or unsupported/incomplete emission; no unsupported
     /// emitter result is compiled into a proposer.
-    // FomaError is deliberately a small, flat enum (see its own doc above); boxing
-    // `LexcCompileFailed`'s `EmitReport` to silence this lint would change the public enum's
-    // variant shape for every downstream `match`, which is out of scope for a lint-only cleanup.
+    ///
+    /// `clippy::result_large_err` is allowed rather than satisfied: `FomaError` is deliberately a
+    /// small, flat enum, and boxing `LexcCompileFailed`'s `EmitReport` to silence the lint would
+    /// change the public enum's variant shape for every downstream `match`.
     #[allow(clippy::result_large_err)]
     pub fn new(g: &Grammar) -> Result<Self> {
         Self::new_proposer(g)
