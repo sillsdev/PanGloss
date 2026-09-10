@@ -264,10 +264,12 @@ pub struct Word {
     /// object identity, is what C#'s dedup keys on; `root_allomorph`'s `AllomorphId::GUESSED`
     /// sentinel is the Rust analog of that, so this payload would be redundant in the key even if
     /// added).
-    /// C# `Word.Alternatives` (Word.cs:485-489): the shape-equivalent analysis candidates folded into
-    /// this word by `MergeEquivalentAnalyses` (AnalysisStratumRule.cs:161-171 — a repeat shape does
-    /// not enter the output set; instead `canonicalWord.Alternatives.Add(mruleOutWord)`). They differ
-    /// from the canonical only in rule/non-head history (the merge keys on `Shape` alone), and are
+    /// C# `Word.Alternatives` (Word.cs:485-489): the analysis candidates folded into this word by
+    /// `MergeEquivalentAnalyses` (AnalysisStratumRule.cs:161-171 — a candidate reaching an equal
+    /// `pg_memo::AnalysisStateKey`, or an equal `WordKey` differing only in syntactic FS, does not
+    /// enter the output set; instead `canonicalWord.Alternatives.Add(mruleOutWord)`). They differ
+    /// from the canonical in rule/non-head history and (widened into the canonical via
+    /// `pg_featstruct::union` on the fold — see `crate::stratum`'s merge) syntactic FS, and are
     /// re-expanded at synthesis by `Word::expand_alternatives`. Empty on almost every word. **Not**
     /// part of `WordKey`; **not** copied by `Word::clone_without_alternatives` (C#'s copy ctor
     /// leaves `_alternatives` fresh-empty, Word.cs:87), so only the two sites that build a canonical
@@ -489,9 +491,10 @@ impl Word {
     /// Reconstruct the full set of analysis candidates that `MergeEquivalentAnalyses` folded into
     /// this word — a faithful port of C# `Word.ExpandAlternatives` (Word.cs:491-533).
     ///
-    /// The per-stratum merge (`AnalysisStratumRule.Apply`) keeps only one word per `Shape` flowing
-    /// into deeper strata, stashing the shape-equivalent repeats in `Word::alternatives` and every
-    /// word's stratum-input in `Word::source`. This walks that `source` spine: it expands the
+    /// The per-stratum merge (`AnalysisStratumRule.Apply`) keeps only one word per
+    /// `pg_memo::AnalysisStateKey` (or `WordKey`-fallback match) flowing into deeper strata,
+    /// stashing the folded repeats in `Word::alternatives` and every word's stratum-input in
+    /// `Word::source`. This walks that `source` spine: it expands the
     /// source first, and — whenever the source itself expanded to two or more words (i.e. a merge
     /// happened upstream) — replays the delta this word accumulated since its source (the extra
     /// `mrule_apps`, the extra `non_heads`, and, at the synthesis boundary, the root allomorph) onto
@@ -567,7 +570,7 @@ impl Word {
             // Special case (cs:499-503): no source, or a single-word source — this word stands alone.
             _ => out.push(self.clone()),
         }
-        // Local alternatives (cs:530-531): every folded-in shape-equivalent word expands too.
+        // Local alternatives (cs:530-531): every word folded into this one by the merge expands too.
         for alt in &self.alternatives {
             out.extend(alt.expand_alternatives());
         }

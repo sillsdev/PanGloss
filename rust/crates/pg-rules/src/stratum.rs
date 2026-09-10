@@ -18,7 +18,7 @@ use std::rc::Rc;
 // `std::time::Instant` panics on wasm32-unknown-unknown; `web_time` substitutes only `Instant`, reusing std's `Duration` unchanged.
 use web_time::{Duration, Instant};
 
-use pg_featstruct::{add, is_unifiable, subsumes, subtract, unify};
+use pg_featstruct::{add, is_unifiable, subsumes, subtract, union, unify};
 use pg_grammar::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
     StratumId, TemplateId,
@@ -394,8 +394,9 @@ fn analysis_state_after_mrule(
 #[derive(Clone, Copy, Debug)]
 pub struct AnalyzerConfig {
     /// Mirrors C# `Morpher.MergeEquivalentAnalyses` (default `true`): collapse this stratum's
-    /// candidates that share a `Shape` into one canonical word, folding the repeats into its
-    /// `Word::alternatives`. A de-duplication, not a pruning — synthesis re-expands them.
+    /// candidates that share a `pg_memo::AnalysisStateKey` (or an equal `WordKey` differing only in
+    /// syntactic FS) into one canonical word, folding the repeats into its `Word::alternatives`. A
+    /// de-duplication, not a pruning — synthesis re-expands them.
     pub merge_equivalent: bool,
     /// Mirrors C# `Morpher.MaxUnapplications`: stop once the analysis output reaches this many
     /// candidates (`0` = unlimited).
@@ -1216,33 +1217,44 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             w.source = Some(source.clone());
         }
 
-        let mut output_keys: HashMap<WordKey, ()> = HashMap::default();
-        // Shape -> canonical word index; the seed's shape is deliberately not registered.
-        let mut shape_word: HashMap<Shape, usize> = HashMap::default();
+        // WordKey -> its index in `words`, so an identity-fallback fold (below) can find its canonical.
+        let mut output_keys: HashMap<WordKey, usize> = HashMap::default();
+        // AnalysisStateKey -> canonical word index; the seed's key is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
+        let mut key_word: HashMap<AnalysisStateKey, usize> = HashMap::default();
         let mut words: Vec<Word> = Vec::new();
-        output_keys.insert(input.dedup_key(), ());
+        output_keys.insert(input.dedup_key(), 0);
         words.push(input);
 
         for mut w in mrule_out {
             // Clear the stratum-local state before output merge/dedup.
             w.flags.final_template_state = crate::word::FinalTemplateState::None;
-            if self.cfg.merge_equivalent {
-                // A repeat shape folds into the canonical word's alternatives instead of entering the output.
-                if let Some(&idx) = shape_word.get(&w.shape) {
+            let dedup_key = w.dedup_key();
+            let state_key = self.cfg.merge_equivalent.then(|| self.state_key(&w));
+            if let Some(state_key) = &state_key {
+                if let Some(&idx) = key_word.get(state_key) {
+                    generalize_syn_fs(&mut words[idx], &w, &|f| self.g.syn_features.mask(f));
+                    words[idx].alternatives.push(w);
+                    continue;
+                }
+                // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
+                if let Some(&idx) = output_keys.get(&dedup_key) {
+                    generalize_syn_fs(&mut words[idx], &w, &|f| self.g.syn_features.mask(f));
                     words[idx].alternatives.push(w);
                     continue;
                 }
             }
-            // The second end-event, once per surviving candidate; must NOT be gated on the `output_keys.insert` below, since a key-duplicate still fires it.
+            // The second end-event, once per surviving candidate; must NOT be gated on the `output_keys` insert below, since a key-duplicate still fires it.
             if self.trace.is_tracing() {
                 let w_parent = w.trace.unwrap_or(node_parent);
                 self.trace
                     .end_unapply_stratum(w_parent, self.stratum_id, &w);
             }
-            if output_keys.insert(w.dedup_key(), ()).is_none() {
-                if self.cfg.merge_equivalent {
-                    shape_word.insert(w.shape.clone(), words.len());
+            if !output_keys.contains_key(&dedup_key) {
+                // Registered only once the word is certain to reach the output, so a rejected word never becomes a canonical.
+                if let Some(state_key) = state_key {
+                    key_word.insert(state_key, words.len());
                 }
+                output_keys.insert(dedup_key, words.len());
                 words.push(w);
             }
             if self.cfg.max_unapplications > 0 && words.len() >= self.cfg.max_unapplications {
@@ -1254,6 +1266,72 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             words,
             capped: self.budget.capped(),
         }
+    }
+}
+
+/// Widen the canonical's syntactic FS over the folded alternative's, since only the canonical is un-applied further (C# `AnalysisStratumRule.GeneralizeSyntacticFeatureStruct`).
+fn generalize_syn_fs(canonical: &mut Word, alternative: &Word, mask_of: &impl Fn(pg_featstruct::FeatId) -> u64) {
+    if canonical.syn_fs != alternative.syn_fs {
+        canonical.syn_fs = union(&canonical.syn_fs, &alternative.syn_fs, mask_of);
+    }
+}
+
+// Unit-tested here directly: the differing-FS case is unreachable through the public analysis API (an equal state key already forces equal syn_fs).
+#[cfg(test)]
+mod generalize_syn_fs_tests {
+    use super::*;
+    use pg_featstruct::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits};
+    use pg_shape::ShapeBuilder;
+
+    const FA: FeatId = FeatId(0);
+
+    fn fs_with(bits: u64) -> FeatureStruct {
+        let mut b = FeatureStructBuilder::new();
+        b.add(FA, FeatureValue::Symbolic(SymbolBits(bits)));
+        b.build()
+    }
+
+    fn bare_word() -> Word {
+        Word::new(ShapeBuilder::new().finish(), StratumId(0))
+    }
+
+    fn mask3(_: FeatId) -> u64 {
+        0b111
+    }
+
+    #[test]
+    fn widens_the_canonical_to_the_union_when_the_alternative_differs() {
+        let mut canonical = bare_word();
+        canonical.syn_fs = fs_with(0b001);
+        let mut alternative = bare_word();
+        alternative.syn_fs = fs_with(0b010);
+
+        generalize_syn_fs(&mut canonical, &alternative, &mask3);
+
+        assert_eq!(canonical.syn_fs, union(&fs_with(0b001), &fs_with(0b010), &mask3));
+        assert_eq!(canonical.syn_fs, fs_with(0b011));
+    }
+
+    #[test]
+    fn leaves_the_canonical_unchanged_when_the_alternative_matches() {
+        let mut canonical = bare_word();
+        canonical.syn_fs = fs_with(0b011);
+        let alternative_same = bare_word_with_syn_fs(fs_with(0b011));
+
+        generalize_syn_fs(&mut canonical, &alternative_same, &mask3);
+
+        assert_eq!(
+            canonical.syn_fs,
+            fs_with(0b011),
+            "an equal syn_fs (the only reachable case on the key-hit fold, since an equal \
+             AnalysisStateKey already forces equal syn_fs) must be a no-op"
+        );
+    }
+
+    fn bare_word_with_syn_fs(fs: FeatureStruct) -> Word {
+        let mut w = bare_word();
+        w.syn_fs = fs;
+        w
     }
 }
 

@@ -23,7 +23,7 @@
 //! `ModifyFromInput` inversion widens the changed feature lanes back to `full_mask` and no further:
 //! the general nested/variable anti-feature-structure cases are not ported.
 
-use pg_featstruct::{add, is_unifiable, priority_union, unify, FeatureStruct};
+use pg_featstruct::{is_unifiable, priority_union, unify, FeatureStruct};
 use pg_fst::{CompileInput, CompileNode, Direction, Fst, FstResult, Segment, Transduce};
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::featsys::FlatIndex;
@@ -1365,7 +1365,7 @@ fn synth_syn_fs(
     Some(priority_union(&unified, g.fs_interner.get(out)))
 }
 
-/// C# analysis guard: gates on `out.IsUnifiable(word.syn)` (the rule's OUTPUT against the input, not `req`), then widens with `Add`, never a narrowing unify.
+/// C# analysis guard (`AnalysisAffixProcessRule`/`AnalysisCompoundingRule.Apply`): gates on `out.IsUnifiable(word.syn)`, then narrows with `PriorityUnion` (req overwrites accumulated), never `Add`'s union.
 fn ana_syn_fs(
     g: &Grammar,
     req: pg_featstruct::FsId,
@@ -1378,7 +1378,7 @@ fn ana_syn_fs(
     }
     let req_fs = g.fs_interner.get(req);
     if !req_fs.is_empty() {
-        Some(add(&word.syn_fs, req_fs, &|f| g.syn_features.mask(f)))
+        Some(priority_union(&word.syn_fs, req_fs))
     } else if out_fs.is_empty() {
         Some(FeatureStruct::EMPTY)
     } else {

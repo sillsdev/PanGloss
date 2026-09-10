@@ -947,16 +947,68 @@ fn sena_analysis_stratum_terminates_on_short_words() {
 // MergeEquivalentAnalyses + Alternatives + expand_alternatives across a stratum boundary.
 
 #[test]
-fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both() {
-    // Two different rules (idA, idB) with a phonologically identical suffix "n" unapply to the same shape "ag"; MergeEquivalentAnalyses folds the second into the first's Alternatives instead of emitting a sibling candidate.
+fn merge_equivalent_analyses_keeps_distinct_rule_histories_as_siblings() {
+    // Two different rules (idA, idB) with a phonologically identical suffix "n" unapply to the same shape "ag", but each leaves a distinct unapplied-rule-count multiset ({idA:1} vs {idB:1}); the state key (unlike the old shape-only key) tells them apart, so both survive as top-level candidates rather than one folding into the other's Alternatives.
     let mut g = load_alpha_grammar();
     let rule_a = suffix_rule(&g, 200, "n"); // morpheme 200
     let rule_b = suffix_rule(&g, 201, "n"); // morpheme 201, phonologically identical suffix
-    let rule_z = suffix_rule(&g, 300, "g"); // a further (deeper) suffix
     let id_a = push_mrule(&mut g, rule_a);
     let id_b = push_mrule(&mut g, rule_b);
-    let id_z = push_mrule(&mut g, rule_z);
     let s0 = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![id_a, id_b], vec![]);
+
+    let cfg = AnalyzerConfig {
+        merge_equivalent: true,
+        max_unapplications: 0,
+        max_stem_count: 2,
+    };
+
+    let input0 = word(&g, "agn", s0);
+    let out0 = analyze_stratum(&g, s0, input0, &cfg, &StepBudget::new(10_000));
+    assert!(!out0.capped);
+    let ag_shape = vec![cd(&g, "char_a"), cd(&g, "char_g")];
+    let ag_candidates: Vec<&Word> = out0
+        .words
+        .iter()
+        .filter(|w| char_defs(&w.shape) == ag_shape)
+        .collect();
+    assert_eq!(
+        ag_candidates.len(),
+        2,
+        "idA and idB have distinct rule-unapplication multisets, so both stay top-level candidates \
+         reaching shape [a,g]; got {ag_candidates:?}"
+    );
+    for w in &ag_candidates {
+        assert!(
+            w.alternatives.is_empty(),
+            "a distinct-history candidate must not be folded, so it carries no alternatives; \
+             mrule_apps={:?}",
+            w.mrule_apps
+        );
+    }
+    let mut seen_ids: Vec<MRuleId> = ag_candidates
+        .iter()
+        .map(|w| w.mrule_apps[0].expect("analysis always records a known rule"))
+        .collect();
+    seen_ids.sort_by_key(|id| id.0);
+    let mut want_ids = vec![id_a, id_b];
+    want_ids.sort_by_key(|id| id.0);
+    assert_eq!(
+        seen_ids, want_ids,
+        "the two siblings together cover both idA and idB"
+    );
+}
+
+#[test]
+fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand_recovers_both() {
+    // An Unordered stratum's `combination` cascade explores both P-then-S and S-then-P (each a distinct WordKey, since mrule_apps order differs), but both reach shape "ag" with the identical rule multiset {P:1, S:1} -- an equal AnalysisStateKey -- so the merge folds the second into the first's Alternatives.
+    let mut g = load_alpha_grammar();
+    let rule_p = prefix_rule(&g, 200, "p"); // P: strips a leading "p"
+    let rule_s = suffix_rule(&g, 300, "n"); // S: strips a trailing "n"
+    let rule_z = suffix_rule(&g, 400, "g"); // a further (deeper) suffix, morpheme 400
+    let id_p = push_mrule(&mut g, rule_p);
+    let id_s = push_mrule(&mut g, rule_s);
+    let id_z = push_mrule(&mut g, rule_z);
+    let s0 = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![id_p, id_s], vec![]);
     let s1 = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![id_z], vec![]);
 
     let cfg = AnalyzerConfig {
@@ -965,35 +1017,49 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
         max_stem_count: 2,
     };
 
-    // Stratum 0: merge collapses the idA/idB candidates sharing shape "ag" into one canonical + one alternative.
-    let input0 = word(&g, "agn", s0);
+    // Stratum 0: "pagn" -- unapplying P then S ("agn" -> "ag") and S then P ("pag" -> "ag") both reach "ag".
+    let input0 = word(&g, "pagn", s0);
     let out0 = analyze_stratum(&g, s0, input0, &cfg, &StepBudget::new(10_000));
     assert!(!out0.capped);
     let ag_shape = vec![cd(&g, "char_a"), cd(&g, "char_g")];
-    let canonical = out0
+    let ag_candidates: Vec<&Word> = out0
         .words
         .iter()
-        .find(|w| char_defs(&w.shape) == ag_shape)
-        .expect("stratum 0 reaches shape [a,g]")
-        .clone();
+        .filter(|w| char_defs(&w.shape) == ag_shape)
+        .collect();
+    assert_eq!(
+        ag_candidates.len(),
+        1,
+        "P-then-S and S-then-P reach the same AnalysisStateKey (shape [a,g], multiset {{P:1,S:1}}) \
+         and must fold into a single top-level candidate; got {ag_candidates:?}"
+    );
+    let canonical = ag_candidates[0].clone();
     assert_eq!(
         canonical.alternatives.len(),
         1,
-        "the second homophonous-suffix candidate must be folded into Alternatives, not a sibling \
-         top-level candidate; canonical.mrule_apps={:?}",
+        "the order-variant arrival must be folded into Alternatives, not dropped or left a sibling; \
+         canonical.mrule_apps={:?}",
         canonical.mrule_apps
     );
-    // The canonical and its lone alternative are together the {idA, idB} pair, in either order.
-    let mut seen_ids = vec![
-        canonical.mrule_apps[0].expect("analysis always records a known rule"),
-        canonical.alternatives[0].mrule_apps[0].expect("analysis always records a known rule"),
+    // The canonical and its lone alternative are the two rule orders, [P,S] and [S,P].
+    let mut got_orders: Vec<Vec<MRuleId>> = vec![
+        canonical
+            .mrule_apps
+            .iter()
+            .map(|id| id.expect("analysis always records a known rule"))
+            .collect(),
+        canonical.alternatives[0]
+            .mrule_apps
+            .iter()
+            .map(|id| id.expect("analysis always records a known rule"))
+            .collect(),
     ];
-    seen_ids.sort_by_key(|id| id.0);
-    let mut want_ids = vec![id_a, id_b];
-    want_ids.sort_by_key(|id| id.0);
+    got_orders.sort();
+    let mut want_orders = vec![vec![id_p, id_s], vec![id_s, id_p]];
+    want_orders.sort();
     assert_eq!(
-        seen_ids, want_ids,
-        "canonical + alternative together cover both idA and idB"
+        got_orders, want_orders,
+        "canonical + alternative together cover both rule orders"
     );
 
     // Stratum 1: feed the single canonical word in; the alternative rides along without descending as its own candidate.
@@ -1012,11 +1078,14 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
     let mut got: Vec<Vec<Option<MRuleId>>> =
         expanded.iter().map(|w| w.mrule_apps.clone()).collect();
     got.sort();
-    let mut want = vec![vec![Some(id_a), Some(id_z)], vec![Some(id_b), Some(id_z)]];
+    let mut want = vec![
+        vec![Some(id_p), Some(id_s), Some(id_z)],
+        vec![Some(id_s), Some(id_p), Some(id_z)],
+    ];
     want.sort();
     assert_eq!(
         got, want,
-        "expand_alternatives must recover both the idA+idZ and idB+idZ histories, matching the \
+        "expand_alternatives must recover both the [P,S,Z] and [S,P,Z] histories, matching the \
          signatures a non-merging engine would have produced"
     );
     for w in &expanded {
@@ -1026,6 +1095,53 @@ fn merge_equivalent_analyses_folds_homophonous_suffixes_and_expand_recovers_both
             "every expanded alternative shares the final shape"
         );
     }
+}
+
+#[test]
+fn merge_generalizes_canonical_syntactic_fs_over_folded_alternative() {
+    // The always-equal-FS case this public API can reach; the differing-FS branch is unit-tested in `stratum.rs`'s `generalize_syn_fs_tests` instead (see the assertion messages below for why).
+    let mut g = load_alpha_grammar();
+    let rule_p = prefix_rule(&g, 200, "p");
+    let rule_s = suffix_rule(&g, 300, "n");
+    let id_p = push_mrule(&mut g, rule_p);
+    let id_s = push_mrule(&mut g, rule_s);
+    let s0 = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![id_p, id_s], vec![]);
+
+    let cfg = AnalyzerConfig {
+        merge_equivalent: true,
+        max_unapplications: 0,
+        max_stem_count: 2,
+    };
+    let input = word(&g, "pagn", s0);
+    let out = analyze_stratum(&g, s0, input, &cfg, &StepBudget::new(10_000));
+    assert!(!out.capped);
+    let ag_shape = vec![cd(&g, "char_a"), cd(&g, "char_g")];
+    let canonical = out
+        .words
+        .iter()
+        .find(|w| char_defs(&w.shape) == ag_shape)
+        .expect("stratum reaches shape [a,g]");
+    assert_eq!(
+        canonical.alternatives.len(),
+        1,
+        "the two rule orders must have folded (see the dedicated fold test above)"
+    );
+    let mask3 = |_: pg_featstruct::FeatId| 0b111u64;
+    assert_eq!(
+        canonical.syn_fs,
+        pg_featstruct::union(&canonical.syn_fs, &canonical.alternatives[0].syn_fs, &mask3),
+        "the merge's generalization call must be exactly `union(canonical, alternative)`, even in \
+         this always-equal-FS case"
+    );
+    assert_eq!(
+        canonical.syn_fs,
+        pg_featstruct::FeatureStruct::EMPTY,
+        "both P and S declare FsId(0) (empty) required/out syntactic FS, so the fold's \
+         generalization is observably a no-op here: an equal AnalysisStateKey already forces equal \
+         syn_fs by the key's own definition, so the genuinely-differing-FS case is unreachable from \
+         this public API -- it is covered instead by `pg-rules/src/stratum.rs`'s \
+         `generalize_syn_fs_tests::widens_the_canonical_to_the_union_when_the_alternative_differs`"
+    );
 }
 
 // `--word-timeout-ms` must be enforced during synthesis, not just analysis: a budget with an already-expired deadline (not a wall-clock race) proves it, since analysis/synthesis timing both vary by machine.

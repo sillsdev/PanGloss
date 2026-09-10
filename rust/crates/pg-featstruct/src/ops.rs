@@ -429,6 +429,57 @@ fn add_value(
     }
 }
 
+/// Port of `FeatureStruct.Union` (`FeatureStruct.cs:384-414`): unlike `add`, keys are
+/// **intersected** rather than accumulated at every depth — a feature present on only one side is
+/// dropped, not passed through — while a shared symbolic value takes `add_value`'s leaf rule
+/// (`SimpleFeatureValue.UnionImpl`/`AddImpl` are the same routine in C#), including deleting a
+/// key whose union covers every declared symbol. A nested struct that unions to empty is dropped.
+pub fn union(
+    a: &FeatureStruct,
+    b: &FeatureStruct,
+    mask_of: &impl Fn(FeatId) -> u64,
+) -> FeatureStruct {
+    let ae = a.entries();
+    let be = b.entries();
+    let mut builder = FeatureStructBuilder::new();
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < ae.len() && j < be.len() {
+        match ae[i].0.cmp(&be[j].0) {
+            Ordering::Less => i += 1,
+            Ordering::Greater => j += 1,
+            Ordering::Equal => {
+                if let Some(v) = union_value(ae[i].0, &ae[i].1, &be[j].1, mask_of) {
+                    builder.add(ae[i].0, v);
+                }
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    builder.build()
+}
+
+/// Per-value half of `union`: nested structs recurse into `union` (not `add`), so keys intersect at depth too.
+fn union_value(
+    feat: FeatId,
+    a: &FeatureValue,
+    b: &FeatureValue,
+    mask_of: &impl Fn(FeatId) -> u64,
+) -> Option<FeatureValue> {
+    match (a, b) {
+        (FeatureValue::Complex(fa), FeatureValue::Complex(fb)) => {
+            let merged = union(fa, fb, mask_of);
+            if merged.is_empty() {
+                None
+            } else {
+                Some(FeatureValue::Complex(merged))
+            }
+        }
+        // Symbolic/Symbolic, plus the debug-asserted kind-mismatch arms `add_value` already handles.
+        _ => add_value(feat, Some(a), b, mask_of),
+    }
+}
+
 /// Port of `FeatureStruct.Subtract`/`SubtractImpl` (`FeatureStruct.cs:507-549`) +
 /// `SimpleFeatureValue.SubtractImpl` (`SimpleFeatureValue.cs:329-383`), restricted to the tree/
 /// no-variable subset (see module docs): walks **`b`'s** features only (`FeatureStruct.cs:535`
@@ -720,6 +771,66 @@ mod tests {
         let b = fs(&[(CX1, leaf(0b100))]); // inner LEAF union 0b011|0b100 == 0b111 -> inner empty.
         let expected = fs(&[(CX2, leaf(0b001))]); // CX1 gone entirely, CX2 untouched (a-only).
         assert_eq!(add(&a, &b, &mask3), expected);
+    }
+
+    // union has no direct C# unit test; hand-ported from FeatureStruct.cs:384-414 reading.
+
+    /// Unlike `add`, a key present on only one side is dropped entirely rather than passed through.
+    #[test]
+    fn union_singleton_keys_are_dropped() {
+        let a = fs(&[(FA, sym(0b001)), (FB, sym(0b010))]);
+        let b = fs(&[(FA, sym(0b010)), (FC, leaf(0b001))]);
+        assert_eq!(union(&a, &b, &mask3), fs(&[(FA, sym(0b011))]));
+    }
+
+    /// A shared symbolic feature gets the bitwise OR of both sides' symbol sets, same leaf op as `add`.
+    #[test]
+    fn union_shared_symbolic_feature_is_bitwise_or() {
+        let a = fs(&[(FA, sym(0b001)), (FB, sym(0b100))]);
+        let b = fs(&[(FA, sym(0b010)), (FB, sym(0b001))]);
+        assert_eq!(union(&a, &b, &mask3), fs(&[(FA, sym(0b011)), (FB, sym(0b101))]));
+    }
+
+    /// A shared feature whose OR covers the full declared domain is deleted, same rule as `add`.
+    #[test]
+    fn union_shared_feature_covering_full_domain_is_deleted() {
+        let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001))]);
+        let b = fs(&[(FA, sym(0b100)), (FB, sym(0b001))]);
+        assert_eq!(union(&a, &b, &mask3), fs(&[(FB, sym(0b001))]));
+    }
+
+    /// A shared nested complex value recurses through the same `union`/`add_value` pairing.
+    #[test]
+    fn union_recurses_into_nested_complex_values() {
+        let a = fs(&[(CX1, leaf(0b001)), (CX2, leaf(0b001))]);
+        let b = fs(&[(CX1, leaf(0b010)), (CX3, leaf(0b010))]);
+        // CX2/CX3 are one-sided -> dropped; CX1 is shared -> leaf union.
+        assert_eq!(union(&a, &b, &mask3), fs(&[(CX1, leaf(0b011))]));
+    }
+
+    /// Keys intersect at depth too: a nested key on one side only is dropped, where `add` would keep it (the HC `{head: {...}}` shape).
+    #[test]
+    fn union_intersects_nested_keys_unlike_add() {
+        let a = fs(&[(CX1, FeatureValue::Complex(fs(&[(FA, sym(0b001)), (FB, sym(0b001))])))]);
+        let b = fs(&[(CX1, FeatureValue::Complex(fs(&[(FA, sym(0b010))])))]);
+        let want = fs(&[(CX1, FeatureValue::Complex(fs(&[(FA, sym(0b011))])))]);
+        assert_eq!(union(&a, &b, &mask3), want);
+        assert_ne!(add(&a, &b, &mask3), want, "add keeps the one-sided nested FB; union must not");
+    }
+
+    /// A nested struct whose every key unions away (full domain) is itself dropped, as C# `UnionImpl` returns `_definite.Count > 0`.
+    #[test]
+    fn union_drops_nested_struct_that_unions_to_empty() {
+        let a = fs(&[(CX1, leaf(0b011)), (CX2, leaf(0b001))]);
+        let b = fs(&[(CX1, leaf(0b100)), (CX2, leaf(0b010))]);
+        assert_eq!(union(&a, &b, &mask3), fs(&[(CX2, leaf(0b011))]));
+    }
+
+    /// `union(x, x) == x` over fixtures below the full-domain deletion edge case (see `universe()`).
+    #[test]
+    fn union_of_x_with_itself_is_x() {
+        let x = fs(&[(FA, sym(0b011)), (FB, sym(0b001)), (CX1, leaf(0b010))]);
+        assert_eq!(union(&x, &x, &mask3), x);
     }
 
     // Universe: FA/FB symbolic (absent or one of 7 non-empty 3-bit subsets), FC a depth-1 nested FA.
