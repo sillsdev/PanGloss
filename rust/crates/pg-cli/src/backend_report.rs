@@ -511,11 +511,7 @@ mod tests {
         assert_eq!(report.validate(), Err("frontier ids are not unique"));
     }
 
-    /// A complete, reconciling, zero-exclusion ledger over a one-word corpus; every sample report carries one, since a certifying report without one is invalid by construction.
-    ///
-    /// Built as a struct literal rather than through `from_selection` (crate-private to pg-foma):
-    /// `reconciles()` only checks the count fields, never the hashes, so a fixture ledger needs no
-    /// real hash and can use every one of this struct's own `pub` fields directly.
+    /// A reconciling, zero-exclusion one-word ledger, as a struct literal since `reconciles()` never checks the hashes.
     fn ledger() -> CorpusCompletenessEvidence {
         CorpusCompletenessEvidence {
             requested: 1,
