@@ -167,7 +167,7 @@ pub struct RunMetadata {
     /// (e.g. `foma`). Compared across runs by `StatsCache::refuse_if_step_cap_differs` -- a cache
     /// spanning two step caps could silently reuse a cached-word row produced under a cap the
     /// current run no longer applies.
-    pub step_cap: Option<usize>,
+    pub step_cap: Option<crate::StepCap>,
 }
 
 /// The seven counters for one `(object, stratum, allomorph)` combination inside one word.

@@ -17,6 +17,7 @@ pub mod model;
 pub mod path;
 pub mod report;
 mod schema;
+pub mod step_cap;
 #[cfg(test)]
 mod test_support;
 mod util;
@@ -28,6 +29,7 @@ pub use model::{
     UnknownVariant, WordRecord,
 };
 pub use path::{default_cache_dir, default_cache_path};
+pub use step_cap::StepCap;
 pub use report::{
     kind_has_any_recorded_object, mixed_settings, never_fires_report, per_allomorph_report,
     per_kind_report, per_morpheme_report, per_object_report, per_word_report,

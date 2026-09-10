@@ -13,7 +13,8 @@ use crate::model::{
     FactRecord, IdentityQuality, ObjectKind, RunMetadata, StructuralLocator, WordRecord,
 };
 use crate::schema;
-use crate::util::{format_step_cap, step_cap_from_storage, step_cap_to_storage, to_i64};
+use crate::step_cap::StepCap;
+use crate::util::to_i64;
 
 /// An open stats cache: one SQLite connection, WAL mode, a caller-chosen busy timeout.
 pub struct StatsCache {
@@ -124,8 +125,8 @@ impl StatsCache {
     /// skip (`existing_words`): a cache hit produced under a different cap is not interchangeable
     /// with one produced under `requested`, since a word that hit the old cap might complete under
     /// a larger one, or vice versa.
-    pub fn refuse_if_step_cap_differs(&self, requested: usize) -> Result<(), StatsError> {
-        let requested_storage = step_cap_to_storage(requested)?;
+    pub fn refuse_if_step_cap_differs(&self, requested: StepCap) -> Result<(), StatsError> {
+        let requested_storage = requested.to_storage()?;
         match conflicting_step_cap(&self.conn, requested_storage)? {
             Some(existing_storage) => Err(step_cap_mismatch(existing_storage, requested)),
             None => Ok(()),
@@ -222,7 +223,7 @@ impl StatsCache {
             )?;
         }
 
-        let step_cap_storage = run.step_cap.map(step_cap_to_storage).transpose()?;
+        let step_cap_storage = run.step_cap.map(StepCap::to_storage).transpose()?;
         if let Some(requested_storage) = step_cap_storage {
             if let Some(existing_storage) = conflicting_step_cap(&tx, requested_storage)? {
                 return Err(step_cap_mismatch(
@@ -358,10 +359,10 @@ fn conflicting_step_cap(
     .map_err(Into::into)
 }
 
-fn step_cap_mismatch(existing_storage: i64, requested: usize) -> StatsError {
+fn step_cap_mismatch(existing_storage: i64, requested: StepCap) -> StatsError {
     StatsError::StepCapMismatch {
-        existing: format_step_cap(step_cap_from_storage(existing_storage)),
-        requested: format_step_cap(requested),
+        existing: StepCap::from_storage(existing_storage).to_string(),
+        requested: requested.to_string(),
     }
 }
 
@@ -468,6 +469,10 @@ mod tests {
                 self_time_ns: 0,
             }],
         }
+    }
+
+    fn finite(n: u64) -> StepCap {
+        StepCap::Finite(std::num::NonZeroU64::new(n).unwrap())
     }
 
     fn sample_run() -> RunMetadata {
@@ -864,13 +869,13 @@ mod tests {
 
         let mut first = StatsCache::open(&cache_path, "hash-a").unwrap();
         let mut run_a = sample_run();
-        run_a.step_cap = Some(100);
+        run_a.step_cap = Some(finite(100));
         first.cache.flush(&run_a, &[sample_word("apu")]).unwrap();
         drop(first);
 
         let mut second = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
         let err = second
-            .refuse_if_step_cap_differs(200)
+            .refuse_if_step_cap_differs(finite(200))
             .expect_err("a cache holding a run at step cap 100 must refuse a step cap 200 report");
         assert!(matches!(err, StatsError::StepCapMismatch { .. }), "{err}");
         assert!(
@@ -880,12 +885,12 @@ mod tests {
 
         // The same value must never be refused, or every ordinary re-run of `--stats` would break.
         second
-            .refuse_if_step_cap_differs(100)
+            .refuse_if_step_cap_differs(finite(100))
             .expect("the same step cap must not be refused");
 
         // flush() itself must also refuse, not only the early pg-cli-side check.
         let mut run_b = sample_run();
-        run_b.step_cap = Some(200);
+        run_b.step_cap = Some(finite(200));
         let flush_err = second
             .flush(&run_b, &[sample_word("beta")])
             .expect_err("flush() itself must also refuse a conflicting step cap");
@@ -899,7 +904,7 @@ mod tests {
     fn a_run_that_records_no_step_cap_never_conflicts() {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
         let mut hc_run = sample_run();
-        hc_run.step_cap = Some(100);
+        hc_run.step_cap = Some(finite(100));
         outcome.cache.flush(&hc_run, &[sample_word("apu")]).unwrap();
 
         // A run recording no step cap (e.g. an engine with no such concept) is never a conflict.
@@ -912,7 +917,7 @@ mod tests {
 
         outcome
             .cache
-            .refuse_if_step_cap_differs(100)
+            .refuse_if_step_cap_differs(finite(100))
             .expect("a NULL-recording run must not poison the compatibility check");
     }
 
@@ -920,16 +925,16 @@ mod tests {
     fn unbounded_step_cap_round_trips_through_storage() {
         let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
         let mut run = sample_run();
-        run.step_cap = Some(usize::MAX);
+        run.step_cap = Some(StepCap::Unbounded);
         outcome.cache.flush(&run, &[sample_word("apu")]).unwrap();
 
         outcome
             .cache
-            .refuse_if_step_cap_differs(usize::MAX)
+            .refuse_if_step_cap_differs(StepCap::Unbounded)
             .expect("the same unbounded cap must round-trip and not be refused");
         let err = outcome
             .cache
-            .refuse_if_step_cap_differs(100)
+            .refuse_if_step_cap_differs(finite(100))
             .expect_err("unbounded must still be distinguishable from a finite cap");
         assert!(err.to_string().contains("unbounded"), "{err}");
     }
