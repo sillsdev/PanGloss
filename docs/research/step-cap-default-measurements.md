@@ -19,16 +19,16 @@ word.
 | Indonesian | 70 | 1,254 | 1,254 | 350 | 88 | |
 | Sena | 6,146 | 209,428 (`kukudziwisani`) | 36,447 | 8,118 | 791 | 0 capped at 5M |
 | Amharic | 673 | 188,001 | 77,457 | 5,803 | 447 | 6 words hit a 120 s wall clock below 200k steps: per-step cost differs 1000x across grammars |
-| Mbugwe | 305 | >5,000,000 (~46 words hit a 5M cap) | 5,000,000 | 5,000,000 | 528,040 | legitimate words routinely exceed 5M |
+| Mbugwe | 1,645 | >5,000,000 (312 words, 19%, hit a 5M cap; largest uncapped 4,935,786) | 5,000,000 | 5,000,000 | 551,516 | legitimate words routinely exceed 5M; 17 more hit a 120 s wall clock |
 | Aweti | -- | -- | -- | -- | -- | pathological words exhaust a 2 GiB job before 200k steps: the step cap is NOT a memory bound |
 
 ## Reading this table honestly
 
 - **No "tight" default exists.** Mbugwe's legitimate words pass 5,000,000 steps routinely (median
-  528,040, and roughly 46 of 305 words still running at the 5M mark this measurement stopped at).
-  Any cap set anywhere near Sena's or Amharic's maxima would misclassify ordinary Mbugwe words as
-  incomplete.
-- **Mbugwe's capped words were never measured past 5,000,000.** The `>5,000,000` and `~46 words`
+  551,516; 312 of 1,645 words still running at the 5M mark this measurement stopped at, and the
+  largest word that did finish needed 4,935,786). Any cap set anywhere near Sena's or Amharic's
+  maxima would misclassify ordinary Mbugwe words as incomplete.
+- **Mbugwe's capped words were never measured past 5,000,000.** The `>5,000,000` and `312 words`
   figures are a floor, not a ceiling -- this measurement run stopped at a 5M cap, so the true step
   count those words would need is unknown and could be far higher.
 - **Memory is not bounded by step count.** Aweti's pathological words exhaust a 2 GiB job before
