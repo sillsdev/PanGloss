@@ -60,13 +60,17 @@ grammar ──emit lexc──► foma compile ──► proposing FST          (
 word ──FST propose──► candidate morpheme sequences ──HC confirm──► analyses
 ```
 
-Two engines share one CLI and produce identical output:
+Two engines exist and produce identical output, but the `pangloss` CLI does not expose a flag
+to choose between them:
 
-- `--engine=foma` — the propose-and-confirm path described above. This is the performance
-  path and the target of ongoing optimization.
-- default (no flag) — the full HermitCrab search engine, ported line-for-line from C#. It
-  serves as the oracle the FST path is verified against, and as the trace-capable engine
-  (`--trace` works only here).
+- The propose-and-confirm FST path (`pg_foma::composite::FomaAnalyzer`) described above is the
+  performance path and the target of ongoing optimization. From the CLI it is reached only
+  through `fst-health` (grammar-only characterization) and `make-report` (a readiness report
+  over an already-built artifact); running a word batch or a single parse through it requires
+  the Rust API shown below — there is no `--engine` flag.
+- `pangloss batch`, `pangloss parse`, and `pangloss generate` always run the full HermitCrab
+  search engine, ported line-for-line from C#. It serves as the oracle the FST path is verified
+  against, and as the trace-capable engine (`--trace` works only here).
 
 Both engines pass the same conformance suite (14 fixtures, plus one documented known
 divergence shared by both).
@@ -110,22 +114,24 @@ conformance gate that checks the fwdata pipeline's parses against the legacy XML
 
 ## Building and running the FST
 
-The proposing FST is **compiled automatically at grammar load** whenever `--engine=foma` is
-used — the emitter turns the grammar's lexicon, morphotactics, and (pre-expanded) phonology
-into foma lexc source and compiles it in-process with a pure-Rust foma
+The proposing FST is **compiled automatically at grammar load** when `FomaAnalyzer::new` is
+called from Rust — the emitter turns the grammar's lexicon, morphotactics, and (pre-expanded)
+phonology into foma lexc source and compiles it in-process with a pure-Rust foma
 (no external binaries, no artifacts to manage). Compile time is interactive-scale:
-milliseconds to a few seconds on the reference grammars.
+milliseconds to a few seconds on the reference grammars. The `pangloss` CLI has no flag to
+route a word batch or a single parse through this path; see the Rust API below for that, and
+`fst-health`/`make-report` for the grammar-level characterization and readiness-report uses.
 
-Parse one word:
-
-```
-pangloss parse <grammar> <word> --engine=foma [--gloss] [--natural-gloss=eng] [--realize-map=<path>]
-```
-
-Batch a word list to TSV:
+Parse one word (the only engine `parse` runs is the default HermitCrab one):
 
 ```
-pangloss batch <grammar> <words.txt> <out.tsv> --engine=foma [--word-timeout-ms N] [--threads N]
+pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>]
+```
+
+Batch a word list to TSV (the only engine `batch` runs is the default HermitCrab one):
+
+```
+pangloss batch <grammar> <words.txt> <out.tsv> [--word-timeout-ms N] [--threads N]
 ```
 
 Generate a surface form from morpheme ids (default engine):

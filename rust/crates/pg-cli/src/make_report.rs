@@ -589,7 +589,7 @@ fn render_markdown_with_assessments(
     out
 }
 
-/// The backend a `--engine=foma` run compiles with; an analyzer fact, not a preference.
+/// The one backend `make-report` gates readiness on; an analyzer fact, not a preference.
 const GATED_BACKEND: pg_foma::enumerate::EmissionStrategy =
     pg_foma::analyzer::FomaProposer::EMISSION_STRATEGY;
 
