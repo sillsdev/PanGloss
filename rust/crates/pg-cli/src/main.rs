@@ -5,7 +5,8 @@
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--step-cap N` bounds the unmemoized analysis cascade (memoization removes the need); omitted,
 //! it defaults to `DEFAULT_STEP_CAP` (50,000,000) so every batch terminates deterministically --
-//! `--step-cap unbounded` opts back into no bound at all.
+//! `--step-cap unbounded` opts back into no bound at all. See
+//! `docs/research/step-cap-default-measurements.md` for the measurements behind that number.
 //!
 //! ## `--word-timeout-ms`
 //! A second, independent bound: `--step-cap` bounds the *number* of analysis steps, but per-step

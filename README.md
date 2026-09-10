@@ -131,8 +131,13 @@ pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<
 Batch a word list to TSV (the only engine `batch` runs is the default HermitCrab one):
 
 ```
-pangloss batch <grammar> <words.txt> <out.tsv> [--word-timeout-ms N] [--threads N]
+pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N]
 ```
+
+`--step-cap` defaults to 50,000,000 unmemoized analysis steps per word, a runaway guard (not a
+performance tuning knob) that makes every batch terminate deterministically; pass `--step-cap N` to
+tighten it or `--step-cap unbounded` to lift it entirely. A word that hits the cap writes a typed
+`CAP` row -- an incomplete outcome kept for inspection, never presented as a result.
 
 Generate a surface form from morpheme ids (default engine):
 
