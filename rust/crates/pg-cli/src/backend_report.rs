@@ -512,17 +512,23 @@ mod tests {
     }
 
     /// A complete, reconciling, zero-exclusion ledger over a one-word corpus; every sample report carries one, since a certifying report without one is invalid by construction.
+    ///
+    /// Built as a struct literal rather than through `from_selection` (crate-private to pg-foma):
+    /// `reconciles()` only checks the count fields, never the hashes, so a fixture ledger needs no
+    /// real hash and can use every one of this struct's own `pub` fields directly.
     fn ledger() -> CorpusCompletenessEvidence {
-        CorpusCompletenessEvidence::from_selection(
-            &["w".to_string()],
-            &["w".to_string()],
-            vec![],
-            pg_foma::backend_optimizer::OracleEligibilityConfig {
-                step_cap: 20_000,
-                memory_ceiling_bytes: 1 << 33,
-                liveness_net_ns: 300_000_000_000,
-            },
-        )
+        CorpusCompletenessEvidence {
+            requested: 1,
+            included: 1,
+            excluded: 0,
+            requested_hash: "requested".into(),
+            included_hash: "included".into(),
+            excluded_hash: "excluded".into(),
+            oracle_step_cap: 20_000,
+            oracle_memory_ceiling_bytes: 1 << 33,
+            oracle_liveness_net_ns: 300_000_000_000,
+            exclusions: vec![],
+        }
     }
 
     /// A report that names a confirmed candidate but cannot say which requested corpus that confirmation covers is refused, at the artifact boundary.
