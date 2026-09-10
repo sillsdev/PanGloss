@@ -1,9 +1,11 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--threads N] [--always-enforce-final-templates]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--always-enforce-final-templates]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
-//! `--step-cap N` bounds the unmemoized analysis cascade (memoization removes the need).
+//! `--step-cap N` bounds the unmemoized analysis cascade (memoization removes the need); omitted,
+//! it defaults to `DEFAULT_STEP_CAP` (50,000,000) so every batch terminates deterministically --
+//! `--step-cap unbounded` opts back into no bound at all.
 //!
 //! ## `--word-timeout-ms`
 //! A second, independent bound: `--step-cap` bounds the *number* of analysis steps, but per-step
@@ -73,6 +75,7 @@ use std::time::{Duration, Instant};
 
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
+use pg_stats::StepCap;
 
 mod assess;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
@@ -126,6 +129,9 @@ const REPORT_DEVELOPER_HELP: &str = " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
 const REPORT_DEVELOPER_HELP: &str = "";
 
+/// Ten times the highest step count any measured legitimate word reached across every corpus sampled; a runaway guard, never a performance tuning knob.
+const DEFAULT_STEP_CAP: StepCap = StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap());
+
 fn main() -> ExitCode {
     // The analysis cascade recurses to the depth of a word's unapplication chain, which on heavy corpus words exceeds the default 8 MiB main-thread stack, so the whole batch runs on a worker thread with a generous stack.
     std::thread::Builder::new()
@@ -156,7 +162,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     eprintln!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
          usage: pangloss import <project.fwdata> <out.json>\n\
@@ -338,7 +344,8 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     };
 
-    let morpher = Morpher::new(&grammar, usize::MAX);
+    // `parse` has no `--step-cap` flag of its own; the same finite default as `batch` guards a single interactive word against a runaway grammar.
+    let morpher = Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap());
     // --guess omitted is exactly ParseOptions::default(), so every call below is byte-identical to the unconditional-default-options behavior.
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
 
@@ -489,7 +496,7 @@ fn parse_batch_with_opts(
 
 fn run_batch(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
-    let mut step_cap: usize = usize::MAX;
+    let mut step_cap: StepCap = DEFAULT_STEP_CAP;
     // --word-timeout-ms: an optional wall-clock deadline per word, independent of --step-cap; None (omitted) is a complete no-op.
     let mut word_timeout_ms: Option<u64> = None;
     let mut memo = true;
@@ -516,11 +523,11 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         match a.as_str() {
             "--step-cap" => {
                 let v = it.next().ok_or("--step-cap requires a value")?;
-                step_cap = v.parse().map_err(|_| format!("invalid --step-cap: {v}"))?;
+                step_cap = v.parse::<StepCap>().map_err(|e| format!("invalid --step-cap: {e}"))?;
             }
             s if s.starts_with("--step-cap=") => {
                 let v = &s["--step-cap=".len()..];
-                step_cap = v.parse().map_err(|_| format!("invalid --step-cap: {v}"))?;
+                step_cap = v.parse::<StepCap>().map_err(|e| format!("invalid --step-cap: {e}"))?;
             }
             "--word-timeout-ms" => {
                 let v = it.next().ok_or("--word-timeout-ms requires a value")?;
@@ -580,7 +587,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
                 .into(),
         );
     };
@@ -615,7 +622,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut timed_out_words = 0u64;
 
     let t_morpher = Instant::now();
-    let morpher = Morpher::new(&grammar, step_cap)
+    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
         .with_memo(memo)
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(always_enforce_final_templates);
@@ -789,7 +796,8 @@ fn run_generate(args: &[String]) -> Result<(), String> {
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
-    let morpher = Morpher::new(&grammar, usize::MAX);
+    // `generate` has no `--step-cap` flag either; `synthesis_pipeline` folds this same cap into its own `StepBudget`, so the finite default guards it too.
+    let morpher = Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap());
 
     let root = lex_entry_by_morpheme_id(&grammar, root_id)
         .ok_or_else(|| format!("no LexicalEntry with <MorphemeId>{root_id}</MorphemeId>"))?;
@@ -842,7 +850,7 @@ mod tests {
     //! Covers both `--threads` writer paths per the task brief -- the sequential (`STARTED` +
     //! per-line flush) and rayon-parallel (buffered, no `STARTED`) modes have genuinely different
     //! code paths in `run_batch` and each needed its own bug fixed above.
-    use super::run_batch;
+    use super::{run_batch, StepCap, DEFAULT_STEP_CAP};
     use std::fs;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -986,11 +994,73 @@ mod tests {
         }
     }
 
-    /// `--step-cap 0` fires on the first budget check in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
+    /// `k` homophonous one-shot suffix rules unapplying "d", so an unmemoized unwind is genuinely combinatorial; `MINI_GRAMMAR_XML`'s root-only lookup takes zero steps and cannot exercise a real `--step-cap` firing.
+    fn homophonous_suffix_grammar_xml(k: usize) -> String {
+        let mut mrule_defs = String::new();
+        let mut ids = Vec::with_capacity(k);
+        for i in 0..k {
+            mrule_defs.push_str(&format!(
+                r#"<MorphologicalRule id="mrD{i}" requiredPartsOfSpeech="posV"><Name>d_suffix_{i}</Name><MorphemeId>D{i}</MorphemeId>
+              <MorphologicalSubrules>
+                <MorphologicalSubrule id="subD{i}">
+                  <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                  <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+d</PhoneticShape></InsertSegments></MorphologicalOutput>
+                </MorphologicalSubrule>
+              </MorphologicalSubrules>
+            </MorphologicalRule>"#
+            ));
+            ids.push(format!("mrD{i}"));
+        }
+        format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>StepCapCliTest</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>Verb</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="{ids}">
+        <Name>main</Name>
+        <MorphologicalRuleDefinitions>{mrule_defs}</MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eroot" partOfSpeech="posV">
+            <MorphemeId>ROOT</MorphemeId>
+            <Allomorphs><Allomorph id="aroot"><PhoneticShape>kad</PhoneticShape></Allomorph></Allomorphs>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>"#,
+            ids = ids.join(" "),
+        )
+    }
+
+    /// A small `--step-cap` fires on a genuinely combinatorial unmemoized unwind, in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
     #[test]
-    fn step_cap_zero_writes_cap_row_both_thread_modes() {
+    fn step_cap_small_writes_cap_row_both_thread_modes() {
+        let grammar_xml = homophonous_suffix_grammar_xml(7);
+        let word = format!("kad{}\n", "d".repeat(7));
         for (tag, threads) in [("seq-cap", "1"), ("par-cap", "2")] {
-            let lines = run_batch_tsv(tag, &["--step-cap", "0", "--threads", threads]);
+            let lines = run_batch_tsv_custom(
+                tag,
+                &grammar_xml,
+                &word,
+                &["--step-cap", "500", "--memo", "off", "--threads", threads],
+            );
             let result_line = lines.last().expect("at least one line");
             let fields: Vec<&str> = result_line.split('\t').collect();
             assert_eq!(fields.len(), 5, "threads={threads}: {fields:?}");
@@ -1000,6 +1070,37 @@ mod tests {
                 "threads={threads}: partial signature column must not be empty: {fields:?}"
             );
         }
+    }
+
+    #[test]
+    fn default_step_cap_is_fifty_million() {
+        assert_eq!(
+            DEFAULT_STEP_CAP,
+            StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap())
+        );
+    }
+
+    /// `--step-cap 0` is rejected before any file is touched, with the same message `StepCap::from_str` gives.
+    #[test]
+    fn step_cap_zero_is_rejected_with_a_specific_message() {
+        let err = run_batch(&[
+            "unused.xml".to_string(),
+            "unused.txt".to_string(),
+            "unused.tsv".to_string(),
+            "--step-cap".to_string(),
+            "0".to_string(),
+        ])
+        .expect_err("--step-cap 0 must be rejected");
+        assert!(err.contains("fires before the first step"), "{err}");
+    }
+
+    /// `--step-cap unbounded` opts back into no bound at all; "kat" analyzes in far fewer than `DEFAULT_STEP_CAP` steps regardless, so this only proves the flag parses and the run still completes normally.
+    #[test]
+    fn step_cap_unbounded_parses_and_batch_completes_ok() {
+        let lines = run_batch_tsv("unbounded-ok", &["--step-cap", "unbounded"]);
+        let result_line = lines.last().expect("at least one line");
+        let fields: Vec<&str> = result_line.split('\t').collect();
+        assert_eq!(fields[3], "ok", "{fields:?}");
     }
 
     /// End-to-end `--guess` gate through `run_batch` itself, covering both `--threads` writer paths, using the same synthetic lexical-pattern grammar shape as the engine-level guesser conformance gate.

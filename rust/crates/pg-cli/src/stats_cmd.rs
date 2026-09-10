@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MRuleId, PRuleId};
+use pg_stats::StepCap;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -241,7 +242,7 @@ fn refuse_if_final_template_policy_differs(
 #[derive(Serialize)]
 struct StatsOptionsRecord {
     engine: &'static str,
-    step_cap: Option<usize>,
+    step_cap: Option<StepCap>,
     word_timeout_ms: Option<u64>,
     memo: Option<bool>,
     guess: bool,
@@ -305,7 +306,7 @@ pub(crate) fn run_batch_stats_hc(
     morpher: &pg_parse::Morpher,
     opts: &pg_parse::ParseOptions,
     words: &[String],
-    step_cap: usize,
+    step_cap: StepCap,
     word_timeout_ms: Option<u64>,
     memo: bool,
     guess: bool,
@@ -2175,7 +2176,7 @@ mod tests {
             &morpher,
             &opts,
             &words,
-            usize::MAX,
+            StepCap::Unbounded,
             None,
             true,
             false,
@@ -2196,7 +2197,7 @@ mod tests {
             &morpher,
             &opts,
             &words,
-            usize::MAX,
+            StepCap::Unbounded,
             None,
             true,
             false,

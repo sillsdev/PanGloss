@@ -163,7 +163,7 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--step-cap",
         takes_value: true,
-        summary: "bound the unmemoized analysis cascade's step count per word",
+        summary: "N or \"unbounded\"; bound the unmemoized analysis cascade's step count per word (default: 50000000, a runaway guard)",
     },
     FlagSpec {
         name: "--word-timeout-ms",
@@ -703,6 +703,15 @@ mod tests {
             .collect();
         assert!(flag_names.contains(&"--threads"));
         assert!(flag_names.contains(&"--word-timeout-ms"));
+    }
+
+    #[test]
+    fn describe_json_step_cap_flag_documents_default_and_unbounded() {
+        let spec = find_command("batch").expect("batch must be in COMMANDS");
+        let flag = spec.flag("--step-cap").expect("--step-cap must be listed");
+        assert!(flag.takes_value);
+        assert!(flag.summary.contains("50000000"), "{}", flag.summary);
+        assert!(flag.summary.contains("unbounded"), "{}", flag.summary);
     }
 
     #[test]

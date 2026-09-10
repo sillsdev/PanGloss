@@ -139,8 +139,10 @@ capability-enforced). Columns are `index, word, <candidate/step count>, status, 
 signature of `-` means no successful parse. `status` is `ok` (ran to completion — parse or no
 parse), `SKIPPED` (`InvalidShapeException`: a character outside the char table), `TIMEOUT`
 (hit `--word-timeout-ms` before finishing), or `CAP` (hit `--step-cap` before finishing; the
-signature column is the partial, unconfirmed analysis reached so far, not a result). None of the
-runs below used `--step-cap`, so no `CAP` rows appear in this sample.
+signature column is the partial, unconfirmed analysis reached so far, not a result). No `CAP` rows
+appear in this sample: every step count measured here is far below `batch`'s finite default
+(`DEFAULT_STEP_CAP` = 50,000,000; see `docs/research/step-cap-default-measurements.md`), and none
+of the runs below passed `--step-cap unbounded` either.
 
 **This is a sample, not a full-corpus run**, capped per the task at ~40 words. The exact slice for
 every corpus is **the raw file's lines 1-40** (`sed -n '1,40p' samples/data/<name>-words.txt`) —
