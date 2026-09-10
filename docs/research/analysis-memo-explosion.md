@@ -218,3 +218,33 @@ measured failure — an all-nogood table exploding past a 2 GiB job object), the
 measure whether (b) or (g) is still needed once the entry cost itself is small;
 both are larger changes and should be justified by data from the (a)/(c) fix
 rather than built speculatively.
+
+## 4. What the instrumented audit measured the same day (corrects section 3)
+
+Env-gated counters (`HC_MEMO_STATS=1`, branch `research/memo-audit`) on `Ajkululape`:
+
+| step cap | mrule lookups | mrule hits | inserts | refused by entry cap | template hits |
+|---|---|---|---|---|---|
+| 200,000 | 13,677 | 11,130 (81.4%: 1,914 positive, 9,216 nogood) | 2,547 | 0 | 76.8% |
+| 600,000 | 53,054 | 88.3% | 6,183 (6% of the 100,000 cap) | 0 | 92.6% |
+
+Three corrections to the reasoning above. The table is **not** all nogoods: positive hits are
+real and the hit rate is high, so the memo is not pure cost here. Memory is dominated by
+**entry size, not key count**: one state stores 77,600 result words (`results_len_max`), and
+total stored words at 600k steps are ~267,000 while the entry gauge reads 6% full — the C#
+comment ("entry size is unbounded") describes the Rust port exactly. And the key **is** too
+fine in a provable way: `unapplied_rule_counts` has exactly one reader
+(`stratum.rs`, the `count >= max_apps` check), so counts above a rule's `max_apps` distinguish
+states whose every future decision is identical. Saturating each count at its rule's
+`max_apps` inside the key is recall-neutral by construction and is the first fix to make;
+the retained-word budget (C#'s `MaxMemoWords`) is the second. `replay_onto` also deep-clones
+every replayed word twice (once in `replay_onto`, once in `out.add(r.clone())`). Memo on and
+off produce identical rows on every word that completes (44 Aweti, 200 Sena words checked);
+on cap-bound words the partial signature differs because step consumption order differs,
+which is expected and not a recall difference.
+
+A prototype branch (`research/memo-adaptive`) measured three policies behind env switches:
+a 64 MiB per-table byte budget kept parity everywhere and let the word survive 1,000,000
+steps at 1.2 GB peak (5x lower); adaptive disable (2,000 inserts, <2% hits) kept parity but
+peaked at 3.6 GB; store-on-second-arrival changed which words hit the cap and is rejected
+as a default.
