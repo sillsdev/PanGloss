@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FieldWorks parse analysis batch case v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "index",
+    "word",
+    "elapsedMs",
+    "capped",
+    "timedOut",
+    "invalidShape",
+    "analyses",
+    "unavailable"
+  ],
+  "properties": {
+    "schema": {
+      "const": "fieldworks-parse-analysis/v1"
+    },
+    "index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "word": {
+      "type": "string"
+    },
+    "elapsedMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "capped": {
+      "type": "boolean"
+    },
+    "timedOut": {
+      "type": "boolean"
+    },
+    "invalidShape": {
+      "type": "boolean"
+    },
+    "analyses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "morphs"
+        ],
+        "properties": {
+          "morphs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/morph"
+            }
+          }
+        }
+      }
+    },
+    "unavailable": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "invalidShape": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "capped": {
+            "const": false
+          },
+          "timedOut": {
+            "const": false
+          },
+          "analyses": {
+            "maxItems": 0
+          },
+          "unavailable": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "guid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "morph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "form",
+        "msa",
+        "inflType",
+        "guessedString"
+      ],
+      "properties": {
+        "form": {
+          "$ref": "#/$defs/guid"
+        },
+        "msa": {
+          "$ref": "#/$defs/guid"
+        },
+        "inflType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/guid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "guessedString": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -237,6 +237,11 @@ fn build_null_affix_rule(
     let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
     acc.allomorph_owners
         .push(AllomorphOwner::Affix(mrule_id, 0));
+    acc.allomorph_sources.push(crate::model::AllomorphSource {
+        form_guids: Vec::new(),
+        omitted: true,
+        placement: crate::model::SourceMorphPlacement::Append,
+    });
 
     let allo = crate::model::AffixAllomorphDef {
         id: allo_id,
@@ -256,6 +261,8 @@ fn build_null_affix_rule(
     let morpheme = MorphemeId(acc.morphemes.len() as u32);
     acc.morphemes.push(MorphemeInfo {
         xml_key: format!("null-affix#{}", it.guid),
+        source_msa_guid: None,
+        source_infl_type_guid: Some(it.guid.clone()),
         morph_id: None,
         gloss: None,
         stratum: StratumId(0),

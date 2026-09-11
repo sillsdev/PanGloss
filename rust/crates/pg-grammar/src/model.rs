@@ -495,6 +495,10 @@ pub struct MetathesisRuleDef {
 #[derive(Debug, Clone)]
 pub struct MorphemeInfo {
     pub xml_key: String,
+    /// Authored MSA identity, when this morpheme came from a source model with one.
+    pub source_msa_guid: Option<String>,
+    /// Authored lexical-entry inflection-type identity for variant-specific morphemes.
+    pub source_infl_type_guid: Option<String>,
     pub morph_id: Option<String>,
     pub gloss: Option<String>,
     /// Which stratum owns this morpheme (C# `Morpheme.Stratum`).
@@ -505,6 +509,27 @@ pub struct MorphemeInfo {
     /// per-allomorph `AllomorphCoOccurrenceRuleDef`s (plan W6, `Allomorph.
     /// CheckAllomorphConstraints`, Allomorph.cs:181-201).
     pub co_occurrence: Vec<MorphemeCoOccurrenceRuleDef>,
+}
+
+/// Where FieldWorks places a source morph while walking parser annotations.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SourceMorphPlacement {
+    Append,
+    InsertBeforeLast,
+}
+
+/// Source MoForm identities aligned with one compiled `AllomorphId`.
+///
+/// Ordinary allomorphs have one slot. Circumfix expansion has one slot for each source half, in
+/// surface order. An empty vector or a `None` slot means that the source did not provide an
+/// authoritative identity and cannot support the portable parse projection, unless `omitted` is
+/// set for the intentional null-affix case.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllomorphSource {
+    pub form_guids: Vec<Option<String>>,
+    /// A null-affix rule is intentionally omitted by FieldWorks' `GetMorphs` projection.
+    pub omitted: bool,
+    pub placement: SourceMorphPlacement,
 }
 
 /// C# `MorphCoOccurrenceAdjacency` (`MorphCoOccurrenceRule.cs`).
@@ -1107,6 +1132,8 @@ pub struct Grammar {
     pub natural_classes: Vec<NaturalClass>,
     pub morphemes: Vec<MorphemeInfo>,
     pub allomorph_owners: Vec<AllomorphOwner>,
+    /// Source MoForm identities parallel to `allomorph_owners`.
+    pub allomorph_sources: Vec<AllomorphSource>,
     pub prules: Vec<PhonRuleDef>,
     pub mrules: Vec<MorphRuleDef>,
     pub templates: Vec<AffixTemplateDef>,

@@ -259,6 +259,11 @@ fn build_stem_entry(
                         lex_id,
                         allomorphs.len() as u16,
                     ));
+                acc.allomorph_sources.push(crate::model::AllomorphSource {
+                    form_guids: vec![Some(allo.guid.clone())],
+                    omitted: false,
+                    placement: crate::model::SourceMorphPlacement::Append,
+                });
                 acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
                 allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
             }
@@ -280,6 +285,8 @@ fn build_stem_entry(
     });
     acc.morphemes.push(crate::model::MorphemeInfo {
         xml_key: guid.clone(),
+        source_msa_guid: Some(guid.clone()),
+        source_infl_type_guid: infl_type.map(|it| it.guid.clone()),
         morph_id: None,
         gloss: sense_gloss(entry, guid, ctx).map(str::to_string),
         stratum,
@@ -552,6 +559,11 @@ fn build_variant_stem_entry(
                         lex_id,
                         allomorphs.len() as u16,
                     ));
+                acc.allomorph_sources.push(crate::model::AllomorphSource {
+                    form_guids: vec![Some(allo.guid.clone())],
+                    omitted: false,
+                    placement: crate::model::SourceMorphPlacement::Append,
+                });
                 acc.allomorph_guid_index.insert(allo.guid.clone(), allo_id);
                 allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
             }
@@ -588,6 +600,8 @@ fn build_variant_stem_entry(
     });
     acc.morphemes.push(crate::model::MorphemeInfo {
         xml_key: format!("{}#{}", variant_entry.guid, guid),
+        source_msa_guid: Some(guid.clone()),
+        source_infl_type_guid: infl_type.map(|it| it.guid.clone()),
         morph_id: None,
         gloss: (!gloss.is_empty()).then_some(gloss),
         stratum: StratumId(0),

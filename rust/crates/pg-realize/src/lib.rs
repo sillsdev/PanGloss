@@ -213,11 +213,13 @@ mod tests {
         let morpheme_count = morpheme_ids.len();
         WordAnalysis {
             morpheme_ids,
+            morph_occurrences: Vec::new(),
             root_morpheme_index,
             pos_id: None,
             syn_fs: Default::default(),
             mpr: pg_grammar::model::MprSet::EMPTY,
             guessed,
+            guessed_string: None,
             provenance: pg_parse::AnalysisProvenance::Grammar,
             supplied_root: None,
             morpheme_roots: vec![None; morpheme_count],

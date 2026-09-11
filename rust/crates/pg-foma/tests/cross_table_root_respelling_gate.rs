@@ -9,18 +9,13 @@ use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::scoreboard::{self, CellOutcome};
 use pg_grammar::model::Grammar;
 
-/// What one backend does with a respelling fixture. There is deliberately no third value: a
-/// backend that compiles and misses the respelled analysis is the defect this file exists to catch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Expected {
     Exact,
     Refused,
 }
 
-/// Every fixture the characterizer flags today, with each backend's verdict in `ALL_STRATEGIES`
-/// order (PlanComposed, TunedSurfaceProbed, TemplatedUnderlyingTokens).
 const EXPECTED: &[(&str, [Expected; 3])] = &[
-    // The isolating fixture: no phonological rule anywhere, disjoint alphabets, respelling alone. PlanComposed is exact here and stays exact under `plan_composed_spells_by_bundle_not_by_index`; on the three fixtures below it refuses for an unrelated reason (a composite-marker plan subtree it does not build).
     (
         "machine:edge-cases/cross-table-root-respelling",
         [Expected::Exact, Expected::Exact, Expected::Refused],
@@ -69,9 +64,6 @@ fn respelling_fixtures() -> BTreeMap<String, (Grammar, Vec<String>)> {
     found
 }
 
-/// Both directions on the fixture set: a new fixture exhibiting the construct must be added to
-/// `EXPECTED`, and a fixture that stops exhibiting it (a grammar edit, or a characterizer that
-/// went quiet) is reported rather than silently dropping out of the backend check below.
 #[test]
 fn cross_table_respelling_is_observed_on_exactly_the_known_fixtures() {
     let observed: Vec<String> = respelling_fixtures().keys().cloned().collect();
@@ -83,8 +75,6 @@ fn cross_table_respelling_is_observed_on_exactly_the_known_fixtures() {
     );
 }
 
-/// Soundness first (no candidate-only survivors anywhere), then the per-backend ratchet: the
-/// mainline stays oracle-exact, and the two token-route backends refuse typed rather than miss.
 #[test]
 fn every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere() {
     let fixtures = respelling_fixtures();
@@ -144,11 +134,6 @@ fn every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere() {
     );
 }
 
-/// The discriminating experiment behind PlanComposed's `Represents` row: the isolating fixture
-/// declares the inner root "m" at index 0 and the same-bundle final segment "t" at index 0, so an
-/// exact result there could be raw-index coincidence. Listing the final table's other segment
-/// first moves "t" to index 1 without changing a single bundle; a backend that spells by bundle is
-/// unmoved, one that spells by index is not. First run: unmoved.
 #[test]
 fn plan_composed_spells_by_bundle_not_by_index() {
     let fixture = discover()

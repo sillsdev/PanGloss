@@ -658,7 +658,7 @@ pub(crate) fn surface_table(g: &Grammar) -> &CharDefTable {
     &g.char_tables[surface_stratum.table.0 as usize]
 }
 
-/// The final-table spelling of a root entered on a stratum whose table is not the final one, run through the probe cascade like any bare shape; `None` on the final stratum, for an unsegmentable text, or when the cascade refuses.
+/// Projects a non-final-stratum root into the final character table through phonological rules.
 /// A segment is its feature bundle and a table only spells it for one stratum, so the root reaches the surface spelled by whichever final-table segment carries the same bundle (hc.dll `CharacterDefinitionTable.GetMatchingStrReps`).
 pub(crate) fn cross_table_root_surface(
     g: &Grammar,

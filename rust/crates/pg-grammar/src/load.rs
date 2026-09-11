@@ -195,6 +195,7 @@ struct Acc {
     mrules: Vec<MorphRuleDef>,
     morphemes: Vec<MorphemeInfo>,
     allomorph_owners: Vec<AllomorphOwner>,
+    allomorph_sources: Vec<AllomorphSource>,
     templates: Vec<AffixTemplateDef>,
     entries: Vec<LexEntryDef>,
     /// `<Family>` definitions, pre-seeded (name + empty `entries`) before the strata loop starts; `try_load_lex_entry` pushes each successfully-loaded entry's `LexEntryId` onto its family's `entries` as it goes.
@@ -433,6 +434,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         mrules: Vec::new(),
         morphemes: Vec::new(),
         allomorph_owners: Vec::new(),
+        allomorph_sources: Vec::new(),
         templates: Vec::new(),
         entries: Vec::new(),
         families: family_defs,
@@ -561,6 +563,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         natural_classes,
         morphemes: acc.morphemes,
         allomorph_owners: acc.allomorph_owners,
+        allomorph_sources: acc.allomorph_sources,
         prules,
         mrules: acc.mrules,
         templates: acc.templates,
@@ -1501,6 +1504,13 @@ fn try_load_affix_process_rule(
         let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
         match load_affix_allomorph(sub, default_table, allo_id, ro, acc) {
             Ok(def) => {
+                let placement = source_morph_placement(&def.rhs);
+                acc.allomorph_sources.push(AllomorphSource {
+                    // XML id is only a structural handle; source provenance is unavailable here.
+                    form_guids: vec![None],
+                    omitted: false,
+                    placement,
+                });
                 acc.allomorph_owners
                     .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
                 // The id `<AllomorphCoOccurrenceRule otherAllomorphs="...">` resolves against for an affix allomorph.
@@ -1521,6 +1531,8 @@ fn try_load_affix_process_rule(
     let morpheme = MorphemeId(acc.morphemes.len() as u32);
     acc.morphemes.push(MorphemeInfo {
         xml_key: mr.attr("id").unwrap_or("").to_string(),
+        source_msa_guid: None,
+        source_infl_type_guid: None,
         morph_id: mr.text_of("MorphemeId").map(str::to_string),
         gloss: mr.text_of("Gloss").map(str::to_string),
         stratum: stratum_id,
@@ -1602,6 +1614,12 @@ fn try_load_realizational_rule(
         let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
         match load_affix_allomorph(sub, default_table, allo_id, ro, acc) {
             Ok(def) => {
+                let placement = source_morph_placement(&def.rhs);
+                acc.allomorph_sources.push(AllomorphSource {
+                    form_guids: vec![None],
+                    omitted: false,
+                    placement,
+                });
                 acc.allomorph_owners
                     .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
                 if let Some(xid) = sub.attr("id") {
@@ -1621,6 +1639,8 @@ fn try_load_realizational_rule(
     let morpheme = MorphemeId(acc.morphemes.len() as u32);
     acc.morphemes.push(MorphemeInfo {
         xml_key: real.attr("id").unwrap_or("").to_string(),
+        source_msa_guid: None,
+        source_infl_type_guid: None,
         morph_id: real.text_of("MorphemeId").map(str::to_string),
         gloss: real.text_of("Gloss").map(str::to_string),
         stratum: stratum_id,
@@ -1786,6 +1806,15 @@ fn load_morph_rhs(
         }
     }
     Ok(rhs)
+}
+
+fn source_morph_placement(rhs: &[OutputAction]) -> SourceMorphPlacement {
+    rhs.iter().enumerate().any(|(index, action)| {
+        index > 0
+            && index + 1 < rhs.len()
+            && matches!(action, OutputAction::InsertSegments { .. } | OutputAction::InsertContext(_))
+    }).then_some(SourceMorphPlacement::InsertBeforeLast)
+        .unwrap_or(SourceMorphPlacement::Append)
 }
 
 fn try_load_compounding_rule(
@@ -2005,6 +2034,12 @@ fn try_load_lex_entry(
         let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
         match load_root_allomorph(allo, default_table, allo_id, ro) {
             Ok(def) => {
+                acc.allomorph_sources.push(AllomorphSource {
+                    // XML id is only a structural handle; source provenance is unavailable here.
+                    form_guids: vec![None],
+                    omitted: false,
+                    placement: crate::model::SourceMorphPlacement::Append,
+                });
                 acc.allomorph_owners
                     .push(AllomorphOwner::Root(lex_id, allomorphs.len() as u16));
                 // Same allomorph-id registry `try_load_lex_entry`'s AllomorphCoOccurrenceRule resolution reads.
@@ -2025,6 +2060,8 @@ fn try_load_lex_entry(
     let morpheme = MorphemeId(acc.morphemes.len() as u32);
     acc.morphemes.push(MorphemeInfo {
         xml_key: entry.attr("id").unwrap_or("").to_string(),
+        source_msa_guid: None,
+        source_infl_type_guid: None,
         morph_id: entry.text_of("MorphemeId").map(str::to_string),
         gloss: entry.text_of("Gloss").map(str::to_string),
         stratum: stratum_id,

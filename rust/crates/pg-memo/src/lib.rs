@@ -35,26 +35,55 @@ use std::collections::BTreeMap;
 use std::hash::BuildHasherDefault;
 
 use pg_featstruct::FeatureStruct;
-use pg_grammar::model::{MRuleId, StratumId};
+use pg_grammar::model::{AllomorphId, MRuleId, MorphemeId, StratumId};
 use pg_shape::Shape;
 
 /// Fixed-seed hash map/set: `AnalysisScope`'s tables are read back inside a `--step-cap`-interruptible cascade, so they use the same process-stable hasher as every other accumulator in the pipeline, never a randomly-seeded default.
 type HashMap<K, V> = std::collections::HashMap<K, V, BuildHasherDefault<DefaultHasher>>;
 type HashSet<T> = std::collections::HashSet<T, BuildHasherDefault<DefaultHasher>>;
 
+/// The source-bearing morphology history that distinguishes equal-shaped analysis arrivals.
+///
+/// `status` is an opaque `pg-rules::MorphStatus` discriminant at this crate boundary. The key
+/// intentionally omits procedural fields such as `passed_over`, which do not identify source
+/// morphology and would prevent safe sharing of otherwise identical arrivals.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub struct MorphHistoryKey {
+    pub allomorph: AllomorphId,
+    pub morpheme: MorphemeId,
+    pub order: u32,
+    pub status: u8,
+    pub runtime_identity: Option<String>,
+}
+
+impl MorphHistoryKey {
+    /// Build one source-bearing morphology-history component for an analysis-state key.
+    pub fn new(
+        allomorph: AllomorphId,
+        morpheme: MorphemeId,
+        order: u32,
+        status: u8,
+        runtime_identity: Option<String>,
+    ) -> Self {
+        Self {
+            allomorph,
+            morpheme,
+            order,
+            status,
+            runtime_identity,
+        }
+    }
+}
+
 /// Order-independent identity of an analysis-cascade node (C# `AnalysisStateKey`,
 /// AnalysisStateKey.cs:29-116).
 ///
-/// Fields are exactly those every analysis-side rule reads (AnalysisStateKey.cs:14-21):
-/// `shape` (FST pattern match), `syntactic_fs` (unifiability gate), `realizational_fs`
-/// (realizational rules — always empty in v1), `non_head_count` (`MaxStemCount` gate — never the
-/// non-heads' *content*), `stratum`, and the per-rule unapplication-count **multiset**.
+/// Fields include every analysis-side rule input plus the source-bearing morphology history needed
+/// to make positive replay preserve the selected allomorph and MSA.
 ///
-/// Deliberately **excludes** what C# `Word.ValueEquals` includes for result-dedup (the mrule trail as
-/// an ordered *sequence* — replaced here by the order-independent `rule_counts` multiset — plus
-/// `is_last_applied_rule_final` / `is_partial`, which no analysis rule reads). This exclusion of trail
-/// *order* is the order-invariance that collapses the `k!`-walk. It also **includes** the syntactic FS
-/// (which `WordKey`/`Word.ValueEquals` deliberately exclude), because analysis rules gate on it.
+/// Deliberately **excludes** procedural fields such as `passed_over` and the mrule trail's order.
+/// The order-independent `rule_counts` multiset still collapses the `k!` walk, while morphology
+/// history prevents two source-distinct arrivals from sharing a replay.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct AnalysisStateKey {
     shape: Shape,
@@ -62,8 +91,10 @@ pub struct AnalysisStateKey {
     syntactic_fs: FeatureStruct,
     realizational_fs: FeatureStruct,
     non_head_count: u32,
-    /// The per-rule unapplication multiset; a `BTreeMap` so equal multisets built up in different orders compare and hash identically.
+    /// Per-rule unapplication multiset; sorted keys make order-independent arrivals compare alike.
     rule_counts: BTreeMap<MRuleId, u32>,
+    /// Source-bearing history prevents equal shapes with different trails sharing positive replays.
+    morph_history: Vec<MorphHistoryKey>,
     /// Final-template interleaving state, opaque at this crate boundary to avoid a dependency cycle.
     state: u8,
 }
@@ -102,6 +133,29 @@ impl AnalysisStateKey {
         rule_counts: BTreeMap<MRuleId, u32>,
         state: u8,
     ) -> Self {
+        Self::new_with_state_and_morph_history(
+            shape,
+            stratum,
+            syntactic_fs,
+            realizational_fs,
+            non_head_count,
+            rule_counts,
+            state,
+            Vec::new(),
+        )
+    }
+
+    /// Build a key including final-template state and source-bearing morphology history.
+    pub fn new_with_state_and_morph_history(
+        shape: Shape,
+        stratum: StratumId,
+        syntactic_fs: FeatureStruct,
+        realizational_fs: FeatureStruct,
+        non_head_count: u32,
+        rule_counts: BTreeMap<MRuleId, u32>,
+        state: u8,
+        morph_history: Vec<MorphHistoryKey>,
+    ) -> Self {
         AnalysisStateKey {
             shape,
             stratum,
@@ -109,6 +163,7 @@ impl AnalysisStateKey {
             realizational_fs,
             non_head_count,
             rule_counts,
+            morph_history,
             state,
         }
     }
@@ -260,6 +315,45 @@ mod tests {
     #[test]
     fn key_distinguishes_non_head_count() {
         assert_ne!(key_with(BTreeMap::new(), 0), key_with(BTreeMap::new(), 1));
+    }
+
+    #[test]
+    fn key_distinguishes_source_morphology_history() {
+        let history_a = vec![MorphHistoryKey::new(
+            AllomorphId(1),
+            MorphemeId(2),
+            0,
+            0,
+            None,
+        )];
+        let history_b = vec![MorphHistoryKey::new(
+            AllomorphId(3),
+            MorphemeId(2),
+            0,
+            0,
+            None,
+        )];
+        let a = AnalysisStateKey::new_with_state_and_morph_history(
+            shape(),
+            StratumId(0),
+            FeatureStruct::EMPTY,
+            FeatureStruct::EMPTY,
+            0,
+            BTreeMap::new(),
+            0,
+            history_a,
+        );
+        let b = AnalysisStateKey::new_with_state_and_morph_history(
+            shape(),
+            StratumId(0),
+            FeatureStruct::EMPTY,
+            FeatureStruct::EMPTY,
+            0,
+            BTreeMap::new(),
+            0,
+            history_b,
+        );
+        assert_ne!(a, b);
     }
 
     #[test]

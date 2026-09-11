@@ -75,7 +75,7 @@ pub struct MorphRecord {
 /// records own output nodes (`pg_rules::morph`'s `owning_morph` skips the rest); the other three
 /// variants port the C# annotation-tree states a morph can be in after
 /// `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs`'s fallback branches (cs:162-207):
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum MorphStatus {
     /// Owns the output nodes starting at `order` (a normal, positioned morph annotation).
     Real,
@@ -285,25 +285,18 @@ pub struct Word {
     pub trace: Option<crate::trace::TraceHandle>,
 }
 
-/// Canonical dedup key for `Word`, a faithful port of C# `Word.ValueEquals` / `FreezeImpl`
-/// (Word.cs:508-546). The cascades (`pg_rules::cascade`) and the stratum orchestrator dedup on this
-/// key; `pg_memo::AnalysisStateKey` builds on it.
+/// Canonical dedup key for `Word`, retaining the source-bearing morph trail as well as the engine
+/// state. The cascades and the stratum orchestrator dedup on this key; `pg_memo::AnalysisStateKey`
+/// remains the separate rule-state memo key.
 ///
-/// The compared components are **exactly** those C# `ValueEquals` walks (Word.cs:537-545):
-/// `shape` (`_shape.ValueEquals`), `real_fs` (`_realizationalFS.ValueEquals`), `non_heads` compared
-/// as a sequence under this same key (`_nonHeadApps.SequenceEqual(FreezableEqualityComparer<Word>)`
-/// — hence the recursion), `non_head_app_index`, `stratum`, `root_allomorph`, `mrule_apps` as a
-/// sequence, `mrule_app_index`, and `is_last_applied_rule_final`.
-///
-/// It deliberately **excludes** the syntactic FS (`SyntacticFeatureStruct` appears nowhere in
-/// `ValueEquals`/`FreezeImpl`), the MPR set, the morph records, and the obligatory-feature set —
-/// none of which C# compares. Both `Shape` and `FeatureStruct` derive `Eq + Hash` over their
-/// canonical (sorted/bracketed) forms, so this struct derives `Eq + Hash` directly with no
-/// hand-rolled byte key needed.
+/// The state fields follow C# `Word.ValueEquals` (Word.cs:537-545), while `morphs` is retained so
+/// two candidates with the same rendered shape but different selected source allomorphs, MSA,
+/// inflection type, or annotation order cannot disappear before structured projection.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct WordKey {
     shape: Shape,
     real_fs: FeatureStruct,
+    morphs: Vec<MorphKey>,
     non_heads: Vec<WordKey>,
     non_head_app_index: i32,
     stratum: StratumId,
@@ -313,6 +306,15 @@ pub struct WordKey {
     mrule_app_index: i32,
     is_last_applied_rule_final: Option<bool>,
     final_template_state: FinalTemplateState,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct MorphKey {
+    allomorph: AllomorphId,
+    morpheme: MorphemeId,
+    order: u32,
+    status: MorphStatus,
+    runtime_identity: Option<String>,
 }
 
 impl Word {
@@ -397,8 +399,8 @@ impl Word {
     ///
     /// Everything computed strictly *within* the subtree (deeper shape/FS edits, and any rules or
     /// non-heads unapplied below `N`) is a deterministic function of `N`'s content alone — analysis
-    /// rules read only shape + syntactic FS + the rule multiset + non-head count, all equal between
-    /// `N` and `query` by definition of an equal key — so it is kept as-is from `self`. Only the two
+    /// rules read shape, syntactic FS, rule multiset, non-head count, and source morph history, all
+    /// equal between `N` and `query` by definition of an equal key — so it is kept as-is from `self`. Only the two
     /// *ordered* structures the key summarizes as counts/multisets — the mrule trail (`mrule_apps`)
     /// and the non-head list (`non_heads`) — have their **prefix** (whatever accumulated before
     /// reaching `N`) replaced with `query`'s own prefix. `mrule_trail_prefix_length` /
@@ -439,6 +441,18 @@ impl Word {
         WordKey {
             shape: self.shape.clone(),
             real_fs: self.real_fs.clone(),
+            morphs: self
+                .morphs
+                .iter()
+                .map(|morph| MorphKey {
+                    allomorph: morph.allomorph,
+                    morpheme: morph.morpheme,
+                    order: morph.order,
+                    status: morph.status,
+                    runtime_identity: runtime_id(morph.runtime_root.as_deref())
+                        .map(str::to_owned),
+                })
+                .collect(),
             non_heads: self.non_heads.iter().map(Word::dedup_key).collect(),
             non_head_app_index: self.non_head_app_index,
             stratum: self.stratum,
@@ -616,6 +630,29 @@ mod tests {
         assert_eq!(FinalTemplateState::default(), FinalTemplateState::None);
         let copied = FinalTemplateState::NonTemplate;
         assert_eq!(copied, FinalTemplateState::NonTemplate);
+    }
+
+    #[test]
+    fn dedup_key_keeps_selected_allomorph_and_annotation_order() {
+        let mut first = w();
+        let mut second = w();
+        first.morphs = vec![MorphRecord::new(AllomorphId(1), MorphemeId(2), 0)];
+        second.morphs = vec![MorphRecord::new(AllomorphId(3), MorphemeId(2), 0)];
+        assert_ne!(first.dedup_key(), second.dedup_key());
+
+        second.morphs[0].allomorph = AllomorphId(1);
+        second.morphs[0].order = 1;
+        assert_ne!(first.dedup_key(), second.dedup_key());
+    }
+
+    #[test]
+    fn dedup_key_ignores_procedural_passed_over_state() {
+        let mut first = w();
+        let mut second = w();
+        first.morphs = vec![MorphRecord::new(AllomorphId(1), MorphemeId(2), 0)];
+        second.morphs = first.morphs.clone();
+        first.morphs[0].passed_over = Some(vec![2, 4].into_boxed_slice());
+        assert_eq!(first.dedup_key(), second.dedup_key());
     }
 
     #[test]

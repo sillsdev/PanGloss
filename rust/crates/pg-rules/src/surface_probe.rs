@@ -96,8 +96,7 @@ pub fn render_shape(table: &CharDefTable, shape: &Shape) -> Option<String> {
     render_nodes(table, &segs)
 }
 
-/// Every SEGMENT char-def in `table` whose bundle unifies with `lanes`: identity-gated only when `table` carries no features at all, so a `char_def` declared by ANOTHER table is matched by bundle, never by its foreign index.
-/// Mirrors `pg_parse::surface::matching_reps_for_node`'s Segment branch (pg-parse depends on pg-rules, not the reverse).
+// Cross-table character indices are unrelated; feature bundles provide the correspondence.
 fn matching_cd_ids(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<CharDefId> {
     let feature_bearing_table = char_def != NO_CHAR_DEF
         && (char_def as usize) < table.len()

@@ -127,6 +127,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         mrules: Vec::new(),
         morphemes: Vec::new(),
         allomorph_owners: Vec::new(),
+        allomorph_sources: Vec::new(),
         templates: Vec::new(),
         entries: Vec::new(),
         allomorph_guid_index: HashMap::new(),
@@ -250,6 +251,7 @@ pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), Gr
         natural_classes,
         morphemes: acc.morphemes,
         allomorph_owners: acc.allomorph_owners,
+        allomorph_sources: acc.allomorph_sources,
         prules,
         mrules: acc.mrules,
         templates: acc.templates,
@@ -419,6 +421,7 @@ pub(crate) struct Acc {
     pub mrules: Vec<MorphRuleDef>,
     pub morphemes: Vec<MorphemeInfo>,
     pub allomorph_owners: Vec<AllomorphOwner>,
+    pub allomorph_sources: Vec<AllomorphSource>,
     pub templates: Vec<AffixTemplateDef>,
     pub entries: Vec<LexEntryDef>,
     /// Allomorph guid -> registry id, for ad-hoc allomorph-prohibition resolution.

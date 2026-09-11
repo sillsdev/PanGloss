@@ -23,7 +23,7 @@ use pg_grammar::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
     StratumId, TemplateId,
 };
-use pg_memo::{AnalysisScope, AnalysisStateKey, MemoEntry};
+use pg_memo::{AnalysisScope, AnalysisStateKey, MemoEntry, MorphHistoryKey};
 use pg_shape::Shape;
 use rustc_hash::FxHashMap as HashMap;
 
@@ -86,7 +86,7 @@ use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
-use crate::word::{FinalTemplateState, Word, WordKey};
+use crate::word::{runtime_id, FinalTemplateState, MorphStatus, Word, WordKey};
 use crate::{metathesis, morph, rewrite};
 
 /// The per-parse memo carrier this module threads through the analysis cascade. `pg-parse` owns one
@@ -662,7 +662,20 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// The order-independent memo key for `w`; clones the same fields `WordKey` already clones per dedup.
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
-        AnalysisStateKey::new_with_state(
+        let morph_history = w
+            .morphs
+            .iter()
+            .map(|morph| {
+                MorphHistoryKey::new(
+                    morph.allomorph,
+                    morph.morpheme,
+                    morph.order,
+                    Self::morph_status_key(morph.status),
+                    runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
+                )
+            })
+            .collect();
+        AnalysisStateKey::new_with_state_and_morph_history(
             w.shape.clone(),
             w.stratum,
             w.syn_fs.clone(),
@@ -670,7 +683,17 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             w.non_heads.len() as u32,
             w.unapplied_rule_counts.clone(),
             w.flags.final_template_state as u8,
+            morph_history,
         )
+    }
+
+    fn morph_status_key(status: MorphStatus) -> u8 {
+        match status {
+            MorphStatus::Real => 0,
+            MorphStatus::Floating => 1,
+            MorphStatus::SubsumedChild => 2,
+            MorphStatus::SubsumedFirst => 3,
+        }
     }
 
     /// True once the shared budget is exhausted; delegates to the shared `StepBudget`.

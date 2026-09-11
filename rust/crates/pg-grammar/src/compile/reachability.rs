@@ -58,9 +58,20 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
 
     // 3. Cascade to the allomorph-owner registry: a `Root`-owned allomorph always survives; an `Affix`-owned one survives iff its mrule did, remapped to that mrule's new dense id.
     let old_owners = std::mem::take(&mut grammar.allomorph_owners);
+    let old_sources = std::mem::take(&mut grammar.allomorph_sources);
+    assert_eq!(
+        old_owners.len(),
+        old_sources.len(),
+        "allomorph owner/source tables must stay parallel during reachability compaction"
+    );
     let mut old_to_new_allo: StdHashMap<u32, u32> = StdHashMap::with_capacity(old_owners.len());
     let mut new_owners = Vec::with_capacity(old_owners.len());
-    for (old_id, owner) in old_owners.into_iter().enumerate() {
+    let mut new_sources = Vec::with_capacity(old_sources.len());
+    for (old_id, (owner, source)) in old_owners
+        .into_iter()
+        .zip(old_sources.into_iter())
+        .enumerate()
+    {
         let kept = match owner {
             AllomorphOwner::Root(le, k) => Some(AllomorphOwner::Root(le, k)),
             AllomorphOwner::Affix(mr, k) => old_to_new_mrule
@@ -70,9 +81,16 @@ pub(crate) fn compact_mrules(grammar: &mut Grammar, warnings: &mut Vec<String>) 
         if let Some(new_owner) = kept {
             old_to_new_allo.insert(old_id as u32, new_owners.len() as u32);
             new_owners.push(new_owner);
+            new_sources.push(source);
         }
     }
     grammar.allomorph_owners = new_owners;
+    grammar.allomorph_sources = new_sources;
+    assert_eq!(
+        grammar.allomorph_owners.len(),
+        grammar.allomorph_sources.len(),
+        "allomorph owner/source tables must stay parallel after reachability compaction"
+    );
 
     // 4. Fix up every surviving allomorph's own self-tagging `id` and remap/drop any `others` reference through the same table; a dropped mrule's own allomorphs vanished along with it in step 2.
     for e in &mut grammar.entries {

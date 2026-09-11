@@ -951,6 +951,16 @@ impl<'g> Morpher<'g> {
     /// The FFI's numeric mirror: `Self::allomorphs_in_morph_order` projected to dense ordinals rather than the `<MorphemeId>` strings `morpheme_join` prints.
     fn structured_analysis(&self, w: &Word, guessed: bool) -> WordAnalysis {
         let seq = self.allomorphs_in_morph_order(w);
+        let mut morph_occurrences: Vec<crate::MorphOccurrence> = w
+            .morphs
+            .iter()
+            .map(|m| crate::MorphOccurrence {
+                allomorph_id: m.allomorph.0,
+                morpheme_id: m.morpheme.0,
+                order: m.order,
+            })
+            .collect();
+        morph_occurrences.sort_by_key(|m| m.order);
         let morpheme_ids: Vec<u32> = seq.iter().map(|m| m.morpheme.0).collect();
         let root_morpheme_index = seq
             .iter()
@@ -967,11 +977,18 @@ impl<'g> Morpher<'g> {
         };
         WordAnalysis {
             morpheme_ids,
+            morph_occurrences,
             root_morpheme_index,
             pos_id,
             syn_fs: w.syn_fs.clone(),
             mpr: w.mpr,
             guessed,
+            guessed_string: w.morphs.iter().find_map(|m| {
+                (m.morpheme == MorphemeId::GUESSED).then(|| match m.runtime_root.as_deref() {
+                    Some(RuntimeRoot::Guessed(root)) => root.text.clone(),
+                    _ => String::new(),
+                })
+            }).filter(|text| !text.is_empty()),
             provenance: match w.root_runtime() {
                 Some(RuntimeRoot::Guessed(_)) => AnalysisProvenance::Guessed,
                 Some(RuntimeRoot::Supplied(root)) => match &root.authority {

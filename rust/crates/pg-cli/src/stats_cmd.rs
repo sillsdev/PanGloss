@@ -63,7 +63,10 @@ fn grammar_hash_for(path: &str) -> Result<String, String> {
     }
 }
 
-fn resolve_cache_path(project_path: &str, cache_override: Option<&str>) -> Result<PathBuf, String> {
+pub(crate) fn resolve_cache_path(
+    project_path: &str,
+    cache_override: Option<&str>,
+) -> Result<PathBuf, String> {
     match cache_override {
         Some(p) => Ok(PathBuf::from(p)),
         None => pg_stats::default_cache_path(project_path).map_err(|e| e.to_string()),

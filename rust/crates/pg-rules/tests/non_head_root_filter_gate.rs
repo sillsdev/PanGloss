@@ -119,6 +119,8 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
     let morpheme = MorphemeId(g.morphemes.len() as u32);
     g.morphemes.push(MorphemeInfo {
         xml_key: format!("m{}", morpheme.0),
+        source_msa_guid: None,
+        source_infl_type_guid: None,
         morph_id: None,
         gloss: None,
         stratum: StratumId(0),

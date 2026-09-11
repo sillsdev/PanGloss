@@ -447,7 +447,7 @@ fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
         entry_refs: vec![EntryRef::Variant {
             guid: "entryref-variant".to_string(),
             component_lexemes: vec![f.stem_entry.clone()],
-            variant_entry_types: vec![infl_type_guid],
+            variant_entry_types: vec![infl_type_guid.clone()],
         }],
     };
     snapshot.lexicon.entries.push(variant_entry);
@@ -470,6 +470,23 @@ fn variant_entry_appends_infl_type_gloss_to_the_base_sense_gloss() {
         .find(|entry| entry.morpheme.0 as usize == variant_morpheme_id)
         .expect("variant morpheme must belong to a lexical entry");
     assert_eq!(variant.authored_id, "entry-variant");
+    assert_eq!(
+        grammar.morphemes[variant_morpheme_id]
+            .source_msa_guid
+            .as_deref(),
+        Some(f.stem_msa.as_str())
+    );
+    assert_eq!(
+        grammar.morphemes[variant_morpheme_id]
+            .source_infl_type_guid
+            .as_deref(),
+        Some(infl_type_guid.as_str())
+    );
+    let variant_allomorph_id = variant.allomorphs[0].id.0 as usize;
+    assert_eq!(
+        grammar.allomorph_sources[variant_allomorph_id].form_guids,
+        vec![Some("allo-variant".to_string())]
+    );
 }
 
 // --- 5. partial entry (MSA without POS) -------------------------------------------------------
@@ -725,6 +742,21 @@ fn an_unconditioned_circumfix_entry_builds_the_half_cross_product() {
         1,
         "one prefix half x one suffix half is a 1x1 cross-product"
     );
+    let built_morpheme = built[0].morpheme;
+    assert_eq!(
+        grammar.morphemes[built_morpheme.0 as usize]
+            .source_msa_guid
+            .as_deref(),
+        Some("msa-circumfix")
+    );
+    let source = &grammar.allomorph_sources[built[0].allomorphs[0].id.0 as usize];
+    assert_eq!(
+        source.form_guids,
+        vec![
+            Some("allo-circ-prefix".to_string()),
+            Some("allo-circ-suffix".to_string())
+        ]
+    );
 }
 
 /// Every allomorph across `grammar.mrules` shaped like a circumfix cross-product cell (leading+trailing insert around one copy).
@@ -921,6 +953,12 @@ fn morphosyntactic_closed_feature_compiles_into_the_syntactic_feature_system() {
 fn assert_grammar_ids_are_internally_consistent(grammar: &crate::model::Grammar) {
     use crate::model::AllomorphOwner;
 
+    assert_eq!(
+        grammar.allomorph_owners.len(),
+        grammar.allomorph_sources.len(),
+        "allomorph owner/source tables must stay parallel"
+    );
+
     // allomorph_owners[i] must round-trip: the owner it names must itself carry `id == i`.
     for (i, owner) in grammar.allomorph_owners.iter().enumerate() {
         let want = crate::model::AllomorphId(i as u32);
@@ -1024,6 +1062,50 @@ fn fixture_grammar_dense_ids_are_internally_consistent() {
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     // Sanity: the fixture carries the 2 default compounding rules ahead of the 1 affix rule in `mrules`, so this exercises a non-trivial index offset, not just the identity case.
     assert_eq!(grammar.mrules.len(), 3);
+    assert_grammar_ids_are_internally_consistent(&grammar);
+}
+
+#[test]
+fn unreachable_affix_before_live_rule_preserves_live_source_row() {
+    let (mut snapshot, f) = fixture();
+    let orphan_slot = "slot-orphan".to_string();
+    snapshot.morphology.parts_of_speech[0]
+        .affix_slots
+        .push(AffixSlot {
+            guid: orphan_slot.clone(),
+            name: "Orphan".to_string(),
+            optional: false,
+        });
+    let orphan_entry = LexEntry {
+        guid: "entry-orphan".to_string(),
+        citation_form: vec![ws("sen", "-ta")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph("allo-orphan", MorphType::Suffix, "ta")],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-orphan".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: vec![orphan_slot],
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    };
+    // An unused slot makes this earlier rule unreachable; its owner and source row must both drop.
+    snapshot.lexicon.entries.insert(1, orphan_entry);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("fixture must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(grammar.allomorph_owners.len(), 2);
+    assert_eq!(grammar.allomorph_sources.len(), 2);
+    assert_eq!(
+        grammar.allomorph_sources[0].form_guids,
+        vec![Some("allo-stem".to_string())]
+    );
+    assert_eq!(
+        grammar.allomorph_sources[1].form_guids,
+        vec![Some("allo-suffix".to_string())]
+    );
     assert_grammar_ids_are_internally_consistent(&grammar);
 }
 

@@ -7,7 +7,7 @@ use pg_snapshot::phonology::PhonContext;
 use crate::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, EnvironmentDef, MRuleId,
     MorphRuleDef, MorphemeId, MorphemeInfo, OutputAction, PartRef, Pattern, ReduplicationHint,
-    SimpleContext, StratumId,
+    SimpleContext, SourceMorphPlacement, StratumId,
 };
 
 use super::environment;
@@ -244,7 +244,7 @@ pub(crate) fn build_affix_rule(
     };
 
     // A circumfix's allomorph set is the cross-product of its halves, not one def per stored form, so it is built from the whole bucket rather than per-allomorph.
-    let built: Vec<(String, AffixAllomorphDef)> =
+    let built: Vec<(Vec<String>, SourceMorphPlacement, AffixAllomorphDef)> =
         if entry.lexeme_morph_type == MorphType::Circumfix {
             build_circumfix_allomorphs(
                 entry,
@@ -257,24 +257,42 @@ pub(crate) fn build_affix_rule(
                 warnings,
             )
         } else {
-            rule_form_allos
+                rule_form_allos
                 .iter()
                 .flat_map(|allo| {
+                    let placement = match shape_of(allo.morph_type) {
+                        Some(Shape::Infix) => SourceMorphPlacement::InsertBeforeLast,
+                        _ => SourceMorphPlacement::Append,
+                    };
                     build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, ctx, acc, warnings)
                         .into_iter()
-                        .map(|def| (allo.guid.clone(), def))
+                        .map(|def| (vec![allo.guid.clone()], placement, def))
                         .collect::<Vec<_>>()
                 })
                 .collect()
         };
 
     let mut allomorphs = Vec::new();
-    for (guid, def) in built {
+    for (source_guids, placement, def) in built {
         let allo_id = AllomorphId(acc.allomorph_owners.len() as u32);
         acc.allomorph_owners
             .push(AllomorphOwner::Affix(mrule_id, allomorphs.len() as u16));
+        acc.allomorph_sources.push(crate::model::AllomorphSource {
+            form_guids: source_guids.into_iter().map(Some).collect(),
+            omitted: false,
+            placement,
+        });
         // First-wins for a circumfix, whose halves each appear in several pairings; this index only resolves ad-hoc co-occurrence references, where a miss is already a warning.
-        acc.allomorph_guid_index.entry(guid).or_insert(allo_id);
+        if let Some(guid) = acc
+            .allomorph_sources
+            .last()
+            .and_then(|source| source.form_guids.first())
+            .and_then(Option::as_deref)
+        {
+            acc.allomorph_guid_index
+                .entry(guid.to_string())
+                .or_insert(allo_id);
+        }
         allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
     }
     if allomorphs.is_empty() {
@@ -283,7 +301,9 @@ pub(crate) fn build_affix_rule(
 
     let morpheme = MorphemeId(acc.morphemes.len() as u32);
     acc.morphemes.push(MorphemeInfo {
-        xml_key: msa_guid,
+        xml_key: msa_guid.clone(),
+        source_msa_guid: Some(msa_guid.clone()),
+        source_infl_type_guid: None,
         morph_id: None,
         gloss,
         stratum,
@@ -345,7 +365,7 @@ fn build_circumfix_allomorphs(
     ctx: &Ctx,
     acc: &mut Acc,
     warnings: &mut Vec<String>,
-) -> Vec<(String, AffixAllomorphDef)> {
+) -> Vec<(Vec<String>, SourceMorphPlacement, AffixAllomorphDef)> {
     let halves = |pick: fn(MorphType) -> bool| -> Vec<&Allomorph> {
         allos
             .iter()
@@ -403,7 +423,8 @@ fn build_circumfix_allomorphs(
                 warnings,
             ));
             out.push((
-                prefix.guid.clone(),
+                vec![prefix.guid.clone(), suffix.guid.clone()],
+                SourceMorphPlacement::Append,
                 AffixAllomorphDef {
                     id: AllomorphId(0),
                     environments,

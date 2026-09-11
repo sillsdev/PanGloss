@@ -12,6 +12,7 @@ pub mod guess;
 pub mod identity;
 pub mod morpher;
 pub mod overlay;
+pub mod parse_morph;
 pub mod root_trie;
 pub mod surface;
 
@@ -19,6 +20,10 @@ pub use batch::{hc_parse_batch, BatchWordOutcome};
 pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use morpher::{GenMorpheme, Morpher, ParseOptions, ParseOutcome, SynthesisBudget};
 pub use overlay::{RootAuthority, SuppliedRoot, SuppliedRootOverlay};
+pub use parse_morph::{
+    project_parse_analysis, project_parse_analyses, ParseAnalysis, ParseMorph,
+    ParseProjectionError, PARSE_ANALYSIS_PROFILE,
+};
 pub use root_trie::{RootAllomorphIndex, RootAllomorphTrie};
 
 /// One analysis of a word: ordered morpheme ids, the root's index within that sequence, and an
@@ -26,6 +31,9 @@ pub use root_trie::{RootAllomorphIndex, RootAllomorphTrie};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WordAnalysis {
     pub morpheme_ids: Vec<u32>,
+    /// Every final annotation record in surface order, including repeated applications and
+    /// multiple runs emitted by a circumfix.
+    pub morph_occurrences: Vec<MorphOccurrence>,
     pub root_morpheme_index: i32,
     pub pos_id: Option<u32>,
     pub syn_fs: pg_featstruct::FeatureStruct,
@@ -38,11 +46,21 @@ pub struct WordAnalysis {
     /// `MorphemeId::GUESSED`'s numeric value (`u32::MAX`) for the fabricated root's own slot when
     /// `guessed` is true — no separate sentinel handling needed here, the id just passes through.
     pub guessed: bool,
+    /// Exact text carried by a fabricated guessed root, when this analysis contains one.
+    pub guessed_string: Option<String>,
     pub provenance: AnalysisProvenance,
     /// Self-contained root payload for regeneration when provenance is supplied.
     pub supplied_root: Option<SuppliedRoot>,
     /// Runtime supplied payload aligned one-for-one with `morpheme_ids`.
     pub morpheme_roots: Vec<Option<SuppliedRoot>>,
+}
+
+/// Dense runtime identity and surface position for one final annotation record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MorphOccurrence {
+    pub allomorph_id: u32,
+    pub morpheme_id: u32,
+    pub order: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

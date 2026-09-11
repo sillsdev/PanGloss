@@ -1,8 +1,10 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--always-enforce-final-templates]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
+//! `--analyses` additionally writes one FieldWorks `ParseAnalysis` JSONL row per input case while
+//! preserving partial projections when a cap or timeout fires.
 //! `--step-cap N` bounds the unmemoized analysis cascade (memoization removes the need); omitted,
 //! it defaults to `DEFAULT_STEP_CAP` (50,000,000) so every batch terminates deterministically --
 //! `--step-cap unbounded` opts back into no bound at all. See
@@ -75,7 +77,11 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
-use pg_parse::{hc_parse_batch, GenMorpheme, Morpher, WordAnalysis};
+use pg_parse::{
+    hc_parse_batch,
+    parse_morph::{project_parse_analysis, ParseAnalysis, PARSE_ANALYSIS_PROFILE},
+    GenMorpheme, Morpher, WordAnalysis,
+};
 use pg_stats::StepCap;
 
 mod assess;
@@ -125,6 +131,127 @@ fn row_status(outcome: &pg_parse::ParseOutcome) -> (&'static str, String) {
     }
 }
 
+#[derive(serde::Serialize)]
+struct ParseAnalysisBatchRow {
+    schema: &'static str,
+    index: usize,
+    word: String,
+    #[serde(rename = "elapsedMs")]
+    elapsed_ms: u128,
+    capped: bool,
+    #[serde(rename = "timedOut")]
+    timed_out: bool,
+    #[serde(rename = "invalidShape")]
+    invalid_shape: bool,
+    analyses: Vec<ParseAnalysis>,
+    unavailable: Vec<String>,
+}
+
+fn projected_analyses(
+    outcome: &pg_parse::ParseOutcome,
+    grammar: &Grammar,
+) -> (Vec<ParseAnalysis>, Vec<String>) {
+    if outcome.invalid_shape {
+        return (Vec::new(), Vec::new());
+    }
+    let mut analyses = Vec::with_capacity(outcome.structured.len());
+    let mut unavailable = Vec::new();
+    for analysis in &outcome.structured {
+        match project_parse_analysis(analysis, grammar) {
+            Ok(projected) => analyses.push(projected),
+            Err(error) => unavailable.push(error.to_string()),
+        }
+    }
+    (analyses, unavailable)
+}
+
+fn write_parse_analysis_row<W: Write>(
+    w: &mut W,
+    index: usize,
+    word: &str,
+    elapsed_ms: u128,
+    outcome: &pg_parse::ParseOutcome,
+    grammar: &Grammar,
+) -> std::io::Result<()> {
+    let (analyses, unavailable) = projected_analyses(outcome, grammar);
+    let row = ParseAnalysisBatchRow {
+        schema: PARSE_ANALYSIS_PROFILE,
+        index,
+        word: word.to_string(),
+        elapsed_ms,
+        capped: outcome.capped,
+        timed_out: outcome.timed_out,
+        invalid_shape: outcome.invalid_shape,
+        analyses,
+        unavailable,
+    };
+    serde_json::to_writer(&mut *w, &row)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    w.write_all(b"\n")
+}
+
+fn path_key(path: &std::path::Path) -> std::path::PathBuf {
+    if path.exists() {
+        return fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    }
+    let parent = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let parent = if parent.is_absolute() {
+        parent.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(parent)
+    };
+    let parent = fs::canonicalize(&parent).unwrap_or(parent);
+    parent.join(path.file_name().unwrap_or_default())
+}
+
+fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    if left == right {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        left.to_string_lossy()
+            .eq_ignore_ascii_case(&right.to_string_lossy())
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn reject_analysis_path_collisions(
+    grammar_path: &str,
+    words_path: &str,
+    out_path: &str,
+    analyses_path: &str,
+    cache_path: Option<&str>,
+) -> Result<(), String> {
+    let analyses_key = path_key(std::path::Path::new(analyses_path));
+    for (label, path) in [
+        ("grammar", grammar_path),
+        ("word list", words_path),
+        ("TSV output", out_path),
+    ] {
+        let other_key = path_key(std::path::Path::new(path));
+        if same_path(&analyses_key, &other_key) {
+            return Err(format!(
+                "--analyses path cannot overwrite {label} path: {analyses_path}"
+            ));
+        }
+    }
+    if let Some(cache_path) = cache_path {
+        let cache_key = path_key(std::path::Path::new(cache_path));
+        if same_path(&analyses_key, &cache_key) {
+            return Err(format!(
+                "--analyses path cannot overwrite stats cache path: {analyses_path}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "developer-tools")]
 const REPORT_DEVELOPER_HELP: &str = " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
@@ -163,7 +290,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     eprintln!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
          usage: pangloss import <project.fwdata> <out.json>\n\
@@ -508,6 +635,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         .unwrap_or(1);
     // 0-based resume index: skip the first N words (already-completed rows from a prior crashed/killed run) and append rather than truncate out.tsv, so a watchdog wrapper can kill+relaunch a stalled word and continue where it left off.
     let mut start_idx: usize = 0;
+    let mut analyses_path_arg: Option<String> = None;
     // --guess is default-off; guessed rows are always marked.
     let mut guess = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
@@ -567,6 +695,13 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 let v = &s["--start=".len()..];
                 start_idx = v.parse().map_err(|_| format!("invalid --start: {v}"))?;
             }
+            "--analyses" => {
+                let v = it.next().ok_or("--analyses requires a value")?;
+                analyses_path_arg = Some(v.clone());
+            }
+            s if s.starts_with("--analyses=") => {
+                analyses_path_arg = Some(s["--analyses=".len()..].to_string());
+            }
             "--guess" => guess = true,
             "--stats" => stats_requested = true,
             "--always-enforce-final-templates" => always_enforce_final_templates = true,
@@ -588,16 +723,37 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
                 .into(),
         );
     };
+    if analyses_path_arg.is_some() && start_idx > 0 {
+        return Err("--start cannot be combined with --analyses".into());
+    }
 
     // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
     let t_load = Instant::now();
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
+    let stats_cache_path = if stats_requested {
+        Some(
+            stats_cmd::resolve_cache_path(grammar_path, cache_path_arg.as_deref())?
+                .to_string_lossy()
+                .into_owned(),
+        )
+    } else {
+        None
+    };
+    if let Some(analyses_path) = analyses_path_arg.as_deref() {
+        reject_analysis_path_collisions(
+            grammar_path,
+            words_path,
+            out_path,
+            analyses_path,
+            stats_cache_path.as_deref(),
+        )?;
+    }
     let words: Vec<String> = fs::read_to_string(words_path)
         .map_err(|e| format!("read {words_path}: {e}"))?
         .lines()
@@ -616,6 +772,14 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             .map_err(|e| format!("open {out_path} for append: {e}"))?
     };
     let mut w = BufWriter::new(file);
+    let mut analyses_w = analyses_path_arg
+        .as_deref()
+        .map(|path| {
+            fs::File::create(path)
+                .map(BufWriter::new)
+                .map_err(|e| format!("create {path}: {e}"))
+        })
+        .transpose()?;
 
     let mut parsed = 0u64;
     let mut skipped = 0u64;
@@ -716,7 +880,14 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 (guess, outcome.guessed),
             )
             .map_err(|e| e.to_string())?;
+            if let Some(analyses_w) = analyses_w.as_mut() {
+                write_parse_analysis_row(analyses_w, i, word, elapsed_ms, &outcome, &grammar)
+                    .map_err(|e| e.to_string())?;
+            }
             w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
+            if let Some(analyses_w) = analyses_w.as_mut() {
+                analyses_w.flush().map_err(|e| e.to_string())?;
+            }
         }
     } else {
         // Parallel path: hc_parse_batch parallelizes internally and returns results already reindexed to original word order; buffered and written once, no STARTED lines, so --start only skips work with no per-word crash-resume in this mode.
@@ -756,10 +927,24 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 (guess, r.outcome.guessed),
             )
             .map_err(|e| e.to_string())?;
+            if let Some(analyses_w) = analyses_w.as_mut() {
+                write_parse_analysis_row(
+                    analyses_w,
+                    i,
+                    word,
+                    elapsed_ms,
+                    &r.outcome,
+                    &grammar,
+                )
+                .map_err(|e| e.to_string())?;
+            }
         }
     }
     let parse_elapsed_ms = t_parse.elapsed().as_secs_f64() * 1e3;
     w.flush().map_err(|e| e.to_string())?;
+    if let Some(analyses_w) = analyses_w.as_mut() {
+        analyses_w.flush().map_err(|e| e.to_string())?;
+    }
 
     eprintln!("PARSEELAPSED\tengine=default\telapsed_ms={parse_elapsed_ms:.3}");
     eprintln!(
@@ -851,7 +1036,7 @@ mod tests {
     //! Covers both `--threads` writer paths per the task brief -- the sequential (`STARTED` +
     //! per-line flush) and rayon-parallel (buffered, no `STARTED`) modes have genuinely different
     //! code paths in `run_batch` and each needed its own bug fixed above.
-    use super::{run_batch, StepCap, DEFAULT_STEP_CAP};
+    use super::{run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP};
     use std::fs;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -940,6 +1125,241 @@ mod tests {
             .lines()
             .map(str::to_string)
             .collect()
+    }
+
+    fn run_batch_sidecar_custom(
+        tag: &str,
+        grammar_xml: &str,
+        words_text: &str,
+        extra_args: &[&str],
+    ) -> Vec<serde_json::Value> {
+        let dir = scratch_dir(tag);
+        let grammar_path = dir.join("grammar.xml");
+        fs::write(&grammar_path, grammar_xml).expect("write grammar");
+        run_batch_sidecar_path(tag, &grammar_path, words_text, extra_args)
+    }
+
+    fn run_batch_sidecar_path(
+        tag: &str,
+        grammar_path: &std::path::Path,
+        words_text: &str,
+        extra_args: &[&str],
+    ) -> Vec<serde_json::Value> {
+        let dir = scratch_dir(tag);
+        let words_path = dir.join("words.txt");
+        let out_path = dir.join("out.tsv");
+        let analyses_path = dir.join("analyses.jsonl");
+        fs::write(&words_path, words_text).expect("write words");
+
+        let mut args: Vec<String> = vec![
+            grammar_path.to_string_lossy().into_owned(),
+            words_path.to_string_lossy().into_owned(),
+            out_path.to_string_lossy().into_owned(),
+            "--analyses".to_string(),
+            analyses_path.to_string_lossy().into_owned(),
+        ];
+        args.extend(extra_args.iter().map(|s| s.to_string()));
+
+        run_batch(&args).unwrap_or_else(|e| panic!("run_batch failed: {e}"));
+        fs::read_to_string(&analyses_path)
+            .expect("read analyses.jsonl")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("valid sidecar JSON row"))
+            .collect()
+    }
+
+    fn fwdata_fixture_with_k() -> std::path::PathBuf {
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../pg-fwdata/tests/data/fixture.fwdata");
+        let dir = scratch_dir("analyses-fwdata-source-guids");
+        let target = dir.join("fixture-with-k.fwdata");
+        let xml = fs::read_to_string(source).expect("read fwdata fixture");
+        let phoneme_ref = "<objsur guid=\"00000000-0000-0000-0000-00000000001b\" t=\"o\" />";
+        let phoneme_ref_with_k = format!(
+            "{phoneme_ref}\n<objsur guid=\"00000000-0000-0000-0000-000000000025\" t=\"o\" />"
+        );
+        assert!(xml.contains(phoneme_ref), "fixture phoneme set shape changed");
+        let xml = xml.replacen(phoneme_ref, &phoneme_ref_with_k, 1);
+        let entry_marker =
+            "<rt class=\"LexEntry\" guid=\"00000000-0000-0000-0000-000000000030\">";
+        let k_records = r#"<rt class="PhPhoneme" guid="00000000-0000-0000-0000-000000000025" ownerguid="00000000-0000-0000-0000-00000000000f">
+<Codes>
+<objsur guid="00000000-0000-0000-0000-000000000026" t="o" />
+</Codes>
+<Name>
+<AUni ws="fx">k</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000026" ownerguid="00000000-0000-0000-0000-000000000025">
+<Representation>
+<AUni ws="fx">k</AUni>
+</Representation>
+</rt>
+"#;
+        assert!(xml.contains(entry_marker), "fixture lexicon shape changed");
+        let xml = xml.replacen(entry_marker, &format!("{k_records}{entry_marker}"), 1);
+        fs::write(&target, xml).expect("write local fwdata fixture copy");
+        target
+    }
+
+    #[test]
+    fn analyses_sidecar_keeps_closed_rows_and_duplicate_word_indexes() {
+        for (tag, threads) in [("analyses-seq", "1"), ("analyses-par", "2")] {
+            let rows = run_batch_sidecar_custom(tag, MINI_GRAMMAR_XML, "kat\nkat\n", &["--threads", threads]);
+            assert_eq!(rows.len(), 2, "threads={threads}: {rows:?}");
+            for (expected_index, row) in rows.iter().enumerate() {
+                assert_eq!(row["schema"], "fieldworks-parse-analysis/v1");
+                assert_eq!(row["index"], expected_index);
+                assert_eq!(row["word"], "kat");
+                assert!(row["elapsedMs"].is_u64());
+                assert_eq!(row["capped"], false);
+                assert_eq!(row["timedOut"], false);
+                assert_eq!(row["invalidShape"], false);
+                assert!(row["analyses"].is_array());
+                assert!(row["unavailable"].is_array());
+                assert!(row["analyses"].as_array().unwrap().len()
+                    + row["unavailable"].as_array().unwrap().len()
+                    > 0);
+            }
+        }
+    }
+
+    #[test]
+    fn analyses_sidecar_projects_source_guids_from_fwdata() {
+        let fixture = fwdata_fixture_with_k();
+        let rows = run_batch_sidecar_path("analyses-fwdata-source-guids", &fixture, "kat\n", &[]);
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row["invalidShape"], false);
+        assert_eq!(row["unavailable"], serde_json::json!([]));
+        assert_eq!(row["analyses"].as_array().unwrap().len(), 1);
+        let morph = row["analyses"][0]["morphs"][0]
+            .as_object()
+            .expect("the fwdata fixture analysis should project");
+        assert_eq!(morph["form"], "00000000-0000-0000-0000-000000000031");
+        assert_eq!(morph["msa"], "00000000-0000-0000-0000-000000000032");
+        assert_eq!(morph["inflType"], serde_json::Value::Null);
+        assert_eq!(morph["guessedString"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn analyses_sidecar_preserves_cap_and_timeout_flags() {
+        let grammar_xml = homophonous_suffix_grammar_xml(7);
+        let capped_rows = run_batch_sidecar_custom(
+            "analyses-cap-timeout",
+            &grammar_xml,
+            &format!("kad{}\n", "d".repeat(7)),
+            &["--step-cap", "500", "--memo", "off"],
+        );
+        assert_eq!(capped_rows.len(), 1);
+        assert_eq!(capped_rows[0]["capped"], true);
+        assert_eq!(capped_rows[0]["timedOut"], false);
+        assert!(capped_rows[0]["analyses"].is_array());
+        assert!(capped_rows[0]["unavailable"].is_array());
+
+        let timed_out_rows = run_batch_sidecar_custom(
+            "analyses-timeout",
+            MINI_GRAMMAR_XML,
+            "kat\n",
+            &["--word-timeout-ms", "0"],
+        );
+        assert_eq!(timed_out_rows.len(), 1);
+        assert_eq!(timed_out_rows[0]["capped"], false);
+        assert_eq!(timed_out_rows[0]["timedOut"], true);
+
+        let grammar = pg_grammar::load(MINI_GRAMMAR_XML).expect("load mini grammar");
+        let outcome = pg_parse::ParseOutcome {
+            analyses: vec![("partial".into(), "kat".into())],
+            structured: Vec::new(),
+            capped: true,
+            invalid_shape: false,
+            steps: 1,
+            timed_out: true,
+            guessed: false,
+            candidates_generated: 0,
+        };
+        let mut encoded = Vec::new();
+        write_parse_analysis_row(&mut encoded, 0, "kat", 12, &outcome, &grammar)
+            .expect("serialize mixed-bound outcome");
+        let row: serde_json::Value = serde_json::from_slice(&encoded).expect("valid row");
+        assert_eq!(row["capped"], true);
+        assert_eq!(row["timedOut"], true);
+    }
+
+    #[test]
+    fn analyses_sidecar_rejects_resume_and_path_collisions() {
+        let dir = scratch_dir("analyses-paths");
+        let grammar_path = dir.join("grammar.xml");
+        let words_path = dir.join("words.txt");
+        let out_path = dir.join("out.tsv");
+        fs::write(&grammar_path, MINI_GRAMMAR_XML).expect("write grammar");
+        fs::write(&words_path, "kat\n").expect("write words");
+
+        let err = run_batch(&[
+            grammar_path.to_string_lossy().into_owned(),
+            words_path.to_string_lossy().into_owned(),
+            out_path.to_string_lossy().into_owned(),
+            "--start".to_string(),
+            "1".to_string(),
+            "--analyses".to_string(),
+            dir.join("analyses.jsonl").to_string_lossy().into_owned(),
+        ])
+        .expect_err("sidecar cannot resume from a nonzero start index");
+        assert!(err.contains("--start"), "{err}");
+
+        let err = run_batch(&[
+            grammar_path.to_string_lossy().into_owned(),
+            words_path.to_string_lossy().into_owned(),
+            out_path.to_string_lossy().into_owned(),
+            "--analyses".to_string(),
+            words_path.to_string_lossy().into_owned(),
+        ])
+        .expect_err("sidecar cannot overwrite the word list");
+        assert!(err.contains("overwrite"), "{err}");
+
+        let analyses_path = dir.join("analyses-cache-collision.jsonl");
+        let err = run_batch(&[
+            grammar_path.to_string_lossy().into_owned(),
+            words_path.to_string_lossy().into_owned(),
+            out_path.to_string_lossy().into_owned(),
+            "--analyses".to_string(),
+            analyses_path.to_string_lossy().into_owned(),
+            "--stats".to_string(),
+            "--cache".to_string(),
+            analyses_path.to_string_lossy().into_owned(),
+        ])
+        .expect_err("sidecar cannot overwrite the stats cache");
+        assert!(err.contains("stats cache"), "{err}");
+
+        let default_cache =
+            pg_stats::default_cache_path(&grammar_path).expect("resolve default stats cache");
+        let default_cache_text = default_cache.to_string_lossy().into_owned();
+        let cache_before = fs::read(&default_cache).ok();
+        let default_out = dir.join("default-cache-out.tsv");
+        let err = run_batch(&[
+            grammar_path.to_string_lossy().into_owned(),
+            words_path.to_string_lossy().into_owned(),
+            default_out.to_string_lossy().into_owned(),
+            "--analyses".to_string(),
+            default_cache_text,
+            "--stats".to_string(),
+        ])
+        .expect_err("sidecar cannot overwrite the default stats cache");
+        assert!(err.contains("stats cache"), "{err}");
+        assert!(!default_out.exists(), "TSV output must not be created");
+        match cache_before {
+            Some(contents) => assert_eq!(fs::read(&default_cache).unwrap(), contents),
+            None => assert!(!default_cache.exists(), "cache must not be created"),
+        }
+    }
+
+    #[test]
+    fn analyses_sidecar_invalid_shape_has_empty_projection_arrays() {
+        let rows = run_batch_sidecar_custom("analyses-invalid-shape", MINI_GRAMMAR_XML, "zzz\n", &[]);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["invalidShape"], true);
+        assert_eq!(rows[0]["analyses"].as_array().unwrap().len(), 0);
+        assert_eq!(rows[0]["unavailable"].as_array().unwrap().len(), 0);
     }
 
     /// Sequential path (`--threads 1`): a `--word-timeout-ms=0` deadline must produce a `STARTED` sentinel followed by a `TIMEOUT`/`-` result row, matching the shape an external watchdog synthesizes for a killed stall.

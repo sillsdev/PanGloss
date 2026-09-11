@@ -131,7 +131,7 @@ pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<
 Batch a word list to TSV (the only engine `batch` runs is the default HermitCrab one):
 
 ```
-pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N]
+pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses analyses.jsonl]
 ```
 
 `--step-cap` defaults to 50,000,000 unmemoized analysis steps per word, a runaway guard (not a
@@ -160,6 +160,8 @@ averages ~29 ms/word; Amharic compiles in ~5.7 s and averages ~41 ms/word (media
 most words are rejected by the proposer outright — with a heavy tail). The analysis runtime also
 targets `wasm32-unknown-unknown`; that build loads a precompiled analysis package and deliberately
 excludes grammar and FST compilation.
+
+For approved-analysis comparison, add `--analyses analyses.jsonl` to retain ordered source Form/MSA/InflType GUIDs alongside the TSV. Each word carries its own completion flags and partial findings; a stopped search remains **INCOMPLETE** even when approved readings were found. See the [shared morphology contract](docs/parse-analysis-format.md) for the closed schema and unavailable-source cases.
 
 ## Optimize a grammar with stats
 

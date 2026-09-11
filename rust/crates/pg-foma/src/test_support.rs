@@ -515,11 +515,13 @@ pub(crate) fn parity_fixture_grammar() -> pg_grammar::model::Grammar {
 pub(crate) fn parity_analysis(morpheme_ordinal: u32) -> pg_parse::WordAnalysis {
     pg_parse::WordAnalysis {
         morpheme_ids: vec![morpheme_ordinal],
+        morph_occurrences: Vec::new(),
         root_morpheme_index: 0,
         pos_id: None,
         syn_fs: pg_featstruct::FeatureStruct::EMPTY,
         mpr: pg_grammar::model::MprSet::EMPTY,
         guessed: false,
+        guessed_string: None,
         provenance: pg_parse::AnalysisProvenance::Grammar,
         supplied_root: None,
         morpheme_roots: vec![None],

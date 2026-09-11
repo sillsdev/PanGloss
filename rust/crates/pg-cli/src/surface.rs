@@ -186,6 +186,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "0-based resume index; skips already-completed words and appends to <out.tsv>",
     },
     FlagSpec {
+        name: "--analyses",
+        takes_value: true,
+        summary: "write FieldWorks ParseAnalysis JSONL rows to this sidecar path",
+    },
+    FlagSpec {
         name: "--guess",
         takes_value: false,
         summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser",
@@ -682,6 +687,7 @@ mod tests {
         let spec = find_command("batch").expect("batch must be in COMMANDS");
         assert!(spec.flag("--threads").is_some());
         assert!(spec.flag("--word-timeout-ms").is_some());
+        assert!(spec.flag("--analyses").is_some());
 
         let value: serde_json::Value = serde_json::to_value(&Describe {
             schema_version: 1,
@@ -703,6 +709,7 @@ mod tests {
             .collect();
         assert!(flag_names.contains(&"--threads"));
         assert!(flag_names.contains(&"--word-timeout-ms"));
+        assert!(flag_names.contains(&"--analyses"));
     }
 
     #[test]

@@ -59,11 +59,13 @@ pub unsafe extern "C" fn hc_generate_words(
         };
         let wa = WordAnalysis {
             morpheme_ids: ids.to_vec(),
+            morph_occurrences: Vec::new(),
             root_morpheme_index,
             pos_id: None,
             syn_fs: Default::default(),
             mpr: Default::default(),
             guessed: false,
+            guessed_string: None,
             provenance: pg_parse::AnalysisProvenance::Grammar,
             supplied_root: None,
             morpheme_roots: vec![None; ids.len()],
