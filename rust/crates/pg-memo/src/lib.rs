@@ -254,6 +254,8 @@ pub mod profile {
 
         // Clones performed materializing a memo hit's replayed words (mrule-memo path only).
         static REPLAY_CLONES: Cell<u64> = const { Cell::new(0) };
+        // Sum of `entry.results.len()` over every positive mrule-memo hit (unconditional -- cheap length read, not a tree walk); a hit that clones exactly once per replayed word keeps this in lockstep with REPLAY_CLONES.
+        static HIT_RESULTS_LEN_TOTAL: Cell<u64> = const { Cell::new(0) };
     }
 
     /// Cached `HC_MEMO_STATS` read (one env lookup per thread, not per call). Callers use this to
@@ -365,6 +367,11 @@ pub mod profile {
         REPLAY_CLONES.with(|c| c.set(c.get() + 1));
     }
 
+    /// Record a positive mrule-memo hit's stored result count (see `HIT_RESULTS_LEN_TOTAL`).
+    pub fn record_hit_results_len(len: usize) {
+        HIT_RESULTS_LEN_TOTAL.with(|c| c.set(c.get() + len as u64));
+    }
+
     /// One word's whole cumulative memo picture -- snapshot only, never reset.
     #[derive(Debug, Clone, Copy, Default)]
     pub struct MemoProfileSnapshot {
@@ -399,6 +406,7 @@ pub mod profile {
         pub insert_morphs_total: u64,
 
         pub replay_clones: u64,
+        pub hit_results_len_total: u64,
     }
 
     pub fn snapshot() -> MemoProfileSnapshot {
@@ -434,6 +442,7 @@ pub mod profile {
             insert_morphs_total: INSERT_MORPHS_TOTAL.with(|c| c.get()),
 
             replay_clones: REPLAY_CLONES.with(|c| c.get()),
+            hit_results_len_total: HIT_RESULTS_LEN_TOTAL.with(|c| c.get()),
         }
     }
 }

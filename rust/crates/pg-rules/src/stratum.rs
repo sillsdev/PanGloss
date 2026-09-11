@@ -107,15 +107,38 @@ impl OrderedDedup {
         }
     }
 
-    fn add(&mut self, w: Word) {
+    /// Clones `w` only if its key is novel, to avoid an unconditional clone at every call site; returns whether it was newly inserted.
+    fn add(&mut self, w: &Word) -> bool {
         if let Entry::Vacant(e) = self.seen.entry(w.dedup_key()) {
             e.insert(());
-            self.items.push(w);
+            self.items.push(w.clone());
+            true
+        } else {
+            false
         }
     }
 
     fn into_items(self) -> Vec<Word> {
         self.items
+    }
+}
+
+#[cfg(test)]
+mod ordered_dedup_tests {
+    use super::*;
+    use pg_shape::ShapeBuilder;
+
+    #[test]
+    fn add_clones_only_when_novel() {
+        let mut dedup = OrderedDedup::new();
+        let w = Word::new(ShapeBuilder::new().finish(), StratumId(0));
+
+        assert!(dedup.add(&w), "first insertion of this key is novel");
+        assert!(
+            !dedup.add(&w),
+            "a repeat of the same key must not insert (or clone) again"
+        );
+        assert_eq!(dedup.items.len(), 1, "only the first insertion is stored");
     }
 }
 
@@ -865,6 +888,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             // Positive-replay or nogood hit: replay each stored result onto this arrival's own trail/non-head prefix.
             let replayed = s.memo.get(&key).map(|entry| {
                 pg_memo::profile::record_hit(false, entry.is_positive());
+                if entry.is_positive() {
+                    pg_memo::profile::record_hit_results_len(entry.results.len());
+                }
                 entry
                     .results
                     .iter()
@@ -883,8 +909,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         };
         if let Some(replayed) = hit_replayed {
             for r in &replayed {
-                pg_memo::profile::record_replay_clone();
-                out.add(r.clone());
+                if out.add(r) {
+                    pg_memo::profile::record_replay_clone();
+                }
             }
             return replayed;
         }
@@ -956,8 +983,8 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             for result in
                 self.apply_one_mrule(self.reversed_mrules[i], input, RuleInvocationRole::Ordinary)
             {
+                out.add(&result);
                 local.push(result.clone());
-                out.add(result.clone());
                 // Self-loop guard. Always false here — every unapplication changes the key.
                 let is_self_loop = in_key == result.dedup_key();
                 if is_self_loop {

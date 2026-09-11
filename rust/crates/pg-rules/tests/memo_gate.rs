@@ -282,6 +282,45 @@ fn state_key_saturates_unapplication_counts_past_max_apps() {
     );
 }
 
+// The `out.add` dedup-only-clones-when-novel mechanism is unit-tested directly on `OrderedDedup` in stratum.rs; this checks the surrounding replay path stays correct.
+#[test]
+fn replaying_a_repeat_word_still_clones_at_least_once_per_result_and_matches_memo_off() {
+    let (g, s) = build_unordered();
+    let cfg = AnalyzerConfig::default();
+    let scope: MemoScope = RefCell::new(AnalysisScope::new());
+
+    let first = analyze_stratum_scoped(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
+
+    let before = pg_memo::profile::snapshot();
+    let second = analyze_stratum_scoped(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
+    let after = pg_memo::profile::snapshot();
+
+    assert_eq!(
+        candidate_shapes(&first.words),
+        candidate_shapes(&second.words)
+    );
+    let hit_results_len = after.hit_results_len_total - before.hit_results_len_total;
+    assert!(hit_results_len > 0, "the repeat must hit a positive entry");
+    assert!(
+        after.replay_clones - before.replay_clones >= hit_results_len,
+        "replay_onto's own clone is unavoidable per replayed word"
+    );
+}
+
 // memo-on == memo-off with an affix template in the mix (exercises the TemplateMemo table).
 #[test]
 fn memo_on_equals_memo_off_with_template() {
