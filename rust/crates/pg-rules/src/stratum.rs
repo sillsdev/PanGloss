@@ -123,6 +123,25 @@ impl OrderedDedup {
     }
 }
 
+/// Where `apply_mrules`/`apply_templates` push each produced word instead of returning an owned `Vec<Word>` for the caller to concatenate -- the fix for the multiplicative re-flattening `docs/research/live-frontier-memory-bound.md` measured (`push` is the stratum's own dedup fold; `remaining`, when set, is `AnalyzerConfig::max_unapplications`'s live budget).
+struct WordSink<'x> {
+    push: &'x mut dyn FnMut(Word),
+    remaining: Option<&'x Cell<usize>>,
+}
+
+impl WordSink<'_> {
+    /// Once the output cap is reached, further pushes are refused; the descent keeps recursing (cheap: the rule cascades below are memoized) but stops growing the output.
+    fn done(&self) -> bool {
+        self.remaining.is_some_and(|r| r.get() == 0)
+    }
+
+    fn push(&mut self, w: Word) {
+        if !self.done() {
+            (self.push)(w);
+        }
+    }
+}
+
 /// `HC_FRONTIER_STATS=1` counters: the peak size of the *live search frontier* the un-memoized
 /// per-arrival cascade builds — `memo_apply_rules_raw`'s flattened recursive `local`, the
 /// memoized/raw cascade's dedup accumulator, the template battery's output, and the interleaved
@@ -1185,36 +1204,31 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         local
     }
 
-    /// Run the mrule cascade, then per stratum order interleave templates.
-    fn apply_mrules(&self, input: &Word) -> Vec<Word> {
-        if self.over_budget() {
-            return Vec::new();
+    /// Run the mrule cascade, then per stratum order interleave templates, streaming each output into `sink` (see `WordSink`) rather than returning an owned subtree.
+    fn apply_mrules(&self, input: &Word, sink: &mut WordSink<'_>) {
+        if self.over_budget() || sink.done() {
+            return;
         }
         let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
-        let mut result = Vec::new();
         // `.Distinct(...)` in C# is redundant here — the cascade already deduped by key.
         for w in self.run_mrule_cascade(input) {
+            if sink.done() {
+                break;
+            }
             match self.order {
-                MorphRuleOrder::Linear => result.push(w),
+                MorphRuleOrder::Linear => sink.push(w),
                 MorphRuleOrder::Unordered => {
-                    result.extend(self.apply_templates(&w));
-                    result.push(w);
+                    self.apply_templates(&w, &mut *sink);
+                    sink.push(w);
                 }
             }
         }
-        if frontier_profile::enabled() {
-            frontier_profile::record_apply_mrules(
-                result.len(),
-                crate::word::estimate_words_bytes(&result),
-            );
-        }
-        result
     }
 
-    /// Run the template batch, then per stratum order interleave mrules and yield the template output when it changed the word.
-    fn apply_templates(&self, input: &Word) -> Vec<Word> {
-        if self.over_budget() {
-            return Vec::new();
+    /// Run the template battery, then per stratum order interleave mrules and stream the template output when it changed the word, into `sink` (see `WordSink`) rather than returning an owned subtree.
+    fn apply_templates(&self, input: &Word, sink: &mut WordSink<'_>) {
+        if self.over_budget() || sink.done() {
+            return;
         }
         let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
         // Reject an all-final battery before memo lookup or template work.
@@ -1228,34 +1242,29 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     crate::stats::Direction::Analysis,
                 );
             }
-            return Vec::new();
+            return;
         }
         let in_key = input.dedup_key();
-        let mut result = Vec::new();
         for t in self.run_template_batch(input) {
+            if sink.done() {
+                break;
+            }
             let changed = t.dedup_key() != in_key;
             match self.order {
                 MorphRuleOrder::Linear => {
-                    result.extend(self.apply_mrules(&t));
+                    self.apply_mrules(&t, &mut *sink);
                     if changed {
-                        result.push(t);
+                        sink.push(t);
                     }
                 }
                 MorphRuleOrder::Unordered => {
                     if changed {
-                        result.extend(self.apply_mrules(&t));
-                        result.push(t);
+                        self.apply_mrules(&t, &mut *sink);
+                        sink.push(t);
                     }
                 }
             }
         }
-        if frontier_profile::enabled() {
-            frontier_profile::record_apply_templates(
-                result.len(),
-                crate::word::estimate_words_bytes(&result),
-            );
-        }
-        result
     }
 
     /// The template `RuleBatch`, memoized separately from the mrule memo when a scope is present.
@@ -1523,27 +1532,20 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 .end_unapply_stratum(node_parent, self.stratum_id, &input);
         }
 
-        let mut mrule_out = self.apply_templates(&input);
-        mrule_out.extend(self.apply_mrules(&input));
-        // Every stratum output points back at the seed.
-        for w in &mut mrule_out {
-            w.source = Some(source.clone());
-        }
-        // Everything `apply_templates`/`apply_mrules` produced is alive at once right here -- the live-frontier peak this stratum call reaches (`docs/research/live-frontier-memory-bound.md`).
-        if frontier_profile::enabled() {
-            frontier_profile::record_live_words(mrule_out.len() as u64);
-        }
-
         // WordKey -> its index in `words`, so an identity-fallback fold (below) can find its canonical.
         let mut output_keys: HashMap<WordKey, usize> = HashMap::default();
         // AnalysisStateKey -> canonical word index; the seed's key is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
         let mut key_word: HashMap<AnalysisStateKey, usize> = HashMap::default();
         let mut words: Vec<Word> = Vec::new();
         output_keys.insert(input.dedup_key(), 0);
-        words.push(input);
+        words.push(input.clone());
 
-        for mut w in mrule_out {
-            // Clear the stratum-local state before output merge/dedup.
+        // A live count-down on candidates beyond the seed, unset by default -- a plain stop past the cap, no exception.
+        let remaining =
+            (self.cfg.max_unapplications > 0).then(|| Cell::new(self.cfg.max_unapplications));
+        // The stratum's own dedup fold, now also the sink `apply_templates`/`apply_mrules` stream into directly -- the one durable accumulator this stratum call ever holds (`docs/research/live-frontier-memory-bound.md`).
+        let mut fold = |mut w: Word| {
+            w.source = Some(source.clone());
             w.flags.final_template_state = crate::word::FinalTemplateState::None;
             let dedup_key = w.dedup_key();
             let state_key = self.cfg.merge_equivalent.then(|| self.state_key(&w));
@@ -1551,13 +1553,13 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 if let Some(&idx) = key_word.get(state_key) {
                     generalize_syn_fs(&mut words[idx], &w, &|f| self.g.syn_features.mask(f));
                     words[idx].alternatives.push(w);
-                    continue;
+                    return;
                 }
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
                 if let Some(&idx) = output_keys.get(&dedup_key) {
                     generalize_syn_fs(&mut words[idx], &w, &|f| self.g.syn_features.mask(f));
                     words[idx].alternatives.push(w);
-                    continue;
+                    return;
                 }
             }
             // The second end-event, once per surviving candidate; must NOT be gated on the `output_keys` insert below, since a key-duplicate still fires it.
@@ -1573,11 +1575,23 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 }
                 output_keys.insert(dedup_key, words.len());
                 words.push(w);
+                if let Some(r) = &remaining {
+                    r.set(r.get().saturating_sub(1));
+                }
             }
-            if self.cfg.max_unapplications > 0 && words.len() >= self.cfg.max_unapplications {
-                break;
+            // The durable accumulator's size plus the live recursion depth: everything this stratum call can hold at once, now that no level returns an owned subtree (`docs/research/live-frontier-memory-bound.md`).
+            if frontier_profile::enabled() {
+                frontier_profile::record_live_words(
+                    words.len() as u64 + frontier_profile::current_depth(),
+                );
             }
-        }
+        };
+        let mut sink = WordSink {
+            push: &mut fold,
+            remaining: remaining.as_ref(),
+        };
+        self.apply_templates(&input, &mut sink);
+        self.apply_mrules(&input, &mut sink);
 
         StratumAnalysis {
             words,
