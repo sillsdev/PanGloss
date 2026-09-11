@@ -123,6 +123,133 @@ impl OrderedDedup {
     }
 }
 
+/// `HC_FRONTIER_STATS=1` counters: the peak size of the *live search frontier* the un-memoized
+/// per-arrival cascade builds — `memo_apply_rules_raw`'s flattened recursive `local`, the
+/// memoized/raw cascade's dedup accumulator, the template battery's output, and the interleaved
+/// `apply_mrules`/`apply_templates` recursion depth — independent of any memo cap, since the memo
+/// bounds only what is *retained after* a call returns, never the in-flight set one call builds
+/// (see `docs/research/live-frontier-memory-bound.md`). Off by default; every field is a plain
+/// thread-local max, so disabled cost is one cached env read, no allocation.
+pub mod frontier_profile {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ENABLED: Cell<Option<bool>> = const { Cell::new(None) };
+        static CUR_DEPTH: Cell<u64> = const { Cell::new(0) };
+        static MAX_DEPTH: Cell<u64> = const { Cell::new(0) };
+        static MAX_LOCAL_LEN: Cell<u64> = const { Cell::new(0) };
+        static MAX_LOCAL_BYTES: Cell<u64> = const { Cell::new(0) };
+        static MAX_DEDUP_LEN: Cell<u64> = const { Cell::new(0) };
+        static MAX_DEDUP_BYTES: Cell<u64> = const { Cell::new(0) };
+        static MAX_RAW_CASCADE_LEN: Cell<u64> = const { Cell::new(0) };
+        static MAX_RAW_CASCADE_BYTES: Cell<u64> = const { Cell::new(0) };
+        static MAX_TEMPLATE_LEN: Cell<u64> = const { Cell::new(0) };
+        static MAX_TEMPLATE_BYTES: Cell<u64> = const { Cell::new(0) };
+        static MAX_APPLY_MRULES_LEN: Cell<u64> = const { Cell::new(0) };
+        static MAX_APPLY_MRULES_BYTES: Cell<u64> = const { Cell::new(0) };
+        static MAX_APPLY_TEMPLATES_LEN: Cell<u64> = const { Cell::new(0) };
+        static MAX_APPLY_TEMPLATES_BYTES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// Cached `HC_FRONTIER_STATS` read (one env lookup per thread), mirroring `pg_memo::profile::enabled`.
+    pub fn enabled() -> bool {
+        ENABLED.with(|c| {
+            if let Some(v) = c.get() {
+                return v;
+            }
+            let v = std::env::var("HC_FRONTIER_STATS").is_ok();
+            c.set(Some(v));
+            v
+        })
+    }
+
+    /// RAII depth tracker for the mutually-recursive `apply_mrules`/`apply_templates`/
+    /// `memo_apply_rules_raw` descent: construct on entry to a frame, drop restores the caller's
+    /// depth. Only ever constructed when `enabled()` (via `.then(DepthGuard::enter)`), so the
+    /// no-op cost when disabled is a single `bool` check, no `Cell` traffic.
+    pub struct DepthGuard;
+    impl DepthGuard {
+        pub fn enter() -> Self {
+            let d = CUR_DEPTH.with(|c| {
+                let d = c.get() + 1;
+                c.set(d);
+                d
+            });
+            MAX_DEPTH.with(|c| c.set(c.get().max(d)));
+            DepthGuard
+        }
+    }
+    impl Drop for DepthGuard {
+        fn drop(&mut self) {
+            CUR_DEPTH.with(|c| c.set(c.get().saturating_sub(1)));
+        }
+    }
+
+    macro_rules! recorder {
+        ($fn_name:ident, $len_cell:ident, $bytes_cell:ident) => {
+            pub fn $fn_name(len: usize, bytes: usize) {
+                $len_cell.with(|c| c.set(c.get().max(len as u64)));
+                $bytes_cell.with(|c| c.set(c.get().max(bytes as u64)));
+            }
+        };
+    }
+    recorder!(record_local, MAX_LOCAL_LEN, MAX_LOCAL_BYTES);
+    recorder!(record_dedup, MAX_DEDUP_LEN, MAX_DEDUP_BYTES);
+    recorder!(
+        record_raw_cascade,
+        MAX_RAW_CASCADE_LEN,
+        MAX_RAW_CASCADE_BYTES
+    );
+    recorder!(record_template, MAX_TEMPLATE_LEN, MAX_TEMPLATE_BYTES);
+    recorder!(
+        record_apply_mrules,
+        MAX_APPLY_MRULES_LEN,
+        MAX_APPLY_MRULES_BYTES
+    );
+    recorder!(
+        record_apply_templates,
+        MAX_APPLY_TEMPLATES_LEN,
+        MAX_APPLY_TEMPLATES_BYTES
+    );
+
+    /// One word's whole cumulative frontier picture -- snapshot only, never reset (mirrors
+    /// `pg_memo::profile::MemoProfileSnapshot`).
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct FrontierProfileSnapshot {
+        pub max_depth: u64,
+        pub max_local_len: u64,
+        pub max_local_bytes: u64,
+        pub max_dedup_len: u64,
+        pub max_dedup_bytes: u64,
+        pub max_raw_cascade_len: u64,
+        pub max_raw_cascade_bytes: u64,
+        pub max_template_len: u64,
+        pub max_template_bytes: u64,
+        pub max_apply_mrules_len: u64,
+        pub max_apply_mrules_bytes: u64,
+        pub max_apply_templates_len: u64,
+        pub max_apply_templates_bytes: u64,
+    }
+
+    pub fn snapshot() -> FrontierProfileSnapshot {
+        FrontierProfileSnapshot {
+            max_depth: MAX_DEPTH.with(Cell::get),
+            max_local_len: MAX_LOCAL_LEN.with(Cell::get),
+            max_local_bytes: MAX_LOCAL_BYTES.with(Cell::get),
+            max_dedup_len: MAX_DEDUP_LEN.with(Cell::get),
+            max_dedup_bytes: MAX_DEDUP_BYTES.with(Cell::get),
+            max_raw_cascade_len: MAX_RAW_CASCADE_LEN.with(Cell::get),
+            max_raw_cascade_bytes: MAX_RAW_CASCADE_BYTES.with(Cell::get),
+            max_template_len: MAX_TEMPLATE_LEN.with(Cell::get),
+            max_template_bytes: MAX_TEMPLATE_BYTES.with(Cell::get),
+            max_apply_mrules_len: MAX_APPLY_MRULES_LEN.with(Cell::get),
+            max_apply_mrules_bytes: MAX_APPLY_MRULES_BYTES.with(Cell::get),
+            max_apply_templates_len: MAX_APPLY_TEMPLATES_LEN.with(Cell::get),
+            max_apply_templates_bytes: MAX_APPLY_TEMPLATES_BYTES.with(Cell::get),
+        }
+    }
+}
+
 #[cfg(test)]
 mod ordered_dedup_tests {
     use super::*;
@@ -842,6 +969,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             MorphRuleOrder::Linear => casc.permutation(n, input.clone(), &apply_rule, &key),
             MorphRuleOrder::Unordered => casc.combination(n, input.clone(), &apply_rule, &key),
         };
+        if frontier_profile::enabled() {
+            frontier_profile::record_raw_cascade(
+                out.words.len(),
+                crate::word::estimate_words_bytes(&out.words),
+            );
+        }
         out.words
     }
 
@@ -868,6 +1001,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     fn mrule_cascade_memoized(&self, input: &Word, scope: &MemoScope) -> Vec<Word> {
         let mut out = OrderedDedup::new();
         self.memo_apply_rules(input, &mut out, scope);
+        if frontier_profile::enabled() {
+            frontier_profile::record_dedup(
+                out.items.len(),
+                crate::word::estimate_words_bytes(&out.items),
+            );
+        }
         out.into_items()
     }
 
@@ -985,6 +1124,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         out: &mut OrderedDedup,
         scope: &MemoScope,
     ) -> Vec<Word> {
+        let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
         let mut local = Vec::new();
         let in_key = input.dedup_key();
         for i in 0..self.reversed_mrules.len() {
@@ -1001,6 +1141,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 local.extend(self.memo_apply_rules(&result, out, scope));
             }
         }
+        if frontier_profile::enabled() {
+            frontier_profile::record_local(local.len(), crate::word::estimate_words_bytes(&local));
+        }
         local
     }
 
@@ -1009,6 +1152,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         if self.over_budget() {
             return Vec::new();
         }
+        let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
         let mut result = Vec::new();
         // `.Distinct(...)` in C# is redundant here — the cascade already deduped by key.
         for w in self.run_mrule_cascade(input) {
@@ -1020,6 +1164,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 }
             }
         }
+        if frontier_profile::enabled() {
+            frontier_profile::record_apply_mrules(
+                result.len(),
+                crate::word::estimate_words_bytes(&result),
+            );
+        }
         result
     }
 
@@ -1028,6 +1178,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         if self.over_budget() {
             return Vec::new();
         }
+        let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
         // Reject an all-final battery before memo lookup or template work.
         if self.policy.enforce
             && input.flags.final_template_state == crate::word::FinalTemplateState::NonTemplate
@@ -1059,6 +1210,12 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     }
                 }
             }
+        }
+        if frontier_profile::enabled() {
+            frontier_profile::record_apply_templates(
+                result.len(),
+                crate::word::estimate_words_bytes(&result),
+            );
         }
         result
     }
@@ -1143,6 +1300,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     out.push(w);
                 }
             }
+        }
+        if frontier_profile::enabled() {
+            frontier_profile::record_template(out.len(), crate::word::estimate_words_bytes(&out));
         }
         out
     }

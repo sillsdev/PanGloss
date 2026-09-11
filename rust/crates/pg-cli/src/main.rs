@@ -937,6 +937,33 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.replay_clones,
                 );
             }
+            // Peak live-search-frontier counters, independent of the memo caps above (`docs/research/live-frontier-memory-bound.md`).
+            if std::env::var("HC_FRONTIER_STATS").is_ok() {
+                let f = pg_rules::stratum::frontier_profile::snapshot();
+                eprintln!(
+                    "FRONTIERPROF\t{i}\t{word}\t\
+                     max_depth={}\t\
+                     max_local_len={}\tmax_local_bytes={}\t\
+                     max_dedup_len={}\tmax_dedup_bytes={}\t\
+                     max_raw_cascade_len={}\tmax_raw_cascade_bytes={}\t\
+                     max_template_len={}\tmax_template_bytes={}\t\
+                     max_apply_mrules_len={}\tmax_apply_mrules_bytes={}\t\
+                     max_apply_templates_len={}\tmax_apply_templates_bytes={}",
+                    f.max_depth,
+                    f.max_local_len,
+                    f.max_local_bytes,
+                    f.max_dedup_len,
+                    f.max_dedup_bytes,
+                    f.max_raw_cascade_len,
+                    f.max_raw_cascade_bytes,
+                    f.max_template_len,
+                    f.max_template_bytes,
+                    f.max_apply_mrules_len,
+                    f.max_apply_mrules_bytes,
+                    f.max_apply_templates_len,
+                    f.max_apply_templates_bytes,
+                );
+            }
             write_batch_row(
                 &mut w,
                 i,
