@@ -12,8 +12,9 @@ use pg_grammar::model::{
 };
 use pg_memo::AnalysisScope;
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_scoped, analyze_stratum_scoped_filtered_ruled_traced_with_policy,
-    AnalyzerConfig, FinalTemplateAnalysisPolicy, MemoScope, StepBudget,
+    analyze_stratum, analyze_stratum_scoped,
+    analyze_stratum_scoped_filtered_ruled_traced_with_policy, AnalyzerConfig,
+    FinalTemplateAnalysisPolicy, MemoScope, StepBudget,
 };
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::Word;
@@ -129,11 +130,7 @@ fn push_template(g: &mut Grammar, slots: Vec<SlotDef>) -> TemplateId {
     push_template_with_final(g, slots, true)
 }
 
-fn push_template_with_final(
-    g: &mut Grammar,
-    slots: Vec<SlotDef>,
-    is_final: bool,
-) -> TemplateId {
+fn push_template_with_final(g: &mut Grammar, slots: Vec<SlotDef>, is_final: bool) -> TemplateId {
     let id = TemplateId(g.templates.len() as u32);
     g.templates.push(AffixTemplateDef {
         name: None,
@@ -276,6 +273,56 @@ fn memo_on_equals_memo_off_with_template() {
     );
 }
 
+// Parsing the same word twice on one scope forces a top-level positive hit deterministically, so the counters move without depending on cascade-internal permutation timing.
+#[test]
+fn memoprof_counters_move_on_tiny_grammar() {
+    let (g, s) = build_unordered();
+    let cfg = AnalyzerConfig::default();
+    let scope: MemoScope = RefCell::new(AnalysisScope::new());
+
+    let before = pg_memo::profile::snapshot();
+    let first = analyze_stratum_scoped(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
+    let second = analyze_stratum_scoped(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
+    let after = pg_memo::profile::snapshot();
+
+    assert_eq!(
+        candidate_shapes(&first.words),
+        candidate_shapes(&second.words),
+        "a memo hit must reproduce the same candidate set"
+    );
+    assert!(
+        after.memo_lookups > before.memo_lookups,
+        "lookups must move"
+    );
+    assert!(
+        after.memo_hits_positive + after.memo_hits_nogood
+            > before.memo_hits_positive + before.memo_hits_nogood,
+        "hits must move"
+    );
+    assert!(
+        after.memo_inserts > before.memo_inserts,
+        "inserts must move"
+    );
+    assert!(
+        after.replay_clones > before.replay_clones,
+        "replaying the second call's top-level hit must clone at least once"
+    );
+}
+
 #[test]
 fn memo_preserves_nonfinal_template_state_transition_before_final_template() {
     let mut g = load_alpha_grammar();
@@ -365,7 +412,10 @@ fn memo_preserves_nonfinal_template_state_transition_before_final_template() {
     };
     let off_histories = histories(&off.words);
     let on_histories = histories(&on.words);
-    assert_eq!(off_histories, on_histories, "memo must preserve state transitions");
+    assert_eq!(
+        off_histories, on_histories,
+        "memo must preserve state transitions"
+    );
     assert!(
         on_histories.contains(&vec![ordinary, nonfinal_rule]),
         "ordinary -> nonfinal template must remain legal after the template clears state; got {on_histories:?}"

@@ -652,11 +652,15 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         match a.as_str() {
             "--step-cap" => {
                 let v = it.next().ok_or("--step-cap requires a value")?;
-                step_cap = v.parse::<StepCap>().map_err(|e| format!("invalid --step-cap: {e}"))?;
+                step_cap = v
+                    .parse::<StepCap>()
+                    .map_err(|e| format!("invalid --step-cap: {e}"))?;
             }
             s if s.starts_with("--step-cap=") => {
                 let v = &s["--step-cap=".len()..];
-                step_cap = v.parse::<StepCap>().map_err(|e| format!("invalid --step-cap: {e}"))?;
+                step_cap = v
+                    .parse::<StepCap>()
+                    .map_err(|e| format!("invalid --step-cap: {e}"))?;
             }
             "--word-timeout-ms" => {
                 let v = it.next().ok_or("--word-timeout-ms requires a value")?;
@@ -870,6 +874,51 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     dedup_ns as f64 / 1e6,
                 );
             }
+            // `pg_memo::AnalysisScope`'s per-word lookup/hit/insert/fallthrough/size counters, opt-in since walking every insert's size is not free.
+            if std::env::var("HC_MEMO_STATS").is_ok() {
+                let s = pg_memo::profile::snapshot();
+                let mean_results_len = if s.insert_samples > 0 {
+                    s.insert_results_len_total as f64 / s.insert_samples as f64
+                } else {
+                    0.0
+                };
+                let mean_words = if s.insert_samples > 0 {
+                    s.insert_words_total as f64 / s.insert_samples as f64
+                } else {
+                    0.0
+                };
+                eprintln!(
+                    "MEMOPROF\t{i}\t{word}\t\
+                     memo_lookups={}\tmemo_hits_pos={}\tmemo_hits_nogood={}\tmemo_inserts={}\tmemo_insert_refused={}\tmemo_fallthrough={}\tmemo_max_in_progress={}\t\
+                     tpl_lookups={}\ttpl_hits_pos={}\ttpl_hits_nogood={}\ttpl_inserts={}\ttpl_insert_refused={}\ttpl_fallthrough={}\ttpl_max_in_progress={}\t\
+                     insert_samples={}\tresults_len_mean={:.3}\tresults_len_max={}\twords_per_entry_mean={:.3}\twords_per_entry_max={}\t\
+                     shape_seg_total={}\tsynfs_total={}\trealfs_total={}\tmorphs_total={}\treplay_clones={}",
+                    s.memo_lookups,
+                    s.memo_hits_positive,
+                    s.memo_hits_nogood,
+                    s.memo_inserts,
+                    s.memo_insert_refused,
+                    s.memo_fallthrough,
+                    s.memo_max_in_progress,
+                    s.tpl_lookups,
+                    s.tpl_hits_positive,
+                    s.tpl_hits_nogood,
+                    s.tpl_inserts,
+                    s.tpl_insert_refused,
+                    s.tpl_fallthrough,
+                    s.tpl_max_in_progress,
+                    s.insert_samples,
+                    mean_results_len,
+                    s.insert_results_len_max,
+                    mean_words,
+                    s.insert_words_max,
+                    s.insert_shape_seg_total,
+                    s.insert_synfs_total,
+                    s.insert_realfs_total,
+                    s.insert_morphs_total,
+                    s.replay_clones,
+                );
+            }
             write_batch_row(
                 &mut w,
                 i,
@@ -928,15 +977,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
-                write_parse_analysis_row(
-                    analyses_w,
-                    i,
-                    word,
-                    elapsed_ms,
-                    &r.outcome,
-                    &grammar,
-                )
-                .map_err(|e| e.to_string())?;
+                write_parse_analysis_row(analyses_w, i, word, elapsed_ms, &r.outcome, &grammar)
+                    .map_err(|e| e.to_string())?;
             }
         }
     }
@@ -1178,10 +1220,12 @@ mod tests {
         let phoneme_ref_with_k = format!(
             "{phoneme_ref}\n<objsur guid=\"00000000-0000-0000-0000-000000000025\" t=\"o\" />"
         );
-        assert!(xml.contains(phoneme_ref), "fixture phoneme set shape changed");
+        assert!(
+            xml.contains(phoneme_ref),
+            "fixture phoneme set shape changed"
+        );
         let xml = xml.replacen(phoneme_ref, &phoneme_ref_with_k, 1);
-        let entry_marker =
-            "<rt class=\"LexEntry\" guid=\"00000000-0000-0000-0000-000000000030\">";
+        let entry_marker = "<rt class=\"LexEntry\" guid=\"00000000-0000-0000-0000-000000000030\">";
         let k_records = r#"<rt class="PhPhoneme" guid="00000000-0000-0000-0000-000000000025" ownerguid="00000000-0000-0000-0000-00000000000f">
 <Codes>
 <objsur guid="00000000-0000-0000-0000-000000000026" t="o" />
@@ -1205,7 +1249,12 @@ mod tests {
     #[test]
     fn analyses_sidecar_keeps_closed_rows_and_duplicate_word_indexes() {
         for (tag, threads) in [("analyses-seq", "1"), ("analyses-par", "2")] {
-            let rows = run_batch_sidecar_custom(tag, MINI_GRAMMAR_XML, "kat\nkat\n", &["--threads", threads]);
+            let rows = run_batch_sidecar_custom(
+                tag,
+                MINI_GRAMMAR_XML,
+                "kat\nkat\n",
+                &["--threads", threads],
+            );
             assert_eq!(rows.len(), 2, "threads={threads}: {rows:?}");
             for (expected_index, row) in rows.iter().enumerate() {
                 assert_eq!(row["schema"], "fieldworks-parse-analysis/v1");
@@ -1217,9 +1266,11 @@ mod tests {
                 assert_eq!(row["invalidShape"], false);
                 assert!(row["analyses"].is_array());
                 assert!(row["unavailable"].is_array());
-                assert!(row["analyses"].as_array().unwrap().len()
-                    + row["unavailable"].as_array().unwrap().len()
-                    > 0);
+                assert!(
+                    row["analyses"].as_array().unwrap().len()
+                        + row["unavailable"].as_array().unwrap().len()
+                        > 0
+                );
             }
         }
     }
@@ -1355,7 +1406,8 @@ mod tests {
 
     #[test]
     fn analyses_sidecar_invalid_shape_has_empty_projection_arrays() {
-        let rows = run_batch_sidecar_custom("analyses-invalid-shape", MINI_GRAMMAR_XML, "zzz\n", &[]);
+        let rows =
+            run_batch_sidecar_custom("analyses-invalid-shape", MINI_GRAMMAR_XML, "zzz\n", &[]);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["invalidShape"], true);
         assert_eq!(rows[0]["analyses"].as_array().unwrap().len(), 0);

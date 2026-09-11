@@ -18,7 +18,7 @@ use std::rc::Rc;
 // `std::time::Instant` panics on wasm32-unknown-unknown; `web_time` substitutes only `Instant`, reusing std's `Duration` unchanged.
 use web_time::{Duration, Instant};
 
-use pg_featstruct::{add, is_unifiable, subsumes, subtract, union, unify};
+use pg_featstruct::{add, is_unifiable, subsumes, subtract, unify, union};
 use pg_grammar::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
     StratumId, TemplateId,
@@ -813,6 +813,25 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         out.words
     }
 
+    /// `HC_MEMO_STATS=1` size proxy: `(total_words, shape_segments, syn_feats, real_feats, morphs)` summed recursively into every `non_heads` descendant.
+    fn word_tree_metrics(results: &[Word]) -> (usize, usize, usize, usize, usize) {
+        fn walk(w: &Word, acc: &mut (usize, usize, usize, usize, usize)) {
+            acc.0 += 1;
+            acc.1 += w.shape.len();
+            acc.2 += w.syn_fs.len();
+            acc.3 += w.real_fs.len();
+            acc.4 += w.morphs.len();
+            for nh in &w.non_heads {
+                walk(nh, acc);
+            }
+        }
+        let mut acc = (0, 0, 0, 0, 0);
+        for w in results {
+            walk(w, &mut acc);
+        }
+        acc
+    }
+
     /// The memoized analog of `Cascade::combination`, memoizing every interior node's subtree, not just the top-level entry.
     fn mrule_cascade_memoized(&self, input: &Word, scope: &MemoScope) -> Vec<Word> {
         let mut out = OrderedDedup::new();
@@ -833,12 +852,16 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let (key, hit_replayed) = {
             let key = self.state_key(input);
             let s = scope.borrow();
+            pg_memo::profile::record_lookup(false);
             // Positive-replay or nogood hit: replay each stored result onto this arrival's own trail/non-head prefix.
             let replayed = s.memo.get(&key).map(|entry| {
+                pg_memo::profile::record_hit(false, entry.is_positive());
                 entry
                     .results
                     .iter()
                     .map(|stored| {
+                        // `replay_onto` clones `stored` internally (`Word::replay_onto`'s `self.clone()`).
+                        pg_memo::profile::record_replay_clone();
                         stored.replay_onto(
                             input,
                             entry.mrule_trail_prefix_length,
@@ -851,16 +874,23 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         };
         if let Some(replayed) = hit_replayed {
             for r in &replayed {
+                pg_memo::profile::record_replay_clone();
                 out.add(r.clone());
             }
             return replayed;
         }
 
         // In-flight re-entry guard: a key already expanding falls through to a plain unmemoized expansion (correctness-neutral; cannot fire in analysis).
-        let fresh = scope.borrow_mut().in_progress.insert(key.clone());
+        let (fresh, depth) = {
+            let mut s = scope.borrow_mut();
+            let fresh = s.in_progress.insert(key.clone());
+            (fresh, s.in_progress.len())
+        };
         if !fresh {
+            pg_memo::profile::record_fallthrough(false);
             return self.memo_apply_rules_raw(input, out, scope);
         }
+        pg_memo::profile::record_in_progress_depth(false, depth);
 
         let results = self.memo_apply_rules_raw(input, out, scope);
 
@@ -870,6 +900,19 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             s.in_progress.remove(&key);
             if s.has_memo_capacity() {
                 let cloned_results = results.clone();
+                if pg_memo::profile::enabled() {
+                    let (total_words, shape_seg, syn_feats, real_feats, morphs) =
+                        Self::word_tree_metrics(&cloned_results);
+                    pg_memo::profile::record_insert_size(
+                        cloned_results.len(),
+                        total_words,
+                        shape_seg,
+                        syn_feats,
+                        real_feats,
+                        morphs,
+                    );
+                }
+                pg_memo::profile::record_insert(false, false);
                 s.memo.insert(
                     key,
                     MemoEntry::new(
@@ -878,6 +921,8 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                         input.non_heads.len(),
                     ),
                 );
+            } else {
+                pg_memo::profile::record_insert(false, true);
             }
         }
         results
@@ -893,11 +938,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let mut local = Vec::new();
         let in_key = input.dedup_key();
         for i in 0..self.reversed_mrules.len() {
-            for result in self.apply_one_mrule(
-                self.reversed_mrules[i],
-                input,
-                RuleInvocationRole::Ordinary,
-            ) {
+            for result in
+                self.apply_one_mrule(self.reversed_mrules[i], input, RuleInvocationRole::Ordinary)
+            {
                 local.push(result.clone());
                 out.add(result.clone());
                 // Self-loop guard. Always false here — every unapplication changes the key.
@@ -937,8 +980,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         }
         // Reject an all-final battery before memo lookup or template work.
         if self.policy.enforce
-            && input.flags.final_template_state
-                == crate::word::FinalTemplateState::NonTemplate
+            && input.flags.final_template_state == crate::word::FinalTemplateState::NonTemplate
             && self.policy.all_templates_final
         {
             if let Some(stats) = self.stats {
@@ -979,7 +1021,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let key = self.state_key(input);
         {
             let s = scope.borrow();
+            pg_memo::profile::record_lookup(true);
             if let Some(entry) = s.template_memo.get(&key) {
+                pg_memo::profile::record_hit(true, entry.is_positive());
                 let replayed: Vec<Word> = entry
                     .results
                     .iter()
@@ -995,15 +1039,22 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 return replayed;
             }
         }
-        let fresh = scope.borrow_mut().template_in_progress.insert(key.clone());
+        let (fresh, depth) = {
+            let mut s = scope.borrow_mut();
+            let fresh = s.template_in_progress.insert(key.clone());
+            (fresh, s.template_in_progress.len())
+        };
         if !fresh {
+            pg_memo::profile::record_fallthrough(true);
             return self.run_template_batch_raw(input);
         }
+        pg_memo::profile::record_in_progress_depth(true, depth);
         let results = self.run_template_batch_raw(input);
         {
             let mut s = scope.borrow_mut();
             s.template_in_progress.remove(&key);
             if s.has_template_capacity() {
+                pg_memo::profile::record_insert(true, false);
                 s.template_memo.insert(
                     key,
                     MemoEntry::new(
@@ -1012,6 +1063,8 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                         input.non_heads.len(),
                     ),
                 );
+            } else {
+                pg_memo::profile::record_insert(true, true);
             }
         }
         results
@@ -1039,8 +1092,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let tmpl = &self.g.templates[tid.0 as usize];
         // In mixed strata, reject final templates before required-FS admission and slot walking.
         if self.policy.enforce
-            && input.flags.final_template_state
-                == crate::word::FinalTemplateState::NonTemplate
+            && input.flags.final_template_state == crate::word::FinalTemplateState::NonTemplate
             && tmpl.is_final
         {
             if let Some(stats) = self.stats {
@@ -1270,7 +1322,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 }
 
 /// Widen the canonical's syntactic FS over the folded alternative's, since only the canonical is un-applied further (C# `AnalysisStratumRule.GeneralizeSyntacticFeatureStruct`).
-fn generalize_syn_fs(canonical: &mut Word, alternative: &Word, mask_of: &impl Fn(pg_featstruct::FeatId) -> u64) {
+fn generalize_syn_fs(
+    canonical: &mut Word,
+    alternative: &Word,
+    mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
+) {
     if canonical.syn_fs != alternative.syn_fs {
         canonical.syn_fs = union(&canonical.syn_fs, &alternative.syn_fs, mask_of);
     }
@@ -1308,7 +1364,10 @@ mod generalize_syn_fs_tests {
 
         generalize_syn_fs(&mut canonical, &alternative, &mask3);
 
-        assert_eq!(canonical.syn_fs, union(&fs_with(0b001), &fs_with(0b010), &mask3));
+        assert_eq!(
+            canonical.syn_fs,
+            union(&fs_with(0b001), &fs_with(0b010), &mask3)
+        );
         assert_eq!(canonical.syn_fs, fs_with(0b011));
     }
 

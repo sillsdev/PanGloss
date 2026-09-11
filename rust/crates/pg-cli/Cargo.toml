@@ -19,6 +19,7 @@ pg-realize.workspace = true
 pg-featstruct.workspace = true
 pg-fst.workspace = true
 pg-rules.workspace = true
+pg-memo.workspace = true
 pg-snapshot.workspace = true
 pg-fwdata.workspace = true
 # P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` on `batch`/`parse` routes through

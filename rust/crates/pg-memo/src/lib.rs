@@ -207,6 +207,199 @@ impl<W> MemoEntry<W> {
 /// OOM guard: past the cap, keep searching correctly, just stop growing the table; only the hit rate degrades.
 const MAX_MEMO_ENTRIES: usize = 100_000;
 
+/// A permanent diagnostic, near-zero cost when unread (thread-local `Cell` adds at each memo touch;
+/// the per-insert size walk in `record_insert_size` is skipped entirely unless `enabled()` is true).
+/// Read via `pg_memo::profile::snapshot()`, gated on `HC_MEMO_STATS=1` in `pg-cli`. Counts both
+/// `AnalysisScope` tables (`memo`, `template_memo`) so a single word's memo effectiveness can be
+/// read off at parse end without threading a collector through the cascade.
+pub mod profile {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ENABLED: Cell<Option<bool>> = const { Cell::new(None) };
+
+        static MEMO_LOOKUPS: Cell<u64> = const { Cell::new(0) };
+        static MEMO_HITS_POSITIVE: Cell<u64> = const { Cell::new(0) };
+        static MEMO_HITS_NOGOOD: Cell<u64> = const { Cell::new(0) };
+        static MEMO_INSERTS: Cell<u64> = const { Cell::new(0) };
+        static MEMO_INSERT_REFUSED: Cell<u64> = const { Cell::new(0) };
+        static MEMO_FALLTHROUGH: Cell<u64> = const { Cell::new(0) };
+        static MEMO_MAX_IN_PROGRESS: Cell<u64> = const { Cell::new(0) };
+
+        static TPL_LOOKUPS: Cell<u64> = const { Cell::new(0) };
+        static TPL_HITS_POSITIVE: Cell<u64> = const { Cell::new(0) };
+        static TPL_HITS_NOGOOD: Cell<u64> = const { Cell::new(0) };
+        static TPL_INSERTS: Cell<u64> = const { Cell::new(0) };
+        static TPL_INSERT_REFUSED: Cell<u64> = const { Cell::new(0) };
+        static TPL_FALLTHROUGH: Cell<u64> = const { Cell::new(0) };
+        static TPL_MAX_IN_PROGRESS: Cell<u64> = const { Cell::new(0) };
+
+        // Size-at-insert samples, mrule memo only (the table under study for #451's blowup).
+        static INSERT_SAMPLES: Cell<u64> = const { Cell::new(0) };
+        static INSERT_RESULTS_LEN_TOTAL: Cell<u64> = const { Cell::new(0) };
+        static INSERT_RESULTS_LEN_MAX: Cell<u64> = const { Cell::new(0) };
+        static INSERT_WORDS_TOTAL: Cell<u64> = const { Cell::new(0) };
+        static INSERT_WORDS_MAX: Cell<u64> = const { Cell::new(0) };
+        static INSERT_SHAPE_SEG_TOTAL: Cell<u64> = const { Cell::new(0) };
+        static INSERT_SYNFS_TOTAL: Cell<u64> = const { Cell::new(0) };
+        static INSERT_REALFS_TOTAL: Cell<u64> = const { Cell::new(0) };
+        static INSERT_MORPHS_TOTAL: Cell<u64> = const { Cell::new(0) };
+
+        // Clones performed materializing a memo hit's replayed words (mrule-memo path only).
+        static REPLAY_CLONES: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// Cached `HC_MEMO_STATS` read (one env lookup per thread, not per call). Callers use this to
+    /// skip the O(subtree) `record_insert_size` walk entirely when the diagnostic is off.
+    pub fn enabled() -> bool {
+        ENABLED.with(|c| {
+            if let Some(v) = c.get() {
+                return v;
+            }
+            let v = std::env::var("HC_MEMO_STATS").is_ok();
+            c.set(Some(v));
+            v
+        })
+    }
+
+    pub fn record_lookup(is_template: bool) {
+        if is_template {
+            TPL_LOOKUPS.with(|c| c.set(c.get() + 1));
+        } else {
+            MEMO_LOOKUPS.with(|c| c.set(c.get() + 1));
+        }
+    }
+
+    pub fn record_hit(is_template: bool, positive: bool) {
+        match (is_template, positive) {
+            (false, true) => MEMO_HITS_POSITIVE.with(|c| c.set(c.get() + 1)),
+            (false, false) => MEMO_HITS_NOGOOD.with(|c| c.set(c.get() + 1)),
+            (true, true) => TPL_HITS_POSITIVE.with(|c| c.set(c.get() + 1)),
+            (true, false) => TPL_HITS_NOGOOD.with(|c| c.set(c.get() + 1)),
+        }
+    }
+
+    pub fn record_insert(is_template: bool, refused: bool) {
+        match (is_template, refused) {
+            (false, false) => MEMO_INSERTS.with(|c| c.set(c.get() + 1)),
+            (false, true) => MEMO_INSERT_REFUSED.with(|c| c.set(c.get() + 1)),
+            (true, false) => TPL_INSERTS.with(|c| c.set(c.get() + 1)),
+            (true, true) => TPL_INSERT_REFUSED.with(|c| c.set(c.get() + 1)),
+        }
+    }
+
+    pub fn record_fallthrough(is_template: bool) {
+        if is_template {
+            TPL_FALLTHROUGH.with(|c| c.set(c.get() + 1));
+        } else {
+            MEMO_FALLTHROUGH.with(|c| c.set(c.get() + 1));
+        }
+    }
+
+    /// `depth` is the in-progress set's size right after the fresh key was inserted (the caller's
+    /// own live call-stack depth for that table at this instant).
+    pub fn record_in_progress_depth(is_template: bool, depth: usize) {
+        let depth = depth as u64;
+        if is_template {
+            TPL_MAX_IN_PROGRESS.with(|c| c.set(c.get().max(depth)));
+        } else {
+            MEMO_MAX_IN_PROGRESS.with(|c| c.set(c.get().max(depth)));
+        }
+    }
+
+    /// `results` is one memo entry's stored `Vec<W>` at insert time; the caller (`pg-rules`, which
+    /// owns the concrete `Word` type) has already walked it into these plain counts.
+    pub fn record_insert_size(
+        results_len: usize,
+        total_words: usize,
+        shape_segments: usize,
+        syn_feats: usize,
+        real_feats: usize,
+        morphs: usize,
+    ) {
+        INSERT_SAMPLES.with(|c| c.set(c.get() + 1));
+        INSERT_RESULTS_LEN_TOTAL.with(|c| c.set(c.get() + results_len as u64));
+        INSERT_RESULTS_LEN_MAX.with(|c| c.set(c.get().max(results_len as u64)));
+        INSERT_WORDS_TOTAL.with(|c| c.set(c.get() + total_words as u64));
+        INSERT_WORDS_MAX.with(|c| c.set(c.get().max(total_words as u64)));
+        INSERT_SHAPE_SEG_TOTAL.with(|c| c.set(c.get() + shape_segments as u64));
+        INSERT_SYNFS_TOTAL.with(|c| c.set(c.get() + syn_feats as u64));
+        INSERT_REALFS_TOTAL.with(|c| c.set(c.get() + real_feats as u64));
+        INSERT_MORPHS_TOTAL.with(|c| c.set(c.get() + morphs as u64));
+    }
+
+    /// One clone performed while materializing a memo hit (`Word::replay_onto`'s own `self.clone()`,
+    /// or a caller's clone of a replayed result into its output accumulator). Counts clones, not
+    /// replayed words, so a caller doing two clones per word shows up as double the one-clone case.
+    pub fn record_replay_clone() {
+        REPLAY_CLONES.with(|c| c.set(c.get() + 1));
+    }
+
+    /// One word's whole cumulative memo picture -- snapshot only, never reset.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct MemoProfileSnapshot {
+        pub memo_lookups: u64,
+        pub memo_hits_positive: u64,
+        pub memo_hits_nogood: u64,
+        pub memo_inserts: u64,
+        pub memo_insert_refused: u64,
+        pub memo_fallthrough: u64,
+        pub memo_max_in_progress: u64,
+
+        pub tpl_lookups: u64,
+        pub tpl_hits_positive: u64,
+        pub tpl_hits_nogood: u64,
+        pub tpl_inserts: u64,
+        pub tpl_insert_refused: u64,
+        pub tpl_fallthrough: u64,
+        pub tpl_max_in_progress: u64,
+
+        pub insert_samples: u64,
+        pub insert_results_len_total: u64,
+        pub insert_results_len_max: u64,
+        pub insert_words_total: u64,
+        pub insert_words_max: u64,
+        pub insert_shape_seg_total: u64,
+        pub insert_synfs_total: u64,
+        pub insert_realfs_total: u64,
+        pub insert_morphs_total: u64,
+
+        pub replay_clones: u64,
+    }
+
+    pub fn snapshot() -> MemoProfileSnapshot {
+        MemoProfileSnapshot {
+            memo_lookups: MEMO_LOOKUPS.with(|c| c.get()),
+            memo_hits_positive: MEMO_HITS_POSITIVE.with(|c| c.get()),
+            memo_hits_nogood: MEMO_HITS_NOGOOD.with(|c| c.get()),
+            memo_inserts: MEMO_INSERTS.with(|c| c.get()),
+            memo_insert_refused: MEMO_INSERT_REFUSED.with(|c| c.get()),
+            memo_fallthrough: MEMO_FALLTHROUGH.with(|c| c.get()),
+            memo_max_in_progress: MEMO_MAX_IN_PROGRESS.with(|c| c.get()),
+
+            tpl_lookups: TPL_LOOKUPS.with(|c| c.get()),
+            tpl_hits_positive: TPL_HITS_POSITIVE.with(|c| c.get()),
+            tpl_hits_nogood: TPL_HITS_NOGOOD.with(|c| c.get()),
+            tpl_inserts: TPL_INSERTS.with(|c| c.get()),
+            tpl_insert_refused: TPL_INSERT_REFUSED.with(|c| c.get()),
+            tpl_fallthrough: TPL_FALLTHROUGH.with(|c| c.get()),
+            tpl_max_in_progress: TPL_MAX_IN_PROGRESS.with(|c| c.get()),
+
+            insert_samples: INSERT_SAMPLES.with(|c| c.get()),
+            insert_results_len_total: INSERT_RESULTS_LEN_TOTAL.with(|c| c.get()),
+            insert_results_len_max: INSERT_RESULTS_LEN_MAX.with(|c| c.get()),
+            insert_words_total: INSERT_WORDS_TOTAL.with(|c| c.get()),
+            insert_words_max: INSERT_WORDS_MAX.with(|c| c.get()),
+            insert_shape_seg_total: INSERT_SHAPE_SEG_TOTAL.with(|c| c.get()),
+            insert_synfs_total: INSERT_SYNFS_TOTAL.with(|c| c.get()),
+            insert_realfs_total: INSERT_REALFS_TOTAL.with(|c| c.get()),
+            insert_morphs_total: INSERT_MORPHS_TOTAL.with(|c| c.get()),
+
+            replay_clones: REPLAY_CLONES.with(|c| c.get()),
+        }
+    }
+}
+
 /// Per-parse cache carrier (C# `AnalysisScope`, AnalysisScope.cs:21-63). One instance per
 /// `Morpher::parse_word` call — entries are facts about *a specific parse's* states (a key does not
 /// encode the target surface word), so sharing across parses of different words would be unsound (C#
