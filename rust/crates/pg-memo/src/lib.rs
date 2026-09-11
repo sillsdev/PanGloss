@@ -240,8 +240,15 @@ const MAX_MEMO_WORDS: usize = 1_000_000;
 
 /// Default per-table byte budget: a second, independent guard alongside the entry and word caps,
 /// since `Word` itself varies wildly in accounted size (a compound's `non_heads` recurse), so a
-/// word count alone can still admit a few enormous entries.
-pub const DEFAULT_MEMO_BYTE_BUDGET: usize = 64 * 1024 * 1024;
+/// word count alone can still admit a few enormous entries. Sized by measuring a sweep of
+/// {16 MiB, 64 MiB, 256 MiB, 1 GiB, no budget} against Aweti's worst known words: 256 MiB is the
+/// smallest tested point at which one word's step count matches its unbounded-memo count exactly
+/// and the other's is within 4x (vs. 6-7.5x at 64/16 MiB), while still cutting peak memory ~21%
+/// versus no budget on that pair (see the "Byte-budget margin" section under
+/// `docs/research/`). No tested budget keeps every word under 2 GiB peak or within 1.5x steps --
+/// this bounds the memo tables, not total process memory, and a sufficiently pathological word's
+/// *unmemoized* growth can still exhaust memory regardless of this constant.
+pub const DEFAULT_MEMO_BYTE_BUDGET: usize = 256 * 1024 * 1024;
 
 /// A permanent diagnostic, near-zero cost when unread (thread-local `Cell` adds at each memo touch;
 /// the per-insert size walk in `record_insert_size` is skipped entirely unless `enabled()` is true).

@@ -791,10 +791,22 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut timed_out_words = 0u64;
 
     let t_morpher = Instant::now();
-    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
+    let mut morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
         .with_memo(memo)
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(always_enforce_final_templates);
+    // Developer diagnostic mirroring HC_MEMO_STATS/HC_STEP_STATS: tune the memo byte budget without a rebuild ("none" disables it); unset leaves Morpher's own default.
+    if let Some(v) = std::env::var("HC_MEMO_BYTES").ok() {
+        let budget = if v.eq_ignore_ascii_case("none") {
+            None
+        } else {
+            Some(
+                v.parse::<usize>()
+                    .map_err(|e| format!("invalid HC_MEMO_BYTES: {v}: {e}"))?,
+            )
+        };
+        morpher = morpher.with_memo_byte_budget(budget);
+    }
     let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
     eprintln!(
         "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
