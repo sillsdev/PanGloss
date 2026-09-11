@@ -225,6 +225,63 @@ fn memo_on_equals_memo_off_unordered() {
     );
 }
 
+// Saturating the key at max_apps must let word_b safely hit word_a's memo entry despite differing raw counts (1 vs. 5), reproducing memo-off exactly.
+#[test]
+fn state_key_saturates_unapplication_counts_past_max_apps() {
+    let mut g = load_alpha_grammar();
+    let (ra, rb) = (suffix_rule(&g, 200, "p"), suffix_rule(&g, 300, "k"));
+    let a_id = push_mrule(&mut g, ra);
+    let _b_id = push_mrule(&mut g, rb);
+    let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![a_id, _b_id], vec![]);
+    let cfg = AnalyzerConfig::default();
+
+    let mut word_a = word(&g, "akp", s);
+    word_a.unapplied_rule_counts.insert(a_id, 1); // exactly at max_apps
+    let mut word_b = word(&g, "akp", s);
+    word_b.unapplied_rule_counts.insert(a_id, 5); // past max_apps -- e.g. Word::expand_alternatives' reconstruction
+
+    // Ground truth: unmemoized, each word searched independently.
+    let off_a = analyze_stratum(&g, s, word_a.clone(), &cfg, &StepBudget::new(usize::MAX));
+    let off_b = analyze_stratum(&g, s, word_b.clone(), &cfg, &StepBudget::new(usize::MAX));
+    assert!(!off_a.capped && !off_b.capped);
+    assert_eq!(
+        candidate_shapes(&off_a.words),
+        candidate_shapes(&off_b.words),
+        "rule `a` is past max_apps on both words, so their futures are identical regardless of the exact count"
+    );
+
+    // One shared scope: word_a populates it, then word_b must hit the same saturated key.
+    let scope: MemoScope = RefCell::new(AnalysisScope::new());
+    let _on_a = analyze_stratum_scoped(
+        &g,
+        s,
+        word_a.clone(),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
+    let before = pg_memo::profile::snapshot();
+    let on_b = analyze_stratum_scoped(
+        &g,
+        s,
+        word_b.clone(),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
+    let after = pg_memo::profile::snapshot();
+    assert!(
+        after.memo_hits_positive + after.memo_hits_nogood
+            > before.memo_hits_positive + before.memo_hits_nogood,
+        "word_b's top-level state must hit the memo entry word_a stored under the same saturated key"
+    );
+    assert_eq!(
+        candidate_shapes(&on_b.words),
+        candidate_shapes(&off_b.words),
+        "memo-on (replaying word_a's stored subtree) must equal memo-off for word_b, byte-identically"
+    );
+}
+
 // memo-on == memo-off with an affix template in the mix (exercises the TemplateMemo table).
 #[test]
 fn memo_on_equals_memo_off_with_template() {

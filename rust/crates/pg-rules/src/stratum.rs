@@ -661,7 +661,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         self.rule_filter.is_none_or(|f| f(r))
     }
 
-    /// The order-independent memo key for `w`; clones the same fields `WordKey` already clones per dedup.
+    /// The order-independent memo key for `w`, with each rule's count saturated at its `max_apps` -- the only reader compares `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate, `AnalysisStateKey.cs:14-34` -- deliberate divergence).
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
         let morph_history = w
             .morphs
@@ -676,13 +676,22 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 )
             })
             .collect();
+        let rule_counts = w
+            .unapplied_rule_counts
+            .iter()
+            .filter_map(|(&id, &count)| {
+                let cap = self.g.mrules[id.0 as usize].max_apps();
+                let saturated = count.min(u32::from(cap));
+                (saturated > 0).then_some((id, saturated))
+            })
+            .collect();
         AnalysisStateKey::new_with_state_and_morph_history(
             w.shape.clone(),
             w.stratum,
             w.syn_fs.clone(),
             w.real_fs.clone(),
             w.non_heads.len() as u32,
-            w.unapplied_rule_counts.clone(),
+            rule_counts,
             w.flags.final_template_state as u8,
             morph_history,
         )
