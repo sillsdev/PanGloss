@@ -1,0 +1,107 @@
+//! Differential measurement (CLAUDE.md "Build the differential measurement before the change"):
+//! for every word in every conformance fixture, analysing with the memo on and with it off must
+//! yield the identical deduplicated analysis-identity SET (`pg_parse::identity::AnalysisIdentity`,
+//! not trace, order, or duplicate-copy count) and the same `capped` flag. This is the correctness
+//! gate the analysis-memo fixes (sibling worktree `memo-fixes`) are judged against; it is expected
+//! to be green on today's main already, before any memo fix lands.
+
+use std::collections::BTreeSet;
+
+use pg_conformance_fixtures::{discover_scoped, ConformanceScope};
+use pg_grammar::model::Grammar;
+use pg_parse::identity::AnalysisIdentity;
+use pg_parse::{Morpher, WordAnalysis};
+
+/// Projects every produced analysis to its structured identity and collects the deduplicated set
+/// (CONTEXT.md's "Semantic analysis equality": deduplicated sets by structured identity, not
+/// order or duplicate-copy count).
+fn identity_set(
+    analyses: &[WordAnalysis],
+    grammar: &Grammar,
+    fixture_label: &str,
+    word: &str,
+    side: &str,
+) -> BTreeSet<AnalysisIdentity> {
+    analyses
+        .iter()
+        .map(|a| {
+            AnalysisIdentity::project(a, grammar).unwrap_or_else(|e| {
+                panic!(
+                    "{fixture_label}: word {word:?} (memo={side}): identity projection failed: {e}"
+                )
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn memo_on_and_off_agree_on_every_fixture_word() {
+    let fixtures = discover_scoped(ConformanceScope::All);
+    assert!(
+        !fixtures.is_empty(),
+        "no conformance fixtures discovered at all -- check the `machine` submodule is \
+         initialized (`git submodule update --init machine`) and conformance-staging/ exists"
+    );
+
+    let mut fixtures_checked = 0usize;
+    let mut words_checked = 0usize;
+    let mut analyses_compared = 0usize;
+
+    for fixture in &fixtures {
+        // Mirrors admission_single_owner_gate's own skip: an unloadable or table-less grammar has
+        // nothing this gate can analyse.
+        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+            continue;
+        };
+        if grammar.char_tables.is_empty() {
+            continue;
+        }
+        let words_yaml = fixture.load_words_yaml();
+        if words_yaml.words.is_empty() {
+            continue;
+        }
+        let label = fixture.label();
+        fixtures_checked += 1;
+
+        let memo_on = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let memo_off = Morpher::new(&grammar, usize::MAX).with_memo(false);
+
+        for entry in &words_yaml.words {
+            let word = &entry.word;
+            words_checked += 1;
+
+            let on_outcome = memo_on.parse_word(word);
+            let off_outcome = memo_off.parse_word(word);
+
+            assert_eq!(
+                on_outcome.capped, off_outcome.capped,
+                "{label}: word {word:?}: memo=on capped={} but memo=off capped={} -- the step \
+                 budget must fire identically regardless of memo",
+                on_outcome.capped, off_outcome.capped
+            );
+
+            let on_set = identity_set(&on_outcome.structured, &grammar, &label, word, "on");
+            let off_set = identity_set(&off_outcome.structured, &grammar, &label, word, "off");
+            analyses_compared += on_set.len();
+
+            if on_set != off_set {
+                let only_on: Vec<_> = on_set.difference(&off_set).collect();
+                let only_off: Vec<_> = off_set.difference(&on_set).collect();
+                panic!(
+                    "{label}: word {word:?}: memo on/off analysis-identity sets differ\n  \
+                     only with memo=on:  {only_on:?}\n  only with memo=off: {only_off:?}"
+                );
+            }
+        }
+    }
+
+    assert!(
+        fixtures_checked > 0,
+        "no fixture contributed any word -- the sweep measured nothing"
+    );
+
+    eprintln!(
+        "memo_parity_gate: {fixtures_checked} fixture(s), {words_checked} word(s), \
+         {analyses_compared} analysis identity(ies) compared, memo=on vs memo=off"
+    );
+}
