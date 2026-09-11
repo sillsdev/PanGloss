@@ -207,6 +207,9 @@ impl<W> MemoEntry<W> {
 /// OOM guard: past the cap, keep searching correctly, just stop growing the table; only the hit rate degrades.
 const MAX_MEMO_ENTRIES: usize = 100_000;
 
+/// Retained-word budget shared across both tables -- the load-bearing cap, since `MAX_MEMO_ENTRIES` bounds entry count only and `MemoEntry::results` is itself unbounded (C# `AnalysisScope.MaxMemoWords`, `AnalysisScope.cs:27-30,97-108`).
+const MAX_MEMO_WORDS: usize = 1_000_000;
+
 /// A permanent diagnostic, near-zero cost when unread (thread-local `Cell` adds at each memo touch;
 /// the per-insert size walk in `record_insert_size` is skipped entirely unless `enabled()` is true).
 /// Read via `pg_memo::profile::snapshot()`, gated on `HC_MEMO_STATS=1` in `pg-cli`. Counts both
@@ -223,6 +226,8 @@ pub mod profile {
         static MEMO_HITS_NOGOOD: Cell<u64> = const { Cell::new(0) };
         static MEMO_INSERTS: Cell<u64> = const { Cell::new(0) };
         static MEMO_INSERT_REFUSED: Cell<u64> = const { Cell::new(0) };
+        static MEMO_INSERT_REFUSED_ENTRIES: Cell<u64> = const { Cell::new(0) };
+        static MEMO_INSERT_REFUSED_WORDS: Cell<u64> = const { Cell::new(0) };
         static MEMO_FALLTHROUGH: Cell<u64> = const { Cell::new(0) };
         static MEMO_MAX_IN_PROGRESS: Cell<u64> = const { Cell::new(0) };
 
@@ -231,10 +236,12 @@ pub mod profile {
         static TPL_HITS_NOGOOD: Cell<u64> = const { Cell::new(0) };
         static TPL_INSERTS: Cell<u64> = const { Cell::new(0) };
         static TPL_INSERT_REFUSED: Cell<u64> = const { Cell::new(0) };
+        static TPL_INSERT_REFUSED_ENTRIES: Cell<u64> = const { Cell::new(0) };
+        static TPL_INSERT_REFUSED_WORDS: Cell<u64> = const { Cell::new(0) };
         static TPL_FALLTHROUGH: Cell<u64> = const { Cell::new(0) };
         static TPL_MAX_IN_PROGRESS: Cell<u64> = const { Cell::new(0) };
 
-        // Size-at-insert samples, mrule memo only (the table under study for #451's blowup).
+        // Size-at-insert samples, mrule memo only.
         static INSERT_SAMPLES: Cell<u64> = const { Cell::new(0) };
         static INSERT_RESULTS_LEN_TOTAL: Cell<u64> = const { Cell::new(0) };
         static INSERT_RESULTS_LEN_MAX: Cell<u64> = const { Cell::new(0) };
@@ -285,6 +292,29 @@ pub mod profile {
             (false, true) => MEMO_INSERT_REFUSED.with(|c| c.set(c.get() + 1)),
             (true, false) => TPL_INSERTS.with(|c| c.set(c.get() + 1)),
             (true, true) => TPL_INSERT_REFUSED.with(|c| c.set(c.get() + 1)),
+        }
+    }
+
+    /// Classifies a refusal already recorded by `record_insert(_, true)` by which cap bound; a
+    /// refusal may be counted under more than one reason (e.g. both caps exhausted at once).
+    pub fn record_insert_refused_reason(is_template: bool, by_entry_cap: bool, by_word_cap: bool) {
+        match is_template {
+            false => {
+                if by_entry_cap {
+                    MEMO_INSERT_REFUSED_ENTRIES.with(|c| c.set(c.get() + 1));
+                }
+                if by_word_cap {
+                    MEMO_INSERT_REFUSED_WORDS.with(|c| c.set(c.get() + 1));
+                }
+            }
+            true => {
+                if by_entry_cap {
+                    TPL_INSERT_REFUSED_ENTRIES.with(|c| c.set(c.get() + 1));
+                }
+                if by_word_cap {
+                    TPL_INSERT_REFUSED_WORDS.with(|c| c.set(c.get() + 1));
+                }
+            }
         }
     }
 
@@ -343,6 +373,8 @@ pub mod profile {
         pub memo_hits_nogood: u64,
         pub memo_inserts: u64,
         pub memo_insert_refused: u64,
+        pub memo_insert_refused_entries: u64,
+        pub memo_insert_refused_words: u64,
         pub memo_fallthrough: u64,
         pub memo_max_in_progress: u64,
 
@@ -351,6 +383,8 @@ pub mod profile {
         pub tpl_hits_nogood: u64,
         pub tpl_inserts: u64,
         pub tpl_insert_refused: u64,
+        pub tpl_insert_refused_entries: u64,
+        pub tpl_insert_refused_words: u64,
         pub tpl_fallthrough: u64,
         pub tpl_max_in_progress: u64,
 
@@ -374,6 +408,8 @@ pub mod profile {
             memo_hits_nogood: MEMO_HITS_NOGOOD.with(|c| c.get()),
             memo_inserts: MEMO_INSERTS.with(|c| c.get()),
             memo_insert_refused: MEMO_INSERT_REFUSED.with(|c| c.get()),
+            memo_insert_refused_entries: MEMO_INSERT_REFUSED_ENTRIES.with(|c| c.get()),
+            memo_insert_refused_words: MEMO_INSERT_REFUSED_WORDS.with(|c| c.get()),
             memo_fallthrough: MEMO_FALLTHROUGH.with(|c| c.get()),
             memo_max_in_progress: MEMO_MAX_IN_PROGRESS.with(|c| c.get()),
 
@@ -382,6 +418,8 @@ pub mod profile {
             tpl_hits_nogood: TPL_HITS_NOGOOD.with(|c| c.get()),
             tpl_inserts: TPL_INSERTS.with(|c| c.get()),
             tpl_insert_refused: TPL_INSERT_REFUSED.with(|c| c.get()),
+            tpl_insert_refused_entries: TPL_INSERT_REFUSED_ENTRIES.with(|c| c.get()),
+            tpl_insert_refused_words: TPL_INSERT_REFUSED_WORDS.with(|c| c.get()),
             tpl_fallthrough: TPL_FALLTHROUGH.with(|c| c.get()),
             tpl_max_in_progress: TPL_MAX_IN_PROGRESS.with(|c| c.get()),
 
@@ -418,6 +456,8 @@ pub struct AnalysisScope<W> {
     pub in_progress: HashSet<AnalysisStateKey>,
     /// The same guard for the template battery (see the module-level deviation note).
     pub template_in_progress: HashSet<AnalysisStateKey>,
+    /// Words retained across both tables so far, against the shared `MAX_MEMO_WORDS` budget (C# `_storedWordCount`).
+    stored_words: usize,
 }
 
 impl<W> Default for AnalysisScope<W> {
@@ -433,17 +473,50 @@ impl<W> AnalysisScope<W> {
             template_memo: HashMap::default(),
             in_progress: HashSet::default(),
             template_in_progress: HashSet::default(),
+            stored_words: 0,
         }
     }
 
-    /// C# `AnalysisScope.HasMemoCapacity` (AnalysisScope.cs:62): room to add another mrule-memo entry.
-    pub fn has_memo_capacity(&self) -> bool {
+    /// C# `AnalysisScope.HasMemoCapacity` (AnalysisScope.cs:62), extended with the retained-word
+    /// budget: room to add another mrule-memo entry storing `results_len` words.
+    pub fn has_memo_capacity(&self, results_len: usize) -> bool {
         self.memo.len() < MAX_MEMO_ENTRIES
+            && self.stored_words.saturating_add(results_len) <= MAX_MEMO_WORDS
     }
 
-    /// Room to add another template-memo entry (same cap discipline, per-table).
-    pub fn has_template_capacity(&self) -> bool {
+    /// Room to add another template-memo entry storing `results_len` words (same cap discipline,
+    /// against the same shared `stored_words` budget as `has_memo_capacity`).
+    pub fn has_template_capacity(&self, results_len: usize) -> bool {
         self.template_memo.len() < MAX_MEMO_ENTRIES
+            && self.stored_words.saturating_add(results_len) <= MAX_MEMO_WORDS
+    }
+
+    /// Record `results_len` words as retained against the shared word budget. Call only once, right
+    /// after a store that `has_memo_capacity`/`has_template_capacity` already admitted.
+    pub fn record_stored_words(&mut self, results_len: usize) {
+        self.stored_words += results_len;
+    }
+
+    /// The current retained-word count, for diagnostics (`MEMOPROF`'s `stored_words`).
+    pub fn stored_words(&self) -> usize {
+        self.stored_words
+    }
+
+    /// Diagnostic-only: whether the mrule-memo entry cap alone is exhausted, so a caller classifying
+    /// a refusal from `has_memo_capacity` can report which cap actually bound.
+    pub fn memo_entries_at_cap(&self) -> bool {
+        self.memo.len() >= MAX_MEMO_ENTRIES
+    }
+
+    /// Diagnostic-only template-memo analog of `memo_entries_at_cap`.
+    pub fn template_entries_at_cap(&self) -> bool {
+        self.template_memo.len() >= MAX_MEMO_ENTRIES
+    }
+
+    /// Diagnostic-only: whether storing `results_len` more words would exceed the shared word
+    /// budget, independent of entry-count capacity.
+    pub fn would_exceed_word_budget(&self, results_len: usize) -> bool {
+        self.stored_words.saturating_add(results_len) > MAX_MEMO_WORDS
     }
 }
 
@@ -597,7 +670,36 @@ mod tests {
     #[test]
     fn capacity_reports_room() {
         let scope: AnalysisScope<u32> = AnalysisScope::new();
-        assert!(scope.has_memo_capacity());
-        assert!(scope.has_template_capacity());
+        assert!(scope.has_memo_capacity(0));
+        assert!(scope.has_template_capacity(0));
+    }
+
+    #[test]
+    fn word_budget_refuses_a_store_past_the_cap_but_keeps_serving_existing_hits() {
+        let mut scope: AnalysisScope<u32> = AnalysisScope::new();
+        let stored_key = key_with(counts_from(&[0]), 0);
+        scope
+            .memo
+            .insert(stored_key.clone(), MemoEntry::new(vec![1u32, 2, 3], 0, 0));
+        // Only 2 words of the shared budget remain.
+        scope.stored_words = MAX_MEMO_WORDS - 2;
+
+        let would_be_key = key_with(counts_from(&[1]), 0);
+        assert!(
+            !scope.has_memo_capacity(3),
+            "3 requested words > 2 words of remaining budget"
+        );
+        assert!(
+            scope.has_memo_capacity(2),
+            "exactly the remaining budget must still be admitted"
+        );
+        assert!(
+            !scope.has_template_capacity(3),
+            "the word budget is shared across both tables"
+        );
+
+        // A refused store must leave the already-stored entry servable.
+        assert!(scope.memo.get(&stored_key).is_some());
+        assert!(scope.memo.get(&would_be_key).is_none());
     }
 }

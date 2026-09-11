@@ -898,7 +898,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         {
             let mut s = scope.borrow_mut();
             s.in_progress.remove(&key);
-            if s.has_memo_capacity() {
+            if s.has_memo_capacity(results.len()) {
                 let cloned_results = results.clone();
                 if pg_memo::profile::enabled() {
                     let (total_words, shape_seg, syn_feats, real_feats, morphs) =
@@ -913,6 +913,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     );
                 }
                 pg_memo::profile::record_insert(false, false);
+                s.record_stored_words(cloned_results.len());
                 s.memo.insert(
                     key,
                     MemoEntry::new(
@@ -923,6 +924,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 );
             } else {
                 pg_memo::profile::record_insert(false, true);
+                pg_memo::profile::record_insert_refused_reason(
+                    false,
+                    s.memo_entries_at_cap(),
+                    s.would_exceed_word_budget(results.len()),
+                );
             }
         }
         results
@@ -1053,8 +1059,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         {
             let mut s = scope.borrow_mut();
             s.template_in_progress.remove(&key);
-            if s.has_template_capacity() {
+            if s.has_template_capacity(results.len()) {
                 pg_memo::profile::record_insert(true, false);
+                s.record_stored_words(results.len());
                 s.template_memo.insert(
                     key,
                     MemoEntry::new(
@@ -1065,6 +1072,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 );
             } else {
                 pg_memo::profile::record_insert(true, true);
+                pg_memo::profile::record_insert_refused_reason(
+                    true,
+                    s.template_entries_at_cap(),
+                    s.would_exceed_word_budget(results.len()),
+                );
             }
         }
         results
