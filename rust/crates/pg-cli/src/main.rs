@@ -948,7 +948,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                      max_raw_cascade_len={}\tmax_raw_cascade_bytes={}\t\
                      max_template_len={}\tmax_template_bytes={}\t\
                      max_apply_mrules_len={}\tmax_apply_mrules_bytes={}\t\
-                     max_apply_templates_len={}\tmax_apply_templates_bytes={}",
+                     max_apply_templates_len={}\tmax_apply_templates_bytes={}\t\
+                     max_live_words={}",
                     f.max_depth,
                     f.max_local_len,
                     f.max_local_bytes,
@@ -962,6 +963,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     f.max_apply_mrules_bytes,
                     f.max_apply_templates_len,
                     f.max_apply_templates_bytes,
+                    f.max_live_words,
                 );
             }
             write_batch_row(

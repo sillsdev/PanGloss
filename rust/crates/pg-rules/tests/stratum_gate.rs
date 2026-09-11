@@ -1098,6 +1098,54 @@ fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand
 }
 
 #[test]
+fn cascade_diamond_never_holds_more_live_words_than_distinct_outputs_plus_depth() {
+    // Two front-strip + two back-strip rules on "pkagn" give the root state C(4,2)=6 histories, pinning the live-frontier bound (`docs/research/live-frontier-memory-bound.md`); a fresh OS thread per libtest fn makes the real env var here an implicit, leak-free reset.
+    std::env::set_var("HC_FRONTIER_STATS", "1");
+
+    let mut g = load_alpha_grammar();
+    let rule_p1 = prefix_rule(&g, 200, "p");
+    let rule_p2 = prefix_rule(&g, 201, "k");
+    let rule_s1 = suffix_rule(&g, 300, "n");
+    let rule_s2 = suffix_rule(&g, 301, "g");
+    let id_p1 = push_mrule(&mut g, rule_p1);
+    let id_p2 = push_mrule(&mut g, rule_p2);
+    let id_s1 = push_mrule(&mut g, rule_s1);
+    let id_s2 = push_mrule(&mut g, rule_s2);
+    let s0 = push_stratum(
+        &mut g,
+        MorphRuleOrder::Unordered,
+        vec![id_p1, id_p2, id_s1, id_s2],
+        vec![],
+    );
+
+    let cfg = AnalyzerConfig {
+        merge_equivalent: true,
+        max_unapplications: 0,
+        max_stem_count: 2,
+    };
+    let input = word(&g, "pkagn", s0);
+    let out = analyze_stratum(&g, s0, input, &cfg, &StepBudget::new(100_000));
+    assert!(!out.capped);
+    let root_shape = vec![cd(&g, "char_a")];
+    assert!(
+        out.words.iter().any(|w| char_defs(&w.shape) == root_shape),
+        "the fully-stripped root [a] must be reached"
+    );
+
+    let snap = pg_rules::stratum::frontier_profile::snapshot();
+    let distinct_outputs = out.words.len() as u64;
+    let bound = distinct_outputs + snap.max_depth;
+    assert!(
+        snap.max_live_words <= bound,
+        "live frontier peaked at {} words, exceeding distinct outputs ({distinct_outputs}) + \
+         depth ({}) = {bound}; apply_mrules/apply_templates must stream into the stratum's own \
+         dedup accumulator, not concatenate an owned Vec per recursive call",
+        snap.max_live_words,
+        snap.max_depth,
+    );
+}
+
+#[test]
 fn merge_generalizes_canonical_syntactic_fs_over_folded_alternative() {
     // The always-equal-FS case this public API can reach; the differing-FS branch is unit-tested in `stratum.rs`'s `generalize_syn_fs_tests` instead (see the assertion messages below for why).
     let mut g = load_alpha_grammar();

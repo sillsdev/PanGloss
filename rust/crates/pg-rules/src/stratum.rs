@@ -149,6 +149,7 @@ pub mod frontier_profile {
         static MAX_APPLY_MRULES_BYTES: Cell<u64> = const { Cell::new(0) };
         static MAX_APPLY_TEMPLATES_LEN: Cell<u64> = const { Cell::new(0) };
         static MAX_APPLY_TEMPLATES_BYTES: Cell<u64> = const { Cell::new(0) };
+        static MAX_LIVE_WORDS: Cell<u64> = const { Cell::new(0) };
     }
 
     /// Cached `HC_FRONTIER_STATS` read (one env lookup per thread), mirroring `pg_memo::profile::enabled`.
@@ -185,6 +186,11 @@ pub mod frontier_profile {
         }
     }
 
+    /// The live recursion depth right now, for callers combining it with a durable accumulator's own length into one live-word estimate.
+    pub fn current_depth() -> u64 {
+        CUR_DEPTH.with(Cell::get)
+    }
+
     macro_rules! recorder {
         ($fn_name:ident, $len_cell:ident, $bytes_cell:ident) => {
             pub fn $fn_name(len: usize, bytes: usize) {
@@ -212,6 +218,14 @@ pub mod frontier_profile {
         MAX_APPLY_TEMPLATES_BYTES
     );
 
+    /// The size of the one durable per-stratum dedup accumulator plus the live recursion depth at
+    /// the moment a word reached it -- the direct replacement metric for the removed
+    /// `apply_mrules`/`apply_templates` `Vec<Word>` lengths above, which this accumulator's own
+    /// length now bounds instead of multiplying (`docs/research/live-frontier-memory-bound.md`).
+    pub fn record_live_words(live: u64) {
+        MAX_LIVE_WORDS.with(|c| c.set(c.get().max(live)));
+    }
+
     /// One word's whole cumulative frontier picture -- snapshot only, never reset (mirrors
     /// `pg_memo::profile::MemoProfileSnapshot`).
     #[derive(Debug, Clone, Copy, Default)]
@@ -229,6 +243,7 @@ pub mod frontier_profile {
         pub max_apply_mrules_bytes: u64,
         pub max_apply_templates_len: u64,
         pub max_apply_templates_bytes: u64,
+        pub max_live_words: u64,
     }
 
     pub fn snapshot() -> FrontierProfileSnapshot {
@@ -246,7 +261,30 @@ pub mod frontier_profile {
             max_apply_mrules_bytes: MAX_APPLY_MRULES_BYTES.with(Cell::get),
             max_apply_templates_len: MAX_APPLY_TEMPLATES_LEN.with(Cell::get),
             max_apply_templates_bytes: MAX_APPLY_TEMPLATES_BYTES.with(Cell::get),
+            max_live_words: MAX_LIVE_WORDS.with(Cell::get),
         }
+    }
+
+    /// Test-only control the real `HC_FRONTIER_STATS=1` env gate can't give unit tests: force this
+    /// thread's counters on and zero them, independent of process environment and other threads.
+    #[cfg(test)]
+    pub fn test_reset_and_enable() {
+        ENABLED.with(|c| c.set(Some(true)));
+        CUR_DEPTH.with(|c| c.set(0));
+        MAX_DEPTH.with(|c| c.set(0));
+        MAX_LOCAL_LEN.with(|c| c.set(0));
+        MAX_LOCAL_BYTES.with(|c| c.set(0));
+        MAX_DEDUP_LEN.with(|c| c.set(0));
+        MAX_DEDUP_BYTES.with(|c| c.set(0));
+        MAX_RAW_CASCADE_LEN.with(|c| c.set(0));
+        MAX_RAW_CASCADE_BYTES.with(|c| c.set(0));
+        MAX_TEMPLATE_LEN.with(|c| c.set(0));
+        MAX_TEMPLATE_BYTES.with(|c| c.set(0));
+        MAX_APPLY_MRULES_LEN.with(|c| c.set(0));
+        MAX_APPLY_MRULES_BYTES.with(|c| c.set(0));
+        MAX_APPLY_TEMPLATES_LEN.with(|c| c.set(0));
+        MAX_APPLY_TEMPLATES_BYTES.with(|c| c.set(0));
+        MAX_LIVE_WORDS.with(|c| c.set(0));
     }
 }
 
@@ -1490,6 +1528,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         // Every stratum output points back at the seed.
         for w in &mut mrule_out {
             w.source = Some(source.clone());
+        }
+        // Everything `apply_templates`/`apply_mrules` produced is alive at once right here -- the live-frontier peak this stratum call reaches (`docs/research/live-frontier-memory-bound.md`).
+        if frontier_profile::enabled() {
+            frontier_profile::record_live_words(mrule_out.len() as u64);
         }
 
         // WordKey -> its index in `words`, so an identity-fallback fold (below) can find its canonical.
