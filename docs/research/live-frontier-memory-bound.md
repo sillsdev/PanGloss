@@ -181,3 +181,68 @@ from `pg-cli`, mirroring the existing `HC_MEMO_STATS`/`MEMOPROF` convention exac
 enable-gate shape, same per-word snapshot-not-reset semantics). Zero cost when unset: every record
 call is behind an `enabled()` check, and depth tracking constructs its RAII guard only via
 `enabled().then(DepthGuard::enter)`, so the disabled path never touches a `Cell`.
+
+## 5. Fix B result: stream `apply_mrules`/`apply_templates` instead of concatenating owned `Vec`s
+
+Implemented on `fix/stream-analysis-frontier`: both functions now push each produced `Word`
+through a `WordSink` straight into the stratum's own dedup fold in `analyze()` (the same shape as
+C#'s `yield return` consumed by a `HashSet`), so no intermediate `Vec<Word>` ever holds a whole
+subtree. Memoization, the step budget, and every rule's behaviour are unchanged — this is a
+representation change only, order-preserving. A red pg-rules unit test
+(`cascade_diamond_never_holds_more_live_words_than_distinct_outputs_plus_depth`, a synthetic
+four-rule diamond) pinned the property before the fix (measured live frontier 18 words against a
+bound of 9 distinct outputs + depth 2 = 11) and is green after.
+
+**FRONTIER counters, `oteʼikateʼika` alone, debug build, `--threads 1`, `-RunMemoryGB 6`** (process-internal, immune to any shared-machine contention):
+
+| `--step-cap` | | `max_depth` | `max_apply_mrules_len` | `max_apply_templates_len` | `max_live_words` |
+|---:|---|---:|---:|---:|---:|
+| 200,000 | before | 15 | 32,520 (51.7 MB) | 32,529 (51.8 MB) | *(not yet tracked)* |
+| 200,000 | after | 15 | 0 | 0 | 3,007 |
+| 1,000,000 | before | 15 | 233,627 (366.5 MB) | 233,636 (366.5 MB) | *(not yet tracked)* |
+| 1,000,000 | after | 15 | 0 | 0 | 13,986 |
+
+`max_apply_mrules_len`/`max_apply_templates_len` collapse to 0 because the `Vec<Word>` they used to
+measure no longer exists; `max_live_words` (new counter: the durable per-stratum dedup
+accumulator's size plus live recursion depth at each push) is the direct replacement and stays two
+orders of magnitude below the old `apply_mrules`/`apply_templates` lengths at the same step count.
+It still grows with step count (3,007 → 13,986, a 4.65× increase for a 5× step increase, versus the
+old code's 7.2×) because Fix B is the *reduction* the design doc named, not the *bound* — a frontier
+byte budget (Fix A) is still required to give `oteʼikateʼika` a deterministic, typed-incomplete
+outcome instead of an OS-level abort.
+
+**Peak working set and wall time** (`memo-measure.ps1`, memo on): the machine this ran on had other
+PanGloss worktrees' sessions independently running `pangloss.exe` binaries throughout the
+after-fix measurement window (confirmed via `Get-Process -Name pangloss` showing foreign PIDs from
+`exact-analysis-fs` and the bare `PanGloss` checkout immediately before and during several runs);
+`memo-measure.ps1` sums working set by process *name*, not PID, so any after-fix row below is an
+upper bound inflated by that unrelated activity, not a clean per-process reading. The before-fix
+rows were collected earlier in the session before any such contention appeared and are clean.
+
+| Word set | step-cap | before wall / peak WS | after wall / peak WS (contended, upper bound) |
+|---|---:|---|---|
+| `oteʼikateʼika` alone | 200,000 | 23.0 s / 264.8 MB | 24.4 s / 832.0 MB (contended) |
+| `oteʼikateʼika` alone | 1,000,000 | 44.7 s / 1,465.3 MB | 59.0 s / 3,674.2 MB (contended) |
+| `oteʼikateʼika` alone | unbounded | 371.7 s / 7,506.4 MB, **aborted** (exit 1) | 438.4 s / 6,101.6 MB, **aborted** (exit 1) |
+| Aweti first 44 | 200,000 | 104.3 s / 447.6 MB | 170.5 s / 3,901.6 MB (contended) |
+| Sena first 300 | default (50,000,000) | 23.6 s / 42.9 MB | 53.6 s / 4,141.9 MB (contended) |
+| Mbugwe first 60 | 2,000,000 | 336.2 s / 421.4 MB | 460.3 s / 7,502.4 MB (contended) |
+
+`oteʼikateʼika` does **not** survive uncapped under a 6 GB ceiling after Fix B alone — it still
+aborts, consistent with Fix B being a reduction in the multiplicative replay, not the deterministic
+byte-budget bound (Fix A) ADR-0003 requires. The uncapped wall time did grow (371.7 s → 438.4 s),
+consistent with the same fewer-steps-per-byte-of-growth story the FRONTIER counters show, but both
+runs shared the same contended machine, so this comparison is directional, not precise.
+
+**Parity evidence, every row unchanged from before Fix B**:
+- `memo_parity_gate` (`pg-parse`): `memo_on_and_off_agree_on_every_fixture_word` — 67 fixture(s), 690
+  word(s), 2318 analysis identity(ies) compared, 0 capped both sides.
+- `memo_corpus_gate` (`pg-foma`): `memo_parity_survives_aweti_sena_mbugwe` — aweti completed
+  both=20, capped both=19, completed only on=5; sena completed both=300, capped both=0; mbugwe
+  completed both=56, capped both=4, completed only on=0.
+- `parse_compare.py`, old binary (`main`, `459e8cb1`) vs. new binary (`fix/stream-analysis-frontier`):
+  Aweti first 44 @200k — 25/25 completed words PARSE-EXACT, 19/19 CAP words byte-identical. Sena
+  first 300 @default — 300/300 IDENTICAL (100% byte-exact). Mbugwe first 60 @2M — 56/56 completed
+  words PARSE-EXACT, 4/4 CAP words byte-identical.
+- `pg-rules`/`pg-parse` full suites green (174 and 182 tests respectively); `backend_scoreboard_gate`
+  and `envelope_agrees_with_compiler_gate` (`pg-foma`, the confirm-engine gates) both green.
