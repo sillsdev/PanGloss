@@ -157,23 +157,36 @@ the in-repo gates in §6, not by raw TSV equality here.
 
 ### Fixture 3 — Mbugwe first 60 words, `--step-cap 2000000`; Sena first 300 words, default step cap
 
+Word-file discipline: each corpus's word list was written once
+(`Get-Content samples\data\<corpus>-words.txt -TotalCount N`) and that one file was reused for
+every binary/mode below, never regenerated mid-fixture. Word-file SHA-256: Sena 300 —
+`19e7b3d81076d2be7b27906289541a6894e21f82bf2172a82fd91d3654429322`; Mbugwe 60 —
+`31d51f9e4c73a6c0c1192bd8e0bb59fe1f6402b6128d4ac1197517e7474c3ea1`; Aweti 44 (fixture 2) —
+`dbe184558c08f6a14993e0336f61dade2eb5c39f9dc2a920553c92bd340f1c81`.
+
 | Binary | Corpus | Memo | Exit | Wall (s) | Peak WS (MB) | Capped | Steps | TSV SHA-256 |
 |---|---|---|---:|---:|---:|---:|---:|---|
 | A | Mbugwe 60 | on | 0 | 721.2 | 222.8 | 15 | 65,217,148 | `647feec6...ce11bb1` |
 | B | Mbugwe 60 | on | 0 | 424.2 | 411.9 | 4 | 27,992,018 | `7227d416...c8f67aa92` |
 | C | Mbugwe 60 | on | 0 | 432.3 | 412.4 | 4 | 27,992,018 | `7227d416...c8f67aa92` |
 | C | Mbugwe 60 | off | 0 | 326.1 | 227.3 | 4 | 32,575,111 | `7227d416...c8f67aa92` |
-| A | Sena 300 | on | 0 | 37.1 | 213.6 | 0 | 712,547 | `53222f27...0ec0375` |
-| B | Sena 300 | on | 0 | 37.8 | 388.3 | 0 | 436,608 | `9150e40b...87b031ca9` |
-| C | Sena 300 | on | 0 | 38.5 | 388.5 | 0 | 436,608 | `5ca4d754...651e9789174` |
-| C | Sena 300 | off | 0 | 36.1 | 206.0 | 0 | 502,150 | `1534c231...41b5dca5` |
+| A | Sena 300 | on | 0 | 32.9 | 49.7 | 0 | 712,547 | `1534c231...41b5dca5` |
+| B | Sena 300 | on | 0 | 22.6 | 45.4 | 0 | 436,608 | `1534c231...41b5dca5` |
+| C | Sena 300 | on | 0 | 22.4 | 45.2 | 0 | 436,608 | `1534c231...41b5dca5` |
+| C | Sena 300 | off | 0 | 22.5 | 42.4 | 0 | 502,150 | `1534c231...41b5dca5` |
 
-Sena: no word approaches any cap on any binary (0 capped throughout). Mbugwe: B, C-on, and C-off
-all three share one TSV hash despite differing step counts — output row order is stable here
-regardless of memo mode or cap set, unlike Sena. B and C-on agree exactly (step count and hash) on
-both corpora; C-on vs. C-off differ in steps (expected, different code paths) but not in row order
-for Mbugwe. Byte-for-byte TSV equality is stronger than the port needs; recall itself is what §6's
-gates assert, both re-run and green on this branch (404 corpus cases, 0 divergences).
+Correction: the first pass ran Sena for A, B, and C-on/off as four *concurrent* background
+processes (each `--threads 1`, but sharing the machine) and reported four different TSV hashes
+with a wrong "row order is unstable" explanation. Re-measured one binary at a time against the
+single file above, Sena is byte-identical across every binary and both memo modes — one shared
+hash despite three different step counts (A 712,547; B/C-on 436,608; C-off 502,150) — matching
+Mbugwe's pattern and confirming recall parity at the TSV-byte level, not just the identity-set
+level. Peak WS also dropped an order of magnitude without contention (45-50 MB vs. the originally
+reported 206-388 MB). Mbugwe was re-checked the same way: C-on/off run in isolation reproduced the
+original hash (`7227d416...c8f67aa92`) and step counts exactly (27,992,018 / 32,575,111), so its
+original concurrent run was not corrupted. Byte-for-byte TSV equality is stronger than the port
+needs; recall itself is what §6's gates assert, both re-run and green on this branch (404 corpus
+cases, 0 divergences).
 
 ## 5. What remains: the live search frontier, not the memo
 
