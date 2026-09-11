@@ -704,6 +704,7 @@ dependencies = [
  "pg-fst",
  "pg-fwdata",
  "pg-grammar",
+ "pg-memo",
  "pg-pack",
  "pg-parse",
  "pg-realize",
