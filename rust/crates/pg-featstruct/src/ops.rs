@@ -531,6 +531,60 @@ pub fn subtract(a: &FeatureStruct, b: &FeatureStruct) -> FeatureStruct {
     builder.build()
 }
 
+/// Port of `AnalysisSyntacticFeatureMerge.RemovePaths` (private, `AnalysisSyntacticFeatureMerge.cs`):
+/// strips every leaf feature path `paths` defines from `a`. For each feature `paths` names: absent
+/// from `a` -> skip; both sides nested `FeatureStruct`s -> recurse and drop the key only if the
+/// recursion empties it; otherwise drop the key outright. A feature `paths` doesn't mention is
+/// untouched, even if `a` has it. Used to invert synthesis's `out` contribution off an analysis
+/// word's syntactic FS before re-unifying with `required` (`crate::morph::ana_syn_fs`, `pg-rules`).
+pub fn remove_paths(a: &FeatureStruct, paths: &FeatureStruct) -> FeatureStruct {
+    let ae = a.entries();
+    let pe = paths.entries();
+    let mut builder = FeatureStructBuilder::new();
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < ae.len() && j < pe.len() {
+        match ae[i].0.cmp(&pe[j].0) {
+            Ordering::Less => {
+                builder.add(ae[i].0, ae[i].1.clone());
+                i += 1;
+            }
+            Ordering::Greater => {
+                // `paths`-only feature: `a` doesn't have it, nothing to remove.
+                j += 1;
+            }
+            Ordering::Equal => {
+                match (&ae[i].1, &pe[j].1) {
+                    (FeatureValue::Complex(fa), FeatureValue::Complex(fp)) => {
+                        let nested = remove_paths(fa, fp);
+                        if !nested.is_empty() {
+                            builder.add(ae[i].0, FeatureValue::Complex(nested));
+                        }
+                    }
+                    (_, FeatureValue::Complex(_)) | (FeatureValue::Complex(_), _) => {
+                        debug_assert!(
+                            false,
+                            "feature-kind mismatch (Symbolic vs Complex under the same FeatId); a \
+                             Feature is globally either symbolic or complex in a well-typed HC \
+                             grammar — see ops.rs module docs"
+                        );
+                        // Drop the key, matching every other kind-mismatch degrade in this module.
+                    }
+                    _ => {
+                        // Both symbolic (or the drop above already applied): remove the key outright.
+                    }
+                }
+                i += 1;
+                j += 1;
+            }
+        }
+    }
+    // Remaining `a`-only entries (paths exhausted): pass through untouched.
+    for (f, v) in &ae[i..] {
+        builder.add(*f, v.clone());
+    }
+    builder.build()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1030,5 +1084,62 @@ mod tests {
         let b = fs(&[(FA, sym(0b011))]);
         let result = subtract(&a, &b);
         assert_eq!(result, fs(&[(FB, sym(0b001))]));
+    }
+
+    // remove_paths: port of `AnalysisSyntacticFeatureMerge.RemovePaths` (research C#, no direct unit test there).
+
+    /// A top-level feature named in `paths` is removed outright, regardless of `a`'s value there.
+    #[test]
+    fn remove_paths_top_level_key_removed() {
+        let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001))]);
+        let paths = fs(&[(FA, sym(0b111))]);
+        assert_eq!(remove_paths(&a, &paths), fs(&[(FB, sym(0b001))]));
+    }
+
+    /// A feature `paths` doesn't mention is left exactly as `a` had it.
+    #[test]
+    fn remove_paths_untouched_keys_pass_through() {
+        let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001)), (FC, leaf(0b010))]);
+        let paths = fs(&[(FA, sym(0b001))]);
+        assert_eq!(remove_paths(&a, &paths), fs(&[(FB, sym(0b001)), (FC, leaf(0b010))]));
+    }
+
+    /// Both sides nested `FeatureStruct`s: recurse instead of dropping the whole key.
+    #[test]
+    fn remove_paths_recurses_into_nested_structs() {
+        let inner_a = fs(&[(LEAF, sym(0b011)), (CX2, sym(0b001))]);
+        let a = fs(&[(CX1, FeatureValue::Complex(inner_a))]);
+        let inner_paths = fs(&[(LEAF, sym(0b111))]);
+        let paths = fs(&[(CX1, FeatureValue::Complex(inner_paths))]);
+        let expected_inner = fs(&[(CX2, sym(0b001))]);
+        let expected = fs(&[(CX1, FeatureValue::Complex(expected_inner))]);
+        assert_eq!(remove_paths(&a, &paths), expected);
+    }
+
+    /// If recursing into a nested struct empties it entirely, the parent key is dropped too.
+    #[test]
+    fn remove_paths_emptied_nested_struct_drops_parent_key() {
+        let inner_a = fs(&[(LEAF, sym(0b011))]);
+        let a = fs(&[(CX1, FeatureValue::Complex(inner_a)), (CX2, leaf(0b001))]);
+        let inner_paths = fs(&[(LEAF, sym(0b111))]);
+        let paths = fs(&[(CX1, FeatureValue::Complex(inner_paths))]);
+        assert_eq!(remove_paths(&a, &paths), fs(&[(CX2, leaf(0b001))]));
+    }
+
+    /// `paths` empty: identity over `a`.
+    #[test]
+    fn remove_paths_empty_paths_is_identity() {
+        let u = universe();
+        for a in &u {
+            assert_eq!(remove_paths(a, &FeatureStruct::EMPTY), a.clone());
+        }
+    }
+
+    /// A feature `paths` names that `a` lacks entirely is a no-op (nothing to remove).
+    #[test]
+    fn remove_paths_feature_absent_from_a_is_noop() {
+        let a = fs(&[(FB, sym(0b001))]);
+        let paths = fs(&[(FA, sym(0b111))]);
+        assert_eq!(remove_paths(&a, &paths), a);
     }
 }

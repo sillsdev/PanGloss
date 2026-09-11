@@ -1353,24 +1353,25 @@ fn synth_syn_fs(
     Some(priority_union(&unified, g.fs_interner.get(out)))
 }
 
-/// C# analysis guard (`AnalysisAffixProcessRule`/`AnalysisCompoundingRule.Apply`): gates on `out.IsUnifiable(word.syn)`, then narrows with `PriorityUnion` (req overwrites accumulated), never `Add`'s union.
+/// C# "Exact" analysis mode (`AnalysisSyntacticFeatureMerge.CanUnapply`/`MergeRequired`): the true inverse of `synth_syn_fs`, shared by affix-process and compounding analysis.
 fn ana_syn_fs(
     g: &Grammar,
     req: pg_featstruct::FsId,
     out: pg_featstruct::FsId,
     word: &Word,
 ) -> Option<FeatureStruct> {
+    let req_fs = g.fs_interner.get(req);
     let out_fs = g.fs_interner.get(out);
-    if !is_unifiable(out_fs, &word.syn_fs) {
+    let check = priority_union(req_fs, out_fs);
+    if !is_unifiable(&check, &word.syn_fs) {
         return None;
     }
-    let req_fs = g.fs_interner.get(req);
-    if !req_fs.is_empty() {
-        Some(priority_union(&word.syn_fs, req_fs))
-    } else if out_fs.is_empty() {
-        Some(FeatureStruct::EMPTY)
+    let stem = pg_featstruct::remove_paths(&word.syn_fs, out_fs);
+    if req_fs.is_empty() {
+        Some(stem)
     } else {
-        Some(word.syn_fs.clone())
+        // Cannot fail after the check-FS gate above passed; fall back to priority_union like C# does.
+        Some(unify(&stem, req_fs).unwrap_or_else(|| priority_union(&stem, req_fs)))
     }
 }
 

@@ -1354,12 +1354,20 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// The un-memoized template battery: non-disjunctive union of every affix template's output, deduped by key.
     fn run_template_batch_raw(&self, input: &Word) -> Vec<Word> {
-        let mut seen: HashMap<WordKey, ()> = HashMap::default();
-        let mut out = Vec::new();
+        let mut seen: HashMap<WordKey, usize> = HashMap::default();
+        let mut out: Vec<Word> = Vec::new();
         for &tid in &self.stratum.templates {
             for w in self.analyze_template(tid, input) {
-                if seen.insert(w.dedup_key(), ()).is_none() {
-                    out.push(w);
+                let key = w.dedup_key();
+                match seen.get(&key) {
+                    // WordKey ignores syn FS: widen the survivor rather than drop `w`, or a POS only `w`'s template needs is lost.
+                    Some(&idx) => generalize_syn_fs(&mut out[idx], &w, &|f| {
+                        self.g.syn_features.mask(f)
+                    }),
+                    None => {
+                        seen.insert(key, out.len());
+                        out.push(w);
+                    }
                 }
             }
         }
@@ -1454,12 +1462,20 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// One slot's non-disjunctive `RuleBatch`: the deduped union of its alternative rules' outputs.
     fn apply_slot_batch(&self, slot: &SlotDef, in_word: &Word) -> Vec<Word> {
-        let mut seen: HashMap<WordKey, ()> = HashMap::default();
-        let mut out = Vec::new();
+        let mut seen: HashMap<WordKey, usize> = HashMap::default();
+        let mut out: Vec<Word> = Vec::new();
         for &rid in &slot.rules {
             for w in self.apply_one_mrule(rid, in_word, RuleInvocationRole::TemplateSlot) {
-                if seen.insert(w.dedup_key(), ()).is_none() {
-                    out.push(w);
+                let key = w.dedup_key();
+                match seen.get(&key) {
+                    // Same FS-blind collapse as `run_template_batch_raw`, one slot rule down: widen rather than drop.
+                    Some(&idx) => generalize_syn_fs(&mut out[idx], &w, &|f| {
+                        self.g.syn_features.mask(f)
+                    }),
+                    None => {
+                        seen.insert(key, out.len());
+                        out.push(w);
+                    }
                 }
             }
         }

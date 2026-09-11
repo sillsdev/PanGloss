@@ -19,7 +19,7 @@ pub mod tree;
 
 pub use bitvec::{flat_unifiable, full_mask, SymbolBits};
 pub use interner::Interner;
-pub use ops::{add, is_unifiable, priority_union, subsumes, subtract, unify, union};
+pub use ops::{add, is_unifiable, priority_union, remove_paths, subsumes, subtract, unify, union};
 pub use tree::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue};
 
 /// Stable per-grammar identity of a frozen feature structure.

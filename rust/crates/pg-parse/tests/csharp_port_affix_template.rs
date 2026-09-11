@@ -212,6 +212,79 @@ fn build_grammar_with_tv_iv(mrules_xml: &str, templates_xml: &str) -> pg_grammar
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("grammar failed to load: {e}\n---\n{xml}"))
 }
 
+/// Exact-mode template-collapse regression: two templates share slot rule `R`, differ only in the template's own required POS (N vs V); pins `stratum.rs`'s `generalize_syn_fs` widening, unlike the one-root `same_rule_used_in_multiple_templates` above.
+#[test]
+fn two_templates_share_a_slot_rule_with_different_required_pos_both_roots_parse() {
+    let mrules = r#"
+      <MorphologicalRule id="mrR" requiredPartsOfSpeech="posN posV"><Name>R</Name><MorphemeId>R</MorphemeId>
+        <MorphologicalSubrules>
+          <MorphologicalSubrule id="subR">
+            <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+            <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>d</PhoneticShape></InsertSegments></MorphologicalOutput>
+          </MorphologicalSubrule>
+        </MorphologicalSubrules>
+      </MorphologicalRule>
+    "#;
+    let templates = r#"
+      <AffixTemplate requiredPartsOfSpeech="posN"><Name>Noun Template</Name><Slot morphologicalRules="mrR"><Name>Sl1</Name></Slot></AffixTemplate>
+      <AffixTemplate requiredPartsOfSpeech="posV"><Name>Verb Template</Name><Slot morphologicalRules="mrR"><Name>Sl2</Name></Slot></AffixTemplate>
+    "#;
+    let g = build_grammar_two_roots_n_and_v(mrules, templates);
+    let m = Morpher::new(&g, usize::MAX);
+    assert_morphs_eq(&m.parse_word("mid"), &["rootN R"]);
+    assert_morphs_eq(&m.parse_word("vid"), &["rootV R"]);
+}
+
+/// One noun root ("mi") and one verb root ("vi"), for `two_templates_share_a_slot_rule_with_different_required_pos_both_roots_parse`.
+fn build_grammar_two_roots_n_and_v(
+    mrules_xml: &str,
+    templates_xml: &str,
+) -> pg_grammar::model::Grammar {
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>TemplateCollapseTwoRoots</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cV"><Representations><Representation>v</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAny"><Name>Any</Name>
+        <Segment segment="cM" /><Segment segment="cV" /><Segment segment="cI" /><Segment segment="cD" />
+      </SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>{mrules_xml}</MorphologicalRuleDefinitions>
+        <AffixTemplates>{templates_xml}</AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eRootN" partOfSpeech="posN"><MorphemeId>rootN</MorphemeId>
+            <Allomorphs><Allomorph id="aRootN"><PhoneticShape>mi</PhoneticShape></Allomorph></Allomorphs>
+          </LexicalEntry>
+          <LexicalEntry id="eRootV" partOfSpeech="posV"><MorphemeId>rootV</MorphemeId>
+            <Allomorphs><Allomorph id="aRootV"><PhoneticShape>vi</PhoneticShape></Allomorph></Allomorphs>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>
+"#
+    );
+    pg_grammar::load(&xml).unwrap_or_else(|e| panic!("grammar failed to load: {e}\n---\n{xml}"))
+}
+
 // --- AffixTemplateTests.RealizationalRule ---
 
 /// The three realizational rules of `AffixTemplateTests.RealizationalRule`; `evid_features` is a substitution point because the C# test flips `evidential`'s feature struct mid-test and rebuilds the `Morpher` (two grammars in this port). Natural-class stand-ins: `ncAlvStop2`=`alvStop`, `ncVlCons`=`voicelessCons`, `ncLabC`=`labiodental`, `ncVoiced`=`voiced`, `ncStrident`=`strident`.
