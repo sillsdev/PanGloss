@@ -1,9 +1,4 @@
-//! Differential measurement (CLAUDE.md "Build the differential measurement before the change"):
-//! for every word in every conformance fixture, analysing with the memo on and with it off must
-//! yield the identical deduplicated analysis-identity SET (`pg_parse::identity::AnalysisIdentity`,
-//! not trace, order, or duplicate-copy count) and the same `capped` flag. This is the correctness
-//! gate the analysis-memo fixes (sibling worktree `memo-fixes`) are judged against; it is expected
-//! to be green on today's main already, before any memo fix lands.
+//! Memo on/off must yield the identical deduplicated analysis-identity set and `capped` flag for every conformance-fixture word.
 
 use std::collections::BTreeSet;
 
@@ -12,9 +7,7 @@ use pg_grammar::model::Grammar;
 use pg_parse::identity::AnalysisIdentity;
 use pg_parse::{Morpher, WordAnalysis};
 
-/// Projects every produced analysis to its structured identity and collects the deduplicated set
-/// (CONTEXT.md's "Semantic analysis equality": deduplicated sets by structured identity, not
-/// order or duplicate-copy count).
+/// Projects every analysis to its structured identity and collects the deduplicated set.
 fn identity_set(
     analyses: &[WordAnalysis],
     grammar: &Grammar,
@@ -48,8 +41,7 @@ fn memo_on_and_off_agree_on_every_fixture_word() {
     let mut analyses_compared = 0usize;
 
     for fixture in &fixtures {
-        // Mirrors admission_single_owner_gate's own skip: an unloadable or table-less grammar has
-        // nothing this gate can analyse.
+        // An unloadable or table-less grammar has nothing this gate can analyse.
         let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
             continue;
         };
