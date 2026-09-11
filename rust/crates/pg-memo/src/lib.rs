@@ -1,8 +1,8 @@
-//! Order-invariant analysis-cascade memoization (the #451 memo; plan §1.2, §6.3).
+//! Order-invariant analysis-cascade memoization.
 //!
-//! Ports three C# types from the parse-opt worktree:
+//! Ports three C# types from `machine`'s `SIL.Machine.Morphology.HermitCrab`:
 //! - `AnalysisStateKey.cs` — the order-independent identity of an analysis-cascade node.
-//! - `AnalysisScope.cs` — the two memo tables + in-flight re-entrancy guard + entry cap.
+//! - `AnalysisScope.cs` — the two memo tables + in-flight re-entrancy guard + capacity caps.
 //! - `MemoEntry` (in `AnalysisScope.cs`) — a memoized subtree (positive replay or nogood).
 //!
 //! The unordered morphological-rule cascade re-reaches the *same* analysis state via every
@@ -11,16 +11,22 @@
 //! FS + a per-rule *unapplication count*, never the order), so the second arrival replays the first's
 //! stored subtree instead of re-searching (`pg_rules::stratum`'s memoized cascade).
 //!
-//! ## Deviations from the C# / the crate-stub sketch (flagged per "flag-don't-hack")
-//! - **Owned `Shape`/`FeatureStruct`, not interned `ShapeId`/`FsId`.** The stub sketched a ~32-byte
-//!   all-`u32` key, but the current `pg_rules::Word` owns its `Shape`/`FeatureStruct` (per-parse
-//!   interning is deferred past M6, see `word.rs`), so the key mirrors `WordKey` and clones them. The
-//!   `size_of <= 32` guard the stub carried is therefore dropped.
+//! ## Deviations from the C#
+//! - **Owned `Shape`/`FeatureStruct`, not interned `ShapeId`/`FsId`.** An earlier design sketch
+//!   assumed a ~32-byte all-`u32` key; that is neither what this crate does nor what the C# does.
+//!   `AnalysisStateKey` (`AnalysisStateKey.cs:26-34`) holds *live references* — `Shape`,
+//!   `FeatureStruct`, `IReadOnlyDictionary<IMorphologicalRule, int>` — not interned ids, and no
+//!   interning pool exists across different words' shapes/feature structures in C# either. This
+//!   crate's key mirrors `WordKey` and clones `Shape`/`FeatureStruct` directly (`pg_rules::Word`
+//!   owns them; per-parse interning is a possible future change, not done here).
 //! - **`rule_counts: BTreeMap`, not a hand-XOR hash.** C# uses a `Dictionary` + a commutative XOR
 //!   hash because a `Dictionary` has no canonical order. Rust cannot *derive* `Hash` on a `HashMap`;
 //!   a `BTreeMap`'s canonical (sorted) order gives the same order-invariance with a derived `Eq`+
 //!   `Hash` that are guaranteed mutually consistent — the idiomatic equivalent of the XOR trick,
 //!   without the classic hand-rolled-`Hash`/`Eq`-mismatch hazard.
+//! - **Each `rule_counts` entry saturated at that rule's `max_apps`**, dropped once it reaches
+//!   zero. C# keeps the full count (`AnalysisStateKey.cs:14-34`); this crate's saturation is a
+//!   deliberate divergence, justified in `pg_rules::stratum`'s `state_key` doc comment.
 //! - **Generic over the stored word `W`.** `MemoEntry`/`AnalysisScope` are generic so this crate does
 //!   not depend on `pg-rules` (which depends on this crate — a cycle otherwise). `pg-rules`
 //!   instantiates `AnalysisScope<Word>`.
@@ -28,6 +34,28 @@
 //!   the template battery is a distinct computation over the same key space, so it gets its own guard
 //!   (`template_in_progress`). A shared guard would be correctness-neutral (a false hit only forgoes
 //!   memoization for one call), but a separate one is cleaner.
+//!
+//! ## Three caps, one load-bearing
+//! A store can be refused by any of three independent per-table limits: `MAX_MEMO_ENTRIES` (entry
+//! count, mirrors the pre-tightening C#), the shared `MAX_MEMO_WORDS` retained-word budget (C#
+//! `AnalysisScope.MaxMemoWords`, `AnalysisScope.cs:27-30,97-108`), and `DEFAULT_MEMO_BYTE_BUDGET`
+//! (approximate accounted bytes, no C# analog). The word budget is the load-bearing one in
+//! practice: `MemoEntry::results` is unbounded per entry (a single pathological state can store
+//! tens of thousands of result words while the entry count sits at a small fraction of its cap),
+//! so entry count alone does not bound memory. The byte budget is a second, independent guard
+//! against the residual case where word count alone still admits a few enormous entries (see
+//! `pg_rules::word::estimate_word_bytes`). None of the three evicts: past any cap, a subtree
+//! simply goes unmemoized, degrading hit rate but never correctness — a miss always falls back to
+//! full recomputation.
+//!
+//! ## Memoization is correctness-neutral
+//! Every cap above, and the order-invariant key itself, must leave the analysis candidate set
+//! byte-identical to the unmemoized walk (`--memo off`) for any word that completes within its
+//! step budget (a step-capped word's *partial* signature can differ, since step consumption order
+//! differs — expected, not a recall difference). This crate's own unit tests and `pg-rules`'
+//! `memo_gate` integration tests check this on hand-built grammars; the sibling `memo_parity_gate`
+//! test (`pg-parse/tests/memo_parity_gate.rs`, added independently of this crate) checks it across
+//! a larger fixture corpus.
 #![forbid(unsafe_code)]
 
 use std::collections::hash_map::DefaultHasher;
@@ -473,7 +501,7 @@ pub mod profile {
 /// `Morpher::parse_word` call — entries are facts about *a specific parse's* states (a key does not
 /// encode the target surface word), so sharing across parses of different words would be unsound (C#
 /// AnalysisScope.cs:12-15). Single-threaded within a word, so plain `HashMap`s: the C# concurrency
-/// was for the parallel cascade, which has no Rust descendant (plan §7).
+/// was for a parallel cascade this port does not have.
 pub struct AnalysisScope<W> {
     /// The morphological-rule-cascade memo (nogood + positive), keyed by state (C# `Memo`).
     pub memo: HashMap<AnalysisStateKey, MemoEntry<W>>,
