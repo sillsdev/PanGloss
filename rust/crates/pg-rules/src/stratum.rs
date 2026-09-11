@@ -934,7 +934,13 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         {
             let mut s = scope.borrow_mut();
             s.in_progress.remove(&key);
-            if s.has_memo_capacity(results.len()) {
+            // Byte estimate only walked once the cheaper entry/word caps already admit the attempt.
+            let results_bytes = if s.has_memo_capacity(results.len()) {
+                Some(crate::word::estimate_words_bytes(&results))
+            } else {
+                None
+            };
+            if let Some(results_bytes) = results_bytes.filter(|&b| s.has_byte_capacity(false, b)) {
                 let cloned_results = results.clone();
                 if pg_memo::profile::enabled() {
                     let (total_words, shape_seg, syn_feats, real_feats, morphs) =
@@ -950,6 +956,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 }
                 pg_memo::profile::record_insert(false, false);
                 s.record_stored_words(cloned_results.len());
+                s.record_stored_bytes(false, results_bytes);
                 s.memo.insert(
                     key,
                     MemoEntry::new(
@@ -964,6 +971,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     false,
                     s.memo_entries_at_cap(),
                     s.would_exceed_word_budget(results.len()),
+                    results_bytes.is_some(),
                 );
             }
         }
@@ -1095,9 +1103,15 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         {
             let mut s = scope.borrow_mut();
             s.template_in_progress.remove(&key);
-            if s.has_template_capacity(results.len()) {
+            let results_bytes = if s.has_template_capacity(results.len()) {
+                Some(crate::word::estimate_words_bytes(&results))
+            } else {
+                None
+            };
+            if let Some(results_bytes) = results_bytes.filter(|&b| s.has_byte_capacity(true, b)) {
                 pg_memo::profile::record_insert(true, false);
                 s.record_stored_words(results.len());
+                s.record_stored_bytes(true, results_bytes);
                 s.template_memo.insert(
                     key,
                     MemoEntry::new(
@@ -1112,6 +1126,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     true,
                     s.template_entries_at_cap(),
                     s.would_exceed_word_budget(results.len()),
+                    results_bytes.is_some(),
                 );
             }
         }

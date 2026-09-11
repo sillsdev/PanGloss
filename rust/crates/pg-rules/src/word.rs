@@ -451,8 +451,7 @@ impl Word {
                     morpheme: morph.morpheme,
                     order: morph.order,
                     status: morph.status,
-                    runtime_identity: runtime_id(morph.runtime_root.as_deref())
-                        .map(str::to_owned),
+                    runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
                 })
                 .collect(),
             non_heads: self.non_heads.iter().map(Word::dedup_key).collect(),
@@ -612,6 +611,59 @@ impl Word {
             .map(|m| m.morpheme)
             .collect()
     }
+}
+
+/// Approximate heap-byte cost of one `Shape` (per-node overhead plus `feat_width` `u64` lanes); a rough estimate is sufficient since this only sizes the memo byte budget, so no allocator introspection.
+fn estimate_shape_bytes(shape: &Shape) -> usize {
+    const PER_NODE_FIXED: usize = 16; // kind + char_def(u32) + flags + cd_set, rounded up
+    let n = shape.len();
+    n * PER_NODE_FIXED + n * shape.feat_width() as usize * std::mem::size_of::<u64>()
+}
+
+/// Approximate heap-byte cost of one `FeatureStruct`, recursing into `Complex` values.
+fn estimate_fs_bytes(fs: &FeatureStruct) -> usize {
+    const ENTRY_FIXED: usize = 24; // FeatId + enum discriminant + Vec slot overhead, rounded up
+    fs.entries()
+        .iter()
+        .map(|(_, v)| {
+            ENTRY_FIXED
+                + match v {
+                    pg_featstruct::FeatureValue::Symbolic(_) => {
+                        std::mem::size_of::<pg_featstruct::SymbolBits>()
+                    }
+                    pg_featstruct::FeatureValue::Complex(inner) => estimate_fs_bytes(inner),
+                }
+        })
+        .sum()
+}
+
+/// Approximate heap-byte cost of one `Word`, recursing into `non_heads` (the nested-`Word`
+/// growth the memo byte budget exists to bound). `source`'s `Rc<Word>` chain is deliberately
+/// **not** recursed into: it is shared across many stratum outputs (see the field's doc), so
+/// counting its pointee per clone would wildly overstate distinct memory: only the pointer's own
+/// bytes are counted here, same as any other `Option<Rc<_>>` field.
+pub fn estimate_word_bytes(w: &Word) -> usize {
+    let mut bytes = std::mem::size_of::<Word>();
+    bytes += estimate_shape_bytes(&w.shape);
+    bytes += estimate_fs_bytes(&w.syn_fs);
+    bytes += estimate_fs_bytes(&w.real_fs);
+    bytes += w.morphs.len() * std::mem::size_of::<MorphRecord>();
+    bytes += w.mrule_apps.len() * std::mem::size_of::<Option<MRuleId>>();
+    bytes += w.obligatory.len() * std::mem::size_of::<FeatId>();
+    bytes += w.unapplied_rule_counts.len()
+        * (std::mem::size_of::<MRuleId>() + std::mem::size_of::<u32>());
+    if let Some(id) = &w.root_runtime_id {
+        bytes += id.len();
+    }
+    for nh in &w.non_heads {
+        bytes += estimate_word_bytes(nh);
+    }
+    bytes
+}
+
+/// Approximate heap-byte cost of a `MemoEntry`'s `results`, the payload the memo byte budget accounts against.
+pub fn estimate_words_bytes(words: &[Word]) -> usize {
+    words.iter().map(estimate_word_bytes).sum()
 }
 
 #[cfg(test)]

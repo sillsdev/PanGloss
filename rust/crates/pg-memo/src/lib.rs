@@ -210,6 +210,11 @@ const MAX_MEMO_ENTRIES: usize = 100_000;
 /// Retained-word budget shared across both tables -- the load-bearing cap, since `MAX_MEMO_ENTRIES` bounds entry count only and `MemoEntry::results` is itself unbounded (C# `AnalysisScope.MaxMemoWords`, `AnalysisScope.cs:27-30,97-108`).
 const MAX_MEMO_WORDS: usize = 1_000_000;
 
+/// Default per-table byte budget: a second, independent guard alongside the entry and word caps,
+/// since `Word` itself varies wildly in accounted size (a compound's `non_heads` recurse), so a
+/// word count alone can still admit a few enormous entries.
+pub const DEFAULT_MEMO_BYTE_BUDGET: usize = 64 * 1024 * 1024;
+
 /// A permanent diagnostic, near-zero cost when unread (thread-local `Cell` adds at each memo touch;
 /// the per-insert size walk in `record_insert_size` is skipped entirely unless `enabled()` is true).
 /// Read via `pg_memo::profile::snapshot()`, gated on `HC_MEMO_STATS=1` in `pg-cli`. Counts both
@@ -228,6 +233,7 @@ pub mod profile {
         static MEMO_INSERT_REFUSED: Cell<u64> = const { Cell::new(0) };
         static MEMO_INSERT_REFUSED_ENTRIES: Cell<u64> = const { Cell::new(0) };
         static MEMO_INSERT_REFUSED_WORDS: Cell<u64> = const { Cell::new(0) };
+        static MEMO_INSERT_REFUSED_BYTES: Cell<u64> = const { Cell::new(0) };
         static MEMO_FALLTHROUGH: Cell<u64> = const { Cell::new(0) };
         static MEMO_MAX_IN_PROGRESS: Cell<u64> = const { Cell::new(0) };
 
@@ -238,6 +244,7 @@ pub mod profile {
         static TPL_INSERT_REFUSED: Cell<u64> = const { Cell::new(0) };
         static TPL_INSERT_REFUSED_ENTRIES: Cell<u64> = const { Cell::new(0) };
         static TPL_INSERT_REFUSED_WORDS: Cell<u64> = const { Cell::new(0) };
+        static TPL_INSERT_REFUSED_BYTES: Cell<u64> = const { Cell::new(0) };
         static TPL_FALLTHROUGH: Cell<u64> = const { Cell::new(0) };
         static TPL_MAX_IN_PROGRESS: Cell<u64> = const { Cell::new(0) };
 
@@ -298,8 +305,13 @@ pub mod profile {
     }
 
     /// Classifies a refusal already recorded by `record_insert(_, true)` by which cap bound; a
-    /// refusal may be counted under more than one reason (e.g. both caps exhausted at once).
-    pub fn record_insert_refused_reason(is_template: bool, by_entry_cap: bool, by_word_cap: bool) {
+    /// refusal may be counted under more than one reason (e.g. every cap exhausted at once).
+    pub fn record_insert_refused_reason(
+        is_template: bool,
+        by_entry_cap: bool,
+        by_word_cap: bool,
+        by_byte_cap: bool,
+    ) {
         match is_template {
             false => {
                 if by_entry_cap {
@@ -308,6 +320,9 @@ pub mod profile {
                 if by_word_cap {
                     MEMO_INSERT_REFUSED_WORDS.with(|c| c.set(c.get() + 1));
                 }
+                if by_byte_cap {
+                    MEMO_INSERT_REFUSED_BYTES.with(|c| c.set(c.get() + 1));
+                }
             }
             true => {
                 if by_entry_cap {
@@ -315,6 +330,9 @@ pub mod profile {
                 }
                 if by_word_cap {
                     TPL_INSERT_REFUSED_WORDS.with(|c| c.set(c.get() + 1));
+                }
+                if by_byte_cap {
+                    TPL_INSERT_REFUSED_BYTES.with(|c| c.set(c.get() + 1));
                 }
             }
         }
@@ -382,6 +400,7 @@ pub mod profile {
         pub memo_insert_refused: u64,
         pub memo_insert_refused_entries: u64,
         pub memo_insert_refused_words: u64,
+        pub memo_insert_refused_bytes: u64,
         pub memo_fallthrough: u64,
         pub memo_max_in_progress: u64,
 
@@ -392,6 +411,7 @@ pub mod profile {
         pub tpl_insert_refused: u64,
         pub tpl_insert_refused_entries: u64,
         pub tpl_insert_refused_words: u64,
+        pub tpl_insert_refused_bytes: u64,
         pub tpl_fallthrough: u64,
         pub tpl_max_in_progress: u64,
 
@@ -418,6 +438,7 @@ pub mod profile {
             memo_insert_refused: MEMO_INSERT_REFUSED.with(|c| c.get()),
             memo_insert_refused_entries: MEMO_INSERT_REFUSED_ENTRIES.with(|c| c.get()),
             memo_insert_refused_words: MEMO_INSERT_REFUSED_WORDS.with(|c| c.get()),
+            memo_insert_refused_bytes: MEMO_INSERT_REFUSED_BYTES.with(|c| c.get()),
             memo_fallthrough: MEMO_FALLTHROUGH.with(|c| c.get()),
             memo_max_in_progress: MEMO_MAX_IN_PROGRESS.with(|c| c.get()),
 
@@ -428,6 +449,7 @@ pub mod profile {
             tpl_insert_refused: TPL_INSERT_REFUSED.with(|c| c.get()),
             tpl_insert_refused_entries: TPL_INSERT_REFUSED_ENTRIES.with(|c| c.get()),
             tpl_insert_refused_words: TPL_INSERT_REFUSED_WORDS.with(|c| c.get()),
+            tpl_insert_refused_bytes: TPL_INSERT_REFUSED_BYTES.with(|c| c.get()),
             tpl_fallthrough: TPL_FALLTHROUGH.with(|c| c.get()),
             tpl_max_in_progress: TPL_MAX_IN_PROGRESS.with(|c| c.get()),
 
@@ -467,6 +489,12 @@ pub struct AnalysisScope<W> {
     pub template_in_progress: HashSet<AnalysisStateKey>,
     /// Words retained across both tables so far, against the shared `MAX_MEMO_WORDS` budget (C# `_storedWordCount`).
     stored_words: usize,
+    /// Per-table byte budget (a second, independent guard); `None` disables it entirely (test-only -- production always has one).
+    byte_budget: Option<usize>,
+    /// Accounted bytes stored in `memo`, against `byte_budget`.
+    memo_bytes_used: usize,
+    /// Accounted bytes stored in `template_memo`, against the same `byte_budget`, tracked separately per table.
+    template_bytes_used: usize,
 }
 
 impl<W> Default for AnalysisScope<W> {
@@ -483,6 +511,42 @@ impl<W> AnalysisScope<W> {
             in_progress: HashSet::default(),
             template_in_progress: HashSet::default(),
             stored_words: 0,
+            byte_budget: Some(DEFAULT_MEMO_BYTE_BUDGET),
+            memo_bytes_used: 0,
+            template_bytes_used: 0,
+        }
+    }
+
+    /// Override the per-table byte budget (default `DEFAULT_MEMO_BYTE_BUDGET`); `None` disables
+    /// it, for tests isolating the entry/word caps. Consumes and returns `self` (builder style).
+    pub fn with_byte_budget(mut self, byte_budget: Option<usize>) -> Self {
+        self.byte_budget = byte_budget;
+        self
+    }
+
+    /// Room to store `bytes` more in the given table without exceeding the byte budget; always
+    /// `true` when the budget is disabled (`None`).
+    pub fn has_byte_capacity(&self, is_template: bool, bytes: usize) -> bool {
+        match self.byte_budget {
+            None => true,
+            Some(budget) => {
+                let used = if is_template {
+                    self.template_bytes_used
+                } else {
+                    self.memo_bytes_used
+                };
+                used.saturating_add(bytes) <= budget
+            }
+        }
+    }
+
+    /// Record `bytes` as stored in the given table's byte accounting. Call only once, right after
+    /// a store that `has_byte_capacity` already admitted.
+    pub fn record_stored_bytes(&mut self, is_template: bool, bytes: usize) {
+        if is_template {
+            self.template_bytes_used += bytes;
+        } else {
+            self.memo_bytes_used += bytes;
         }
     }
 
@@ -710,5 +774,36 @@ mod tests {
         // A refused store must leave the already-stored entry servable.
         assert!(scope.memo.get(&stored_key).is_some());
         assert!(scope.memo.get(&would_be_key).is_none());
+    }
+
+    #[test]
+    fn byte_budget_refuses_a_store_past_the_budget() {
+        let mut scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(Some(10));
+        assert!(
+            scope.has_byte_capacity(false, 10),
+            "exactly the budget fits"
+        );
+        assert!(
+            !scope.has_byte_capacity(false, 11),
+            "one byte past the budget must refuse"
+        );
+
+        scope.record_stored_bytes(false, 6);
+        assert!(
+            scope.has_byte_capacity(false, 4),
+            "4 more fits in the remaining 4"
+        );
+        assert!(
+            !scope.has_byte_capacity(false, 5),
+            "5 more would exceed the 10-byte budget"
+        );
+        // The template table tracks its own bytes, independent of the mrule table's usage.
+        assert!(scope.has_byte_capacity(true, 10));
+    }
+
+    #[test]
+    fn byte_budget_disabled_by_none_never_refuses() {
+        let scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(None);
+        assert!(scope.has_byte_capacity(false, usize::MAX));
     }
 }

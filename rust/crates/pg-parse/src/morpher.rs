@@ -47,6 +47,8 @@ pub struct Morpher<'g> {
     cache: RuleCache,
     /// C#'s settable `Morpher.MaxStemCount`; default `2`, and raising it stays bounded by the shared step/timeout budget.
     max_stem_count: u32,
+    /// Per-table memo byte budget (`pg_memo::AnalysisScope::with_byte_budget`); `None` disables it. Defaults to `pg_memo::DEFAULT_MEMO_BYTE_BUDGET`, overridable for tests via `with_memo_byte_budget`.
+    memo_byte_budget: Option<usize>,
 }
 
 /// Shared instrumentation and hard limits for bounded synthesis across multiple derivations.
@@ -194,6 +196,7 @@ impl<'g> Morpher<'g> {
             word_timeout: None,
             cache: RuleCache::build(g),
             max_stem_count: 2, // C# `Morpher.MaxStemCount` ctor default (Morpher.cs:56)
+            memo_byte_budget: Some(pg_memo::DEFAULT_MEMO_BYTE_BUDGET),
         }
     }
 
@@ -248,6 +251,14 @@ impl<'g> Morpher<'g> {
     /// Raising it cannot turn into an unbounded search — see `Self::max_stem_count`.
     pub fn with_max_stem_count(mut self, max_stem_count: u32) -> Self {
         self.max_stem_count = max_stem_count;
+        self
+    }
+
+    /// Override the analysis memo's per-table byte budget (default `pg_memo::DEFAULT_MEMO_BYTE_BUDGET`);
+    /// `None` disables it, for tests isolating the entry/word caps. See
+    /// `pg_memo::AnalysisScope::with_byte_budget`.
+    pub fn with_memo_byte_budget(mut self, byte_budget: Option<usize>) -> Self {
+        self.memo_byte_budget = byte_budget;
         self
     }
 
@@ -393,8 +404,8 @@ impl<'g> Morpher<'g> {
         // One step budget shared by reference across every stratum × candidate; a per-instance counter would let one word explore `cap` steps per call.
         let budget = pg_rules::stratum::StepBudget::new(self.cap).with_timeout(self.word_timeout);
         // One memo scope per parse, never shared across parses; disabled while tracing for the same reason merging is, above.
-        let scope_cell =
-            (self.memo && !trace.is_tracing()).then(|| RefCell::new(AnalysisScope::new()));
+        let scope_cell = (self.memo && !trace.is_tracing())
+            .then(|| RefCell::new(AnalysisScope::new().with_byte_budget(self.memo_byte_budget)));
         let scope = scope_cell.as_ref();
         // Closure lives here because `pg-parse` owns `RootAllomorphIndex` and `pg-rules` cannot depend on `pg-parse`.
         let filter: NonHeadRootFilter =
@@ -418,21 +429,22 @@ impl<'g> Morpher<'g> {
                     enforce,
                     all_templates_final: self.final_template_facts.all_templates_final()[s],
                 };
-                let res = pg_rules::stratum::analyze_stratum_scoped_filtered_ruled_traced_with_policy(
-                    g,
-                    StratumId(s as u8),
-                    w.clone(),
-                    &cfg,
-                    scope,
-                    Some(filter),
-                    rule_filter,
-                    Some(&self.cache),
-                    &budget,
-                    policy,
-                    stats,
-                    trace,
-                    node_parent,
-                );
+                let res =
+                    pg_rules::stratum::analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+                        g,
+                        StratumId(s as u8),
+                        w.clone(),
+                        &cfg,
+                        scope,
+                        Some(filter),
+                        rule_filter,
+                        Some(&self.cache),
+                        &budget,
+                        policy,
+                        stats,
+                        trace,
+                        node_parent,
+                    );
                 for o in res.words {
                     let k = o.dedup_key();
                     results.entry(k.clone()).or_insert_with(|| o.clone());
@@ -983,12 +995,16 @@ impl<'g> Morpher<'g> {
             syn_fs: w.syn_fs.clone(),
             mpr: w.mpr,
             guessed,
-            guessed_string: w.morphs.iter().find_map(|m| {
-                (m.morpheme == MorphemeId::GUESSED).then(|| match m.runtime_root.as_deref() {
-                    Some(RuntimeRoot::Guessed(root)) => root.text.clone(),
-                    _ => String::new(),
+            guessed_string: w
+                .morphs
+                .iter()
+                .find_map(|m| {
+                    (m.morpheme == MorphemeId::GUESSED).then(|| match m.runtime_root.as_deref() {
+                        Some(RuntimeRoot::Guessed(root)) => root.text.clone(),
+                        _ => String::new(),
+                    })
                 })
-            }).filter(|text| !text.is_empty()),
+                .filter(|text| !text.is_empty()),
             provenance: match w.root_runtime() {
                 Some(RuntimeRoot::Guessed(_)) => AnalysisProvenance::Guessed,
                 Some(RuntimeRoot::Supplied(root)) => match &root.authority {

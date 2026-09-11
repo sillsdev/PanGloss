@@ -889,8 +889,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                 };
                 eprintln!(
                     "MEMOPROF\t{i}\t{word}\t\
-                     memo_lookups={}\tmemo_hits_pos={}\tmemo_hits_nogood={}\tmemo_inserts={}\tmemo_insert_refused={}\tmemo_refused_entries={}\tmemo_refused_words={}\tmemo_fallthrough={}\tmemo_max_in_progress={}\t\
-                     tpl_lookups={}\ttpl_hits_pos={}\ttpl_hits_nogood={}\ttpl_inserts={}\ttpl_insert_refused={}\ttpl_refused_entries={}\ttpl_refused_words={}\ttpl_fallthrough={}\ttpl_max_in_progress={}\t\
+                     memo_lookups={}\tmemo_hits_pos={}\tmemo_hits_nogood={}\tmemo_inserts={}\tmemo_insert_refused={}\tmemo_refused_entries={}\tmemo_refused_words={}\tmemo_refused_bytes={}\tmemo_fallthrough={}\tmemo_max_in_progress={}\t\
+                     tpl_lookups={}\ttpl_hits_pos={}\ttpl_hits_nogood={}\ttpl_inserts={}\ttpl_insert_refused={}\ttpl_refused_entries={}\ttpl_refused_words={}\ttpl_refused_bytes={}\ttpl_fallthrough={}\ttpl_max_in_progress={}\t\
                      insert_samples={}\tresults_len_mean={:.3}\tresults_len_max={}\twords_per_entry_mean={:.3}\twords_per_entry_max={}\t\
                      shape_seg_total={}\tsynfs_total={}\trealfs_total={}\tmorphs_total={}\treplay_clones={}",
                     s.memo_lookups,
@@ -900,6 +900,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.memo_insert_refused,
                     s.memo_insert_refused_entries,
                     s.memo_insert_refused_words,
+                    s.memo_insert_refused_bytes,
                     s.memo_fallthrough,
                     s.memo_max_in_progress,
                     s.tpl_lookups,
@@ -909,6 +910,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.tpl_insert_refused,
                     s.tpl_insert_refused_entries,
                     s.tpl_insert_refused_words,
+                    s.tpl_insert_refused_bytes,
                     s.tpl_fallthrough,
                     s.tpl_max_in_progress,
                     s.insert_samples,

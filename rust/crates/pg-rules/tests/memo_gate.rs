@@ -225,6 +225,46 @@ fn memo_on_equals_memo_off_unordered() {
     );
 }
 
+// A near-zero byte budget must degrade the hit rate (recorded as byte refusals), never the candidate set: recall stays intact, only memoization opportunity is lost.
+#[test]
+fn a_tiny_byte_budget_refuses_stores_but_preserves_memo_off_parity() {
+    let (g, s) = build_unordered();
+    let cfg = AnalyzerConfig::default();
+
+    let off = analyze_stratum(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        &StepBudget::new(usize::MAX),
+    );
+    let scope: MemoScope = RefCell::new(AnalysisScope::new().with_byte_budget(Some(1)));
+    let before = pg_memo::profile::snapshot();
+    let on = analyze_stratum_scoped(
+        &g,
+        s,
+        word(&g, "akp", s),
+        &cfg,
+        Some(&scope),
+        &StepBudget::new(usize::MAX),
+    );
+    let after = pg_memo::profile::snapshot();
+
+    assert_eq!(
+        candidate_shapes(&off.words),
+        candidate_shapes(&on.words),
+        "a starved byte budget must degrade the hit rate, never the candidate set"
+    );
+    assert!(
+        after.memo_insert_refused_bytes > before.memo_insert_refused_bytes,
+        "a 1-byte budget must refuse every positive store"
+    );
+    assert!(
+        scope.borrow().memo.values().all(|e| !e.is_positive()),
+        "a 1-byte budget admits only zero-byte nogoods, never a positive entry"
+    );
+}
+
 // Saturating the key at max_apps must let word_b safely hit word_a's memo entry despite differing raw counts (1 vs. 5), reproducing memo-off exactly.
 #[test]
 fn state_key_saturates_unapplication_counts_past_max_apps() {
