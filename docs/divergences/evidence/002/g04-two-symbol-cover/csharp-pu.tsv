@@ -1,0 +1,12 @@
+0	dof	STARTED
+0	dof	39	ok	DOF|dof
+1	dofp	STARTED
+1	dofp	11	ok	DOF+A|dofp
+2	dofpk	STARTED
+2	dofpk	0	ok	DOF+A+B|dofpk
+3	dofpkt	STARTED
+3	dofpkt	0	ok	-
+4	dofktn	STARTED
+4	dofktn	1	ok	DOF+B+C+D|dofktn
+5	dofpktn	STARTED
+5	dofpktn	0	ok	-

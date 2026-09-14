@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-002 adversarial grammar G9: the g2-stale-branch-num D-C-B-A recipe, but the
+     passthrough rule mrB is declared multipleApplication="2" (MaxApplicationCount=2 in the C#
+     source's own terms) and genuinely applies TWICE in a row in the headline word, testing whether
+     a real, repeated application of the SAME rule id changes the stale-branch fold at all (as
+     opposed to g5-deep-chain's two DIFFERENT passthrough rule ids at the same depth).
+
+     mrA (innermost): no RequiredHeadFeatures, OutputHeadFeatures num=pl. Suffix "a".
+     mrB (multipleApplication=2): no RequiredHeadFeatures, OutputHeadFeatures num=sg. Suffix "u".
+       Applied twice consecutively in the headline word.
+     mrC: RequiredHeadFeatures num=sg, OutputHeadFeatures num=pl. Suffix "e".
+     mrD (outermost): RequiredHeadFeatures num=pl, no OutputHeadFeatures. Suffix "o".
+
+     Forward: wig -mrA(out=pl)-> wiga -mrB#1(req none;out=sg)-> wigau -mrB#2(req none;out=sg,
+     second application, permitted by multipleApplication=2)-> wigauu -mrC(req=sg matches;out=pl)->
+     wigauue -mrD(req=pl matches;out=none)-> wigauueo.
+
+     Analysis (unapply order D,C,B#2,B#1,A): identical arithmetic to g5-deep-chain, just with the
+     SAME rule id firing twice in the two passthrough slots instead of two different rule ids. D
+     contributes pl; C's fold produces Add={pl,sg}/PriorityUnion=sg; both B applications pass sg's
+     own gate and leave the accumulated value untouched (their own req is empty); A's gate (out=pl)
+     admits under Add (pl is a surviving member) and refuses under PriorityUnion. Prediction:
+     "wigauueo" found under Add, lost under PriorityUnion/Rust main.
+
+     Controls: wig, wiga (+A), wigau (+A+B#1), wigauu (+A+B#1+B#2), wigauue (+A+B#1+B#2+C, D
+     skipped, negative control expecting loss under both Add and PriorityUnion), wiguueo
+     (+B#1+B#2+C+D, A skipped, positive control expecting agreement), wigauueo (the full chain). -->
+<HermitCrabInput>
+  <Language>
+    <Name>MaxApplicationTwice</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featNum">
+        <Name>num</Name>
+        <Symbols>
+          <Symbol id="symSg">sg</Symbol>
+          <Symbol id="symDu">du</Symbol>
+          <Symbol id="symPl">pl</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cW"><Representations><Representation>w</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="mrA mrB mrC mrD">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA">
+            <Name>a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA">
+                <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemA" /><InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <MorphemeId>A</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB" multipleApplication="2">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></OutputHeadFeatures>
+            <MorphemeId>B</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrC">
+            <Name>c</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subC">
+                <MorphologicalInput><PhoneticSequence id="stemC"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemC" /><InsertSegments><PhoneticShape>e</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></RequiredHeadFeatures>
+            <MorphemeId>C</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrD">
+            <Name>d</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subD">
+                <MorphologicalInput><PhoneticSequence id="stemD"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemD" /><InsertSegments><PhoneticShape>o</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></RequiredHeadFeatures>
+            <MorphemeId>D</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eWig" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aWig"><PhoneticShape>wig</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>WIG</MorphemeId>
+            <Gloss>wig</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

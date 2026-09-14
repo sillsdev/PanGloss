@@ -1,0 +1,8 @@
+0	nep	STARTED
+0	nep	39	ok	NEP|nep
+1	nepa	STARTED
+1	nepa	12	ok	NEP+P|nepa
+2	nepab	STARTED
+2	nepab	2	ok	NEP+P+Q|nepab
+3	nepabc	STARTED
+3	nepabc	1	ok	NEP+P+Q+R|nepabc

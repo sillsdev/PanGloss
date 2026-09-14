@@ -1,0 +1,14 @@
+0	fen	STARTED
+0	fen	38	ok	FEN|fen
+1	feni	STARTED
+1	feni	11	ok	FEN+A|feni
+2	feniu	STARTED
+2	feniu	1	ok	FEN+A+B|feniu
+3	feniux	STARTED
+3	feniux	1	ok	FEN+A+B+B2|feniux
+4	feniuxe	STARTED
+4	feniuxe	0	ok	-
+5	fenuxeo	STARTED
+5	fenuxeo	2	ok	FEN+B+B2+C+D|fenuxeo
+6	feniuxeo	STARTED
+6	feniuxeo	0	ok	-

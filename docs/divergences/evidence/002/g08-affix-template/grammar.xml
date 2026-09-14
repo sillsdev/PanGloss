@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-002 adversarial grammar G8: the identical g2-stale-branch-num D-C-B-A recipe, but
+     the four rules are declared as ORDERED SLOTS of a single AffixTemplate instead of a bare
+     unordered/linear stratum rule list, testing whether template-slot realization changes the
+     analysis-side fs fold at all (the task brief names "the template battery's feature-blind dedup
+     hazard" as a separately-suspect mechanism worth checking here). All four slots are optional so
+     every control word from g2 (partial chains) remains constructible.
+
+     Slot order (innermost to outermost, matching mrA..mrD's synthesis order): slotA(mrA),
+     slotB(mrB), slotC(mrC), slotD(mrD). Same RequiredHeadFeatures/OutputHeadFeatures/suffixes as
+     g2-stale-branch-num, on a fresh root "wug" and a fresh POS so this cannot collide with any
+     other fixture. -->
+<HermitCrabInput>
+  <Language>
+    <Name>TemplateStaleBranch</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featNum">
+        <Name>num</Name>
+        <Symbols>
+          <Symbol id="symSg">sg</Symbol>
+          <Symbol id="symDu">du</Symbol>
+          <Symbol id="symPl">pl</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cW"><Representations><Representation>w</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="mrA mrB mrC mrD">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA">
+                <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemA" /><InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <MorphemeId>A</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></OutputHeadFeatures>
+            <MorphemeId>B</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrC" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>c</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subC">
+                <MorphologicalInput><PhoneticSequence id="stemC"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemC" /><InsertSegments><PhoneticShape>e</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></RequiredHeadFeatures>
+            <MorphemeId>C</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrD" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>d</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subD">
+                <MorphologicalInput><PhoneticSequence id="stemD"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemD" /><InsertSegments><PhoneticShape>o</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></RequiredHeadFeatures>
+            <MorphemeId>D</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posV">
+            <Name>staleBranchTemplate</Name>
+            <Slot optional="true" morphologicalRules="mrA"><Name>slotA</Name></Slot>
+            <Slot optional="true" morphologicalRules="mrB"><Name>slotB</Name></Slot>
+            <Slot optional="true" morphologicalRules="mrC"><Name>slotC</Name></Slot>
+            <Slot optional="true" morphologicalRules="mrD"><Name>slotD</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eWug" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aWug"><PhoneticShape>wug</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>WUG</MorphemeId>
+            <Gloss>wug</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

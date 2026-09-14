@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-001 adversarial grammar G1: "Maxwell's chain", a full-word translation of the PR
+     #494 author's own worked example (sillsdev/machine perf/pr494-priority-union,
+     tests/.../AnalysisSyntacticFeatureMergeTests.cs,
+     CategoryChangeChain_AccumulatedPosAndThirdRuleGate_MatchModeSemantics).
+
+     mrA2B: RequiredHeadFeatures cat=N, OutputHeadFeatures cat=V. Suffix "u".
+     mrB2A: RequiredHeadFeatures cat=V, OutputHeadFeatures cat=N. Suffix "i".
+     mrThird: RequiredHeadFeatures cat=N, OutputHeadFeatures cat=V. NO affix (identity), and
+       deliberately the same Required/Output shape as mrA2B, so it asks whether THIRD could also
+       have been the last rule applied here, contributing an extra MorphemeId to the signature
+       with no visible surface change.
+
+     Root "sag" carries NO AssignedHeadFeatures (cat unconstrained, empty), matching how these
+     probes are always analysed from an underspecified surface form.
+
+     Forward-consistent real chain: root (empty) then mrA2B (req N, out V) gives V, then mrB2A
+     (req V, out N) gives N. "sagui" is this real 2-morph word.
+
+     Analysis of "sagui" unapplies mrB2A first (fs empty becomes V, both modes identical since
+     folding onto empty always agrees), then mrA2B (fs V folds with req_A2B=N). Because only 2
+     symbols (N,V) are declared for "cat", Add's union of V and N covers BOTH declared symbols, so
+     under Add's documented "all symbols set, so remove the feature" rule the feature is deleted
+     entirely (treated as unconstrained) rather than kept as the pair; PriorityUnion narrows to
+     exactly N.
+
+     Then mrThird's own gate (is_unifiable(out_Third=V, accumulated fs)) is checked before lexical
+     lookup:
+       PriorityUnion: fs=N (definite), is_unifiable(V,N) is false, so mrThird cannot spuriously
+         attach. "sagui" has exactly ONE analysis (mrA2B+mrB2A).
+       Add: fs is unconstrained (feature removed), is_unifiable(V,unconstrained) is true, so
+         mrThird is free to spuriously attach (contributing an extra, invisible-on-the-surface
+         morph). Add should find TWO analyses of "sagui": with and without the spurious mrThird
+         morph. -->
+<HermitCrabInput>
+  <Language>
+    <Name>MaxwellChain</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featCat">
+        <Name>cat</Name>
+        <Symbols>
+          <Symbol id="symN">n</Symbol>
+          <Symbol id="symV">v</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRules="mrA2B mrB2A mrThird">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA2B">
+            <Name>a2b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA2B">
+                <MorphologicalInput><PhoneticSequence id="stemA2B"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemA2B" /><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featCat" symbolValues="symV" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featCat" symbolValues="symN" /></RequiredHeadFeatures>
+            <MorphemeId>A2B</MorphemeId>
+            <Gloss>A2B</Gloss>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB2A">
+            <Name>b2a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB2A">
+                <MorphologicalInput><PhoneticSequence id="stemB2A"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB2A" /><InsertSegments><PhoneticShape>i</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featCat" symbolValues="symN" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featCat" symbolValues="symV" /></RequiredHeadFeatures>
+            <MorphemeId>B2A</MorphemeId>
+            <Gloss>B2A</Gloss>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrThird">
+            <Name>third</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subThird">
+                <MorphologicalInput><PhoneticSequence id="stemThird"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemThird" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featCat" symbolValues="symV" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featCat" symbolValues="symN" /></RequiredHeadFeatures>
+            <MorphemeId>THIRD</MorphemeId>
+            <Gloss>THIRD</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eSag" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aSag"><PhoneticShape>sag</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>SAG</MorphemeId>
+            <Gloss>sag</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

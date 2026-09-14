@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-002 adversarial grammar G5: the same stale-branch mechanism as divergence-001's
+     g2-stale-branch-num, but with a fifth rule (mrB2, another req-none/out-nonempty passthrough)
+     inserted between the diverging pair, testing whether the bug still fires with TWO passthrough
+     layers standing between the overwriter and the rule whose own gate finally refuses (chain
+     depth 5 instead of g2's depth 4). Feature num has 3 symbols (sg,du,pl), so this also exercises
+     the strict-subset ("not all declared symbols") Add path at the new depth, not the delete-on-
+     cover path (that is g4's job).
+
+     mrA (innermost): no RequiredHeadFeatures, OutputHeadFeatures num=pl. Suffix "i".
+     mrB: no RequiredHeadFeatures, OutputHeadFeatures num=sg. Suffix "u".
+     mrB2: no RequiredHeadFeatures, OutputHeadFeatures num=sg. Suffix "x". (second passthrough)
+     mrC: RequiredHeadFeatures num=sg, OutputHeadFeatures num=pl. Suffix "e".
+     mrD (outermost): RequiredHeadFeatures num=pl, no OutputHeadFeatures. Suffix "o".
+
+     Forward: fen -mrA(out=pl)-> feni -mrB(req none;out=sg)-> feniu -mrB2(req none;out=sg)->
+     feniux -mrC(req=sg matches;out=pl)-> feniuxe -mrD(req=pl matches;out=none)-> feniuxeo.
+
+     Analysis (unapply order D,C,B2,B,A): D contributes pl. C's gate: out=pl vs fs=pl, trivial pass
+     both. C's fold (req=sg): Add unions pl+sg = a real 2-of-3 subset (not all declared) so it
+     stays as the pair; PriorityUnion narrows to sg alone. B2's gate: out=sg vs fs (Add: sg in
+     {pl,sg}, true; PU: sg==sg, true) - both pass, req empty so fs passes through unchanged for
+     both. B's gate: same check again (out=sg), both pass, req empty, unchanged again. A's gate:
+     out=pl vs fs - Add: pl in {pl,sg}, true, admits; PriorityUnion: pl vs sg, false, refuses.
+     Prediction: "feniuxeo" found under Add, lost under PriorityUnion/Rust main.
+
+     Controls: fen (root), feni (+A), feniu (+A+B), feniux (+A+B+B2), feniuxe (+A+B+B2+C, D
+     skipped - negative control, expect lost under BOTH Add and PriorityUnion since D never
+     contributed pl), fenuxeo (+B+B2+C+D, A skipped - positive control, expect found under both),
+     feniuxeo (the full chain - the headline word). -->
+<HermitCrabInput>
+  <Language>
+    <Name>DeepChain</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featNum">
+        <Name>num</Name>
+        <Symbols>
+          <Symbol id="symSg">sg</Symbol>
+          <Symbol id="symDu">du</Symbol>
+          <Symbol id="symPl">pl</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cF"><Representations><Representation>f</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cX"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="mrA mrB mrB2 mrC mrD">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA">
+            <Name>a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA">
+                <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemA" /><InsertSegments><PhoneticShape>i</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <MorphemeId>A</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></OutputHeadFeatures>
+            <MorphemeId>B</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB2">
+            <Name>b2</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB2">
+                <MorphologicalInput><PhoneticSequence id="stemB2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB2" /><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></OutputHeadFeatures>
+            <MorphemeId>B2</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrC">
+            <Name>c</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subC">
+                <MorphologicalInput><PhoneticSequence id="stemC"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemC" /><InsertSegments><PhoneticShape>e</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></RequiredHeadFeatures>
+            <MorphemeId>C</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrD">
+            <Name>d</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subD">
+                <MorphologicalInput><PhoneticSequence id="stemD"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemD" /><InsertSegments><PhoneticShape>o</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></RequiredHeadFeatures>
+            <MorphemeId>D</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eFen" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aFen"><PhoneticShape>fen</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>FEN</MorphemeId>
+            <Gloss>fen</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

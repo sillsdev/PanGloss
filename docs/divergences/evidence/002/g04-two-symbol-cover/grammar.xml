@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-002 adversarial grammar G4: same D-C-B-A stale-branch skeleton as divergence-001's
+     g2-stale-branch-num, but the head feature has only TWO declared symbols instead of three, so
+     the union C's fold produces (sm union lg) covers BOTH declared symbols and hits
+     FeatureStruct.AddImpl's "delete the feature when the union covers every declared symbol" branch,
+     a materially different Add code path than g2's 3-symbol case (which stayed a strict 2-of-3
+     subset and never deleted anything). Root "dof" carries no assigned features.
+
+     mrA (innermost): RequiredHeadFeatures NONE. OutputHeadFeatures sz=sm. Suffix "p".
+     mrB: RequiredHeadFeatures NONE, OutputHeadFeatures sz=lg. Suffix "k". (the "output feature, no
+       required feature" shape named in the task brief.)
+     mrC: RequiredHeadFeatures sz=lg, OutputHeadFeatures sz=sm. Suffix "t".
+     mrD (outermost): RequiredHeadFeatures sz=sm, OutputHeadFeatures NONE. Suffix "n".
+
+     Forward chain: dof -mrA(out=sm)-> dofp -mrB(req none; out=lg)-> dofpk -mrC(req=lg matches
+     mrB's out; out=sm)-> dofpkt -mrD(req=sm matches mrC's out; out=none)-> dofpktn.
+
+     Analysis (unapply order D,C,B,A): D contributes sz=sm (fs starts empty). C's own gate checks
+     out=sm against fs=sm (trivial pass, both modes); C's fold (req=lg) unions sm+lg - ALL 2
+     declared symbols - so Add DELETES the feature (fs becomes fully unconstrained), while
+     PriorityUnion narrows to exactly lg. B's own gate (out=lg) passes trivially either way (Add:
+     unconstrained is compatible with anything; PU: lg==lg) and B's own req is empty so fs passes
+     through unchanged. A's own gate checks out=sm against fs: Add (unconstrained) admits it
+     trivially; PriorityUnion (lg) refuses (sm != lg). Prediction: "dofpktn" found under Add, lost
+     under PriorityUnion/Rust main, and (per divergence-002's question) checked against Exact. -->
+<HermitCrabInput>
+  <Language>
+    <Name>TwoSymbolCover</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featSz">
+        <Name>sz</Name>
+        <Symbols>
+          <Symbol id="symSm">sm</Symbol>
+          <Symbol id="symLg">lg</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cF"><Representations><Representation>f</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="mrA mrB mrC mrD">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA">
+            <Name>a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA">
+                <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemA" /><InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featSz" symbolValues="symSm" /></OutputHeadFeatures>
+            <MorphemeId>A</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>k</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featSz" symbolValues="symLg" /></OutputHeadFeatures>
+            <MorphemeId>B</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrC">
+            <Name>c</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subC">
+                <MorphologicalInput><PhoneticSequence id="stemC"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemC" /><InsertSegments><PhoneticShape>t</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featSz" symbolValues="symSm" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featSz" symbolValues="symLg" /></RequiredHeadFeatures>
+            <MorphemeId>C</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrD">
+            <Name>d</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subD">
+                <MorphologicalInput><PhoneticSequence id="stemD"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemD" /><InsertSegments><PhoneticShape>n</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RequiredHeadFeatures><FeatureValue feature="featSz" symbolValues="symSm" /></RequiredHeadFeatures>
+            <MorphemeId>D</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eDof" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aDof"><PhoneticShape>dof</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>DOF</MorphemeId>
+            <Gloss>dof</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

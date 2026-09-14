@@ -1,0 +1,6 @@
+dof
+dofp
+dofpk
+dofpkt
+dofktn
+dofpktn

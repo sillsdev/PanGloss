@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-001 adversarial grammar G2: "stale branch", a genuine real, forward-synthesizable
+     word that Add finds and PriorityUnion LOSES entirely (not merely an extra spurious reading of
+     an otherwise-shared word, as in G1: here the two engines disagree on whether "zudiueo" parses
+     at all). Also exercises a genuine 3-symbol ("num" = sg/du/pl) multi-bit lane, so the Add-side
+     widened value is a real two-value disjunction, never the degenerate "union covers every
+     declared symbol so the feature gets deleted" corner case (that corner case is exercised
+     separately, deliberately, in G1's 2-symbol cat feature).
+
+     Four suffixes on one root, an unordered stratum (order is disambiguated by construction: each
+     rule inserts a distinct, non-overlapping single segment, so only one segmentation of any given
+     surface string is ever pattern-matchable):
+       mrA  RequiredHeadFeatures num=du, OutputHeadFeatures num=pl.  suffix "i"  (innermost)
+       mrB  no RequiredHeadFeatures,     OutputHeadFeatures num=sg.  suffix "u"
+       mrC  RequiredHeadFeatures num=sg, OutputHeadFeatures num=pl.  suffix "e"
+       mrD  RequiredHeadFeatures num=pl, no OutputHeadFeatures.      suffix "o"  (outermost)
+     Root "zud" carries no AssignedHeadFeatures (num unconstrained).
+
+     Forward (root to surface): empty, then mrA (req du, out pl) gives pl, then mrB (no req, out
+     sg) gives sg, then mrC (req sg, out pl) gives pl, then mrD (req pl, no out) gives pl.
+     "zudiueo" is this real 4-morph word.
+
+     Analysis unapplies outside-in: mrD, mrC, mrB, mrA.
+       unapply mrD: fs empty folds to req_D=pl (both modes agree, folding onto empty always
+         agrees).
+       unapply mrC: check out_C=pl against fs=pl (both pass). Fold in req_C=sg:
+         PriorityUnion becomes fs=sg (overwritten).
+         Add becomes fs={pl,sg} (union; a real 2-of-3 disjunction, num has 3 declared symbols so
+         this is not the "all declared symbols" deletion corner case).
+       unapply mrB: check out_B=sg against fs (PriorityUnion: sg vs sg, true; Add: sg vs {pl,sg},
+         true: both pass, as they always do for the rule that set the diverging feature).
+         req_B is empty, so both modes pass the fs through unchanged: the divergence introduced at
+         mrC survives this step untouched.
+       unapply mrA (innermost): check out_A=pl against fs.
+         PriorityUnion: fs=sg, is_unifiable(pl,sg) is false, so mrA's own gate refuses. The whole
+           derivation dead-ends: PriorityUnion finds ZERO analyses of "zudiueo".
+         Add: fs={pl,sg}, is_unifiable(pl,{pl,sg}) is true (pl is a live member of the stale
+           2-value set left over from mrC, three steps back), so mrA's gate admits. The derivation
+           reaches the root and succeeds: Add finds ONE analysis of "zudiueo".
+
+     Controls:
+       zud      bare root.
+       zudi     mrA alone.
+       zudiu    mrA+mrB.
+       zudiue   mrA+mrB+mrC, mrD skipped. Negative control: this happens to also be
+                forward-synthesizable, but analysis dead-ends identically in BOTH modes (mrD never
+                contributed pl to widen anything, so mrA's out=pl vs fs=sg fails for Add too),
+                confirming the divergence on zudiueo is attributable specifically to mrD's stale
+                contribution, not some general property of this rule shape.
+       zudueo   mrB+mrC+mrD, mrA skipped. Non-vacuousness control: the very same override chain
+                (mrC writes pl, mrD requires it) succeeds identically in BOTH modes whenever mrA
+                (the rule whose own gate is what diverges) is not part of the chain.
+       zudiueo  THE bug pin: Add finds 1 analysis, PriorityUnion finds 0. -->
+<HermitCrabInput>
+  <Language>
+    <Name>StaleBranchNum</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featNum">
+        <Name>num</Name>
+        <Symbols>
+          <Symbol id="symSg">sg</Symbol>
+          <Symbol id="symDu">du</Symbol>
+          <Symbol id="symPl">pl</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cZ"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRules="mrA mrB mrC mrD">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA">
+            <Name>a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA">
+                <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemA" /><InsertSegments><PhoneticShape>i</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symDu" /></RequiredHeadFeatures>
+            <MorphemeId>A</MorphemeId>
+            <Gloss>A</Gloss>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></OutputHeadFeatures>
+            <MorphemeId>B</MorphemeId>
+            <Gloss>B</Gloss>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrC">
+            <Name>c</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subC">
+                <MorphologicalInput><PhoneticSequence id="stemC"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemC" /><InsertSegments><PhoneticShape>e</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symSg" /></RequiredHeadFeatures>
+            <MorphemeId>C</MorphemeId>
+            <Gloss>C</Gloss>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrD">
+            <Name>d</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subD">
+                <MorphologicalInput><PhoneticSequence id="stemD"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemD" /><InsertSegments><PhoneticShape>o</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RequiredHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></RequiredHeadFeatures>
+            <MorphemeId>D</MorphemeId>
+            <Gloss>D</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eZud" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aZud"><PhoneticShape>zud</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ZUD</MorphemeId>
+            <Gloss>zud</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

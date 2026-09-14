@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-002 adversarial grammar G6: nested ComplexFeature, like divergence-001's
+     g3-nested-complex-agr, but the complex feature "agr" now carries TWO sibling subfeatures
+     instead of one: "pers" (1/2/3, the diverging lane, same D-C-B-A stale-branch recipe as g2/g3)
+     and "num" (sg/pl), which every rule sets to sg and never varies. This tests whether an inert
+     co-present sibling subfeature inside the SAME ComplexFeature masks, alters, or otherwise
+     interacts with the divergence on the other subfeature - the recursive add/priority_union fold
+     over a Complex value processes each child feature independently, so this predicts no change
+     from g3's single-subfeature result, checked empirically rather than assumed.
+
+     mrA (innermost): RequiredHeadFeatures agr.pers=2, agr.num=sg. OutputHeadFeatures agr.pers=3,
+       agr.num=sg. Suffix "a".
+     mrB: no RequiredHeadFeatures. OutputHeadFeatures agr.pers=1, agr.num=sg. Suffix "o".
+     mrC: RequiredHeadFeatures agr.pers=1, agr.num=sg. OutputHeadFeatures agr.pers=3, agr.num=sg.
+       Suffix "u".
+     mrD (outermost): RequiredHeadFeatures agr.pers=3, agr.num=sg. no OutputHeadFeatures. Suffix
+       "e".
+
+     Forward: cot -mrA(out=pers3,num=sg)-> cota -mrB(req none;out=pers1,num=sg)-> cotao -mrC(req
+     pers1 matches;out=pers3,num=sg)-> cotaou -mrD(req pers3 matches)-> cotaoue.
+
+     Analysis mechanism is identical to g2/g3's pers-only lane; num=sg is written by every rule
+     that has an OutputHeadFeatures element and so never has a chance to diverge (there is only
+     ever one value in play, sg), and no rule's own RequiredHeadFeatures ever asks for a DIFFERENT
+     num value, so num should never gate anything - it exists purely to confirm the sibling does
+     not interfere. Prediction: "cotaoue" found under Add, lost under PriorityUnion/Rust main,
+     exactly mirroring g2/g3.
+
+     Controls: cot, cota (+A), cotao (+A+B), cotaou (+A+B+C, D skipped, negative control expecting
+     loss under both Add and PriorityUnion), cotoue (+B+C+D, A skipped, positive control expecting
+     agreement), cotaoue (the full chain). -->
+<HermitCrabInput>
+  <Language>
+    <Name>NestedSiblingAgr</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <ComplexFeature id="featAgr"><Name>agr</Name></ComplexFeature>
+      <SymbolicFeature id="featPers">
+        <Name>pers</Name>
+        <Symbols>
+          <Symbol id="sym1">1</Symbol>
+          <Symbol id="sym2">2</Symbol>
+          <Symbol id="sym3">3</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featNum">
+        <Name>num</Name>
+        <Symbols>
+          <Symbol id="symSg">sg</Symbol>
+          <Symbol id="symPl">pl</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cC"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="mrA mrB mrC mrD">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA">
+            <Name>a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA">
+                <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemA" /><InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featAgr"><FeatureValue feature="featPers" symbolValues="sym3" /><FeatureValue feature="featNum" symbolValues="symSg" /></FeatureValue></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featAgr"><FeatureValue feature="featPers" symbolValues="sym2" /><FeatureValue feature="featNum" symbolValues="symSg" /></FeatureValue></RequiredHeadFeatures>
+            <MorphemeId>A</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>o</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featAgr"><FeatureValue feature="featPers" symbolValues="sym1" /><FeatureValue feature="featNum" symbolValues="symSg" /></FeatureValue></OutputHeadFeatures>
+            <MorphemeId>B</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrC">
+            <Name>c</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subC">
+                <MorphologicalInput><PhoneticSequence id="stemC"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemC" /><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featAgr"><FeatureValue feature="featPers" symbolValues="sym3" /><FeatureValue feature="featNum" symbolValues="symSg" /></FeatureValue></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featAgr"><FeatureValue feature="featPers" symbolValues="sym1" /><FeatureValue feature="featNum" symbolValues="symSg" /></FeatureValue></RequiredHeadFeatures>
+            <MorphemeId>C</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrD">
+            <Name>d</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subD">
+                <MorphologicalInput><PhoneticSequence id="stemD"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemD" /><InsertSegments><PhoneticShape>e</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RequiredHeadFeatures><FeatureValue feature="featAgr"><FeatureValue feature="featPers" symbolValues="sym3" /><FeatureValue feature="featNum" symbolValues="symSg" /></FeatureValue></RequiredHeadFeatures>
+            <MorphemeId>D</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eCot" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aCot"><PhoneticShape>cot</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>COT</MorphemeId>
+            <Gloss>cot</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

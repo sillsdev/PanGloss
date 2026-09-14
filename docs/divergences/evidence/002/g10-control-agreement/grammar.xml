@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-002 adversarial grammar G10: the required control (item g in the task brief) where
+     Add, PriorityUnion, and Exact must all agree on every word. Unlike g2/g4/g5/g6/g7/g8/g9, this
+     chain has no FOURTH rule whose own gate is checked against a value written two-or-more layers
+     further out than its immediately adjacent neighbor - every rule's own OutputHeadFeatures value
+     is checked only by the rule immediately enclosing it, whose own RequiredHeadFeatures asks for
+     exactly that value. So the union Add ever builds is consulted by nothing downstream, and
+     PriorityUnion's narrower single value and Add's wider set both still satisfy the one gate that
+     does look at them. No stale branch is exposed; this is a straight-line derivation with no
+     "reset via an empty-required rule to a different value that something further in still needs"
+     shape at all.
+
+     mrP (innermost): no RequiredHeadFeatures, OutputHeadFeatures grade=two. Suffix "a".
+     mrQ: RequiredHeadFeatures grade=two, OutputHeadFeatures grade=three. Suffix "b".
+     mrR (outermost): RequiredHeadFeatures grade=three, no OutputHeadFeatures. Suffix "c".
+
+     Forward: nep -mrP(out=two)-> nepa -mrQ(req=two matches;out=three)-> nepab -mrR(req=three
+     matches)-> nepabc.
+
+     Analysis (unapply order R,Q,P): R contributes three (from empty, both modes agree). Q's gate
+     checks out=three vs fs=three (trivial, both). Q's fold (req=two) diverges the SAME way g2's
+     mrC does (Add keeps {three,two}, PriorityUnion narrows to two) - but nothing further in ever
+     asks about "three" again: P's own gate checks out=two, which both the Add set and the
+     PriorityUnion singleton satisfy, and P's own req is empty, so the derivation reaches the root
+     and succeeds under every mode regardless of which value the fold carries. Prediction: every
+     word below is IDENTICAL across C# Add, C# PriorityUnion, Rust main, and Rust Exact. -->
+<HermitCrabInput>
+  <Language>
+    <Name>ControlAgreement</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featGrade">
+        <Name>grade</Name>
+        <Symbols>
+          <Symbol id="symOne">one</Symbol>
+          <Symbol id="symTwo">two</Symbol>
+          <Symbol id="symThree">three</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cC"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="mrP mrQ mrR">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrP">
+            <Name>p</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subP">
+                <MorphologicalInput><PhoneticSequence id="stemP"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemP" /><InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featGrade" symbolValues="symTwo" /></OutputHeadFeatures>
+            <MorphemeId>P</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrQ">
+            <Name>q</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subQ">
+                <MorphologicalInput><PhoneticSequence id="stemQ"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemQ" /><InsertSegments><PhoneticShape>b</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featGrade" symbolValues="symThree" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featGrade" symbolValues="symTwo" /></RequiredHeadFeatures>
+            <MorphemeId>Q</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrR">
+            <Name>r</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subR">
+                <MorphologicalInput><PhoneticSequence id="stemR"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemR" /><InsertSegments><PhoneticShape>c</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RequiredHeadFeatures><FeatureValue feature="featGrade" symbolValues="symThree" /></RequiredHeadFeatures>
+            <MorphemeId>R</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eNep" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aNep"><PhoneticShape>nep</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>NEP</MorphemeId>
+            <Gloss>nep</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Divergence-002 adversarial grammar G7: the stale-branch mechanism through COMPOUNDING instead
+     of a fourth affixation rule. divergence-001's 001-verification.md notes ana_compound/
+     ana_compound_cached call the identical ana_syn_fs helper with
+     (rule.head_required_syn_fs, rule.out_syn_fs) that ordinary affixation uses, but no compounding
+     grammar was built to confirm it empirically.
+
+     REVISION NOTE (kept for the record): an earlier draft of this grammar put crJoin OUTERMOST,
+     requiring the HEAD to already be affixed (mrA/mrB/mrC inside it). Empirically (C# tracing on
+     "bimatok") that construction never even reaches the feature-fold question: when a
+     CompoundingRule's analysis extracts a head/nonhead span, HC resolves each span via a direct
+     LEXICAL LOOKUP only - it does not recursively re-enter the stratum's own morphological-rule
+     un-application loop for that span (confirmed: the trace shows "Lexical Lookup [Input: bima]"
+     immediately after the compounding split, with no further "Morphological Rule Analysis" nodes
+     for "bima" at all). So a head that is itself an affixed word is unreachable within one
+     stratum this way; every word in the earlier draft that depended on it returned "-" on ALL
+     three engines uniformly (not a divergence - a dead construction), which is why this file was
+     rewritten rather than kept.
+
+     This revision instead makes crJoin the INNERMOST step: the two ROOTS compound first (bare
+     lexical entries on both sides, so no recursive-affixation problem exists), and crJoin itself
+     carries a declared OutputHeadFeatures value that plays g2-stale-branch-num's mrA role - the
+     CONSUMER whose own gate is checked against whatever mrD/mrC/mrB (now applied OUTSIDE the
+     compound, as ordinary top-level suffixes, which needs no recursion since they run directly on
+     the compound's own surface) have folded by the time analysis peels back down to the
+     compounding boundary.
+
+     crJoin (innermost): headPartsOfSpeech=posN, nonHeadPartsOfSpeech=posN, OutputHeadFeatures
+       cls=alpha, no HeadRequiredHeadFeatures (bim/tok carry no assigned features).
+     mrB: no RequiredHeadFeatures, OutputHeadFeatures cls=beta. Suffix "u".
+     mrC: RequiredHeadFeatures cls=beta, OutputHeadFeatures cls=alpha. Suffix "e".
+     mrD (outermost): RequiredHeadFeatures cls=alpha, no OutputHeadFeatures. Suffix "o".
+     cls has 3 symbols (alpha,beta,gamma), so the Add union stays a strict 2-of-3 subset, never the
+     delete-on-cover case (that is g4's job).
+
+     Forward: bim+tok -crJoin(out=alpha)-> bimtok -mrB(req none;out=beta)-> bimtoku -mrC(req=beta
+     matches;out=alpha)-> bimtokue -mrD(req=alpha matches)-> bimtokueo.
+
+     Analysis (unapply order D,C,B,crJoin): D contributes alpha (from empty, both modes agree).
+     C's gate: out=alpha vs fs=alpha, trivial both. C's fold (req=beta): Add unions alpha+beta =
+     {alpha,beta} (2 of 3, not all); PriorityUnion narrows to beta. B's gate: out=beta vs fs (Add:
+     beta in {alpha,beta}, true; PU: beta==beta, true), both pass, req empty so unchanged.
+     crJoin's gate (its own declared out=alpha, checked when peeling down to the compounding
+     boundary): Add: alpha in {alpha,beta}, true, admits - the compound splits into "bim"+"tok",
+     both plain lexical entries, no further recursion needed. PriorityUnion: alpha vs beta, false,
+     refuses. Prediction: "bimtokueo" found under Add, lost under PriorityUnion/Rust main - the
+     stale-branch mechanism firing at a CompoundingRule's own head_required_syn_fs/out_syn_fs fold
+     rather than at a fourth affix rule's RequiredHeadFeatures/OutputHeadFeatures.
+
+     Controls: bimtok (crJoin alone, no suffixes), bimtoku (+B), bimtokue (+B+C, D skipped,
+     negative control expecting loss under both Add and PriorityUnion, since D never contributed
+     alpha for anything to survive as), bimtoko (+D alone, no B/C - crJoin's own gate sees fs=alpha
+     directly from D with nothing in between, expect found under both, positive control),
+     bimtokueo (the full chain - the headline word). -->
+<HermitCrabInput>
+  <Language>
+    <Name>CompoundingStaleBranch</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featCls">
+        <Name>cls</Name>
+        <Symbols>
+          <Symbol id="symAlpha">alpha</Symbol>
+          <Symbol id="symBeta">beta</Symbol>
+          <Symbol id="symGamma">gamma</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </HeadFeatures>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="crJoin mrB mrC mrD">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <CompoundingRule id="crJoin" headPartsOfSpeech="posN" nonHeadPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>join</Name>
+            <CompoundingSubrules>
+              <CompoundingSubrule>
+                <HeadMorphologicalInput>
+                  <PhoneticSequence id="hd"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </HeadMorphologicalInput>
+                <NonHeadMorphologicalInput>
+                  <PhoneticSequence id="nh"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </NonHeadMorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="hd" /><CopyFromInput index="nh" /></MorphologicalOutput>
+              </CompoundingSubrule>
+            </CompoundingSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featCls" symbolValues="symAlpha" /></OutputHeadFeatures>
+          </CompoundingRule>
+          <MorphologicalRule id="mrB" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featCls" symbolValues="symBeta" /></OutputHeadFeatures>
+            <MorphemeId>B</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrC" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>c</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subC">
+                <MorphologicalInput><PhoneticSequence id="stemC"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemC" /><InsertSegments><PhoneticShape>e</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featCls" symbolValues="symAlpha" /></OutputHeadFeatures>
+            <RequiredHeadFeatures><FeatureValue feature="featCls" symbolValues="symBeta" /></RequiredHeadFeatures>
+            <MorphemeId>C</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrD" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>d</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subD">
+                <MorphologicalInput><PhoneticSequence id="stemD"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemD" /><InsertSegments><PhoneticShape>o</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RequiredHeadFeatures><FeatureValue feature="featCls" symbolValues="symAlpha" /></RequiredHeadFeatures>
+            <MorphemeId>D</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eBim" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aBim"><PhoneticShape>bim</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>BIM</MorphemeId>
+            <Gloss>bim</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="eTok" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aTok"><PhoneticShape>tok</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>TOK</MorphemeId>
+            <Gloss>tok</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

@@ -1,0 +1,12 @@
+0	hox	STARTED
+0	hox	0	ok	HOX|hox
+1	hoxp	STARTED
+1	hoxp	0	ok	HOX+A|hoxp
+2	hoxpq	STARTED
+2	hoxpq	0	ok	HOX+A+B|hoxpq
+3	hoxpqr	STARTED
+3	hoxpqr	0	ok	HOX+A+B+C|hoxpqr
+4	hoxqrs	STARTED
+4	hoxqrs	0	ok	HOX+B+C+D|hoxqrs
+5	hoxpqrs	STARTED
+5	hoxpqrs	0	ok	HOX+A+B+C+D|hoxpqrs
