@@ -1593,6 +1593,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         self.apply_templates(&input, &mut sink);
         self.apply_mrules(&input, &mut sink);
 
+        // `HC_WORD_STATS=1`: attribute this stratum pass's `words` to their own fields (docs/research/word-memory-trace.md).
+        crate::word_stats::record_live_words(&words);
+
         StratumAnalysis {
             words,
             capped: self.budget.capped(),

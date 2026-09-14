@@ -11,6 +11,9 @@ path = "src/main.rs"
 
 [features]
 developer-tools = ["pg-foma/developer-tools"]
+# Ground-truth allocator instrumentation for docs/research/word-memory-trace.md; default off, see
+# `src/alloc_trace.rs`.
+alloc-trace = []
 
 [dependencies]
 pg-parse.workspace = true
