@@ -2,11 +2,13 @@
 
 ## Why this fixture exists
 
-Pins a **known C# parse loss**, not a bug fix landing here — it exists so that HC-Rust's
-`fix/exact-analysis-fs` branch (the "exact analysis feature structure" divergence: analysis
-un-application now computes the exact inverse of synthesis) shows up as a **conformance FAILURE**
-against this fixture the moment that branch's exact mode is exercised by the suite, before any
-`sillsdev/machine` PR proposing a C#-side fix exists or is even drafted.
+Pins a **known C# parse loss**, and — for the one word that exercises it (`zudiua`) — records the
+answer forward synthesis proves is correct rather than what hc.dll returns. It passes under
+HC-Rust's `fix/exact-analysis-fs` branch (the "exact analysis feature structure" divergence:
+analysis un-application now computes the exact inverse of synthesis) and **fails against hc.dll**,
+on purpose, until a `sillsdev/machine` PR proposing the same fix on the C# side exists and lands.
+The twin fixture upstream lives on branch `conformance/exact-analysis-fs-divergence` in
+`C:\Users\johnm\Documents\repos\machine\.worktrees\conformance-exact-divergence`.
 
 The construct: a morphological rule with no `RequiredHeadFeatures` but with `OutputHeadFeatures`
 leaves that written feature sitting on the stem during analysis (un-application). If an inner
@@ -37,9 +39,14 @@ admits a derivation that genuinely passed through `mrOuter`'s own `tense=past` w
 - `zudia` (root+`mrInner`+`mrOutermost`, `mrOuter` skipped): negative control that `mrOutermost`'s
   gate is a real feature check (fails because only `tense=pres` was ever written), not vacuously
   satisfied by any three-morph chain of the right shape.
-- `zudiua` (the full four-morph chain): **the bug pin**. Zero analyses under the founding oracle,
-  even though `zudua` shows the identical override-then-gate pair parses cleanly one rule shorter —
-  isolating the loss to `mrInner`'s own re-unification against the leftover `tense=past`.
+- `zudiua` (the full four-morph chain): **the bug pin, and the one word that does not record hc.dll's
+  own output**. The founding oracle finds zero analyses, even though `zudua` shows the identical
+  override-then-gate pair parses cleanly one rule shorter — isolating the loss to `mrInner`'s own
+  re-unification against the leftover `tense=past`. The entry instead records
+  `ZUD+INNER+OUTER+OUTERMOST|zudiua`, the answer forward synthesis proves correct (root, then
+  `mrInner` tense=pres, then `mrOuter` tense=past, then `mrOutermost`'s tense=past gate satisfied),
+  so this fixture is red against hc.dll and green against HC-Rust's `fix/exact-analysis-fs` Exact
+  fold by design.
 
 ## Provenance
 
@@ -58,17 +65,22 @@ admits a derivation that genuinely passed through `mrOuter`'s own `tense=past` w
 
 ## Oracle discipline
 
-**Oracle: the C# founding oracle**, run directly — `hc-conformance.exe` self-check mode
-(`--fixtures conformance --propose --include-pathological`), built from
+**Oracle: the C# founding oracle for five of six words**, run directly — `hc-conformance.exe`
+self-check mode (`--fixtures conformance --propose --include-pathological`), built from
 `C:\Users\johnm\Documents\repos\machine\src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\Release\net10.0\`,
 against the fixture as authored in
 `C:\Users\johnm\Documents\repos\machine\.worktrees\conformance-exact-divergence` (branch
 `conformance/exact-analysis-fs-divergence`, based on `conformance/fieldworks-witnesses` at
-`d3b7643d`). All six signatures/outcomes below are transcribed verbatim from that run — not
-hand-derived — and the harness's own comparison genuinely re-verified them (sanity-checked here by
-deliberately corrupting one signature and confirming the run reports `[FAIL]` with the correct
-proposed replacement before reverting). This `conformance-staging/` copy is a zero-reshaping copy of
-that already-oracle-verified fixture; nothing here was authored against `pangloss`/HC-Rust.
+`d3b7643d`). `zud`/`zudi`/`zudu`/`zudua`/`zudia`'s signatures/outcomes are transcribed verbatim from
+that run — not hand-derived — and the harness's own comparison genuinely re-verified them
+(sanity-checked here by deliberately corrupting one signature and confirming the run reports
+`[FAIL]` with the correct proposed replacement before reverting). `zudiua` is the deliberate
+exception: the oracle returns no analysis at all, and its `words.yaml` entry instead records the
+answer traced by hand from forward synthesis (see "What it pins" above) — the one case this repo's
+`conformance-grammars` skill and `docs/divergences/002-*` sanction a fixture disagreeing with the
+oracle, because the answer is independently checkable without either engine. This
+`conformance-staging/` copy is a zero-reshaping copy of that already-oracle-verified (except
+`zudiua`) fixture; nothing here was authored against `pangloss`/HC-Rust for the other five words.
 
 ## Graduation
 
@@ -78,11 +90,15 @@ the `machine` repo's own worktree/branch above — that copy IS the candidate fo
 `sillsdev/machine` PR against `conformance-framework`). On acceptance, bump the `machine` submodule
 pin and delete this staged copy in the same change (graduation guard enforces this mechanically).
 
-## Not a fix
+## Current status: passes under Exact, fails against hc.dll — on purpose
 
-This fixture pins a **loss**, on purpose. It is expected to keep passing against C#'s founding
-oracle (that is the ground truth it records) and to **fail** against any HC-Rust build/mode that
-adopts the `fix/exact-analysis-fs` exact-inverse semantics, until and unless the C# side also adopts
-the `Exact` mode from `perf/pr494-priority-union` (not proposed here) or some other reconciliation is
-made. Do not "fix" this fixture's expectations to match HC-Rust's exact mode without first deciding,
-separately, whether C#'s behavior itself should change.
+This fixture pins the **correct** answer for `zudiua`, not hc.dll's current one. Under this
+branch's (`fix/exact-analysis-fs`) `Exact` analysis fold it **passes** end to end. Run directly
+against the C# founding oracle it **fails** on `zudiua` alone, because hc.dll has not adopted the
+`Exact` mode from `perf/pr494-priority-union` (or any other retraction fix) yet — see
+`docs/divergences/001-verification.md`/`001-three-way-confirmation.md` (the empirical settling of
+which fold is right) and `docs/divergences/002-exact-validation.md` (the validation of `Exact`
+across 11 adversarial grammars). A red result against hc.dll here is the expected state, not a
+broken fixture, and not something to "fix" by reverting `zudiua`'s expectation back to the oracle's
+empty result. The five other words remain oracle-recorded and are expected to agree with hc.dll
+under every fold.

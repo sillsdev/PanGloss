@@ -1,4 +1,14 @@
-# oracle-provenance: founding-oracle
+# oracle-provenance: founding-oracle, EXCEPT `zudiua` -- see below
+#
+# THIS FIXTURE FAILS AGAINST hc.dll TODAY, ON PURPOSE. Every word here records the founding
+# oracle's own output except `zudiua`, which records the answer forward synthesis proves is correct
+# and which the oracle currently loses. The fixture is written before the engine fix, so it goes red
+# now and green when the fix lands; a red result here is the expected state, not a broken fixture.
+# The correct answer was derived from the grammar rather than from any engine: apply the rules in
+# order, check each rule's RequiredHeadFeatures against the previous rule's OutputHeadFeatures, and
+# see that the chain builds the surface. An engine that cannot invert a derivation it can perform is
+# wrong regardless of which engine it is. Every OTHER word is oracle-recorded, so the fixture still
+# pins current behaviour everywhere the current behaviour is right.
 # Verified against the C# founding oracle (hc.dll, via hc-conformance.exe self-check mode --
 # `hc-conformance.exe --fixtures conformance --propose --include-pathological` built from
 # C:\Users\johnm\Documents\repos\machine\.worktrees\conformance-exact-divergence, branch
@@ -6,12 +16,12 @@
 # from that run's --propose output, not hand-derived. This is a zero-reshaping copy of the fixture
 # authored there for eventual `sillsdev/machine` graduation -- see STAGING.md.
 #
-# PINS CURRENT C# BEHAVIOUR. Do not read this fixture as an endorsement: it records a parse LOSS
-# that the owner's own research characterizes as a pre-existing bug (see below), present under both
-# master's Add semantics and PR #494's PriorityUnion, and NOT present in HC-Rust's "exact analysis
-# feature structure" mode (PanGloss branch fix/exact-analysis-fs). This fixture exists so that
-# divergence shows up as a conformance FAILURE against HC-Rust's exact mode -- the point is to settle
-# "what C# does today" before anyone proposes changing it.
+# PINS CURRENT C# BEHAVIOUR EXCEPT `zudiua`. Do not read this fixture as an endorsement: it records
+# a parse LOSS that the owner's own research characterizes as a pre-existing bug (see below), present
+# under both master's Add semantics and PR #494's PriorityUnion, and NOT present in HC-Rust's "exact
+# analysis feature structure" mode (PanGloss branch fix/exact-analysis-fs). This fixture pins the
+# CORRECT answer for `zudiua` so it shows up as a conformance FAILURE against hc.dll and PASSES
+# against HC-Rust's exact mode -- the point is to certify the fix, not merely document the bug.
 #
 # Mechanism: analysis (un-application) walks a derivation outside-in. mrOuter's own
 # OutputHeadFeatures (tense=past) is folded onto the stem as it is un-applied and never fully
@@ -116,18 +126,17 @@ words:
 
   - word: zudiua
     note: >-
-      THE bug pin. root+mrInner+mrOuter+mrOutermost is a structurally well-formed four-morph chain --
-      compare zudua above, which is the same gate pair one rule shorter and parses cleanly -- but the
-      founding oracle finds ZERO analyses of it. mrOuter's own tense=past write, folded onto the stem
-      during analysis and never retracted, makes mrInner's own OutputHeadFeatures (tense=pres)
-      unification fail when mrInner is tried next, so the whole derivation is refused even though
-      forward synthesis of exactly this morpheme chain would succeed. See this file's header for the
-      full mechanism and provenance. HC-Rust's exact-analysis-fs branch strips mrOuter's own output
-      feature paths before re-unifying and DOES find this parse -- the divergence this fixture exists
-      to catch.
-    expect_fail: true
-    blocked_by: [mrInner]
-    neutralizes:
-      - OutputHeadFeatures
-    exercises:
-      - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures)"
+      THE bug pin, and the one word in this fixture that does NOT record current engine behaviour.
+      root+mrInner+mrOuter+mrOutermost is a well-formed four-morph chain: forward synthesis runs
+      zud (no tense) -> mrInner writes tense=pres -> mrOuter writes tense=past -> mrOutermost's
+      RequiredHeadFeatures tense=past is satisfied. Compare zudua above, the same gate pair one rule
+      shorter, which parses cleanly. The founding oracle nonetheless finds ZERO analyses here:
+      mrOuter's own tense=past write is folded onto the stem during analysis and never retracted, so
+      mrInner's own OutputHeadFeatures (tense=pres) fails unification when mrInner is tried next and
+      the whole derivation is refused. The signature below is what a correct engine must return, so
+      this entry FAILS against hc.dll today by design -- see the header for why that is deliberate.
+    parses:
+      - signature: "ZUD+INNER+OUTER+OUTERMOST|zudiua"
+        rules: [mrInner, mrOuter, mrOutermost]
+        exercises:
+          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures)"
