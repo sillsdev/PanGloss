@@ -1552,13 +1552,13 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             if let Some(state_key) = &state_key {
                 if let Some(&idx) = key_word.get(state_key) {
                     generalize_syn_fs(&mut words[idx], &w, &|f| self.g.syn_features.mask(f));
-                    words[idx].alternatives.push(w);
+                    words[idx].alternatives.push(Rc::new(w));
                     return;
                 }
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
                 if let Some(&idx) = output_keys.get(&dedup_key) {
                     generalize_syn_fs(&mut words[idx], &w, &|f| self.g.syn_features.mask(f));
-                    words[idx].alternatives.push(w);
+                    words[idx].alternatives.push(Rc::new(w));
                     return;
                 }
             }

@@ -274,7 +274,14 @@ pub struct Word {
     /// part of `WordKey`; **not** copied by `Word::clone_without_alternatives` (C#'s copy ctor
     /// leaves `_alternatives` fresh-empty, Word.cs:87), so only the two sites that build a canonical
     /// (the stratum merge) ever populate it.
-    pub alternatives: Vec<Word>,
+    ///
+    /// `Rc` (not owned `Word`, and not `Arc`): the canonical this field lives on is cloned heavily
+    /// once merged (the memo store at `stratum.rs:1135-1155`/`:1311-1318`, `replay_onto`, dedup),
+    /// and each clone used to deep-copy this whole subtree even though the payload is immutable
+    /// from the moment the fold attaches it — the same rationale as `Word::source`. Plain `Rc`
+    /// suffices: `Word` is already `!Send` via `source`, and `pg-parse/src/batch.rs` parallelizes
+    /// across words, not within one word's single-threaded cascade.
+    pub alternatives: Vec<Rc<Word>>,
     /// Mirrors C# `Word.CurrentTrace` (`object`), the live cursor a `TraceManager`
     /// call reassigns as the parse progresses (`Trace.cs`/`TraceManager.cs`; see
     /// `crate::trace`'s module doc for why this port carries the cursor as an explicit
@@ -655,10 +662,10 @@ pub struct WordByteBreakdown {
     pub root_runtime_id: usize,
     /// Recursive total over every `Word` in `non_heads`.
     pub non_heads: usize,
-    /// Recursive total over every `Word` in `alternatives` — omitted by `estimate_word_bytes`
+    /// Recursive total over every `Rc<Word>` in `alternatives` — omitted by `estimate_word_bytes`
     /// before this diagnostic (`docs/research/word-memory-trace.md` §2); alternatives are
     /// "empty on almost every word" (`Word::alternatives`'s doc) but a full merged-candidate
-    /// `Word` clone on every one that is not, so a single pathological entry can dominate.
+    /// subtree on every one that is not, so a single pathological entry can dominate.
     pub alternatives: usize,
 }
 
@@ -700,6 +707,15 @@ impl WordByteBreakdown {
 /// it is shared across many stratum outputs (see the field's doc), so counting its pointee per
 /// clone would wildly overstate distinct memory: only the pointer's own bytes are counted here,
 /// same as any other `Option<Rc<_>>` field.
+///
+/// `alternatives` is now `Vec<Rc<Word>>` too, but is still recursed into (unlike `source`) because
+/// the per-entry budget this feeds wants each owner's full attributable cost. That does mean two
+/// owners that both hold a clone of the same canonical `Word` — the memo store and the live
+/// frontier, most commonly, since a `Vec<Word>` clone now clones `Rc` pointers instead of the
+/// subtree — will each count that shared subtree in full: a real double-count of one allocation
+/// across two totals, not merely a hypothetical one. It biases the byte budget conservative
+/// (evicts sooner than the true retained set requires) rather than under; it is not a live-memory
+/// bound (see the step-cap contract).
 pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
     let mut b = WordByteBreakdown {
         base: std::mem::size_of::<Word>(),
