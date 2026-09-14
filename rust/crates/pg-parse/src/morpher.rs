@@ -547,6 +547,11 @@ impl<'g> Morpher<'g> {
             structured.push(self.structured_analysis(w, guessed));
         }
 
+        // `HC_WORD_STATS=1`: snapshot this word's memo tables before `scope_cell` drops (docs/research/word-memory-trace.md).
+        if let Some(scope) = scope {
+            pg_rules::word_stats::record_memo_snapshot(&scope.borrow());
+        }
+
         ParseOutcome {
             analyses,
             structured,

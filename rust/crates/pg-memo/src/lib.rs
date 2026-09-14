@@ -127,6 +127,54 @@ pub struct AnalysisStateKey {
     state: u8,
 }
 
+/// Approximate heap-byte cost of one `Shape`, duplicated from `pg_rules::word` (dependency runs the other way).
+fn estimate_shape_bytes(shape: &Shape) -> usize {
+    const PER_NODE_FIXED: usize = 16;
+    let n = shape.len();
+    n * PER_NODE_FIXED + n * shape.feat_width() as usize * std::mem::size_of::<u64>()
+}
+
+/// Approximate heap-byte cost of one `FeatureStruct`, duplicated from `pg_rules::word` for the same reason as `estimate_shape_bytes`.
+fn estimate_fs_bytes(fs: &FeatureStruct) -> usize {
+    const ENTRY_FIXED: usize = 24;
+    fs.entries()
+        .iter()
+        .map(|(_, v)| {
+            ENTRY_FIXED
+                + match v {
+                    pg_featstruct::FeatureValue::Symbolic(_) => {
+                        std::mem::size_of::<pg_featstruct::SymbolBits>()
+                    }
+                    pg_featstruct::FeatureValue::Complex(inner) => estimate_fs_bytes(inner),
+                }
+        })
+        .sum()
+}
+
+impl AnalysisStateKey {
+    /// Approximate heap-byte cost of one key (`HC_WORD_STATS=1` diagnostic,
+    /// `pg_rules::word_stats`): the key clones a full `Shape` + two `FeatureStruct`s + the
+    /// per-rule unapplication multiset + the source-bearing morph history per state (see this
+    /// crate's module doc, "Deviations from the C#" — no interning pool exists here either), so
+    /// this is not a fixed small cost. `docs/research/word-memory-trace.md` measures how large a
+    /// share of the memo table this side (as opposed to `results`, which `memo_bytes_used`/
+    /// `template_bytes_used` already account) turns out to be.
+    pub fn estimate_bytes(&self) -> usize {
+        let mut n = std::mem::size_of::<Self>();
+        n += estimate_shape_bytes(&self.shape);
+        n += estimate_fs_bytes(&self.syntactic_fs);
+        n += estimate_fs_bytes(&self.realizational_fs);
+        n += self.rule_counts.len() * (std::mem::size_of::<MRuleId>() + std::mem::size_of::<u32>());
+        n += self.morph_history.len() * std::mem::size_of::<MorphHistoryKey>();
+        for m in &self.morph_history {
+            if let Some(id) = &m.runtime_identity {
+                n += id.len();
+            }
+        }
+        n
+    }
+}
+
 impl AnalysisStateKey {
     /// Build a key from a word's already-extracted components (`pg-rules` supplies these from a
     /// `Word`; this crate does not depend on `Word`). `rule_counts` is cloned from the word's
@@ -608,6 +656,31 @@ impl<W> AnalysisScope<W> {
     /// The current retained-word count, for diagnostics (`MEMOPROF`'s `stored_words`).
     pub fn stored_words(&self) -> usize {
         self.stored_words
+    }
+
+    /// Accounted bytes stored in `memo` (results only — see `AnalysisStateKey::estimate_bytes`
+    /// for the key-side cost this does not include), for `HC_WORD_STATS=1` diagnostics.
+    pub fn memo_bytes_used(&self) -> usize {
+        self.memo_bytes_used
+    }
+
+    /// Template-memo analog of `memo_bytes_used`.
+    pub fn template_bytes_used(&self) -> usize {
+        self.template_bytes_used
+    }
+
+    /// Diagnostic-only (`HC_WORD_STATS=1`): sum of `AnalysisStateKey::estimate_bytes()` over
+    /// every key currently retained, as `(memo, template_memo)` — the key-side cost
+    /// `memo_bytes_used`/`template_bytes_used` do not count. O(table size); call only under a
+    /// diagnostic gate, never on the hot insert path.
+    pub fn estimate_key_bytes(&self) -> (usize, usize) {
+        (
+            self.memo.keys().map(AnalysisStateKey::estimate_bytes).sum(),
+            self.template_memo
+                .keys()
+                .map(AnalysisStateKey::estimate_bytes)
+                .sum(),
+        )
     }
 
     /// Diagnostic-only: whether the mrule-memo entry cap alone is exhausted, so a caller classifying

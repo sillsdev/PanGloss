@@ -637,28 +637,97 @@ fn estimate_fs_bytes(fs: &FeatureStruct) -> usize {
         .sum()
 }
 
-/// Approximate heap-byte cost of one `Word`, recursing into `non_heads` (the nested-`Word`
-/// growth the memo byte budget exists to bound). `source`'s `Rc<Word>` chain is deliberately
-/// **not** recursed into: it is shared across many stratum outputs (see the field's doc), so
-/// counting its pointee per clone would wildly overstate distinct memory: only the pointer's own
-/// bytes are counted here, same as any other `Option<Rc<_>>` field.
-pub fn estimate_word_bytes(w: &Word) -> usize {
-    let mut bytes = std::mem::size_of::<Word>();
-    bytes += estimate_shape_bytes(&w.shape);
-    bytes += estimate_fs_bytes(&w.syn_fs);
-    bytes += estimate_fs_bytes(&w.real_fs);
-    bytes += w.morphs.len() * std::mem::size_of::<MorphRecord>();
-    bytes += w.mrule_apps.len() * std::mem::size_of::<Option<MRuleId>>();
-    bytes += w.obligatory.len() * std::mem::size_of::<FeatId>();
-    bytes += w.unapplied_rule_counts.len()
-        * (std::mem::size_of::<MRuleId>() + std::mem::size_of::<u32>());
-    if let Some(id) = &w.root_runtime_id {
-        bytes += id.len();
+/// Per-field decomposition of `estimate_word_bytes`'s total, for the `HC_WORD_STATS=1` diagnostic
+/// (`crate::word_stats`) — see `docs/research/word-memory-trace.md` for what each field's measured
+/// share turned out to be. `non_heads`/`alternatives` are each the *recursive total* of the nested
+/// `Word`s they hold, not a per-node count, matching `estimate_word_bytes`'s own recursion.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WordByteBreakdown {
+    /// `size_of::<Word>()` — the struct's own inline fields (pointers, small enums, indices).
+    pub base: usize,
+    pub shape: usize,
+    pub syn_fs: usize,
+    pub real_fs: usize,
+    pub morphs: usize,
+    pub mrule_apps: usize,
+    pub obligatory: usize,
+    pub unapplied_rule_counts: usize,
+    pub root_runtime_id: usize,
+    /// Recursive total over every `Word` in `non_heads`.
+    pub non_heads: usize,
+    /// Recursive total over every `Word` in `alternatives` — omitted by `estimate_word_bytes`
+    /// before this diagnostic (`docs/research/word-memory-trace.md` §2); alternatives are
+    /// "empty on almost every word" (`Word::alternatives`'s doc) but a full merged-candidate
+    /// `Word` clone on every one that is not, so a single pathological entry can dominate.
+    pub alternatives: usize,
+}
+
+impl WordByteBreakdown {
+    pub fn total(&self) -> usize {
+        self.base
+            + self.shape
+            + self.syn_fs
+            + self.real_fs
+            + self.morphs
+            + self.mrule_apps
+            + self.obligatory
+            + self.unapplied_rule_counts
+            + self.root_runtime_id
+            + self.non_heads
+            + self.alternatives
     }
+
+    /// Component-wise accumulate `other` into `self`, for summing a breakdown over many `Word`s.
+    pub fn add_assign(&mut self, other: &WordByteBreakdown) {
+        self.base += other.base;
+        self.shape += other.shape;
+        self.syn_fs += other.syn_fs;
+        self.real_fs += other.real_fs;
+        self.morphs += other.morphs;
+        self.mrule_apps += other.mrule_apps;
+        self.obligatory += other.obligatory;
+        self.unapplied_rule_counts += other.unapplied_rule_counts;
+        self.root_runtime_id += other.root_runtime_id;
+        self.non_heads += other.non_heads;
+        self.alternatives += other.alternatives;
+    }
+}
+
+/// Approximate heap-byte cost of one `Word`, broken down by field. Recurses into `non_heads` (the
+/// nested-`Word` growth the memo byte budget exists to bound) and into `alternatives` (the
+/// stratum-merge's folded-candidate list — see `WordByteBreakdown::alternatives`'s doc for why
+/// this recursion was added). `source`'s `Rc<Word>` chain is deliberately **not** recursed into:
+/// it is shared across many stratum outputs (see the field's doc), so counting its pointee per
+/// clone would wildly overstate distinct memory: only the pointer's own bytes are counted here,
+/// same as any other `Option<Rc<_>>` field.
+pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
+    let mut b = WordByteBreakdown {
+        base: std::mem::size_of::<Word>(),
+        shape: estimate_shape_bytes(&w.shape),
+        syn_fs: estimate_fs_bytes(&w.syn_fs),
+        real_fs: estimate_fs_bytes(&w.real_fs),
+        morphs: w.morphs.len() * std::mem::size_of::<MorphRecord>(),
+        mrule_apps: w.mrule_apps.len() * std::mem::size_of::<Option<MRuleId>>(),
+        obligatory: w.obligatory.len() * std::mem::size_of::<FeatId>(),
+        unapplied_rule_counts: w.unapplied_rule_counts.len()
+            * (std::mem::size_of::<MRuleId>() + std::mem::size_of::<u32>()),
+        root_runtime_id: w.root_runtime_id.as_ref().map_or(0, String::len),
+        non_heads: 0,
+        alternatives: 0,
+    };
     for nh in &w.non_heads {
-        bytes += estimate_word_bytes(nh);
+        b.non_heads += estimate_word_bytes_breakdown(nh).total();
     }
-    bytes
+    for alt in &w.alternatives {
+        b.alternatives += estimate_word_bytes_breakdown(alt).total();
+    }
+    b
+}
+
+/// Approximate heap-byte cost of one `Word` (see `estimate_word_bytes_breakdown` for the
+/// per-field decomposition this sums).
+pub fn estimate_word_bytes(w: &Word) -> usize {
+    estimate_word_bytes_breakdown(w).total()
 }
 
 /// Approximate heap-byte cost of a `MemoEntry`'s `results`, the payload the memo byte budget accounts against.

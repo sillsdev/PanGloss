@@ -66,8 +66,11 @@
 //! warnings from `.json`/`.fwdata` dispatch are always printed to stderr, never stdout --
 //! `batch`'s TSV rows are parity-sensitive against C# goldens, so warnings must never be
 //! interleaved into that output stream.
-#![forbid(unsafe_code)]
+// `forbid` relaxes only under `alloc-trace` (dev-only, default off): its counting allocator needs one `unsafe impl GlobalAlloc`.
+#![cfg_attr(not(feature = "alloc-trace"), forbid(unsafe_code))]
 
+#[cfg(feature = "alloc-trace")]
+mod alloc_trace;
 #[cfg(test)]
 mod test_support;
 
@@ -259,6 +262,11 @@ const REPORT_DEVELOPER_HELP: &str = "";
 
 /// Ten times the highest step count any measured legitimate word reached across every corpus sampled; a runaway guard, never a performance tuning knob.
 const DEFAULT_STEP_CAP: StepCap = StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap());
+
+/// Allocator-level ground truth for `docs/research/word-memory-trace.md`; off unless built with `--features alloc-trace`.
+#[cfg(feature = "alloc-trace")]
+#[global_allocator]
+static GLOBAL_ALLOC: alloc_trace::CountingAlloc = alloc_trace::CountingAlloc;
 
 fn main() -> ExitCode {
     // The analysis cascade recurses to the depth of a word's unapplication chain, which on heavy corpus words exceeds the default 8 MiB main-thread stack, so the whole batch runs on a worker thread with a generous stack.
@@ -965,6 +973,56 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     f.max_apply_templates_bytes,
                     f.max_live_words,
                 );
+            }
+            // Field-level byte attribution over the live frontier and the memo tables (docs/research/word-memory-trace.md).
+            if std::env::var("HC_WORD_STATS").is_ok() {
+                let s = pg_rules::word_stats::snapshot();
+                let b = &s.live_peak_breakdown;
+                eprintln!(
+                    "WORDSTATS\t{i}\t{word}\t\
+                     live_peak_count={}\tlive_peak_total={}\t\
+                     live_base={}\tlive_shape={}\tlive_syn_fs={}\tlive_real_fs={}\tlive_morphs={}\t\
+                     live_mrule_apps={}\tlive_obligatory={}\tlive_unapplied_rule_counts={}\t\
+                     live_root_runtime_id={}\tlive_non_heads={}\tlive_alternatives={}\t\
+                     max_single_word_bytes={}\t\
+                     alt_len_p50={}\talt_len_p90={}\talt_len_max={}\t\
+                     non_head_len_p50={}\tnon_head_len_p90={}\tnon_head_len_max={}\t\
+                     memo_key_bytes={}\tmemo_results_bytes={}\ttpl_key_bytes={}\ttpl_results_bytes={}",
+                    s.live_peak_count,
+                    s.live_peak_total,
+                    b.base,
+                    b.shape,
+                    b.syn_fs,
+                    b.real_fs,
+                    b.morphs,
+                    b.mrule_apps,
+                    b.obligatory,
+                    b.unapplied_rule_counts,
+                    b.root_runtime_id,
+                    b.non_heads,
+                    b.alternatives,
+                    s.max_single_word_bytes,
+                    s.alt_len_p50,
+                    s.alt_len_p90,
+                    s.alt_len_max,
+                    s.non_head_len_p50,
+                    s.non_head_len_p90,
+                    s.non_head_len_max,
+                    s.memo_key_bytes,
+                    s.memo_results_bytes,
+                    s.tpl_key_bytes,
+                    s.tpl_results_bytes,
+                );
+            }
+            // Ground-truth allocator peak/live bytes for this word (docs/research/word-memory-trace.md).
+            #[cfg(feature = "alloc-trace")]
+            if std::env::var("HC_ALLOC_STATS").is_ok() {
+                eprintln!(
+                    "ALLOC\t{i}\t{word}\tpeak_bytes={}\tlive_at_end={}",
+                    alloc_trace::peak_bytes(),
+                    alloc_trace::live_bytes(),
+                );
+                alloc_trace::reset_peak();
             }
             write_batch_row(
                 &mut w,
