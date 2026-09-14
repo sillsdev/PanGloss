@@ -1834,6 +1834,8 @@ mod tests {
             "pangloss-stats-cmd-test-{tag}-{}-{n}",
             std::process::id()
         ));
+        // Windows reuses pids, so a previous run's cache can still sit here and reopen with its engine.
+        let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create scratch dir");
         dir
     }

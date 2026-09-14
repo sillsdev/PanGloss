@@ -48,7 +48,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            oracle_exact: 64,
+            // 64 -> 65: the exact-inverse analysis fold recovers one fixture this backend previously missed.
+            oracle_exact: 65,
             compiles_but_misses: 1,
             refused: 1,
             unmeasurable: 0,
@@ -57,7 +58,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            oracle_exact: 45,
+            // 45 -> 46: same recovery as TunedSurfaceProbed above, from the exact-inverse analysis fold.
+            oracle_exact: 46,
             compiles_but_misses: 1,
             refused: 20,
             unmeasurable: 0,
@@ -66,7 +68,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            oracle_exact: 32,
+            // 32 -> 33: the same one-fixture recovery every backend sees from the exact-inverse fold.
+            oracle_exact: 33,
             compiles_but_misses: 0,
             refused: 31,
             unmeasurable: 3,

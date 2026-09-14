@@ -1,4 +1,4 @@
-# oracle-provenance: founding-oracle, EXCEPT `zudiua` -- see below
+# oracle-provenance: forward-synthesis
 #
 # THIS FIXTURE FAILS AGAINST hc.dll TODAY, ON PURPOSE. Every word here records the founding
 # oracle's own output except `zudiua`, which records the answer forward synthesis proves is correct
@@ -84,7 +84,7 @@ words:
       - signature: "ZUD|zud"
         rules: []
         exercises:
-          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures)"
+          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures/RequiredFootFeatures/OutputFootFeatures)"
 
   - word: zudi
     note: mrInner alone. No RequiredHeadFeatures to fail; writes tense=pres via OutputHeadFeatures.
@@ -92,7 +92,7 @@ words:
       - signature: "ZUD+INNER|zudi"
         rules: [mrInner]
         exercises:
-          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures)"
+          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures/RequiredFootFeatures/OutputFootFeatures)"
 
   - word: zudu
     note: mrOuter alone. No RequiredHeadFeatures to fail; writes tense=past via OutputHeadFeatures.
@@ -100,7 +100,7 @@ words:
       - signature: "ZUD+OUTER|zudu"
         rules: [mrOuter]
         exercises:
-          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures)"
+          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures/RequiredFootFeatures/OutputFootFeatures)"
 
   - word: zudua
     note: >-
@@ -112,7 +112,7 @@ words:
       - signature: "ZUD+OUTER+OUTERMOST|zudua"
         rules: [mrOuter, mrOutermost]
         exercises:
-          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures)"
+          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures/RequiredFootFeatures/OutputFootFeatures)"
 
   - word: zudia
     note: >-
@@ -122,7 +122,7 @@ words:
     expect_fail: true
     blocked_by: [mrOutermost]
     exercises:
-      - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures)"
+      - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures/RequiredFootFeatures/OutputFootFeatures)"
 
   - word: zudiua
     note: >-
@@ -139,4 +139,4 @@ words:
       - signature: "ZUD+INNER+OUTER+OUTERMOST|zudiua"
         rules: [mrInner, mrOuter, mrOutermost]
         exercises:
-          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures)"
+          - "Syntactic feature agreement (RequiredHeadFeatures/OutputHeadFeatures/RequiredFootFeatures/OutputFootFeatures)"

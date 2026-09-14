@@ -111,6 +111,13 @@ pub enum OracleProvenance {
     /// Legacy: authored/verified only against `pg_parse::Morpher` (HC-Rust). Records HC-Rust's own
     /// behavior, not correctness — never re-verified against the founding oracle.
     RustOnly,
+    /// At least one word records the answer a hand-traced FORWARD synthesis proves, because the
+    /// founding oracle is believed wrong there. Such a fixture is deliberately red against
+    /// `hc.dll` until an upstream fix lands, so this value is a claim that the disagreement is
+    /// known and argued, never that the oracle was not consulted — see
+    /// `.claude/skills/conformance-grammars/SKILL.md`'s "Oracle discipline" step for the four
+    /// obligations that come with it.
+    ForwardSynthesis,
 }
 
 /// Parses a `# oracle-provenance: founding-oracle` / `# oracle-provenance: rust-only` marker line
@@ -129,6 +136,7 @@ pub fn parse_oracle_provenance_marker(words_yaml_text: &str) -> Option<OraclePro
         return match rest.trim().split_whitespace().next()? {
             "founding-oracle" => Some(OracleProvenance::FoundingOracle),
             "rust-only" => Some(OracleProvenance::RustOnly),
+            "forward-synthesis" => Some(OracleProvenance::ForwardSynthesis),
             _ => None,
         };
     }
