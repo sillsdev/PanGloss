@@ -90,6 +90,15 @@ PR: it is the first candidate to run through steps 3 and 6 here, not a template 
 
 ## Run the oracle
 
+**Prefer the managed wrapper over a hand-rolled invocation.** `rust/tools/oracle-conformance.ps1`
+replays the fixtures against the C# oracle for you: it locates the binary (conformance-branch
+worktree first, whose provenance pins to a commit), refuses to run from another worktree's cwd
+(exit 19, the same rule `pg.ps1` applies), and separates the two outcomes that matter — exit 25 the
+oracle could not be run at all, exit 26 a real signature divergence, 0 no NEW divergence with any
+baselined ones printed. That 25/26 split is the whole point: "I could not look" and "I looked and
+we disagree" must never collapse into one failure. Reach for the raw commands below only when you
+need something that script does not do.
+
 The built oracle: `hc-conformance.exe` at
 `C:\Users\johnm\Documents\repos\machine\src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\Release\net10.0\`
 (dotnet 10 on PATH, verified present). The adapter contract (`machine/conformance/PROTOCOL.md` §1):

@@ -112,9 +112,8 @@ or a second `words.yaml` parser — extend that crate instead.
 3. **Do not hand-derive signatures.** Write the grammar and word list, then run the actual engine
    and transcribe its output — this repo's own engine is fast enough that guessing is both slower
    and riskier than measuring:
-   ```
-   cargo build -p pg-cli --release
-   target/release/pangloss batch <grammar.xml> <words.txt> out.tsv
+   ```powershell
+   & .\rust\tools\pg.ps1 -Mode run -Bin pangloss -- batch <grammar.xml> <words.txt> out.tsv --threads 1
    ```
    `out.tsv`'s 5th column (`signature`) is what `words.yaml`'s `parses[].signature` values must
    equal, per fixture word. `words.yaml`'s `expected_signature()` (sorted, `;`-joined,
@@ -185,6 +184,12 @@ or a second `words.yaml` parser — extend that crate instead.
    the oracle lives in `machine/src/SIL.Machine.Morphology.HermitCrab.Tool/`, which that sparse
    checkout omits. A worktree can run the whole conformance suite green and still have no oracle in
    it. "Not available" is the DEFAULT state, not a sign anything is broken.
+
+   **Before any of the manual recipes below, try `rust/tools/oracle-conformance.ps1`.** It finds the
+   oracle binary, replays every discovered fixture against it, and reports exit 25 when the oracle
+   could not be run at all versus exit 26 when it ran and a signature genuinely differs — the
+   distinction this whole step exists to protect. Only fall through to the checkout surgery below
+   when you need something that script does not do.
 
    **Check which state you are in before doing anything — the fix is opposite in each:**
    ```
@@ -273,12 +278,12 @@ or a second `words.yaml` parser — extend that crate instead.
    oracle generated `words.yaml`'s signatures (§ "Oracle discipline" above), and an (initially empty)
    upstream-PR-link line to fill in once one is opened. Use an existing staged fixture's
    `STAGING.md` as the template for structure.
-3. Verify it runs in the default suite: `cargo test -p pg-parse --test conformance_fixtures_gate`
+3. Verify it runs in the default suite: `& .\rust\tools\pg.ps1 -Mode test -Package pg-parse -TestTarget conformance_fixtures_gate`
    should discover it, replay every word, and report it in the `total_checked` count (run with
    `-- --nocapture` to see the per-fixture skip/count lines). No `#[ignore]`, no self-skip guard
    needed — staged fixtures are small and committed, so they run unconditionally.
 4. Confirm the graduation guard still passes (it will, until the fixture's name also appears
-   upstream — see Graduate below) and that `cargo test --workspace --release` timing hasn't
+   upstream — see Graduate below) and that `& .\rust\tools\pg.ps1 -Mode test` timing hasn't
    meaningfully regressed (staged fixtures should be well under a second each).
 
 ## Update: editing an existing fixture
@@ -317,5 +322,5 @@ This skill's Author→Stage flow was followed end-to-end while writing it, for f
 pathology-mimic fixtures (`conformance-staging/edge-cases/{template-category-sharing,
 infix-interdigitation, mpr-gated-exception, optional-template-composite}/`) — each authored per
 step 1–5 above, staged per the Stage section, and confirmed to run in
-`cargo test -p pg-parse --test conformance_fixtures_gate`. See each fixture's own `STAGING.md` for
+`& .\rust\tools\pg.ps1 -Mode test -Package pg-parse -TestTarget conformance_fixtures_gate`. See each fixture's own `STAGING.md` for
 what it pins.
