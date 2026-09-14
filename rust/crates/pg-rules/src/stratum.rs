@@ -25,7 +25,7 @@ use pg_grammar::model::{
 };
 use pg_memo::{AnalysisScope, AnalysisStateKey, MemoEntry, MorphHistoryKey};
 use pg_shape::Shape;
-use rustc_hash::FxHashMap as HashMap;
+use rustc_hash::{FxHashMap as HashMap, FxHashSet};
 
 /// Callback injected so compounding analysis can prune non-heads against the lexicon without
 /// `pg-rules` depending on `pg-parse` (the dependency runs the other way). The signature matches
@@ -86,7 +86,9 @@ use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
-use crate::word::{runtime_id, FinalTemplateState, MorphStatus, Word, WordKey};
+use crate::word::{
+    estimate_word_bytes, runtime_id, FinalTemplateState, MorphStatus, Word, WordKey,
+};
 use crate::{metathesis, morph, rewrite};
 
 /// The per-parse memo carrier this module threads through the analysis cascade. `pg-parse` owns one
@@ -169,6 +171,7 @@ pub mod frontier_profile {
         static MAX_APPLY_TEMPLATES_LEN: Cell<u64> = const { Cell::new(0) };
         static MAX_APPLY_TEMPLATES_BYTES: Cell<u64> = const { Cell::new(0) };
         static MAX_LIVE_WORDS: Cell<u64> = const { Cell::new(0) };
+        static MAX_LIVE_BYTES: Cell<u64> = const { Cell::new(0) };
     }
 
     /// Cached `HC_FRONTIER_STATS` read (one env lookup per thread), mirroring `pg_memo::profile::enabled`.
@@ -245,6 +248,15 @@ pub mod frontier_profile {
         MAX_LIVE_WORDS.with(|c| c.set(c.get().max(live)));
     }
 
+    /// Bytes-denominated companion to [`record_live_words`]: the caller's own running total of
+    /// `crate::word::estimate_word_bytes` over every `Word` this stratum call has retained so far
+    /// (pushed as a new canonical or folded into one's `alternatives` — either way the payload is
+    /// retained, so both count), independent of the word-count metric above (a plain frontier
+    /// depth, not a byte quantity, so it has no byte analog to add in here).
+    pub fn record_live_bytes(bytes: u64) {
+        MAX_LIVE_BYTES.with(|c| c.set(c.get().max(bytes)));
+    }
+
     /// One word's whole cumulative frontier picture -- snapshot only, never reset (mirrors
     /// `pg_memo::profile::MemoProfileSnapshot`).
     #[derive(Debug, Clone, Copy, Default)]
@@ -263,6 +275,7 @@ pub mod frontier_profile {
         pub max_apply_templates_len: u64,
         pub max_apply_templates_bytes: u64,
         pub max_live_words: u64,
+        pub max_live_bytes: u64,
     }
 
     pub fn snapshot() -> FrontierProfileSnapshot {
@@ -281,6 +294,7 @@ pub mod frontier_profile {
             max_apply_templates_len: MAX_APPLY_TEMPLATES_LEN.with(Cell::get),
             max_apply_templates_bytes: MAX_APPLY_TEMPLATES_BYTES.with(Cell::get),
             max_live_words: MAX_LIVE_WORDS.with(Cell::get),
+            max_live_bytes: MAX_LIVE_BYTES.with(Cell::get),
         }
     }
 
@@ -304,6 +318,7 @@ pub mod frontier_profile {
         MAX_APPLY_TEMPLATES_LEN.with(|c| c.set(0));
         MAX_APPLY_TEMPLATES_BYTES.with(|c| c.set(0));
         MAX_LIVE_WORDS.with(|c| c.set(0));
+        MAX_LIVE_BYTES.with(|c| c.set(0));
     }
 }
 
@@ -1538,6 +1553,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let mut key_word: HashMap<AnalysisStateKey, usize> = HashMap::default();
         let mut words: Vec<Word> = Vec::new();
         output_keys.insert(input.dedup_key(), 0);
+        // This call's own running byte total, the `record_live_bytes` companion to `words.len()`.
+        let live_bytes = Cell::new(estimate_word_bytes(&input) as u64);
+        // Per-canonical dedup state for `dedup_alternative`, below.
+        let mut alt_keys: HashMap<usize, FxHashSet<AltKey>> = HashMap::default();
         words.push(input.clone());
 
         // A live count-down on candidates beyond the seed, unset by default -- a plain stop past the cap, no exception.
@@ -1551,14 +1570,26 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             let state_key = self.cfg.merge_equivalent.then(|| self.state_key(&w));
             if let Some(state_key) = &state_key {
                 if let Some(&idx) = key_word.get(state_key) {
-                    generalize_syn_fs(&mut words[idx], &w, &|f| self.g.syn_features.mask(f));
-                    words[idx].alternatives.push(Rc::new(w));
+                    if let Some(w) =
+                        dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
+                            self.g.syn_features.mask(f)
+                        })
+                    {
+                        live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
+                        words[idx].alternatives.push(Rc::new(w));
+                    }
                     return;
                 }
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
                 if let Some(&idx) = output_keys.get(&dedup_key) {
-                    generalize_syn_fs(&mut words[idx], &w, &|f| self.g.syn_features.mask(f));
-                    words[idx].alternatives.push(Rc::new(w));
+                    if let Some(w) =
+                        dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
+                            self.g.syn_features.mask(f)
+                        })
+                    {
+                        live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
+                        words[idx].alternatives.push(Rc::new(w));
+                    }
                     return;
                 }
             }
@@ -1574,6 +1605,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     key_word.insert(state_key, words.len());
                 }
                 output_keys.insert(dedup_key, words.len());
+                live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
                 words.push(w);
                 if let Some(r) = &remaining {
                     r.set(r.get().saturating_sub(1));
@@ -1584,6 +1616,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 frontier_profile::record_live_words(
                     words.len() as u64 + frontier_profile::current_depth(),
                 );
+                frontier_profile::record_live_bytes(live_bytes.get());
             }
         };
         let mut sink = WordSink {
@@ -1612,6 +1645,38 @@ fn generalize_syn_fs(
     if canonical.syn_fs != alternative.syn_fs {
         canonical.syn_fs = union(&canonical.syn_fs, &alternative.syn_fs, mask_of);
     }
+}
+
+/// `WordKey` plus the two fields `Word::expand_alternatives`/`is_word_valid_traced` read off an
+/// alternative that `WordKey` omits (`docs/research/alt-yield.md` §pruning).
+type AltKey = (
+    WordKey,
+    pg_featstruct::FeatureStruct,
+    Vec<pg_featstruct::FeatId>,
+);
+
+/// An `AltKey` match against the canonical's frozen state or an earlier-kept alternative replays
+/// identically, so `w` is pure duplication; see docs/research/alt-yield.md.
+fn dedup_alternative(
+    words: &mut [Word],
+    alt_keys: &mut HashMap<usize, FxHashSet<AltKey>>,
+    idx: usize,
+    dedup_key: &WordKey,
+    w: Word,
+    mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
+) -> Option<Word> {
+    let seen = alt_keys.entry(idx).or_insert_with(|| {
+        let mut s = FxHashSet::default();
+        s.insert((
+            words[idx].dedup_key(),
+            words[idx].syn_fs.clone(),
+            words[idx].obligatory.clone(),
+        ));
+        s
+    });
+    let novel = seen.insert((dedup_key.clone(), w.syn_fs.clone(), w.obligatory.clone()));
+    generalize_syn_fs(&mut words[idx], &w, mask_of);
+    novel.then_some(w)
 }
 
 // Unit-tested here directly: the differing-FS case is unreachable through the public analysis API (an equal state key already forces equal syn_fs).
@@ -1673,6 +1738,80 @@ mod generalize_syn_fs_tests {
         let mut w = bare_word();
         w.syn_fs = fs;
         w
+    }
+}
+
+#[cfg(test)]
+mod dedup_alternative_tests {
+    use super::*;
+    use pg_featstruct::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits};
+    use pg_shape::ShapeBuilder;
+
+    const FA: FeatId = FeatId(0);
+
+    fn mask_none(_: FeatId) -> u64 {
+        0
+    }
+
+    fn fs_with(bits: u64) -> FeatureStruct {
+        let mut b = FeatureStructBuilder::new();
+        b.add(FA, FeatureValue::Symbolic(SymbolBits(bits)));
+        b.build()
+    }
+
+    fn bare_word() -> Word {
+        Word::new(ShapeBuilder::new().finish(), StratumId(0))
+    }
+
+    #[test]
+    fn a_byte_identical_alternative_is_pruned() {
+        let mut words = vec![bare_word()];
+        let mut alt_keys: HashMap<usize, FxHashSet<AltKey>> = HashMap::default();
+        let dup = bare_word();
+        let key = dup.dedup_key();
+
+        let kept = dedup_alternative(&mut words, &mut alt_keys, 0, &key, dup, &mask_none);
+
+        assert!(
+            kept.is_none(),
+            "a duplicate of the canonical must be dropped"
+        );
+        assert!(words[0].alternatives.is_empty());
+    }
+
+    #[test]
+    fn same_word_key_but_different_syn_fs_is_kept() {
+        // `WordKey` excludes `syn_fs`, so a genuinely different value must still survive.
+        let mut words = vec![bare_word()];
+        let mut alt_keys: HashMap<usize, FxHashSet<AltKey>> = HashMap::default();
+        let mut alt = bare_word();
+        alt.syn_fs = fs_with(0b01);
+        let key = alt.dedup_key();
+
+        let kept = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt, &mask_none);
+
+        assert!(kept.is_some(), "a differing syn_fs must not be pruned");
+    }
+
+    #[test]
+    fn a_second_identical_alternative_is_pruned_after_the_first_is_kept() {
+        let mut words = vec![bare_word()];
+        let mut alt_keys: HashMap<usize, FxHashSet<AltKey>> = HashMap::default();
+        let mut alt = bare_word();
+        alt.obligatory.push(FeatId(1));
+        let key = alt.dedup_key();
+
+        let first = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt.clone(), &mask_none);
+        assert!(first.is_some());
+        if let Some(w) = first {
+            words[0].alternatives.push(Rc::new(w));
+        }
+        let second = dedup_alternative(&mut words, &mut alt_keys, 0, &key, alt, &mask_none);
+
+        assert!(
+            second.is_none(),
+            "an identical second alternative must be pruned"
+        );
     }
 }
 

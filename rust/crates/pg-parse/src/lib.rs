@@ -7,6 +7,7 @@
 //! blowup (plan §6).
 #![forbid(unsafe_code)]
 
+pub mod alt_yield;
 pub mod batch;
 pub mod guess;
 pub mod identity;

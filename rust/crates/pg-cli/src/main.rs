@@ -966,7 +966,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                      max_template_len={}\tmax_template_bytes={}\t\
                      max_apply_mrules_len={}\tmax_apply_mrules_bytes={}\t\
                      max_apply_templates_len={}\tmax_apply_templates_bytes={}\t\
-                     max_live_words={}",
+                     max_live_words={}\tmax_live_bytes={}",
                     f.max_depth,
                     f.max_local_len,
                     f.max_local_bytes,
@@ -981,6 +981,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     f.max_apply_templates_len,
                     f.max_apply_templates_bytes,
                     f.max_live_words,
+                    f.max_live_bytes,
                 );
             }
             // Field-level byte attribution over the live frontier and the memo tables (docs/research/word-memory-trace.md).
@@ -1021,6 +1022,21 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.memo_results_bytes,
                     s.tpl_key_bytes,
                     s.tpl_results_bytes,
+                );
+            }
+            // What `Word::alternatives` actually yields once expanded (docs/research/alt-yield.md).
+            if std::env::var("HC_ALT_YIELD").is_ok() {
+                let s = pg_parse::alt_yield::snapshot();
+                let dropped = s.expanded_total.saturating_sub(s.distinct_identities);
+                eprintln!(
+                    "ALTYIELD\t{i}\t{word}\t\
+                     canonical_alt_total={}\tcanonical_alt_max={}\t\
+                     expanded_total={}\tdistinct_identities={}\tdropped_as_duplicate={}",
+                    s.canonical_alt_total,
+                    s.canonical_alt_max,
+                    s.expanded_total,
+                    s.distinct_identities,
+                    dropped,
                 );
             }
             // Ground-truth allocator peak/live bytes for this word (docs/research/word-memory-trace.md).

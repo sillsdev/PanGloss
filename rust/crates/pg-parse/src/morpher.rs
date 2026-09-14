@@ -22,7 +22,9 @@ use pg_rules::word::{
 };
 use rustc_hash::FxHashMap as HashMap;
 
+use crate::alt_yield;
 use crate::guess;
+use crate::identity::AnalysisIdentity;
 use crate::root_trie::{collect_lexical_patterns, RootAllomorphIndex};
 use crate::{result_signature, surface, AnalysisProvenance, SuppliedRootOverlay, WordAnalysis};
 
@@ -462,6 +464,8 @@ impl<'g> Morpher<'g> {
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
         if !opts.guess_only {
             for aw in results.values() {
+                // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
+                alt_yield::record_canonical(aw.alternatives.len());
                 let looked_up =
                     self.lexical_lookup_filtered(aw, lex_entry_filter, trace, root, stats);
                 if looked_up.is_empty() {
@@ -469,7 +473,9 @@ impl<'g> Morpher<'g> {
                 }
                 for syn_word in looked_up {
                     // Recovers the shape-equivalent candidates `merge_equivalent` folded away; skipping this loses real analyses whenever merging is on (the default).
-                    for alt in syn_word.expand_alternatives() {
+                    let expanded = syn_word.expand_alternatives();
+                    alt_yield::record_expansion(expanded.len());
+                    for alt in expanded {
                         for vw in self.synthesis_pipeline_selected_with_policy(
                             alt,
                             trace,
@@ -491,6 +497,14 @@ impl<'g> Morpher<'g> {
                                 continue;
                             }
                             self.commit_uses(stats, &vw);
+                            if alt_yield::enabled() {
+                                if let Ok(id) = AnalysisIdentity::project(
+                                    &self.structured_analysis(&vw, false),
+                                    g,
+                                ) {
+                                    alt_yield::record_identity(id);
+                                }
+                            }
                             matches.entry(vw.dedup_key()).or_insert(vw);
                         }
                     }
@@ -506,11 +520,15 @@ impl<'g> Morpher<'g> {
                 if let Some(stats) = stats {
                     stats.record_guesser_attempt(aw.stratum, aw.shape.len() as u64);
                 }
+                // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
+                alt_yield::record_canonical(aw.alternatives.len());
                 // C#'s `.Distinct()` here is a documented no-op (fresh clones, no `Equals` override), so consuming `guess::lexical_guess`'s output directly is faithful.
                 for synthesis_word in
                     guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
                 {
-                    for alt in synthesis_word.expand_alternatives() {
+                    let expanded = synthesis_word.expand_alternatives();
+                    alt_yield::record_expansion(expanded.len());
+                    for alt in expanded {
                         for vw in self.synthesis_pipeline_traced(
                             alt,
                             trace,
@@ -525,6 +543,14 @@ impl<'g> Morpher<'g> {
                             if self.is_word_valid_traced(&vw, trace, root)
                                 && self.is_match_traced(&vw, word, trace, root)
                             {
+                                if alt_yield::enabled() {
+                                    if let Ok(id) = AnalysisIdentity::project(
+                                        &self.structured_analysis(&vw, true),
+                                        g,
+                                    ) {
+                                        alt_yield::record_identity(id);
+                                    }
+                                }
                                 // No dedup here, unlike the normal path: a plain `Vec`, not a `WordKey`-deduped `HashMap`.
                                 guess_matches.push(vw);
                             }
