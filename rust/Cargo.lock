@@ -814,6 +814,7 @@ dependencies = [
  "pg-snapshot",
  "quick-xml",
  "serde",
+ "serde_json",
  "smallvec",
  "thiserror",
  "unicode-normalization",

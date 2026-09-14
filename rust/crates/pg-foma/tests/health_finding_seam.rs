@@ -40,7 +40,12 @@ fn literal_count(source: &str) -> usize {
         let opens_literal = after.starts_with('{');
         let is_definition =
             before.ends_with("struct") || before.ends_with("impl") || before.ends_with("->");
-        if opens_literal && !is_definition {
+        // A name merely ENDING in `HealthFinding` is a different type in a different crate, not this one.
+        let is_own_name = !rest[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_');
+        if opens_literal && !is_definition && is_own_name {
             count += 1;
         }
         rest = &rest[at + "HealthFinding".len()..];
@@ -94,4 +99,6 @@ fn the_gate_detects_a_literal_and_ignores_the_shapes_that_are_not_one() {
     assert_eq!(literal_count("fn make() -> HealthFinding {"), 0);
     assert_eq!(literal_count("HealthFinding::new(code, sev)"), 0);
     assert_eq!(literal_count("Some(HealthFinding {\n    code,\n})"), 1);
+    assert_eq!(literal_count("GrammarHealthFinding { code: c }"), 0);
+    assert_eq!(literal_count("let x = my_HealthFinding { a: 1 };"), 0);
 }

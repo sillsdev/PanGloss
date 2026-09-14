@@ -16,6 +16,7 @@
 pub mod chardef;
 pub mod compile;
 pub mod featsys;
+pub mod grammar_health;
 pub mod lint;
 pub mod load;
 pub mod model;

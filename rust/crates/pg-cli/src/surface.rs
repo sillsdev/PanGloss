@@ -81,6 +81,13 @@ fn dispatch_import(args: &[String]) -> ExitCode {
 fn dispatch_fst_health(args: &[String]) -> ExitCode {
     dispatch("fst-health", args, crate::fst_health::run_fst_health)
 }
+fn dispatch_grammar_health(args: &[String]) -> ExitCode {
+    dispatch(
+        "grammar-health",
+        args,
+        crate::grammar_health::run_grammar_health,
+    )
+}
 fn dispatch_coverage(args: &[String]) -> ExitCode {
     dispatch("coverage", args, crate::coverage::run_coverage)
 }
@@ -282,6 +289,8 @@ const INVESTIGATE_FLAGS: &[FlagSpec] = &[
 ];
 
 const FST_HEALTH_FLAGS: &[FlagSpec] = &[];
+
+const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[];
 
 const COVERAGE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
@@ -552,6 +561,14 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "out.json?"],
         flags: FST_HEALTH_FLAGS,
         handler: dispatch_fst_health,
+    },
+    CommandSpec {
+        name: "grammar-health",
+        summary: "Run the ported hc-* HermitCrab grammar-authoring checks and print the findings.",
+        hidden: false,
+        positionals: &["grammar", "out.json?"],
+        flags: GRAMMAR_HEALTH_FLAGS,
+        handler: dispatch_grammar_health,
     },
     CommandSpec {
         name: "coverage",
