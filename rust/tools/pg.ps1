@@ -658,6 +658,8 @@ if ($Mode -eq 'gc') {
     Remove-OrphanedCargoProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
     # Separate sweep: reaping a compiler can destroy work another worktree awaits; reaping a scanner cannot.
     Remove-OrphanedScanProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
+    # Third sweep: a governor still supervising a live build is childful, so only the abandoned ones qualify.
+    Remove-OrphanedGovernorProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
     # A live-but-stuck build-slot holder (see Test-BuildSlotHolderStale) blocks every other worktree's builds until reaped.
     Remove-StaleBuildSlotHolders -WhatIfOnly:(-not $Apply)
 

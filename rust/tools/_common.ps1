@@ -1401,6 +1401,74 @@ function Remove-OrphanedCargoProcesses {
     }
 }
 
+# The ONLY process names the governor sweep may consider -- named for the same reason $script:ReapableScanNames is.
+$script:ReapableGovernorNames = @('procgov.exe')
+
+function Test-ReapableGovernorProcess {
+    <#
+      .DESCRIPTION
+      Pure decision behind Remove-OrphanedGovernorProcesses, split from the killing so the safety
+      properties are testable without spawning or terminating anything real. Returns $true only when
+      ALL of:
+        - the name is in $script:ReapableGovernorNames, so a compiler can never be selected;
+        - the parent is genuinely gone (PID-reuse-safe, see Test-ParentAlive);
+        - it governs NOTHING: no process in the snapshot is still its child.
+
+      That last condition is the one that matters. `Invoke-ManagedProcess` launches procgov as the
+      job-object owner of a whole build tree, so a procgov whose launcher died while cargo and rustc
+      are still running underneath it is supervising live work -- reaping it would orphan (and with
+      /T, kill) another worktree's build. A procgov with a dead parent and no children supervises
+      nothing and cannot acquire one: procgov spawns its child at startup or not at all.
+
+      Deliberately NOT gated on CPU, unlike Test-ReapableScanProcess: a governor is idle by design
+      (the observed orphans had burned 0.25-0.33s across half an hour), so a CPU floor would exclude
+      exactly the processes this sweep exists to remove. Childlessness carries the whole argument.
+    #>
+    param(
+        $Proc, $Snapshot,
+        [int]$MinAgeMinutes = 2,
+        [datetime]$Now = (Get-Date)
+    )
+    if ($Proc.Name -notin $script:ReapableGovernorNames) { return $false }
+    if (Test-ParentAlive -Proc $Proc -Snapshot $Snapshot) { return $false }
+    $ageMin = if ($Proc.CreationDate) { ($Now - $Proc.CreationDate).TotalMinutes } else { 0 }
+    if ($ageMin -lt $MinAgeMinutes) { return $false }
+    foreach ($c in $Snapshot) {
+        if ($c.ProcessId -eq $Proc.ProcessId) { continue }
+        if ($c.ParentProcessId -ne $Proc.ProcessId) { continue }
+        # Same PID-reuse guard Test-ParentAlive applies: a "child" predating this process is not its child.
+        if ($c.CreationDate -and $Proc.CreationDate -and $c.CreationDate -lt $Proc.CreationDate) { continue }
+        return $false
+    }
+    return $true
+}
+
+function Remove-OrphanedGovernorProcesses {
+    <#
+      .DESCRIPTION
+      Reaps procgov processes left behind when their launching shell died -- see
+      Test-ReapableGovernorProcess for why childlessness is the safety condition. These leak one
+      process and one job object per abandoned run and are invisible to Remove-OrphanedCargoProcesses,
+      whose name list covers only the compiler binaries.
+
+      They do NOT hold a build slot: the slot mutex is held by the launching shell, and the kernel
+      hands an abandoned mutex to the next waiter (see Enter-ResourceSlot). This sweep is process and
+      job-object hygiene, not queue recovery.
+    #>
+    param([switch]$WhatIfOnly = $true, $Snapshot = $null)
+    if (-not $Snapshot) { $Snapshot = Get-ProcessSnapshot }
+    foreach ($p in $Snapshot) {
+        if (-not (Test-ReapableGovernorProcess -Proc $p -Snapshot $Snapshot)) { continue }
+        if ($WhatIfOnly) {
+            Write-Host "[gc] would kill orphaned governor PID $($p.ProcessId) ($($p.Name), parent $($p.ParentProcessId) is dead, governs nothing)" -ForegroundColor Yellow
+        } else {
+            Write-Host "[gc] killing orphaned governor PID $($p.ProcessId) ($($p.Name))" -ForegroundColor Yellow
+            # /F without /T: childlessness is this sweep's precondition, so there is no tree to walk.
+            & taskkill /F /PID $p.ProcessId 2>$null | Out-Null
+        }
+    }
+}
+
 # The ONLY process names this sweep may ever consider -- a named constant so the safety argument stays checkable in one place.
 $script:ReapableScanNames = @('find.exe', 'rg.exe', 'grep.exe', 'findstr.exe')
 
