@@ -145,6 +145,35 @@ or a second `words.yaml` parser — extend that crate instead.
    `pangloss` IS the fixture's oracle of record until re-verified, and that fixture proves nothing
    about correctness until it is. Never claim C#-oracle provenance you didn't actually run.
 
+   **The one case where a fixture may DISAGREE with the oracle: when you can prove the oracle is
+   wrong.** Ground truth normally comes from running hc.dll, because hc.dll defines the answer. It
+   does not define the answer when the answer is checkable independently, and for a parse it is:
+   apply the morpheme chain FORWARD, checking each rule's `RequiredHeadFeatures` against the previous
+   rule's `OutputHeadFeatures`, and see whether it builds the surface form. An engine that cannot
+   invert a derivation it can itself perform is wrong, whichever engine it is. When a hand-traced
+   forward synthesis and the oracle disagree, you may record the traced answer and let the fixture go
+   RED against hc.dll. That is the TDD order this skill opens with, applied across the repo boundary:
+   pin the right answer first, fix the engine second, and the fixture flipping to green is the proof
+   the fix worked.
+
+   Four obligations come with doing that, and skipping any of them turns evidence into noise:
+   - **Say it at the top of `words.yaml`.** State that the fixture fails against the oracle today, on
+     purpose, and that red is the expected state. Otherwise the next person reads a red fixture as a
+     broken fixture and "fixes" it back.
+   - **Set `oracle-provenance` honestly.** Name exactly which words are oracle-recorded and which are
+     hand-derived. Mixed is fine and usually right: record the oracle everywhere it agrees, so the
+     fixture still pins real behaviour, and hand-derive only the disputed words.
+   - **Show the derivation.** Write the forward-synthesis trace into the comment — root, each rule,
+     each feature check, the surface. A bare assertion that the oracle is wrong is worthless.
+   - **Open the upstream issue or PR.** A fixture that disagrees with the oracle and is not backed by
+     a proposal to fix the oracle is an unexplained failure with an expiry date. See
+     `.claude/skills/oracle-alignment/SKILL.md` for the divergence entry and the PR shape.
+
+   Worked example: `conformance/edge-cases/chained-output-feature-override-loss`, where hc.dll loses
+   a four-morph word because a rule's own `OutputHeadFeatures` is left on the stem during
+   un-application and read back as a constraint on that rule's input. Five of its six words are
+   oracle-recorded; one is hand-derived and red.
+
    Authoring against `pangloss` is still the common case, but the reason has changed and the old one
    is worth un-learning: it is a CHECKOUT question now, not a toolchain question. This skill used to
    say no `dotnet`/C# toolchain was set up here. One is (see below), so "I couldn't run the oracle"
@@ -214,6 +243,12 @@ or a second `words.yaml` parser — extend that crate instead.
    ```
    A failure there is a defect in the FIXTURE, not in the oracle, and worth fixing on sight: these
    files are meant to graduate upstream, where a strict parser is the entry condition.
+
+   **If the oracle run reveals HC-Rust finding a different parse than C#**, stop authoring the
+   fixture against HC-Rust's output and switch to `.claude/skills/oracle-alignment/SKILL.md`: it
+   covers classifying the difference (behavior vs. efficiency), recording it under
+   `docs/divergences/`, and proposing a fix upstream. That skill is this one's peer for the
+   two-implementation side of conformance work, not a replacement for the authoring steps here.
 
    **Path translation, on this machine specifically.** `hc-dotnet-wrapper.sh` writes its
    `words.txt`/`out.tsv` arguments into a temp script's CONTENT, and git-bash path-translates argv
