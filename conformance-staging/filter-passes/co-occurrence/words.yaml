@@ -19,6 +19,15 @@ inspired_by: ["synthetic suffixing grammar with tense/emphasis co-occurrence con
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (static morpheme/allomorph co-occurrence violation)"
 requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Exercises MorphemeCoOccurrenceRule@type="require" (primaryMorpheme="mrEmph",
+  otherMorphemes="mrPast"), alongside an ordinary type="exclude" rule. Per PROTOCOL.md section 9's
+  third usage-level check, HCLoader's two co-occurrence loaders (LoadMorphemeCoOccurrenceRules,
+  HCLoader.cs:2213-2239; LoadAllomorphCoOccurrenceRules, HCLoader.cs:2163-2189) build Exclude
+  constraints only, sourced from LibLCM repositories that are prohibition-only by name -- there is
+  no FieldWorks equivalent of a co-occurrence REQUIREMENT regardless of how ordinary the rest of the
+  grammar is.
 words:
   - word: taro
     note: Bare root. Plain control.

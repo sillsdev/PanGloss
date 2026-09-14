@@ -25,6 +25,15 @@ inspired_by: ["synthetic agglutinative grammar with no phonological alternation 
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (impossible exact local surface span)"
 requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  MorphologicalRuleOrder: HCLoader hardcodes Unordered at every Stratum it builds (HCLoader.cs:227,
+  230,374) and can never emit `linear`. This fixture's Stratum is declared `linear` specifically so
+  that "matinlu" gets exactly one derivation instead of a duplicated identical signature (see this
+  file's own header) -- and that duplication is exactly what the C# founding oracle produces when the
+  same grammar is loaded as FieldWorks would build it: flipping the Stratum to `unordered` and
+  re-running the oracle makes "matinlu"'s one committed analysis appear TWICE. HC-engine-only for
+  this reason, independent of the candidate-filter construct the fixture otherwise pins.
 words:
   - word: tin
     note: Bare root, spanning the whole surface on its own. Plain control.

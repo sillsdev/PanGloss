@@ -369,7 +369,7 @@ pub fn main(args: &[String]) {
         ));
     }
 
-    // --- Task 2/3a-b: candidate-rule metadata + empty-req-FS split -----------------------------
+    // --- candidate-rule metadata + empty-req-FS split -----------------------------------------
     let diag = pg_foma::emit::composite_candidate_rules(g);
     let candidates = &diag.preexpand_candidates;
     let n_infix = candidates.iter().filter(|(_, r)| *r == "Infix").count();
@@ -413,7 +413,7 @@ pub fn main(args: &[String]) {
         nonempty_loose_only + nonempty_slot_only + nonempty_both + nonempty_neither
     ));
 
-    // --- Task 3c: depth-0 FS selectivity (mirrors preexpand.rs::extend's exact depth-0 filter) --
+    // --- depth-0 FS selectivity (mirrors preexpand.rs::extend's exact depth-0 filter) ----------
     let t3 = Instant::now();
     let mut raw_pairs: u64 = 0;
     let mut passing_pairs: u64 = 0;
@@ -441,7 +441,7 @@ pub fn main(args: &[String]) {
         }
     ));
 
-    // --- Task 3d: FLAT vs PRUNED structural chain counts ----------------------------------------
+    // --- FLAT vs PRUNED structural chain counts ------------------------------------------------
     let c = candidates.len() as u64;
     let flat_per_root = c + c * c + c * c * c;
     let total_roots: u64 = grammar.strata.iter().map(|s| s.entries.len() as u64).sum();
@@ -489,7 +489,7 @@ pub fn main(args: &[String]) {
         }
     ));
 
-    // --- Task 3e: PRUNED+FS hybrid (grouped by (stratum, entry syn_fs FsId)) --------------------
+    // --- PRUNED+FS hybrid (grouped by (stratum, entry syn_fs FsId)) -----------------------------
     let t5 = Instant::now();
     let mut groups: HashMap<(usize, u32), u64> = HashMap::new();
     for (s0, sd) in grammar.strata.iter().enumerate() {

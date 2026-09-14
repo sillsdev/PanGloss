@@ -3,14 +3,14 @@
 use hashbrown::HashMap;
 
 use pg_snapshot::phonology::{BoundaryMarker, Phoneme};
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot};
 
 use crate::chardef::{CharDefId, CharDefKind, CharDefTable, RawCharDef, RawFeatureValue};
 use crate::featsys::PhonFeatureSystem;
 use crate::nfd::nfd;
 use crate::GrammarError;
 
-use super::ws_forms;
+use super::{inventory, issue_codes, ws_forms};
 
 pub(crate) struct CharDefBuild {
     pub table: CharDefTable,
@@ -20,11 +20,22 @@ pub(crate) struct CharDefBuild {
     pub morph_bdry: CharDefId,
 }
 
-pub(crate) fn build(
+/// Every `RawCharDef` authored so far, before the table is built -- `substrate::complete` appends onto this.
+pub(crate) struct RawCharDefBuild {
+    pub raw_defs: Vec<RawCharDef>,
+    pub seen_nfd: hashbrown::HashSet<String>,
+    pub phoneme_of: HashMap<String, CharDefId>,
+    pub boundary_of: HashMap<String, CharDefId>,
+    pub null_bdry: CharDefId,
+}
+
+/// The authored/synthesized `RawCharDef` inventory alone, before `finalize` builds the real table.
+pub(crate) fn build_raw(
     snapshot: &Snapshot,
     phon: &PhonFeatureSystem,
     warnings: &mut Vec<String>,
-) -> Result<CharDefBuild, GrammarError> {
+    recorder: &mut SelectionRecorder,
+) -> Result<RawCharDefBuild, GrammarError> {
     let default_ws = snapshot
         .project
         .vernacular_writing_systems
@@ -38,20 +49,34 @@ pub(crate) fn build(
     let mut boundary_of: HashMap<String, CharDefId> = HashMap::new();
 
     for ph in &snapshot.phonology.phonemes {
+        let key = InventoryKey::object(InventoryKind::Phoneme, ph.guid.clone());
+        recorder.considered(key.clone());
         let reps = ws_forms(&ph.representations, default_ws);
         if reps.is_empty() {
-            warnings.push(format!(
-                "phoneme {:?} has no grapheme representation; skipped",
-                ph.guid
-            ));
+            inventory::reject(
+                recorder,
+                warnings,
+                key,
+                issue_codes::PHONEME_NO_REPRESENTATION,
+                IssueClass::InvalidSource,
+                format!("phoneme {:?} has no grapheme representation; skipped", ph.guid),
+            );
             continue;
         }
+        recorder.selected(key.clone());
         let norm: Vec<String> = reps.iter().map(|r| nfd(r)).collect();
         if norm.iter().any(|n| seen_nfd.contains(n)) {
-            warnings.push(format!(
-                "phoneme {:?}: representation collides with an earlier phoneme/boundary; skipped",
-                ph.guid
-            ));
+            inventory::reject(
+                recorder,
+                warnings,
+                key,
+                issue_codes::PHONEME_NFD_COLLISION,
+                IssueClass::AmbiguousSource,
+                format!(
+                    "phoneme {:?}: representation collides with an earlier phoneme/boundary; skipped",
+                    ph.guid
+                ),
+            );
             continue;
         }
         let feature_values = phoneme_feature_values(ph, phon, warnings);
@@ -66,21 +91,40 @@ pub(crate) fn build(
             representations: reps.into_iter().map(str::to_string).collect(),
             feature_values,
         });
+        recorder.represented(key);
     }
 
     for bd in &snapshot.phonology.boundary_markers {
+        let key = InventoryKey::object(InventoryKind::BoundaryMarker, bd.guid.clone());
+        recorder.considered(key.clone());
         let reps = boundary_representations(bd, default_ws);
         if reps.is_empty() {
             // HCLoader silently omits a boundary marker with no representation, not even a warning.
+            recorder.selected(key.clone());
+            inventory::reject_quietly(
+                recorder,
+                key,
+                issue_codes::BOUNDARY_NO_REPRESENTATION,
+                IssueClass::InvalidSource,
+                "boundary marker has no grapheme representation",
+            );
             continue;
         }
+        recorder.selected(key.clone());
         let norm: Vec<String> = reps.iter().map(|r| nfd(r)).collect();
         if norm.iter().any(|n| seen_nfd.contains(n)) {
-            warnings.push(format!(
-                "boundary marker {:?}: representation collides with an earlier phoneme/boundary; \
-                 skipped",
-                bd.guid
-            ));
+            inventory::reject(
+                recorder,
+                warnings,
+                key,
+                issue_codes::BOUNDARY_NFD_COLLISION,
+                IssueClass::AmbiguousSource,
+                format!(
+                    "boundary marker {:?}: representation collides with an earlier phoneme/boundary; \
+                     skipped",
+                    bd.guid
+                ),
+            );
             continue;
         }
         for n in &norm {
@@ -94,6 +138,7 @@ pub(crate) fn build(
             representations: reps,
             feature_values: Vec::new(),
         });
+        recorder.represented(key);
     }
 
     // Synthetic boundaries HCLoader always appends (HCLoader.cs:2710-2712).
@@ -104,20 +149,66 @@ pub(crate) fn build(
         "__null__",
         &["^0", "*0", "&0", "\u{2205}"],
         warnings,
+        recorder,
     );
     let null_bdry = CharDefId(null_idx as u32);
-    push_synthetic_boundary(&mut raw_defs, &mut seen_nfd, "__dot__", &["."], warnings);
+    push_synthetic_boundary(
+        &mut raw_defs,
+        &mut seen_nfd,
+        "__dot__",
+        &["."],
+        warnings,
+        recorder,
+    );
 
+    Ok(RawCharDefBuild {
+        raw_defs,
+        seen_nfd,
+        phoneme_of,
+        boundary_of,
+        null_bdry,
+    })
+}
+
+/// Builds the real table from a (possibly substrate-completed) `RawCharDefBuild`; pairs with `build_raw`.
+pub(crate) fn finalize(
+    raw: RawCharDefBuild,
+    phon: &PhonFeatureSystem,
+    warnings: &mut Vec<String>,
+    recorder: &mut SelectionRecorder,
+) -> Result<CharDefBuild, GrammarError> {
+    let RawCharDefBuild {
+        raw_defs,
+        phoneme_of,
+        boundary_of,
+        null_bdry,
+        ..
+    } = raw;
     let table = CharDefTable::from_raw("main".to_string(), None, raw_defs, phon)?;
 
-    let morph_bdry = table.lookup_nfd(&nfd("+")).unwrap_or_else(|| {
-        warnings.push(
-            "no boundary marker representation '+' found; morpheme-boundary matching will \
-                 fall back to the null boundary"
-                .to_string(),
-        );
-        null_bdry
-    });
+    // The morph-boundary lookup is a derived fact, not a snapshot object -- there is nothing upstream to author it against.
+    let morph_bdry_key = InventoryKey::setting(InventoryKind::BoundaryMarker, "morph-boundary");
+    recorder.synthesized(morph_bdry_key.clone());
+    recorder.considered(morph_bdry_key.clone());
+    recorder.selected(morph_bdry_key.clone());
+    let morph_bdry = match table.lookup_nfd(&nfd("+")) {
+        Some(id) => {
+            recorder.represented(morph_bdry_key);
+            id
+        }
+        None => {
+            inventory::reject(
+                recorder,
+                warnings,
+                morph_bdry_key,
+                issue_codes::BOUNDARY_MORPH_MARKER_UNRESOLVED,
+                IssueClass::InvalidSource,
+                "no boundary marker representation '+' found; morpheme-boundary matching will \
+                 fall back to the null boundary",
+            );
+            null_bdry
+        }
+    };
 
     Ok(CharDefBuild {
         table,
@@ -134,7 +225,11 @@ fn push_synthetic_boundary(
     xml_id: &str,
     reps: &[&str],
     warnings: &mut Vec<String>,
+    recorder: &mut SelectionRecorder,
 ) {
+    let key = InventoryKey::object(InventoryKind::BoundaryMarker, xml_id.to_string());
+    recorder.synthesized(key.clone());
+    recorder.considered(key.clone());
     let norm: Vec<String> = reps.iter().map(|r| nfd(r)).collect();
     let free: Vec<String> = reps
         .iter()
@@ -143,12 +238,21 @@ fn push_synthetic_boundary(
         .map(|(r, _)| r.to_string())
         .collect();
     if free.is_empty() {
-        warnings.push(format!(
-            "synthetic boundary {xml_id:?} ({reps:?}) fully collides with authored phonemes/\
-             boundaries; skipped"
-        ));
+        recorder.selected(key.clone());
+        inventory::reject(
+            recorder,
+            warnings,
+            key,
+            issue_codes::BOUNDARY_NFD_COLLISION,
+            IssueClass::AmbiguousSource,
+            format!(
+                "synthetic boundary {xml_id:?} ({reps:?}) fully collides with authored phonemes/\
+                 boundaries; skipped"
+            ),
+        );
         return;
     }
+    recorder.selected(key.clone());
     for f in &free {
         seen_nfd.insert(nfd(f));
     }
@@ -158,6 +262,7 @@ fn push_synthetic_boundary(
         representations: free,
         feature_values: Vec::new(),
     });
+    recorder.represented(key);
 }
 
 /// HCLoader's boundary-marker representation rule uses `BestVernacularAlternative`, distinct from phonemes' `VernacularDefaultWritingSystem`, but both fold to "prefer the project's default vernacular WS, else whatever's there" in this snapshot format.

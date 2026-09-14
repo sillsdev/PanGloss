@@ -13,6 +13,7 @@ inspired_by: ["synthetic simultaneously-circumfixing-and-infixing probe (not mod
 sources:
   - "docs/conformance/circumfix-structural-composite-census.md (census C3)"
 requires: []
+fieldworks_producible: true
 words:
   - word: bat
     note: ROOT2 bare, no mrCircInfix applied -- a plain control.

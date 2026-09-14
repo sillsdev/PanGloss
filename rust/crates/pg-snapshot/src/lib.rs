@@ -45,6 +45,7 @@
 #![forbid(unsafe_code)]
 
 pub mod common;
+pub mod conversion;
 pub mod feature;
 pub mod lexicon;
 pub mod morphology;
@@ -54,15 +55,21 @@ pub mod validate;
 mod warning;
 
 pub use common::{Guid, WsForm};
+pub use conversion::{
+    ConversionInventory, ConversionIssue, ConversionProvenance, InventoryDelta, InventoryIdentity,
+    InventoryKey, InventoryKind, IssueClass, ProvenanceError, RawSourceCensus, SelectionRecorder,
+    SourceInventoryStatus, SourceRef, CONVERSION_PROVENANCE_SCHEMA_VERSION,
+};
 pub use feature::{
     ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureSystems, FeatureValue,
     FeatureValueKind, FeatureValueSymbol,
 };
 pub use lexicon::{AffixProcess, Allomorph, EntryRef, LexEntry, Lexicon, Msa, RuleMapping, Sense};
 pub use morphology::{
-    AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
-    CompoundOutcome, CompoundRule, CompoundRuleMaxApplications, ExceptionFeature, InflectionClass,
-    LexEntryInflType, MorphType, Morphology, ParserParameters, PartOfSpeech, StemName,
+    ActiveParser, AdhocProhibition, Adjacency, AffixSlot, AffixTemplate,
+    CompoundConstituentRequirement, CompoundOutcome, CompoundRule, CompoundRuleMaxApplications,
+    ExceptionFeature, InflectionClass, LexEntryInflType, MorphType, Morphology, ParserParameters,
+    PartOfSpeech, StemName, XAmpleParameters,
 };
 pub use phonology::{
     BoundaryMarker, Environment, FeatureConstraint, MetathesisRule, NaturalClass, PhonContext,
@@ -98,7 +105,8 @@ pub enum SnapshotError {
 ///
 /// Field declaration order below is exactly the order `Snapshot::to_json` emits keys in
 /// (serde_json's struct default), and is deliberately envelope-first: `format`/`version` are the
-/// first two keys of every emitted document.
+/// first two keys of every emitted document. `conversion_provenance` is last and is excluded from
+/// [`Snapshot::grammar_hash`]'s semantic projection — see that method's doc.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
@@ -109,6 +117,8 @@ pub struct Snapshot {
     pub phonology: Phonology,
     pub morphology: Morphology,
     pub lexicon: Lexicon,
+    #[serde(default)]
+    pub conversion_provenance: ConversionProvenance,
 }
 
 impl Snapshot {
@@ -130,6 +140,7 @@ impl Snapshot {
             phonology,
             morphology,
             lexicon,
+            conversion_provenance: ConversionProvenance::synthetic(),
         }
     }
 
@@ -158,13 +169,17 @@ impl Snapshot {
         serde_json::to_string_pretty(self).expect("Snapshot serialization is infallible")
     }
 
-    /// A stable hex digest (SHA-256) of `to_json()`'s bytes: the stats cache's grammar-change
-    /// detector. Hashing the source snapshot rather than the compiled `Grammar` means an edit that
-    /// cannot change `to_json()`'s output (e.g. a no-op re-save) never invalidates the cache.
+    /// A stable hex digest (SHA-256) of this snapshot's semantic fields: the stats cache's
+    /// grammar-change detector. Hashes every field except [`Snapshot::conversion_provenance`], so
+    /// an import that changes only its diagnostics (a re-import with the same source graph, a
+    /// new [`ConversionIssue`]) never invalidates the cache the way editing `project`,
+    /// `feature_systems`, `phonology`, `morphology`, or `lexicon` does.
     pub fn grammar_hash(&self) -> String {
         use sha2::{Digest, Sha256};
+        let json = serde_json::to_string_pretty(&GrammarHashInput::from(self))
+            .expect("GrammarHashInput serialization is infallible");
         let mut hasher = Sha256::new();
-        hasher.update(self.to_json().as_bytes());
+        hasher.update(json.as_bytes());
         hasher
             .finalize()
             .iter()
@@ -178,6 +193,43 @@ impl Snapshot {
     /// snapshot is semantically complete — see the `validate` module doc for scope).
     pub fn validate(&self) -> Vec<Warning> {
         validate::validate(self)
+    }
+}
+
+/// `Snapshot`'s exhaustively-destructured semantic-field projection for [`Snapshot::grammar_hash`].
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GrammarHashInput<'a> {
+    format: &'a str,
+    version: u32,
+    project: &'a Project,
+    feature_systems: &'a FeatureSystems,
+    phonology: &'a Phonology,
+    morphology: &'a Morphology,
+    lexicon: &'a Lexicon,
+}
+
+impl<'a> From<&'a Snapshot> for GrammarHashInput<'a> {
+    fn from(snapshot: &'a Snapshot) -> Self {
+        let Snapshot {
+            format,
+            version,
+            project,
+            feature_systems,
+            phonology,
+            morphology,
+            lexicon,
+            conversion_provenance: _,
+        } = snapshot;
+        GrammarHashInput {
+            format: format.as_str(),
+            version: *version,
+            project,
+            feature_systems,
+            phonology,
+            morphology,
+            lexicon,
+        }
     }
 }
 
@@ -216,6 +268,7 @@ mod tests {
             name: "Test Project".to_string(),
             vernacular_writing_systems: vec!["sen".to_string()],
             analysis_writing_systems: vec!["en".to_string()],
+            exemplar_characters: Vec::new(),
         };
 
         let feature_systems = FeatureSystems {
@@ -363,6 +416,128 @@ mod tests {
             hash.chars().all(|c| c.is_ascii_hexdigit()),
             "expected only hex digits: {hash:?}"
         );
+    }
+
+    #[test]
+    fn grammar_hash_ignores_conversion_provenance_differences() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.conversion_provenance.import_issues.push(ConversionIssue {
+            code: "test.issue".to_string(),
+            class: IssueClass::AmbiguousSource,
+            source: None,
+            fatal: false,
+            message: "an import diagnostic".to_string(),
+        });
+        assert_ne!(snap_a.conversion_provenance, snap_b.conversion_provenance);
+        assert_eq!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_changes_when_project_changes() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.project.name = "Different Project".to_string();
+        assert_ne!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_changes_when_feature_systems_changes() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.feature_systems.morphosyntactic.closed_features[0].name = "Different".to_string();
+        assert_ne!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_changes_when_phonology_changes() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.phonology.phonemes[0].name = "different".to_string();
+        assert_ne!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_changes_when_morphology_changes() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.morphology.parts_of_speech[0].name = "Different".to_string();
+        assert_ne!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_changes_when_lexicon_changes() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.lexicon.entries[0].citation_form = vec![ws("sen", "different")];
+        assert_ne!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_changes_when_version_changes() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.version = 2;
+        assert_ne!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn grammar_hash_changes_when_format_changes() {
+        let snap_a = sample_snapshot();
+        let mut snap_b = sample_snapshot();
+        snap_b.format = "different-format".to_string();
+        assert_ne!(snap_a.grammar_hash(), snap_b.grammar_hash());
+    }
+
+    #[test]
+    fn missing_conversion_provenance_deserializes_as_schema_version_zero_unknown() {
+        let snap = sample_snapshot();
+        let mut json_value: serde_json::Value = serde_json::from_str(&snap.to_json()).unwrap();
+        json_value
+            .as_object_mut()
+            .unwrap()
+            .remove("conversionProvenance");
+        let json_without_provenance = serde_json::to_string(&json_value).unwrap();
+        let reparsed = Snapshot::from_json(&json_without_provenance)
+            .expect("must parse without conversionProvenance");
+        assert_eq!(reparsed.conversion_provenance.schema_version, 0);
+        assert_eq!(
+            reparsed.conversion_provenance.source_inventory_status,
+            SourceInventoryStatus::Unknown
+        );
+    }
+
+    /// Pins the one-time digest migration: an old-style document hashes as the SHA-256 of its own bytes.
+    #[test]
+    fn old_style_json_without_provenance_hashes_as_the_semantic_projection() {
+        use sha2::{Digest, Sha256};
+        let snap = sample_snapshot();
+        let projection_json = serde_json::to_string_pretty(&GrammarHashInput::from(&snap))
+            .expect("GrammarHashInput serialization is infallible");
+        assert!(!projection_json.contains("conversionProvenance"));
+        let reparsed = Snapshot::from_json(&projection_json)
+            .expect("old-style JSON (no provenance) must still parse");
+        let mut hasher = Sha256::new();
+        hasher.update(projection_json.as_bytes());
+        let expected_hash: String = hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(reparsed.grammar_hash(), expected_hash);
+    }
+
+    #[test]
+    fn snapshot_loaded_from_provenance_lacking_json_hashes_stably_after_reserialization() {
+        let snap = sample_snapshot();
+        let projection_json = serde_json::to_string_pretty(&GrammarHashInput::from(&snap))
+            .expect("GrammarHashInput serialization is infallible");
+        let reparsed = Snapshot::from_json(&projection_json)
+            .expect("old-style JSON (no provenance) must still parse");
+        let hash_before = reparsed.grammar_hash();
+        let reparsed_again = Snapshot::from_json(&reparsed.to_json())
+            .expect("must re-parse this crate's own to_json output");
+        assert_eq!(hash_before, reparsed_again.grammar_hash());
     }
 
     #[test]

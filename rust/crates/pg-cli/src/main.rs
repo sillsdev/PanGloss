@@ -41,13 +41,13 @@
 //! order with no `STARTED` lines, mirroring `RunParallel` exactly. This is a deliberate Rust-side
 //! choice (C# keys the split on flag presence; we key it on thread count).
 //!
-//! ## `import` and `.json`/`.fwdata` grammar dispatch
-//! `import <project.fwdata> <out.json>` runs `pg_fwdata::import_file` and writes the resulting
+//! ## `import` and `.json`/`.fwdata`/`.fwbackup` grammar dispatch
+//! `import <project.fwdata/.fwbackup> <out.json>` runs `pg_fwdata::import_file` and writes the resulting
 //! `pg_snapshot::Snapshot::to_json()` to `<out.json>`. `ImportReport` warnings (dangling refs,
 //! unsupported constructs, log-and-skip decisions) and `Snapshot::validate()` warnings (dangling
 //! GUID cross-references *within* the snapshot) are printed to stderr, clearly labeled and kept
 //! separate since they come from different stages of the pipeline; exit is non-zero only on a
-//! hard `pg_fwdata::ImportError` (I/O failure / not-a-`.fwdata`-file), never on either warning list.
+//! hard `pg_fwdata::ImportError` (I/O failure / not-a-`.fwdata`-or-`.fwbackup`-file), never on either warning list.
 //!
 //! ## `fst-health` (see `fst_health.rs`'s own doc for the full contract)
 //! `fst-health <grammar> [<out.json>]` runs the cheap, grammar-only
@@ -65,11 +65,11 @@
 //! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`)
 //! now dispatches on the path's extension via `load_grammar`: `.xml` (or anything else) is the
 //! legacy HC-XML path (`pg_grammar::load`, unchanged, no warnings); `.json` loads a `pg-snapshot`
-//! `Snapshot` (`Snapshot::from_json`) and compiles it (`pg_grammar::compile_project`); `.fwdata`
+//! `Snapshot` (`Snapshot::from_json`) and compiles it (`pg_grammar::compile_project`); `.fwdata/.fwbackup`
 //! imports the FieldWorks project file directly, in-memory, then compiles it -- no intermediate
 //! JSON file is written (run the `import` subcommand first if you want to keep the snapshot
 //! around, e.g. to inspect it or reuse it without re-importing every time). Compile/import
-//! warnings from `.json`/`.fwdata` dispatch are always printed to stderr, never stdout --
+//! warnings from `.json`/`.fwdata/.fwbackup` dispatch are always printed to stderr, never stdout --
 //! `batch`'s TSV rows are parity-sensitive against C# goldens, so warnings must never be
 //! interleaved into that output stream.
 // `forbid` relaxes only under `alloc-trace` (dev-only, default off): its counting allocator needs one `unsafe impl GlobalAlloc`.
@@ -309,7 +309,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
-         usage: pangloss import <project.fwdata> <out.json>\n\
+         usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
          usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
          usage: pangloss investigate <report.json> --case <caseId> [--report <path>]\n\
@@ -324,7 +324,7 @@ fn print_usage_and_fail() -> ExitCode {
          \n\
          <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
          pg-snapshot JSON file (.json, from `pangloss import` or any other producer), or a\n\
-         FieldWorks project file (.fwdata, imported in-memory and compiled on the fly).\n\
+         FieldWorks project file (.fwdata/.fwbackup, imported in-memory and compiled on the fly).\n\
          \n\
          --guess (`batch`/`parse`, HC-rust port gap G3,\n\
          docs/hermitcrab-rust-port-audit.md sec 2/3 item 1): OFF by default, byte-identical\n\
@@ -341,10 +341,10 @@ fn print_usage_and_fail() -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// `import <project.fwdata> <out.json>`: runs `pg-fwdata` over a FieldWorks project file and writes the resulting snapshot to `<out.json>`, printing import and validate warnings under separate headings; only a hard `ImportError` fails the command, since this pipeline must tolerate stale/dangling real-world project data.
+/// `import <project.fwdata/.fwbackup> <out.json>`: runs `pg-fwdata` over a FieldWorks project file and writes the resulting snapshot to `<out.json>`, printing import and validate warnings under separate headings; only a hard `ImportError` fails the command, since this pipeline must tolerate stale/dangling real-world project data.
 fn run_import(args: &[String]) -> Result<(), String> {
     let [fwdata_path, out_path] = args else {
-        return Err("usage: import <project.fwdata> <out.json>".into());
+        return Err("usage: import <project.fwdata/.fwbackup> <out.json>".into());
     };
 
     let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(fwdata_path))
@@ -384,7 +384,7 @@ pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String>
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
             Ok((grammar, warnings))
         }
-        "fwdata" => {
+        _ if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") => {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
             // report.warnings/snapshot.validate() are typed pg_snapshot::Warning; compile_project's are plain String, so flatten to prose here, the one place the two meet.
@@ -1192,7 +1192,9 @@ mod tests {
     //! Covers both `--threads` writer paths per the task brief -- the sequential (`STARTED` +
     //! per-line flush) and rayon-parallel (buffered, no `STARTED`) modes have genuinely different
     //! code paths in `run_batch` and each needed its own bug fixed above.
-    use super::{run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP};
+    use super::{
+        load_grammar, run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP,
+    };
     use std::fs;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -1247,6 +1249,18 @@ mod tests {
         ));
         fs::create_dir_all(&dir).expect("create scratch dir");
         dir
+    }
+
+    #[test]
+    fn fwbackup_extension_routes_through_fieldworks_importer() {
+        for extension in ["fwbackup", "FWBACKUP"] {
+            let missing = scratch_dir("missing-fwbackup").join(format!("missing.{extension}"));
+            let err = load_grammar(&missing.to_string_lossy()).unwrap_err();
+            assert!(
+                err.starts_with("import "),
+                "expected .{extension} to use pg-fwdata import, got: {err}"
+            );
+        }
     }
 
     /// Runs `batch` with `extra_args` appended after the 3 positional args, returning the written TSV's lines.

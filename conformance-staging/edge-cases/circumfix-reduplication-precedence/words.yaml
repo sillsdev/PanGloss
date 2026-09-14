@@ -13,6 +13,7 @@ inspired_by: ["synthetic simultaneously-circumfixing-and-reduplicating probe (no
 sources:
   - "docs/conformance/circumfix-structural-composite-census.md (census C2)"
 requires: []
+fieldworks_producible: true
 words:
   - word: tam
     note: ROOTC2 bare, no mrCircRedup applied -- a plain control.

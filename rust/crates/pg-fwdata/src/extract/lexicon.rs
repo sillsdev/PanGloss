@@ -1,13 +1,13 @@
 //! `lexicon` snapshot section — see `docs/snapshot-format.md` §6.
 
 use pg_snapshot::{
-    AffixProcess, Allomorph, EntryRef, FeatureSystems, LexEntry, Lexicon, Morphology, Msa,
-    RuleMapping, Sense,
+    AffixProcess, Allomorph, EntryRef, FeatureSystems, InventoryKey, InventoryKind, IssueClass,
+    LexEntry, Lexicon, Morphology, Msa, RuleMapping, Sense, SourceRef,
 };
 
 use super::features::extract_feature_structure;
 use super::phonology::{first_code_representation, resolve_phon_context};
-use super::Ctx;
+use super::{tracked_kind, Ctx};
 use crate::morphtype::{self, MorphTypeLookup};
 use crate::xml::Record;
 
@@ -24,6 +24,9 @@ pub fn extract_lexicon(
 
 fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
     let rec = ctx.get(guid)?;
+    let key = InventoryKey::object(InventoryKind::Entry, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
     let citation_form = rec.node.ws_forms("CitationForm");
     let lexeme_form_guid = rec.node.objsur_one("LexemeForm");
     if lexeme_form_guid.is_none() {
@@ -49,6 +52,7 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
                      lexemeMorphType to stem"
                 ),
             );
+            ctx.synthesized(key.clone());
             pg_snapshot::MorphType::Stem
         }
     };
@@ -66,6 +70,7 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
         .iter()
         .filter_map(|g| extract_entry_ref(ctx, g))
         .collect();
+    ctx.represented(key);
     Some(LexEntry {
         guid: guid.to_string(),
         citation_form,
@@ -77,10 +82,19 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
     })
 }
 
-fn resolve_morph_type(ctx: &mut Ctx, rec: &Record, label: &str) -> Option<pg_snapshot::MorphType> {
+fn resolve_morph_type(
+    ctx: &mut Ctx,
+    rec: &Record,
+    key: &InventoryKey,
+    label: &str,
+) -> Option<pg_snapshot::MorphType> {
     let Some(mt_guid) = rec.node.objsur_one("MorphType") else {
-        ctx.warn(
+        ctx.reject(
+            key.clone(),
             super::codes::MISSING_REQUIRED_FIELD,
+            IssueClass::UnrepresentableForHc,
+            false,
+            None,
             format!("{label}: {} has no MorphType", rec.guid),
         );
         return None;
@@ -88,8 +102,12 @@ fn resolve_morph_type(ctx: &mut Ctx, rec: &Record, label: &str) -> Option<pg_sna
     match morphtype::lookup(&mt_guid) {
         MorphTypeLookup::Known(mt) => Some(mt),
         MorphTypeLookup::UnsupportedWellKnown(name) => {
-            ctx.warn(
+            ctx.reject(
+                key.clone(),
                 super::codes::UNSUPPORTED_MORPH_TYPE,
+                IssueClass::UnrepresentableForHc,
+                false,
+                None,
                 format!(
                     "{label}: {} has morph type {name:?} ({mt_guid}), which this format's \
                      MorphType enum has no variant for (model gap — see morphtype module docs); \
@@ -100,8 +118,12 @@ fn resolve_morph_type(ctx: &mut Ctx, rec: &Record, label: &str) -> Option<pg_sna
             None
         }
         MorphTypeLookup::Unknown => {
-            ctx.warn(
+            ctx.reject(
+                key.clone(),
                 super::codes::UNKNOWN_MORPH_TYPE_GUID,
+                IssueClass::UnrepresentableForHc,
+                false,
+                None,
                 format!(
                     "{label}: {} has unrecognized morph-type guid {mt_guid}; skipping",
                     rec.guid
@@ -125,10 +147,21 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
         );
         return None;
     }
-    let morph_type = resolve_morph_type(ctx, rec, label)?;
+    let Some(kind) = tracked_kind(&rec.class) else {
+        return None;
+    };
+    let key = InventoryKey::object(kind, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    let Some(morph_type) = resolve_morph_type(ctx, rec, &key, label) else {
+        return None;
+    };
     let is_abstract = rec.node.val_bool("IsAbstract").unwrap_or(false);
     let forms = rec.node.ws_forms("Form");
     let environments = rec.node.objsur_list("PhoneEnv");
+    for env_guid in &environments {
+        record_environment_attachment(ctx, guid, env_guid);
+    }
     let positions = if rec.class == "MoAffixAllomorph" {
         rec.node.objsur_list("Position")
     } else {
@@ -162,6 +195,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
     } else {
         None
     };
+    ctx.represented(key);
     Some(Allomorph {
         guid: guid.to_string(),
         morph_type,
@@ -175,6 +209,38 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
         ms_env_part_of_speech,
         process,
     })
+}
+
+/// Records the allomorph→environment attachment; represented only if the referenced `PhEnvironment` was itself represented, otherwise a fatal dangling reference.
+fn record_environment_attachment(ctx: &mut Ctx, allomorph_guid: &str, env_guid: &str) {
+    let attachment = InventoryKey::attachment(
+        InventoryKind::Environment,
+        allomorph_guid.to_string(),
+        env_guid.to_string(),
+        "environment",
+    );
+    ctx.authored(attachment.clone());
+    ctx.considered(attachment.clone());
+    ctx.selected(attachment.clone());
+    let env_object = InventoryKey::object(InventoryKind::Environment, env_guid.to_string());
+    if ctx.is_represented(&env_object) {
+        ctx.represented(attachment);
+    } else {
+        ctx.reject(
+            attachment,
+            super::codes::DANGLING_REFERENCE,
+            IssueClass::InvalidSource,
+            true,
+            Some(SourceRef {
+                kind: "PhEnvironment".to_string(),
+                id: env_guid.to_string(),
+            }),
+            format!(
+                "lexicon.entries.allomorphs: allomorph {allomorph_guid} environment reference \
+                 {env_guid} does not resolve to a represented PhEnvironment"
+            ),
+        );
+    }
 }
 
 fn extract_affix_process(ctx: &mut Ctx, rec: &Record) -> AffixProcess {
@@ -264,7 +330,12 @@ fn extract_rule_mapping(
 fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
     let label = "lexicon.entries.msas";
     let rec = ctx.get(guid)?;
-    match rec.class.as_str() {
+    let key = tracked_kind(&rec.class).map(|kind| InventoryKey::object(kind, guid.to_string()));
+    if let Some(key) = &key {
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
+    }
+    let msa = match rec.class.as_str() {
         "MoStemMsa" => {
             let features = rec
                 .node
@@ -330,7 +401,13 @@ fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
             );
             None
         }
+    };
+    if msa.is_some() {
+        if let Some(key) = key {
+            ctx.represented(key);
+        }
     }
+    msa
 }
 
 /// Flattens top-level sense guids and every transitively-owned subsense into one pre-order `Vec<Sense>`, mirroring HCLoader's recursive `AllSenses`.
@@ -349,19 +426,31 @@ fn extract_senses_recursive(ctx: &mut Ctx, guids: &[String]) -> Vec<Sense> {
 
 fn extract_sense(ctx: &mut Ctx, guid: &str) -> Option<Sense> {
     let rec = ctx.get(guid)?;
-    Some(Sense {
+    if rec.class != "LexSense" {
+        return None;
+    }
+    let key = InventoryKey::object(InventoryKind::Sense, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    let sense = Sense {
         guid: guid.to_string(),
         gloss: rec.node.ws_forms("Gloss"),
         definition: rec.node.ws_forms("Definition"),
         msa: rec.node.objsur_one("MorphoSyntaxAnalysis"),
-    })
+    };
+    ctx.represented(key);
+    Some(sense)
 }
 
 fn extract_entry_ref(ctx: &mut Ctx, guid: &str) -> Option<EntryRef> {
     let rec = ctx.require(guid, "LexEntryRef", "lexicon.entries.entryRefs")?;
+    let key = InventoryKey::object(InventoryKind::EntryReference, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
     let component_lexemes = rec.node.objsur_list("ComponentLexemes");
     let variant_entry_types = rec.node.objsur_list("VariantEntryTypes");
     let complex_entry_types = rec.node.objsur_list("ComplexEntryTypes");
+    ctx.represented(key);
     // `variant` wins when both, or neither, type list is populated -- see docs/snapshot-format.md §6.
     // An empty-typed `Variant` is the more common shape for an otherwise-unclassified `LexEntryRef` in real data.
     if !complex_entry_types.is_empty() && variant_entry_types.is_empty() {

@@ -1,8 +1,9 @@
 //! `phonology` snapshot section — see `docs/snapshot-format.md` §4.
 
 use pg_snapshot::{
-    BoundaryMarker, Environment, FeatureConstraint, FeatureSystems, MetathesisRule, NaturalClass,
-    PhonContext, Phoneme, PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection,
+    BoundaryMarker, Environment, FeatureConstraint, FeatureSystems, InventoryKey, InventoryKind,
+    IssueClass, MetathesisRule, NaturalClass, PhonContext, Phoneme, PhonologicalRule, Phonology,
+    RewriteRhs, RewriteRule, RuleDirection,
 };
 
 use super::features::extract_feature_structure;
@@ -54,6 +55,22 @@ fn extract_phoneme_set(ctx: &mut Ctx, phon_data: &Record) -> (Vec<Phoneme>, Vec<
             ),
         );
     }
+    // Every set beyond the first is looked at only to record it as considered, never selected.
+    for skipped_guid in set_guids.iter().skip(1) {
+        let Some(skipped) = ctx.get(skipped_guid) else {
+            continue;
+        };
+        for g in skipped.node.objsur_list("Phonemes") {
+            if ctx.get(&g).is_some_and(|r| r.class == "PhPhoneme") {
+                ctx.considered(InventoryKey::object(InventoryKind::Phoneme, g));
+            }
+        }
+        for g in skipped.node.objsur_list("BoundaryMarkers") {
+            if ctx.get(&g).is_some_and(|r| r.class == "PhBdryMarker") {
+                ctx.considered(InventoryKey::object(InventoryKind::BoundaryMarker, g));
+            }
+        }
+    }
     let Some(set_guid) = set_guids.first() else {
         return (Vec::new(), Vec::new());
     };
@@ -78,16 +95,25 @@ fn extract_phoneme_set(ctx: &mut Ctx, phon_data: &Record) -> (Vec<Phoneme>, Vec<
 
 fn extract_phoneme(ctx: &mut Ctx, guid: &str) -> Option<Phoneme> {
     let rec = ctx.require(guid, "PhPhoneme", "phonology.phonemes")?;
+    let key = InventoryKey::object(InventoryKind::Phoneme, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
     let name = ctx.best_analysis(&rec.node.ws_forms("Name"));
     let representations = code_representations(ctx, rec, "phonology.phonemes");
     if representations.is_empty() {
-        ctx.warn(
+        ctx.reject(
+            key,
             super::codes::EMPTY_REPRESENTATION,
+            IssueClass::UnrepresentableForHc,
+            false,
+            None,
             format!(
                 "phonology.phonemes: phoneme {guid} ({name:?}) has no representations after \
                  dotted-circle stripping"
             ),
         );
+    } else {
+        ctx.represented(key);
     }
     let features = rec
         .node
@@ -105,11 +131,16 @@ fn extract_phoneme(ctx: &mut Ctx, guid: &str) -> Option<Phoneme> {
 
 fn extract_boundary_marker(ctx: &mut Ctx, guid: &str) -> Option<BoundaryMarker> {
     let rec = ctx.require(guid, "PhBdryMarker", "phonology.boundaryMarkers")?;
-    Some(BoundaryMarker {
+    let key = InventoryKey::object(InventoryKind::BoundaryMarker, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    let marker = BoundaryMarker {
         guid: guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         representations: code_representations(ctx, rec, "phonology.boundaryMarkers"),
-    })
+    };
+    ctx.represented(key);
+    Some(marker)
 }
 
 /// `PhPhoneme.CodesOS`/`PhBdryMarker.CodesOS`: flattens every code's forms, dotted-circle stripped.
@@ -177,9 +208,13 @@ fn extract_natural_classes(ctx: &mut Ctx, phon_data: &Record) -> Vec<NaturalClas
 fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
     let rec = ctx.get(guid)?;
     let name = ctx.best_analysis(&rec.node.ws_forms("Abbreviation"));
+    let key = InventoryKey::object(InventoryKind::NaturalClass, guid.to_string());
     match rec.class.as_str() {
         "PhNCSegments" => {
             let phonemes = rec.node.objsur_list("Segments");
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
+            ctx.represented(key);
             Some(NaturalClass::Segments {
                 guid: guid.to_string(),
                 name,
@@ -192,6 +227,9 @@ fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
                 .objsur_one("Features")
                 .and_then(|fs| extract_feature_structure(ctx, &fs, "phonology.naturalClasses"))
                 .unwrap_or_default();
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
+            ctx.represented(key);
             Some(NaturalClass::Features {
                 guid: guid.to_string(),
                 name,
@@ -219,14 +257,19 @@ fn extract_environments(ctx: &mut Ctx, phon_data: &Record) -> Vec<Environment> {
 
 fn extract_environment(ctx: &mut Ctx, guid: &str) -> Option<Environment> {
     let rec = ctx.require(guid, "PhEnvironment", "phonology.environments")?;
-    Some(Environment {
+    let key = InventoryKey::object(InventoryKind::Environment, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    let environment = Environment {
         guid: guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         representation: rec
             .node
             .str_text("StringRepresentation")
             .unwrap_or_default(),
-    })
+    };
+    ctx.represented(key);
+    Some(environment)
 }
 
 fn extract_feature_constraints(ctx: &mut Ctx, phon_data: &Record) -> Vec<FeatureConstraint> {
@@ -237,6 +280,10 @@ fn extract_feature_constraints(ctx: &mut Ctx, phon_data: &Record) -> Vec<Feature
         .filter_map(|guid| {
             let rec = ctx.require(&guid, "PhFeatureConstraint", "phonology.featureConstraints")?;
             let feature = rec.node.objsur_one("Feature")?;
+            let key = InventoryKey::object(InventoryKind::FeatureConstraint, guid.clone());
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
+            ctx.represented(key);
             Some(FeatureConstraint {
                 guid: guid.clone(),
                 feature,
@@ -252,13 +299,32 @@ fn extract_rules(ctx: &mut Ctx, phon_data: &Record) -> Vec<PhonologicalRule> {
         .into_iter()
         .filter_map(|guid| {
             let rec = ctx.get(&guid)?;
+            let key = InventoryKey::object(InventoryKind::PhonologicalRule, guid.clone());
             if rec.node.val_bool("Disabled").unwrap_or(false) {
+                if matches!(rec.class.as_str(), "PhRegularRule" | "PhMetathesisRule") {
+                    ctx.considered(key);
+                }
                 return None;
             }
             match rec.class.as_str() {
-                "PhRegularRule" => extract_rewrite_rule(ctx, rec).map(PhonologicalRule::Rewrite),
+                "PhRegularRule" => {
+                    ctx.considered(key.clone());
+                    ctx.selected(key.clone());
+                    let rule = extract_rewrite_rule(ctx, rec).map(PhonologicalRule::Rewrite);
+                    if rule.is_some() {
+                        ctx.represented(key);
+                    }
+                    rule
+                }
                 "PhMetathesisRule" => {
-                    extract_metathesis_rule(ctx, rec).map(PhonologicalRule::Metathesis)
+                    ctx.considered(key.clone());
+                    ctx.selected(key.clone());
+                    let rule =
+                        extract_metathesis_rule(ctx, rec).map(PhonologicalRule::Metathesis);
+                    if rule.is_some() {
+                        ctx.represented(key);
+                    }
+                    rule
                 }
                 other => {
                     ctx.warn(
@@ -471,6 +537,12 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
 /// See `docs/research/pg-fwdata-phonology-extract-notes.md`.
 pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Option<PhonContext> {
     let rec = ctx.get(guid)?;
+    let key = InventoryKey::object(InventoryKind::PhonologicalContext, guid.to_string());
+    let record_represented = |ctx: &mut Ctx| {
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
+        ctx.represented(key.clone());
+    };
     match rec.class.as_str() {
         "PhSequenceContext" => {
             let members = rec
@@ -479,6 +551,7 @@ pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Op
                 .into_iter()
                 .filter_map(|g| resolve_phon_context(ctx, &g, label))
                 .collect();
+            record_represented(ctx);
             Some(PhonContext::Sequence { members })
         }
         "PhIterationContext" => {
@@ -486,6 +559,7 @@ pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Op
             let max = rec.node.val_int("Maximum").unwrap_or(-1) as i32;
             let member_guid = rec.node.objsur_one("Member")?;
             let member = resolve_phon_context(ctx, &member_guid, label)?;
+            record_represented(ctx);
             Some(PhonContext::Iteration {
                 min,
                 max,
@@ -494,12 +568,14 @@ pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Op
         }
         "PhSimpleContextSeg" => {
             let phoneme = rec.node.objsur_one("FeatureStructure")?;
+            record_represented(ctx);
             Some(PhonContext::Segment { phoneme })
         }
         "PhSimpleContextNC" => {
             let natural_class = rec.node.objsur_one("FeatureStructure")?;
             let plus_variables = rec.node.objsur_list("PlusConstr");
             let minus_variables = rec.node.objsur_list("MinusConstr");
+            record_represented(ctx);
             Some(PhonContext::NaturalClass {
                 natural_class,
                 plus_variables,
@@ -508,6 +584,7 @@ pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Op
         }
         "PhSimpleContextBdry" => {
             let marker = rec.node.objsur_one("FeatureStructure")?;
+            record_represented(ctx);
             // The well-known word-boundary marker never appears as its own `PhBdryMarker` record, so failing to resolve one is the `#` anchor's own signature.
             // See `docs/research/pg-fwdata-phonology-extract-notes.md`.
             match ctx.get(&marker) {

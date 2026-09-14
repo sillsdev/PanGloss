@@ -1,6 +1,6 @@
 //! The wired-up edge of `pg_foma::witnessed_coverage`: compiles every discovered conformance fixture with every backend the selector permits, states the denominator, and prints the completeness account -- asserting NON-VACUITY only, with the gap inventory reported rather than gated (see `REQUIREMENT`).
 
-use pg_conformance_fixtures::{claimed_scope, discover, SCOPE_ENV};
+use pg_conformance_fixtures::{claimed_scope, discover, producibility_census, SCOPE_ENV};
 use pg_foma::capability::CharacteristicKind;
 use pg_foma::coverage_seam::collect_observations;
 use pg_foma::enumerate::EmissionStrategy;
@@ -31,6 +31,9 @@ fn report() -> CompletenessReport {
 fn report_witnessed_strategy_coverage() {
     let report = report();
     println!("{}", report.render());
+    // "grammars discovered" is not one FieldWorks-facing population; report the three separately.
+    let census = producibility_census(&discover());
+    println!("fieldworks_producible -- {}", census.summary_line());
 
     if let Err(violations) = report.check(REQUIREMENT) {
         panic!(

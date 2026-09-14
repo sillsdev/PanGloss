@@ -19,6 +19,7 @@ inspired_by: ["synthetic suffixing grammar with a root-inventory-unique affix se
 sources:
   - "rust/crates/pg-foma/src/candidate_filter/passes/surface_consistency.rs"
 requires: []
+fieldworks_producible: true
 words:
   - word: kolo
     note: Bare root that also carries the valid suffixed form below. Plain control.

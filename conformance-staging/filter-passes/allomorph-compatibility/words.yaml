@@ -19,6 +19,7 @@ inspired_by: ["synthetic suffixing grammar with phonologically conditioned root 
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (no compatible allomorph alternative)"
 requires: []
+fieldworks_producible: true
 words:
   - word: noris
     note: The contrast root bare -- one unconstrained allomorph, no environment to satisfy.

@@ -24,7 +24,7 @@ pub mod corpus;
 
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Which of the two fixture roots a fixture was found under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -308,28 +308,137 @@ pub fn graduation_guard_violations(fixtures: &[FixtureRef]) -> Vec<(String, Stri
     violations
 }
 
+/// The three populations a claimed `FieldworksProducibility` partitions fixtures into, each sorted
+/// by label — a caller reporting "fixtures covered" must show these separately rather than folding
+/// `EngineOnly`/`Unmarked` fixtures into a FieldWorks-facing coverage count.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ProducibilityCensus {
+    pub producible: Vec<String>,
+    pub engine_only: Vec<String>,
+    pub unmarked: Vec<String>,
+}
+
+impl ProducibilityCensus {
+    /// The one bucket-count rendering shared by every gate that prints this census.
+    pub fn summary_line(&self) -> String {
+        format!(
+            "{} producible, {} engine-only, {} unmarked",
+            self.producible.len(),
+            self.engine_only.len(),
+            self.unmarked.len()
+        )
+    }
+}
+
+/// Partitions already-[`discover`]ed fixtures by their `words.yaml` producibility verdict. Loads
+/// each fixture's `words.yaml` itself (no separate walker) — see [`FieldworksProducibility`] for
+/// what each bucket means.
+pub fn producibility_census(fixtures: &[FixtureRef]) -> ProducibilityCensus {
+    let mut census = ProducibilityCensus::default();
+    for fixture in fixtures {
+        let label = fixture.label();
+        match fixture.load_words_yaml().fieldworks_producible {
+            FieldworksProducibility::Producible => census.producible.push(label),
+            FieldworksProducibility::EngineOnly { .. } => census.engine_only.push(label),
+            FieldworksProducibility::Unmarked => census.unmarked.push(label),
+        }
+    }
+    census.producible.sort();
+    census.engine_only.sort();
+    census.unmarked.sort();
+    census
+}
+
+/// A fixture's `words.yaml` may declare whether it is reachable from a real FieldWorks project
+/// (`fieldworks_producible`, `PROTOCOL.md` section 9) — separate from correctness: `false` names an
+/// HC-engine-only regression fixture, never a claim that anything is wrong with it, and never
+/// evidence of FieldWorks-facing conformance coverage.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldworksProducibility {
+    /// `fieldworks_producible: true` — every construct this fixture exercises has an `HCLoader`
+    /// code path from a real FieldWorks project.
+    Producible,
+    /// `fieldworks_producible: false` — `notes` names the offending construct(s) with an
+    /// `HCLoader` citation, required non-empty at parse time (mirrors Machine's own loader).
+    EngineOnly { notes: String },
+    /// The field is absent from this fixture's `words.yaml`. Never treated as [`Self::Producible`]
+    /// — silence must not read as a claim, and this is the honest state for every fixture under a
+    /// submodule pin that predates the field existing upstream.
+    Unmarked,
+}
+
 // words.yaml schema: only the fields this repo's tests consume are modeled; no deny_unknown_fields, so this tolerates upstream schema additions without breaking.
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(try_from = "WordsYamlWire")]
 pub struct WordsYaml {
     pub language: String,
-    #[serde(default)]
     pub inspired_by: Vec<String>,
-    #[serde(default)]
     pub sources: Vec<String>,
-    #[serde(default)]
     pub requires: Vec<String>,
     /// Edge-cases-only: this fixture's founding-oracle run crashed — see `PROTOCOL.md`'s
     /// "expect_crash" section. A generic replay skips such fixtures (there is no signature to
     /// diff — the oracle died before producing one).
-    #[serde(default)]
     pub expect_crash: bool,
     /// Edge-cases-only: C#'s own `isPathological` gate (`RunnerV2.RunOneSelfCheck`) — excluded
     /// from a default self-check run, exercised only with `--include-pathological`. A generic
     /// replay in this repo's default (<60s) suite skips these the same way.
-    #[serde(default)]
     pub budget_ms: Option<u64>,
+    pub fieldworks_producible: FieldworksProducibility,
     pub words: Vec<WordEntry>,
+}
+
+/// Raw front matter, resolved into [`FieldworksProducibility`] by `TryFrom` below.
+#[derive(Debug, Clone, Deserialize)]
+struct WordsYamlWire {
+    language: String,
+    #[serde(default)]
+    inspired_by: Vec<String>,
+    #[serde(default)]
+    sources: Vec<String>,
+    #[serde(default)]
+    requires: Vec<String>,
+    #[serde(default)]
+    expect_crash: bool,
+    #[serde(default)]
+    budget_ms: Option<u64>,
+    #[serde(default)]
+    fieldworks_producible: Option<bool>,
+    #[serde(default)]
+    fieldworks_producible_notes: Option<String>,
+    words: Vec<WordEntry>,
+}
+
+impl TryFrom<WordsYamlWire> for WordsYaml {
+    type Error = String;
+
+    fn try_from(wire: WordsYamlWire) -> Result<Self, Self::Error> {
+        let fieldworks_producible = match wire.fieldworks_producible {
+            None => FieldworksProducibility::Unmarked,
+            Some(true) => FieldworksProducibility::Producible,
+            Some(false) => {
+                let notes = wire.fieldworks_producible_notes.unwrap_or_default();
+                if notes.trim().is_empty() {
+                    return Err(
+                        "fieldworks_producible: false requires a non-empty \
+                         fieldworks_producible_notes naming the offending construct(s)"
+                            .to_string(),
+                    );
+                }
+                FieldworksProducibility::EngineOnly { notes }
+            }
+        };
+        Ok(WordsYaml {
+            language: wire.language,
+            inspired_by: wire.inspired_by,
+            sources: wire.sources,
+            requires: wire.requires,
+            expect_crash: wire.expect_crash,
+            budget_ms: wire.budget_ms,
+            fieldworks_producible,
+            words: wire.words,
+        })
+    }
 }
 
 impl WordsYaml {
@@ -662,6 +771,115 @@ words:
         assert_eq!(parsed.words.len(), 2);
         assert_eq!(parsed.words[0].expected_signature(), "M1|foo");
         assert_eq!(parsed.words[1].expected_signature(), "-");
+        assert_eq!(parsed.fieldworks_producible, FieldworksProducibility::Unmarked);
+    }
+
+    fn minimal_doc_with(front_matter: &str) -> Result<WordsYaml, serde_yaml::Error> {
+        serde_yaml::from_str(&format!(
+            "language: Test\n{front_matter}\nwords:\n  - word: foo\n    expect_fail: true\n"
+        ))
+    }
+
+    #[test]
+    fn fieldworks_producible_true_parses() {
+        let parsed = minimal_doc_with("fieldworks_producible: true").unwrap();
+        assert_eq!(parsed.fieldworks_producible, FieldworksProducibility::Producible);
+    }
+
+    #[test]
+    fn fieldworks_producible_false_with_notes_parses() {
+        let parsed = minimal_doc_with(
+            "fieldworks_producible: false\nfieldworks_producible_notes: RealizationalRule never constructed by HCLoader",
+        )
+        .unwrap();
+        assert_eq!(
+            parsed.fieldworks_producible,
+            FieldworksProducibility::EngineOnly {
+                notes: "RealizationalRule never constructed by HCLoader".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn fieldworks_producible_false_without_notes_is_a_parse_error_naming_the_field() {
+        let error = minimal_doc_with("fieldworks_producible: false")
+            .expect_err("false with no notes must not silently parse");
+        assert!(
+            error.to_string().contains("fieldworks_producible_notes"),
+            "error must name the missing field, got: {error}"
+        );
+    }
+
+    #[test]
+    fn fieldworks_producible_false_with_empty_notes_is_a_parse_error() {
+        let error = minimal_doc_with(
+            "fieldworks_producible: false\nfieldworks_producible_notes: \"\"",
+        )
+        .expect_err("empty notes must not satisfy the non-empty requirement");
+        assert!(error.to_string().contains("fieldworks_producible_notes"));
+    }
+
+    #[test]
+    fn fieldworks_producible_garbage_value_is_a_parse_error() {
+        let error = minimal_doc_with("fieldworks_producible: sometimes")
+            .expect_err("a non-boolean value must not resolve to a producibility");
+        assert!(error.to_string().contains("fieldworks_producible"));
+    }
+
+    #[test]
+    fn producibility_census_sorts_and_partitions() {
+        let base = std::env::temp_dir().join(format!(
+            "pg-conformance-fixtures-census-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&base);
+        let write_fixture = |name: &str, front_matter: &str| -> FixtureRef {
+            let dir = base.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("grammar.xml"), "<HermitCrabInput/>").unwrap();
+            std::fs::write(
+                dir.join("words.yaml"),
+                format!("language: Test\n{front_matter}\nwords: []\n"),
+            )
+            .unwrap();
+            FixtureRef {
+                root: Root::Staging,
+                category: "edge-cases".to_string(),
+                name: name.to_string(),
+                dir,
+            }
+        };
+
+        let fixtures = vec![
+            write_fixture("z-fixture", "fieldworks_producible: true"),
+            write_fixture("a-fixture", "fieldworks_producible: true"),
+            write_fixture(
+                "m-fixture",
+                "fieldworks_producible: false\nfieldworks_producible_notes: x",
+            ),
+            write_fixture("b-fixture", ""),
+        ];
+
+        let census = producibility_census(&fixtures);
+        std::fs::remove_dir_all(&base).ok();
+
+        assert_eq!(
+            census.producible,
+            vec![
+                "staging:edge-cases/a-fixture".to_string(),
+                "staging:edge-cases/z-fixture".to_string(),
+            ],
+            "producible must be sorted by label"
+        );
+        assert_eq!(
+            census.engine_only,
+            vec!["staging:edge-cases/m-fixture".to_string()]
+        );
+        assert_eq!(
+            census.unmarked,
+            vec!["staging:edge-cases/b-fixture".to_string()]
+        );
     }
 
     #[test]

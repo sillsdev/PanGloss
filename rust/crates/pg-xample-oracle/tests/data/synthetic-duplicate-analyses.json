@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse",
+  "database": "Synthetic",
+  "engineVersion": "0.0.0.0",
+  "parameters": {
+    "runtime": {
+      "maxAnalysesToReturn": 1000
+    },
+    "adctl": {
+      "maxNulls": 0,
+      "maxPrefixes": 1,
+      "maxInfixes": 0,
+      "maxSuffixes": 0,
+      "maxRoots": 1,
+      "maxInterfixes": 0
+    },
+    "adctlPatched": false,
+    "adctlSource": "Syntheticadctl.txt"
+  },
+  "words": [
+    {
+      "word": "dup",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "dup",
+              "msaGuid": "11111111-1111-1111-1111-111111111111",
+              "morphnameOrGloss": "ROOT",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "dup"
+        },
+        {
+          "morphemes": [
+            {
+              "form": "dup",
+              "msaGuid": "11111111-1111-1111-1111-111111111111",
+              "morphnameOrGloss": "ROOT",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "dup"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 
 use pg_conformance_fixtures::{
     all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
-    OracleProvenance,
+    producibility_census, OracleProvenance,
 };
 use pg_parse::Morpher;
 
@@ -54,6 +54,12 @@ fn all_discovered_fixtures_match_oracle() {
         "conformance_fixtures_gate: {total_checked} words checked across {} fixtures ({} skipped)",
         fixtures.len() - total_skipped_fixtures,
         total_skipped_fixtures
+    );
+    // "fixtures covered" is not one FieldWorks-facing population; report the three separately.
+    let census = producibility_census(&fixtures);
+    eprintln!(
+        "conformance_fixtures_gate: fieldworks_producible -- {}",
+        census.summary_line()
     );
 }
 

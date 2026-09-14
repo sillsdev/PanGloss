@@ -32,6 +32,7 @@ sources:
   - "rust/crates/pg-parse/src/identity.rs (AnalysisIdentity::root_index)"
   - "rust/crates/pg-foma/tests/cross_compiler_equivalence_gate.rs (RED-1's uflexc compound-loop fix)"
 requires: []
+fieldworks_producible: true
 words:
   - word: dak
     note: DAK bare root, no compounding -- a plain control.

@@ -1,0 +1,117 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Newtonsoft.Json.Linq;
+using SIL.FieldWorks.WordWorks.Parser;
+using SIL.LCModel;
+using SIL.Machine.Morphology.HermitCrab;
+
+namespace XampleProjector
+{
+	/// <summary>
+	/// Produces both real FieldWorks projections of one opened project from a single source
+	/// path: the HC XML via HCLoader+XmlLanguageWriter, and the XAMPLE control/dictionary/
+	/// grammar files via the same XSL transforms and GAFAWS step FieldWorks itself drives
+	/// (see XampleProjection). Both sides read the same opened LcmCache, so they can never
+	/// diverge on which project state they saw.
+	/// </summary>
+	internal static class ProjectCommand
+	{
+		internal static int Run(string[] args, string fieldWorksDir)
+		{
+			if (!ArgParser.TryGetOption(args, "--project", out var projectPath) ||
+				!ArgParser.TryGetOption(args, "--out-dir", out var outDir) ||
+				!ArgParser.TryGetOption(args, "--database", out var database))
+			{
+				Program.WriteUsage();
+				return ExitCodes.Usage;
+			}
+
+			Directory.CreateDirectory(outDir);
+
+			return FieldWorksSession.Run(fieldWorksDir, projectPath, (cache, logger) =>
+			{
+				List<GeneratedFile> generated;
+				try
+				{
+					generated = Project(cache, logger, fieldWorksDir, outDir, database);
+				}
+				catch (ProjectionException ex)
+				{
+					Console.Error.WriteLine("Projection failure: {0}", ex.Message);
+					return ExitCodes.ProjectionFailure;
+				}
+
+				var response = BuildResponse(cache, fieldWorksDir, outDir, projectPath, database, generated, logger);
+				JsonWriter.WriteFile(Path.Combine(outDir, "response.json"), response);
+
+				Console.WriteLine("Generated {0} file(s) in {1}:", generated.Count, outDir);
+				foreach (var file in generated)
+					Console.WriteLine("  {0} ({1} bytes, sha256 {2}{3})", file.RelativePath, file.Bytes, file.Sha256Hex,
+						file.Deterministic ? "" : ", NOT deterministic");
+
+				return ExitCodes.Ok;
+			});
+		}
+
+		private static List<GeneratedFile> Project(LcmCache cache, DiagnosticLogger logger, string fieldWorksDir, string outDir, string database)
+		{
+			var generated = new List<GeneratedFile>();
+
+			var language = ProjectionStep.Run("HCLoader.Load", () => HCLoader.Load(cache, logger));
+
+			var hcPath = Path.Combine(outDir, database + ".hc.xml");
+			ProjectionStep.Run("XmlLanguageWriter.Save", () => XmlLanguageWriter.Save(language, hcPath));
+			generated.Add(GeneratedFile.Describe(outDir, hcPath));
+
+			generated.AddRange(XampleProjection.Generate(cache, fieldWorksDir, outDir, database));
+
+			return generated;
+		}
+
+		private static JObject BuildResponse(LcmCache cache, string fieldWorksDir, string outDir, string projectPath, string database,
+			List<GeneratedFile> generated, DiagnosticLogger logger)
+		{
+			var hcLoadDiagnostics = new JArray();
+			foreach (var diagnostic in logger.Diagnostics)
+			{
+				hcLoadDiagnostics.Add(new JObject
+				{
+					["kind"] = diagnostic.Kind,
+					["message"] = diagnostic.Message,
+				});
+			}
+
+			return new JObject
+			{
+				[Fields.SchemaVersion] = SchemaVersion.Current,
+				[Fields.Mode] = "project",
+				[Fields.FieldWorksVersion] = InspectCommand.FieldWorksVersion(fieldWorksDir),
+				[Fields.AssemblyVersions] = AssemblyVersionsJson(fieldWorksDir),
+				// Relative to --out-dir (same base generated[].path uses), so a captured
+				// response.json never leaks the machine-specific absolute path it was produced
+				// under -- see PathUtil.MakeRelative and ValidateCapture's absolute-path check.
+				[Fields.SourcePath] = PathUtil.MakeRelative(outDir, projectPath),
+				[Fields.SourceSha256] = Sha256.OfFile(projectPath),
+				[Fields.Database] = database,
+				[Fields.Generated] = new JArray(generated.Select(f => f.ToJson())),
+				[Fields.HcLoadDiagnostics] = hcLoadDiagnostics,
+				[Fields.Diagnostics] = new JArray(),
+			};
+		}
+
+		private static JObject AssemblyVersionsJson(string fieldWorksDir)
+		{
+			var obj = new JObject();
+			foreach (var pin in FieldWorksPins.ExpectedFileVersions)
+			{
+				var path = Path.Combine(fieldWorksDir, pin.Key);
+				obj[pin.Key] = File.Exists(path)
+					? System.Diagnostics.FileVersionInfo.GetVersionInfo(path).FileVersion
+					: null;
+			}
+			return obj;
+		}
+	}
+}

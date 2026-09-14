@@ -235,6 +235,14 @@ Hard negatives are the cheapest research in the corpus. Do not re-run them.
 `../adr/0004-runtime-feature-compatibility.md`, `../cleanup-decisions.md`,
 `../fwdata-import-plan.md`, `../grammar-json-export-plan.md`, `../snapshot-format.md`.
 
+**XAMPLE-authored FieldWorks projects on HC**:
+`xample-grammars-on-hc-rust.md` — **VERIFIED + DECIDED** — long-lived engine comparison and
+conversion record. It explains the shared FieldWorks source model, which morphology is equivalent,
+the missing character-substrate gap, what intentionally changes under ordinary HC, the
+implement-or-refuse lossless policy, and `xample64.dll`'s limited jurisdiction as a differential
+migration comparator. Companion: `xample-primary-sources.md` (web-cited AMPLE/XAMPLE manual and
+source facts).
+
 ---
 
 ## Legacy — sunset implementation, kept for the record

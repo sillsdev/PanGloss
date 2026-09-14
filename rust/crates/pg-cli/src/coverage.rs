@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::fs;
 
-use pg_conformance_fixtures::{discover_scoped, ConformanceScope};
+use pg_conformance_fixtures::{discover_scoped, producibility_census, ConformanceScope, ProducibilityCensus};
 use pg_foma::capability::{default_registry, CharacteristicKind, Disposition};
 use pg_foma::conformance_coverage::CoverageStatus;
 use pg_foma::coverage_ledger::{build_ledger, CoverageLedger};
@@ -18,11 +18,10 @@ use serde::Serialize;
 pub const COVERAGE_CLI_SCHEMA_VERSION: u32 = 1;
 
 /// Mirrors `pg-foma/tests/conformance_coverage_gate.rs::passing_covered_constructs` exactly, restated rather than imported since that helper is private to a dev-only test file.
-fn passing_covered_constructs() -> HashSet<String> {
+fn passing_covered_constructs(fixtures: &[pg_conformance_fixtures::FixtureRef]) -> HashSet<String> {
     let mut covered = HashSet::new();
 
-    // Claims its scope: a user running the CLI has no environment claim to inherit.
-    for f in discover_scoped(ConformanceScope::All) {
+    for f in fixtures {
         let words_yaml = f.load_words_yaml();
         if words_yaml.skip_in_generic_replay().is_some() {
             continue;
@@ -245,6 +244,8 @@ fn build_headline(ledger: &CoverageLedger, disp: &DispositionCounts) -> String {
 struct CoverageSummary {
     schema_version: u32,
     headline: String,
+    /// Fixture population, not a claim about the ledger below: only `producible` names FieldWorks-facing coverage.
+    producibility: ProducibilityCensus,
     disposition_counts: DispositionCounts,
     evidence_counts: EvidenceCounts,
     supported_conformance_cross_check: Vec<SupportedConformanceRow>,
@@ -255,7 +256,10 @@ struct CoverageSummary {
 
 fn build_summary(grammar: Option<(&str, &Grammar)>) -> CoverageSummary {
     let registry = default_registry();
-    let covered = passing_covered_constructs();
+    // Claims its scope: a user running the CLI has no environment claim to inherit.
+    let fixtures = discover_scoped(ConformanceScope::All);
+    let producibility = producibility_census(&fixtures);
+    let covered = passing_covered_constructs(&fixtures);
     let covered_refs: HashSet<&str> = covered.iter().map(String::as_str).collect();
     let ledger = build_ledger(&registry, &covered_refs);
 
@@ -268,6 +272,7 @@ fn build_summary(grammar: Option<(&str, &Grammar)>) -> CoverageSummary {
     CoverageSummary {
         schema_version: COVERAGE_CLI_SCHEMA_VERSION,
         headline,
+        producibility,
         disposition_counts,
         evidence_counts,
         supported_conformance_cross_check,
@@ -282,6 +287,12 @@ fn render_human(summary: &CoverageSummary) -> String {
         "pangloss coverage (schema v{})\n\n{}\n\n",
         summary.schema_version, summary.headline
     ));
+
+    let p = &summary.producibility;
+    out.push_str("FieldWorks producibility census (this is NOT the ledger below -- only the \"producible\" bucket is FieldWorks-facing coverage):\n");
+    out.push_str(&format!("  producible:  {}\n", p.producible.len()));
+    out.push_str(&format!("  engine-only: {}\n", p.engine_only.len()));
+    out.push_str(&format!("  unmarked:    {}\n\n", p.unmarked.len()));
 
     let d = &summary.disposition_counts;
     out.push_str("Disposition counts:\n");

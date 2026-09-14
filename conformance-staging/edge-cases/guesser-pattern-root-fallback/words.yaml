@@ -5,6 +5,7 @@ sources:
   - "docs/hermitcrab-rust-port-audit.md (sec 2 'Partially ported', sec 3 item 1: Guesser API surface)"
   - "docs/p11-guesser-api-design.md (guesser engine design + fixture plan sec 6)"
 requires: []
+fieldworks_producible: true
 words:
   - word: kad
     note: >-

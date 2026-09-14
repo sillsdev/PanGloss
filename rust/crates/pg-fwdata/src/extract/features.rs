@@ -1,8 +1,9 @@
 //! `featureSystems` snapshot section, plus the `FeatureStructure` resolver used everywhere else a feature structure is attached to something.
 
 use pg_snapshot::{
-    ClosedFeature, ComplexFeature, FeatureStructure, FeatureSystem, FeatureSystems, FeatureValue,
-    FeatureValueKind, FeatureValueSymbol,
+    ClosedFeature, ComplexFeature, ConversionIssue, FeatureStructure, FeatureSystem,
+    FeatureSystems, FeatureValue, FeatureValueKind, FeatureValueSymbol, InventoryKey,
+    InventoryKind, IssueClass, SourceRef,
 };
 
 use super::Ctx;
@@ -62,18 +63,55 @@ fn extract_feature_system(ctx: &mut Ctx, guid: &str, label: &str) -> FeatureSyst
 }
 
 fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
+    let key = InventoryKey::object(InventoryKind::FeatureDefinition, rec.guid.clone());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
     let name = ctx.best_analysis(&rec.node.ws_forms("Name"));
     let abbreviation = ctx.best_analysis(&rec.node.ws_forms("Abbreviation"));
     let mut values = Vec::new();
     for value_guid in rec.node.objsur_list("Values") {
-        if let Some(v) = ctx.require(&value_guid, "FsSymFeatVal", "closedFeature.values") {
+        let resolved = ctx.require(&value_guid, "FsSymFeatVal", "closedFeature.values");
+        let attachment = InventoryKey::attachment(
+            InventoryKind::FeatureValue,
+            rec.guid.clone(),
+            value_guid.clone(),
+            "value",
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
+        ctx.selected(attachment.clone());
+        if let Some(v) = resolved {
+            ctx.represented(attachment);
+            let value_key = InventoryKey::object(InventoryKind::FeatureValue, value_guid.clone());
+            ctx.considered(value_key.clone());
+            ctx.selected(value_key.clone());
+            ctx.represented(value_key);
             values.push(FeatureValueSymbol {
                 guid: value_guid,
                 name: ctx.best_analysis(&v.node.ws_forms("Name")),
                 abbreviation: ctx.best_analysis(&v.node.ws_forms("Abbreviation")),
             });
+        } else {
+            ctx.record_rejected(
+                attachment,
+                ConversionIssue {
+                    code: super::codes::DANGLING_REFERENCE.to_string(),
+                    class: IssueClass::InvalidSource,
+                    source: Some(SourceRef {
+                        kind: "FsSymFeatVal".to_string(),
+                        id: value_guid.clone(),
+                    }),
+                    fatal: true,
+                    message: format!(
+                        "closedFeature.values: feature {} references value {value_guid}, \
+                         which does not resolve to a FsSymFeatVal",
+                        rec.guid
+                    ),
+                },
+            );
         }
     }
+    ctx.represented(key);
     ClosedFeature {
         guid: rec.guid.clone(),
         name,
@@ -83,12 +121,17 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
 }
 
 fn extract_complex_feature(ctx: &mut Ctx, rec: &Record) -> ComplexFeature {
-    ComplexFeature {
+    let key = InventoryKey::object(InventoryKind::FeatureDefinition, rec.guid.clone());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    let feature = ComplexFeature {
         guid: rec.guid.clone(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         abbreviation: ctx.best_analysis(&rec.node.ws_forms("Abbreviation")),
         feature_type: rec.node.objsur_one("Type"),
-    }
+    };
+    ctx.represented(key);
+    feature
 }
 
 /// Resolves an `FsFeatStruc` guid into a `FeatureStructure`, recursing into any `FsComplexValue` members; returns `None` when `guid` doesn't resolve at all, so callers can distinguish "never attached" from "the referenced one was empty".
@@ -98,7 +141,12 @@ pub fn extract_feature_structure(
     label: &str,
 ) -> Option<FeatureStructure> {
     let rec = ctx.require(guid, "FsFeatStruc", label)?;
-    Some(extract_feature_struct_node(ctx, rec, label))
+    let key = InventoryKey::object(InventoryKind::FeatureStructure, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    let structure = extract_feature_struct_node(ctx, rec, label);
+    ctx.represented(key);
+    Some(structure)
 }
 
 fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> FeatureStructure {
@@ -131,10 +179,18 @@ fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> Feat
             },
             "FsComplexValue" => match spec.node.objsur_one("Value") {
                 Some(nested_guid) => match ctx.get(&nested_guid) {
-                    Some(nested_rec) => FeatureValueKind::Complex {
-                        value: extract_feature_struct_node(ctx, nested_rec, label),
-                    },
-                    None => {
+                    Some(nested_rec) if nested_rec.class == "FsFeatStruc" => {
+                        let nested_key = InventoryKey::object(
+                            InventoryKind::FeatureStructure,
+                            nested_guid.clone(),
+                        );
+                        ctx.considered(nested_key.clone());
+                        ctx.selected(nested_key.clone());
+                        let nested = extract_feature_struct_node(ctx, nested_rec, label);
+                        ctx.represented(nested_key);
+                        FeatureValueKind::Complex { value: nested }
+                    }
+                    _ => {
                         ctx.warn(
                             super::codes::DANGLING_REFERENCE,
                             format!(

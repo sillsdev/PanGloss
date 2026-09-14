@@ -33,6 +33,7 @@ pub fn extract_project(
         name: filename_stem.to_string(),
         vernacular_writing_systems: vernacular,
         analysis_writing_systems: analysis,
+        exemplar_characters: Vec::new(),
     }
 }
 

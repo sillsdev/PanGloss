@@ -8,6 +8,62 @@ fn fixture_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/fixture.fwdata")
 }
 
+fn fixture_variant(dir: &Path, old: &str, new: &str) -> PathBuf {
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    assert!(source.contains(old), "fixture variant replacement must match");
+    let variant = source.replacen(old, new, 1);
+    let path = dir.join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    path
+}
+
+fn parser_parameters_variant(dir: &Path, replacement: &str) -> PathBuf {
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let opening = "<ParserParameters>";
+    let closing = "</ParserParameters>";
+    let start = source
+        .find(opening)
+        .expect("fixture ParserParameters opening needle must be present");
+    let end = start
+        + source[start..]
+            .find(closing)
+            .expect("fixture ParserParameters closing needle must be present")
+        + closing.len();
+    let mut variant = source;
+    variant.replace_range(start..end, replacement);
+    let path = dir.join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    path
+}
+
+fn omitted_parser_parameters_variant(dir: &Path) -> PathBuf {
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let opening = "<ParserParameters>";
+    let closing = "</ParserParameters>";
+    let start = source
+        .find(opening)
+        .expect("fixture ParserParameters opening needle must be present");
+    let end = start
+        + source[start..]
+            .find(closing)
+            .expect("fixture ParserParameters closing needle must be present")
+            + closing.len();
+    let mut variant = source;
+    variant.replace_range(start..end, "");
+    let path = dir.join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    path
+}
+
+fn assert_invalid_active_parser_source(path: &Path) {
+    match pg_fwdata::import_file(path).unwrap_err() {
+        pg_fwdata::ImportError::InvalidSource { code, .. } => {
+            assert_eq!(code, "invalid-source.active-parser")
+        }
+        other => panic!("expected invalid parser source error, got {other:?}"),
+    }
+}
+
 #[test]
 fn imports_without_error() {
     let (_, report) = pg_fwdata::import_file(&fixture_path()).expect("fixture must import");
@@ -182,6 +238,21 @@ fn dangling_environment_reference_does_not_crash_import() {
         .any(|w| w.contains("00000000-0000-0000-0000-0000000000ff")));
 }
 
+/// Import tolerates the dangling `PhEnvironment` reference above; `pg_grammar::compile_project` does not.
+#[test]
+fn compile_project_refuses_this_fixture_over_the_dangling_environment_reference() {
+    let (snap, _) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let err = pg_grammar::compile_project(&snap).expect_err(
+        "this fixture's dangling PhEnvironment reference is a fatal import issue; \
+         compile_project must refuse it under the default SemanticLossPolicy::Refuse",
+    );
+    let codes: Vec<&str> = err.issues().iter().map(|issue| issue.code.as_str()).collect();
+    assert!(
+        codes.contains(&"fwdata.dangling-reference"),
+        "refusal must name the dangling-reference code; got {codes:?}"
+    );
+}
+
 /// Two structurally different situations -- import-time "unrecognized morph-type guid" and validate-time "dangling environment reference" -- must get different codes.
 #[test]
 fn structurally_different_warnings_get_different_codes() {
@@ -218,9 +289,857 @@ fn import_warning_prose_is_unchanged() {
 }
 
 #[test]
+fn fixture_reports_active_parser_and_xample_caps() {
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let pp = &snapshot.morphology.parser_parameters;
+    assert_eq!(pp.active_parser, pg_snapshot::ActiveParser::Hc);
+    assert_eq!(pp.xample.max_prefixes, Some(2));
+    assert_eq!(pp.xample.max_analyses_to_return, Some(10));
+}
+
+#[test]
+fn malformed_xample_cap_is_a_nonfatal_import_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        "&lt;MaxPrefixes&gt;2&lt;/MaxPrefixes&gt;",
+        "&lt;MaxPrefixes&gt;many&lt;/MaxPrefixes&gt;",
+    );
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
+    assert_eq!(snapshot.morphology.parser_parameters.xample.max_prefixes, None);
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "fwdata.invalid-parser-parameter")
+        .expect("invalid cap must be reported");
+    assert!(warning.message.contains("MaxPrefixes"));
+    assert_eq!(
+        report
+            .warnings
+            .iter()
+            .filter(|warning| warning.code == "fwdata.invalid-parser-parameter")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn omitted_parser_parameters_field_defaults_to_xample() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = omitted_parser_parameters_variant(dir.path());
+    let (snapshot, _) = pg_fwdata::import_file(&path).unwrap();
+    assert_eq!(
+        snapshot.morphology.parser_parameters.active_parser,
+        pg_snapshot::ActiveParser::XAmple
+    );
+}
+
+#[test]
+fn present_parser_parameters_without_uni_is_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = parser_parameters_variant(dir.path(), "<ParserParameters/>");
+    assert_invalid_active_parser_source(&path);
+}
+
+#[test]
+fn present_empty_uni_is_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = parser_parameters_variant(dir.path(), "<ParserParameters><Uni/></ParserParameters>");
+    assert_invalid_active_parser_source(&path);
+}
+
+#[test]
+fn present_whitespace_uni_is_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = parser_parameters_variant(
+        dir.path(),
+        "<ParserParameters><Uni> \n\t</Uni></ParserParameters>",
+    );
+    assert_invalid_active_parser_source(&path);
+}
+
+#[test]
+fn invalid_active_parser_is_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        "&lt;ActiveParser&gt;HC&lt;/ActiveParser&gt;",
+        "&lt;ActiveParser&gt;Toneparser&lt;/ActiveParser&gt;",
+    );
+    let error = pg_fwdata::import_file(&path).unwrap_err();
+    match error {
+        pg_fwdata::ImportError::InvalidSource { code, .. } => {
+            assert_eq!(code, "invalid-source.active-parser")
+        }
+        other => panic!("expected invalid active parser error, got {other:?}"),
+    }
+}
+
+#[test]
+fn malformed_parser_parameters_are_a_fatal_import_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        "&lt;ActiveParser&gt;HC&lt;/ActiveParser&gt;",
+        "&lt;ActiveParser&gt;XAmple",
+    );
+    let error = pg_fwdata::import_file(&path).unwrap_err();
+    match error {
+        pg_fwdata::ImportError::InvalidSource { code, .. } => {
+            assert_eq!(code, "invalid-source.active-parser")
+        }
+        other => panic!("expected malformed parser parameters error, got {other:?}"),
+    }
+}
+
+#[test]
 fn import_is_deterministic() {
     let (snap1, report1) = pg_fwdata::import_file(&fixture_path()).unwrap();
     let (snap2, report2) = pg_fwdata::import_file(&fixture_path()).unwrap();
     assert_eq!(snap1.to_json(), snap2.to_json());
     assert_eq!(report1.warnings, report2.warnings);
+}
+
+/// The fixture's "-s" allomorph has a dangling `PhoneEnv` guid and the "ranna" entry's extra allomorph an unrecognized morph type; both are recorder rejections, so this import is not clean.
+#[test]
+fn fixture_conversion_provenance_reports_its_two_known_issues() {
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    assert_eq!(
+        provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
+    );
+    assert_ne!(
+        provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::Synthetic
+    );
+    assert_eq!(provenance.import_issues.len(), 2);
+    let env_issue = provenance
+        .import_issues
+        .iter()
+        .find(|i| i.code == "fwdata.dangling-reference")
+        .expect("the dangling environment issue must be present");
+    assert!(env_issue.fatal);
+    assert_eq!(env_issue.class, pg_snapshot::IssueClass::InvalidSource);
+    assert_eq!(
+        env_issue.source.as_ref().unwrap().id,
+        "00000000-0000-0000-0000-0000000000ff"
+    );
+    assert!(env_issue.message.contains("00000000-0000-0000-0000-000000000051"));
+
+    let morph_type_issue = provenance
+        .import_issues
+        .iter()
+        .find(|i| i.code == "fwdata.unknown-morph-type-guid")
+        .expect("the unknown-morph-type issue must be present");
+    assert!(!morph_type_issue.fatal);
+    assert_eq!(
+        morph_type_issue.class,
+        pg_snapshot::IssueClass::UnrepresentableForHc
+    );
+
+    let census = &provenance.source_census;
+    assert!(census.total_occurrences > 0);
+    let class_sum: u64 = census.class_occurrences.values().sum();
+    assert_eq!(class_sum, census.total_occurrences);
+    assert_eq!(census.unhandled_class_occurrences.len(), 0);
+    assert_eq!(census.ordered_header_sha256.len(), 64);
+    assert!(census
+        .ordered_header_sha256
+        .chars()
+        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+
+    let (snapshot2, _report2) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    assert_eq!(
+        census.ordered_header_sha256,
+        snapshot2.conversion_provenance.source_census.ordered_header_sha256
+    );
+}
+
+#[test]
+fn duplicating_an_allowed_class_guid_yields_one_fatal_issue_and_the_first_content_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
+    assert!(source.contains(needle), "fixture must contain the -s LexEntry header");
+    // Duplicate the "-s" LexEntry header with a visibly different citation form in the copy, appended at the end.
+    let duplicate_block = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">
+<CitationForm>
+<AUni ws="fx">zzz-duplicate</AUni>
+</CitationForm>
+</rt>
+"#;
+    let variant = source.replacen(
+        "</languageproject>",
+        &format!("{duplicate_block}</languageproject>"),
+        1,
+    );
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    assert_eq!(
+        provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
+    );
+    let duplicate_issues: Vec<_> = provenance
+        .import_issues
+        .iter()
+        .filter(|issue| issue.code == "invalid-source.duplicate-guid")
+        .collect();
+    assert_eq!(duplicate_issues.len(), 1);
+    assert!(duplicate_issues[0].fatal);
+
+    let suffix_entries: Vec<_> = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .filter(|e| e.guid == "00000000-0000-0000-0000-000000000050")
+        .collect();
+    assert_eq!(suffix_entries.len(), 1, "the duplicated entry must appear once");
+    assert!(
+        suffix_entries[0]
+            .citation_form
+            .iter()
+            .any(|f| f.form == "-s"),
+        "the FIRST occurrence's content must win"
+    );
+}
+
+#[test]
+fn unknown_class_record_is_census_only_and_raises_no_issue() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let injected = r#"<rt class="ZzUnknown" guid="00000000-0000-0000-0000-0000000000zz">
+</rt>
+"#;
+    let variant = source.replacen(
+        "</languageproject>",
+        &format!("{injected}</languageproject>"),
+        1,
+    );
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    assert!(!provenance
+        .import_issues
+        .iter()
+        .any(|issue| issue.source.as_ref().is_some_and(|s| s.kind == "ZzUnknown")));
+    assert_eq!(
+        provenance.source_census.unhandled_class_occurrences.get("ZzUnknown"),
+        Some(&1)
+    );
+}
+
+#[test]
+fn missing_guid_on_an_allowed_class_is_a_fatal_issue_and_drops_the_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
+    assert!(source.contains(needle), "fixture must contain the -s LexEntry header");
+    let variant = source.replacen(needle, r#"<rt class="LexEntry">"#, 1);
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    assert_eq!(
+        provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
+    );
+    let missing_issues: Vec<_> = provenance
+        .import_issues
+        .iter()
+        .filter(|issue| issue.code == "invalid-source.missing-guid")
+        .collect();
+    assert_eq!(missing_issues.len(), 1);
+    assert!(missing_issues[0].fatal);
+    assert!(!snapshot
+        .lexicon
+        .entries
+        .iter()
+        .any(|e| e.guid == "00000000-0000-0000-0000-000000000050"));
+}
+
+#[test]
+fn unknown_class_duplicate_before_an_allowed_class_keeps_the_recognized_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
+    assert!(source.contains(needle), "fixture must contain the -s LexEntry header");
+    // Inject an unknown-class record sharing the "-s" LexEntry's guid, placed BEFORE it in document order.
+    let injected = r#"<rt class="ZzUnknown" guid="00000000-0000-0000-0000-000000000050">
+</rt>
+"#;
+    let variant = source.replacen(needle, &format!("{injected}{needle}"), 1);
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let provenance = &snapshot.conversion_provenance;
+    let duplicate_issues: Vec<_> = provenance
+        .import_issues
+        .iter()
+        .filter(|issue| issue.code == "invalid-source.duplicate-guid")
+        .collect();
+    assert_eq!(duplicate_issues.len(), 1);
+    let source = duplicate_issues[0].source.as_ref().unwrap();
+    assert_eq!(source.kind, "ZzUnknown");
+    assert_eq!(source.id, "00000000-0000-0000-0000-000000000050");
+    let suffix_entries: Vec<_> = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .filter(|e| e.guid == "00000000-0000-0000-0000-000000000050")
+        .collect();
+    assert_eq!(suffix_entries.len(), 1, "the recognized LexEntry must be kept");
+}
+
+#[test]
+fn conversion_provenance_round_trips_through_json() {
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let round_tripped = pg_snapshot::Snapshot::from_json(&snapshot.to_json()).unwrap();
+    assert_eq!(
+        round_tripped.conversion_provenance,
+        snapshot.conversion_provenance
+    );
+}
+
+#[test]
+fn graph_to_snapshot_inventory_has_authored_keys_and_no_unaccounted_selections() {
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    assert!(!inventory.authored.is_empty());
+
+    // A non-empty difference here must be pinned as a named ratchet, never silently accepted.
+    let unconsidered: Vec<_> = inventory.authored.difference(&inventory.considered).collect();
+    assert!(
+        unconsidered.is_empty(),
+        "authored but never considered: {unconsidered:?}"
+    );
+
+    // Every selected key must end up represented or rejected -- nothing may vanish silently.
+    let unaccounted: Vec<_> = inventory
+        .selected
+        .iter()
+        .filter(|k| !inventory.represented.contains(k) && !inventory.rejected.contains(k))
+        .collect();
+    assert!(
+        unaccounted.is_empty(),
+        "selected but neither represented nor rejected: {unaccounted:?}"
+    );
+}
+
+#[test]
+fn every_represented_allomorphs_environment_attachment_is_represented_or_rejected() {
+    use pg_snapshot::{InventoryIdentity, InventoryKind};
+
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    for entry in &snapshot.lexicon.entries {
+        for allomorph in &entry.allomorphs {
+            let allomorph_key =
+                pg_snapshot::InventoryKey::object(InventoryKind::Allomorph, allomorph.guid.clone());
+            if !inventory.represented.contains(&allomorph_key) {
+                continue;
+            }
+            for env_guid in &allomorph.environments {
+                let attachment = pg_snapshot::InventoryKey::attachment(
+                    InventoryKind::Environment,
+                    allomorph.guid.clone(),
+                    env_guid.clone(),
+                    "environment",
+                );
+                let accounted =
+                    inventory.represented.contains(&attachment) || inventory.rejected.contains(&attachment);
+                assert!(
+                    accounted,
+                    "allomorph {} environment {env_guid} attachment {:?} was never accounted for",
+                    allomorph.guid,
+                    InventoryIdentity::Attachment {
+                        owner_guid: allomorph.guid.clone(),
+                        target_guid: env_guid.clone(),
+                        role: "environment".to_string(),
+                    }
+                );
+            }
+        }
+    }
+}
+
+/// The fixture is CRLF; a multi-line needle must go through this rather than an embedded `\n`, which stays LF regardless of this source file's own line endings.
+fn crlf(s: &str) -> String {
+    s.replace('\n', "\r\n")
+}
+
+/// Drops the "-s" allomorph's dangling `PhoneEnv` reference (`00000000-0000-0000-0000-0000000000ff`), leaving only its real environment -- the base fixture's one fatal issue removed.
+fn repair_dangling_environment(source: &str) -> String {
+    let needle = crlf(
+        r#"<PhoneEnv>
+<objsur guid="00000000-0000-0000-0000-000000000017" t="r" />
+<objsur guid="00000000-0000-0000-0000-0000000000ff" t="r" />
+</PhoneEnv>"#,
+    );
+    assert!(source.contains(&needle), "fixture PhoneEnv shape must match");
+    let replacement = crlf(
+        r#"<PhoneEnv>
+<objsur guid="00000000-0000-0000-0000-000000000017" t="r" />
+</PhoneEnv>"#,
+    );
+    source.replacen(&needle, &replacement, 1)
+}
+
+#[test]
+fn fixture_without_the_dangling_environment_imports_complete() {
+    let dir = tempfile::tempdir().unwrap();
+    let repaired = repair_dangling_environment(&std::fs::read_to_string(fixture_path()).unwrap());
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, repaired).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    assert_eq!(
+        snapshot.conversion_provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedComplete
+    );
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    assert!(inventory.authored.difference(&inventory.considered).next().is_none());
+    let unaccounted = inventory
+        .selected
+        .iter()
+        .filter(|k| !inventory.represented.contains(k) && !inventory.rejected.contains(k))
+        .count();
+    assert_eq!(unaccounted, 0);
+}
+
+/// A stale ad-hoc morpheme prohibition (unreachable slot) stays a non-fatal warning, never a recorder issue -- built on the environment-repaired fixture so `ImportedComplete` isn't confounded by the base fixture's unrelated dangling reference.
+#[test]
+fn disabling_the_affix_template_makes_the_inflectional_prohibition_stale_but_nonfatal() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = repair_dangling_environment(&std::fs::read_to_string(fixture_path()).unwrap());
+    let disabled_needle = crlf(
+        r#"<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
+<Disabled val="False" />"#,
+    );
+    let disabled_replacement = crlf(
+        r#"<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
+<Disabled val="True" />"#,
+    );
+    assert!(source.contains(&disabled_needle), "fixture template shape must match");
+    let source = source.replacen(&disabled_needle, &disabled_replacement, 1);
+    let prohibition = crlf(
+        r#"<rt class="MoMorphAdhocProhib" guid="00000000-0000-0000-0000-000000000060" ownerguid="00000000-0000-0000-0000-000000000003">
+<Adjacency val="0" />
+<Disabled val="False" />
+<FirstMorpheme>
+<objsur guid="00000000-0000-0000-0000-000000000052" t="r" />
+</FirstMorpheme>
+</rt>
+"#,
+    );
+    let owner_needle = crlf(
+        r#"<rt class="MoMorphData" guid="00000000-0000-0000-0000-000000000003" ownerguid="00000000-0000-0000-0000-000000000001">"#,
+    );
+    let owner_replacement = crlf(&format!(
+        "{}\n<AdhocCoProhibitions>\n<objsur guid=\"00000000-0000-0000-0000-000000000060\" t=\"o\" />\n</AdhocCoProhibitions>",
+        owner_needle.trim_end()
+    ));
+    let with_prohibition = source.replacen(
+        &owner_needle,
+        &format!("{prohibition}{owner_replacement}"),
+        1,
+    );
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, with_prohibition).unwrap();
+
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.code == "fwdata.stale-adhoc-prohibition"));
+    // The unrecognized-morph-type issue is the fixture's only remaining (non-fatal) one; staleness adds none.
+    assert_eq!(snapshot.conversion_provenance.import_issues.len(), 1);
+    assert!(!snapshot.conversion_provenance.import_issues[0].fatal);
+    assert_eq!(
+        snapshot.conversion_provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedComplete
+    );
+}
+
+/// D(c): a `Disabled` `PhRegularRule` is considered but never selected, rejected, or issued.
+#[test]
+fn a_disabled_phonological_rule_is_considered_but_not_selected() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        &crlf(
+            r#"<rt class="PhRegularRule" guid="00000000-0000-0000-0000-000000000018" ownerguid="00000000-0000-0000-0000-000000000004">
+<Direction val="0" />
+<Disabled val="False" />"#,
+        ),
+        &crlf(
+            r#"<rt class="PhRegularRule" guid="00000000-0000-0000-0000-000000000018" ownerguid="00000000-0000-0000-0000-000000000004">
+<Direction val="0" />
+<Disabled val="True" />"#,
+        ),
+    );
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let key = InventoryKey::object(
+        InventoryKind::PhonologicalRule,
+        "00000000-0000-0000-0000-000000000018".to_string(),
+    );
+    assert!(inventory.considered.contains(&key));
+    assert!(!inventory.selected.contains(&key));
+    assert!(!inventory.represented.contains(&key));
+    assert!(!inventory.rejected.contains(&key));
+    assert!(snapshot.phonology.rules.is_empty());
+}
+
+/// A second `PhPhonemeSet`'s phonemes are considered but never selected; `ONLY_FIRST_USED` stays non-fatal.
+#[test]
+fn a_second_phoneme_set_is_considered_but_not_selected() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = crlf(
+        r#"<PhonemeSets>
+<objsur guid="00000000-0000-0000-0000-00000000000f" t="o" />
+</PhonemeSets>"#,
+    );
+    assert!(source.contains(&needle), "fixture PhonemeSets shape must match");
+    let second_set = crlf(
+        r#"<rt class="PhPhonemeSet" guid="00000000-0000-0000-0000-000000000070" ownerguid="00000000-0000-0000-0000-000000000004">
+<Name>
+<AUni ws="en">Second</AUni>
+</Name>
+<Phonemes>
+<objsur guid="00000000-0000-0000-0000-000000000071" t="o" />
+</Phonemes>
+</rt>
+<rt class="PhPhoneme" guid="00000000-0000-0000-0000-000000000071" ownerguid="00000000-0000-0000-0000-000000000070">
+<Codes>
+<objsur guid="00000000-0000-0000-0000-000000000072" t="o" />
+</Codes>
+<Name>
+<AUni ws="fx">z</AUni>
+</Name>
+</rt>
+<rt class="PhCode" guid="00000000-0000-0000-0000-000000000072" ownerguid="00000000-0000-0000-0000-000000000071">
+<Representation>
+<AUni ws="fx">z</AUni>
+</Representation>
+</rt>
+"#,
+    );
+    let replacement = crlf(
+        "<PhonemeSets>\n<objsur guid=\"00000000-0000-0000-0000-00000000000f\" t=\"o\" />\n<objsur guid=\"00000000-0000-0000-0000-000000000070\" t=\"o\" />\n</PhonemeSets>",
+    );
+    let variant = source
+        .replacen(&needle, &replacement, 1)
+        .replacen("</languageproject>", &format!("{second_set}</languageproject>"), 1);
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
+    assert!(report
+        .warnings
+        .iter()
+        .any(|w| w.code == "fwdata.only-first-used"));
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let key = InventoryKey::object(
+        InventoryKind::Phoneme,
+        "00000000-0000-0000-0000-000000000071".to_string(),
+    );
+    assert!(inventory.considered.contains(&key));
+    assert!(!inventory.selected.contains(&key));
+    assert!(!snapshot.phonology.phonemes.iter().any(|p| p.name == "z"));
+    // The base fixture's own two known issues carry through unchanged; the skipped set adds none.
+    assert_eq!(snapshot.conversion_provenance.import_issues.len(), 2);
+}
+
+fn affix_template_with_dangling_slot_variant(dir: &Path, disabled: &str) -> PathBuf {
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = crlf(
+        r#"<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
+<Disabled val="False" />
+<Final val="True" />
+<Name>
+<AUni ws="en">VerbTemplate</AUni>
+</Name>
+<SuffixSlots>
+<objsur guid="00000000-0000-0000-0000-00000000000d" t="r" />
+</SuffixSlots>
+</rt>"#,
+    );
+    assert!(source.contains(&needle), "fixture affix template shape must match");
+    let replacement = crlf(&format!(
+        r#"<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
+<Disabled val="{disabled}" />
+<Final val="True" />
+<Name>
+<AUni ws="en">VerbTemplate</AUni>
+</Name>
+<SuffixSlots>
+<objsur guid="00000000-0000-0000-0000-00000000000d" t="r" />
+<objsur guid="00000000-0000-0000-0000-0000000000dd" t="r" />
+</SuffixSlots>
+</rt>"#
+    ));
+    let variant = source.replacen(&needle, &replacement, 1);
+    let path = dir.join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    path
+}
+
+/// An active template's dangling slot reference is a fatal `InvalidSource` issue naming the template guid.
+#[test]
+fn an_active_templates_dangling_slot_is_fatal() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = affix_template_with_dangling_slot_variant(dir.path(), "False");
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let attachment = InventoryKey::attachment(
+        InventoryKind::TemplateSlot,
+        "00000000-0000-0000-0000-00000000000e".to_string(),
+        "00000000-0000-0000-0000-0000000000dd".to_string(),
+        "slot",
+    );
+    assert!(inventory.rejected.contains(&attachment));
+    let issue = snapshot
+        .conversion_provenance
+        .import_issues
+        .iter()
+        .find(|i| i.source.as_ref().is_some_and(|s| s.id == "00000000-0000-0000-0000-0000000000dd"))
+        .expect("the dangling slot issue must be present");
+    assert!(issue.fatal);
+    assert_eq!(issue.class, pg_snapshot::IssueClass::InvalidSource);
+    assert!(issue.message.contains("00000000-0000-0000-0000-00000000000e"));
+    assert_eq!(
+        snapshot.conversion_provenance.source_inventory_status,
+        pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
+    );
+}
+
+/// The same dangling slot reference on a disabled template is non-fatal.
+#[test]
+fn a_disabled_templates_dangling_slot_is_nonfatal() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = affix_template_with_dangling_slot_variant(dir.path(), "True");
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let attachment = InventoryKey::attachment(
+        InventoryKind::TemplateSlot,
+        "00000000-0000-0000-0000-00000000000e".to_string(),
+        "00000000-0000-0000-0000-0000000000dd".to_string(),
+        "slot",
+    );
+    assert!(inventory.rejected.contains(&attachment));
+    let issue = snapshot
+        .conversion_provenance
+        .import_issues
+        .iter()
+        .find(|i| i.source.as_ref().is_some_and(|s| s.id == "00000000-0000-0000-0000-0000000000dd"))
+        .expect("the dangling slot issue must be present");
+    assert!(!issue.fatal);
+}
+
+fn compound_rule_with_dangling_left_msa_variant(dir: &Path, disabled: &str) -> PathBuf {
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let compound_rule = crlf(&format!(
+        r#"<rt class="MoEndoCompound" guid="00000000-0000-0000-0000-000000000080" ownerguid="00000000-0000-0000-0000-000000000003">
+<Disabled val="{disabled}" />
+<HeadLast val="False" />
+<LeftMsa>
+<objsur guid="00000000-0000-0000-0000-0000000000ee" t="r" />
+</LeftMsa>
+</rt>
+"#
+    ));
+    let owner_needle = crlf(
+        r#"<rt class="MoMorphData" guid="00000000-0000-0000-0000-000000000003" ownerguid="00000000-0000-0000-0000-000000000001">"#,
+    );
+    let owner_replacement = crlf(&format!(
+        "{}\n<CompoundRules>\n<objsur guid=\"00000000-0000-0000-0000-000000000080\" t=\"o\" />\n</CompoundRules>",
+        owner_needle.trim_end()
+    ));
+    assert!(source.contains(&owner_needle), "fixture MoMorphData shape must match");
+    let variant = source.replacen(&owner_needle, &format!("{compound_rule}{owner_replacement}"), 1);
+    let path = dir.join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    path
+}
+
+/// An active compound rule's dangling `LeftMsa` reference is a fatal `InvalidSource` issue.
+#[test]
+fn an_active_compound_rules_dangling_left_msa_is_fatal() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = compound_rule_with_dangling_left_msa_variant(dir.path(), "False");
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let attachment = InventoryKey::attachment(
+        InventoryKind::Msa,
+        "00000000-0000-0000-0000-000000000080".to_string(),
+        "00000000-0000-0000-0000-0000000000ee".to_string(),
+        "left",
+    );
+    assert!(inventory.considered.contains(&attachment));
+    assert!(inventory.selected.contains(&attachment));
+    assert!(inventory.rejected.contains(&attachment));
+    let issue = snapshot
+        .conversion_provenance
+        .import_issues
+        .iter()
+        .find(|i| i.source.as_ref().is_some_and(|s| s.id == "00000000-0000-0000-0000-0000000000ee"))
+        .expect("the dangling LeftMsa issue must be present");
+    assert!(issue.fatal);
+    assert_eq!(issue.class, pg_snapshot::IssueClass::InvalidSource);
+}
+
+/// The same dangling `LeftMsa` reference on a `Disabled` compound rule is non-fatal.
+#[test]
+fn a_disabled_compound_rules_dangling_left_msa_is_nonfatal() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = compound_rule_with_dangling_left_msa_variant(dir.path(), "True");
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let issue = snapshot
+        .conversion_provenance
+        .import_issues
+        .iter()
+        .find(|i| i.source.as_ref().is_some_and(|s| s.id == "00000000-0000-0000-0000-0000000000ee"))
+        .expect("the dangling LeftMsa issue must be present");
+    assert!(!issue.fatal);
+}
+
+/// A `FsClosedFeature` value guid that does not resolve to a `FsSymFeatVal` is a fatal, recorded attachment rejection.
+#[test]
+fn a_dangling_closed_feature_value_is_fatal() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let needle = crlf(
+        r#"<Values>
+<objsur guid="00000000-0000-0000-0000-000000000008" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000009" t="o" />
+</Values>"#,
+    );
+    assert!(source.contains(&needle), "fixture Values shape must match");
+    let replacement = crlf(
+        r#"<Values>
+<objsur guid="00000000-0000-0000-0000-000000000008" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000009" t="o" />
+<objsur guid="00000000-0000-0000-0000-0000000000cc" t="r" />
+</Values>"#,
+    );
+    let variant = source.replacen(&needle, &replacement, 1);
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let attachment = InventoryKey::attachment(
+        InventoryKind::FeatureValue,
+        "00000000-0000-0000-0000-000000000007".to_string(),
+        "00000000-0000-0000-0000-0000000000cc".to_string(),
+        "value",
+    );
+    assert!(inventory.considered.contains(&attachment));
+    assert!(inventory.selected.contains(&attachment));
+    assert!(inventory.rejected.contains(&attachment));
+    let issue = snapshot
+        .conversion_provenance
+        .import_issues
+        .iter()
+        .find(|i| i.source.as_ref().is_some_and(|s| s.id == "00000000-0000-0000-0000-0000000000cc"))
+        .expect("the dangling feature value issue must be present");
+    assert!(issue.fatal);
+    assert_eq!(issue.class, pg_snapshot::IssueClass::InvalidSource);
+    let number = snapshot
+        .feature_systems
+        .morphosyntactic
+        .closed_features
+        .iter()
+        .find(|f| f.name == "Number")
+        .unwrap();
+    assert_eq!(number.values.len(), 2, "the dangling value must not appear in the output");
+}
+
+/// Every parser-parameter setting physically present in the fixture's `ParserParameters` `<Uni>` is recorded as authored/considered/selected/represented.
+#[test]
+fn fixture_records_the_parser_settings_present_in_its_source() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let (snapshot, _report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    for name in [
+        "ActiveParser",
+        "XAmple.MaxNulls",
+        "XAmple.MaxPrefixes",
+        "XAmple.MaxAnalysesToReturn",
+    ] {
+        let key = InventoryKey::setting(InventoryKind::ParserSetting, name.to_string());
+        assert!(inventory.authored.contains(&key), "{name} must be authored");
+        assert!(inventory.represented.contains(&key), "{name} must be represented");
+    }
+    let strata_key = InventoryKey::setting(InventoryKind::StrataConfiguration, "Strata".to_string());
+    assert!(inventory.authored.contains(&strata_key));
+    assert!(inventory.represented.contains(&strata_key));
+
+    // Absent fields must never be authored.
+    let absent_accept = InventoryKey::setting(
+        InventoryKind::ParserSetting,
+        "AcceptUnspecifiedGraphemes".to_string(),
+    );
+    assert!(!inventory.authored.contains(&absent_accept));
+    let absent_xample = InventoryKey::setting(InventoryKind::ParserSetting, "XAmple.MaxInfixes".to_string());
+    assert!(!inventory.authored.contains(&absent_xample));
+}
+
+/// A malformed `XAmple` cap yields a rejected setting atom alongside the unchanged legacy warning.
+#[test]
+fn malformed_xample_cap_yields_a_rejected_setting_and_the_unchanged_warning() {
+    use pg_snapshot::{InventoryKey, InventoryKind};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        "&lt;MaxPrefixes&gt;2&lt;/MaxPrefixes&gt;",
+        "&lt;MaxPrefixes&gt;many&lt;/MaxPrefixes&gt;",
+    );
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
+
+    let warning_count = report
+        .warnings
+        .iter()
+        .filter(|w| w.code == "fwdata.invalid-parser-parameter")
+        .count();
+    assert_eq!(warning_count, 1, "the legacy warning must be unchanged");
+
+    let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
+    let key = InventoryKey::setting(InventoryKind::ParserSetting, "XAmple.MaxPrefixes".to_string());
+    assert!(inventory.authored.contains(&key));
+    assert!(inventory.considered.contains(&key));
+    assert!(inventory.selected.contains(&key));
+    assert!(inventory.rejected.contains(&key));
+    assert!(!inventory.represented.contains(&key));
+    let issue = snapshot
+        .conversion_provenance
+        .import_issues
+        .iter()
+        .find(|i| i.code == "fwdata.invalid-parser-parameter")
+        .expect("the rejected setting's issue must be present");
+    assert!(!issue.fatal);
+    assert_eq!(issue.class, pg_snapshot::IssueClass::MalformedSource);
 }

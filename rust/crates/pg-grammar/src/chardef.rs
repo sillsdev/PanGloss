@@ -33,6 +33,7 @@ pub enum CharDefKind {
 
 /// One `FeatureValue feature="..." symbolValues="..."` inside a `SegmentDefinition`
 /// (loader-internal, pre-resolution against the feature system).
+#[derive(Clone)]
 pub(crate) struct RawFeatureValue {
     pub(crate) feature_xml_id: String,
     /// Space-separated symbol xml ids, already split.
@@ -40,6 +41,7 @@ pub(crate) struct RawFeatureValue {
 }
 
 /// One `<SegmentDefinition>`/`<BoundaryDefinition>` as read off the XML (loader-internal).
+#[derive(Clone)]
 pub(crate) struct RawCharDef {
     pub(crate) xml_id: String,
     pub(crate) kind: CharDefKind,

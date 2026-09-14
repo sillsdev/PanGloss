@@ -6,6 +6,15 @@ inspired_by: ["synthetic cross-table right-to-left Segments environment probe"]
 sources:
   - "openspec/changes/plan-construct-coverage-completion task 4.2"
 requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Core premise (a cross-table Segments atom in an RTL rule's own environment) requires two distinct
+  CharacterDefinitionTables (t0/Foreign, t1/Owning) referenced by different Stratum elements, plus an
+  explicit Segments@characterDefinitionTable override to the non-owning table; HCLoader builds
+  exactly one table per grammar and reuses it for every stratum (HCLoader.cs:204,227-233,374,
+  2669-2742), so that override can never carry a meaningful value (interface-inventory row
+  Segments.characterDefinitionTable, producible=No) -- same gap as
+  edge-cases/cross-table-root-respelling.
 words:
   - word: ey
     note: ROOT1's obligatory rewritten surface; the foreign-table y constraint matches owning-table y by features.

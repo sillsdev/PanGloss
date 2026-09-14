@@ -1,0 +1,25 @@
+[package]
+name = "pg-xample-oracle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# `identity::AnalysisIdentity` is the stable-key projection this crate reuses rather than
+# re-deriving (CLAUDE.md "never re-derive a decision another module makes").
+pg-parse.workspace = true
+pg-grammar.workspace = true
+unicode-normalization.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+# `fixture.rs`'s `phonology-mutations.yaml` reader.
+serde_yaml.workspace = true
+# `fixture.rs`'s `base_sha256` verification and `fieldworks.rs`'s own project-digest checks.
+sha2.workspace = true
+# `fieldworks.rs`'s hvo-blind XAMPLE-file comparison (see that module's own doc).
+regex.workspace = true
+
+# Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
+[lints]
+workspace = true

@@ -7,6 +7,23 @@ inspired_by: ["synthetic circumfix cross-product with live per-side V/C conditio
 sources:
   - "docs/research/circumfix-cross-product-loading.md"
 requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Each of mrCirc's four subrules carries TWO separate Environment entries under one
+  RequiredEnvironments (a Right-only prefix-side gate plus a Left-only suffix-side gate, directly
+  constraining the stem's own edges). HCLoader never stacks more than one Environment onto an affix
+  allomorph: LoadCircumfixAffixProcessAllomorph (HCLoader.cs:1273-1332) calls
+  hcAllo.Environments.Add at most once per allomorph, folding any outer left/right context into a
+  SINGLE combined AllomorphEnvironment, and embeds the stem-edge constraints this fixture models as
+  RightEnvironment/LeftEnvironment as literal pattern nodes inside the one Lhs "stem" sequence
+  instead (HCLoader.cs:1286-1305) -- never as a RequiredEnvironments element at all.
+  LoadFormAffixProcessAllomorph (HCLoader.cs:1441-1613) likewise adds at most one Environment per
+  call and represents multiple environments for one affix as multiple sibling allomorphs
+  (DisjunctiveAllomorph, ledger row "DisjunctiveAllomorph"=Yes), never as stacked Environment
+  children on one allomorph; the generic MoAffixProcess "rule formula" path
+  (LoadAffixProcessAllomorph, HCLoader.cs:1334-1439) never sets any Environment at all. So a
+  MorphologicalSubrule/Allomorph with 2+ RequiredEnvironments/Environment entries has no HCLoader
+  code path.
 words:
   - word: aa
     note: "ROOTAA bare, no mrCirc applied -- a plain control."

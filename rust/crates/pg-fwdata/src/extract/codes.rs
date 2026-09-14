@@ -1,9 +1,10 @@
-//! Stable short warning codes emitted across `pg-fwdata`'s extractor.
+//! Stable short diagnostic codes emitted across `pg-fwdata`'s extractor and source validation.
 //!
 //! No taxonomy of codes was designed up front: each constant
-//! below exists because at least one emission site in `super` needed it, and any two call sites
-//! reporting the *same underlying situation* — regardless of which field or record class they
-//! happen to be checking — deliberately share one. The two most common situations
+//! below exists because at least one crate emission or owning call site needed it, and any two
+//! call sites reporting the *same underlying situation* — regardless of whether the diagnostic is
+//! a warning or a typed import error, and regardless of which field or record class they happen to
+//! be checking — deliberately share one. The two most common situations
 //! (`DANGLING_REFERENCE`, `UNEXPECTED_CLASS`) are handled centrally by `super::Ctx::require`
 //! and so already cover the majority of this crate's ~36 warning sites without every call site
 //! needing to pick a code itself.
@@ -48,3 +49,15 @@ pub(crate) const UNKNOWN_MORPH_TYPE_GUID: &str = "fwdata.unknown-morph-type-guid
 /// sub-collection it was required to belong to (e.g. an `MoAffixProcess` rule-mapping `part`
 /// reference that isn't in its own process's `Input` list).
 pub(crate) const REFERENCE_NOT_IN_SCOPE: &str = "fwdata.reference-not-in-scope";
+/// An XAMPLE parser parameter has a value that is not valid for its numeric field; the field is
+/// retained as absent so the rest of the source can still be imported.
+pub(crate) const INVALID_PARSER_PARAMETER: &str = "fwdata.invalid-parser-parameter";
+/// The parser selector is malformed or names a parser this importer cannot represent.
+pub(crate) const INVALID_ACTIVE_PARSER: &str = "invalid-source.active-parser";
+/// A guid is shared by more than one `<rt>` record, recognized or not.
+pub(crate) const DUPLICATE_GUID: &str = "invalid-source.duplicate-guid";
+/// A tracked (allowed-class) `<rt>` record has no `guid` attribute, or an empty one.
+pub(crate) const MISSING_GUID: &str = "invalid-source.missing-guid";
+/// A sibling `WritingSystemStore/` directory exists but an entry inside it could not be read (as
+/// opposed to the directory never having been shipped at all, which is silent and not a warning).
+pub(crate) const WRITING_SYSTEM_STORE_UNREADABLE: &str = "fwdata.writing-system-store-unreadable";

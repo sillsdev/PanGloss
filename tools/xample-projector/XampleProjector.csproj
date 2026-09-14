@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>XampleProjector</AssemblyName>
+    <RootNamespace>XampleProjector</RootNamespace>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!--
+      Where FieldWorks 9 is installed. This tool references its assemblies by HintPath and
+      never copies them (Private=false everywhere below); it probes this directory at
+      runtime instead (see Program.ResolveFieldWorksAssembly and SetDllDirectory in Main).
+    -->
+    <FieldWorksDir Condition="'$(FieldWorksDir)'==''">$(PANGLOSS_FIELDWORKS_DIR)</FieldWorksDir>
+    <FieldWorksDir Condition="'$(FieldWorksDir)'==''">C:\Program Files\SIL\FieldWorks 9</FieldWorksDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SIL.FieldWorks.Common.FwUtils: FwRegistryHelper, FwUtils.InitializeIcu -->
+    <Reference Include="FwUtils">
+      <HintPath>$(FieldWorksDir)\FwUtils.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- SIL.FieldWorks.WordWorks.Parser: HCLoader, IHCLoadErrorLogger -->
+    <Reference Include="ParserCore">
+      <HintPath>$(FieldWorksDir)\ParserCore.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- SIL.LCModel: LcmCache, IProjectIdentifier, LcmSettings, M3ModelExportServices, ICmObject family -->
+    <Reference Include="SIL.LCModel">
+      <HintPath>$(FieldWorksDir)\SIL.LCModel.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- SIL.LCModel.Core: ITsString and the other kernel interfaces -->
+    <Reference Include="SIL.LCModel.Core">
+      <HintPath>$(FieldWorksDir)\SIL.LCModel.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- SIL.LCModel.Utils: IThreadedProgress, SingleThreadedSynchronizeInvoke -->
+    <Reference Include="SIL.LCModel.Utils">
+      <HintPath>$(FieldWorksDir)\SIL.LCModel.Utils.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- SIL.WritingSystems: Sldr.Initialize -->
+    <Reference Include="SIL.WritingSystems">
+      <HintPath>$(FieldWorksDir)\SIL.WritingSystems.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- SIL.Machine: annotations/feature-model/matching types HCLoader's public surface depends on -->
+    <Reference Include="SIL.Machine">
+      <HintPath>$(FieldWorksDir)\SIL.Machine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- SIL.Machine.Morphology.HermitCrab: Language, XmlLanguageWriter -->
+    <Reference Include="SIL.Machine.Morphology.HermitCrab">
+      <HintPath>$(FieldWorksDir)\SIL.Machine.Morphology.HermitCrab.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- SIL.Paradigm.GAFAWSAnalysis (installed as GafawsAnalysis.dll): PositionAnalyzer -->
+    <Reference Include="GafawsAnalysis">
+      <HintPath>$(FieldWorksDir)\GafawsAnalysis.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Same Newtonsoft.Json ParserCore itself references, so no second copy fights it at load time -->
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(FieldWorksDir)\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- XAmpleManagedWrapper: IXAmpleWrapper/XAmpleWrapper, the real XAMPLE engine (xample.dll,
+         resolved at runtime via the SetDllDirectory search path Program.Main already sets up) -->
+    <Reference Include="XAmpleManagedWrapper">
+      <HintPath>$(FieldWorksDir)\XAmpleManagedWrapper.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Xml.Linq" />
+  </ItemGroup>
+
+</Project>

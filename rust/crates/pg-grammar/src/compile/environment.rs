@@ -1,8 +1,10 @@
 //! Environment-string tokenization and pattern building (`TokenizeContext`/`LoadPatternNodes`/`LoadEnvironmentPattern`/`SplitEnvironment`, HCLoader.cs:2260-2457): re-tokenizes and validates a hand-authored string like `/_[UnVDent]` at compile time exactly as HCLoader does at load time -- lazily and tolerantly, since a malformed environment is a warning, never a hard failure.
 
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass};
+
 use crate::model::{AnchorSide, EnvironmentDef, Pattern, PatternNode, SimpleContext};
 
-use super::Ctx;
+use super::{issue_codes, roles, Ctx};
 
 /// Resolves environment guids into `EnvironmentDef`s, dropping (with a warning) any that fail to resolve or parse; shared by `build_root_allomorph` and `build_circumfix_allomorphs`.
 pub(crate) fn resolve_environment_defs<'a>(
@@ -13,19 +15,58 @@ pub(crate) fn resolve_environment_defs<'a>(
 ) -> Vec<EnvironmentDef> {
     let mut environments = Vec::new();
     for env_guid in guids {
+        let attachment = InventoryKey::attachment(
+            InventoryKind::Environment,
+            allo_guid.to_string(),
+            env_guid.to_string(),
+            roles::ENVIRONMENT,
+        );
+        ctx.authored(attachment.clone());
+        ctx.considered(attachment.clone());
         let Some(env) = ctx.env_by_guid.get(env_guid) else {
+            // Silently skipped today (no warning), so recording must not add one either.
+            ctx.selected(attachment.clone());
+            ctx.reject_quietly(
+                attachment,
+                issue_codes::ENVIRONMENT_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("environment {env_guid:?} does not resolve"),
+            );
             continue;
         };
+        ctx.selected(attachment.clone());
+        let env_object = InventoryKey::object(InventoryKind::Environment, env.guid.clone());
+        ctx.considered(env_object.clone());
+        ctx.selected(env_object.clone());
         match parse_environment(&env.representation, ctx) {
-            Ok((left, right)) => environments.push(EnvironmentDef {
-                require: true,
-                left,
-                right,
-            }),
-            Err(e) => warnings.push(format!(
-                "allomorph {allo_guid:?}: invalid environment {:?} ({}): {e}; treated as absent",
-                env.guid, env.representation
-            )),
+            Ok((left, right)) => {
+                environments.push(EnvironmentDef {
+                    require: true,
+                    left,
+                    right,
+                });
+                ctx.represented(attachment);
+                ctx.represented(env_object);
+            }
+            Err(e) => {
+                ctx.reject(
+                    warnings,
+                    attachment,
+                    issue_codes::ENVIRONMENT_INVALID,
+                    IssueClass::InvalidSource,
+                    format!(
+                        "allomorph {allo_guid:?}: invalid environment {:?} ({}): {e}; treated as \
+                         absent",
+                        env.guid, env.representation
+                    ),
+                );
+                ctx.reject_quietly(
+                    env_object,
+                    issue_codes::ENVIRONMENT_INVALID,
+                    IssueClass::InvalidSource,
+                    "environment representation failed to parse",
+                );
+            }
         }
     }
     environments
@@ -276,4 +317,41 @@ pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<()
         nodes_from_tokens(&tokens, ctx)?;
     }
     Ok(())
+}
+
+/// Literal grapheme text only: excludes `_`/`#`/class brackets, descends into optional-group parens.
+#[allow(dead_code)] // unwired -- see the `#[ignore]`d environment_only_undeclared_exemplar_is_completed_from_usage test
+pub(crate) fn literal_text_elements(representation: &str) -> Vec<String> {
+    let body = representation
+        .trim()
+        .strip_prefix('/')
+        .unwrap_or_else(|| representation.trim());
+    let mut out = Vec::new();
+    for side in body.splitn(2, '_') {
+        collect_literal_tokens(side, &mut out);
+    }
+    out
+}
+
+#[allow(dead_code)] // unwired -- see the `#[ignore]`d environment_only_undeclared_exemplar_is_completed_from_usage test
+fn collect_literal_tokens(s: &str, out: &mut Vec<String>) {
+    let Ok(tokens) = tokenize(s) else { return };
+    for tok in &tokens {
+        match tok.chars().next() {
+            Some('#') | Some('[') => {}
+            Some('(') => collect_literal_tokens(&tok[1..tok.len() - 1], out),
+            Some(_) => out.push(tok.clone()),
+            None => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::literal_text_elements;
+
+    #[test]
+    fn literal_text_elements_excludes_natural_classes_stem_placeholder_and_anchors() {
+        assert_eq!(literal_text_elements("/[V]q_#"), vec!["q".to_string()]);
+    }
 }

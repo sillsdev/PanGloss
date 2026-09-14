@@ -19,6 +19,7 @@ inspired_by: ["synthetic suffixing grammar with one fixed-order slot template (n
 sources:
   - "docs/superpowers/specs/2026-08-11-candidate-filter-contract.md (ordering rules)"
 requires: []
+fieldworks_producible: true
 words:
   - word: mira
     note: Bare root, both slots empty. Plain control.

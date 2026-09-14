@@ -1,7 +1,7 @@
 //! Phonological rules: rewrite rules placed on the stratum `NotOnClitics` selects. Metathesis rules are not implemented -- each produces a warning, not a rule.
 
 use pg_snapshot::phonology::{PhonContext, PhonologicalRule, RewriteRhs, RewriteRule};
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
 
 use crate::model::{
     AlphaVar, AnchorSide, Dir, PRuleId, Pattern, PatternNode, PhonRuleDef, RewriteMode,
@@ -9,7 +9,7 @@ use crate::model::{
 };
 use crate::GrammarError;
 
-use super::Ctx;
+use super::{issue_codes, roles, Ctx};
 
 /// Greek-letter alpha-variable names, in assignment order (`HCLoader.VariableNames`).
 const VAR_NAMES: [&str; 24] = [
@@ -35,23 +35,44 @@ pub(crate) fn build(
 
     for rule in &snapshot.phonology.rules {
         match rule {
-            PhonologicalRule::Rewrite(r) => match build_rewrite_rule(r, snapshot, ctx, warnings) {
-                Ok(def) => {
-                    let id = PRuleId(prules.len() as u32);
-                    prules.push(PhonRuleDef::Rewrite(def));
-                    if on_morphology {
-                        morphology_prules.push(id);
-                    } else {
-                        clitic_prules.push(id);
+            PhonologicalRule::Rewrite(r) => {
+                let key = InventoryKey::object(InventoryKind::PhonologicalRule, r.guid.clone());
+                ctx.considered(key.clone());
+                ctx.selected(key.clone());
+                match build_rewrite_rule(r, snapshot, ctx, warnings) {
+                    Ok(def) => {
+                        let id = PRuleId(prules.len() as u32);
+                        prules.push(PhonRuleDef::Rewrite(def));
+                        if on_morphology {
+                            morphology_prules.push(id);
+                        } else {
+                            clitic_prules.push(id);
+                        }
+                        ctx.represented(key);
                     }
+                    Err(e) => ctx.reject(
+                        warnings,
+                        key,
+                        issue_codes::RULE_BUILD_FAILED,
+                        IssueClass::UnrepresentableForHc,
+                        format!("phonological rule {:?}: {e}; skipped", r.guid),
+                    ),
                 }
-                Err(e) => warnings.push(format!("phonological rule {:?}: {e}; skipped", r.guid)),
-            },
+            }
             PhonologicalRule::Metathesis(r) => {
-                warnings.push(format!(
-                    "unsupported: metathesis rule {:?} not implemented; skipped",
-                    r.guid
-                ));
+                let key = InventoryKey::object(InventoryKind::PhonologicalRule, r.guid.clone());
+                ctx.considered(key.clone());
+                ctx.selected(key.clone());
+                ctx.reject(
+                    warnings,
+                    key,
+                    issue_codes::RULE_METATHESIS_UNSUPPORTED,
+                    IssueClass::UnrepresentableForHc,
+                    format!(
+                        "unsupported: metathesis rule {:?} not implemented; skipped",
+                        r.guid
+                    ),
+                );
             }
         }
     }
@@ -76,24 +97,40 @@ fn build_var_table(
 ) -> VarTable {
     let mut vars = Vec::new();
     for (i, g) in guids.iter().enumerate() {
+        let key = InventoryKey::object(InventoryKind::FeatureConstraint, g.clone());
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
         let Some(fc) = snapshot
             .phonology
             .feature_constraints
             .iter()
             .find(|c| &c.guid == g)
         else {
-            warnings.push(format!("feature constraint {g:?} does not resolve"));
+            ctx.reject(
+                warnings,
+                key,
+                issue_codes::FEATURE_CONSTRAINT_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!("feature constraint {g:?} does not resolve"),
+            );
             continue;
         };
         let Some(flat) = ctx.phon.flat_index(&fc.feature) else {
-            warnings.push(format!(
-                "feature constraint {g:?}: unknown phonological feature {:?}",
-                fc.feature
-            ));
+            ctx.reject(
+                warnings,
+                key,
+                issue_codes::FEATURE_CONSTRAINT_PHON_FEATURE_UNRESOLVED,
+                IssueClass::InvalidSource,
+                format!(
+                    "feature constraint {g:?}: unknown phonological feature {:?}",
+                    fc.feature
+                ),
+            );
             continue;
         };
         let name = VAR_NAMES.get(i).copied().unwrap_or("?").to_string();
         vars.push((g.clone(), name, flat));
+        ctx.represented(key);
     }
     VarTable { vars }
 }
@@ -115,7 +152,7 @@ fn build_rewrite_rule(
 
     let mut subrules = Vec::new();
     for rhs in &r.right_hand_sides {
-        subrules.push(build_subrule(rhs, &lhs, mode, ctx, &vars, warnings)?);
+        subrules.push(build_subrule(&r.guid, rhs, &lhs, mode, ctx, &vars, warnings)?);
     }
 
     Ok(RewriteRuleDef {
@@ -130,6 +167,7 @@ fn build_rewrite_rule(
 }
 
 fn build_subrule(
+    rule_guid: &str,
     rhs: &RewriteRhs,
     lhs: &Pattern,
     mode: RewriteMode,
@@ -148,16 +186,44 @@ fn build_subrule(
 
     let mut required_mpr = crate::model::MprSet::EMPTY;
     for f in &rhs.required_rule_features {
-        match ctx.mpr.rule_feature(f) {
-            Some(s) => required_mpr = required_mpr.union(s),
-            None => warnings.push(format!("rule feature {f:?} does not resolve")),
+        let attachment = InventoryKey::attachment(
+            InventoryKind::RuleFeature,
+            rule_guid.to_string(),
+            f.clone(),
+            roles::REQUIRED,
+        );
+        let resolved = ctx.mpr.rule_feature(f);
+        ctx.record_attachment(
+            warnings,
+            attachment,
+            resolved.is_some(),
+            issue_codes::RULE_FEATURE_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!("rule feature {f:?} does not resolve"),
+        );
+        if let Some(s) = resolved {
+            required_mpr = required_mpr.union(s);
         }
     }
     let mut excluded_mpr = crate::model::MprSet::EMPTY;
     for f in &rhs.excluded_rule_features {
-        match ctx.mpr.rule_feature(f) {
-            Some(s) => excluded_mpr = excluded_mpr.union(s),
-            None => warnings.push(format!("rule feature {f:?} does not resolve")),
+        let attachment = InventoryKey::attachment(
+            InventoryKind::RuleFeature,
+            rule_guid.to_string(),
+            f.clone(),
+            roles::EXCLUDED,
+        );
+        let resolved = ctx.mpr.rule_feature(f);
+        ctx.record_attachment(
+            warnings,
+            attachment,
+            resolved.is_some(),
+            issue_codes::RULE_FEATURE_UNRESOLVED,
+            IssueClass::InvalidSource,
+            format!("rule feature {f:?} does not resolve"),
+        );
+        if let Some(s) = resolved {
+            excluded_mpr = excluded_mpr.union(s);
         }
     }
 

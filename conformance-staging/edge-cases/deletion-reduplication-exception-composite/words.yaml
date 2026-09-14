@@ -23,6 +23,16 @@ inspired_by: ["synthetic agglutinative-Austronesian nasal-assimilation/deletion 
 sources:
   - "docs/conformance-staging-plan.md pathology catalog (agglutinative-Austronesian row)"
 requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  mrSuf's MorphologicalInput excludedMPRFeatures="mprException" sits on a plain stratum-level
+  MorphologicalRule, and this grammar has no AffixTemplate at all. HCLoader assigns
+  AffixProcessAllomorph.ExcludedMprFeatures at exactly one site (HCLoader.cs:1717), inside
+  LoadAffixTemplate's irregular-inflected-form slot-blocking loop, and only ever adds
+  ILexEntryInflType-derived features to a rule already reached through an AffixTemplate Slot. A
+  stratum-level (non-templated) rule's excludedMPRFeatures has no HCLoader code path at all, so
+  vokadan's distinguishing exclusion cannot come from a FieldWorks project. HC-engine-only for this
+  reason.
 words:
   - word: tulik
     note: TULIK bare root, no prefix -- a plain control.

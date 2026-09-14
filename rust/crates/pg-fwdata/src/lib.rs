@@ -1,7 +1,7 @@
-//! `pg-fwdata`: reads a FieldWorks `.fwdata` project file directly into a
-//! `pg_snapshot::Snapshot` — layer 1 of `docs/fwdata-import-plan.md`'s three-layer pipeline
-//! (`.fwdata → pg-fwdata → Snapshot → pg_grammar::compile → Grammar`). See that plan's §2 for the
-//! overall architecture and §6 (task T2) for this crate's scope.
+//! `pg-fwdata` imports FieldWorks `.fwdata` project files and `.fwbackup` archives into
+//! `pg_snapshot::Snapshot` values. Vernacular exemplar characters come from
+//! `WritingSystemStore/*.ldml`: a backup's own embedded copy, or -- for a plain `.fwdata` --
+//! a sibling `WritingSystemStore/` directory next to it on disk, if one exists.
 //!
 //! # Two layers, one crate
 //!
@@ -15,15 +15,15 @@
 //!
 //! # Robustness
 //!
-//! Per `docs/fwdata-import-plan.md` §1, this crate must tolerate the kind of stale/dangling data
-//! real FieldWorks projects contain (the motivating example: a stale `MoMorphAdhocProhib` that
-//! crashes FieldWorks' own HC exporter) — dangling `objsur` targets, unrecognized morph-type
-//! GUIDs, and missing expected fields are reported as warnings in the returned `ImportReport`,
-//! never a panic or a hard `ImportError`. Hard errors are reserved for I/O failures and input
-//! that isn't XML / isn't a `.fwdata` document at all.
+//! This crate tolerates stale or dangling data in otherwise-valid projects: dangling `objsur`
+//! targets, unrecognized morph-type GUIDs, and missing expected fields become warnings in the
+//! returned `ImportReport`. Hard errors cover I/O failures, invalid XML, non-`.fwdata` input,
+//! and malformed parser-source metadata that cannot be represented safely.
+//! Backup archive structure and member-access failures are reported separately as `Backup`.
 #![forbid(unsafe_code)]
 
 mod extract;
+mod fwbackup;
 mod morphtype;
 mod node;
 mod parser_params;
@@ -31,12 +31,14 @@ mod xml;
 
 use std::path::Path;
 
-use pg_snapshot::{Snapshot, Warning};
+use pg_snapshot::{ConversionProvenance, InventoryDelta, Snapshot, Warning};
 use thiserror::Error;
 
-/// Hard errors from `import_file` — I/O and "this isn't a `.fwdata` file at all", never data
-/// quality issues within an otherwise-valid `.fwdata` document (those become `ImportReport`
-/// warnings; see the crate-level docs' "Robustness" section).
+/// Hard errors from `import_file`: I/O failures, invalid XML or non-`.fwdata` input, and source
+/// metadata whose parser selector is malformed or unsupported. Data quality issues within an
+/// otherwise-valid project become `ImportReport` warnings. `Backup` covers malformed ZIP
+/// structure, member lookup, and LDML/member access failures; parsing the embedded `.fwdata` can
+/// instead return `Xml`, `NotFwdata`, or `InvalidSource`.
 #[derive(Debug, Error)]
 pub enum ImportError {
     #[error("failed to read {0}")]
@@ -45,27 +47,136 @@ pub enum ImportError {
     Xml(String),
     #[error("not a .fwdata file: no <rt> records found")]
     NotFwdata,
+    #[error("not a .fwbackup: {0}")]
+    Backup(String),
+    #[error("{code}: {message}")]
+    InvalidSource { code: &'static str, message: String },
 }
 
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.
 /// Never a reason to fail the import (see the crate-level docs). Each warning carries a stable
 /// short code alongside its prose — see `pg_snapshot::Warning`'s doc for the `code`/`message`
-/// contract `pangloss compare` relies on.
+/// contract `pangloss compare` relies on. `provenance` is the same value as the returned
+/// `Snapshot`'s own `conversion_provenance`.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ImportReport {
     pub warnings: Vec<Warning>,
+    pub provenance: ConversionProvenance,
 }
 
-/// Import a `.fwdata` project file into a `Snapshot` plus an `ImportReport` of anything
-/// tolerated along the way. `path`'s file stem (e.g. `"Sena 3"` for `Sena 3.fwdata`) becomes
-/// `project.name`, matching how FieldWorks itself derives `LcmCache.ProjectId.Name` from the
-/// project folder/file name rather than anything stored in the XML.
+/// Import a `.fwdata` project file or `.fwbackup` archive into a `Snapshot` plus an `ImportReport`
+/// of anything tolerated along the way. Vernacular exemplar characters come from
+/// `WritingSystemStore/*.ldml` -- a backup's embedded copy, or a plain `.fwdata`'s sibling
+/// directory on disk, if either is present; absent either way, `exemplar_characters` stays empty.
+/// For a direct `.fwdata` import, the input file stem becomes `project.name`; for a `.fwbackup`
+/// import, the embedded top-level `.fwdata` entry stem becomes `project.name`.
 pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("fwbackup"))
+    {
+        return fwbackup::import_fwbackup(path);
+    }
     let graph = xml::parse_fwdata(path)?;
-    let filename_stem = path
-        .file_stem()
+    let filename_stem = file_stem(path);
+    let (mut snapshot, mut warnings) = extract::extract(&graph, &filename_stem)?;
+    let provenance = snapshot.conversion_provenance.clone();
+    let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
+    fwbackup::apply_exemplars(&mut snapshot, &ldml);
+    warnings.extend(ldml_warning);
+    Ok((snapshot, ImportReport { warnings, provenance }))
+}
+
+/// As [`import_file`], but also returns the [`InventoryDelta`] derived from the same import's
+/// [`pg_snapshot::SelectionRecorder`] -- a violated invariant is this crate's own bookkeeping bug,
+/// so it panics naming the violation rather than returning an untrustworthy measurement.
+pub fn import_file_measured(
+    path: &Path,
+) -> Result<(Snapshot, ImportReport, InventoryDelta), ImportError> {
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("fwbackup"))
+    {
+        return fwbackup::import_fwbackup_measured(path);
+    }
+    let graph = xml::parse_fwdata(path)?;
+    let filename_stem = file_stem(path);
+    let (mut snapshot, mut warnings, recorder) = extract::extract_recording(&graph, &filename_stem)?;
+    let provenance = snapshot.conversion_provenance.clone();
+    let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
+    fwbackup::apply_exemplars(&mut snapshot, &ldml);
+    warnings.extend(ldml_warning);
+    if let Err(violation) = recorder.check_invariants() {
+        panic!("import_file_measured: selection recorder invariant violated: {violation}");
+    }
+    let (inventory, issues) = recorder.finish();
+    Ok((
+        snapshot,
+        ImportReport { warnings, provenance },
+        InventoryDelta::from_stage(inventory, issues),
+    ))
+}
+
+/// Reads every `WritingSystemStore/*.ldml` file next to `fwdata_path`; a missing directory is silent (matches `.fwbackup`'s tolerant absence of embedded LDML), but an existing, unreadable one -- a different fact from "never shipped" -- returns a warning rather than looking identical to it.
+fn read_sibling_writing_system_store(fwdata_path: &Path) -> (Vec<(String, String)>, Option<Warning>) {
+    let Some(parent) = fwdata_path.parent() else {
+        return (Vec::new(), None);
+    };
+    let dir = parent.join("WritingSystemStore");
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Vec::new(), None),
+        Err(e) => {
+            return (
+                Vec::new(),
+                Some(Warning::new(
+                    extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
+                    format!("{}: {e}", dir.display()),
+                )),
+            )
+        }
+    };
+    let mut pairs = Vec::new();
+    let mut warning = None;
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                warning.get_or_insert_with(|| {
+                    Warning::new(
+                        extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
+                        format!("{}: {e}", dir.display()),
+                    )
+                });
+                continue;
+            }
+        };
+        let entry_path = entry.path();
+        if entry_path.extension().and_then(|e| e.to_str()) != Some("ldml") {
+            continue;
+        }
+        let Some(tag) = entry_path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+            continue;
+        };
+        match std::fs::read_to_string(&entry_path) {
+            Ok(text) => pairs.push((tag, text)),
+            Err(e) => {
+                warning.get_or_insert_with(|| {
+                    Warning::new(
+                        extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
+                        format!("{}: {e}", entry_path.display()),
+                    )
+                });
+            }
+        }
+    }
+    (pairs, warning)
+}
+
+pub(crate) fn file_stem(path: &Path) -> String {
+    path.file_stem()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let (snapshot, warnings) = extract::extract(&graph, &filename_stem);
-    Ok((snapshot, ImportReport { warnings }))
+        .unwrap_or_default()
 }

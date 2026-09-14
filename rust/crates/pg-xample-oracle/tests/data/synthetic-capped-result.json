@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse",
+  "database": "Synthetic",
+  "engineVersion": "0.0.0.0",
+  "parameters": {
+    "runtime": {
+      "maxAnalysesToReturn": 2
+    },
+    "adctl": {
+      "maxNulls": 0,
+      "maxPrefixes": 12,
+      "maxInfixes": 0,
+      "maxSuffixes": 12,
+      "maxRoots": 1,
+      "maxInterfixes": 0
+    },
+    "adctlPatched": true,
+    "adctlSource": "..\\..\\Syntheticadctl.txt"
+  },
+  "words": [
+    {
+      "word": "capped",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "x",
+              "msaGuid": "22222222-2222-2222-2222-222222222222",
+              "morphnameOrGloss": "P1",
+              "type": "MoAffixAllomorph"
+            },
+            {
+              "form": "root",
+              "msaGuid": "33333333-3333-3333-3333-333333333333",
+              "morphnameOrGloss": "ROOT",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "xroot"
+        },
+        {
+          "morphemes": [
+            {
+              "form": "x",
+              "msaGuid": "44444444-4444-4444-4444-444444444444",
+              "morphnameOrGloss": "P2",
+              "type": "MoAffixAllomorph"
+            },
+            {
+              "form": "root",
+              "msaGuid": "33333333-3333-3333-3333-333333333333",
+              "morphnameOrGloss": "ROOT",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "xroot"
+        }
+      ],
+      "reachedMaxAnalyses": true,
+      "engineError": null
+    }
+  ]
+}

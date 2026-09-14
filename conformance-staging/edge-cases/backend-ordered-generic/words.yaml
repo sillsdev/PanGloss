@@ -41,6 +41,7 @@ sources:
   - "WALS - infix, circumfix, and CV-reduplication morphological typology"
   - "typological literature on consonant metathesis and the phase distinction; subtractive perfective typology"
 requires: [phonology]
+fieldworks_producible: true
 words:
   - word: nui
     note: >-

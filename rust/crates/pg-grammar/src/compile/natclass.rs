@@ -8,7 +8,7 @@ use hashbrown::HashMap;
 use pg_featstruct::SymbolBits;
 
 use pg_snapshot::phonology::NaturalClass as SnapNaturalClass;
-use pg_snapshot::Snapshot;
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot};
 
 use crate::chardef::CharDefId;
 use crate::featsys::{FlatIndex, PhonFeatureSystem, TYPE_SEGMENT_SYMBOL};
@@ -16,6 +16,9 @@ use crate::model::{
     AffixAllomorphDef, EnvironmentDef, Grammar, MorphRuleDef, NatClassId, NaturalClass,
     NaturalClassKind, OutputAction, Pattern, PatternNode, PhonRuleDef,
 };
+
+use super::inventory::{self, Lineage, LineageTarget};
+use super::issue_codes;
 
 pub(crate) struct NatClassBuild {
     pub defs: Vec<NaturalClass>,
@@ -32,6 +35,8 @@ pub(crate) fn build(
     phon: &PhonFeatureSystem,
     phoneme_of: &HashMap<String, CharDefId>,
     warnings: &mut Vec<String>,
+    recorder: &mut SelectionRecorder,
+    lineage: &mut Lineage,
 ) -> NatClassBuild {
     let mut defs = Vec::new();
     let mut by_guid = HashMap::new();
@@ -45,16 +50,26 @@ pub(crate) fn build(
                 name,
                 phonemes,
             } => {
+                let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
+                recorder.considered(key.clone());
                 let mut resolved = Vec::with_capacity(phonemes.len());
                 let mut ok = true;
                 for p in phonemes {
                     match phoneme_of.get(p) {
                         Some(&cd) => resolved.push(cd),
                         None => {
-                            warnings.push(format!(
-                                "natural class {guid:?} ({name:?}): member phoneme {p:?} does not \
-                                 resolve; class skipped"
-                            ));
+                            recorder.selected(key.clone());
+                            inventory::reject(
+                                recorder,
+                                warnings,
+                                key.clone(),
+                                issue_codes::NATCLASS_SEGMENTS_MEMBER_UNRESOLVED,
+                                IssueClass::InvalidSource,
+                                format!(
+                                    "natural class {guid:?} ({name:?}): member phoneme {p:?} does \
+                                     not resolve; class skipped"
+                                ),
+                            );
                             ok = false;
                             break;
                         }
@@ -63,6 +78,7 @@ pub(crate) fn build(
                 if !ok {
                     continue;
                 }
+                recorder.selected(key.clone());
                 let id = NatClassId(defs.len() as u32);
                 by_guid.insert(guid.clone(), id);
                 by_name.entry(name.clone()).or_insert(id);
@@ -74,12 +90,16 @@ pub(crate) fn build(
                     name: Some(name.clone()),
                     kind: NaturalClassKind::Segments(resolved),
                 });
+                inventory::represent_via(recorder, lineage, LineageTarget::NaturalClass(id.0), key);
             }
             SnapNaturalClass::Features {
                 guid,
                 name,
                 features,
             } => {
+                let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
+                recorder.considered(key.clone());
+                recorder.selected(key.clone());
                 let pairs = feature_constraint_pairs(features, phon, warnings, guid);
                 let id = NatClassId(defs.len() as u32);
                 by_guid.insert(guid.clone(), id);
@@ -92,12 +112,18 @@ pub(crate) fn build(
                     name: Some(name.clone()),
                     kind: NaturalClassKind::Feature(pairs),
                 });
+                inventory::represent_via(recorder, lineage, LineageTarget::NaturalClass(id.0), key);
             }
         }
     }
 
     // Synthetic "Any" natural class: matches any segment, no constraint beyond the mandatory Type=Segment every FeatureNaturalClass carries.
+    let any_key = InventoryKey::object(InventoryKind::NaturalClass, "__any__");
+    recorder.synthesized(any_key.clone());
+    recorder.considered(any_key.clone());
+    recorder.selected(any_key.clone());
     let any_id = NatClassId(defs.len() as u32);
+    inventory::represent_via(recorder, lineage, LineageTarget::NaturalClass(any_id.0), any_key);
     defs.push(NaturalClass {
         xml_id: "__any__".to_string(),
         name: Some("Any".to_string()),
@@ -257,12 +283,12 @@ fn walk_all_natclass_ids_mut(grammar: &mut Grammar, f: &mut dyn FnMut(&mut NatCl
     }
 }
 
-/// Drops every natural class in `grammar.natural_classes` that HCLoader would never load (module doc), remapping every surviving `NatClassId` to a dense index. Kept unconditionally: `any_nc`, `last_unnamed`, and every named class; everything else is kept only if `walk_all_natclass_ids_mut` finds a structural reference to it.
+/// Drops every natural class in `grammar.natural_classes` that HCLoader would never load (module doc), remapping every surviving `NatClassId` to a dense index. Kept unconditionally: `any_nc`, `last_unnamed`, and every named class; everything else is kept only if `walk_all_natclass_ids_mut` finds a structural reference to it. Returns the OLD ids this pass removed.
 pub(crate) fn compact_to_referenced(
     grammar: &mut Grammar,
     any_nc: NatClassId,
     last_unnamed: Option<NatClassId>,
-) {
+) -> Vec<u32> {
     let mut used: hashbrown::HashSet<u32> = hashbrown::HashSet::new();
     used.insert(any_nc.0);
     if let Some(id) = last_unnamed {
@@ -280,10 +306,13 @@ pub(crate) fn compact_to_referenced(
     let old_defs = std::mem::take(&mut grammar.natural_classes);
     let mut old_to_new: StdHashMap<u32, u32> = StdHashMap::with_capacity(used.len());
     let mut new_defs = Vec::with_capacity(used.len());
+    let mut removed = Vec::new();
     for (old_id, def) in old_defs.into_iter().enumerate() {
         if used.contains(&(old_id as u32)) {
             old_to_new.insert(old_id as u32, new_defs.len() as u32);
             new_defs.push(def);
+        } else {
+            removed.push(old_id as u32);
         }
     }
     grammar.natural_classes = new_defs;
@@ -293,4 +322,6 @@ pub(crate) fn compact_to_referenced(
             .get(&id.0)
             .expect("nat class id referenced but not marked used -- compaction sweep bug");
     });
+
+    removed
 }

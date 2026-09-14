@@ -1,0 +1,65 @@
+using System;
+using System.IO;
+using SIL.LCModel;
+using SIL.LCModel.Utils;
+
+namespace XampleProjector
+{
+	/// <summary>
+	/// The headless open/close bootstrap, mirroring FieldWorks Src\GenerateHCConfig\Program.cs:
+	/// FwRegistryHelper.Initialize -> FwUtils.InitializeIcu -> Sldr.Initialize -> open the
+	/// LcmCache with DisableDataMigration so an out-of-date project fails loudly instead of
+	/// silently migrating under an ad-hoc tool.
+	/// </summary>
+	internal static class FieldWorksSession
+	{
+		internal static int Run(string fieldWorksDir, string projectPath, Func<LcmCache, DiagnosticLogger, int> body)
+		{
+			if (!File.Exists(projectPath))
+			{
+				Console.Error.WriteLine("Project open failure: file not found: {0}", projectPath);
+				return ExitCodes.ProjectOpenFailure;
+			}
+
+			FieldWorksBootstrap.EnsureInitialized();
+
+			var synchronizeInvoke = new SingleThreadedSynchronizeInvoke();
+			var projectId = new ProjectIdentifier(projectPath);
+			var logger = new DiagnosticLogger(synchronizeInvoke);
+			var dirs = new NullFdoDirectories();
+			var settings = new LcmSettings { DisableDataMigration = true };
+			var progress = new NullThreadedProgress(synchronizeInvoke);
+
+			try
+			{
+				using (var cache = LcmCache.CreateCacheFromExistingData(projectId, "en", logger, dirs, settings, progress))
+				{
+					// The disk-based FieldWorksPins.Verify already ran in Main before any
+					// FieldWorks type was touched; this is the earliest point the assemblies
+					// this process actually resolved and loaded can be inspected, so it is the
+					// first check that reports what RAN rather than what merely sat on disk.
+					var loadedMismatches = FieldWorksPins.VerifyLoaded(fieldWorksDir);
+					if (loadedMismatches.Count > 0)
+					{
+						Console.Error.WriteLine("A FieldWorks assembly actually loaded by this process does not match the pinned build:");
+						foreach (var mismatch in loadedMismatches)
+							Console.Error.WriteLine("  {0}: expected {1}, actually loaded {2}", mismatch.FileName, mismatch.Expected, mismatch.Actual);
+						return ExitCodes.PinMismatch;
+					}
+
+					return body(cache, logger);
+				}
+			}
+			catch (LcmFileLockedException ex)
+			{
+				Console.Error.WriteLine("Project open failure: the project is open in another application ({0}).", ex.Message);
+				return ExitCodes.ProjectOpenFailure;
+			}
+			catch (LcmDataMigrationForbiddenException ex)
+			{
+				Console.Error.WriteLine("Project open failure: the project needs FLEx migration before this tool can open it ({0}).", ex.Message);
+				return ExitCodes.ProjectOpenFailure;
+			}
+		}
+	}
+}

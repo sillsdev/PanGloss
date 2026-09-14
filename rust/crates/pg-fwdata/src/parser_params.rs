@@ -1,27 +1,119 @@
-//! Parses the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a string into a `ParserParameters` value, matching `HCLoader`'s constructor: `<HC>` may be entirely absent (e.g. an XAmple-configured project), `notOnClitics` then defaults true, and `<CompoundRules>` is a sibling of `<HC>`, not nested inside it.
+//! Parses the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a string into a `ParserParameters` value, matching `HCLoader`'s constructor: `<HC>` may be entirely absent (e.g. an XAmple-configured project), `notOnClitics` then defaults true, `<CompoundRules>` is a sibling of `<HC>`, not nested inside it, and `<ActiveParser>`/`<XAmple>` are siblings read the same way.
 
-use pg_snapshot::{CompoundRuleMaxApplications, ParserParameters};
+use pg_snapshot::{
+    ActiveParser, CompoundRuleMaxApplications, ParserParameters, Warning, XAmpleParameters,
+};
 
 use crate::node::parse_full_document;
+use crate::{extract::codes, ImportError};
 
-/// `raw` is `Node::uni_text`'s already-unescaped `<Uni>` text; returns `ParserParameters::default()` if absent, empty, or unparsable XML, since this is user-hand-edited input, not worth a hard error over.
-pub fn parse(raw: Option<&str>) -> ParserParameters {
+/// Which optional `ParserParameters` source fields were physically present in `<Uni>`, and (for the `XAmple` caps) whether each one parsed successfully — used only for `graphToSnapshot` recording, never to decide `ParserParameters`'s own values.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParserSettingsPresence {
+    pub active_parser: bool,
+    pub accept_unspecified_graphemes: bool,
+    pub xample_fields: Vec<(&'static str, bool)>,
+}
+
+/// The `<XAmple>` cap field names, in the order `parse_with_issues` fills them.
+#[cfg(test)]
+const XAMPLE_FIELD_TAGS: &[&str] = &[
+    "MaxNulls",
+    "MaxPrefixes",
+    "MaxInfixes",
+    "MaxSuffixes",
+    "MaxInterfixes",
+    "MaxRoots",
+    "MaxAnalysesToReturn",
+];
+
+/// Malformed cap metadata becomes a warning; a malformed or unknown active-parser selector is fatal.
+pub fn parse_with_issues(
+    raw: Option<&str>,
+) -> Result<(ParserParameters, Vec<Warning>, ParserSettingsPresence), ImportError> {
     let Some(raw) = raw else {
-        return ParserParameters::default();
+        return Ok((
+            ParserParameters::default(),
+            Vec::new(),
+            ParserSettingsPresence::default(),
+        ));
     };
-    let Some(root) = parse_full_document(raw) else {
-        return ParserParameters::default();
-    };
+    let root = parse_full_document(raw)
+        .map_err(|error| invalid_active_parser(format!("ParserParameters XML is malformed: {error}")))?;
     // `root` is our synthetic document root; its first child should be `<ParserParameters>`.
-    let Some(params_elem) = root.children.first() else {
-        return ParserParameters::default();
+    let Some(params_elem) = root
+        .children
+        .first()
+        .filter(|node| node.tag == "ParserParameters")
+    else {
+        return Err(invalid_active_parser(
+            "ParserParameters XML has no valid root element",
+        ));
     };
     let hc = params_elem.child("HC");
+
+    let active_parser_present = params_elem.child("ActiveParser").is_some();
+    let active_parser = match params_elem.child("ActiveParser") {
+        None => ActiveParser::XAmple,
+        Some(node) if node.text == "HC" && node.children.is_empty() => ActiveParser::Hc,
+        Some(node) if node.text == "XAmple" && node.children.is_empty() => ActiveParser::XAmple,
+        Some(node) => {
+            return Err(invalid_active_parser(format!(
+                "ActiveParser has unrecognized value {:?}",
+                node.text
+            )));
+        }
+    };
+
+    let mut issues = Vec::new();
+    let mut xample_fields_present: Vec<(&'static str, bool)> = Vec::new();
+    let xa = params_elem.child("XAmple");
+    fn child_value<T: std::str::FromStr>(
+        n: Option<&crate::node::Node>,
+        tag: &'static str,
+        issues: &mut Vec<Warning>,
+        presence: &mut Vec<(&'static str, bool)>,
+    ) -> Option<T> {
+        let child = n.and_then(|n| n.child(tag))?;
+        match child.text.trim().parse::<T>() {
+            Ok(value) => {
+                presence.push((tag, true));
+                Some(value)
+            }
+            Err(_) => {
+                issues.push(Warning::new(
+                    codes::INVALID_PARSER_PARAMETER,
+                    format!(
+                        "ParserParameters XAmple {tag} has invalid value {:?}",
+                        child.text.trim()
+                    ),
+                ));
+                presence.push((tag, false));
+                None
+            }
+        }
+    }
+    let xample = XAmpleParameters {
+        max_nulls: child_value(xa, "MaxNulls", &mut issues, &mut xample_fields_present),
+        max_prefixes: child_value(xa, "MaxPrefixes", &mut issues, &mut xample_fields_present),
+        max_infixes: child_value(xa, "MaxInfixes", &mut issues, &mut xample_fields_present),
+        max_suffixes: child_value(xa, "MaxSuffixes", &mut issues, &mut xample_fields_present),
+        max_interfixes: child_value(xa, "MaxInterfixes", &mut issues, &mut xample_fields_present),
+        max_roots: child_value(xa, "MaxRoots", &mut issues, &mut xample_fields_present),
+        max_analyses_to_return: child_value(
+            xa,
+            "MaxAnalysesToReturn",
+            &mut issues,
+            &mut xample_fields_present,
+        ),
+    };
 
     let not_on_clitics = match hc {
         None => true,
         Some(hc) => hc.child_bool_text("NotOnClitics").unwrap_or(true),
     };
+    let accept_unspecified_graphemes_present =
+        hc.is_some_and(|hc| hc.child("AcceptUnspecifiedGraphemes").is_some());
     let accept_unspecified_graphemes = hc
         .map(|hc| {
             hc.child_bool_text("AcceptUnspecifiedGraphemes")
@@ -50,11 +142,200 @@ pub fn parse(raw: Option<&str>) -> ParserParameters {
         })
         .unwrap_or_default();
 
-    ParserParameters {
-        not_on_clitics,
-        accept_unspecified_graphemes,
-        no_default_compounding,
-        strata,
-        compound_rule_max_applications,
+    Ok((
+        ParserParameters {
+            not_on_clitics,
+            accept_unspecified_graphemes,
+            no_default_compounding,
+            strata,
+            compound_rule_max_applications,
+            active_parser,
+            xample,
+        },
+        issues,
+        ParserSettingsPresence {
+            active_parser: active_parser_present,
+            accept_unspecified_graphemes: accept_unspecified_graphemes_present,
+            xample_fields: xample_fields_present,
+        },
+    ))
+}
+
+fn invalid_active_parser(message: impl Into<String>) -> ImportError {
+    ImportError::InvalidSource {
+        code: codes::INVALID_ACTIVE_PARSER,
+        message: message.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pg_snapshot::ActiveParser;
+
+    #[test]
+    fn absent_active_parser_means_xample_like_liblcm() {
+        let p = parse_with_issues(Some(
+            "<ParserParameters><HC><NotOnClitics>true</NotOnClitics></HC></ParserParameters>",
+        ))
+        .unwrap()
+        .0;
+        assert_eq!(p.active_parser, ActiveParser::XAmple);
+        assert_eq!(p.xample, XAmpleParameters::default());
+    }
+
+    #[test]
+    fn hc_active_parser_is_read() {
+        let p = parse_with_issues(Some(
+            "<ParserParameters><HC/><ActiveParser>HC</ActiveParser></ParserParameters>",
+        ))
+        .unwrap()
+        .0;
+        assert_eq!(p.active_parser, ActiveParser::Hc);
+    }
+
+    #[test]
+    fn unknown_active_parser_is_fatal() {
+        let err = parse_with_issues(Some(
+            "<ParserParameters><ActiveParser>Toneparser</ActiveParser></ParserParameters>",
+        ))
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ImportError::InvalidSource { code, .. } if code == codes::INVALID_ACTIVE_PARSER
+        ));
+    }
+
+    #[test]
+    fn active_parser_with_nested_element_is_fatal() {
+        let err = parse_with_issues(Some(
+            "<ParserParameters><ActiveParser>HC<Unexpected/></ActiveParser></ParserParameters>",
+        ))
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ImportError::InvalidSource { code, .. } if code == codes::INVALID_ACTIVE_PARSER
+        ));
+    }
+
+    #[test]
+    fn xample_block_is_read_field_by_field() {
+        let p = parse_with_issues(Some(
+            "<ParserParameters><XAmple><MaxNulls>0</MaxNulls><MaxPrefixes>1</MaxPrefixes>\
+             <MaxInfixes>0</MaxInfixes><MaxRoots>1</MaxRoots><MaxSuffixes>0</MaxSuffixes>\
+             <MaxInterfixes>0</MaxInterfixes><MaxAnalysesToReturn>20</MaxAnalysesToReturn></XAmple>\
+             <ActiveParser>XAmple</ActiveParser></ParserParameters>",
+        ))
+        .unwrap()
+        .0;
+        assert_eq!(p.xample.max_nulls, Some(0));
+        assert_eq!(p.xample.max_prefixes, Some(1));
+        assert_eq!(p.xample.max_infixes, Some(0));
+        assert_eq!(p.xample.max_roots, Some(1));
+        assert_eq!(p.xample.max_suffixes, Some(0));
+        assert_eq!(p.xample.max_interfixes, Some(0));
+        assert_eq!(p.xample.max_analyses_to_return, Some(20));
+    }
+
+    #[test]
+    fn partial_xample_block_leaves_missing_values_none() {
+        let p = parse_with_issues(Some(
+            "<ParserParameters><XAmple><MaxNulls>1</MaxNulls></XAmple></ParserParameters>",
+        ))
+        .unwrap()
+        .0;
+        assert_eq!(p.xample.max_nulls, Some(1));
+        assert_eq!(p.xample.max_roots, None);
+        assert_eq!(p.xample.max_analyses_to_return, None);
+    }
+
+    #[test]
+    fn negative_max_analyses_is_kept_raw() {
+        let p = parse_with_issues(Some(
+            "<ParserParameters><XAmple><MaxAnalysesToReturn>-1</MaxAnalysesToReturn></XAmple></ParserParameters>",
+        ))
+        .unwrap()
+        .0;
+        assert_eq!(p.xample.max_analyses_to_return, Some(-1));
+    }
+
+    #[test]
+    fn malformed_xample_cap_is_none_and_reported() {
+        let (params, issues, _) = parse_with_issues(Some(
+            "<ParserParameters><XAmple><MaxPrefixes>many</MaxPrefixes></XAmple></ParserParameters>",
+        ))
+        .unwrap();
+        assert_eq!(params.xample.max_prefixes, None);
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].code, "fwdata.invalid-parser-parameter");
+        assert!(issues[0].message.contains("MaxPrefixes"));
+    }
+
+    #[test]
+    fn presence_reports_parsed_ok_per_xample_field() {
+        let (_, _, presence) = parse_with_issues(Some(
+            "<ParserParameters><XAmple><MaxPrefixes>many</MaxPrefixes>\
+             <MaxRoots>2</MaxRoots></XAmple></ParserParameters>",
+        ))
+        .unwrap();
+        assert_eq!(
+            presence.xample_fields,
+            vec![("MaxPrefixes", false), ("MaxRoots", true)]
+        );
+    }
+
+    #[test]
+    fn every_xample_field_tag_appears_in_the_presence_list_exactly_once() {
+        let uni = "<ParserParameters><XAmple><MaxNulls>0</MaxNulls><MaxPrefixes>1</MaxPrefixes>\
+             <MaxInfixes>0</MaxInfixes><MaxSuffixes>0</MaxSuffixes><MaxInterfixes>0</MaxInterfixes>\
+             <MaxRoots>1</MaxRoots><MaxAnalysesToReturn>20</MaxAnalysesToReturn></XAmple>\
+             </ParserParameters>";
+        let (_, _, presence) = parse_with_issues(Some(uni)).unwrap();
+        for tag in XAMPLE_FIELD_TAGS {
+            assert_eq!(
+                presence
+                    .xample_fields
+                    .iter()
+                    .filter(|(name, _)| name == tag)
+                    .count(),
+                1,
+                "{tag} must appear exactly once"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_parser_parameters_are_fatal_for_active_parser() {
+        let err = parse_with_issues(Some("<ParserParameters><ActiveParser>XAmple")).unwrap_err();
+        assert!(matches!(
+            err,
+            ImportError::InvalidSource { code, .. } if code == codes::INVALID_ACTIVE_PARSER
+        ));
+    }
+
+    #[test]
+    fn explicit_xample_and_untrimmed_values_follow_exact_selector_rules() {
+        let p = parse_with_issues(Some(
+            "<ParserParameters><ActiveParser>XAmple</ActiveParser></ParserParameters>",
+        ))
+        .unwrap()
+        .0;
+        assert_eq!(p.active_parser, ActiveParser::XAmple);
+
+        for raw in [
+            "<ParserParameters><ActiveParser/></ParserParameters>",
+            "<ParserParameters><ActiveParser> XAmple</ActiveParser></ParserParameters>",
+            "<ParserParameters><ActiveParser>XAmple </ActiveParser></ParserParameters>",
+            "<ParserParameters><ActiveParser> \n\t</ActiveParser></ParserParameters>",
+        ] {
+            assert!(parse_with_issues(Some(raw)).is_err(), "{raw:?} must be fatal");
+        }
+    }
+
+    #[test]
+    fn only_absent_raw_uses_parser_defaults() {
+        assert_eq!(parse_with_issues(None).unwrap().0, ParserParameters::default());
+        assert!(parse_with_issues(Some("")).is_err());
+        assert!(parse_with_issues(Some(" \n\t")).is_err());
     }
 }

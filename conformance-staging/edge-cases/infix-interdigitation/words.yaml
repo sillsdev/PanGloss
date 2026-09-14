@@ -13,6 +13,7 @@ inspired_by: ["synthetic templatic-Semitic infix + merged-letter-series probe (n
 sources:
   - "docs/conformance-staging-plan.md pathology catalog (templatic-Semitic row)"
 requires: []
+fieldworks_producible: true
 words:
   - word: kotab
     note: KTB bare root, no infix -- a plain control.

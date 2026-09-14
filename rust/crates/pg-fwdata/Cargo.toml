@@ -9,8 +9,19 @@ license.workspace = true
 quick-xml.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
+unicode-normalization.workspace = true
+zip.workspace = true
 pg-snapshot.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# tests/fixture_tests.rs: pins that compile_project now refuses this fixture, so the fatal
+# import-issue reality is asserted from the import side too, not only pg-grammar's own tests.
+# Dev-only, so no build-order cycle: pg-grammar's own dev-dependency on pg-fwdata (for its
+# conversion loss gates) needs only this crate's lib, never its tests, and vice versa.
+pg-grammar.workspace = true
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]

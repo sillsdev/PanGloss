@@ -2,24 +2,27 @@
 
 use pg_snapshot::{
     AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
-    CompoundOutcome, CompoundRule, ExceptionFeature, FeatureSystems, InflectionClass,
-    LexEntryInflType, Lexicon, Morphology, PartOfSpeech, StemName,
+    CompoundOutcome, CompoundRule, ConversionIssue, ExceptionFeature, FeatureSystems,
+    InflectionClass, InventoryKey, InventoryKind, IssueClass, LexEntryInflType, Lexicon,
+    Morphology, ParserParameters, PartOfSpeech, SourceRef, StemName,
 };
 
 use super::features::extract_feature_structure;
 use super::Ctx;
-use crate::parser_params;
 use crate::xml::Record;
+use crate::{parser_params, ImportError};
 
 pub fn extract_morphology(
     ctx: &mut Ctx,
     lang_project: Option<&Record>,
     _feature_systems: &FeatureSystems,
-) -> Morphology {
+) -> Result<Morphology, ImportError> {
     let parts_of_speech = lang_project
         .and_then(|lp| lp.node.objsur_one("PartsOfSpeech"))
         .map(|list_guid| extract_pos_forest(ctx, &list_guid))
         .unwrap_or_default();
+    // Every affix slot across the whole forest is represented by now, so a template's slot references — which may cross POS boundaries — can be checked in one pass over the finished tree.
+    record_template_slot_attachments(ctx, &parts_of_speech);
 
     let morph_data = lang_project
         .and_then(|lp| lp.node.objsur_one("MorphologicalData"))
@@ -45,20 +48,79 @@ pub fn extract_morphology(
         .map(|db| extract_lex_entry_infl_types(ctx, db))
         .unwrap_or_default();
 
-    let parser_parameters = parser_params::parse(
-        morph_data
-            .and_then(|md| md.node.uni_text("ParserParameters"))
-            .as_deref(),
-    );
+    let parser_raw = morph_data.and_then(|md| {
+        md.node.child("ParserParameters").map(|field| {
+            field
+                .child("Uni")
+                .map(|uni| uni.text.clone())
+                .unwrap_or_default()
+        })
+    });
+    let (parser_parameters, parser_issues, settings_presence) =
+        parser_params::parse_with_issues(parser_raw.as_deref())?;
+    record_parser_settings(ctx, &parser_parameters, &settings_presence);
+    ctx.warnings.extend(parser_issues);
 
-    Morphology {
+    Ok(Morphology {
         parts_of_speech,
         compound_rules,
         adhoc_prohibitions,
         exception_features,
         lex_entry_infl_types,
         parser_parameters,
+    })
+}
+
+/// Records each parser-parameter setting present in the source `<Uni>`; a malformed `XAmple` field is rejected using the warning `parser_params` already emitted, never a second one.
+fn record_parser_settings(
+    ctx: &mut Ctx,
+    parsed: &ParserParameters,
+    presence: &parser_params::ParserSettingsPresence,
+) {
+    if presence.active_parser {
+        record_present_setting(ctx, "ActiveParser");
     }
+    if presence.accept_unspecified_graphemes {
+        record_present_setting(ctx, "AcceptUnspecifiedGraphemes");
+    }
+    for (field, parsed_ok) in &presence.xample_fields {
+        let name = format!("XAmple.{field}");
+        let key = InventoryKey::setting(InventoryKind::ParserSetting, name);
+        ctx.authored(key.clone());
+        ctx.considered(key.clone());
+        ctx.selected(key.clone());
+        if *parsed_ok {
+            ctx.represented(key);
+        } else {
+            ctx.record_rejected(
+                key,
+                ConversionIssue {
+                    code: super::codes::INVALID_PARSER_PARAMETER.to_string(),
+                    class: IssueClass::MalformedSource,
+                    source: None,
+                    fatal: false,
+                    message: format!(
+                        "morphology.parserParameters: XAmple {field} is present but malformed"
+                    ),
+                },
+            );
+        }
+    }
+    if parsed.strata.is_some() {
+        record_present_setting_kind(ctx, InventoryKind::StrataConfiguration, "Strata");
+    }
+}
+
+fn record_present_setting(ctx: &mut Ctx, name: &str) {
+    record_present_setting_kind(ctx, InventoryKind::ParserSetting, name);
+}
+
+fn record_present_setting_kind(ctx: &mut Ctx, kind: InventoryKind, name: &str) {
+    let key = InventoryKey::setting(kind, name.to_string());
+    ctx.authored(key.clone());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    ctx.represented(key);
 }
 
 // Parts of speech
@@ -76,6 +138,9 @@ fn extract_pos_forest(ctx: &mut Ctx, list_guid: &str) -> Vec<PartOfSpeech> {
 
 fn extract_pos(ctx: &mut Ctx, guid: &str) -> Option<PartOfSpeech> {
     let rec = ctx.require(guid, "PartOfSpeech", "morphology.partsOfSpeech")?;
+    let key = InventoryKey::object(InventoryKind::PartOfSpeech, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
     let name = ctx.best_analysis(&rec.node.ws_forms("Name"));
     let abbreviation = ctx.best_analysis(&rec.node.ws_forms("Abbreviation"));
     let children = rec
@@ -110,6 +175,7 @@ fn extract_pos(ctx: &mut Ctx, guid: &str) -> Option<PartOfSpeech> {
         .into_iter()
         .filter_map(|g| extract_affix_template(ctx, &g))
         .collect();
+    ctx.represented(key);
     Some(PartOfSpeech {
         guid: guid.to_string(),
         name,
@@ -130,22 +196,30 @@ fn extract_inflection_class(ctx: &mut Ctx, guid: &str) -> Option<InflectionClass
         "MoInflClass",
         "morphology.partsOfSpeech.inflectionClasses",
     )?;
+    let key = InventoryKey::object(InventoryKind::InflectionClass, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
     let children = rec
         .node
         .objsur_list("Subclasses")
         .into_iter()
         .filter_map(|g| extract_inflection_class(ctx, &g))
         .collect();
-    Some(InflectionClass {
+    let class = InflectionClass {
         guid: guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         abbreviation: ctx.best_analysis(&rec.node.ws_forms("Abbreviation")),
         children,
-    })
+    };
+    ctx.represented(key);
+    Some(class)
 }
 
 fn extract_stem_name(ctx: &mut Ctx, guid: &str) -> Option<StemName> {
     let rec = ctx.require(guid, "MoStemName", "morphology.partsOfSpeech.stemNames")?;
+    let key = InventoryKey::object(InventoryKind::StemName, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
     let name = ctx.best_analysis(&rec.node.ws_forms("Name"));
     let abbrev_forms = rec.node.ws_forms("Abbreviation");
     let abbreviation = if abbrev_forms.is_empty() {
@@ -159,6 +233,7 @@ fn extract_stem_name(ctx: &mut Ctx, guid: &str) -> Option<StemName> {
         .into_iter()
         .filter_map(|g| extract_feature_structure(ctx, &g, "morphology.partsOfSpeech.stemNames"))
         .collect();
+    ctx.represented(key);
     Some(StemName {
         guid: guid.to_string(),
         name,
@@ -173,11 +248,16 @@ fn extract_affix_slot(ctx: &mut Ctx, guid: &str) -> Option<AffixSlot> {
         "MoInflAffixSlot",
         "morphology.partsOfSpeech.affixSlots",
     )?;
-    Some(AffixSlot {
+    let key = InventoryKey::object(InventoryKind::TemplateSlot, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    let slot = AffixSlot {
         guid: guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         optional: rec.node.val_bool("Optional").unwrap_or(false),
-    })
+    };
+    ctx.represented(key);
+    Some(slot)
 }
 
 fn extract_affix_template(ctx: &mut Ctx, guid: &str) -> Option<AffixTemplate> {
@@ -186,14 +266,62 @@ fn extract_affix_template(ctx: &mut Ctx, guid: &str) -> Option<AffixTemplate> {
         "MoInflAffixTemplate",
         "morphology.partsOfSpeech.affixTemplates",
     )?;
-    Some(AffixTemplate {
+    let key = InventoryKey::object(InventoryKind::Template, guid.to_string());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    let prefix_slots = rec.node.objsur_list("PrefixSlots");
+    let suffix_slots = rec.node.objsur_list("SuffixSlots");
+    let template = AffixTemplate {
         guid: guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         disabled: rec.node.val_bool("Disabled").unwrap_or(false),
-        prefix_slots: rec.node.objsur_list("PrefixSlots"),
-        suffix_slots: rec.node.objsur_list("SuffixSlots"),
+        prefix_slots,
+        suffix_slots,
         is_final: rec.node.val_bool("Final").unwrap_or(false),
-    })
+    };
+    ctx.represented(key);
+    Some(template)
+}
+
+/// Records every affix template's slot attachments across the whole POS forest (a template's slots may belong to any POS, so this runs only once every POS's own slots are already represented).
+fn record_template_slot_attachments(ctx: &mut Ctx, parts_of_speech: &[PartOfSpeech]) {
+    for pos in parts_of_speech {
+        for template in &pos.affix_templates {
+            for slot_guid in template.prefix_slots.iter().chain(&template.suffix_slots) {
+                let attachment = InventoryKey::attachment(
+                    InventoryKind::TemplateSlot,
+                    template.guid.clone(),
+                    slot_guid.clone(),
+                    "slot",
+                );
+                ctx.authored(attachment.clone());
+                ctx.considered(attachment.clone());
+                ctx.selected(attachment.clone());
+                let slot_object =
+                    InventoryKey::object(InventoryKind::TemplateSlot, slot_guid.clone());
+                if ctx.is_represented(&slot_object) {
+                    ctx.represented(attachment);
+                } else {
+                    ctx.reject(
+                        attachment,
+                        super::codes::DANGLING_REFERENCE,
+                        pg_snapshot::IssueClass::InvalidSource,
+                        !template.disabled,
+                        Some(pg_snapshot::SourceRef {
+                            kind: "MoInflAffixSlot".to_string(),
+                            id: slot_guid.clone(),
+                        }),
+                        format!(
+                            "morphology.partsOfSpeech.affixTemplates: template {} references \
+                             slot {slot_guid}, which was not represented",
+                            template.guid
+                        ),
+                    );
+                }
+            }
+        }
+        record_template_slot_attachments(ctx, &pos.children);
+    }
 }
 
 // Compound rules
@@ -212,12 +340,37 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str) -> Option<CompoundRule> {
     let name = ctx.best_analysis(&rec.node.ws_forms("Name"));
     let disabled = rec.node.val_bool("Disabled").unwrap_or(false);
     let label = "morphology.compoundRules";
+    let key = InventoryKey::object(InventoryKind::CompoundRule, guid.to_string());
     match rec.class.as_str() {
         "MoEndoCompound" => {
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
             let head_last = rec.node.val_bool("HeadLast").unwrap_or(false);
-            let left = compound_side(ctx, rec.node.objsur_one("LeftMsa"), label);
-            let right = compound_side(ctx, rec.node.objsur_one("RightMsa"), label);
-            let overriding = compound_outcome(ctx, rec.node.objsur_one("OverridingMsa"), label);
+            let left = compound_side(
+                ctx,
+                guid,
+                "left",
+                rec.node.objsur_one("LeftMsa"),
+                disabled,
+                label,
+            );
+            let right = compound_side(
+                ctx,
+                guid,
+                "right",
+                rec.node.objsur_one("RightMsa"),
+                disabled,
+                label,
+            );
+            let overriding = compound_outcome(
+                ctx,
+                guid,
+                "output",
+                rec.node.objsur_one("OverridingMsa"),
+                disabled,
+                label,
+            );
+            ctx.represented(key);
             Some(CompoundRule::Endocentric {
                 guid: guid.to_string(),
                 name,
@@ -229,9 +382,33 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str) -> Option<CompoundRule> {
             })
         }
         "MoExoCompound" => {
-            let left = compound_side(ctx, rec.node.objsur_one("LeftMsa"), label);
-            let right = compound_side(ctx, rec.node.objsur_one("RightMsa"), label);
-            let to = compound_outcome(ctx, rec.node.objsur_one("ToMsa"), label);
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
+            let left = compound_side(
+                ctx,
+                guid,
+                "left",
+                rec.node.objsur_one("LeftMsa"),
+                disabled,
+                label,
+            );
+            let right = compound_side(
+                ctx,
+                guid,
+                "right",
+                rec.node.objsur_one("RightMsa"),
+                disabled,
+                label,
+            );
+            let to = compound_outcome(
+                ctx,
+                guid,
+                "output",
+                rec.node.objsur_one("ToMsa"),
+                disabled,
+                label,
+            );
+            ctx.represented(key);
             Some(CompoundRule::Exocentric {
                 guid: guid.to_string(),
                 name,
@@ -251,16 +428,61 @@ fn extract_compound_rule(ctx: &mut Ctx, guid: &str) -> Option<CompoundRule> {
     }
 }
 
+/// Records the `CompoundRule`→`Msa` side/output attachment: represented on a successful `require`, otherwise rejected fatal iff the owning rule is enabled (a disabled rule's own dangling reference can never surface at runtime). `ctx.require` has already warned on failure, so this records without a second warning.
+fn record_compound_side_attachment(
+    ctx: &mut Ctx,
+    owner_guid: &str,
+    target_guid: &str,
+    role: &str,
+    rule_disabled: bool,
+    resolved: bool,
+) {
+    let key = InventoryKey::attachment(
+        InventoryKind::Msa,
+        owner_guid.to_string(),
+        target_guid.to_string(),
+        role.to_string(),
+    );
+    ctx.authored(key.clone());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
+    if resolved {
+        ctx.represented(key);
+    } else {
+        ctx.record_rejected(
+            key,
+            ConversionIssue {
+                code: super::codes::DANGLING_REFERENCE.to_string(),
+                class: IssueClass::InvalidSource,
+                source: Some(SourceRef {
+                    kind: "MoStemMsa".to_string(),
+                    id: target_guid.to_string(),
+                }),
+                fatal: !rule_disabled,
+                message: format!(
+                    "morphology.compoundRules: compound rule {owner_guid} references {role} \
+                     MSA {target_guid}, which does not resolve to a MoStemMsa"
+                ),
+            },
+        );
+    }
+}
+
 /// A compound side/outcome is always an `MoStemMsa`, but `HCLoader` only ever reads its `PartOfSpeechRA`/`ProdRestrictRC` pair for a side requirement.
 fn compound_side(
     ctx: &mut Ctx,
+    owner_guid: &str,
+    role: &str,
     msa_guid: Option<String>,
+    rule_disabled: bool,
     label: &str,
 ) -> CompoundConstituentRequirement {
     let Some(guid) = msa_guid else {
         return CompoundConstituentRequirement::default();
     };
-    let Some(rec) = ctx.require(&guid, "MoStemMsa", label) else {
+    let rec = ctx.require(&guid, "MoStemMsa", label);
+    record_compound_side_attachment(ctx, owner_guid, &guid, role, rule_disabled, rec.is_some());
+    let Some(rec) = rec else {
         return CompoundConstituentRequirement::default();
     };
     CompoundConstituentRequirement {
@@ -269,11 +491,20 @@ fn compound_side(
     }
 }
 
-fn compound_outcome(ctx: &mut Ctx, msa_guid: Option<String>, label: &str) -> CompoundOutcome {
+fn compound_outcome(
+    ctx: &mut Ctx,
+    owner_guid: &str,
+    role: &str,
+    msa_guid: Option<String>,
+    rule_disabled: bool,
+    label: &str,
+) -> CompoundOutcome {
     let Some(guid) = msa_guid else {
         return CompoundOutcome::default();
     };
-    let Some(rec) = ctx.require(&guid, "MoStemMsa", label) else {
+    let rec = ctx.require(&guid, "MoStemMsa", label);
+    record_compound_side_attachment(ctx, owner_guid, &guid, role, rule_disabled, rec.is_some());
+    let Some(rec) = rec else {
         return CompoundOutcome::default();
     };
     CompoundOutcome {
@@ -317,6 +548,10 @@ fn extract_adhoc_prohibition(ctx: &mut Ctx, guid: &str) -> Option<AdhocProhibiti
         "MoAlloAdhocProhib" => {
             let primary = rec.node.objsur_one("FirstAllomorph")?;
             let others = rec.node.objsur_list("RestOfAllos");
+            let key = InventoryKey::object(InventoryKind::AllomorphCoOccurrence, guid.to_string());
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
+            ctx.represented(key);
             Some(AdhocProhibition::Allomorph {
                 guid: guid.to_string(),
                 disabled,
@@ -328,6 +563,10 @@ fn extract_adhoc_prohibition(ctx: &mut Ctx, guid: &str) -> Option<AdhocProhibiti
         "MoMorphAdhocProhib" => {
             let primary = rec.node.objsur_one("FirstMorpheme")?;
             let others = rec.node.objsur_list("RestOfMorphs");
+            let key = InventoryKey::object(InventoryKind::MorphemeCoOccurrence, guid.to_string());
+            ctx.considered(key.clone());
+            ctx.selected(key.clone());
+            ctx.represented(key);
             Some(AdhocProhibition::Morpheme {
                 guid: guid.to_string(),
                 disabled,
@@ -478,12 +717,15 @@ fn extract_lex_entry_infl_types(ctx: &mut Ctx, lex_db: &Record) -> Vec<LexEntryI
 }
 
 fn lex_entry_infl_type(ctx: &mut Ctx, rec: &Record) -> Option<LexEntryInflType> {
+    let key = InventoryKey::object(InventoryKind::RuleFeature, rec.guid.clone());
+    ctx.considered(key.clone());
+    ctx.selected(key.clone());
     let inflection_features = rec
         .node
         .objsur_one("InflFeats")
         .and_then(|g| extract_feature_structure(ctx, &g, "morphology.lexEntryInflTypes"))
         .filter(|fs| !fs.values.is_empty());
-    Some(LexEntryInflType {
+    let result = LexEntryInflType {
         guid: rec.guid.clone(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         abbreviation: ctx.best_analysis(&rec.node.ws_forms("Abbreviation")),
@@ -491,7 +733,9 @@ fn lex_entry_infl_type(ctx: &mut Ctx, rec: &Record) -> Option<LexEntryInflType> 
         gloss_append: ctx.best_analysis(&rec.node.ws_forms("GlossAppend")),
         slots: rec.node.objsur_list("Slots"),
         inflection_features,
-    })
+    };
+    ctx.represented(key);
+    Some(result)
 }
 
 // Shared `CmPossibilityList` pre-order walk (used by exception features + LexEntryInflType)
