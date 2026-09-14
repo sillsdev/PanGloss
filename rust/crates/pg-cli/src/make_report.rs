@@ -5,17 +5,17 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
+use crate::readiness_policy::{policy_v1, ThresholdPolicy};
+use crate::readiness_verdict::{
+    certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
+    Measurements, ReadinessReport, Tier, TrustStatus,
+};
 use pg_foma::backend_selection::{select_backends, BackendSelection};
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::health::HealthReport;
 use pg_foma::plan_diagram::{
     build_plan_document_with_semantics, render_mermaid, MermaidRender, RenderMode,
-};
-use crate::readiness_policy::{policy_v1, ThresholdPolicy};
-use crate::readiness_verdict::{
-    certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
-    Measurements, ReadinessReport, Tier, TrustStatus,
 };
 use sha2::{Digest, Sha256};
 
@@ -830,8 +830,8 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     // The `&Grammar` front ends, used only by the golden-render test below; the live command drives the `_with_semantics` forms off its one shared owner.
-    use pg_foma::plan_diagram::build_plan_document;
     use crate::readiness_verdict::certify;
+    use pg_foma::plan_diagram::build_plan_document;
     // Test-only: hoisting these to the module head made the production build warn on every compile.
     use crate::readiness_verdict::{CoverageAssessment, LatencyMeasurement};
 

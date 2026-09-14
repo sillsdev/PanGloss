@@ -122,9 +122,7 @@ pub fn synthesize_with_policy(
 #[inline]
 fn legacy_invocation_role(rule: &MorphRuleDef) -> RuleInvocationRole {
     match rule {
-        MorphRuleDef::AffixProcess(def) if def.is_template_rule => {
-            RuleInvocationRole::TemplateSlot
-        }
+        MorphRuleDef::AffixProcess(def) if def.is_template_rule => RuleInvocationRole::TemplateSlot,
         _ => RuleInvocationRole::Ordinary,
     }
 }
@@ -137,7 +135,13 @@ pub(crate) fn synthesize_stats(
     rule: &MorphRuleDef,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
-    synthesize_stats_with_policy(g, word, rule, mstats, FinalTemplateSynthesisPolicy::default())
+    synthesize_stats_with_policy(
+        g,
+        word,
+        rule,
+        mstats,
+        FinalTemplateSynthesisPolicy::default(),
+    )
 }
 
 pub(crate) fn synthesize_stats_with_policy(
@@ -149,14 +153,7 @@ pub(crate) fn synthesize_stats_with_policy(
 ) -> Vec<Word> {
     // Callers without a call-site role retain the affix metadata interpretation.
     let role = legacy_invocation_role(rule);
-    synthesize_stats_with_policy_and_role(
-        g,
-        word,
-        rule,
-        mstats,
-        policy,
-        role,
-    )
+    synthesize_stats_with_policy_and_role(g, word, rule, mstats, policy, role)
 }
 
 pub(crate) fn synthesize_with_policy_and_role(
@@ -227,16 +224,7 @@ pub(crate) fn synthesize_cached_traced_with_policy(
     // Callers without a role retain metadata semantics; guided synthesis passes one.
     let role = legacy_invocation_role(rule);
     synthesize_cached_traced_with_policy_and_role(
-        g,
-        mrid,
-        word,
-        rule,
-        cache,
-        mstats,
-        trace,
-        parent,
-        policy,
-        role,
+        g, mrid, word, rule, cache, mstats, trace, parent, policy, role,
     )
 }
 
@@ -254,12 +242,12 @@ pub(crate) fn synthesize_cached_traced_with_policy_and_role(
     role: RuleInvocationRole,
 ) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => {
-            synth_affix_cached(g, word, def, mrid, cache, mstats, trace, parent, policy, role)
-        }
-        MorphRuleDef::Compounding(def) => {
-            synth_compound_cached(g, word, def, mrid, cache, mstats, trace, parent, policy, role)
-        }
+        MorphRuleDef::AffixProcess(def) => synth_affix_cached(
+            g, word, def, mrid, cache, mstats, trace, parent, policy, role,
+        ),
+        MorphRuleDef::Compounding(def) => synth_compound_cached(
+            g, word, def, mrid, cache, mstats, trace, parent, policy, role,
+        ),
         MorphRuleDef::Realizational(def) => {
             synth_realizational_cached(g, word, def, mrid, cache, mstats, trace, parent)
         }

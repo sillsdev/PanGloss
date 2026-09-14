@@ -788,7 +788,10 @@ mod tests {
     fn union_shared_symbolic_feature_is_bitwise_or() {
         let a = fs(&[(FA, sym(0b001)), (FB, sym(0b100))]);
         let b = fs(&[(FA, sym(0b010)), (FB, sym(0b001))]);
-        assert_eq!(union(&a, &b, &mask3), fs(&[(FA, sym(0b011)), (FB, sym(0b101))]));
+        assert_eq!(
+            union(&a, &b, &mask3),
+            fs(&[(FA, sym(0b011)), (FB, sym(0b101))])
+        );
     }
 
     /// A shared feature whose OR covers the full declared domain is deleted, same rule as `add`.
@@ -811,11 +814,18 @@ mod tests {
     /// Keys intersect at depth too: a nested key on one side only is dropped, where `add` would keep it (the HC `{head: {...}}` shape).
     #[test]
     fn union_intersects_nested_keys_unlike_add() {
-        let a = fs(&[(CX1, FeatureValue::Complex(fs(&[(FA, sym(0b001)), (FB, sym(0b001))])))]);
+        let a = fs(&[(
+            CX1,
+            FeatureValue::Complex(fs(&[(FA, sym(0b001)), (FB, sym(0b001))])),
+        )]);
         let b = fs(&[(CX1, FeatureValue::Complex(fs(&[(FA, sym(0b010))])))]);
         let want = fs(&[(CX1, FeatureValue::Complex(fs(&[(FA, sym(0b011))])))]);
         assert_eq!(union(&a, &b, &mask3), want);
-        assert_ne!(add(&a, &b, &mask3), want, "add keeps the one-sided nested FB; union must not");
+        assert_ne!(
+            add(&a, &b, &mask3),
+            want,
+            "add keeps the one-sided nested FB; union must not"
+        );
     }
 
     /// A nested struct whose every key unions away (full domain) is itself dropped, as C# `UnionImpl` returns `_definite.Count > 0`.

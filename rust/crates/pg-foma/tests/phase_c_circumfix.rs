@@ -423,7 +423,11 @@ fn process_role_drop_is_routed_through_the_structural_composite_path() {
 
     let emit_result = emit::emit(&g);
     assert!(
-        !emit_result.report.uncovered.iter().any(|u| u.kind == "process"),
+        !emit_result
+            .report
+            .uncovered
+            .iter()
+            .any(|u| u.kind == "process"),
         "a Role::Process standalone rule build_structural_composites covers must not be reported \
          uncovered: {:?}",
         emit_result.report.uncovered

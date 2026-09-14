@@ -874,8 +874,8 @@ mod profile_tests {
     fn new_proposer_matches_new_proposer_with_profile_byte_for_byte() {
         let g = load_fixture();
 
-        let mut without_profile = FomaProposer::new_proposer(&g)
-            .unwrap_or_else(|e| panic!("new_proposer failed: {e}"));
+        let mut without_profile =
+            FomaProposer::new_proposer(&g).unwrap_or_else(|e| panic!("new_proposer failed: {e}"));
         let (with_profile, _profile) = FomaProposer::new_proposer_with_profile(&g);
         let mut with_profile =
             with_profile.unwrap_or_else(|e| panic!("new_proposer_with_profile failed: {e}"));

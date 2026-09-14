@@ -222,12 +222,13 @@ fn feature_system_breadth_proposes_alpha_polarity_flip() {
 /// `prDoubleAlpha`'s ambiguous two-feature disagreement must stay an honest refusal, never a silent miscompile.
 #[test]
 fn alpha_variable_name_collision_stays_an_honest_refusal() {
-    let (label, grammar, _words) = open(Root::Machine, "edge-cases", "alpha-variable-name-collision");
+    let (label, grammar, _words) =
+        open(Root::Machine, "edge-cases", "alpha-variable-name-collision");
     match compile_templated_morphotactics(&grammar) {
         Err(_) => {}
-        Ok(_) => panic!(
-            "{label}: an ambiguous disagree-polarity alpha rule must not silently compile"
-        ),
+        Ok(_) => {
+            panic!("{label}: an ambiguous disagree-polarity alpha rule must not silently compile")
+        }
     }
 }
 
@@ -273,7 +274,9 @@ fn truncate_morphotactic_proposes_both_gas_analyses() {
             .iter()
             .find(|analysis| analysis.morpheme_ids.len() == morpheme_count)
             .unwrap_or_else(|| {
-                panic!("{label}: oracle must report a {morpheme_count}-morpheme analysis for \"gas\"")
+                panic!(
+                    "{label}: oracle must report a {morpheme_count}-morpheme analysis for \"gas\""
+                )
             })
     };
     let direct = identity_of(2);
@@ -287,10 +290,9 @@ fn truncate_morphotactic_proposes_both_gas_analyses() {
         direct.root_morpheme_index,
     );
     assert!(
-        candidates
-            .iter()
-            .any(|candidate| (candidate.morphemes.clone(), candidate.root_index)
-                == expected_direct),
+        candidates.iter().any(
+            |candidate| (candidate.morphemes.clone(), candidate.root_index) == expected_direct
+        ),
         "{label}: templated proposer must contain the direct oracle identity {expected_direct:?} \
          for \"gas\"; got {candidates:?}"
     );
@@ -342,4 +344,3 @@ fn truncate_morphotactic_scoreboard_cell_under_templated_underlying_tokens() {
         cell.certification_debug
     );
 }
-

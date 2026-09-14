@@ -7,6 +7,10 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::backend_report::{
+    BackendOptimizationReport, CandidateReport, PruningWaterfall, SearchAccounting,
+    BACKEND_REPORT_SCHEMA_VERSION, DETERMINISTIC_SCORE_SCHEMA_VERSION,
+};
 use pg_foma::backend_optimizer::{
     choose_strategy_with_policy, optimize_with_evaluator, AdaptivePolicy, Budget, BudgetUsage,
     CandidateEvaluator, CandidateState, ConfirmationEvidence, ConstraintTopology,
@@ -14,10 +18,6 @@ use pg_foma::backend_optimizer::{
 };
 use pg_foma::backend_registry::{
     Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION,
-};
-use crate::backend_report::{
-    BackendOptimizationReport, CandidateReport, PruningWaterfall, SearchAccounting,
-    BACKEND_REPORT_SCHEMA_VERSION, DETERMINISTIC_SCORE_SCHEMA_VERSION,
 };
 use pg_foma::backend_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
 use pg_foma::backend_space::StageMeasurement;

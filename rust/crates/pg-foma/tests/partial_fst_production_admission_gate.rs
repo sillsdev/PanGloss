@@ -44,7 +44,10 @@ fn partial_entry_xml() -> String {
 /// `CONTROL_XML` with the AFFIX-PROCESS RULE marked partial and nothing else changed.
 fn partial_rule_xml() -> String {
     CONTROL_XML
-        .replace(r#"morphologicalRules="rule-plain""#, r#"morphologicalRules="rule-partial""#)
+        .replace(
+            r#"morphologicalRules="rule-plain""#,
+            r#"morphologicalRules="rule-partial""#,
+        )
         .replace(
             r#"<MorphologicalRule id="rule-plain" requiredPartsOfSpeech="posV""#,
             r#"<MorphologicalRule id="rule-partial" partial="true" requiredPartsOfSpeech="posV""#,
@@ -68,8 +71,16 @@ fn measure(grammar: &Grammar, strategy: EmissionStrategy) -> Result<(), String> 
 /// The two partial model shapes, each named by the authored id its inventory must report.
 fn partial_shapes() -> Vec<(&'static str, Grammar, &'static str)> {
     vec![
-        ("partial lexical entry", load(&partial_entry_xml()), "entry-partial"),
-        ("partial affix-process rule", load(&partial_rule_xml()), "rule-partial"),
+        (
+            "partial lexical entry",
+            load(&partial_entry_xml()),
+            "entry-partial",
+        ),
+        (
+            "partial affix-process rule",
+            load(&partial_rule_xml()),
+            "rule-partial",
+        ),
     ]
 }
 
@@ -87,7 +98,11 @@ fn the_control_grammar_declares_no_partials_so_the_fixtures_isolate_one_variable
         let facts = grammar
             .partial_morpheme_facts()
             .expect("partial fixture facts must be valid");
-        assert_eq!(facts.total_count(), 1, "{label}: exactly one partial expected");
+        assert_eq!(
+            facts.total_count(),
+            1,
+            "{label}: exactly one partial expected"
+        );
         assert!(
             facts.authored_ids().any(|id| id == authored_id),
             "{label}: inventory must name {authored_id}, got {:?}",
@@ -100,8 +115,7 @@ fn the_control_grammar_declares_no_partials_so_the_fixtures_isolate_one_variable
 fn every_strategy_refuses_publication_for_both_partial_shapes() {
     for (label, grammar, authored_id) in partial_shapes() {
         for &strategy in ALL_STRATEGIES {
-            let admission = assess_completed_fst(&grammar, strategy)
-                .expect("valid grammar facts");
+            let admission = assess_completed_fst(&grammar, strategy).expect("valid grammar facts");
             assert_eq!(admission.strategy(), strategy, "{label}");
             assert_eq!(
                 admission.health().admission(),
@@ -109,17 +123,31 @@ fn every_strategy_refuses_publication_for_both_partial_shapes() {
                 "{label} x {strategy:?}"
             );
             let by_class = admission.health().admission_by_class();
-            assert_eq!(by_class.readiness, Severity::NotProductionReady, "{label} x {strategy:?}");
-            assert_eq!(by_class.representability, Severity::WithinLimits, "{label} x {strategy:?}");
-            assert_eq!(by_class.containment, Severity::WithinLimits, "{label} x {strategy:?}");
-            assert_eq!(by_class.process, Severity::WithinLimits, "{label} x {strategy:?}");
+            assert_eq!(
+                by_class.readiness,
+                Severity::NotProductionReady,
+                "{label} x {strategy:?}"
+            );
+            assert_eq!(
+                by_class.representability,
+                Severity::WithinLimits,
+                "{label} x {strategy:?}"
+            );
+            assert_eq!(
+                by_class.containment,
+                Severity::WithinLimits,
+                "{label} x {strategy:?}"
+            );
+            assert_eq!(
+                by_class.process,
+                Severity::WithinLimits,
+                "{label} x {strategy:?}"
+            );
             assert!(admission.blocks_publication(), "{label} x {strategy:?}");
 
-            let finding = admission
-                .health()
-                .findings
-                .first()
-                .unwrap_or_else(|| panic!("{label} x {strategy:?}: a blocked admission must carry a finding"));
+            let finding = admission.health().findings.first().unwrap_or_else(|| {
+                panic!("{label} x {strategy:?}: a blocked admission must carry a finding")
+            });
             assert_eq!(finding.code, FindingCode::PartialMorphemeProductionPolicy);
             assert_eq!(finding.class(), FindingClass::Readiness);
             assert_eq!(finding.metric, Metric::PartialMorphemeCount);
@@ -194,7 +222,11 @@ fn the_control_measures_and_stays_publishable_on_every_strategy() {
         eprintln!(
             "control x {}: measurement={} production_blocks={}",
             strategy.label(),
-            if measured.is_ok() { "completed" } else { "did-not-complete" },
+            if measured.is_ok() {
+                "completed"
+            } else {
+                "did-not-complete"
+            },
             admission.blocks_publication(),
         );
         assert!(!admission.blocks_publication(), "control x {strategy:?}");
@@ -257,8 +289,10 @@ fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial
     );
 
     // Partial-dependent words only: a miss elsewhere in the fixture is `faithfulness_coverage_gate`'s question.
-    let only_partial_dependent: Vec<String> =
-        partial_dependent.iter().map(|(word, _)| word.clone()).collect();
+    let only_partial_dependent: Vec<String> = partial_dependent
+        .iter()
+        .map(|(word, _)| word.clone())
+        .collect();
     let observation = pg_foma::faithfulness_coverage::observe_fixture_containment(
         &label,
         &grammar,
@@ -268,14 +302,15 @@ fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial
         pg_foma::faithfulness_coverage::observe_fixture_containment(&label, &grammar, &words);
 
     for &strategy in ALL_STRATEGIES {
-        let outcome_for = |observation: &pg_foma::faithfulness_coverage::FixtureContainmentObservation| {
-            observation
-                .outcomes
-                .iter()
-                .find(|(observed, _)| *observed == strategy)
-                .map(|(_, outcome)| outcome.clone())
-                .unwrap_or_else(|| panic!("{label}: no containment outcome for {strategy:?}"))
-        };
+        let outcome_for =
+            |observation: &pg_foma::faithfulness_coverage::FixtureContainmentObservation| {
+                observation
+                    .outcomes
+                    .iter()
+                    .find(|(observed, _)| *observed == strategy)
+                    .map(|(_, outcome)| outcome.clone())
+                    .unwrap_or_else(|| panic!("{label}: no containment outcome for {strategy:?}"))
+            };
         let partial_outcome = outcome_for(&observation);
         eprintln!(
             "{label} x {}: partial-dependent containment {} | whole-fixture containment {}",

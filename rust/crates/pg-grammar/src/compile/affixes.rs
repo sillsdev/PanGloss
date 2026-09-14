@@ -257,7 +257,7 @@ pub(crate) fn build_affix_rule(
                 warnings,
             )
         } else {
-                rule_form_allos
+            rule_form_allos
                 .iter()
                 .flat_map(|allo| {
                     let placement = match shape_of(allo.morph_type) {
@@ -389,8 +389,9 @@ fn build_circumfix_allomorphs(
 
     let mut out = Vec::new();
     for prefix in &prefixes {
-        let prefix_form =
-            super::format_form(super::best_ws(&prefix.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""));
+        let prefix_form = super::format_form(
+            super::best_ws(&prefix.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""),
+        );
         for suffix in &suffixes {
             let suffix_form = super::format_form(
                 super::best_ws(&suffix.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or(""),
@@ -398,26 +399,40 @@ fn build_circumfix_allomorphs(
             let lead = match insert_segments(&format!("{prefix_form}+"), ctx) {
                 Ok(a) => a,
                 Err(e) => {
-                    warnings.push(format!("circumfix allomorph {:?}: {e}; skipped", prefix.guid));
+                    warnings.push(format!(
+                        "circumfix allomorph {:?}: {e}; skipped",
+                        prefix.guid
+                    ));
                     continue;
                 }
             };
             let trail = match insert_segments(&format!("+{suffix_form}"), ctx) {
                 Ok(a) => a,
                 Err(e) => {
-                    warnings.push(format!("circumfix allomorph {:?}: {e}; skipped", suffix.guid));
+                    warnings.push(format!(
+                        "circumfix allomorph {:?}: {e}; skipped",
+                        suffix.guid
+                    ));
                     continue;
                 }
             };
             // Union of both halves' conditioning, `positions` included per `combined_env_guids` below.
             let mut environments = super::environment::resolve_environment_defs(
-                prefix.environments.iter().chain(&prefix.positions).map(String::as_str),
+                prefix
+                    .environments
+                    .iter()
+                    .chain(&prefix.positions)
+                    .map(String::as_str),
                 ctx,
                 &prefix.guid,
                 warnings,
             );
             environments.extend(super::environment::resolve_environment_defs(
-                suffix.environments.iter().chain(&suffix.positions).map(String::as_str),
+                suffix
+                    .environments
+                    .iter()
+                    .chain(&suffix.positions)
+                    .map(String::as_str),
                 ctx,
                 &suffix.guid,
                 warnings,

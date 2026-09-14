@@ -236,7 +236,8 @@ impl BackendReport {
             }
         }
         self.advice_references.extend(advice_references);
-        self.advice_references = dedup_advice_references(std::mem::take(&mut self.advice_references));
+        self.advice_references =
+            dedup_advice_references(std::mem::take(&mut self.advice_references));
         self
     }
 

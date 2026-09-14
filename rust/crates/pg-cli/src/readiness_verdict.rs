@@ -65,11 +65,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::readiness_policy::ThresholdPolicy;
 use pg_foma::analyzer::FomaProposer;
 use pg_foma::backend_selection::select_backends;
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::grammar_semantics::GrammarSemantics;
-use crate::readiness_policy::ThresholdPolicy;
 // Test-only: production code holds a `GrammarSemantics`, never a bare `Grammar` (see `certify`).
 #[cfg(test)]
 use pg_grammar::model::Grammar;

@@ -29,7 +29,6 @@ pub use model::{
     UnknownVariant, WordRecord,
 };
 pub use path::{default_cache_dir, default_cache_path};
-pub use step_cap::StepCap;
 pub use report::{
     kind_has_any_recorded_object, mixed_settings, never_fires_report, per_allomorph_report,
     per_kind_report, per_morpheme_report, per_object_report, per_word_report,
@@ -38,3 +37,4 @@ pub use report::{
     PerObjectRow, PerWordRow, SortKey, NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
 };
 pub use schema::{COUNTER_SEMANTICS_VERSION, SCHEMA_VERSION};
+pub use step_cap::StepCap;

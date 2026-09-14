@@ -1725,7 +1725,11 @@ mod tests {
     fn a_production_blocked_candidate_cannot_win_or_reach_the_frontier() {
         struct MixedHealthEvaluator;
         impl CandidateEvaluator for MixedHealthEvaluator {
-            fn evaluate(&mut self, candidate: &CandidateState, _remaining: Budget) -> ConfirmationEvidence {
+            fn evaluate(
+                &mut self,
+                candidate: &CandidateState,
+                _remaining: Budget,
+            ) -> ConfirmationEvidence {
                 let score = Score {
                     states: 10,
                     arcs: 10,

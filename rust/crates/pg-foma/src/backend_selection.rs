@@ -21,15 +21,18 @@ use std::collections::HashMap;
 use pg_grammar::model::Grammar;
 
 use crate::advice_catalog::builtin_catalog;
-pub use pg_health::backend_selection::{AdviceReference, BackendReport, BackendSelection, BackendStatus};
 use crate::capability::{
-    compose_envelope_across_strategies, compose_envelope_with_semantics, default_grammar_wide_checks,
-    default_registry, CapabilityContributions, CapabilityDiagnostic, CompileDecision, StrategyEnvelope,
+    compose_envelope_across_strategies, compose_envelope_with_semantics,
+    default_grammar_wide_checks, default_registry, CapabilityContributions, CapabilityDiagnostic,
+    CompileDecision, StrategyEnvelope,
 };
 use crate::enumerate::{enumerate_default, EmissionStrategy};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::junctions::PhonologyProbe;
 use crate::strategy_coverage::ALL_STRATEGIES;
+pub use pg_health::backend_selection::{
+    AdviceReference, BackendReport, BackendSelection, BackendStatus,
+};
 
 /// `PredicateId` -> `GrammarWideCheck::shape_key`, so a grammar-wide check's advice shape is a field it carries, not a second guess re-matched here.
 fn grammar_wide_shape_keys() -> HashMap<crate::capability::PredicateId, &'static str> {

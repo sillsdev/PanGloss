@@ -667,7 +667,9 @@ words:
     #[test]
     fn oracle_provenance_marker_parses_both_recognized_values() {
         assert_eq!(
-            parse_oracle_provenance_marker("# oracle-provenance: founding-oracle machine-commit=abc\nlanguage: X\n"),
+            parse_oracle_provenance_marker(
+                "# oracle-provenance: founding-oracle machine-commit=abc\nlanguage: X\n"
+            ),
             Some(OracleProvenance::FoundingOracle)
         );
         assert_eq!(
@@ -678,7 +680,10 @@ words:
 
     #[test]
     fn oracle_provenance_marker_is_none_when_absent_or_unrecognized() {
-        assert_eq!(parse_oracle_provenance_marker("language: X\nwords: []\n"), None);
+        assert_eq!(
+            parse_oracle_provenance_marker("language: X\nwords: []\n"),
+            None
+        );
         assert_eq!(
             parse_oracle_provenance_marker("# oracle-provenance: something-else\n"),
             None

@@ -261,7 +261,11 @@ impl StatsCollector {
             }
     }
 
-    fn prune_cell(&self, stratum: StratumId, direction: Direction) -> std::cell::RefMut<'_, PruneCounters> {
+    fn prune_cell(
+        &self,
+        stratum: StratumId,
+        direction: Direction,
+    ) -> std::cell::RefMut<'_, PruneCounters> {
         let index = Self::prune_index(stratum, direction);
         let rows = self.prune.borrow_mut();
         assert!(
@@ -280,7 +284,8 @@ impl StatsCollector {
 
     /// Record an entire template battery rejected at the pre-memoization seam.
     pub fn record_template_battery_skipped(&self, stratum: StratumId, direction: Direction) {
-        self.prune_cell(stratum, direction).template_batteries_skipped += 1;
+        self.prune_cell(stratum, direction)
+            .template_batteries_skipped += 1;
     }
 
     /// Record one final template rejected before template entry/walk.

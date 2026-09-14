@@ -138,7 +138,8 @@ fn select_backends_characterizes_the_grammar_once_not_once_per_strategy() {
         "the counter must actually have observed select_backends; 0 means it measured nothing"
     );
     assert_eq!(
-        select_calls, 1,
+        select_calls,
+        1,
         "select_backends must characterize the GRAMMAR once, not once per EmissionStrategy ({} \
          strategies)",
         pg_foma::strategy_coverage::ALL_STRATEGIES.len()

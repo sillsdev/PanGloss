@@ -812,10 +812,18 @@ fn surface_variants_impl(
             if let Some(cd_id) = table.lookup_nfd(&candidate) {
                 let cd = table.get(cd_id);
                 let branch_reps: Option<Vec<&str>> = if cd.kind() == CharDefKind::Segment {
-                    Some(cd.representations_nfd().iter().map(String::as_str).collect())
+                    Some(
+                        cd.representations_nfd()
+                            .iter()
+                            .map(String::as_str)
+                            .collect(),
+                    )
                 } else if cd.kind() == CharDefKind::Boundary && boundaries_optional {
-                    let mut reps: Vec<&str> =
-                        cd.representations_nfd().iter().map(String::as_str).collect();
+                    let mut reps: Vec<&str> = cd
+                        .representations_nfd()
+                        .iter()
+                        .map(String::as_str)
+                        .collect();
                     reps.push("");
                     Some(reps)
                 } else {
@@ -1125,10 +1133,7 @@ fn node_alternatives(
 /// `[Vowel]`/`([Vowel])`, module doc).
 ///
 /// Returns `(variants, limit)` exactly like `surface_variants`.
-pub(crate) fn pattern_variants(
-    table: &CharDefTable,
-    shape: &Shape,
-) -> (Vec<String>, VariantLimit) {
+pub(crate) fn pattern_variants(table: &CharDefTable, shape: &Shape) -> (Vec<String>, VariantLimit) {
     let mut variants: Vec<String> = vec![String::new()];
     let mut exhausted = None;
     let mut unbounded = false;
@@ -1340,7 +1345,10 @@ fn node_token_alternatives(
 }
 
 /// `pattern_variants`'s underlying-token twin, in `alphabet`'s own token space.
-fn token_pattern_variants(alphabet: &SegAlphabet<'_>, shape: &Shape) -> (Vec<String>, VariantLimit) {
+fn token_pattern_variants(
+    alphabet: &SegAlphabet<'_>,
+    shape: &Shape,
+) -> (Vec<String>, VariantLimit) {
     let mut variants: Vec<String> = vec![String::new()];
     let mut exhausted = None;
     let mut unbounded = false;
@@ -1395,7 +1403,9 @@ fn token_node_regex_fragment(
     let tokens: Vec<String> = if ids.is_empty() {
         vec!["0".to_string()]
     } else {
-        ids.iter().map(|id| alphabet.token(*id).to_string()).collect()
+        ids.iter()
+            .map(|id| alphabet.token(*id).to_string())
+            .collect()
     };
     let union = if tokens.len() == 1 {
         tokens.into_iter().next().expect("checked len == 1")
@@ -1418,7 +1428,9 @@ fn token_pattern_shape_regex_body(alphabet: &SegAlphabet<'_>, shape: &Shape) -> 
         if kind == NodeKind::Boundary {
             continue;
         }
-        nodes.push(token_node_regex_fragment(alphabet, shape, i, char_def, flags));
+        nodes.push(token_node_regex_fragment(
+            alphabet, shape, i, char_def, flags,
+        ));
     }
     if nodes.is_empty() {
         "[0]".to_string()
@@ -1540,7 +1552,10 @@ pub fn root_variant_census(g: &Grammar) -> Vec<RootVariantFact> {
                     product = product.saturating_mul(count.max(1));
                 }
                 out.push(RootVariantFact {
-                    label: format!("entry{}(morpheme={morpheme_name})#allo{allo_idx}", entry_id.0),
+                    label: format!(
+                        "entry{}(morpheme={morpheme_name})#allo{allo_idx}",
+                        entry_id.0
+                    ),
                     text: allo.shape.text.clone(),
                     is_pattern: allo.is_pattern,
                     nodes,
@@ -2298,8 +2313,7 @@ fn collect_roots(
                                     category: entry.syn_fs,
                                     variants: Vec::new(),
                                     stripped: Vec::new(),
-                                    never_valid_bare: entry.allomorphs.len() == 1
-                                        && allo.is_bound,
+                                    never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
                                     pattern_regex_body: Some(body),
                                 });
                                 counts.allomorphs_emitted += 1;
@@ -2311,8 +2325,7 @@ fn collect_roots(
                                     category: entry.syn_fs,
                                     variants,
                                     stripped: Vec::new(),
-                                    never_valid_bare: entry.allomorphs.len() == 1
-                                        && allo.is_bound,
+                                    never_valid_bare: entry.allomorphs.len() == 1 && allo.is_bound,
                                     pattern_regex_body: None,
                                 });
                                 counts.allomorphs_emitted += 1;
@@ -2365,11 +2378,7 @@ fn collect_roots(
                     uncovered.push(UncoveredItem {
                         kind: "rep-variant-overflow".to_string(),
                         id: label.clone(),
-                        reason: format!(
-                            "root shape {:?}: {}",
-                            allo.shape.text,
-                            limit.describe()
-                        ),
+                        reason: format!("root shape {:?}: {}", allo.shape.text, limit.describe()),
                     });
                 } else if limit == (VariantLimit::Complete { warn: true }) {
                     uncovered.push(UncoveredItem {
@@ -2409,8 +2418,12 @@ fn collect_roots(
                 let mut variants = variants;
                 let feat_shape = (!allo.is_pattern && pattern_regex_body.is_none())
                     .then(|| {
-                        pg_rules::shape_feat::segment_with_features(g, stratum_table, &allo.shape.text)
-                            .ok()
+                        pg_rules::shape_feat::segment_with_features(
+                            g,
+                            stratum_table,
+                            &allo.shape.text,
+                        )
+                        .ok()
                     })
                     .flatten();
                 // Bare-root phonology: unions in the root's real post-cascade surface, tried via `generate_words` first since `probe_surface` is POS-blind and gets a same-stratum, POS-scoped rule wrong on a bare root.
@@ -3077,7 +3090,9 @@ fn emit_rule_allomorphs(
 
 /// The stratum index owning `mid` as a standalone rule (`StratumDef::mrules`); mirrors `origin_table_for_mrule`'s search but for stratum identity rather than its table.
 fn owning_stratum_index_for_mrule(g: &Grammar, mid: MRuleId) -> Option<usize> {
-    g.strata.iter().position(|stratum| stratum.mrules.contains(&mid))
+    g.strata
+        .iter()
+        .position(|stratum| stratum.mrules.contains(&mid))
 }
 
 /// Admits `rules` for `build_unordered_powerset_chain` when every rule applies at most once, shares one `Unordered` stratum, and the count is within `MAX_UNORDERED_POWERSET_RULES`; pinned by `mpr_overwrite_order_dependence_proposes_both_relative_orders` and `strrep_identity_proposes_every_stacking_order`.
@@ -3093,7 +3108,8 @@ fn unordered_reorderable_rule_set(g: &Grammar, rules: &[MRuleId]) -> Option<Vec<
         if owning_stratum_index_for_mrule(g, mid) != Some(stratum_index) {
             return None;
         }
-        let reps = (g.mrules[mid.0 as usize].max_apps() as usize).clamp(1, MAX_DEDICATED_LEVELS_PER_RULE);
+        let reps =
+            (g.mrules[mid.0 as usize].max_apps() as usize).clamp(1, MAX_DEDICATED_LEVELS_PER_RULE);
         if reps != 1 {
             return None;
         }
@@ -3172,7 +3188,17 @@ fn build_deriv_chain(
     if let TextMode::UnderlyingTokens(_) = mode {
         if let Some(order_free) = unordered_reorderable_rule_set(g, rules) {
             build_unordered_powerset_chain(
-                out, g, table, prefix, zone_role, &order_free, width, exit, uncovered, counts, pk,
+                out,
+                g,
+                table,
+                prefix,
+                zone_role,
+                &order_free,
+                width,
+                exit,
+                uncovered,
+                counts,
+                pk,
                 mode,
             );
             return entry_name;
@@ -3788,13 +3814,14 @@ pub fn eager_route_drops_root_spellings(g: &Grammar) -> bool {
     g.strata.iter().any(|sd| {
         let table = &g.char_tables[sd.table.0 as usize];
         sd.entries.iter().any(|entry_id| {
-            g.entries[entry_id.0 as usize].allomorphs.iter().any(|allo| {
-                match pattern_variants(table, &allo.shape.shape).1 {
+            g.entries[entry_id.0 as usize]
+                .allomorphs
+                .iter()
+                .any(|allo| match pattern_variants(table, &allo.shape.shape).1 {
                     VariantLimit::BytesExhausted { .. } => true,
                     VariantLimit::Unbounded => !allo.environments.is_empty(),
                     VariantLimit::Complete { .. } => false,
-                }
-            })
+                })
         })
     })
 }
@@ -4013,9 +4040,10 @@ pub(crate) fn structural_composite_marker_material(
 /// the caller only ever consults this function for a marker whose material is genuinely non-empty.
 pub(crate) fn marker_admission_is_complete(g: &Grammar, marker: &FragmentSpec) -> bool {
     let claimed: std::collections::BTreeSet<u32> = match marker {
-        FragmentSpec::StructuralCompositeMarker => {
-            structural_candidate_rules(g).into_iter().map(|m| m.0).collect()
-        }
+        FragmentSpec::StructuralCompositeMarker => structural_candidate_rules(g)
+            .into_iter()
+            .map(|m| m.0)
+            .collect(),
         FragmentSpec::CompositeEmissionMarker => crate::preexpand::candidate_rules(g)
             .into_iter()
             .map(|(m, _)| m.0)

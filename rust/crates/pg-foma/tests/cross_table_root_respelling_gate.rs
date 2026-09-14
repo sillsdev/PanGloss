@@ -55,9 +55,18 @@ fn respelling_fixtures() -> BTreeMap<String, (Grammar, Vec<String>)> {
         }
         let details: Vec<String> = profile
             .cross_table_respelling_details()
-            .map(|d| format!("{:?} {:?}->{:?}", d.allomorph, d.own_spelling, d.surface_spelling))
+            .map(|d| {
+                format!(
+                    "{:?} {:?}->{:?}",
+                    d.allomorph, d.own_spelling, d.surface_spelling
+                )
+            })
             .collect();
-        eprintln!("{}: cross-table respelling {}", fixture.label(), details.join(", "));
+        eprintln!(
+            "{}: cross-table respelling {}",
+            fixture.label(),
+            details.join(", ")
+        );
         let words = words_yaml.words.iter().map(|w| w.word.clone()).collect();
         found.insert(fixture.label(), (grammar, words));
     }
@@ -67,7 +76,10 @@ fn respelling_fixtures() -> BTreeMap<String, (Grammar, Vec<String>)> {
 #[test]
 fn cross_table_respelling_is_observed_on_exactly_the_known_fixtures() {
     let observed: Vec<String> = respelling_fixtures().keys().cloned().collect();
-    let expected: Vec<String> = EXPECTED.iter().map(|(label, _)| label.to_string()).collect();
+    let expected: Vec<String> = EXPECTED
+        .iter()
+        .map(|(label, _)| label.to_string())
+        .collect();
     assert_eq!(
         observed, expected,
         "the set of fixtures whose characterizer profile carries CrossTableRespelling changed; \
@@ -78,7 +90,10 @@ fn cross_table_respelling_is_observed_on_exactly_the_known_fixtures() {
 #[test]
 fn every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere() {
     let fixtures = respelling_fixtures();
-    assert!(!fixtures.is_empty(), "no fixture exhibits the construct; the gate would be vacuous");
+    assert!(
+        !fixtures.is_empty(),
+        "no fixture exhibits the construct; the gate would be vacuous"
+    );
     // Every cell is measured and printed before anything is asserted, so one flipped verdict never hides the others.
     let mut mismatches = Vec::new();
     for (label, expected) in EXPECTED {
@@ -121,8 +136,13 @@ fn every_respelling_fixture_is_oracle_exact_on_tsp_and_typed_elsewhere() {
                 ));
             }
             if *strategy == EmissionStrategy::TunedSurfaceProbed {
-                let div = cell.divergence.expect("OracleExact carries a divergence delta");
-                assert_eq!(div.oracle_only_identities, 0, "{label}: exact yet misses identities");
+                let div = cell
+                    .divergence
+                    .expect("OracleExact carries a divergence delta");
+                assert_eq!(
+                    div.oracle_only_identities, 0,
+                    "{label}: exact yet misses identities"
+                );
             }
         }
     }
@@ -152,7 +172,10 @@ fn plan_composed_spells_by_bundle_not_by_index() {
         xml[start..end].to_string()
     };
     let (cb1, cb2) = (block("cB1"), block("cB2"));
-    let reordered = xml.replacen(&cb1, "\u{0}", 1).replacen(&cb2, &cb1, 1).replacen("\u{0}", &cb2, 1);
+    let reordered = xml
+        .replacen(&cb1, "\u{0}", 1)
+        .replacen(&cb2, &cb1, 1)
+        .replacen("\u{0}", &cb2, 1);
     assert_ne!(reordered, xml, "the reordering must change the document");
     let grammar = pg_grammar::load(&reordered).expect("reordered grammar loads");
     let words = fixture
@@ -174,11 +197,17 @@ fn plan_composed_spells_by_bundle_not_by_index() {
         eprintln!("reordered [{:?}]: {:?}", cell.strategy, cell.outcome);
     }
     assert!(
-        matches!(outcome(EmissionStrategy::TunedSurfaceProbed), CellOutcome::OracleExact),
+        matches!(
+            outcome(EmissionStrategy::TunedSurfaceProbed),
+            CellOutcome::OracleExact
+        ),
         "the mainline spells by bundle and must not care about table order"
     );
     assert!(
-        matches!(outcome(EmissionStrategy::PlanComposed), CellOutcome::OracleExact),
+        matches!(
+            outcome(EmissionStrategy::PlanComposed),
+            CellOutcome::OracleExact
+        ),
         "PlanComposed lost exactness when the final table was reordered: its token resolution has \
          become index-dependent, so its strategy_coverage row for CrossTableRespelling can no \
          longer say Represents"
