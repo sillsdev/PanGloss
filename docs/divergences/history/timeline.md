@@ -11,11 +11,20 @@ Read `mutual-catches.md` for the narrative behind the entries marked `[mutual ca
 `upstream-prs.md` / `machine-branches.md` for the full detail behind any PR number or branch name
 below.
 
-## 2026-09 — the live PriorityUnion / MergeEquivalentAnalyses front
+## Current reconciliation (2026-09-15)
+
+Rust Exact is on main at `149f88df`, not merely an unmerged branch. Machine #493 merged as
+`52d069f8`; it removes template-required-feature accumulation rather than adopting Rust's union
+widening. Issues [504](https://github.com/sillsdev/machine/issues/504),
+[505](https://github.com/sillsdev/machine/issues/505), [506](https://github.com/sillsdev/machine/issues/506),
+and [507](https://github.com/sillsdev/machine/issues/507) track the remaining shared correctness work.
+The rows below are historical observations at their stated dates, not current branch status.
+
+## 2026-09 — historical PriorityUnion / MergeEquivalentAnalyses work
 
 | Date | Repo | Locator | Summary | Status |
 |---|---|---|---|---|
-| 2026-09-14 13:45 | C# | PR [#493](https://github.com/sillsdev/machine/pull/493), commit `a98228a6` | ddaspit lands the PriorityUnion-generalization fix directly onto PR 493 ("Don't add template required features to analysis output"), matching the fix PanGloss had already ported five days earlier. Review decision: **APPROVED**. Not yet merged (`mergeStateStatus: BEHIND`). | OPEN (approved, unmerged) |
+| 2026-09-14 13:45 | C# | PR [#493](https://github.com/sillsdev/machine/pull/493), commit `a98228a6` | ddaspit commits "Don't add template required features to analysis output" directly onto PR 493. This differs from the earlier PanGloss union-widening approach. Review decision: **APPROVED**. Not yet merged (`mergeStateStatus: BEHIND`). | OPEN (approved, unmerged) |
 | 2026-09-11 20:01 | C# | PR 493 comment | jtmaxwell3 raises a further, still-unresolved concern: `AnalysisAffixTemplateRule` folds a template's `RequiredSyntacticFeatureStruct` into `SyntacticFeatureStruct`, which `Word.ValueEquals` ignores — a rare shape (one inflectional affix reachable from two templates with different required FS) can still drop a valid analysis. Preferred fix (2): stop adding the template's FS at that site. Not yet implemented on either side. | OPEN |
 | 2026-09-11 18:59 | C# | PR 493 comment | jtmaxwell3: `AnalysisStateKey` and `Word.ValueEquals` disagreeing is provably harmless in today's grammar model, because `SyntacticFeatureStruct` is fully determined by `_mruleApps` + `_realizationalFS` — *unless* the template case above is real. | OPEN |
 | 2026-09-11 (branch `hc/memo-key-saturation`) | C# | `0eb2c45c` | "Saturate AnalysisStateKey rule-unapplication counts at each rule's cap" — **reverse-direction port**: brings a PanGloss-measured memo fix back into C#. Not yet a PR. | OPEN, not yet a PR — see `machine-branches.md` |

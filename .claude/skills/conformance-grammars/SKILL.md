@@ -44,7 +44,7 @@ replacement for it.
 Two roots exist, discovered identically by this repo's own tests:
 
 - `machine/conformance/{edge-cases,languages}/<name>/` — the `sillsdev/machine` submodule
-  (`conformance-framework` branch), the eventual PERMANENT home for every fixture.
+  (`integrate-conformance-framework` branch), the eventual PERMANENT home for every fixture.
 - `conformance-staging/{edge-cases,languages}/<name>/` — THIS repo, committed (never gitignored),
   for fixtures that need to land with a bug fix immediately, ahead of upstream review. See
   `docs/conformance-staging-plan.md` for the full design rationale.
@@ -293,12 +293,12 @@ or a second `words.yaml` parser — extend that crate instead.
   — this repo owns the file.
 - **Upstream fixtures** (`machine/conformance/`, i.e. inside the submodule): NEVER hand-edit the
   submodule checkout directly. Changes to an already-graduated fixture go through a
-  `sillsdev/machine` PR (`conformance-framework` branch) like any other upstream contribution, then
+  `sillsdev/machine` PR (`integrate-conformance-framework` branch) like any other upstream contribution, then
   land here via a submodule bump.
 
 ## Graduate: landing a staged fixture upstream
 
-1. Open a PR against `sillsdev/machine` (`conformance-framework` branch) that adds
+1. Open a PR against `sillsdev/machine` (`integrate-conformance-framework` branch) that adds
    `conformance/<edge-cases|languages>/<name>/{grammar.xml,words.yaml}` — a direct copy of the staged
    files (re-verify signatures against the C# founding oracle if the staged version was authored
    against `pangloss` only; note any divergence found as its own finding, don't silently paper over it).
@@ -324,3 +324,14 @@ infix-interdigitation, mpr-gated-exception, optional-template-composite}/`) — 
 step 1–5 above, staged per the Stage section, and confirmed to run in
 `& .\rust\tools\pg.ps1 -Mode test -Package pg-parse -TestTarget conformance_fixtures_gate`. See each fixture's own `STAGING.md` for
 what it pins.
+## Shared correctness tracking
+
+For a fixture addressing shared HC semantics or a C# oracle dependency, open or reuse a Machine
+issue and link it from the fixture evidence and `docs/divergences/` entry. A Rust-only bug does not
+require a Machine issue without shared evidence. State whether the report is a reproduced defect,
+a hypothesis, or a coverage gap; link related PRs instead of recreating their work.
+
+Distinguish a fixture's presence from a run, a grammar mutation from an engine fix-removed test,
+and a posted issue/comment from a fix PR. Require complete parse-identity multisets and statuses;
+a timeout, cap, missing row, or skipped fixture is not a parity pass. Record the actual oracle commit.
+Keep staged copies until the upstream contribution is accepted and the PanGloss pin is advanced.

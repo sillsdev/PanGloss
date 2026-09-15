@@ -6,7 +6,15 @@ read on 2026-09-14. A branch with a `+` in `git branch -a` is checked out in a l
 elsewhere on this machine (`machine.worktrees/`, which was empty at the time of this investigation)
 — that does not change its content, only where its working tree currently lives.
 
-## Branches backing open PRs (see `upstream-prs.md` for the PR-review detail)
+## Current audit (2026-09-15)
+
+The branch table below is a historical snapshot, not current status. Machine #493 is merged at
+`52d069f8`; #494 is open at `3ad6b656`; #491 is open at `7c9aadd8`; #480's conformance head is
+`8bad1934`; #490's documentation head is `3252bbc2`. Rust now uses Exact (`149f88df`), includes
+final-template pruning, and has a health-checker port (`3541fbc2`). See `upstream-prs.md` and the
+numbered ledger for reconciliation. Archived sparse-forest work is not restarted by this cleanup.
+
+## Historical branches backing open PRs (see `upstream-prs.md` for the PR-review detail)
 
 | Branch | Tip SHA | PR | Rust reflects it? |
 |---|---|---|---|

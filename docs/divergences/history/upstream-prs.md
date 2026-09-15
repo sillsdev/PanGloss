@@ -1,21 +1,21 @@
 # Upstream `sillsdev/machine` pull requests
 
 Every PR here touches `SIL.Machine.Morphology.HermitCrab` or its conformance suite. State and
-review data read via `gh pr view`/`gh pr list --repo sillsdev/machine` on 2026-09-14 — re-check
+review data read via `gh pr view`/`gh pr list --repo sillsdev/machine` on 2026-09-15 (focused rows refreshed; review chronology retained) — re-check
 before trusting "current state" for anything still `OPEN`.
 
 ## Summary table
 
 | # | Title | Author | State | Created | Merged | Rust equivalent |
 |---|---|---|---|---|---|---|
-| [494](https://github.com/sillsdev/machine/pull/494) | Change Add to PriorityUnion | jtmaxwell3 | OPEN, `CHANGES_REQUESTED` | 2026-09-04 | — | `5f06e428` (main) |
-| [493](https://github.com/sillsdev/machine/pull/493) | Fix bug in MergeEquivalentAnalyses | jtmaxwell3 | OPEN, `APPROVED` (unmerged) | 2026-09-03 | — | `5f06e428` (main) |
-| [491](https://github.com/sillsdev/machine/pull/491) | Filter final templates in analysis | jtmaxwell3 | OPEN, `REVIEW_REQUIRED` | 2026-08-28 | — | not ported |
+| [494](https://github.com/sillsdev/machine/pull/494) | Change Add to PriorityUnion | jtmaxwell3 | OPEN, `CHANGES_REQUESTED` | 2026-09-04 | — | historical `5f06e428`; superseded by Exact `149f88df` (entry 002) |
+| [493](https://github.com/sillsdev/machine/pull/493) | Fix bug in MergeEquivalentAnalyses | jtmaxwell3 | MERGED | 2026-09-03 | 2026-09-14, `52d069f8` | Earlier Rust port differs from merged template-FS treatment; entry 034 |
+| [491](https://github.com/sillsdev/machine/pull/491) | Filter final templates in analysis | jtmaxwell3 | OPEN, `REVIEW_REQUIRED` | 2026-08-28 | — | Port exists with partial/invocation guards; entry 033 |
 | [490](https://github.com/sillsdev/machine/pull/490) | HermitCrab optimization ledger: 22 attempts, no speedup, one located target | jtmaxwell3 | OPEN, `REVIEW_REQUIRED` | 2026-08-27 | — | N/A (docs only, negative-result ledger) |
 | [489](https://github.com/sillsdev/machine/pull/489) | Fold-step synthesis memo: built, correct, and does not pay | jtmaxwell3 | CLOSED | — | — | N/A (evidence, not proposed for merge) |
 | [488](https://github.com/sillsdev/machine/pull/488) | Measure where HermitCrab's time actually goes, across 33 grammars | jtmaxwell3 | CLOSED | — | — | N/A (measurement only) |
 | [480](https://github.com/sillsdev/machine/pull/480) | Add a conformance suite for HermitCrab, with its adequacy argument | jtmaxwell3 | OPEN, `REVIEW_REQUIRED` | 2026-08-19 | — | PanGloss's `machine` submodule is pinned directly to this PR's branch (`integrate-conformance-framework`) since 2026-07-13 — see `timeline.md`'s pin-history table |
-| [475](https://github.com/sillsdev/machine/pull/475) | Add a grammar health checker for two unenforced preconditions | jtmaxwell3 | OPEN, `REVIEW_REQUIRED` | 2026-08-14 | — | not ported |
+| [475](https://github.com/sillsdev/machine/pull/475) | Add a grammar health checker for two unenforced preconditions | jtmaxwell3 | OPEN, `REVIEW_REQUIRED` | 2026-08-14 | — | Port recorded at `3541fbc2`; outside this focused verification |
 | [474](https://github.com/sillsdev/machine/pull/474) | Cap RealizationalRule synthesis application at once per word | jtmaxwell3 | **MERGED** | 2026-08-13 | 2026-08-18, `ba0e245a` | not separately verified — PanGloss's own `MaxApplicationCount`/`Blockable` handling predates this fixture; see "what still needs doing" below |
 | [471](https://github.com/sillsdev/machine/pull/471) | fix(hermitcrab): make metathesis switch-name order not matter | jtmaxwell3 | **MERGED** | 2026-08-12 | 2026-08-18, `60a0925f` | `b106276a` (records the divergence as closed, cites #471 by number) |
 | [456](https://github.com/sillsdev/machine/pull/456) | Memoize HermitCrab's sequential analysis cascade | johnml1135 | **MERGED** | — | 2026-08-19, `5d26fac6` | PanGloss's own memo work (`pg-memo` crate) is independent; `AnalysisStateKey` from this PR is what PR 493 later reuses |
@@ -75,28 +75,18 @@ code's `AnalysisStateKey` instead (from PR #456).
     `RequiredSyntacticFeatureStruct` from `edSuffix` in the existing `AffixTemplateTests.cs` test at
     line 409) and offers three fixes: (1) make inflectional affixes require the template's category
     at compile time, (2) **stop folding the template's `RequiredFeatureStruct` into the word's FS at
-    `AnalysisAffixTemplateRule.cs:54`** (preferred), (3) do nothing. **This is still open** — no
-    reply from ddaspit as of 2026-09-14.
+    `AnalysisAffixTemplateRule.cs:54`** (preferred), (3) do nothing. This was open at that point; the next item and final merged diff supersede that status.
 12. **ddaspit, 2026-09-14T13:45:06Z (`APPROVED`, commit `a98228a6`).** "In the interest of getting
     this in as quickly as possible," commits the suggested rewrite from comment 2 directly
     (matching solution 2, i.e. stopping the template-FS fold) rather than continuing to discuss it,
     adds tests, and approves. Reviewable shows "all discussions resolved."
 
-**Current state.** `reviewDecision: APPROVED`, checks green, `mergeable: MERGEABLE`,
-`mergeStateStatus: BEHIND`, not merged as of 2026-09-14T13:45:06Z. Item 11's open question (does
-point 12's commit fully address it, or does the rare cross-template case still need attention?) is
-not explicitly re-confirmed by ddaspit's approval — the approval message treats it as "already
-included," but no one restated the specific adversarial scenario against the final diff.
-
-**Rust equivalent.** `5f06e428` (merged to `main`, 2026-09-09) ports PR 493's `AnalysisStateKey`
-merge plus the identity-fallback and `FeatureStruct.Union`-widening fixes that came out of *this*
-review thread — but it landed **before** comment 11 (2026-09-12) raised the
-`AnalysisAffixTemplateRule.cs:54` template-FS-fold concern, so Rust's port has not been checked
-against that specific scenario. **What still needs doing:** re-run PanGloss's `analysis_syn_fs_gate`
-/ `AffixTemplateTests`-style suite against a grammar shaped like comment 11's repro (one
-inflectional affix reachable from two templates with different `RequiredSyntacticFeatureStruct`,
-`RequiredSyntacticFeatureStruct` deleted from the affix itself) once PR 493 actually merges, and
-port `a98228a6`'s exact fix if PanGloss's current port doesn't already produce the same answer.
+**Current state (2026-09-15).** Merged as `52d069f845b43f8bc88a95a56a8511aa58def26f`.
+The merged fix uses AnalysisStateKey, registers only after output insertion succeeds, and stops
+adding template-required syntactic features in analysis. It is not the earlier union-widening proposal.
+Rust still accumulates template-required features; [issue #505](https://github.com/sillsdev/machine/issues/505)
+and entries 034/035 track reconciliation. Existing widening tests passing with widening disabled
+leave a proof gap, not a confirmed need to add widening to Machine.
 
 ### PR #494 — Change Add to PriorityUnion
 
@@ -124,14 +114,13 @@ Mbugwe 14.7M→4.0M feature checks / 340s→133s wall time; Sena 747k→138k fea
 3. **ddaspit, 2026-09-11T15:19:34Z (`COMMENTED`).** Restates the same two asks (unit test,
    compounding-rule parity) — as of this comment, neither has landed on PR 494's own branch.
 
-**Current state.** `reviewDecision: CHANGES_REQUESTED`, checks green, not merged. Reviewable shows
-3 unresolved discussions.
-
-**Rust equivalent.** `5f06e428` (see above) — ports the affix-process AND compounding-rule
-PriorityUnion change together with the FS-Union merge fix, so Rust's port already covers what
-ddaspit is asking for on PR 494's own branch. **What still needs doing:** nothing on the Rust side;
-the gap is entirely upstream (PR 494 itself needs the test + compounding-rule diff added before it
-can merge).
+**Current state (2026-09-15).** Open, head `3ad6b65621ce7eb8fba0747a1329db43cfbcd16a`.
+The current branch includes #493 and tests; historical requests above must not be presented as
+still missing without inspecting this head. Its proposal remains PriorityUnion, not Exact.
+Rust main now uses Exact (`149f88df`). The Exact proposal is a posted comment, not a merge-ready PR.
+[Issue #504](https://github.com/sillsdev/machine/issues/504) tracks the maintainer's requested rerun
+and current shared fixture; [#505](https://github.com/sillsdev/machine/issues/505) tracks merge interactions.
+There is still Rust-side verification work; the former “nothing on the Rust side” claim was wrong.
 
 ## Merged, and what Rust did with them
 
@@ -169,7 +158,7 @@ type. Separately, the `hc/memo-key-saturation` branch (`0eb2c45c`, 2026-09-11, n
 ports a memo-key saturation fix **from PanGloss back into C#** — see `machine-branches.md` and
 `mutual-catches.md`.
 
-## Open, not yet ported
+## Open upstream proposals
 
 ### PR #491 — Filter final templates in analysis
 
@@ -179,7 +168,7 @@ per word. The synthesis side already has an equivalent guard
 (`NonPartialRuleProhibitedAfterFinalTemplate`); the analysis side can't apply it directly because it
 doesn't know yet whether the root is partial, so this PR adds `Morpher.IsFinal`,
 `Morpher.AlwaysEnforceFinalTemplates`, `Word.FinalTemplateState`, and `AffixStateKey.FinalTemplateState`
-to let analysis filter final-template un-application when nothing in the grammar is final. Long
+to let analysis filter final-template un-application when the configured grammar policy permits enforcing final-template restrictions. Long
 review history (`filter-final-templates-in-analysis` branch, 14 commits, "Fix issues reported by
 John Lambert") suggests substantial back-and-forth; `reviewDecision: REVIEW_REQUIRED`, still open.
 **Not ported to Rust.** This is a genuine, not-yet-adopted performance-behavior change — worth
@@ -204,8 +193,7 @@ functionally what this repo's own conformance-staging work already does.
 Reports two hard grammar-authoring requirements (every used segment must be declared in a
 `CharacterDefinitionTable`; each segment needs a distinct phonological feature vector) plus a
 partial-morpheme performance risk, none of which previously produced any diagnostic. Split out of
-PR #480. **Not ported to Rust** — no equivalent health-check surface found in `pg-cli` or
-`pg-grammar` by this investigation.
+PR #480. Rust's port is recorded at `3541fbc2`; the earlier absence claim is stale. This cleanup does not re-verify its behavior.
 
 ## Unverified / could not determine
 
@@ -223,3 +211,13 @@ PR #480. **Not ported to Rust** — no equivalent health-check surface found in 
   the method it describes fixing does not exist on current `origin/master`. Whether the underlying
   C# bug still exists on master, or was fixed through some other unlinked commit, was not
   established.
+## Shared correctness issues
+
+| Issue | Scope | Related PR |
+|---|---|---|
+| [504](https://github.com/sillsdev/machine/issues/504) | Exact inversion and stale-output parse loss | 494 |
+| [505](https://github.com/sillsdev/machine/issues/505) | Discriminating merge coverage and Rust/C# reconciliation | 493, 494 |
+| [506](https://github.com/sillsdev/machine/issues/506) | Unstable zero-width identities; suspected ordering dependency | 500 |
+| [507](https://github.com/sillsdev/machine/issues/507) | Final-template correctness controls | 491, 456 |
+
+#500 remains open: dropped-ID fix and remaining ordering instability are distinct. See entries 036/037.
