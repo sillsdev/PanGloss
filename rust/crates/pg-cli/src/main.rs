@@ -966,11 +966,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.replay_clones,
                 );
             }
-            // T5(b): per-mrule-memo-entry value (docs/research/memory-measurement-repair.md),
-            // extended with work-saved (docs/research/memo-entry-work-value.md): `total_work`
-            // (M2, this word's whole parse -- same figure `HC_STEP_STATS`'s STEPS line prints, via
-            // `outcome.steps`, folded in here so one line carries both without correlating two)
-            // and the subtree-work aggregates (M1) `snapshot()` now also carries.
+            // T5(b) (docs/research/memory-measurement-repair.md), extended by docs/research/memo-entry-work-value.md.
             if std::env::var("HC_MEMO_VALUE_STATS").is_ok() {
                 let s = pg_rules::memo_value::snapshot();
                 eprintln!(
@@ -995,10 +991,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     outcome.steps,
                 );
             }
-            // Per-entry raw dump feeding the offline tuning-curve/joint-distribution analysis in
-            // `docs/research/memo-entry-work-value.md` (M3/M4) -- `HC_MEMO_VALUE_STATS`'s aggregates
-            // above cannot answer "what share of bytes sits in entries with subtree work <= K".
-            // Opt-in separately since this is one line per stored entry (thousands per hard word).
+            // Per-entry dump for docs/research/memo-entry-work-value.md; opt-in (one line per entry).
             if std::env::var("HC_MEMO_VALUE_DUMP").is_ok() {
                 for e in pg_rules::memo_value::dump_entries() {
                     eprintln!(

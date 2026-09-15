@@ -1144,8 +1144,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         }
         pg_memo::profile::record_in_progress_depth(false, depth);
 
-        // Work-value window for this state's own (un-memoized) expansion (see `crate::memo_value`):
-        // ticks consumed between entry and store are the subtree work a hit on this key would save.
+        // Work-value window for this state's own expansion -- see `crate::memo_value`.
         crate::memo_value::enter_subtree(self.budget.steps() as u64);
         let results = self.memo_apply_rules_raw(input, out, scope);
         let subtree_work = crate::memo_value::exit_subtree(self.budget.steps() as u64);

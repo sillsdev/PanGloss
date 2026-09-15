@@ -32,9 +32,7 @@ struct EntryValue {
     descendant_count: u32,
 }
 
-/// One open `memo_apply_rules` frame's window, keyed by `StepBudget::steps()` ticks (one tick per
-/// `apply_one_mrule` attempt -- see `stratum.rs`). `child_ticks`/`descendant_count` accumulate as
-/// nested frames close beneath this one, before this frame itself closes.
+/// One open `memo_apply_rules` frame's window, in `StepBudget` ticks (see `docs/research/memo-entry-work-value.md`).
 struct SubtreeFrame {
     tick_start: u64,
     child_ticks: u64,
@@ -319,11 +317,7 @@ mod tests {
         assert_eq!(percentile_of(&[], 0.5), 0.0);
     }
 
-    /// Self-verification (repo rule: a counter that reads the same on every sample is a bug until
-    /// proven otherwise): a flat leaf (no nested pushes) must have `inclusive == exclusive` and
-    /// `descendant_count == 0`; a parent with one child pushed/popped inside its window must come
-    /// back with `inclusive > exclusive` (the child's ticks subtracted out) and
-    /// `descendant_count == 1` -- i.e. these two shapes are provably NOT the same reading.
+    /// Self-verification: a leaf and a nested parent must NOT read the same (repo rule: a counter that never varies is a bug until proven otherwise).
     #[test]
     fn subtree_work_differs_between_a_leaf_and_a_parent_with_one_child() {
         // Leaf: push at tick 10, pop at tick 16 -- 6 ticks, nothing nested beneath it.
@@ -336,9 +330,7 @@ mod tests {
         );
         assert_eq!(leaf.descendant_count, 0, "a leaf has no descendants");
 
-        // Parent: push at tick 100, one child pushed/popped fully inside (104..109, 5 ticks), then
-        // 3 more of the parent's own ticks before it closes at 112. Parent inclusive = 12
-        // (100..112); child's 5 ticks must be subtracted out of the parent's exclusive.
+        // Parent: one child (104..109, 5 ticks) nested inside 100..112 -- exclusive must drop by 5.
         push_frame(100);
         push_frame(104);
         let child = pop_frame(109);
@@ -359,9 +351,7 @@ mod tests {
         );
     }
 
-    /// Two children (one nested two deep) must roll their descendant counts up correctly: the
-    /// grandparent's `descendant_count` counts BOTH the middle child and the leaf beneath it, not
-    /// just its immediate child -- proving the rollup is transitive, not a flat immediate-child tally.
+    /// A grandparent's `descendant_count` must count the leaf transitively, not just its immediate child.
     #[test]
     fn descendant_count_rolls_up_transitively_through_two_levels() {
         push_frame(0); // grandparent
