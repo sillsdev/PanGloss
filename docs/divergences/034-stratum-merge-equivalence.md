@@ -60,3 +60,6 @@ outside this correction.
 
 ## Upstream
 [Issue #505](https://github.com/sillsdev/machine/issues/505), merged [PR #493](https://github.com/sillsdev/machine/pull/493).
+
+Published implementation evidence: [#505 update](https://github.com/sillsdev/machine/issues/505#issuecomment-5686179488)
+and [conformance PR update](https://github.com/sillsdev/machine/pull/480#issuecomment-5686179895).

@@ -74,5 +74,14 @@ Update `docs/divergences/034-stratum-merge-equivalence.md` and
 - [x] Obtain independent spec-compliance review, then code-quality/correctness review.
 - [x] Inspect every changed file and `git diff --check`; verify fixture mirrors by hashes.
 - [x] Run `./rust/tools/pg.ps1 -Mode test -Package pg-cli -TestTarget divergence_catalogue_gate`.
-- [ ] Commit scoped files, push Machine conformance branch and PanGloss main without force.
-- [ ] Verify remote refs and preserve shared-worktree dirty files unchanged.
+- [x] Commit scoped files, push Machine conformance branch and PanGloss main without force.
+- [x] Verify remote refs and preserve shared-worktree dirty files unchanged.
+
+## Publication checkpoint
+
+The implementation is published to PanGloss main as `fc357daf`, with reviewed ledger/history
+follow-up `8c09cd9a`. Machine's conformance branch is published at `f150e2a0`. Remote refs were
+verified, and local PanGloss main was fast-forwarded with all 60 pre-existing dirty tracked paths
+preserved by SHA-256/absence comparison. The isolated implementation worktree remains available.
+Machine issue #505 and PR #480 have evidence comments; #505 remains open. Entry 034 records
+the exact verification counts, excluded fixtures and remaining correctness questions.
