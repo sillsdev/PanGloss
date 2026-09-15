@@ -44,9 +44,19 @@
 //! tens of thousands of result words while the entry count sits at a small fraction of its cap),
 //! so entry count alone does not bound memory. The byte budget is a second, independent guard
 //! against the residual case where word count alone still admits a few enormous entries (see
-//! `pg_rules::word::estimate_word_bytes`). None of the three evicts: past any cap, a subtree
-//! simply goes unmemoized, degrading hit rate but never correctness — a miss always falls back to
-//! full recomputation.
+//! `pg_rules::word::estimate_word_bytes`). By default none of the three evicts: past any cap, a
+//! subtree simply goes unmemoized, degrading hit rate but never correctness — a miss always falls
+//! back to full recomputation.
+//!
+//! ## Eviction (`evict` module, env-gated OFF)
+//! `HC_MEMO_EVICT` unset leaves every cap above a pure refusal, byte-identical to before this
+//! module existed. Set, the byte budget becomes reclaimable: each table keeps a min-heap of
+//! `(pr, seq, key)` nodes: `pr` a GreedyDual-Size-style priority (`HC_MEMO_EVICT_POLICY` selects
+//! `lru`, `size`, or `gdsize`, C# has no analog — see `docs/divergences/039-memo-eviction.md`),
+//! `seq` a monotonic tie-breaker. A byte-budget refusal first pops the minimum-priority live,
+//! not-in-flight entry and frees it before retrying. This can only change *when* a subtree is
+//! memoized, never a completed word's analysis set — see the divergence entry for the one
+//! documented exception (a step-capped word's completion can depend on hit rate).
 //!
 //! ## Memoization is correctness-neutral
 //! Every cap above, and the order-invariant key itself, must leave the analysis candidate set
@@ -58,8 +68,9 @@
 //! a larger fixture corpus.
 #![forbid(unsafe_code)]
 
+use std::cmp::Reverse;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BinaryHeap};
 use std::hash::BuildHasherDefault;
 
 use pg_featstruct::FeatureStruct;
@@ -259,6 +270,13 @@ pub struct MemoEntry<W> {
     pub results: Vec<W>,
     pub mrule_trail_prefix_length: usize,
     pub non_head_prefix_length: usize,
+    /// Eviction priority as of the most recent store or hit; `0` when eviction has never touched
+    /// this entry (including always, while `HC_MEMO_EVICT` is unset). A popped heap node whose own
+    /// `pr` no longer matches this field is stale and is discarded without touching the entry.
+    pub pr: u64,
+    /// Accounted byte cost recorded at insert time, mirroring what was charged to the owning
+    /// table's byte counter, so eviction can reverse that charge without re-walking `results`.
+    pub bytes: usize,
 }
 
 impl<W> MemoEntry<W> {
@@ -271,12 +289,104 @@ impl<W> MemoEntry<W> {
             results,
             mrule_trail_prefix_length,
             non_head_prefix_length,
+            pr: 0,
+            bytes: 0,
         }
     }
 
     /// Whether this is a positive (replayable) entry rather than a nogood.
     pub fn is_positive(&self) -> bool {
         !self.results.is_empty()
+    }
+}
+
+/// Env-gated eviction policy knobs (`docs/divergences/039-memo-eviction.md`). A later tuning pass
+/// drives `HC_MEMO_EVICT_POLICY`/`HC_MEMO_EVICT_WEIGHT`; this module only builds the mechanism.
+pub mod evict {
+    use std::cell::Cell;
+
+    /// Which term dominates a stored entry's eviction priority.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Policy {
+        /// Recency only, size ignored: `pr` tracks the logical clock, refreshed on every hit.
+        Lru,
+        /// Size only, recency ignored: `pr` is a fixed reciprocal of byte size.
+        Size,
+        /// GreedyDual-Size: `pr = clock + weight * scale / bytes`.
+        GdSize,
+    }
+
+    thread_local! {
+        static ENABLED: Cell<Option<bool>> = const { Cell::new(None) };
+        static POLICY: Cell<Option<Policy>> = const { Cell::new(None) };
+        static WEIGHT: Cell<Option<u64>> = const { Cell::new(None) };
+    }
+
+    /// `HC_MEMO_EVICT` — unset (default) means the byte budget stays a pure refusal, exactly as
+    /// before this module existed; any value turns eviction on. Cached per thread, one env lookup.
+    pub fn enabled() -> bool {
+        ENABLED.with(|c| {
+            if let Some(v) = c.get() {
+                return v;
+            }
+            let v = std::env::var("HC_MEMO_EVICT").is_ok();
+            c.set(Some(v));
+            v
+        })
+    }
+
+    /// `HC_MEMO_EVICT_POLICY` — `lru`, `size`, or `gdsize` (default once eviction is on).
+    pub fn policy() -> Policy {
+        POLICY.with(|c| {
+            if let Some(v) = c.get() {
+                return v;
+            }
+            let v = match std::env::var("HC_MEMO_EVICT_POLICY").ok().as_deref() {
+                Some("lru") => Policy::Lru,
+                Some("size") => Policy::Size,
+                _ => Policy::GdSize,
+            };
+            c.set(Some(v));
+            v
+        })
+    }
+
+    /// `HC_MEMO_EVICT_WEIGHT` — `gdsize`'s recency-vs-size trade (default `1`); ignored by `lru`/`size`.
+    pub fn weight() -> u64 {
+        WEIGHT.with(|c| {
+            if let Some(v) = c.get() {
+                return v;
+            }
+            let v = std::env::var("HC_MEMO_EVICT_WEIGHT")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(1);
+            c.set(Some(v));
+            v
+        })
+    }
+}
+
+/// Fixed-point scale for `evict::Policy::Size`/`GdSize`'s reciprocal size term (integer-only, no floats).
+const EVICT_PR_SCALE: u64 = 1 << 30;
+
+/// One eviction-heap candidate, ordered by `(pr, seq)`; `key` just rides along for the table lookup.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct EvictNode {
+    pr: u64,
+    seq: u64,
+    key: AnalysisStateKey,
+}
+
+impl PartialOrd for EvictNode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for EvictNode {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.pr, self.seq).cmp(&(other.pr, other.seq))
     }
 }
 
@@ -346,6 +456,9 @@ pub mod profile {
         static REPLAY_CLONES: Cell<u64> = const { Cell::new(0) };
         // Sum of `entry.results.len()` over every positive mrule-memo hit (unconditional -- cheap length read, not a tree walk); a hit that clones exactly once per replayed word keeps this in lockstep with REPLAY_CLONES.
         static HIT_RESULTS_LEN_TOTAL: Cell<u64> = const { Cell::new(0) };
+
+        // Entries actually removed by `AnalysisScope::evict_for` (both tables combined); `0` whenever `HC_MEMO_EVICT` is unset, since the branch that increments this never runs.
+        static MEMO_EVICTIONS: Cell<u64> = const { Cell::new(0) };
     }
 
     /// Cached `HC_MEMO_STATS` read (one env lookup per thread, not per call). Callers use this to
@@ -473,6 +586,11 @@ pub mod profile {
         HIT_RESULTS_LEN_TOTAL.with(|c| c.set(c.get() + len as u64));
     }
 
+    /// One entry removed by `AnalysisScope::evict_for` (fires only under `HC_MEMO_EVICT`).
+    pub fn record_eviction() {
+        MEMO_EVICTIONS.with(|c| c.set(c.get() + 1));
+    }
+
     /// One word's whole cumulative memo picture -- snapshot only, never reset.
     #[derive(Debug, Clone, Copy, Default)]
     pub struct MemoProfileSnapshot {
@@ -510,6 +628,8 @@ pub mod profile {
 
         pub replay_clones: u64,
         pub hit_results_len_total: u64,
+
+        pub memo_evictions: u64,
     }
 
     pub fn snapshot() -> MemoProfileSnapshot {
@@ -548,6 +668,8 @@ pub mod profile {
 
             replay_clones: REPLAY_CLONES.with(|c| c.get()),
             hit_results_len_total: HIT_RESULTS_LEN_TOTAL.with(|c| c.get()),
+
+            memo_evictions: MEMO_EVICTIONS.with(|c| c.get()),
         }
     }
 }
@@ -578,6 +700,14 @@ pub struct AnalysisScope<W> {
     memo_bytes_used: usize,
     /// Accounted bytes stored in `template_memo`, against the same `byte_budget`, tracked separately per table.
     template_bytes_used: usize,
+    /// GreedyDual-Size logical clock (`evict` module): set to the evicted node's own `pr` on each eviction.
+    clock: u64,
+    /// Heap tie-breaker, monotonic across both tables; not a time source.
+    seq: u64,
+    /// Eviction candidates for `memo`, stale nodes included (discarded lazily on pop).
+    memo_heap: BinaryHeap<Reverse<EvictNode>>,
+    /// Eviction candidates for `template_memo`, stale nodes included (discarded lazily on pop).
+    template_heap: BinaryHeap<Reverse<EvictNode>>,
 }
 
 impl<W> Default for AnalysisScope<W> {
@@ -597,6 +727,10 @@ impl<W> AnalysisScope<W> {
             byte_budget: Some(DEFAULT_MEMO_BYTE_BUDGET),
             memo_bytes_used: 0,
             template_bytes_used: 0,
+            clock: 0,
+            seq: 0,
+            memo_heap: BinaryHeap::new(),
+            template_heap: BinaryHeap::new(),
         }
     }
 
@@ -698,6 +832,140 @@ impl<W> AnalysisScope<W> {
     /// budget, independent of entry-count capacity.
     pub fn would_exceed_word_budget(&self, results_len: usize) -> bool {
         self.stored_words.saturating_add(results_len) > MAX_MEMO_WORDS
+    }
+
+    /// This entry's eviction priority under the active `evict::policy()` (integer-only, no floats).
+    fn compute_pr(&self, bytes: usize) -> u64 {
+        let denom = (bytes as u64).max(1);
+        match evict::policy() {
+            evict::Policy::Lru => self.clock,
+            evict::Policy::Size => EVICT_PR_SCALE / denom,
+            evict::Policy::GdSize => {
+                let term = evict::weight().saturating_mul(EVICT_PR_SCALE) / denom;
+                self.clock.saturating_add(term)
+            }
+        }
+    }
+
+    fn next_seq(&mut self) -> u64 {
+        let seq = self.seq;
+        self.seq += 1;
+        seq
+    }
+
+    fn heap_mut(&mut self, is_template: bool) -> &mut BinaryHeap<Reverse<EvictNode>> {
+        if is_template {
+            &mut self.template_heap
+        } else {
+            &mut self.memo_heap
+        }
+    }
+
+    /// Store `entry` (already admitted by `has_memo_capacity`/`has_template_capacity` and
+    /// `has_byte_capacity_after_evicting`) and priority-track it. Tracking is a no-op beyond the
+    /// insert itself while `HC_MEMO_EVICT` is unset — `entry.pr`/`bytes` stay `0`, no heap node is
+    /// pushed, and `evict_for` never pops anything, so behaviour is unchanged from before eviction.
+    pub fn store_entry(
+        &mut self,
+        is_template: bool,
+        key: AnalysisStateKey,
+        mut entry: MemoEntry<W>,
+        bytes: usize,
+    ) {
+        if evict::enabled() {
+            let pr = self.compute_pr(bytes);
+            entry.pr = pr;
+            entry.bytes = bytes;
+            let seq = self.next_seq();
+            self.heap_mut(is_template).push(Reverse(EvictNode {
+                pr,
+                seq,
+                key: key.clone(),
+            }));
+        }
+        if is_template {
+            self.template_memo.insert(key, entry);
+        } else {
+            self.memo.insert(key, entry);
+        }
+    }
+
+    /// Re-prime a hit's priority from the *current* clock and push a fresh heap node, leaving the
+    /// old node stale (discarded lazily on pop — no decrease-key). No-op while eviction is off.
+    pub fn note_hit(&mut self, is_template: bool, key: &AnalysisStateKey) {
+        if !evict::enabled() {
+            return;
+        }
+        let table = if is_template {
+            &self.template_memo
+        } else {
+            &self.memo
+        };
+        let Some(bytes) = table.get(key).map(|e| e.bytes) else {
+            return;
+        };
+        let pr = self.compute_pr(bytes);
+        let seq = self.next_seq();
+        let table_mut = if is_template {
+            &mut self.template_memo
+        } else {
+            &mut self.memo
+        };
+        if let Some(e) = table_mut.get_mut(key) {
+            e.pr = pr;
+        }
+        self.heap_mut(is_template).push(Reverse(EvictNode {
+            pr,
+            seq,
+            key: key.clone(),
+        }));
+    }
+
+    /// Pops the minimum-priority live, not-in-flight entry until `needed_bytes` fits or the heap is empty.
+    fn evict_for(&mut self, is_template: bool, needed_bytes: usize) {
+        if !evict::enabled() {
+            return;
+        }
+        while !self.has_byte_capacity(is_template, needed_bytes) {
+            let Some(Reverse(node)) = self.heap_mut(is_template).pop() else {
+                return;
+            };
+            let in_flight = if is_template {
+                self.template_in_progress.contains(&node.key)
+            } else {
+                self.in_progress.contains(&node.key)
+            };
+            if in_flight {
+                continue;
+            }
+            let table = if is_template {
+                &mut self.template_memo
+            } else {
+                &mut self.memo
+            };
+            match table.get(&node.key) {
+                Some(entry) if entry.pr == node.pr => {}
+                _ => continue,
+            }
+            let entry = table.remove(&node.key).expect("checked present above");
+            self.stored_words = self.stored_words.saturating_sub(entry.results.len());
+            if is_template {
+                self.template_bytes_used = self.template_bytes_used.saturating_sub(entry.bytes);
+            } else {
+                self.memo_bytes_used = self.memo_bytes_used.saturating_sub(entry.bytes);
+            }
+            self.clock = node.pr;
+            profile::record_eviction();
+        }
+    }
+
+    /// `has_byte_capacity`, but first spending the eviction heap down (when `HC_MEMO_EVICT` is on)
+    /// to try to make room. Behaves exactly like `has_byte_capacity` while eviction is off.
+    pub fn has_byte_capacity_after_evicting(&mut self, is_template: bool, bytes: usize) -> bool {
+        if !self.has_byte_capacity(is_template, bytes) {
+            self.evict_for(is_template, bytes);
+        }
+        self.has_byte_capacity(is_template, bytes)
     }
 }
 
@@ -913,5 +1181,135 @@ mod tests {
     fn byte_budget_disabled_by_none_never_refuses() {
         let scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(None);
         assert!(scope.has_byte_capacity(false, usize::MAX));
+    }
+
+    // Each eviction test sets `HC_MEMO_EVICT*` itself -- nextest gives every #[test] its own process.
+
+    #[test]
+    fn eviction_off_by_default_never_touches_the_counters() {
+        // HC_MEMO_EVICT deliberately left unset.
+        let mut scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(Some(10));
+        let key_a = key_with(counts_from(&[0]), 0);
+        scope.record_stored_words(1);
+        scope.record_stored_bytes(false, 8);
+        scope.store_entry(false, key_a.clone(), MemoEntry::new(vec![1u32], 0, 0), 8);
+
+        assert!(
+            !scope.has_byte_capacity_after_evicting(false, 8),
+            "8 + 8 > 10-byte budget, and eviction is off, so this must refuse exactly like has_byte_capacity"
+        );
+        assert!(scope.memo.get(&key_a).is_some(), "nothing may be evicted");
+        assert_eq!(profile::snapshot().memo_evictions, 0);
+    }
+
+    #[test]
+    fn eviction_on_frees_room_and_decrements_both_counters() {
+        std::env::set_var("HC_MEMO_EVICT", "1");
+        let mut scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(Some(10));
+        let key_a = key_with(counts_from(&[0]), 0);
+        scope.record_stored_words(3);
+        scope.record_stored_bytes(false, 8);
+        scope.store_entry(false, key_a.clone(), MemoEntry::new(vec![1u32, 2, 3], 0, 0), 8);
+        let words_before = scope.stored_words();
+        let bytes_before = scope.memo_bytes_used();
+
+        let key_b = key_with(counts_from(&[1]), 0);
+        assert!(
+            scope.has_byte_capacity_after_evicting(false, 8),
+            "evicting A's 8 bytes must make room for B's 8 under the 10-byte budget"
+        );
+        // The counters must have FALLEN, not just made room -- see this repo's "a control that cannot act must say so".
+        assert!(
+            scope.stored_words() < words_before,
+            "stored_words must decrease: {} was not < {words_before}",
+            scope.stored_words()
+        );
+        assert!(
+            scope.memo_bytes_used() < bytes_before,
+            "memo_bytes_used must decrease: {} was not < {bytes_before}",
+            scope.memo_bytes_used()
+        );
+        assert!(scope.memo.get(&key_a).is_none(), "A must have been evicted");
+
+        scope.record_stored_words(2);
+        scope.record_stored_bytes(false, 8);
+        scope.store_entry(false, key_b.clone(), MemoEntry::new(vec![4u32, 5], 0, 0), 8);
+        assert!(scope.memo.get(&key_b).is_some(), "B must now be stored");
+        assert!(profile::snapshot().memo_evictions > 0);
+    }
+
+    #[test]
+    fn in_progress_keys_are_never_evicted() {
+        std::env::set_var("HC_MEMO_EVICT", "1");
+        let mut scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(Some(10));
+        let key_a = key_with(counts_from(&[0]), 0);
+        scope.record_stored_words(1);
+        scope.record_stored_bytes(false, 8);
+        scope.store_entry(false, key_a.clone(), MemoEntry::new(vec![1u32], 0, 0), 8);
+        // Synthetic, like `in_progress_guard_blocks_reentry` above: pins the eviction-side guard directly.
+        scope.in_progress.insert(key_a.clone());
+
+        assert!(
+            !scope.has_byte_capacity_after_evicting(false, 8),
+            "A is the only candidate but is in-flight, so no room can be freed"
+        );
+        assert!(
+            scope.memo.get(&key_a).is_some(),
+            "an in-flight entry must survive eviction"
+        );
+    }
+
+    #[test]
+    fn eviction_sequence_is_deterministic_across_two_runs_of_the_same_input() {
+        std::env::set_var("HC_MEMO_EVICT", "1");
+        std::env::set_var("HC_MEMO_EVICT_POLICY", "lru");
+
+        // Budget holds exactly 3 of these entries, so 3 more forces a genuine 3-way `pr` tie, exercising `seq`.
+        fn run() -> (HashSet<AnalysisStateKey>, usize, usize) {
+            let mut scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(Some(30));
+            for i in 0..6u32 {
+                let key = key_with(counts_from(&[i]), 0);
+                if scope.has_byte_capacity_after_evicting(false, 10) {
+                    scope.record_stored_words(1);
+                    scope.record_stored_bytes(false, 10);
+                    scope.store_entry(false, key, MemoEntry::new(vec![i], 0, 0), 10);
+                }
+            }
+            let keys: HashSet<AnalysisStateKey> = scope.memo.keys().cloned().collect();
+            (keys, scope.stored_words(), scope.memo_bytes_used())
+        }
+
+        // Strict FIFO under `lru`: the 3 most-recently-inserted (3, 4, 5) must survive.
+        let expected: HashSet<AnalysisStateKey> = [3u32, 4, 5]
+            .into_iter()
+            .map(|i| key_with(counts_from(&[i]), 0))
+            .collect();
+
+        let evictions_before = profile::snapshot().memo_evictions;
+        let run1 = run();
+        let evictions_mid = profile::snapshot().memo_evictions;
+        let run2 = run();
+        let evictions_after = profile::snapshot().memo_evictions;
+
+        assert_eq!(
+            run1.0, expected,
+            "3-way pr tie under `lru` must resolve by insertion order (the `seq` tie-breaker), not \
+             by whatever order the heap happens to store equal-priority nodes in"
+        );
+        assert_eq!(
+            run1, run2,
+            "the same insert sequence must evict the same keys, leaving the same surviving \
+             set/counters both times"
+        );
+        assert!(
+            evictions_mid > evictions_before,
+            "this scenario (10-byte entries, 30-byte budget, 6 inserts) must actually evict \
+             something, or determinism here is untested"
+        );
+        assert_eq!(
+            evictions_after - evictions_mid,
+            evictions_mid - evictions_before,
+            "both runs must evict the same number of entries"
+        );
     }
 }

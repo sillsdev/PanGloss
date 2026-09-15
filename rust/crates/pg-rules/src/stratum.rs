@@ -1098,7 +1098,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         }
         let (key, hit_replayed) = {
             let key = self.state_key(input);
-            let s = scope.borrow();
+            let mut s = scope.borrow_mut();
             pg_memo::profile::record_lookup(false);
             // Positive-replay or nogood hit: replay each stored result onto this arrival's own trail/non-head prefix.
             let replayed = s.memo.get(&key).map(|entry| {
@@ -1121,6 +1121,10 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     })
                     .collect::<Vec<Word>>()
             });
+            // Re-prime this key's eviction priority from the current clock; no-op while eviction is off.
+            if replayed.is_some() {
+                s.note_hit(false, &key);
+            }
             (key, replayed)
         };
         if let Some(replayed) = hit_replayed {
@@ -1159,7 +1163,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             } else {
                 None
             };
-            if let Some(results_bytes) = results_bytes.filter(|&b| s.has_byte_capacity(false, b)) {
+            if let Some(results_bytes) =
+                results_bytes.filter(|&b| s.has_byte_capacity_after_evicting(false, b))
+            {
                 let cloned_results = results.clone();
                 if pg_memo::profile::enabled() {
                     let (total_words, shape_seg, syn_feats, real_feats, morphs) =
@@ -1183,13 +1189,15 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 );
                 s.record_stored_words(cloned_results.len());
                 s.record_stored_bytes(false, results_bytes);
-                s.memo.insert(
+                s.store_entry(
+                    false,
                     key,
                     MemoEntry::new(
                         cloned_results,
                         input.mrule_apps.len(),
                         input.non_heads.len(),
                     ),
+                    results_bytes,
                 );
             } else {
                 pg_memo::profile::record_insert(false, true);
@@ -1304,11 +1312,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         };
         let key = self.state_key(input);
         {
-            let s = scope.borrow();
+            let mut s = scope.borrow_mut();
             pg_memo::profile::record_lookup(true);
-            if let Some(entry) = s.template_memo.get(&key) {
+            let hit = s.template_memo.get(&key).map(|entry| {
                 pg_memo::profile::record_hit(true, entry.is_positive());
-                let replayed: Vec<Word> = entry
+                entry
                     .results
                     .iter()
                     .map(|stored| {
@@ -1318,8 +1326,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                             entry.non_head_prefix_length,
                         )
                     })
-                    .collect();
-                drop(s);
+                    .collect::<Vec<Word>>()
+            });
+            if let Some(replayed) = hit {
+                // Re-prime this key's eviction priority from the current clock; no-op while eviction is off.
+                s.note_hit(true, &key);
                 return replayed;
             }
         }
@@ -1342,17 +1353,21 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             } else {
                 None
             };
-            if let Some(results_bytes) = results_bytes.filter(|&b| s.has_byte_capacity(true, b)) {
+            if let Some(results_bytes) =
+                results_bytes.filter(|&b| s.has_byte_capacity_after_evicting(true, b))
+            {
                 pg_memo::profile::record_insert(true, false);
                 s.record_stored_words(results.len());
                 s.record_stored_bytes(true, results_bytes);
-                s.template_memo.insert(
+                s.store_entry(
+                    true,
                     key,
                     MemoEntry::new(
                         results.clone(),
                         input.mrule_apps.len(),
                         input.non_heads.len(),
                     ),
+                    results_bytes,
                 );
             } else {
                 pg_memo::profile::record_insert(true, true);

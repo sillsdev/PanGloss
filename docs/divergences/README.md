@@ -110,6 +110,7 @@ what the original claim got wrong.
 | 036 | [Zero-width morpheme identity preservation](036-zero-width-morpheme-identity.md) | behavioural | open | `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs / MarkMorph` | `pg-rules/src/morph.rs::attribute_morphs` | See entry: implementation, fixture and evidence status are separate |
 | 037 | [Oracle annotation ordering instability](037-oracle-annotation-ordering.md) | behavioural | open | `BidirList / tied-node annotation ordering (suspected)` | `pg-parse oracle comparison dependency; no BidirList port claim` | See entry: implementation, fixture and evidence status are separate |
 | 038 | [Edge-segment prefilter candidate](038-edge-segment-prefilter.md) | efficiency | open | `AnalysisAffixProcessAllomorphRuleSpec candidate matching` | `No current Rust port identified` | See entry: implementation, fixture and evidence status are separate |
+| 039 | [Memo eviction](039-memo-eviction.md) | efficiency | open | (no C# equivalent — `AnalysisScope.cs` has no eviction path) | `pg-memo/src/lib.rs` (`evict` module, `AnalysisScope::evict_for`) | `pg-memo/src/lib.rs::tests` eviction tests; `memo_parity_gate`/`memo_corpus_gate` rerun unchanged |
 
 ## Evidence and upstream reporting
 

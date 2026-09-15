@@ -38,7 +38,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `Morpher.cs` (`MatchNodesWithPattern`, `LexicalGuess`) | 027 |
 | `HermitCrabExtensions.cs` | 027 |
 | `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
-| (none — no C# equivalent) | 021, 028, 029 |
+| (none — no C# equivalent) | 021, 028, 029, 039 |
 
 ## By Rust module
 
@@ -67,7 +67,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-foma/src/replace.rs` (`reversed_slots`, `compile_rtl_branch_net`) | 017 |
 | `pg_lexicon::analysis`, FFI `hc_parse_word`/`hc_parse_batch` | 021 |
 | `pg-parse/src/morpher.rs` (`Morpher::with_max_stem_count`) | 022 |
-| `pg-memo/src/lib.rs` | 023, 024, 025 |
+| `pg-memo/src/lib.rs` | 023, 024, 025, 039 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026 |
@@ -103,3 +103,4 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `ApplyRhs` / `attribute_morphs` | 036 | Stable shared zero-width fixture still missing |
 | C# tied-node ordering / oracle comparison | 037 | Fresh-process identity pin still missing |
 | Edge-segment matching / unported prefilter | 038 | Candidate only; no dedicated fixture |
+| Memo eviction / `AnalysisScope::evict_for` | 039 | `pg-memo` unit tests; `memo_parity_gate`/`memo_corpus_gate` (unchanged with eviction off/default) |
