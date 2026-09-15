@@ -6,7 +6,7 @@ This entry separates implementation status from the evidence needed to trust it 
 behavioural.
 
 ## Status
-Open reconciliation. Machine #493 merged as `52d069f845b43f8bc88a95a56a8511aa58def26f`. Rust has state-key/fallback/widening work, but not the same template-feature treatment.
+Partially aligned; broader reconciliation remains open. Machine #493 merged as `52d069f845b43f8bc88a95a56a8511aa58def26f`. Rust now uses gate-only template feature handling. State-key/fallback/widening equivalence is not established by this change.
 
 ## C# site
 `AnalysisStratumRule.MergeEquivalentAnalyses / AnalysisAffixTemplateRule`.
@@ -23,12 +23,37 @@ optional-slot tests assert unchanged intermediate syntactic features; final pars
 cannot establish that invariant. C# also tests a shared suffix with no required features, whereas
 PanGloss's `same_rule_used_in_multiple_templates` covers only the constrained-suffix variant.
 
-This is a confirmed implementation difference, not a demonstrated current PanGloss full-parse
-failure. Existing template-battery widening may mask it. No parser fix or new regression run is
-claimed by this inspection; #505 remains open.
+The gate-only correction removes the saved unification and post-slot feature addition while
+retaining compatibility rejection, slot analysis, all widening, memoization and final-template policy.
+`stratum::template_analysis_tests` directly tests the production template method: an absent optional
+suffix leaves empty features unchanged, a consumed slot preserves its V analysis features, and
+an incompatible input is rejected. Before the correction, the first two feature assertions fail
+and the rejection control passes; after it, all three pass. Temporarily restoring only the removed
+accumulation reproduces both failures; restoring the correction returns all three to green.
+
+Machine commit [`f150e2a0`](https://github.com/sillsdev/machine/commit/f150e2a0) adds
+`shared-template-unconstrained-suffix`, mirrored unchanged in staging until the submodule pin
+advances. Its ten rows pass the C# oracle with both template orders and memoization on/off
+(40 comparisons, no skipped rows). PanGloss's dedicated `template_analysis_conformance` test
+passes all 40 comparisons both before and after the correction. This is full-parse preservation coverage,
+not a demonstrated full-parse failure on current Rust and not proof that widening is necessary.
+
+Managed verification after the correction: `pg-rules` all-target check passes; private state tests
+3/3; `stratum_gate` 15/15 with one existing private-corpus test ignored;
+`csharp_port_affix_template` 5/5; `exact_analysis_fs_recall` 1/1;
+`template_analysis_conformance` 1/1; `conformance_fixtures_gate` 5/5; and
+`divergence_catalogue_gate` 3/3. Generic conformance replay checks 695 words across 66 fixtures,
+with three existing exclusions: `deep-optional-affix-nesting` and `backend-template-generic`
+are opt-in pathological fixtures; `simultaneous-epenthesis-cascade` pins a crash. This is not
+a claim that those excluded cases or the full workspace suite ran. Machine's focused template
+and manifest test selection also passes 22/22 without skips.
 
 ## Remaining work
-#493 registers a canonical state only after output insertion succeeds and stops adding template-required syntactic features to analysis output. Rust still adds those features. Do not describe the merged C# fix as union widening, or assume the earlier Rust port closes this difference. Reproduce the shared-template case and retain both positive and negative continuations.
+#493 also registers a canonical state only after output insertion succeeds. Audit that equivalence
+separately from the now-aligned template feature handling. Do not describe the merged C# fix as
+union widening. Issue #505 remains open for actual same-key collision reachability, downstream
+positive and negative continuations, and feature-correlation evidence; memory representation is
+outside this correction.
 
 ## Upstream
 [Issue #505](https://github.com/sillsdev/machine/issues/505), merged [PR #493](https://github.com/sillsdev/machine/pull/493).

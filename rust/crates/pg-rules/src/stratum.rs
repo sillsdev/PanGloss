@@ -18,7 +18,7 @@ use std::rc::Rc;
 // `std::time::Instant` panics on wasm32-unknown-unknown; `web_time` substitutes only `Instant`, reusing std's `Duration` unchanged.
 use web_time::{Duration, Instant};
 
-use pg_featstruct::{add, is_unifiable, subsumes, subtract, unify, union};
+use pg_featstruct::{is_unifiable, subsumes, subtract, union};
 use pg_grammar::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
     StratumId, TemplateId,
@@ -90,6 +90,10 @@ use crate::word::{
     estimate_word_bytes, runtime_id, FinalTemplateState, MorphStatus, Word, WordKey,
 };
 use crate::{metathesis, morph, rewrite};
+
+#[cfg(test)]
+#[path = "stratum/template_analysis_tests.rs"]
+mod template_analysis_tests;
 
 /// The per-parse memo carrier this module threads through the analysis cascade. `pg-parse` owns one
 /// per `parse_word` call (see `pg_memo::AnalysisScope`) and hands it in via `analyze_stratum_scoped`.
@@ -1360,7 +1364,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             for w in self.analyze_template(tid, input) {
                 let key = w.dedup_key();
                 match seen.get(&key) {
-                    // WordKey ignores syn FS: widen the survivor rather than drop `w`, or a POS only `w`'s template needs is lost.
+                    // WordKey ignores syntactic features, so a collision retains their existing generalization.
                     Some(&idx) => {
                         generalize_syn_fs(&mut out[idx], &w, &|f| self.g.syn_features.mask(f))
                     }
@@ -1377,7 +1381,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         out
     }
 
-    /// Gate on the template's required syntactic FS via `unify` (narrows), unapply slots top-down, then `add` (widening union) onto each output's syntactic FS.
+    /// Required syntactic features gate admission; only slot analysis changes output features.
     fn analyze_template(&self, tid: TemplateId, input: &Word) -> Vec<Word> {
         if !self.rule_admitted(RuleRef::Template(tid)) {
             return Vec::new();
@@ -1403,7 +1407,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         if !is_unifiable(&input.syn_fs, req) {
             return Vec::new();
         }
-        let fs = unify(&input.syn_fs, req).unwrap_or_else(|| input.syn_fs.clone());
         // Fires once per `Apply`, right after the required-syn-FS gate and before the slot walk.
         let node_parent = input.trace.unwrap_or(self.parent);
         if self.trace.is_tracing() {
@@ -1412,12 +1415,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         let mut out: HashMap<WordKey, Word> = HashMap::default();
         // Descend from the last slot.
         self.template_unapply_slots(tid, tmpl, input, tmpl.slots.len() as isize - 1, &mut out);
-        let mut result: Vec<Word> = out.into_values().collect();
-        // Union, not overwrite; see `add`'s doc.
-        for w in &mut result {
-            w.syn_fs = add(&w.syn_fs, &fs, &|f| self.g.syn_features.mask(f));
-        }
-        result
+        out.into_values().collect()
     }
 
     /// Fires `EndUnapplyTemplate` against `w`'s own resolved cursor, if tracing is on at all.

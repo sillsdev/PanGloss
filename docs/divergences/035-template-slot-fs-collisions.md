@@ -18,9 +18,13 @@ Open research. Rust widening is implemented; its necessity and complete safety a
 `docs/research/pg-rules-analysis-syn-fs-gate-notes.md` records that both existing template tests still pass with both widening sites disabled. No load-bearing shared conformance collision grammar is identified. `template-category-sharing` is NOT that grammar.
 
 Machine `a20bce12` has no `AnalysisAffixTemplatesRule` class: the template battery uses `RuleBatch`.
-The unconstrained-suffix variant of C# `SameRuleUsedInMultipleTemplates` is a useful missing
-shared-grammar candidate, but it is not yet a measured red witness against current PanGloss.
-Its existing widening can preserve the valid continuation despite template-feature accumulation.
+The unconstrained-suffix variant of C# `SameRuleUsedInMultipleTemplates` now has a shared grammar:
+Machine [`f150e2a0`](https://github.com/sillsdev/machine/commit/f150e2a0),
+`edge-cases/shared-template-unconstrained-suffix`, mirrored unchanged in PanGloss staging.
+All ten words pass C# in both template orders with memoization on/off (40 comparisons, no skips).
+The same complete multisets pass current Rust before gate-only alignment, so this is preservation
+coverage, not a load-bearing widening witness. Entry 034 records the separate intermediate-state
+red/green correction. This change leaves template, slot and stratum widening untouched.
 
 The six-word template-exclusivity and homophonous-identity control is published in Machine
 [commit a20bce12](https://github.com/sillsdev/machine/commit/a20bce12), on
