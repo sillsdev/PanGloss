@@ -72,13 +72,15 @@
 //! warnings from `.json`/`.fwdata/.fwbackup` dispatch are always printed to stderr, never stdout --
 //! `batch`'s TSV rows are parity-sensitive against C# goldens, so warnings must never be
 //! interleaved into that output stream.
-// `forbid` relaxes only under `alloc-trace` (dev-only, default off): its counting allocator needs one `unsafe impl GlobalAlloc`.
-#![cfg_attr(not(feature = "alloc-trace"), forbid(unsafe_code))]
+// `forbid` relaxes under `alloc-trace` (one `unsafe impl GlobalAlloc`) and on Windows (`winmem.rs`'s one `K32GetProcessMemoryInfo` call).
+#![cfg_attr(not(any(feature = "alloc-trace", windows)), forbid(unsafe_code))]
 
 #[cfg(feature = "alloc-trace")]
 mod alloc_trace;
 #[cfg(test)]
 mod test_support;
+#[cfg(windows)]
+mod winmem;
 
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -753,6 +755,16 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
 
     // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
+
+    // Installed once, before any parsing, so every `HC_CLOCK_SAMPLE=1` reading can query it.
+    #[cfg(feature = "alloc-trace")]
+    pg_rules::clock_sample::set_allocator_query_hook(|| {
+        (
+            alloc_trace::peak_bytes() as u64,
+            alloc_trace::live_bytes() as u64,
+        )
+    });
+
     let t_load = Instant::now();
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
@@ -954,6 +966,24 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.replay_clones,
                 );
             }
+            // T5(b): per-mrule-memo-entry value (docs/research/memory-measurement-repair.md).
+            if std::env::var("HC_MEMO_VALUE_STATS").is_ok() {
+                let s = pg_rules::memo_value::snapshot();
+                eprintln!(
+                    "MEMOVALUE\t{i}\t{word}\tentries={}\ttotal_bytes={}\tzero_hit_entries={}\t\
+                     zero_hit_bytes={}\tmean_hits={:.3}\tmean_results_len={:.3}\t\
+                     mean_depth_at_insert={:.3}\tvalue_p50={:.6}\tvalue_p90={:.6}",
+                    s.entries,
+                    s.total_bytes,
+                    s.zero_hit_entries,
+                    s.zero_hit_bytes,
+                    s.mean_hits,
+                    s.mean_results_len,
+                    s.mean_depth_at_insert,
+                    pg_rules::memo_value::value_per_byte_percentile(0.5),
+                    pg_rules::memo_value::value_per_byte_percentile(0.9),
+                );
+            }
             // Peak live-search-frontier counters, independent of the memo caps above (`docs/research/live-frontier-memory-bound.md`).
             if std::env::var("HC_FRONTIER_STATS").is_ok() {
                 let f = pg_rules::stratum::frontier_profile::snapshot();
@@ -1039,6 +1069,21 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     dropped,
                 );
             }
+            // T5(a): full vs delta cost per stored alternative (docs/research/memory-measurement-repair.md).
+            if std::env::var("HC_ALT_DELTA_STATS").is_ok() {
+                let s = pg_rules::alt_delta::snapshot();
+                eprintln!(
+                    "ALTDELTA\t{i}\t{word}\tsamples={}\tfull_bytes_total={}\tdelta_bytes_total={}\t\
+                     mean_identical_field_frac={:.4}\tratio_p50={:.4}\tratio_p90={:.4}\tratio_max={:.4}",
+                    s.samples,
+                    s.full_bytes_total,
+                    s.delta_bytes_total,
+                    s.mean_identical_fields,
+                    pg_rules::alt_delta::delta_full_ratio_percentile(0.5),
+                    pg_rules::alt_delta::delta_full_ratio_percentile(0.9),
+                    pg_rules::alt_delta::delta_full_ratio_percentile(1.0),
+                );
+            }
             // Ground-truth allocator peak/live bytes for this word (docs/research/word-memory-trace.md).
             #[cfg(feature = "alloc-trace")]
             if std::env::var("HC_ALLOC_STATS").is_ok() {
@@ -1048,6 +1093,42 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     alloc_trace::live_bytes(),
                 );
                 alloc_trace::reset_peak();
+            }
+            // Real OS-reported working set, its own column -- never summed with ALLOC or either model estimator.
+            #[cfg(windows)]
+            if std::env::var("HC_WS_STATS").is_ok() {
+                match winmem::snapshot() {
+                    Some(ws) => eprintln!(
+                        "WS\t{i}\t{word}\tpeak_working_set_bytes={}\tcurrent_working_set_bytes={}",
+                        ws.peak_working_set_bytes, ws.current_working_set_bytes,
+                    ),
+                    None => eprintln!("WS\t{i}\t{word}\tERROR=K32GetProcessMemoryInfo failed"),
+                }
+            }
+            #[cfg(not(windows))]
+            if std::env::var("HC_WS_STATS").is_ok() {
+                eprintln!(
+                    "WS\t{i}\t{word}\tERROR=working-set measurement is Windows-only (K32GetProcessMemoryInfo)"
+                );
+            }
+            // Every pool sampled at the same instants (docs/research/memory-measurement-repair.md, T3).
+            // `record` already no-ops unless HC_CLOCK_SAMPLE is set, so `take_samples` is empty then too.
+            for s in pg_rules::clock_sample::take_samples() {
+                let fmt_opt = |v: Option<u64>| v.map_or_else(|| "-".to_string(), |v| v.to_string());
+                eprintln!(
+                    "CLOCK\t{i}\t{word}\tseq={}\tpoint={}\talloc_peak_bytes={}\talloc_live_bytes={}\t\
+                     live_frontier_bytes={}\tmemo_key_bytes={}\tmemo_results_bytes={}\t\
+                     tpl_key_bytes={}\ttpl_results_bytes={}",
+                    s.seq,
+                    s.point,
+                    fmt_opt(s.alloc_peak_bytes),
+                    fmt_opt(s.alloc_live_bytes),
+                    s.live_frontier_bytes,
+                    s.memo_key_bytes,
+                    s.memo_results_bytes,
+                    s.tpl_key_bytes,
+                    s.tpl_results_bytes,
+                );
             }
             write_batch_row(
                 &mut w,

@@ -52,6 +52,17 @@ pg-stats.workspace = true
 # destroy data) via `pg_stats::report`'s `&rusqlite::Connection`-based queries.
 rusqlite.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# `winmem.rs`: real working-set measurement (`K32GetProcessMemoryInfo`), the ground truth
+# `alloc-trace`'s requested-byte counter cannot give (docs/research/memory-measurement-repair.md).
+# Target-scoped, matching `pg-worker-containment`'s existing windows-sys convention, so a non-Windows
+# build acquires no Windows APIs.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true

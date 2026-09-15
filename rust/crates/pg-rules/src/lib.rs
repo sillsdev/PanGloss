@@ -4,9 +4,12 @@
 //! per-grammar tables indexed by `RuleId(u32)`.
 #![forbid(unsafe_code)]
 
+pub mod alt_delta;
 pub mod bridge;
 pub mod cache;
 pub mod cascade;
+pub mod clock_sample;
+pub mod memo_value;
 pub mod metathesis;
 pub mod morph;
 pub mod rewrite;

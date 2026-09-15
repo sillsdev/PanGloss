@@ -1102,6 +1102,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             pg_memo::profile::record_lookup(false);
             // Positive-replay or nogood hit: replay each stored result onto this arrival's own trail/non-head prefix.
             let replayed = s.memo.get(&key).map(|entry| {
+                crate::memo_value::record_hit(&key);
                 pg_memo::profile::record_hit(false, entry.is_positive());
                 if entry.is_positive() {
                     pg_memo::profile::record_hit_results_len(entry.results.len());
@@ -1170,6 +1171,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     );
                 }
                 pg_memo::profile::record_insert(false, false);
+                crate::memo_value::record_insert(&key, results_bytes, cloned_results.len(), depth);
                 s.record_stored_words(cloned_results.len());
                 s.record_stored_bytes(false, results_bytes);
                 s.memo.insert(
@@ -1642,6 +1644,18 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
         // `HC_WORD_STATS=1`: attribute this stratum pass's `words` to their own fields (docs/research/word-memory-trace.md).
         crate::word_stats::record_live_words(&words);
+        // `HC_CLOCK_SAMPLE=1`: same instant, every pool at once (docs/research/memory-measurement-repair.md, T3).
+        crate::clock_sample::record(
+            "stratum_pass",
+            &words,
+            self.scope.map(std::cell::RefCell::borrow).as_deref(),
+        );
+        // `HC_ALT_DELTA_STATS=1`: T5(a), full vs delta cost per stored alternative.
+        if crate::alt_delta::enabled() {
+            for w in &words {
+                crate::alt_delta::record(w);
+            }
+        }
 
         StratumAnalysis {
             words,
