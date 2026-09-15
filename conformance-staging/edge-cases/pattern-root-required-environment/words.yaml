@@ -7,6 +7,7 @@ sources:
   - "rust/crates/pg-foma/src/emit.rs (collect_roots' pattern_regex_body gate, eager_route_drops_root_spellings)"
   - "rust/crates/pg-foma/src/capability.rs (EagerRouteDropsRootSpellingsCheck / surface-probe.root-spelling-cap)"
 requires: []
+fieldworks_producible: true
 words:
   - word: tik
     note: >-

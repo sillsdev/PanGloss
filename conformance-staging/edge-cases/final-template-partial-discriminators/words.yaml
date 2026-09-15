@@ -65,6 +65,7 @@ inspired_by: ["synthetic final-template partial-rule discriminator probe (not mo
 sources:
   - "SIL.Machine.Morphology.HermitCrab.Conformance/SemanticCoverage/EngineGateInventoryLedgerTests.cs: NonPartialRuleRequiredAfterNonFinalTemplate listed as an unreached gate in the real corpus (no existing fixture combines partial=\"true\" with an AffixTemplate final=\"false\" template)"
 requires: []
+fieldworks_producible: true
 words:
   - word: dakfaga
     note: >-

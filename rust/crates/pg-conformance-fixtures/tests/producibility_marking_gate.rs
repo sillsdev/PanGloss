@@ -8,10 +8,8 @@ use pg_conformance_fixtures::{
 /// Ratchet, not a target: falls only when a fixture is actually marked, never raised to admit a new silent one.
 fn unmarked_allowed(scope: ConformanceScope) -> usize {
     match scope {
-        // Measured after marking every conformance-staging/** fixture (38: 29 edge-cases + 9 filter-passes).
         ConformanceScope::Local => 0,
-        // Measured: 38 staging fixtures marked; 33 machine fixtures unmarked (pin predates their upstream marking).
-        ConformanceScope::All => 33,
+        ConformanceScope::All => 0,
     }
 }
 
