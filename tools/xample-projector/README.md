@@ -16,6 +16,25 @@ reproduces the fixture it came from. `mutate` applies a scripted LibLCM phoneme-
 counterfactual to a CLONE of a project, never the source; `parse` drives the real XAmple engine
 (`XAmpleManagedWrapper`/`xample.dll`) over a project's already-generated XAMPLE files.
 
+## Materializing the pilot witness
+
+`Generate-PilotWitness.ps1` authors the `deep-optional-affix-nesting` grammar into a new
+FieldWorks project, verifies the live HC counts, and then writes the resulting project and
+writing systems under `conformance/edge-cases/deep-optional-affix-nesting/fieldworks` in the
+Machine checkout. It derives the `remove-k-only` GUID and `base_sha256` from that author run, so
+the mutation manifest never contains copied or hand-invented identity values.
+
+Build the helper first, then run the script with the Machine checkout that should receive the
+witness:
+
+```powershell
+& .\build.ps1 -Mode check
+& .\Generate-PilotWitness.ps1 -MachineDir $env:PANGLOSS_MACHINE_DIR
+```
+
+The script refuses to overwrite an existing witness. Run it from this directory with
+`-MachineDir` omitted to use `PANGLOSS_MACHINE_DIR`, or the standard local Machine checkout.
+
 ## Contract
 
 Every producing mode writes a JSON response with `schemaVersion: 1`.
