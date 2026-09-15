@@ -1,6 +1,5 @@
-//! The divergence catalogue broke inside the session that created it: three files numbered `001`,
-//! two numbered `002`, and the extras were evidence dumps rather than entries. A hand-maintained
-//! index cannot notice that, so this checks the properties the convention depends on.
+//! The catalogue broke inside the session that created it: three files numbered `001`.
+//! The properties a hand-maintained index cannot hold: docs/design/agent-doc-gates.md
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -10,8 +9,7 @@ fn divergences_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/divergences")
 }
 
-/// `NNN-slug.md` entries only: `README.md` and `by-module.md` are the index, not entries, and
-/// anything under `evidence/` is supporting material that deliberately carries no id.
+/// `NNN-slug.md` entries only: the index files and everything under `evidence/` carry no id.
 fn entries() -> Vec<(String, String)> {
     let mut out = Vec::new();
     for entry in fs::read_dir(divergences_dir())

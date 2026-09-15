@@ -1,7 +1,5 @@
-//! A skill that tells an agent to run bare Cargo is telling it to do something
-//! `.claude/hooks/block-bare-cargo.py` will refuse, and worse, one of those instructions ran a
-//! built binary directly — the unhardened path behind the resource-exhaustion events CLAUDE.md
-//! tabulates. This gate reads the hook's own refusal list so the two cannot drift.
+//! No skill may instruct an agent to run a Cargo subcommand the bare-cargo hook refuses.
+//! Why it reads the hook rather than restating it: docs/design/agent-doc-gates.md
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,8 +8,7 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-/// The subcommands `block-bare-cargo.py` refuses, read from the hook so this gate cannot claim a
-/// stricter or looser rule than the thing actually enforcing it.
+/// The subcommands the hook refuses, read from the hook so the two cannot drift apart.
 fn refused_subcommands() -> Vec<String> {
     let hook = fs::read_to_string(repo_root().join(".claude/hooks/block-bare-cargo.py"))
         .expect("block-bare-cargo.py is the source of truth for this gate");

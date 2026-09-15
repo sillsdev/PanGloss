@@ -1,19 +1,5 @@
-//! Conformance replay for environment spans on discontinuous morphs: collapsing `attribute_morphs`'s
-//! contiguous-run split back to one record per morph makes `xpitz`/`muat` wrongly parse again.
-//!
-//! THIS PIN IS DEAD AND HAS NEVER RUN IN THIS TREE. It reads a fixture at
-//! `rust/conformance/allomorphy/discontinuous-env/`; neither that directory nor `rust/conformance/`
-//! has ever existed here, so both tests skip twice over -- once on `#[ignore]`, and again on
-//! `have_fixture()` even under `--include-ignored`. CLAUDE.md's "oracle hierarchy" section cites
-//! this very fixture as the worked example of why oracle-diffed fixtures matter, which makes a
-//! silently skipping pin the exact "a control that cannot act must say so" defect that file names.
-//!
-//! To revive: author `conformance-staging/edge-cases/discontinuous-env/` (grammar.xml + words.yaml)
-//! per `.claude/skills/conformance-grammars/SKILL.md`, generate its expectations from the C#
-//! founding oracle, rewrite the body below to use `pg_conformance_fixtures` discovery instead of the
-//! hand-rolled path and `expected.tsv` reader, drop `have_fixture()` so an absent fixture FAILS
-//! rather than skips, and delete both `#[ignore]` attributes. The grammar needs a discontinuous
-//! morph whose allomorph environment holds at its first piece and is violated at a later one.
+//! DEAD PIN: its fixture has never existed in this tree, so both tests skip twice over.
+//! Why that matters and how to revive it: docs/design/agent-doc-gates.md
 
 use std::path::{Path, PathBuf};
 
@@ -42,7 +28,7 @@ fn collect_reasons(sink: &TreeTraceSink, h: TraceHandle, out: &mut Vec<FailureRe
 }
 
 #[test]
-#[ignore = "DEAD PIN: its fixture has never existed at rust/conformance/allomorphy/discontinuous-env/ in this tree. Rebuild it under conformance-staging/edge-cases/ and delete this attribute -- see this file's header."]
+#[ignore = "DEAD PIN: its fixture has never existed at rust/conformance/allomorphy/discontinuous-env/ in this tree. Rebuild it under conformance-staging/edge-cases/ and delete this attribute -- see docs/design/agent-doc-gates.md."]
 fn discontinuous_env_matches_oracle() {
     if !have_fixture() {
         eprintln!("skipping: rust/conformance/allomorphy/discontinuous-env not present on disk");
@@ -74,7 +60,7 @@ fn discontinuous_env_matches_oracle() {
 
 /// The fixture's two red-on-revert words ("xpitz"/"muat") must show `FailureReason::Environments` fired against a rejected candidate somewhere in the trace, not just a correct final signature with no explanation.
 #[test]
-#[ignore = "DEAD PIN: its fixture has never existed at rust/conformance/allomorphy/discontinuous-env/ in this tree. Rebuild it under conformance-staging/edge-cases/ and delete this attribute -- see this file's header."]
+#[ignore = "DEAD PIN: its fixture has never existed at rust/conformance/allomorphy/discontinuous-env/ in this tree. Rebuild it under conformance-staging/edge-cases/ and delete this attribute -- see docs/design/agent-doc-gates.md."]
 fn discontinuous_env_traces_the_rejection_reason() {
     if !have_fixture() {
         eprintln!("skipping: rust/conformance/allomorphy/discontinuous-env not present on disk");

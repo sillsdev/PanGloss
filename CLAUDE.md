@@ -1,760 +1,130 @@
 # Repo instructions
 
-## Classify FST evidence before changing limits
+## What this repo is
 
-Before changing an FST threshold, refusal, retry, or containment mechanism, state whether the
-evidence concerns **correctness/representability**, **production readiness**, or **resource
-containment**, and name the verdict. `Severity` names the blocking TIER; `FindingCode::class()`
-names WHICH question — read them together, never one for the other:
-
-- `LargeMultiplier` — a magnitude is too large, predicted or measured (`ValueProvenance` says
-  which). Class `Readiness`. Blocks nothing. Remedy: check grammar optimization.
-- `CannotRepresent` — the feature cannot be faithfully proposed. Class `Representability`. Blocks
-  building it; never overridable by production selection.
-- `NotProductionReady` — the publication-blocking tier. Its commonest cause is an oversized
-  compiled payload, but a budget stop, a build-process fault and a proven bound land here too; the
-  finding's class says which. A label, not a gate on compiling.
-- `MachineLimit` — an external monitor aborted this attempt. Class `Containment`. About this
-  machine and this attempt, never about the grammar.
-
-Three rules that are easiest to get wrong:
-(a) `NotProductionReady` must never prevent an FST from being built — it blocks only publishing.
-(b) `MachineLimit` is host protection, never a verdict about the grammar.
-(c) A severity alone does not tell you the question. Two findings can share a tier and answer
-    different questions, so route decisions on class and never on an ordinal comparison.
-
-Do not use a `NotProductionReady` label to avoid a contained stress attempt, and never use a larger
-limit to excuse incomplete or unproven output. Follow
-`docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`.
-
-## Never re-derive a decision another module makes — call it, or extract it
-
-Measured over one session: **four of seven code attempts were reverted, and three failed the same
-way.** Each tried to reproduce a condition the emitter already decides, by reading its uncovered-item
-text and writing an equivalent-looking check. Every one was a strict superset of the real condition
-and refused grammars that compile.
-
-- `rule_role`-based check on `Affixation` — changed nothing, because that kind is
-  `Disposition::Proven` and predicates there are never consulted. No test failed. No behaviour
-  differed. Only a before/after divergence count showed it was inert.
-- `rule_role == Reduplication` — closed 4 divergences, broke 5 working ones.
-- `preexpand::unbounded_candidate_rules` — the emitter's **own** helper, and still broke 3 tests
-  asserting a concatenative realizational rule compiles.
-
-The third is the lesson in its sharpest form. **A helper named `*_candidates` / `*_candidate_rules`
-names a candidate set, not a decision.** The emitter turned that set into a refusal only under a
-plan-topology flag the caller had skipped. So:
-
-1. **Call the owning module's function.** If the fact is not exposed, **extract** it — factor the
-   condition out of the owner so the owner and the new caller share one computation and cannot
-   drift. `crate::emit::eager_route_refuses_mixed_circumfix_zone` is the worked example: it and
-   the emitter's own `emit_rule_allomorphs` both call the same `standalone_rule_zones`/
-   `allomorph_zone_outcome` pair, so the published fact and the real refusal cannot drift apart.
-2. **A published fact gets a one-way gate.**
-   `the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal` asserts only that a
-   claimed refusal really refuses — the direction a caller gates on, where a false positive costs
-   a working capability.
-3. **Check the seam before the condition.** The same condition that failed as a `CapabilityPredicate`
-   (7 failures against ratified `ConfirmOnly` contracts) passed with 0 at
-   `backend_selection`'s existing per-strategy refusal seam, beside `plan_composed_marker_refusal`.
-   A backend-specific structural fact belongs there, not in a predicate, and needs no
-   `CharacteristicKind`.
-
-## Build the differential measurement before the change, not after
-
-The only reason those four reverts were cheap is that the measurement existed first.
-`envelope_agrees_with_compiler_gate` reports agreement and BOTH divergence directions over every
-fixture x every backend, so each wrong turn was refuted inside one build cycle at zero shipped
-regressions — including the one that produced no failure and no behaviour change at all.
-
-Before changing a refusal, a threshold, or a capability verdict, add the gate that would show the
-change was wrong. Prefer one that reports both directions: a gate that only counts what you closed
-cannot see what you broke. Existing examples to copy rather than reinvent:
-`envelope_agrees_with_compiler_gate`, `faithfulness_coverage_gate`, `witnessed_strategy_coverage_gate`.
-
-Stage the assertion. `FaithfulnessRequirement::NoMoreThan { failures }` is a ratchet, not a target —
-it holds today's count so a new regression fails while a known backlog stays legible. An
-all-or-nothing gate on a non-empty inventory asserts nothing and gets left that way.
-
-## A control that cannot act must say so — silence is the bug, not the symptom
-
-This file states in several places that "I could not look" must never read as "everything is fine."
-That rule keeps being restated because the same defect keeps arriving in a new costume, and every
-instance below was found by accident rather than by anything that was watching. What they share is
-that the code ran, returned, logged nothing alarming, and enforced nothing.
-
-Four found in a single session:
-
-- **`gc -Apply` could never delete anything.** `Get-LiveBuildProcesses` counted `sccache.exe`, which
-  is the long-lived shared daemon this very script starts and reports healthy in every preflight
-  record. So the reclaimer refused unconditionally on every machine where sccache works. Measured:
-  32.2GB of disposable target directories, zero compilers running, one "live build process" — the
-  cache server. **A reclaimer that can never reclaim is the same defect as a gate that never gates**,
-  and it hid behind a refusal message that reads like ordinary caution.
-- **A capability probe admitted on panic.** `templated_route_uncovered_refusal` caught a panic from
-  the compiler's own emission function and returned "no refusal". The thing that panicked was the
-  compiler; a probe that panics is a compile that cannot produce a network. It now refuses with a
-  diagnostic naming the panic.
-- **A per-request budget bound nothing.** `CompileWorkerRequest.chain_depth_cap` is converted to a
-  `ComposeBudget` and passed to `FomaProposer::new_with_budget_and_profile`, whose doc says the
-  compile runs under it. The parameter is dropped one layer down. What made this survive is worth
-  copying into your suspicion: the ENV-configured cap does bind, because `emit.rs` reads
-  `ComposeBudget::from_env()` directly — so every path anyone measured worked, and only the
-  programmatic one was dead.
-- **A predicate registration that could never be consulted.** `compose_envelope` skips predicates on
-  `Disposition::Proven` kinds, so one registered there compiled, ran, changed no test and no
-  behaviour. `capability::inert_predicates` now refuses that shape at unit-test time.
-
-Two rules follow, and the second is the one people skip:
-
-1. **A control that cannot act must fail loudly, not return quietly.** Refuse, panic, or error —
-   name what you could not do. `None`, `false`, "skipped", and an unused parameter all read as
-   success to every caller and every log.
-2. **Verify a mechanism by its EFFECT, never by its message.** The submodule sparse path failed on
-   every worktree creation for months and looked fine, because the failed attempt left
-   `core.sparseCheckout=true` behind and the "full" fallback inherited it — producing the right tree
-   while announcing the wrong thing. A plausible-looking result is not evidence the fast path ran.
-   Check the count deleted, the bytes on disk, the fire-count of the branch you think you took.
-
-## The oracle hierarchy: C# hc.dll is the founding oracle; HC-Rust is a port under test
-
-Two implementations of HermitCrab exist in this project, and they are not peers.
-
-- **The founding oracle** is `SIL.Machine.Morphology.HermitCrab`'s C# implementation (`hc.dll`),
-  exercised via its dotnet tooling per `machine/conformance/PROTOCOL.md` — on this machine, a built
-  `hc-conformance.exe` sits at
-  `C:\Users\johnm\Documents\repos\machine\src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\Release\net10.0\`
-  (dotnet 10 on PATH; verified present). Every conformance fixture's committed `words.yaml` ground
-  truth is authored from this oracle and human-accepted — never generated and never blindly
-  regenerated (ADR-0001, "Supported... is mechanically gated on passing conformance coverage").
-- **`pg_parse::Morpher` (HC-Rust) is a port under test.** It stands in for the founding oracle only
-  when the oracle is unavailable, and a fixture authored that way records HC-Rust's own behavior,
-  not correctness. If HC-Rust diverges from C#, an HC-Rust-only fixture enshrines the divergence AS
-  the expected answer — a silent wrong-by-construction result indistinguishable from a real one
-  until someone oracle-diffs it.
-- **Where the oracle itself is unverified for a configuration, that configuration is unsupported by
-  definition** — there is no correct behavior to check a Backend's Construct disposition against
-  (ADR-0001:51-54, e.g. simultaneous-subrule overlap, never pinned against `hc.dll`).
-
-**This has already bitten.** `rust/crates/pg-rules/src/validity.rs` (W3.3): the single-merged-morph-
-record approximation mis-anchored environment checks on discontinuous morphs. Pre-fix, Rust accepted
-`xpitz`/`muat`; the C# oracle rejects both, because the environment check fails at the morph's
-*second* piece. The fixture that caught it was oracle-diffed — an HC-Rust-only fixture over the same
-words would have certified the bug as a Construct witness.
-
-**And the pin for it is dead, which is worth more than the example.** `pg-parse/tests/
-discontinuous_env_gate.rs` still names `rust/conformance/allomorphy/discontinuous-env/`, a path that
-has never existed in this tree; both its tests skip twice over, on `#[ignore]` and again on a
-`have_fixture()` guard that survives `--include-ignored`. So the flagship demonstration of oracle
-discipline has protected nothing since July, and nothing noticed. Rebuilding it under
-`conformance-staging/edge-cases/` is open work; until then read that file's header, not this
-paragraph, for its real status.
-
-**Operationally:** expectations for a new or updated staged fixture (`conformance-staging/**`) must
-be verified against the C# founding oracle when it is available on this machine — it is, at the path
-above. A fixture that cannot be oracle-verified (oracle load failure, unreachable checkout, etc.)
-must say so explicitly in its `words.yaml`/`STAGING.md`, naming HC-Rust as the fixture's oracle of
-record until re-verified. Silence reads as "verified against hc.dll" and is the bug, not a
-convenience — see `.claude/skills/conformance-grammars/SKILL.md`'s "Oracle discipline" step.
-
-## Managed build commands (required for agent workflows)
-
-All PanGloss Rust builds and tests in agent workflows MUST go through the managed entry point
-`rust/tools/pg.ps1` (or its thin front ends `rust/tools/build.ps1` / `rust/tools/test.ps1`) —
-never bare Cargo. Bare `cargo build`, `cargo test`, `cargo check`, and `cargo run` are PROHIBITED
-in agent workflows: they bypass target-dir redirection, the shared `sccache` compiler cache, the
-disk-reserve gate, the cross-worktree build-concurrency limit, process-tree cleanup on
-interruption, and — for corpus-backed suites — the fail-closed corpus-required gate that stops a
-worktree from reporting a corpus run as green while its declared inputs are absent. See
-`docs/superpowers/specs/2026-07-29-categorical-build-hardening-design.md` for the full design.
-
-**Reach for `check` first, `test` last.** Measured on this workspace: full-suite test EXECUTION is
-~100s (2143 tests), and pg-foma alone accounts for ~100s of it. The cost of a round trip is not
-running tests — it is compiling and linking **105 integration test targets plus 32 examples** in
-pg-foma alone. So:
-
-- `-Mode check` — `cargo check --all-targets`. Type-checks test and example code, stops before
-  codegen and linking, skips comment hygiene. This is the answer to "did my signature change break
-  test code", which a green `-Mode build` cannot tell you and twice did not.
-- `-Mode quick` — `check`'s question plus `nextest run --lib --bins`. No integration targets.
-- `-Mode test` / `-Mode conformance-test` — the authoritative run. A green `quick` is not a green
-  suite.
-
-Use `-Package` and `-TestTarget` to narrow COMPILATION; `-Filter` narrows execution only and still
-links everything.
-
-**Test runs no longer stop at the first failure.** `--no-fail-fast` is the default for every nextest
-mode; pass `-FailFast` to opt out. One trailing-newline mismatch once kept 838 tests from running,
-and a ledger recorded that early-stopping run's failure count as fact — it was wrong by 18x. A count
-from a run that stopped early is not a count.
-
-Use:
-- `rust/tools/pg.ps1 -Mode check` for the fast inner loop, `-Mode quick` to add unit tests.
-- `rust/tools/pg.ps1 -Mode build` (or `build.ps1`) / `-Mode test` (or `test.ps1`) for ordinary work.
-- `rust/tools/pg.ps1 -Mode corpus-test` for anything gated on `samples/data/` — it refuses before
-  Cargo starts if a required corpus file is missing, and fails a run that records zero executed
-  corpus cases.
-- `rust/tools/pg.ps1 -Mode release` for optimized deliverables (keeps `[profile.release]`'s fat
-  LTO — `test`/`corpus-test` use the lighter `pg-test-opt` profile instead).
-- `rust/tools/pg.ps1 -Mode doc` for rustdoc. This is the ONLY thing in the repo that runs rustdoc,
-  and therefore the only thing that enforces `[workspace.lints.rustdoc] broken_intra_doc_links =
-  "deny"` — which the comment policy depends on, since a doc comment may exceed three lines only if
-  it carries a machine-checked anchor and an intra-doc link is the cheapest one. It passes
-  `--document-private-items` deliberately: most of this workspace is private, and without it rustdoc
-  never reads a private item's doc comment, so the majority of those anchors would go unvalidated.
-- `rust/tools/pg.ps1 -Mode doctor` to check the environment (worktree base, disk, cache, corpus)
-  before either, with no Cargo invocation at all.
-- `rust/tools/pg.ps1 -Mode gc` to report (dry run, the default) or `-Apply` to remove stale managed
-  target directories this repository owns; it never deletes an unmarked, preserved, or still-live
-  directory. **Its busy check is per-directory, never machine-wide.** It used to abstain from the
-  whole sweep whenever any `cargo`/`rustc`/`link` was alive anywhere, which on a box running dozens
-  of worktrees meant the quiet moment never arrived and `-Apply` reclaimed nothing — the same
-  "reclaimer that can never reclaim" defect this file records for the sccache version of the bug,
-  recurring one layer up. A directory is now spared only if a live process names it on its command
-  line or it was written to in the last 15 minutes (`CARGO_TARGET_DIR` never appears on a command
-  line, so the recency check is what sees that build). Measured after the fix: 33 directories and
-  ~60GB reclaimed with 8 builds running concurrently.
-
-Enforcement is a `PreToolUse` hook (`.claude/hooks/block-bare-cargo.py`), not just this rule. It
-refuses `cargo build|test|check|run` and `cargo nextest run`; `cargo fmt`/`clean`/`metadata` pass.
-The escape hatch is `PANGLOSS_ALLOW_BARE_CARGO=1`, deliberately an env var — needing it means the
-managed path is broken and should be fixed, not routed around.
-
-**A feature-gated test needs a second pass, and a one-pass run cannot tell you it was skipped.**
-`pg.ps1` passes no `--features`, so every `#[cfg(feature = "developer-tools")]` test is *compiled
-out* of an ordinary `-Mode test` run. It does not appear as a failure, and it does not appear as a
-skip either — it appears as nothing at all, which is exactly the shape of "I could not look" reading
-as "everything is fine" that this file refuses elsewhere. Measured: `pg-cli --test
-developer_flags_contract` runs **2** tests by default and **4** with the feature on, and the two
-sets are disjoint — the production tests assert the flags are rejected as unknown options, the
-developer tests assert they are honoured. Verifying only the default half proves nothing about the
-other.
-
-So any change touching a developer-gated flag, API, or `CompileSizeMode` variant must be verified
-**twice**. `pg.ps1` reads `PANGLOSS_EXTRA_ARGS` (a binder-proof passthrough appended after
-`-ExtraArgs`), so the second pass is:
-```powershell
-$env:PANGLOSS_EXTRA_ARGS = '--features developer-tools'
-& .\rust\tools\pg.ps1 -Mode test -Package pg-cli -TestTarget developer_flags_contract
-$env:PANGLOSS_EXTRA_ARGS = ''
-```
-Read the printed cargo line back and confirm it really contains `--features developer-tools`; a pass
-that silently lost the flag is indistinguishable from a green run of the wrong half. Clearing the
-variable afterward matters — left set, it silently re-features every later build in the session.
-
-## Keeping SSH / remote desktop alive during builds
-
-This machine is administered remotely, and builds used to freeze SSH and Chrome Remote Desktop
-sessions outright. The cause was not disk and not memory: Cargo defaults to one job per *logical*
-core (20 here), `Enter-BuildSlot` permits 2 concurrent builds, and every resulting `rustc` ran at
-`Normal` priority — the same priority as `sshd` and Chrome Remote Desktop's `remoting_host` video
-encoder. ~40 compiler processes over 20 threads, with nothing left for the daemons the machine is
-reached through. `pg.ps1` now handles this automatically; both knobs are printed in the preflight
-record so a "why is this slower than I expected" question is answerable from the build log:
-
-- **Job cap.** `Get-CargoJobBudget` (`rust/tools/_common.ps1`) sets `CARGO_BUILD_JOBS` to
-  `(logical cores − 6) / MaxConcurrent` — 7 per build here. The reserve is
-  `$script:InteractiveReserveThreads`, overridable with `PANGLOSS_INTERACTIVE_RESERVE`.
-  `.cargo/config.toml` at the **repo root** carries a static `jobs = 8` floor for everything that
-  bypasses `pg.ps1` (rust-analyzer's background `cargo check`, IDE tasks). It is at the repo root,
-  not `rust/`, because `rust/.cargo/config.toml` is gitignored for personal target redirects and so
-  would not exist in a fresh worktree; Cargo merges config from every ancestor directory, deepest
-  winning, so a personal `rust/` override still takes precedence.
-- **Test-execution cap.** `CARGO_BUILD_JOBS` bounds *compilation only*. Once cargo finishes
-  building, nextest and libtest fan out test processes at their own default of one per logical
-  core — 20 here, because `rust/.config/nextest.toml` sets no thread count (it exists, but only to put
-a 10-minute kill on a hung test; read it before adding a knob here). So a capped build was followed straight
-  away by an uncapped 20-wide test run, and that is the heavier half: these suites spawn real
-  processes (`pangloss.exe` and a full C **and** C++ toolchain for
-  `pg-ffi::header_abi`), and corpus/foma cases can each reach many GB of RSS. Twenty at once is a
-  memory storm as much as a CPU one, and memory pressure freezes a remote session faster than CPU
-  load. `pg.ps1` now passes `--test-threads` (nextest) / `-- --test-threads` (libtest) from the
-  same budget. Override with `-TestThreads N`.
-- **Priority.** Cargo is launched `BelowNormal`, which Windows propagates to child processes, so
-  `rustc`/`link.exe` inherit it and any interactive daemon preempts compiler work instantly.
-  **`Set-SccacheServerPriority` is load-bearing here**: with `RUSTC_WRAPPER=sccache`, `rustc` is
-  spawned by the long-lived sccache *server*, not by cargo, so it inherits the *daemon's* priority.
-  Measured before that call existed: 7 concurrent `rustc`, only 2 of them `BelowNormal`. If you
-  ever add another compiler-spawning daemon, it needs the same treatment.
-
-- **Memory headroom.** Threads were capped and *bytes were not*, and the machine was taken to zero
-  memory twice on 2026-07-30 with every CPU control above already in place. A daemon blocked on a
-  page fault stalls a remote session exactly as hard as one starved of CPU, and `BelowNormal` buys
-  nothing there — it is not waiting for the scheduler. So `pg.ps1` now also **refuses to spawn**
-  when available memory is under `Get-SpawnFloorGB`,
-  exiting **17** — distinct from low-disk's 12, because the recovery is completely different. It
-  prints the largest working sets so the refusal is actionable, and re-checks *after* the
-  build-slot wait, since a 30-minute queue is exactly how an approved reading goes stale. `doctor`
-  reports the same state; `gc` is exempt, because it is the recovery action.
-  Available memory then narrows `-Jobs`/`-TestThreads` the same way cores do, and the preflight
-  record names which of the two actually bound the number.
-
-  **Every threshold here is proportional to installed RAM, never a fixed number of gigabytes.** A
-  flat figure cannot be right on two machines at once, and the failure is asymmetric: too low on a
-  big box risks the machine, too high on a small box blocks ordinary work — and a gate that blocks
-  ordinary work gets set to 0, protecting nobody. An 8GB reserve is 12% of a 64GB box and **50% of a
-  16GB developer machine**. So the reserve is 10% of installed RAM clamped to [1.5, 6]GB, the spawn
-  floor is that plus ~2GB of room for the build itself, and the job-object cap is
-  `(installed − reserve) / slots`:
-
-  | Installed | Reserve | Spawn floor | Job cap (of 2 slots) |
-  |---|---|---|---|
-  | 16GB | 1.6GB | 3.6GB (22%) | 7GB |
-  | 32GB | 3.2GB | 5.2GB (16%) | 14GB |
-  | 64GB | 6GB | 8GB (12%) | 29GB |
-
-  Note the 64GB row lands on the flat 8GB it replaced — which is exactly why that number looked
-  right on the box it was picked on. Overrides: `PANGLOSS_MEM_RESERVE_FRACTION`,
-  `PANGLOSS_MIN_FREE_MEM_GB` (absolute), `PANGLOSS_MIN_BUILD_ROOM_GB`, `PANGLOSS_JOB_MEM_GB`.
-  Caveat at the small end: below ~12GB installed, two concurrent builds cannot both fit under the
-  reserve (the job cap floors at 4GB to keep linking working), so such a machine should also run
-  `-MaxConcurrent 1`. Nothing enforces that yet.
-
-- **Kernel-enforced ceilings (`procgov`).** The pre-spawn gate cannot bound a peak that develops ten
-  minutes into a build, so every managed build runs inside a **Windows job object** via
-  [procgov](https://github.com/lowleveldesign/process-governor) — `--maxjobmem` (committed memory
-  for the whole tree), `--cpurate` (hard CPU ceiling), `-r` (bind every rustc/link.exe, not just
-  cargo). Install: `winget install LowLevelDesign.ProcessGovernor`. It is **optional**: without it
-  builds still run, with every pre-spawn gate intact and a loud warning.
-
-  This is prefabricated on purpose. A hand-rolled polling watchdog plus a machine-wide memory
-  reservation ledger were written first and then deleted — the kernel enforces at allocation time
-  with no sampling interval to lose a spike in, and a job memory cap makes a runaway fail *its own
-  allocation* rather than taking the machine down. With `Enter-BuildSlot` capping builds at 2 and
-  each one capped by a job object, the machine-wide worst case is bounded by construction, which is
-  why no reservation ledger is needed to stop several waiting builds from starting together.
-
-  Cargo has no equivalent: [cargo#12912](https://github.com/rust-lang/cargo/issues/12912) (limit
-  parallelism automatically) is open and `S-needs-design`, [#9157](https://github.com/rust-lang/cargo/issues/9157)
-  (restrict parallel linker invocations) likewise, and [#11707](https://github.com/rust-lang/cargo/issues/11707)
-  / [#9735](https://github.com/rust-lang/cargo/issues/9735) describe this exact workspace shape
-  (OOM linking many binaries). No cargo plugin solves it. Don't re-invent this locally.
-
-  **Measured 2026-07-30 — read this before blaming the build for the next exhaustion.** A full
-  `-Mode test` build (711 samples, 313 processes) peaked at **1.08GB** for the largest single rustc
-  and **4.03GB across the entire fan-out**, never dropping below 50.4GB free. A forced fat-LTO
-  relink of the `pangloss` binary peaked at 0.71GB. **Compiling and linking are not where this
-  machine's memory goes.** What the same run *did* show is **446 threads on 20 logical cores** — a
-  22x oversubscription, because `-j` caps codegen workers *within* one rustc but not threads across
-  instances ([rust#81957](https://github.com/rust-lang/rust/issues/81957)). `--cpurate` is the only
-  thing that actually bounds that; `jobs = 8` cannot.
-
-  On the "it got faster, so it crashed" theory: the mechanism is real — peak memory is (jobs
-  simultaneously in their heavy phase) x per-job peak, and anything that raises throughput, including
-  the Windows Defender exclusions for the Rust toolchain, means less time blocked on I/O and so more
-  rustc processes compute-resident at once. But it cannot account for exhausting 64GB *while
-  building*: the measurement above was taken with those exclusions already in place and still peaked
-  at 4.03GB, so the theory would need ~16x the observed peak. What the exclusions plausibly did
-  worsen is the CPU side (446 threads, 100% CPU), and a box at 100% CPU with no priority headroom is
-  indistinguishable from a crashed one over SSH or remote desktop. If a "crash" during a *build*
-  needs explaining, suspect CPU starvation before memory.
-
-  So the memory exhaustion is by elimination in test *execution*, not the build:
-  `$script:MemoryPerTestProcessGB` (2.5GB) remains an **unmeasured placeholder**, a corpus/foma case
-  can be a whole grammar compile, and one `pangloss batch` probe reached 30+ GB RSS. Measuring a
-  corpus-test *run* is the outstanding calibration. At rest none of the per-process numbers bind —
-  an idle 63.7GB box still gets all 7 jobs, deliberately: a gate that taxes every ordinary build
-  gets switched off and then protects nothing.
-
-- **Direct binary invocation (`pg.ps1 -Mode run`).** Every mechanism above wraps CARGO ONLY —
-  `Enter-BuildSlot`, the job-budget derivation, and (until 2026-07-31) the procgov job object all
-  live inside `Invoke-CargoWithReaper`, which nothing but a `cargo build/test` call ever reached. A
-  hand-run `examples\predict_census.exe` or a bare `pangloss batch` was covered by NONE of it. The
-  Windows event log shows exactly what that gap cost, all three a single PanGloss binary invoked
-  **directly**, never through cargo (Microsoft-Windows-Resource-Exhaustion-Detector, event ID
-  2004 — see below):
-
-  | Date | Binary | Committed memory |
-  |---|---|---|
-  | 2026-07-04 | `hc-rs.exe` | 97 GB |
-  | 2026-07-26 | `pangloss.exe` | 90 GB |
-  | 2026-07-30 | `predict_census.exe` | 118 GB (climbed over ~45 minutes) |
-
-  For contrast, the measured full managed `-Mode test` build above peaks at 4.03GB. The hardened
-  path was never the problem; the unhardened path used 118GB. `-Mode run` closes this by giving an
-  arbitrary binary the SAME kernel-enforced ceiling a build gets: `Invoke-CargoWithReaper`'s
-  procgov-wrapping body was extracted into a reusable `Invoke-ProcessInJobObject`
-  (`rust/tools/_common.ps1`), and `Invoke-CargoWithReaper` is now a thin, behavior-preserving front
-  end onto it. Three invocation shapes:
-    - `pg.ps1 -Mode run -Example <name> -- <args>` — `cargo run --example <name>` (builds first,
-      then runs the result as a job-object CHILD of cargo; procgov's `-r` recurses the ceiling onto
-      it exactly like it already does for rustc/link.exe).
-    - `pg.ps1 -Mode run -Bin <name> -- <args>` — same, for a workspace `[[bin]]` target.
-    - `pg.ps1 -Mode run -Exe <path> -- <args>` — runs an already-built executable directly, no
-      cargo involved.
-  The job-object memory cap defaults to the SAME machine-proportional figure a build gets
-  (`Get-JobMemoryCapGB`, divided across `-MaxConcurrent` slots) and is overridable per-run with
-  `-RunMemoryGB` — e.g. a deliberate 40GB experiment — without touching `PANGLOSS_JOB_MEM_GB`,
-  which would also change every ordinary build's cap for as long as the env var stayed set.
-
-  **`run` DOES take a slot** (`Enter-ResourceSlot`), weighed deliberately rather than assumed: the
-  alternative — a `run` that counts against nothing — breaks the property the rest of this file
-  relies on to avoid a reservation ledger, namely that at most `-MaxConcurrent` + `-MaxConcurrentRuns`
-  operations share the machine's headroom at once, so each one's job-object cap is safe *by
-  construction*. A `run` outside that count is an unaccounted-for extra consumer on top of up to
-  `-MaxConcurrent` full-cap builds — the exact "several things assume they have the whole machine's
-  headroom, simultaneously" shape that produced the table above.
-
-  **But it takes a RUN slot, not a build slot** (4 wide by default, `PANGLOSS_RUN_SLOTS` /
-  `-MaxConcurrentRuns`). One queue for both was measured costing real time for no resource reason: a
-  0.3s `pangloss parse` waited behind two multi-minute builds in another worktree. A build is bounded
-  by disk and memory; a light run writes no target dir and — measured — barely moves memory either.
-  What it can exhaust is CPU, and CPU is now budgeted across both pools rather than per-pool (see the
-  scoping table below). A light run gets one core, a `--cpurate` share sized from that one core, and a
-  **flat 2GB** memory ceiling (`Get-RunJobMemoryCapGB`, `PANGLOSS_RUN_MEM_GB`) rather than a build's
-  machine-proportional cap — flat because a runaway is recognizable by absolute size, and 2GB because
-  the full 6,146-word Sena corpus through the HermitCrab engine peaks at **454MB**, a peak set by the
-  hardest single word rather than by accumulation, so corpus size does not move it. Measurements and
-  the `--memo` comparison are in `docs/research/build-resource-governance.md`.
-
-  **`-Heavy` is the other direction:** it puts a genuinely build-sized probe (`predict_census` and
-  friends) back in the **build** pool with a build's ceilings. The cost that remains is that such a
-  probe can occupy a build slot for hours, so a build queued behind it can hit
-  `-BuildSlotTimeoutSeconds`'s 30-minute wait and exit needing a retry. That is a known, recoverable,
-  loudly-reported cost; an unbounded machine-wide worst case is what this whole file exists to rule
-  out, so a slot is taken unconditionally. If procgov is absent, `run` degrades exactly like a
-  build does: a loud warning, but it still runs — an absent tool must never block the workflow.
-
-- **Reading the exhaustion log (`pg.ps1 -Mode doctor`).** Windows already diagnoses the low-memory
-  condition above and logs it — the table's three figures all came from
-  `Microsoft-Windows-Resource-Exhaustion-Detector` (event ID 2004) in the System log — and nobody
-  was reading it before 2026-07-31. `Get-ResourceExhaustionEvents` (`rust/tools/_common.ps1`) reads
-  the last 7 days of these events via `Get-WinEvent` and `doctor` now reports them: event count,
-  most recent timestamp, and (best-effort) the top consumer names/bytes parsed out of the message
-  text. Message-text parsing is split into its own pure function
-  (`Get-ExhaustionConsumersFromMessage`) precisely because it IS fragile — Microsoft publishes no
-  stable grammar for it — so a parse failure degrades to the raw message text, never a thrown error
-  or a silently dropped event. This history is reported prominently but **never fails doctor**: the
-  four checks that DO gate doctor's exit code (disk/memory/base/sccache) all describe the
-  environment *right now*, whereas an exhaustion event describes something that already happened
-  and the machine already recovered from on its own — failing doctor on old history would block
-  every managed build for the whole 7-day window for no actionable reason. This is the same rule
-  this file states elsewhere for a different failure mode: "I could not look" must never read as
-  "everything is fine" — and, symmetrically, "something bad happened once" must never read as
-  "something is wrong right now." Get-WinEvent throws (rather than returning empty) both when there
-  is genuinely nothing in the window and when it cannot query at all (provider absent, access
-  denied); those two are NOT the same fact, so `Get-ResourceExhaustionEvents` distinguishes them by
-  matching on Get-WinEvent's own exception text (there is no separate exception type) rather than
-  collapsing both to "no data".
-
-Override per-run with `-Jobs N` / `-TestThreads N` / `-Priority Normal` (on `pg.ps1`, `build.ps1`,
-or `test.ps1`) when you're at the console and there's no remote session to protect. `-Jobs` and
-`-TestThreads` are never narrowed by the memory budget — an explicit number stays the number.
-
-Two things this deliberately does **not** cover, so don't assume the machine is protected by
-`pg.ps1` alone. Bare Cargo in another worktree still runs at `Normal` — the repo-root
-`.cargo/config.toml` job floor reaches it (Cargo merges config from ancestor directories, and every
-worktree under `.claude/worktrees/` has this repo root as an ancestor), but nothing can set a
-process priority from a config file; that's what the `block-bare-cargo.py` hook is for. And
-rust-analyzer's background `cargo check` gets the job floor but likewise runs at `Normal`.
-
-## A conformance run must claim what it covers (`-Mode conformance-test -Scope local|all`)
-
-Conformance fixtures live under two roots — `conformance-staging/**` (this repo's own, 25 fixtures)
-and `machine/conformance/**` (upstream, 21) — and until now every run silently walked both. That
-makes a green result ambiguous in the one way that matters: "the suite passes" over the staged
-fixtures alone and "the suite passes" over those plus every upstream fixture are **different
-claims**, and the weaker run reports identically to the stronger one.
-
-`rust/tools/pg.ps1 -Mode conformance-test` fixes that by refusing to run until told:
-
-- `-Scope local` — `conformance-staging/**` only. Nothing upstream can contribute to the result, so
-  a green local run cannot borrow credit from a fixture it never touched. It also needs no submodule
-  at all, so it skips that init entirely.
-- `-Scope all` — both roots.
-- **No default.** An unclaimed run exits `$script:ExitCodeConformanceScopeUnclaimed` (**20**) before
-  taking a build slot, starting cargo, or fetching a submodule, because nothing this script can do
-  resolves the question — the caller has to decide what the run covers. Passing `-Scope` to a mode
-  that cannot honour it is refused with the same code, since that would read as scoping while
-  scoping nothing.
-
-**The claim is enforced in the library, not just the launcher.**
-`pg_conformance_fixtures::discover` reads `PANGLOSS_CONFORMANCE_SCOPE` and **panics when it is
-unset**, rather than falling back to either root. A fallback is exactly the silent guess this
-exists to prevent, and a launcher-only check protects nothing the moment a test binary is run
-another way. `-Mode test` and `-Mode corpus-test` therefore claim `all` **explicitly at the call
-site** and print it — a claim made by the mode, deliberately not a default hidden inside the
-library.
-
-Every other caller claims too. `pangloss coverage` walks fixtures at runtime, where there is no
-environment claim to inherit, so it calls `discover_scoped(ConformanceScope::All)` outright — a
-shipped CLI command must never panic because a developer variable is unset.
-
-**What this does NOT yet do:** `conformance-test` runs the same test set `test` does. There is no
-fixture-only filter, and inventing one would silently drop gates. So `-Scope local` narrows the
-FIXTURES, not the tests — and a gate that looks up a named upstream fixture and unwraps it will
-fail under `local` rather than skip. That is honest (the gate really cannot run) but it is not yet
-comfortable; making those gates skip-with-a-reason is follow-on work.
-
-## The `machine` conformance submodule auto-initializes — never run `git submodule update` by hand
-
-A worktree created by `pg.ps1 -Mode new-worktree` never ran `git submodule update` for the
-`machine` submodule (`sillsdev/machine`, `conformance-framework` branch, pinned in `.gitmodules`),
-so every fresh worktree failed pg-parse's `conformance_fixtures_gate::
-w91_affix_shapes_covered_by_upstream_fixtures` with "machine submodule initialized?" until someone
-ran the update manually — real infrastructure breakage that reads exactly like a regression in
-whatever change the worktree was created for, because `conformance_fixtures_gate` is part of the
-ordinary `-Mode test` suite (not `#[ignore]`d) rather than something only `corpus-test` reaches.
-
-`Initialize-ConformanceSubmodule` (`rust/tools/_common.ps1`) fixes this by initializing the
-submodule automatically wherever it's needed, **sparse and scoped to `machine/conformance` only** —
-never the full `machine` checkout. The scoping is the whole point, not an incidental optimization:
-
-- This repo's test suite reads only `machine/conformance`. Measured at the current pin
-  (`74351b80`, `v3.9.2-12`): sparse is **3.6MB / 469 files**, a full checkout is **41.3MB / 1511
-  blobs** — the rest (`src`, `tests`, `samples`, `docs`, `eng`) is dead weight for every worktree
-  that only ever runs `pg-conformance-fixtures::discover()` against the `conformance/` subtree.
-- **These numbers used to read 904KB and 415MB and were wrong by an order of magnitude** — the
-  upstream branch changed under a pin nobody re-measured against. Re-measure before quoting them;
-  `git ls-tree -r -l <pin>` gives the full-checkout figure without checking anything out.
-- The underlying git **objects** are cheap regardless (a few MB fetched from GitHub; not a
-  shallow/`--depth` clone, which would risk not containing the pinned SHA if it isn't the branch
-  tip) — it is the **working-tree materialization** that costs, so a sparse checkout is the right
-  lever, not a smaller fetch.
-- This machine runs a couple dozen worktrees at once, so ~38MB × ~15-30 worktrees still buys back
-  most of a gigabyte on a disk-constrained machine (see this file's own "1.3GB-free crisis"
-  motivation for the target-dir SSD/HDD split above) for data nothing ever reads. Smaller than the
-  old claim, and still worth doing.
-
-**The exact git recipe, and why it's NOT the shorter one you might expect.** The obvious-looking
-`git submodule update --init --no-checkout -- machine` is **not valid syntax** — `--no-checkout` is
-not one of `git submodule update`'s recognized flags in git 2.51 (verified 2026-08-01; `--checkout`
-is the only member of that family, and it's the default, not skippable). The equivalent that IS a
-supported, stable git feature — hand-verified to actually produce a ~950KB working tree containing
-`machine/conformance/constructs.txt`, with `git submodule status` and `git status` both reporting a
-clean, correctly-pinned submodule exactly as if `git submodule update --init` had done it — is:
-```
-git clone --no-checkout --separate-git-dir=<this worktree's gitdir>/modules/machine \
-    --branch conformance-framework <url> machine
-git -C machine sparse-checkout init --cone
-git -C machine sparse-checkout set conformance
-git -C machine fetch --no-tags origin <pinned commit>
-git -C machine checkout <pinned commit, read from `git ls-tree HEAD -- machine`>
-```
-`--separate-git-dir` is what gives `--no-checkout` an empty working tree to apply sparse patterns
-to *before* anything is materialized, and it targets the same worktree-scoped `modules/` location
-`git submodule update` itself already uses per-worktree here (each linked worktree gets its own
-`.git/worktrees/<slug>/modules/machine`, confirmed by inspecting an already-initialized worktree's
-`machine/.git` gitlink file) — so two worktrees never contend for the same submodule gitdir, and
-`git submodule sync`/`status`/`foreach` keep working normally afterward.
-
-**The `fetch` line is load-bearing and was missing.** `clone --branch X` fetches only that branch,
-so a pinned commit the branch has since moved past is simply not in the new object store, and the
-`checkout` then fails with `fatal: unable to read tree <pin>`. That is the SAME hazard this recipe
-already refuses `--depth` for — and it was live: the sparse path failed on **every** worktree
-creation, silently taking the fallback each time, until an explicit `fetch origin <pin>` was added.
-The failure was legible only because the fallback message printed it; a pinned submodule drifting
-behind its branch tip is the normal state, not an edge case, so treat the branch-restricted clone as
-a fetch that does not include your pin.
-
-The failure was also self-masking in a way worth knowing: the failed sparse attempt leaves
-`core.sparseCheckout=true` and the `conformance` pattern behind, so the "full" fallback inherits
-them and produces a sparse tree anyway. The result looked right, and the warning about a full
-checkout was wrong about its own outcome. Do not read a plausible-looking working tree as proof the
-fast path ran.
-
-Cone-mode sparse-checkout itself worked cleanly on this git version; the fallback below exists for a
-*different* git version/environment where it might not, not because this one needed it.
-
-**Fast path first.** Before touching git at all, `Initialize-ConformanceSubmodule` checks for the
-sentinel `machine/conformance/constructs.txt`; if present, it returns immediately. Adding a git
-invocation to every ordinary build/test run is a tax, and this file's own rule elsewhere is that a
-gate which taxes ordinary work gets switched off and then protects nobody — so the common case
-(already initialized) costs exactly one `Test-Path` call, nothing more.
-
-**Fail closed, before Cargo starts.** `pg.ps1 -Mode test` and `-Mode corpus-test` both call this in
-preflight and refuse — with exit code **18** (`$script:ExitCodeConformanceSubmoduleMissing`,
-distinct from every other preflight code: 10 wrong-base, 11 missing-corpus, 12 low-disk,
-13 cache-unavailable, 14 bad-target-ownership, 15 build-slot-timeout, 16 zero-corpus-cases,
-17 low-memory) — if initialization is required and fails, printing the exact command to run by
-hand. `pg.ps1 -Mode new-worktree` also calls it right after creating the worktree (so a fresh
-worktree is "born ready" without a follow-up step) and exits the same code if it fails there too —
-the worktree itself is still left in place either way, matching this file's established rule that
-nothing here automatically undoes a worktree once created. `-Mode doctor` reports the same state
-prominently and folds a failure into its unsafe/exit-code decision (unlike the
-Resource-Exhaustion-Detector history above, which is reported but never gates doctor): a missing
-submodule describes the environment *right now*, not something that already happened and was
-already recovered from, so it belongs with disk/memory/base/sccache, not with the exhaustion log.
-
-**Offline is survivable and legible, never silently "fine".** If `machine` is absent and the
-network is unreachable, the failure names the exact recovery command (the `git submodule update
---init -- machine` full-checkout fallback) rather than leaving "I could not look" to be misread as
-"everything is fine" — this file's rule elsewhere for exactly this failure shape.
-
-**Standalone use:** `rust/tools/conformance.ps1` is a thin front end onto the same function (same
-relationship `build.ps1`/`test.ps1` have to `pg.ps1`) for running the init on its own, without
-invoking any Cargo mode at all — e.g. after a network outage, or when authoring/staging a
-conformance fixture per `.claude/skills/conformance-grammars/SKILL.md`.
-
-## Running parallel agents without starving the machine
-
-A fleet of six agents in one checkout took C: from 46 GB to 7 GB free, left 26 stray compiler
-processes running, and wedged `git` itself. None of it was the agents *working* — it was agents
-outliving their usefulness and bypassing the gates. Rules that follow from that, in order of how
-much they actually bought:
-
-1. **Cap build-heavy agents at 2–3 concurrent**, matching `Enter-BuildSlot`'s own max of 2. Six was
-   over-subscribed threefold; the semaphore only binds callers who go through `pg.ps1` anyway.
-2. **A managed build runs in the FOREGROUND — this is now enforced, not advised.**
-   `.claude/hooks/block-backgrounded-build.py` refuses `pg.ps1`/`build.ps1`/`test.ps1` launched with
-   `run_in_background`; escape hatch `PANGLOSS_ALLOW_BACKGROUND_BUILD=1`. If the run overruns the
-   tool timeout the harness moves it to the background itself and notifies on completion, so a
-   foreground call never loses the result — which is the thing backgrounding it yourself throws away.
-   This became a hook because the advisory version lost: in one session three agents backgrounded a
-   build, waited on it, and submitted "waiting for the background run to finish" as their final
-   report, with prompts that quoted this rule verbatim. They were not being careless. The tool
-   description recommends backgrounding long commands, rule 7 below agrees with it, and this rule's
-   old remedy ("a long tool timeout") was arithmetically impossible against a ~1000s cold build and a
-   ~600s ceiling. An agent obeying the coherent half of contradictory guidance lands exactly there.
-   Rule 7 still holds for everything that is NOT a managed build.
-   The older form of this rule, still true: **never poll a background job you spawned.** Tell it to block in the foreground with a
-   long tool timeout. Every agent that stalled did so around a self-spawned monitor, and one kept
-   spawning poll loops for two hours *after* its work was committed and verified.
-3. **Reap on report.** When an agent finishes, kill stray `cargo`/`rustc`/`link`/`pangloss` before
-   dispatching the next. Doing this once at the end recovered 11 GB → 63 GB free.
-4. **Probe pathological grammars single-threaded.** `pangloss batch`'s thread default fans words out
-   concurrently and multiplies their memory: one probe reached 30+ GB RSS and never finished, where
-   `--threads 1` plus `--word-timeout-ms` completed the same work in ~2 minutes. See
-   `docs/fst-plan/corpus-word-list-hazards.md`.
-5. **Assume agents self-verify badly.** In one fleet, two shipped regression gates that passed with
-   their own fix reverted, and one reported a feature implemented while its guard sat behind
-   `if false &&`. Re-run their gates with the fix bypassed before believing any of it.
-6. **Never scan from the filesystem root.** Measured: one orphaned
-   `find / -iname rewrite.rs -path *foma*` ran 35 minutes at `Normal` priority and burned 2110
-   CPU-seconds — a saturated core plus continuous random I/O — writing to a pipe whose reader had
-   already exited, so none of it could ever be read. It froze remote sessions on its own, and it
-   sits entirely outside `pg.ps1`'s priority and concurrency controls, which only govern Cargo and
-   what Cargo spawns. Use `rg --files`, a scoped `Glob`, or `git ls-files`; all answer in under a
-   second. Unscoped `find` is also slow enough to trip tool timeouts (`find . -name nextest.toml`
-   took >120s just walking `.claude/worktrees/`), and a timeout is exactly what orphans the process.
-
-`pg.ps1 -Mode gc` reaps dead-parent `cargo`/`rustc`/`link`/`cc1` and, separately, dead-parent
-`find`/`rg`/`grep`/`findstr` that have burned >60s CPU and lived >2min. Dry-run by default;
-`-Apply` to act.
-
-7. **A genuinely long single command that is NOT a managed build** (rule 2 now refuses those, and a
-   hook enforces it) **needs the harness's background execution, not a longer
-   foreground wait.** A tool call blocks for at most ~10 minutes; a full-corpus oracle batch (e.g.
-   Sena's 7,121 words) legitimately exceeds that. Measured 2026-08-19: run foreground, it truncates
-   silently at whatever word the ceiling lands on (Sena: ~1,663/7,121, read as "the corpus" when it
-   was actually a fifth of it); launched instead as a background run, it completes and reports
-   normally with no code change needed. This is distinct from rule 2's self-spawned-poll trap: rule
-   2 says don't wait on your own background job by polling it; this says a command that will
-   genuinely run long should BE that background job (the harness notifies on completion), not a
-   foreground call hoping to finish inside the ceiling.
-
-## What is scoped to the PC, and what is scoped to the worktree
-
-Several worktrees run here, sometimes with more than one agent inside a single worktree. Every
-resource control below has to be classified correctly or it protects nothing: a per-worktree cap on
-a machine-wide resource just multiplies by the number of worktrees. The rule is what the resource
-*is*, not who is asking for it.
-
-| Concern | Scope | Mechanism |
-|---|---|---|
-| CPU cores | **per PC** | `Get-CargoJobBudget` (cores − reserve − run pool ÷ build slots), `-TestThreads`, `BelowNormal` priority, and `procgov --cpurate` — now sized from **one slot's own width**, so the per-job ceilings sum to the machine-wide one instead of each requesting all of it |
-| Memory | **per PC** | spawn gate (machine-wide available memory) + `procgov --maxjobmem` per build; a light run gets a flat 2GB instead (`Get-RunJobMemoryCapGB`) |
-| Taking your turn | **per PC** | `Enter-ResourceSlot` — two independent named-**mutex** pools: `Global\PanGlossBuildSlot0..N-1` (default 2) and `Global\PanGlossRunSlot0..M-1` (default 4) |
-| Killing old processes | **per worktree** | `gc`'s orphan sweeps: liveness by dead *parent*, never by name/age |
-| Disk / target dirs | **per worktree** | ownership markers; `gc` never deletes another worktree's target |
-
-The build slot is the one people ask for by name — "don't start a third build if two are going" is
-already exactly what `Enter-BuildSlot` does, and it binds across worktrees *and* across agents
-inside one worktree, because a Windows named semaphore is per-machine. A third `pg.ps1` waits, then
-exits 15 after 30 minutes rather than hanging forever.
-
-**Two pools, one core budget.** `pg.ps1 -Mode run` queues in the *run* pool, not the build pool,
-because a build is bounded by disk and memory while a run is bounded by CPU — and a 0.3s
-`pangloss parse` waiting behind a three-minute build served no resource purpose. What the two pools
-share is the **one** machine-wide core budget: the run pool's allotment (slots × 1 core) comes off
-the top of `Get-CargoJobBudget` before the remainder is divided among build slots, so builds pay for
-the run pool's existence rather than the machine being oversubscribed when every slot is busy. Same
-transition hazard as the semaphore→mutex migration below: while some worktrees still run the old
-code, their `run` takes a *build* slot while a new-code worktree's takes a *run* slot, so the two do
-not exclude each other for runs — tolerable only because the per-job CPU and memory ceilings are
-sized for the full six-slot worst case regardless. A run-slot timeout reuses exit **15**: the
-recovery (wait and retry) is identical, and this file's rule for a distinct code is that the recovery
-differs. The message names which pool timed out.
-
-**It is N mutexes, not a counted semaphore, and that was a bug fix — do not "simplify" it back.**
-The semaphore this replaced **deadlocked every worktree on this machine on 2026-07-31**: 4+ worktrees
-sat at "waiting for a build slot" for 20+ minutes with *zero* cargo/rustc/link processes alive
-machine-wide, recoverable only by hand-releasing the semaphore until it threw. A counted semaphore
-never restores its count when the holder dies, and in agent workflows the holder dies constantly —
-a tool timeout, an agent stop/resume, or a detached invocation whose parent conversation has gone
-all kill `pg.ps1` between acquire and release. Assume any critical section between the two *will*
-be interrupted.
-
-A mutex cannot leak that way because the **kernel** owns the cleanup: a holder that dies leaves the
-mutex ABANDONED and the next waiter is granted ownership (`AbandonedMutexException`, carrying the
-index). Catching it and continuing *is* the recovery — no ledger to reconcile, no sweep to schedule,
-no hand-repair procedure. Same reasoning that replaced the hand-rolled memory watchdog with a job
-object: prefer the primitive whose cleanup the OS already guarantees.
-`rust/tools/tests/build-slot.tests.ps1` pins this by killing a real holder and requiring the slot to
-be reacquirable.
-
-It also fixes a wart that was **measured failing**: a semaphore's maximum is frozen by whichever
-process creates it first and cannot be queried, and on 2026-07-31 three procgov-wrapped builds ran
-concurrently under a nominal limit of 2 (orphaning and a `Global\`/`Local\` namespace split were both
-ruled out). With mutexes the slot count is simply how many names a caller waits on, so
-`-MaxConcurrent 1` genuinely cannot take a second slot. `Get-JobMemoryCapGB` still sizes for
-`MaxConcurrent + 1` as belt-and-braces, so the memory bound survives one slot of over-admission.
-
-Two things it still does **not** fix. It only binds callers who go through `pg.ps1` — bare cargo
-takes no slot, which is what `block-bare-cargo.py` is for. And the queue is **unfair**: Windows makes
-no ordering guarantee, so a waiter can starve (measured: one timed out after the full 30 minutes
-while *newer* arrivals were granted slots), and the timeout is arithmetically unreachable for a deep
-queue — N builds two-at-a-time take ≈ N/2 × T, so at 10 worktrees and T = 10 min the last waiter
-needs 40+ minutes against a 30-minute limit and always exits 15 regardless of load. That wastes time
-and confuses agents but cannot exhaust the machine, since the job objects bound that. A fair FIFO
-ticket lock would fix it and has deliberately not been built. What *is* built is visibility: a waiter
-and `doctor` both print who holds each slot (pid, mode, worktree, since when, and whether that pid is
-still alive), because a 20-minute anonymous wait is indistinguishable from a deadlock and that
-ambiguity is what actually burned the time during the incident.
-
-**Transition hazard:** a worktree still on the old semaphore code and one on the mutex code share no
-mutual exclusion at all. Every worktree must pick this up, or real concurrency becomes
-(old-code builds) + (new-code builds).
-
-The width knobs are weaker still: `Get-CargoJobBudget` always divides by `MaxConcurrent = 2`
-whether or not a second build exists, so a solo build takes 7 jobs where 14 would be safe, and two
-builds take 7 each whether or not the other one is there. It assumes the worst case permanently
-rather than measuring. Memory is the counter-example worth copying — it is derived from a live
-machine-wide reading, so it sees other worktrees (and bare cargo, and anything else) for free.
-
-## Playing nicely with other worktrees
-
-Several worktrees build concurrently on this machine, so every machine-wide mechanism here is
-built to fail in the conservative direction. If you touch any of it, keep that property:
-
-- **The gc process sweeps are machine-wide** — they can see builds belonging to worktrees you know
-  nothing about. Liveness is decided by `Test-ParentAlive` (PID-reuse-safe: a candidate parent
-  created *after* its child is not the parent) and never by name, age, or CPU. The earlier version
-  used `Get-Process -Id`, which also reports failure for access-denied, so "I could not look" read
-  as "it is dead" — the exact false positive that kills a healthy build in another worktree.
-- **Only scanners are reaped on thresholds**, never compilers. An orphaned `rustc` has at least
-  produced object files; an orphaned `find` has produced a closed pipe. `rust/tools/tests/
-  orphan-reaping.tests.ps1` asserts that no Rust build binary can be selected by the scan sweep at
-  any age or CPU.
-- **`gc` never deletes a target dir whose worktree still exists**, is unmarked, or is preserved.
-- **The build-slot semaphore and job budget are machine-wide conventions**, not per-invocation
-  guarantees — `Get-CargoJobBudget` divides by `MaxConcurrent` precisely so two worktrees building
-  at once still leave the interactive reserve free.
-- **`sccache`'s server is shared**, so `Set-SccacheServerPriority` changes the priority of *every*
-  worktree's compilation, not just yours. That is why `BelowNormal` is the default and why
-  `-Priority Normal` should be a deliberate, temporary choice.
-
-## Merging worktree/agent branches into main
-
-Keep `main`'s history linear — no merge commits.
-
-Before merging any worktree/agent branch into `main`:
-1. Rebase the branch onto current `main` first (resolve any conflicts there).
-2. Merge with `git merge --ff-only <branch>` — this should always be a clean fast-forward
-   once step 1 is done. If it isn't a fast-forward, the rebase didn't actually happen against
-   the current tip; redo step 1.
-
-Never use `git merge --no-ff`. If a rebase turns out to be non-trivial (real conflicts,
-not just staleness), prefer re-running the underlying change fresh against current `main`
-over hand-resolving a large/messy conflict set — see the `pg-rename` case for an example
-where rebasing was the wrong tool entirely.
+PanGloss is a Rust reimplementation of HermitCrab, the morphological parser in
+`sillsdev/machine`'s `SIL.Machine.Morphology.HermitCrab` (C#). Almost everything below follows from
+that one fact. The C# checkout lives at `C:\Users\johnm\Documents\repos\machine`.
+
+Shell commands go through the PowerShell tool, never Bash. Read/Write/Edit/Glob/Grep are not shells
+and are fine.
+
+## The oracle hierarchy — the rule with the widest blast radius
+
+C# `hc.dll` is the **founding oracle**. Every conformance fixture's `words.yaml` was authored by
+running it and accepted by a human. `pg_parse::Morpher` (HC-Rust) is a **port under test**.
+
+**HC-Rust must never produce a different parse than C#.** It may be faster or leaner; every such
+efficiency needs an argument for why it cannot change a parse. If you believe the algorithm itself
+should change, do the research and open a PR against `sillsdev/machine` — never keep a behavioural
+improvement in Rust alone. Every divergence and every optimization gets an entry under
+`docs/divergences/`.
+
+The one escape hatch: a divergence that is documented, pinned by a fixture, and proposed upstream.
+
+A fixture authored against HC-Rust instead of the oracle records HC-Rust's behaviour, not
+correctness, and must say so in its `words.yaml` (`# oracle-provenance:`) — silence reads as
+"verified against hc.dll" and is the bug. *Scar: HC-Rust once accepted `xpitz`/`muat`, which the
+oracle rejects; only an oracle-diffed fixture caught it.*
+
+Before changing analysis or synthesis semantics, load `.claude/skills/oracle-alignment/SKILL.md`.
+
+## Rules with teeth
+
+Each is enforced. The enforcement explains itself when it fires, so this is a table, not an essay.
+
+| Rule | Enforced by |
+|---|---|
+| Bare `cargo build`, `cargo test`, `cargo check`, `cargo run` and `cargo nextest run` are PROHIBITED — use `rust/tools/pg.ps1` | `.claude/hooks/block-bare-cargo.py` |
+| A managed build runs in the foreground, never `run_in_background` | `.claude/hooks/block-backgrounded-build.py` |
+| Never scan from a filesystem root | `.claude/hooks/block-root-find.py` |
+| `-Mode conformance-test` must claim `-Scope local\|all`; no default | exit 20, and `pg_conformance_fixtures::discover` panics on an unset `PANGLOSS_CONFORMANCE_SCOPE` |
+| Divergence entry ids are unique and indexed | `pg-cli --test divergence_catalogue_gate` |
+| Skills never instruct a command the hooks refuse | `pg-cli --test skills_never_instruct_bare_cargo` |
+| Every repo path named in CLAUDE.md and the skills resolves on disk | `pg-cli --test agent_docs_resolve_gate` |
+
+Each hook has a deliberate env-var escape hatch, named in its own refusal message. Needing one means
+the managed path is broken and should be fixed, not routed around.
+
+*Scars: bare Cargo once took this machine from 46GB to 7GB free with 26 stray compiler processes. An
+orphaned root `find` burned 2110 CPU-seconds writing to a pipe whose reader had exited. Four agents
+in one session backgrounded a build, waited on it, and reported "waiting for the background run to
+finish" as their result — the last of them on a prompt that said "do not be the fourth".*
+
+## Rules without teeth
+
+Nothing enforces these. They are here because they change what a careful agent does.
+
+- **Assume agents self-verify badly.** Re-run their gates with the fix reverted before believing any
+  of it. *Scar: two agents shipped regression gates that passed with their own fix removed; one
+  reported a feature implemented while its guard sat behind `if false &&`.*
+- **Reap on report.** Kill stray `cargo`/`rustc`/`link`/`pangloss` when an agent finishes.
+  `pg.ps1 -Mode gc` does it; nothing calls it for you.
+- **Probe pathological grammars single-threaded.** `pangloss batch --threads 1` plus
+  `--word-timeout-ms`. *Scar: one probe reached 30+GB RSS and never finished; the same work took ~2
+  minutes single-threaded.*
+- **Cap build-heavy agents at 2-3 concurrent.** `Enter-BuildSlot` caps *builds* at 2 machine-wide,
+  but nothing caps agents; extras just queue and then exit 15.
+- **A long command that is NOT a managed build should be a background job**, so the harness notifies
+  on completion. *Scar: a 7,121-word corpus batch run in the foreground truncated silently at ~1,663
+  words and was read as "the corpus".*
+- **Conformance grammars use synthetic data only** — invented lexemes, never real-language data, and
+  no language named outside a comment.
+
+## Managed builds, in one place
+
+`rust/tools/pg.ps1` (or `build.ps1`/`test.ps1`). Reach for `check` first, `test` last: the cost of a
+round trip is compiling and linking ~105 integration targets in pg-foma, not running tests.
+
+`-Mode check` type-checks everything including test code. `-Mode quick` adds unit tests.
+`-Mode test` / `-Mode conformance-test` are authoritative — a green `quick` is not a green suite.
+Also: `corpus-test` (refuses before Cargo if a declared corpus is missing), `release`, `doc` (the
+only thing enforcing `broken_intra_doc_links`), `doctor`, `gc`, `run`, `new-worktree`.
+
+`-Package`/`-TestTarget` narrow compilation; `-Filter` narrows execution only and still links
+everything. `--no-fail-fast` is the default. *Scar: one trailing-newline mismatch once stopped 838
+tests from running, and a ledger recorded that run's failure count as fact — wrong by 18x.*
+
+**A feature-gated test is compiled out, not skipped, and reports as nothing at all.** Anything
+touching a `developer-tools`-gated flag must be verified twice: rerun with
+`$env:PANGLOSS_EXTRA_ARGS = '--features developer-tools'` and read the printed cargo line back.
+
+Never run `git submodule update` by hand; `pg.ps1` initializes `machine/conformance` sparsely on its
+own.
+
+## Merging into main
+
+Keep history linear. Rebase the branch onto current `main`, then `git merge --ff-only`. If it is not
+a fast-forward, the rebase did not happen against the current tip; redo it. Never `--no-ff`. If a
+rebase turns out to involve real conflicts rather than staleness, prefer re-running the change fresh
+against `main`.
+
+## Where to look
+
+**Skills** (load by task, not by subsystem):
+`oracle-alignment` — changing parse semantics, porting an upstream change, any C# divergence.
+`conformance-grammars` — authoring, staging or graduating a fixture.
+`fst-limits` — changing an FST threshold, refusal, retry or budget.
+`module-seams` — adding a check another module already makes; building the measurement first.
+`fix-a-grammar` — a slow, refused, oversized or incomplete grammar.
+`dead-end-census` — the standing first lever for "language X is too slow".
+`code-comments` — comment and doc-comment policy.
+
+**Design docs** (`docs/design/`), for changing the mechanism rather than obeying it:
+`build-resource-governance.md` — job/thread/memory budgets, procgov job objects, slot pools, what is
+scoped per-machine versus per-worktree.
+`conformance-submodule.md` — why the submodule auto-initializes sparsely, and the exact git recipe.
+`controls-that-cannot-act.md` — four incidents behind the one rule below.
+`agent-doc-gates.md` — what the three gates on this file and the skills check, and why they skip
+what they skip.
+
+**`docs/divergences/`** — every known C#/Rust difference, its kind, status, and pinning test.
+
+## The one rule behind most of the scars here
+
+**A control that cannot act must say so.** Refuse, panic, or error, naming what you could not do.
+`None`, `false`, "skipped", and an unused parameter all read as success to every caller and every
+log. And **verify a mechanism by its effect, never by its message** — check the count deleted, the
+bytes freed, the fire-count of the branch you think you took. *Scars in
+`docs/design/controls-that-cannot-act.md`; the most recent is `gc -Apply`, which abstained whenever
+any build was alive anywhere and so reclaimed nothing on a machine that always has one.*

@@ -99,8 +99,7 @@ Test-Case 'the sccache daemon is not a busy process, so it can never block -Appl
 }
 
 Test-Case 'a live build elsewhere does not block an unrelated disposable directory' {
-    # Abstaining machine-wide made this reclaim nothing on a box running dozens of worktrees: the
-    # quiet moment never arrives, so the reclaimer could never reclaim. The claim is per-directory now.
+    # Abstaining machine-wide reclaimed nothing here; the busy claim is per-directory now.
     $probe = Join-Path $root 'effect-probe'
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
     Set-Content -Path (Join-Path $probe 'filler.bin') -Value ('x' * 4096)

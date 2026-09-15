@@ -148,13 +148,15 @@ Two separate fixtures, never one doing both jobs:
 Follow `.claude/skills/conformance-grammars/SKILL.md` for the authoring/staging mechanics (grammar
 shape, `words.yaml` schema, staging vs. graduating) — this skill only says *when* and *why* to write
 the pinning fixture, not how. For a staged fixture pinning a bug HC-Rust itself has (not a
-C#-divergence), `conformance-staging/edge-cases/mpr-gated-exception` and
+C#-divergence), `conformance-staging/edge-cases/chained-output-feature-override-loss` and
 `conformance-staging/edge-cases/optional-template-composite` are worked examples of the same
-"fails first, fixed after" discipline. `rust/conformance/allomorphy/discontinuous-env/` (cited in
-CLAUDE.md's oracle-hierarchy section) is the worked example of an oracle-diffed fixture that caught
-a real HC-Rust bug an HC-Rust-only fixture would instead have certified as correct — keep that
-failure mode in mind: never author the pinning fixture against HC-Rust's own output while the
-oracle is reachable.
+"fails first, fixed after" discipline. The W3.3 discontinuous-environment case is the worked example
+of an oracle-diffed fixture catching a real HC-Rust bug that an HC-Rust-only fixture would instead
+have certified as correct — but read its pin, `rust/crates/pg-parse/tests/discontinuous_env_gate.rs`,
+before citing it: the pin is DEAD (its fixture never existed in this tree, both tests skip twice
+over) and rebuilding it under `conformance-staging/edge-cases/` is open work. Keep the failure mode
+in mind regardless: never author the pinning fixture against HC-Rust's own output while the oracle
+is reachable.
 
 ## Record it
 
@@ -169,8 +171,8 @@ indexes entries by the Rust module they touch. `docs/divergences/history/` (`tim
 ## Propose upstream
 
 The shape that has worked here — worked example PR #494, "Change Add to PriorityUnion"
-(`sillsdev/machine`; review written up in `docs/pr494-review.md` on the `perf/pr494-priority-union`
-branch of the `machine` checkout):
+(`sillsdev/machine`; the review is written up as `pr494-review.md` on that repo's
+`perf/pr494-priority-union` branch, not in this tree):
 
 - A measurement table over the reference grammars, cell = grammar × mode × deterministic counter
   (`checkCalls`, `merges`, rule-apply calls) — never a single number, never wall-clock alone.
