@@ -1156,7 +1156,16 @@ fn unreachable_affix_before_live_rule_preserves_live_source_row() {
     snapshot.lexicon.entries.insert(1, orphan_entry);
 
     let (grammar, warnings) = compile_project(&snapshot).expect("fixture must compile");
-    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert_eq!(
+        warnings,
+        vec![
+            "mrule 2 unreachable after reachability compaction".to_string(),
+            "mrule 2 unreachable after reachability compaction".to_string(),
+        ],
+        "the compaction that drops the orphan is now reported rather than silent, once per \
+         inventory key the mrule published; the two readings are of the same mrule, which is why \
+         they read alike"
+    );
     assert_eq!(grammar.allomorph_owners.len(), 2);
     assert_eq!(grammar.allomorph_sources.len(), 2);
     assert_eq!(
