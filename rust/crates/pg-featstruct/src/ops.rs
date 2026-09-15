@@ -1101,7 +1101,10 @@ mod tests {
     fn remove_paths_untouched_keys_pass_through() {
         let a = fs(&[(FA, sym(0b011)), (FB, sym(0b001)), (FC, leaf(0b010))]);
         let paths = fs(&[(FA, sym(0b001))]);
-        assert_eq!(remove_paths(&a, &paths), fs(&[(FB, sym(0b001)), (FC, leaf(0b010))]));
+        assert_eq!(
+            remove_paths(&a, &paths),
+            fs(&[(FB, sym(0b001)), (FC, leaf(0b010))])
+        );
     }
 
     /// Both sides nested `FeatureStruct`s: recurse instead of dropping the whole key.

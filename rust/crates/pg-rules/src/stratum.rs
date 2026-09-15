@@ -1361,9 +1361,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 let key = w.dedup_key();
                 match seen.get(&key) {
                     // WordKey ignores syn FS: widen the survivor rather than drop `w`, or a POS only `w`'s template needs is lost.
-                    Some(&idx) => generalize_syn_fs(&mut out[idx], &w, &|f| {
-                        self.g.syn_features.mask(f)
-                    }),
+                    Some(&idx) => {
+                        generalize_syn_fs(&mut out[idx], &w, &|f| self.g.syn_features.mask(f))
+                    }
                     None => {
                         seen.insert(key, out.len());
                         out.push(w);
@@ -1469,9 +1469,9 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 let key = w.dedup_key();
                 match seen.get(&key) {
                     // Same FS-blind collapse as `run_template_batch_raw`, one slot rule down: widen rather than drop.
-                    Some(&idx) => generalize_syn_fs(&mut out[idx], &w, &|f| {
-                        self.g.syn_features.mask(f)
-                    }),
+                    Some(&idx) => {
+                        generalize_syn_fs(&mut out[idx], &w, &|f| self.g.syn_features.mask(f))
+                    }
                     None => {
                         seen.insert(key, out.len());
                         out.push(w);

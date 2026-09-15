@@ -599,7 +599,11 @@ fn override_loss_tense_flip_flop_exact_finds_it() {
 
     let outer = find_affix_rule(&g, "olOuter");
     let out1 = analyze(&g, &surface, outer);
-    assert_eq!(out1.len(), 1, "outer's Out=past is unifiable with the surface word's own past");
+    assert_eq!(
+        out1.len(),
+        1,
+        "outer's Out=past is unifiable with the surface word's own past"
+    );
     assert_eq!(
         out1[0].syn_fs,
         FeatureStruct::EMPTY,
@@ -628,7 +632,11 @@ fn disjunctive_required_meeting_single_pos_narrows_under_exact() {
 
     let rule = find_affix_rule(&g, "disjReq");
     let out = analyze(&g, &w0, rule);
-    assert_eq!(out.len(), 1, "required={{n,v}} overlaps the word's n, so the gate passes");
+    assert_eq!(
+        out.len(),
+        1,
+        "required={{n,v}} overlaps the word's n, so the gate passes"
+    );
     assert_eq!(
         out[0].syn_fs, n,
         "Exact: unify({{n,v}}, n) narrows to the intersection (n), not the disjunctive {{n,v}} itself"
@@ -650,7 +658,11 @@ fn empty_required_and_out_leaves_fs_unchanged_under_exact() {
 
     let rule = find_affix_rule(&g, "emptyRule");
     let out = analyze(&g, &w0, rule);
-    assert_eq!(out.len(), 1, "empty required/out is vacuously unifiable with anything");
+    assert_eq!(
+        out.len(),
+        1,
+        "empty required/out is vacuously unifiable with anything"
+    );
     assert_eq!(
         out[0].syn_fs, n,
         "Exact never Clear()s: a rule with neither required nor out features must leave the \
@@ -691,7 +703,10 @@ fn same_rule_applied_twice_second_application_rejected_under_exact() {
 
     let rule = find_affix_rule(&g, "twiceZ");
     if let MorphRuleDef::AffixProcess(def) = rule {
-        assert_eq!(def.max_apps, 2, "sanity: multipleApplication=\"2\" loaded onto max_apps");
+        assert_eq!(
+            def.max_apps, 2,
+            "sanity: multipleApplication=\"2\" loaded onto max_apps"
+        );
     } else {
         panic!("twiceZ must load as AffixProcess");
     }
@@ -700,7 +715,11 @@ fn same_rule_applied_twice_second_application_rejected_under_exact() {
     w0.syn_fs = v.clone();
 
     let out1 = analyze(&g, &w0, rule);
-    assert_eq!(out1.len(), 1, "required=n, out=v: check=v is unifiable with the word's own v");
+    assert_eq!(
+        out1.len(),
+        1,
+        "required=n, out=v: check=v is unifiable with the word's own v"
+    );
     assert_eq!(
         out1[0].syn_fs, n,
         "remove_paths strips out=v entirely, then unifies the empty stem with required=n"

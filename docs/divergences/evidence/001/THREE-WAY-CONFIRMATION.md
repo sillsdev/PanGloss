@@ -1,6 +1,6 @@
 # 001 — three-way confirmation: C# `Add` vs Rust `main` vs Rust `Exact`
 
-Independent re-run of the `001-verification.md` evidence grammars, adding the third implementation
+Independent re-run of the `evidence/001/VERIFICATION.md` evidence grammars, adding the third implementation
 (the unmerged `fix/exact-analysis-fs` branch, entry 002).
 
 Binaries: C# `Add` and C# `PriorityUnion` columns from `evidence/001/*/csharp-add.tsv` and
@@ -75,7 +75,7 @@ also *recovers* parses hc.dll loses beyond the single `OverrideLoss_TenseFlipFlo
 
 **`g1-maxwell-chain`'s `sagui` diverges in both directions** on `main` and `Exact` alike: hc.dll
 finds `A2B+THIRD`, which neither Rust build finds, and both Rust builds find `A2B+B2A+THIRD`, which
-hc.dll does not. `001-verification.md` records g1 as showing no parse-set divergence; that reading
+hc.dll does not. `evidence/001/VERIFICATION.md` records g1 as showing no parse-set divergence; that reading
 compared Rust against the `PriorityUnion` C# build, which agrees with Rust. Against the founding
 oracle it is a divergence, and it is the only one found so far where analyses are both gained and
 lost on the same word. Its mechanism is not yet traced and it is NOT explained by the `mrB` shape

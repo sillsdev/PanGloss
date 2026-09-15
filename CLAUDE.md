@@ -139,9 +139,16 @@ Two implementations of HermitCrab exist in this project, and they are not peers.
 **This has already bitten.** `rust/crates/pg-rules/src/validity.rs` (W3.3): the single-merged-morph-
 record approximation mis-anchored environment checks on discontinuous morphs. Pre-fix, Rust accepted
 `xpitz`/`muat`; the C# oracle rejects both, because the environment check fails at the morph's
-*second* piece. The fixture that caught it (`rust/conformance/allomorphy/discontinuous-env/`) was
-oracle-diffed — an HC-Rust-only fixture over the same words would have certified the bug as a
-Construct witness.
+*second* piece. The fixture that caught it was oracle-diffed — an HC-Rust-only fixture over the same
+words would have certified the bug as a Construct witness.
+
+**And the pin for it is dead, which is worth more than the example.** `pg-parse/tests/
+discontinuous_env_gate.rs` still names `rust/conformance/allomorphy/discontinuous-env/`, a path that
+has never existed in this tree; both its tests skip twice over, on `#[ignore]` and again on a
+`have_fixture()` guard that survives `--include-ignored`. So the flagship demonstration of oracle
+discipline has protected nothing since July, and nothing noticed. Rebuilding it under
+`conformance-staging/edge-cases/` is open work; until then read that file's header, not this
+paragraph, for its real status.
 
 **Operationally:** expectations for a new or updated staged fixture (`conformance-staging/**`) must
 be verified against the C# founding oracle when it is available on this machine — it is, at the path
@@ -199,7 +206,14 @@ Use:
   before either, with no Cargo invocation at all.
 - `rust/tools/pg.ps1 -Mode gc` to report (dry run, the default) or `-Apply` to remove stale managed
   target directories this repository owns; it never deletes an unmarked, preserved, or still-live
-  directory.
+  directory. **Its busy check is per-directory, never machine-wide.** It used to abstain from the
+  whole sweep whenever any `cargo`/`rustc`/`link` was alive anywhere, which on a box running dozens
+  of worktrees meant the quiet moment never arrived and `-Apply` reclaimed nothing — the same
+  "reclaimer that can never reclaim" defect this file records for the sccache version of the bug,
+  recurring one layer up. A directory is now spared only if a live process names it on its command
+  line or it was written to in the last 15 minutes (`CARGO_TARGET_DIR` never appears on a command
+  line, so the recency check is what sees that build). Measured after the fix: 33 directories and
+  ~60GB reclaimed with 8 builds running concurrently.
 
 Enforcement is a `PreToolUse` hook (`.claude/hooks/block-bare-cargo.py`), not just this rule. It
 refuses `cargo build|test|check|run` and `cargo nextest run`; `cargo fmt`/`clean`/`metadata` pass.
@@ -581,7 +595,19 @@ much they actually bought:
 
 1. **Cap build-heavy agents at 2–3 concurrent**, matching `Enter-BuildSlot`'s own max of 2. Six was
    over-subscribed threefold; the semaphore only binds callers who go through `pg.ps1` anyway.
-2. **Never let an agent poll a background job it spawned.** Tell it to block in the foreground with a
+2. **A managed build runs in the FOREGROUND — this is now enforced, not advised.**
+   `.claude/hooks/block-backgrounded-build.py` refuses `pg.ps1`/`build.ps1`/`test.ps1` launched with
+   `run_in_background`; escape hatch `PANGLOSS_ALLOW_BACKGROUND_BUILD=1`. If the run overruns the
+   tool timeout the harness moves it to the background itself and notifies on completion, so a
+   foreground call never loses the result — which is the thing backgrounding it yourself throws away.
+   This became a hook because the advisory version lost: in one session three agents backgrounded a
+   build, waited on it, and submitted "waiting for the background run to finish" as their final
+   report, with prompts that quoted this rule verbatim. They were not being careless. The tool
+   description recommends backgrounding long commands, rule 7 below agrees with it, and this rule's
+   old remedy ("a long tool timeout") was arithmetically impossible against a ~1000s cold build and a
+   ~600s ceiling. An agent obeying the coherent half of contradictory guidance lands exactly there.
+   Rule 7 still holds for everything that is NOT a managed build.
+   The older form of this rule, still true: **never poll a background job you spawned.** Tell it to block in the foreground with a
    long tool timeout. Every agent that stalled did so around a self-spawned monitor, and one kept
    spawning poll loops for two hours *after* its work was committed and verified.
 3. **Reap on report.** When an agent finishes, kill stray `cargo`/`rustc`/`link`/`pangloss` before
@@ -606,7 +632,8 @@ much they actually bought:
 `find`/`rg`/`grep`/`findstr` that have burned >60s CPU and lived >2min. Dry-run by default;
 `-Apply` to act.
 
-7. **A genuinely long single command needs the harness's background execution, not a longer
+7. **A genuinely long single command that is NOT a managed build** (rule 2 now refuses those, and a
+   hook enforces it) **needs the harness's background execution, not a longer
    foreground wait.** A tool call blocks for at most ~10 minutes; a full-corpus oracle batch (e.g.
    Sena's 7,121 words) legitimately exceeds that. Measured 2026-08-19: run foreground, it truncates
    silently at whatever word the ceiling lands on (Sena: ~1,663/7,121, read as "the corpus" when it

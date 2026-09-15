@@ -1541,6 +1541,54 @@ function Get-LiveBuildProcesses {
     Get-CimInstance Win32_Process -Filter "Name='rustc.exe' or Name='cargo.exe' or Name='link.exe'"
 }
 
+<#
+  .DESCRIPTION
+  Every filesystem path a live build process names on its own command line. `gc` uses this to abstain
+  from ONE directory rather than from the whole sweep: a build in another worktree is a reason not to
+  touch that worktree's target dir, never a reason to leave every other worktree's garbage on disk.
+#>
+function Get-BusyTargetPaths {
+    param([object[]]$BusyProcesses)
+    $out = New-Object System.Collections.Generic.HashSet[string] ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($p in @($BusyProcesses)) {
+        $cl = $p.CommandLine
+        if (-not $cl) { continue }
+        foreach ($m in [regex]::Matches($cl, '[A-Za-z]:\\[^"'']+')) {
+            [void]$out.Add($m.Value.TrimEnd('\', '"', "'"))
+        }
+    }
+    $out
+}
+
+<#
+  .DESCRIPTION
+  Why `gc` must not delete this target dir right now, or `$null` when nothing claims it. Two signals,
+  both conservative: a live build naming the path, and recent write activity underneath it. The mtime
+  check exists because `pg.ps1` passes the target dir through CARGO_TARGET_DIR, which never appears on
+  a command line -- so the path check alone would miss exactly the build it most needs to see. Recency
+  is evidence of an effect, not of a message, which is the standard this repo holds other mechanisms to.
+#>
+function Test-TargetDirInUse {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [object]$BusyPaths,
+        [int]$RecentWriteMinutes = 15
+    )
+    foreach ($busy in $BusyPaths) {
+        if ($busy -eq $Path -or $busy.StartsWith($Path + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            return "a live build process names it on its command line"
+        }
+    }
+    $cutoff = (Get-Date).AddMinutes(-$RecentWriteMinutes)
+    $recent = Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt $cutoff } |
+        Select-Object -First 1
+    if ($recent) {
+        return "written to in the last $RecentWriteMinutes minute(s) ($($recent.Name)) -- a build may hold it via CARGO_TARGET_DIR"
+    }
+    $null
+}
+
 # Preflight and build-hardening surface, consumed by pg.ps1; exit code taxonomy is in this file's own header.
 $script:ExitCodeWrongBase = 10
 $script:ExitCodeMissingCorpus = 11
@@ -2521,13 +2569,16 @@ function Invoke-TargetGc {
         $result.SkipReason = 'dry run (-Apply not passed) -- nothing deleted'
         return [PSCustomObject]$result
     }
-    if ($BusyProcesses.Count -gt 0) {
-        # A live build anywhere is reason enough to abstain entirely: deleting a target it's mid-write to is a race.
-        $result.Skipped = $true
-        $result.SkipReason = "refusing to delete: $($BusyProcesses.Count) live cargo/rustc/link/sccache process(es) running"
-        return [PSCustomObject]$result
-    }
+    # Per-directory, never machine-wide. Abstaining whenever ANY build is alive made this reclaim
+    # nothing on a machine running dozens of worktrees -- the quiet moment never arrives, so the
+    # reclaimer could never reclaim, which is the same defect as a gate that never gates.
+    $busyPaths = Get-BusyTargetPaths -BusyProcesses $BusyProcesses
     foreach ($d in $disposable) {
+        $claim = Test-TargetDirInUse -Path $d.Path -BusyPaths $busyPaths
+        if ($claim) {
+            $result.SkipReason = "skipped $($d.Path): $claim"
+            continue
+        }
         # Re-validate containment at deletion time, guarding a future caller that hand-builds a classification list.
         $resolved = (Resolve-Path -LiteralPath $d.Path -ErrorAction SilentlyContinue)
         if (-not $resolved) {

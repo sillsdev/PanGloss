@@ -22,6 +22,8 @@ function New-FakeTarget {
     if ($null -ne $Marker) {
         ($Marker | ConvertTo-Json -Depth 4) | Set-Content -Path (Join-Path $dir '.pangloss-owner.json')
     }
+    # Backdate: gc treats a just-written directory as claimed, which every fixture here would be.
+    Get-ChildItem -LiteralPath $dir -Recurse -File | ForEach-Object { $_.LastWriteTime = (Get-Date).AddHours(-3) }
     return $dir
 }
 
@@ -78,14 +80,16 @@ Test-Case 'dry run (-Apply not passed) deletes nothing, regardless of class' {
     }
 }
 
-Test-Case '-Apply with a live build process present still deletes nothing' {
-    $fakeBusyProcess = [PSCustomObject]@{ ProcessId = 99999; Name = 'cargo.exe' }
-    $r = Invoke-TargetGc -Classification $classification -Apply:$true -BusyProcesses @($fakeBusyProcess) -Roots @($root)
-    Assert-True $r.Skipped
-    Assert-Equal 0 $r.Deleted.Count
-    foreach ($d in @($dirUnknown, $dirPreserved, $dirLive, $dirDisposable, $dirOtherRepo)) {
-        Assert-True (Test-Path $d) "must not delete $d while a build process is reported busy"
+Test-Case 'a busy process that claims no path cannot speak for any directory' {
+    # Its own probe, so the shared fixtures stay intact for the ordering-independent cases below.
+    $probe = New-FakeTarget -Root $root -Name 'claimless-probe' -Marker @{
+        schema_version = 1; repository_id = 'REPO1'; worktree_path = 'C:\wt'; created_utc = 'x'; last_used_utc = 'x'; preserved = $false
     }
+    $fakeBusyProcess = [PSCustomObject]@{ ProcessId = 99999; Name = 'cargo.exe' }
+    $classified = [PSCustomObject]@{ Path = $probe; Class = 'disposable'; SizeGB = 0 }
+    $r = Invoke-TargetGc -Classification @($classified) -Apply:$true -BusyProcesses @($fakeBusyProcess) -Roots @($root)
+    Assert-Equal 1 $r.Deleted.Count
+    Assert-False (Test-Path $probe) 'a process naming no path must not protect an unrelated directory'
 }
 
 Test-Case 'the sccache daemon is not a busy process, so it can never block -Apply' {
@@ -94,24 +98,43 @@ Test-Case 'the sccache daemon is not a busy process, so it can never block -Appl
     Assert-False ($names -contains 'sccache.exe') 'sccache is a shared daemon, never evidence of a live build'
 }
 
-Test-Case 'gc actually reclaims when driven by the REAL busy-process function' {
-    # The case beside this passes -BusyProcesses @(), so nothing ever drove gc from the real function.
-    $live = @(Get-LiveBuildProcesses)
-    $compilers = @($live | Where-Object { $_.Name -in @('cargo.exe', 'rustc.exe', 'link.exe') })
+Test-Case 'a live build elsewhere does not block an unrelated disposable directory' {
+    # Abstaining machine-wide made this reclaim nothing on a box running dozens of worktrees: the
+    # quiet moment never arrives, so the reclaimer could never reclaim. The claim is per-directory now.
     $probe = Join-Path $root 'effect-probe'
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
     Set-Content -Path (Join-Path $probe 'filler.bin') -Value ('x' * 4096)
+    # Backdate it: recent writes are their own claim, tested separately below.
+    Get-ChildItem -LiteralPath $probe -Recurse -File | ForEach-Object { $_.LastWriteTime = (Get-Date).AddHours(-3) }
+    $elsewhere = [PSCustomObject]@{ Name = 'rustc.exe'; CommandLine = 'rustc.exe --out-dir C:\somewhere-else\target x.rs' }
     $classified = [PSCustomObject]@{ Path = $probe; Class = 'disposable'; SizeGB = 0 }
-    $r = Invoke-TargetGc -Classification @($classified) -Apply:$true -BusyProcesses $live -Roots @($root)
-    if ($compilers.Count -gt 0) {
-        # A real build is running, so refusing is correct; assert it refused FOR THAT, not for a daemon.
-        Assert-True $r.Skipped 'a live compiler must still stop gc dead'
-        Assert-True ($r.SkipReason -match 'live') "skip reason must name the live processes: $($r.SkipReason)"
-        Remove-Item -Recurse -Force -LiteralPath $probe
-    } else {
-        Assert-False $r.Skipped "gc refused with no compiler running: $($r.SkipReason)"
-        Assert-False (Test-Path $probe) 'the disposable probe directory must actually be gone'
-    }
+    $r = Invoke-TargetGc -Classification @($classified) -Apply:$true -BusyProcesses @($elsewhere) -Roots @($root)
+    Assert-False $r.Skipped "a build in another target dir must not stop gc: $($r.SkipReason)"
+    Assert-False (Test-Path $probe) 'the disposable probe directory must actually be gone'
+}
+
+Test-Case 'a live build naming THIS directory does block it' {
+    $probe = Join-Path $root 'claimed-probe'
+    New-Item -ItemType Directory -Force -Path $probe | Out-Null
+    Set-Content -Path (Join-Path $probe 'filler.bin') -Value 'x'
+    Get-ChildItem -LiteralPath $probe -Recurse -File | ForEach-Object { $_.LastWriteTime = (Get-Date).AddHours(-3) }
+    $claimer = [PSCustomObject]@{ Name = 'cargo.exe'; CommandLine = "cargo build --target-dir $probe" }
+    $classified = [PSCustomObject]@{ Path = $probe; Class = 'disposable'; SizeGB = 0 }
+    $r = Invoke-TargetGc -Classification @($classified) -Apply:$true -BusyProcesses @($claimer) -Roots @($root)
+    Assert-Equal 0 $r.Deleted.Count
+    Assert-True (Test-Path $probe) 'a directory a live build names must survive'
+    Assert-True ($r.SkipReason -match 'command line') "skip reason must say why: $($r.SkipReason)"
+}
+
+Test-Case 'a recently written directory blocks itself, since CARGO_TARGET_DIR names no path on a command line' {
+    $probe = Join-Path $root 'fresh-probe'
+    New-Item -ItemType Directory -Force -Path $probe | Out-Null
+    Set-Content -Path (Join-Path $probe 'just-written.bin') -Value 'x'
+    $classified = [PSCustomObject]@{ Path = $probe; Class = 'disposable'; SizeGB = 0 }
+    $r = Invoke-TargetGc -Classification @($classified) -Apply:$true -BusyProcesses @() -Roots @($root)
+    Assert-Equal 0 $r.Deleted.Count
+    Assert-True (Test-Path $probe) 'a directory written to seconds ago must survive'
+    Assert-True ($r.SkipReason -match 'last') "skip reason must name the recency: $($r.SkipReason)"
 }
 
 Test-Case '-Apply with no busy processes deletes ONLY the disposable directory' {

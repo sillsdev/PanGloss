@@ -49,7 +49,7 @@ founding oracle, matching the `zudiue` finding divergence-001 already establishe
   ```
   i.e. `BatchCommand.cs`/`SignatureFormat.cs` are present as untracked files (copied in from
   `pr494-base` so `batch` can run at all on this branch, which predates that CLI plumbing) and
-  `Program.cs` carries the one line registering `BatchCommand`. This matches 001-verification.md's
+  `Program.cs` carries the one line registering `BatchCommand`. This matches evidence/001/VERIFICATION.md's
   account precisely; nothing was re-applied or changed this session, and `pr494-base` itself
   remains untouched. Re-ran `batch` on g2 this session: reproduced the known table exactly
   (`zudiueo` lost, matching `PriorityUnion`'s own documented narrowing).
@@ -74,7 +74,7 @@ Rust main       (459e8cb1): zud=ZUD  zudi=ZUD+A  zudiu=ZUD+A+B  zudiue=-        
 Rust Exact      (da564946): zud=ZUD  zudi=ZUD+A  zudiu=ZUD+A+B  zudiue=ZUD+A+B+C      zudueo=ZUD+B+C+D  zudiueo=ZUD+A+B+C+D
 ```
 
-Every row matches the table already published in `001-three-way-confirmation.md`. All four
+Every row matches the table already published in `evidence/001/THREE-WAY-CONFIRMATION.md`. All four
 binaries are confirmed to run the semantics claimed for them, from fresh invocations in this
 session, before any of the new-grammar evidence below is trusted.
 
@@ -154,16 +154,16 @@ unchanged):
 | `sagu` | `SAG+A2B\|sagu` | `SAG+A2B\|sagu` | **Byte-identical.** `third` cannot spuriously wrap here at all (its own gate, `is_unifiable(out=V, fs)`, fails once `a2b`'s own `req=N` has already pinned the accumulated value to `N` — a definite, non-widened value in *either* mode, since only one rule has written anything yet) — so there is no second analysis to mislabel in the first place, on either engine. |
 | `sagui` | `SAG+A2B+B2A\|sagui;SAG+A2B+THIRD\|sagui` (2 analyses) | `SAG+A2B+B2A\|sagui;SAG+A2B+B2A+THIRD\|sagui` (2 analyses) | **Same 2 analyses, one mislabeled by C#.** `SAG+A2B+THIRD` and `SAG+A2B+B2A+THIRD` denote the identical derivation (a2b, b2a, then third wrapping outermost); C# drops `B2A`'s ID because of the shared-boundary collision described above. |
 
-`001-verification.md` already reached this same conclusion independently (see its G1 section) and
+`evidence/001/VERIFICATION.md` already reached this same conclusion independently (see its G1 section) and
 called it "a labeling artifact in C#'s own signature construction, not an Add/PriorityUnion
-difference." **`001-three-way-confirmation.md` contradicts this**, stating "g1's divergence is
+difference." **`evidence/001/THREE-WAY-CONFIRMATION.md` contradicts this**, stating "g1's divergence is
 unexplained... treat it as open" and comparing the raw strings `SAG+A2B+THIRD` (Add) against
 `SAG+A2B+B2A+THIRD` (Rust) as if they were two different claimed analysis sets. Having now
 independently reconstructed the mechanism from the C# source (`AllomorphsInMorphOrder`,
 `MarkMorph`, `CopyFromInput`) and cross-checked it against three separate rendering surfaces
 (`BatchCommand`'s signature, the interactive `Gloss` line, and the full derivation tree — all three
 agreeing that `a2b`+`b2a` both really applied in the `third`-wrapped branch), **the verdict in
-`001-verification.md` is the one confirmed by this investigation; `001-three-way-confirmation.md`'s
+`evidence/001/VERIFICATION.md` is the one confirmed by this investigation; `evidence/001/THREE-WAY-CONFIRMATION.md`'s
 "open" classification of g1 is superseded.** Per this file's instructions, this contradiction is
 recorded here and in the report rather than edited into either existing file.
 
@@ -317,7 +317,7 @@ correct forward synthesis pass checks):
 
 **No word in any of the 8 new grammars, or the control, showed the reverse direction** —
 `PriorityUnion` or Rust `main` finding something `Add` or `Exact` does not. This is consistent with
-`001-verification.md`'s structural monotonicity proof (Add's accumulated set is always a superset
+`evidence/001/VERIFICATION.md`'s structural monotonicity proof (Add's accumulated set is always a superset
 of PriorityUnion's accumulated singleton) and extends it empirically to: 2-symbol delete-on-cover,
 5-rule depth, nested-with-sibling features, compounding, templating, and repeat-application.
 
