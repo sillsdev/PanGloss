@@ -1344,6 +1344,16 @@ mod tests {
         let dir = scratch_dir("analyses-fwdata-source-guids");
         let target = dir.join("fixture-with-k.fwdata");
         let xml = fs::read_to_string(source).expect("read fwdata fixture");
+        // The base fixture carries a deliberately dangling PhoneEnv reference, which
+        // `compile_project` refuses outright; this test is about source GUIDs on rows that do
+        // compile, so it drops that one reference rather than asserting the refusal.
+        let dangling_env =
+            "<objsur guid=\"00000000-0000-0000-0000-0000000000ff\" t=\"r\" />\r\n";
+        assert!(
+            xml.contains(dangling_env),
+            "fixture dangling-environment shape changed"
+        );
+        let xml = xml.replacen(dangling_env, "", 1);
         let phoneme_ref = "<objsur guid=\"00000000-0000-0000-0000-00000000001b\" t=\"o\" />";
         let phoneme_ref_with_k = format!(
             "{phoneme_ref}\n<objsur guid=\"00000000-0000-0000-0000-000000000025\" t=\"o\" />"
