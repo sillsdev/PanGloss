@@ -71,7 +71,7 @@ Correct the adjacent function documentation to describe gate-only admission.
 Update `docs/divergences/034-stratum-merge-equivalence.md` and
 `035-template-slot-fs-collisions.md` with exact tests, commits and counts. Keep #505 open.
 
-- [ ] Obtain independent spec-compliance review, then code-quality/correctness review.
+- [x] Obtain independent spec-compliance review, then code-quality/correctness review.
 - [x] Inspect every changed file and `git diff --check`; verify fixture mirrors by hashes.
 - [x] Run `./rust/tools/pg.ps1 -Mode test -Package pg-cli -TestTarget divergence_catalogue_gate`.
 - [ ] Commit scoped files, push Machine conformance branch and PanGloss main without force.

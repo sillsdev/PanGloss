@@ -8,6 +8,9 @@ behavioural.
 ## Status
 Partially aligned; broader reconciliation remains open. Machine #493 merged as `52d069f845b43f8bc88a95a56a8511aa58def26f`. Rust now uses gate-only template feature handling. State-key/fallback/widening equivalence is not established by this change.
 
+Implementation: PanGloss [`fc357daf`](https://github.com/sillsdev/PanGloss/commit/fc357daf).
+Independent Luna spec review and Sol correctness review accepted this narrow slice.
+
 ## C# site
 `AnalysisStratumRule.MergeEquivalentAnalyses / AnalysisAffixTemplateRule`.
 

@@ -103,10 +103,11 @@ Every commit in this repo that moved the `machine` gitlink, oldest first:
 | 2026-09-03 | `abfecf90` | `100d7bef` | Adds cross-table root-respelling fixture. |
 | 2026-09-15 | `431339e8` | `3beb8bba` | Classifies pinned fixtures by FieldWorks producibility; published on a preservation branch during cleanup integration. |
 
-**Currently behind the live branch.** `integrate-conformance-framework`'s tip in `machine` is
-`4823a05a` ("test: make memoization conformance default"), one commit ahead of the `100d7bef` pin
-PanGloss carries — both dated 2026-09-03, so the gap is small, but it means the memoization-default
-conformance change is not yet exercised by PanGloss's own submodule.
+**Historical pin gap (2026-09-03).** At that checkpoint, `integrate-conformance-framework` was
+`4823a05a` ("test: make memoization conformance default"), one commit ahead of PanGloss's then-pin
+`100d7bef`. This describes the old checkpoint, not the current pin or branch tip. The current
+inherited pin is `3beb8bba`; the gate-only correction uses the Machine-authored fixture from
+`f150e2a0`, mirrored unchanged in staging until a separate submodule upgrade.
 
 ## Pre-2026-07-10 (before this repo's own history begins)
 
