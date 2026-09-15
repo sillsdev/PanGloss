@@ -21,6 +21,8 @@ if ([string]::IsNullOrWhiteSpace($ProjectorExe)) {
 	}
 }
 if ([string]::IsNullOrWhiteSpace($ProjectName) -or
+	$ProjectName -in @('.', '..') -or
+	$ProjectName -match '[. ]$' -or
 	$ProjectName -ne [System.IO.Path]::GetFileName($ProjectName) -or
 	$ProjectName.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0) {
 	throw "ProjectName must be one valid filename segment"
