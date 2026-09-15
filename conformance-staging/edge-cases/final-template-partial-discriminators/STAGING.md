@@ -157,7 +157,22 @@ well-formed XML.
 
 ## Graduation
 
-Not yet proposed upstream (no `sillsdev/machine` PR opened). Candidate destination:
-`machine/conformance/edge-cases/final-template-partial-discriminators/` — same two files
-(`grammar.xml`, `words.yaml`), already verified against the C# founding oracle above. On acceptance,
-delete this staged copy in the same change (the graduation guard enforces this mechanically).
+Published in Machine [PR #480](https://github.com/sillsdev/machine/pull/480), commit
+[`a20bce12`](https://github.com/sillsdev/machine/commit/a20bce12), on
+`integrate-conformance-framework`, at `conformance/edge-cases/final-template-partial-discriminators/`.
+Keep this staged copy until the PanGloss Machine pin includes that commit; remove the duplicate
+in the same pin-bump change (the graduation guard enforces this mechanically).
+
+## Shared-correctness cleanup (2026-09-15)
+
+Machine issue: https://github.com/sillsdev/machine/issues/507
+
+The fixture is committed and pushed to Machine's `integrate-conformance-framework` branch as
+`a20bce12`, based on `8bad1934`, through existing PR #480. No separate fixture PR was needed.
+The upstream copy preserves grammar semantics and expected signatures, moves repository-specific
+commentary into Machine's conformance/docs area, adds coverage attribution, and marks FieldWorks producibility
+false using combined-usage HCLoader evidence. Do not copy the old missing producibility metadata.
+
+Both candidate fixtures pass the C# harness with memoization on/off (16 words, zero skipped);
+four independent grammar mutations produce the expected failures. See Machine's conformance/docs files for
+exact mutations and limitations. Keep this staged copy until upstream acceptance and a pin bump.

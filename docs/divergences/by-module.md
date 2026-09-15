@@ -91,3 +91,15 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `parity_divergence_census.rs` | 028 |
 | `rust/conformance/allomorphy/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
+## Optimization and shared-correctness follow-up
+
+| C# / Rust seam | Entries | Shared fixtures |
+|---|---|---|
+| Analysis cascade / `memo_apply_rules` | 031 | Dedicated cache-hit conformance fixture still missing |
+| Template battery / `run_template_batch` | 032 | `template-category-sharing` checks exclusivity, not cache hits |
+| Final-template state / `stratum.rs` policy | 033 | `final-template-partial-discriminators` |
+| Stratum equivalence / `analyze_template` | 034 | Dedicated cross-engine collision fixture still missing |
+| Template and slot merge / `run_template_batch_raw`, `apply_slot_batch` | 035 | `template-category-sharing` is not a collision discriminator |
+| `ApplyRhs` / `attribute_morphs` | 036 | Stable shared zero-width fixture still missing |
+| C# tied-node ordering / oracle comparison | 037 | Fresh-process identity pin still missing |
+| Edge-segment matching / unported prefilter | 038 | Candidate only; no dedicated fixture |

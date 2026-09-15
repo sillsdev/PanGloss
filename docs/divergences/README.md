@@ -5,7 +5,7 @@ This folder is the standing ledger of every place `pg-parse`/`pg-rules`/`pg-feat
 `SIL.Machine.Morphology.HermitCrab`'s C# implementation (`hc.dll`) in
 `C:\Users\johnm\Documents\repos\machine`. Per the repo rule, HC-Rust must never produce a different
 parse than C# without that difference being documented here (and, if Rust believes its behaviour is
-an improvement, proposed upstream as a PR against `sillsdev/machine` rather than silently kept).
+an improvement, reported in a Machine issue, with a fix PR when available, rather than silently kept).
 
 ## What counts as an entry
 
@@ -50,9 +50,9 @@ gets `Status: reverted-in-rust` or similar rather than being deleted).
 
 An entry's `Status` is one of:
 
-- **`open`** — the divergence exists today and is unresolved on both sides. This includes a
-  deliberate Rust-side choice that has not yet been proposed upstream, and a known bug that has not
-  yet been fixed on either side.
+- **`open`** — unresolved behavior, compatibility research, or missing discriminating evidence.
+  State separately what is implemented in Rust and C#, and whether a bug is reproduced or suspected.
+- **`superseded`** — a later algorithm replaced this Rust implementation; preserve its history and link the successor.
 - **`proposed-upstream`** — Rust's behaviour is believed better than hc.dll's, and a PR against
   `sillsdev/machine` proposing hc.dll adopt it has been filed (name the PR number).
 - **`accepted-upstream`** — that PR merged; hc.dll now matches Rust, so the divergence is closed from
@@ -72,8 +72,8 @@ what the original claim got wrong.
 
 | id | title | kind | status | C# site | Rust site | pinning fixture/test |
 |---|---|---|---|---|---|---|
-| 001 | [Analysis syntactic-FS fold: Add vs PriorityUnion](001-ana-syn-fs-add-vs-priority-union.md) | behavioural | open | `AnalysisAffixProcessRule.cs`/`AnalysisCompoundingRule.cs` (`.Add`) | `pg-rules/src/morph.rs::ana_syn_fs` | `pg-rules/tests/analysis_syn_fs_gate.rs` |
-| 002 | [Analysis syntactic-FS fold: exact inverse of synthesis](002-ana-syn-fs-exact-inverse.md) | behavioural | open | `AnalysisSyntacticFeatureMerge.cs` (research-only `Exact` mode, unmerged) | `pg-rules/src/morph.rs::ana_syn_fs` (branch `fix/exact-analysis-fs`, unmerged into PanGloss `main`) | `pg-parse/tests/exact_analysis_fs_recall.rs` |
+| 001 | [Analysis syntactic-FS fold: Add vs PriorityUnion](001-ana-syn-fs-add-vs-priority-union.md) | behavioural | superseded | `AnalysisAffixProcessRule.cs`/`AnalysisCompoundingRule.cs` (`.Add`) | `pg-rules/src/morph.rs::ana_syn_fs` | `pg-rules/tests/analysis_syn_fs_gate.rs` |
+| 002 | [Analysis syntactic-FS fold: exact inverse of synthesis](002-ana-syn-fs-exact-inverse.md) | behavioural | open | `AnalysisSyntacticFeatureMerge.cs` (research-only `Exact` mode, unmerged) | `pg-rules/src/morph.rs::ana_syn_fs` (main, `149f88df`) | `pg-parse/tests/exact_analysis_fs_recall.rs` |
 | 003 | [Compounding homophone-disjunction collapse](003-compounding-homophone-collapse.md) | behavioural | fixed-in-rust | `SynthesisCompoundingRule.ApplySubrule` / `Word` copy ctor | `pg-rules/src/morph.rs::synth_compound_subrule` | `csharp_port_compounding.rs::simple_rules_1_homophone_disjunction_finding` |
 | 004 | [`Word::current_non_head()` index vs last-element](004-current-non-head-index.md) | behavioural | fixed-in-rust | `Word.CurrentNonHead` (Word.cs) | `pg-rules/src/word.rs::current_non_head` | `csharp_port_generation.rs::direct_api_compounding_two_non_heads_resolve_distinct_slots` |
 | 005 | [Prefix-commutes-with-compounding misdiagnosis](005-prefix-compounding-misdiagnosis.md) | stale-claim | not-a-bug | `AnalysisCompoundingRule.Apply` | `pg_rules::morph::resolve_non_head_roots` | `csharp_port_compounding.rs::simple_rules_3_prefix_commutes_with_compounding` |
@@ -102,10 +102,26 @@ what the original claim got wrong.
 | 028 | [Confirmation-free accuracy screen: an unmeasured-until-now soundness hazard](028-confirmation-free-accuracy-hazard.md) | efficiency | open | (no C# equivalent — Rust-only evaluation harness) | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | `parity_divergence_census.rs`; `candidate_only_identities` measured 0 on current fixtures |
 | 029 | [Declared morpheme tags can vanish from the compiled lexc alphabet at depth](029-lexc-tag-alphabet-vanishing.md) | unported | open | (no C# equivalent — Rust-only foma compilation path) | `pg_foma::emit` (`verify_tags_reachable`) | `EmitReport::uncovered` (`kind: "unreachable-after-lexc-compile"`) |
 | 030 | [Disjunctive-allomorph / free-fluctuation re-check (W3.2), formerly deferred](030-disjunctive-recheck-w32.md) | behavioural | fixed-in-rust | `Allomorph.IsWordValid`'s second loop (Allomorph.cs:127-152) | `pg-rules/src/validity.rs` (`allomorphs_valid_impl`, `MorphRecord::passed_over`) | `rust/conformance/allomorphy/disjunctive-recheck/`, `pg-parse/tests/disjunctive_recheck_gate.rs` |
+| 031 | [Analysis cascade memoization](031-analysis-cascade-memo.md) | efficiency | open | `AnalysisStratumRule / AnalysisScope` | `pg-rules/src/stratum.rs::memo_apply_rules` | See entry: implementation, fixture and evidence status are separate |
+| 032 | [Template-battery memoization](032-template-battery-memo.md) | efficiency | open | `AnalysisAffixTemplatesRule / AnalysisScope` | `pg-rules/src/stratum.rs::run_template_batch` | See entry: implementation, fixture and evidence status are separate |
+| 033 | [Final-template analysis pruning](033-final-template-pruning.md) | efficiency | open | `AnalysisStratumRule / Word.FinalTemplateState` | `pg-rules/src/stratum.rs final-template policy` | See entry: implementation, fixture and evidence status are separate |
+| 034 | [Stratum analysis-state merging](034-stratum-merge-equivalence.md) | behavioural | open | `AnalysisStratumRule.MergeEquivalentAnalyses / AnalysisAffixTemplateRule` | `pg-rules/src/stratum.rs analysis merge and analyze_template` | See entry: implementation, fixture and evidence status are separate |
+| 035 | [Template/slot feature collisions and widening](035-template-slot-fs-collisions.md) | behavioural | open | `AnalysisAffixTemplatesRule / AnalysisAffixTemplateRule` | `pg-rules/src/stratum.rs::run_template_batch_raw / apply_slot_batch` | See entry: implementation, fixture and evidence status are separate |
+| 036 | [Zero-width morpheme identity preservation](036-zero-width-morpheme-identity.md) | behavioural | open | `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs / MarkMorph` | `pg-rules/src/morph.rs::attribute_morphs` | See entry: implementation, fixture and evidence status are separate |
+| 037 | [Oracle annotation ordering instability](037-oracle-annotation-ordering.md) | behavioural | open | `BidirList / tied-node annotation ordering (suspected)` | `pg-parse oracle comparison dependency; no BidirList port claim` | See entry: implementation, fixture and evidence status are separate |
+| 038 | [Edge-segment prefilter candidate](038-edge-segment-prefilter.md) | efficiency | open | `AnalysisAffixProcessAllomorphRuleSpec candidate matching` | `No current Rust port identified` | See entry: implementation, fixture and evidence status are separate |
 
-Revisions: 459e8cb1 is the PanGloss commit both `main` (at 4c870938) and `fix/exact-analysis-fs` (at
-da564946) share as their most recent common ancestor. The C# checkout read throughout is
-`conformance/fieldworks-witnesses` at `d3b7643d`, which matches `origin/master` at the two call
-sites this catalogue cites (`AnalysisAffixProcessRule.cs`, `AnalysisCompoundingRule.cs`); the
-research-only `Exact`/`PriorityUnion` toggle lives only on `sillsdev/machine` PR #494's branch
-(`machine.worktrees/pr494` at `2acb3c52`), never on `master`.
+## Evidence and upstream reporting
+
+For each active shared concern, record a Machine issue link, any fix PR or posted PR comment,
+Rust implementation status, exact fixture location, and what was actually run at which commits.
+An issue is not a fix PR; a posted comment is not a patch; a unit test is not a conformance grammar.
+A green test with the fix disabled is not evidence that the fix is necessary. A grammar mutation
+proves fixture sensitivity, not an engine fix-removed regression. Compare complete identity
+multisets and statuses; skips, caps, missing rows and timeouts are not alignment passes.
+Rust-only implementation bugs need not become Machine issues. Shared semantic concerns and
+C# oracle dependencies do; classify hypotheses and coverage gaps without presenting them as bugs.
+
+Audit: PanGloss `0006b938` (including Exact `149f88df`); Machine conformance base `8bad1934`;
+Machine #493 merged at `52d069f8`. Live PR states checked 2026-09-15. Historical notes below
+`history/` are dated evidence, not substitutes for checking the current head.

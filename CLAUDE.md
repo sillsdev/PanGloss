@@ -11,23 +11,27 @@ and are fine.
 
 ## The oracle hierarchy — the rule with the widest blast radius
 
-C# `hc.dll` is the **founding oracle**. Every conformance fixture's `words.yaml` was authored by
-running it and accepted by a human. `pg_parse::Morpher` (HC-Rust) is a **port under test**.
+C# `hc.dll` is the **founding oracle**. Observed fixture expectations come from it;
+a fixture may instead record independently justified forward-synthesis expectations, explicitly
+marked and reported upstream, even when C# currently fails them. `pg_parse::Morpher` (HC-Rust)
+is a **port under test**.
 
 **HC-Rust must never produce a different parse than C#.** It may be faster or leaner; every such
 efficiency needs an argument for why it cannot change a parse. If you believe the algorithm itself
-should change, do the research and open a PR against `sillsdev/machine` — never keep a behavioural
-improvement in Rust alone. Every divergence and every optimization gets an entry under
+should change, open or reuse a Machine issue with the evidence, then propose a fix PR when ready —
+never keep a behavioural improvement unreported in Rust alone. Every divergence and every optimization gets an entry under
 `docs/divergences/`.
 
-The one escape hatch: a divergence that is documented, pinned by a fixture, and proposed upstream.
+The one escape hatch: an independently justified divergence documented in the ledger, pinned by a
+fixture, and reported upstream. An issue is not a fix PR and neither alone proves correctness.
 
 A fixture authored against HC-Rust instead of the oracle records HC-Rust's behaviour, not
 correctness, and must say so in its `words.yaml` (`# oracle-provenance:`) — silence reads as
 "verified against hc.dll" and is the bug. *Scar: HC-Rust once accepted `xpitz`/`muat`, which the
 oracle rejects; only an oracle-diffed fixture caught it.*
 
-Before changing analysis or synthesis semantics, load `.claude/skills/oracle-alignment/SKILL.md`.
+Before changing analysis/synthesis semantics, porting optimizations, auditing the ledger, or reporting
+shared correctness issues, load `.claude/skills/oracle-alignment/SKILL.md`.
 
 ## Rules with teeth
 
