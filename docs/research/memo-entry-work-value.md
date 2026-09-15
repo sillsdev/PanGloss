@@ -420,4 +420,44 @@ a pressured cache.
 
 ## 11. Correctness gates
 
-<!-- filled in after gate runs complete -->
+Run from the coordinating session at `ca6f4174`, foreground, after the authoring agent was stopped.
+This diff adds diagnostics only, so these are a regression check, not the point -- but they were run,
+not assumed.
+
+**`memo_parity_gate`** (`pg-parse::memo_parity_gate memo_on_and_off_agree_on_every_fixture_word`),
+`pg.ps1 -Mode test -Package pg-parse -TestTarget memo_parity_gate`:
+
+```
+PASS [   1.729s] (1/1) pg-parse::memo_parity_gate memo_on_and_off_agree_on_every_fixture_word
+Summary [   1.729s] 1 test run: 1 passed, 0 skipped
+```
+
+**`memo_corpus_gate`** (`pg-foma::memo_corpus_gate memo_parity_survives_aweti_sena_mbugwe`),
+`pg.ps1 -Mode corpus-test -Package pg-foma -TestTarget memo_corpus_gate` with
+`PANGLOSS_CORPUS_ROOT` pointed at the main checkout's `samples/data` (the corpora are gitignored and
+absent from this worktree). Preflight listed all 10 corpus files with their sha256 prefixes before
+Cargo ran:
+
+```
+aweti:  completed both=20  capped both=13  completed only on=11  completed only off=0
+sena:   completed both=300 capped both=0   completed only on=0   completed only off=0
+mbugwe: completed both=56  capped both=4   completed only on=0   completed only off=0
+11 words completed only with memo on, 0 only with memo off
+PASS [ 281.441s] (1/1) pg-foma::memo_corpus_gate memo_parity_survives_aweti_sena_mbugwe
+PANGLOSS_CORPUS_CASES memo_parity_survives_aweti_sena_mbugwe 404
+[pg] corpus-test executed 404 corpus case(s) across 1 label(s).
+```
+
+Both tallies are identical to the pre-rebase baseline recorded in
+`memory-measurement-repair.md` §6, so this diff moved nothing.
+
+**Verified by effect, not by exit code**: the `404` corpus-case count is the reason `-Mode
+corpus-test` exists -- a corpus suite that finds no corpus otherwise passes having tested nothing.
+404 cases across 3 grammars actually ran.
+
+**The number this gate exists to protect**: `aweti completed only on=11`. Eleven words finish only
+because the memo is on. That is the empirical proof that this memo is NOT a pure performance device
+under a step cap -- degrade its hit rate enough and those words stop completing, changing the
+analysis set a caller sees. Any future eviction policy is accountable to this four-way tally at its
+own target byte cap, not to `memo_parity_gate`'s identity comparison, which cannot see a completion
+change.
