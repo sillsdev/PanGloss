@@ -53,10 +53,12 @@
 //! module existed. Set, the byte budget becomes reclaimable: each table keeps a min-heap of
 //! `(pr, seq, key)` nodes: `pr` a GreedyDual-Size-style priority (`HC_MEMO_EVICT_POLICY` selects
 //! `lru`, `size`, or `gdsize`, C# has no analog — see `docs/divergences/039-memo-eviction.md`),
-//! `seq` a monotonic tie-breaker. A byte-budget refusal first pops the minimum-priority live,
-//! not-in-flight entry and frees it before retrying. This can only change *when* a subtree is
-//! memoized, never a completed word's analysis set — see the divergence entry for the one
-//! documented exception (a step-capped word's completion can depend on hit rate).
+//! `seq` a monotonic counter that both breaks `pr` ties and identifies a node as stale (`pr` alone
+//! cannot: an unmoved `clock` recomputes the same `pr` on every hit). A byte-budget refusal pops
+//! the minimum-priority live, not-in-flight entry and frees it before retrying; a table whose stale
+//! duplicates outgrow its live entry count gets its heap compacted back down. This can only change
+//! *when* a subtree is memoized, never a completed word's analysis set — see the divergence entry
+//! for the one documented exception (a step-capped word's completion can depend on hit rate).
 //!
 //! ## Memoization is correctness-neutral
 //! Every cap above, and the order-invariant key itself, must leave the analysis candidate set
@@ -271,9 +273,13 @@ pub struct MemoEntry<W> {
     pub mrule_trail_prefix_length: usize,
     pub non_head_prefix_length: usize,
     /// Eviction priority as of the most recent store or hit; `0` when eviction has never touched
-    /// this entry (including always, while `HC_MEMO_EVICT` is unset). A popped heap node whose own
-    /// `pr` no longer matches this field is stale and is discarded without touching the entry.
+    /// this entry (including always, while `HC_MEMO_EVICT` is unset).
     pub pr: u64,
+    /// The heap-node sequence number that produced the current `pr` (see `AnalysisScope::next_seq`).
+    /// `seq`, not `pr`, is what identifies a popped heap node as stale: two nodes for the same key
+    /// can legitimately share one `pr` (an unmoved clock recomputes the same value on every hit),
+    /// but `seq` is globally unique, so exactly one live node ever matches this field.
+    pub seq: u64,
     /// Accounted byte cost recorded at insert time, mirroring what was charged to the owning
     /// table's byte counter, so eviction can reverse that charge without re-walking `results`.
     pub bytes: usize,
@@ -290,6 +296,7 @@ impl<W> MemoEntry<W> {
             mrule_trail_prefix_length,
             non_head_prefix_length,
             pr: 0,
+            seq: 0,
             bytes: 0,
         }
     }
@@ -459,6 +466,10 @@ pub mod profile {
 
         // Entries actually removed by `AnalysisScope::evict_for` (both tables combined); `0` whenever `HC_MEMO_EVICT` is unset, since the branch that increments this never runs.
         static MEMO_EVICTIONS: Cell<u64> = const { Cell::new(0) };
+
+        // Most recently recorded `AnalysisScope::estimate_heap_bytes()` reading (not a running max or sum -- see `record_heap_bytes`).
+        static MEMO_HEAP_BYTES: Cell<u64> = const { Cell::new(0) };
+        static TPL_HEAP_BYTES: Cell<u64> = const { Cell::new(0) };
     }
 
     /// Cached `HC_MEMO_STATS` read (one env lookup per thread, not per call). Callers use this to
@@ -591,6 +602,15 @@ pub mod profile {
         MEMO_EVICTIONS.with(|c| c.set(c.get() + 1));
     }
 
+    /// Record one `AnalysisScope::estimate_heap_bytes()` reading, replacing whatever was recorded
+    /// before -- a size, not an event, so there is nothing to accumulate. Call once, at end of
+    /// parse (mirrors `pg_rules::word_stats::record_memo_snapshot`'s own call shape), only when
+    /// [`enabled`] is true: the O(heap size) walk this reads from is not free.
+    pub fn record_heap_bytes(memo_bytes: usize, tpl_bytes: usize) {
+        MEMO_HEAP_BYTES.with(|c| c.set(memo_bytes as u64));
+        TPL_HEAP_BYTES.with(|c| c.set(tpl_bytes as u64));
+    }
+
     /// One word's whole cumulative memo picture -- snapshot only, never reset.
     #[derive(Debug, Clone, Copy, Default)]
     pub struct MemoProfileSnapshot {
@@ -630,6 +650,8 @@ pub mod profile {
         pub hit_results_len_total: u64,
 
         pub memo_evictions: u64,
+        pub memo_heap_bytes: u64,
+        pub tpl_heap_bytes: u64,
     }
 
     pub fn snapshot() -> MemoProfileSnapshot {
@@ -670,6 +692,8 @@ pub mod profile {
             hit_results_len_total: HIT_RESULTS_LEN_TOTAL.with(|c| c.get()),
 
             memo_evictions: MEMO_EVICTIONS.with(|c| c.get()),
+            memo_heap_bytes: MEMO_HEAP_BYTES.with(|c| c.get()),
+            tpl_heap_bytes: TPL_HEAP_BYTES.with(|c| c.get()),
         }
     }
 }
@@ -817,6 +841,21 @@ impl<W> AnalysisScope<W> {
         )
     }
 
+    /// Diagnostic-only (`HC_WORD_STATS=1`): total accounted bytes retained by both eviction heaps,
+    /// stale nodes included -- nothing compacts a heap until its node is popped, and every node
+    /// clones a full `AnalysisStateKey` (see `docs/divergences/039-memo-eviction.md`). `(memo,
+    /// template_memo)`. `0`/`0` whenever `HC_MEMO_EVICT` is unset, since no node is ever pushed.
+    /// O(heap size); call only under a diagnostic gate, never on the hot insert path.
+    pub fn estimate_heap_bytes(&self) -> (usize, usize) {
+        let node_overhead = std::mem::size_of::<EvictNode>() - std::mem::size_of::<AnalysisStateKey>();
+        let sum = |heap: &BinaryHeap<Reverse<EvictNode>>| -> usize {
+            heap.iter()
+                .map(|Reverse(n)| node_overhead + n.key.estimate_bytes())
+                .sum()
+        };
+        (sum(&self.memo_heap), sum(&self.template_heap))
+    }
+
     /// Diagnostic-only: whether the mrule-memo entry cap alone is exhausted, so a caller classifying
     /// a refusal from `has_memo_capacity` can report which cap actually bound.
     pub fn memo_entries_at_cap(&self) -> bool {
@@ -874,14 +913,16 @@ impl<W> AnalysisScope<W> {
     ) {
         if evict::enabled() {
             let pr = self.compute_pr(bytes);
-            entry.pr = pr;
-            entry.bytes = bytes;
             let seq = self.next_seq();
+            entry.pr = pr;
+            entry.seq = seq;
+            entry.bytes = bytes;
             self.heap_mut(is_template).push(Reverse(EvictNode {
                 pr,
                 seq,
                 key: key.clone(),
             }));
+            self.maybe_compact_heap(is_template);
         }
         if is_template {
             self.template_memo.insert(key, entry);
@@ -913,22 +954,61 @@ impl<W> AnalysisScope<W> {
         };
         if let Some(e) = table_mut.get_mut(key) {
             e.pr = pr;
+            e.seq = seq;
         }
         self.heap_mut(is_template).push(Reverse(EvictNode {
             pr,
             seq,
             key: key.clone(),
         }));
+        self.maybe_compact_heap(is_template);
     }
 
-    /// Pops the minimum-priority live, not-in-flight entry until `needed_bytes` fits or the heap is empty.
+    /// Rebuild threshold: heap nodes per live entry (plus slack for tiny tables) before compacting.
+    const HEAP_COMPACT_RATIO: usize = 2;
+    const HEAP_COMPACT_SLACK: usize = 64;
+
+    /// Rebuilds a table's heap keeping only each key's current node, dropping stale duplicates.
+    fn maybe_compact_heap(&mut self, is_template: bool) {
+        let (heap_len, table_len) = if is_template {
+            (self.template_heap.len(), self.template_memo.len())
+        } else {
+            (self.memo_heap.len(), self.memo.len())
+        };
+        let threshold = table_len
+            .saturating_mul(Self::HEAP_COMPACT_RATIO)
+            .saturating_add(Self::HEAP_COMPACT_SLACK);
+        if heap_len <= threshold {
+            return;
+        }
+        let stale_heap = std::mem::take(self.heap_mut(is_template));
+        let table = if is_template {
+            &self.template_memo
+        } else {
+            &self.memo
+        };
+        let mut fresh = BinaryHeap::with_capacity(table.len());
+        for Reverse(node) in stale_heap {
+            let is_current = match table.get(&node.key) {
+                Some(entry) => entry.seq == node.seq,
+                None => false,
+            };
+            if is_current {
+                fresh.push(Reverse(node));
+            }
+        }
+        *self.heap_mut(is_template) = fresh;
+    }
+
+    /// Pops the minimum-priority live, not-in-flight entry until `needed_bytes` fits; in-flight nodes are re-pushed, never dropped.
     fn evict_for(&mut self, is_template: bool, needed_bytes: usize) {
         if !evict::enabled() {
             return;
         }
+        let mut requeue: Vec<EvictNode> = Vec::new();
         while !self.has_byte_capacity(is_template, needed_bytes) {
             let Some(Reverse(node)) = self.heap_mut(is_template).pop() else {
-                return;
+                break;
             };
             let in_flight = if is_template {
                 self.template_in_progress.contains(&node.key)
@@ -936,6 +1016,7 @@ impl<W> AnalysisScope<W> {
                 self.in_progress.contains(&node.key)
             };
             if in_flight {
+                requeue.push(node);
                 continue;
             }
             let table = if is_template {
@@ -944,7 +1025,7 @@ impl<W> AnalysisScope<W> {
                 &mut self.memo
             };
             match table.get(&node.key) {
-                Some(entry) if entry.pr == node.pr => {}
+                Some(entry) if entry.seq == node.seq => {}
                 _ => continue,
             }
             let entry = table.remove(&node.key).expect("checked present above");
@@ -956,6 +1037,10 @@ impl<W> AnalysisScope<W> {
             }
             self.clock = node.pr;
             profile::record_eviction();
+        }
+        let heap = self.heap_mut(is_template);
+        for node in requeue {
+            heap.push(Reverse(node));
         }
     }
 
@@ -1256,6 +1341,91 @@ mod tests {
         assert!(
             scope.memo.get(&key_a).is_some(),
             "an in-flight entry must survive eviction"
+        );
+    }
+
+    #[test]
+    fn heap_compaction_bounds_stale_duplicate_growth() {
+        std::env::set_var("HC_MEMO_EVICT", "1");
+        // Large budget: isolates compaction (fires on hit volume) from eviction (also shrinks the heap).
+        let mut scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(Some(10_000_000));
+        let key_a = key_with(counts_from(&[0]), 0);
+        scope.record_stored_words(1);
+        scope.record_stored_bytes(false, 8);
+        scope.store_entry(false, key_a.clone(), MemoEntry::new(vec![1u32], 0, 0), 8);
+
+        for _ in 0..500 {
+            scope.note_hit(false, &key_a);
+        }
+
+        let bound = 2 * scope.memo.len() + 64;
+        assert!(
+            scope.memo_heap.len() <= bound,
+            "500 hits on 1 live entry must not leave ~500 stale heap nodes: heap len {} exceeds bound {bound}",
+            scope.memo_heap.len()
+        );
+    }
+
+    #[test]
+    fn a_stale_duplicate_never_causes_a_recently_hit_entry_to_be_evicted_over_an_older_one() {
+        std::env::set_var("HC_MEMO_EVICT", "1");
+        std::env::set_var("HC_MEMO_EVICT_POLICY", "lru");
+        let mut scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(Some(16));
+        let key_a = key_with(counts_from(&[0]), 0);
+        let key_b = key_with(counts_from(&[1]), 0);
+
+        scope.record_stored_words(1);
+        scope.record_stored_bytes(false, 8);
+        scope.store_entry(false, key_a.clone(), MemoEntry::new(vec![1u32], 0, 0), 8);
+        scope.record_stored_words(1);
+        scope.record_stored_bytes(false, 8);
+        scope.store_entry(false, key_b.clone(), MemoEntry::new(vec![2u32], 0, 0), 8);
+
+        // `clock` is unmoved (no eviction yet), so each touch recomputes A's original `pr` exactly.
+        for _ in 0..10 {
+            scope.note_hit(false, &key_a);
+        }
+
+        // A+B fill the 16-byte budget; freeing 8 more must evict the true LRU victim, B.
+        assert!(scope.has_byte_capacity_after_evicting(false, 8));
+        assert!(
+            scope.memo.get(&key_a).is_some(),
+            "A was recently hit -- must survive"
+        );
+        assert!(
+            scope.memo.get(&key_b).is_none(),
+            "B is the true least-recently-used entry -- must be evicted"
+        );
+    }
+
+    #[test]
+    fn in_flight_node_is_requeued_and_still_evictable_once_cleared() {
+        std::env::set_var("HC_MEMO_EVICT", "1");
+        let mut scope: AnalysisScope<u32> = AnalysisScope::new().with_byte_budget(Some(10));
+        let key_a = key_with(counts_from(&[0]), 0);
+        scope.record_stored_words(1);
+        scope.record_stored_bytes(false, 8);
+        scope.store_entry(false, key_a.clone(), MemoEntry::new(vec![1u32], 0, 0), 8);
+        scope.in_progress.insert(key_a.clone());
+
+        // First pass: A is the only candidate but in-flight, so nothing can be freed.
+        assert!(!scope.has_byte_capacity_after_evicting(false, 8));
+        assert!(scope.memo.get(&key_a).is_some());
+        let bytes_after_first_pass = scope.memo_bytes_used();
+
+        // A's expansion finishes elsewhere and its guard clears.
+        scope.in_progress.remove(&key_a);
+
+        // Second pass: A's heap node must have survived the first pass's pop, not been dropped.
+        assert!(scope.has_byte_capacity_after_evicting(false, 8));
+        assert!(
+            scope.memo.get(&key_a).is_none(),
+            "A must be evicted once its guard clears"
+        );
+        assert!(
+            scope.memo_bytes_used() < bytes_after_first_pass,
+            "byte counter must actually fall on the second pass: {} was not < {bytes_after_first_pass}",
+            scope.memo_bytes_used()
         );
     }
 

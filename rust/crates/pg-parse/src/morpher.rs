@@ -585,6 +585,11 @@ impl<'g> Morpher<'g> {
         // `HC_WORD_STATS=1`: snapshot this word's memo tables before `scope_cell` drops (docs/research/word-memory-trace.md).
         if let Some(scope) = scope {
             pg_rules::word_stats::record_memo_snapshot(&scope.borrow());
+            // `HC_MEMO_STATS=1`: the eviction heaps' own accounted bytes (docs/divergences/039-memo-eviction.md).
+            if pg_memo::profile::enabled() {
+                let (memo_heap, tpl_heap) = scope.borrow().estimate_heap_bytes();
+                pg_memo::profile::record_heap_bytes(memo_heap, tpl_heap);
+            }
         }
 
         ParseOutcome {
