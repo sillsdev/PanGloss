@@ -40,10 +40,18 @@ because the environment check fails specifically at the morph's *second* piece �
 when each piece is checked at its own span.
 
 ## Evidence
-`rust/conformance/allomorphy/discontinuous-env/` is an oracle-diffed fixture (verified against
-`hc.dll`, not HC-Rust-only) built specifically to catch this. `pg-parse/tests/discontinuous_env_gate.rs`
-replays it and is red-on-revert: collapsing `attribute_morphs`'s contiguous-run split back to one
-record per morph makes `xpitz`/`muat` wrongly parse again.
+**This entry is currently UNPINNED.** It was caught by an oracle-diffed fixture at the v1 path
+`conformance/allomorphy/discontinuous-env`, which the v1 -> v2 fixture migration did not carry over;
+its replay test was deleted along with the rest of the v1 gates rather than left skipping silently.
+
+Nothing in either root exercises a discontinuous morph whose allomorph environment holds at its
+first piece and is violated at a later one, so the fix in `attribute_morphs`'s contiguous-run split
+is unprotected: collapsing it back to one record per morph would make `xpitz`/`muat` parse again and
+no test would fail.
+
+Re-authoring this fixture against `hc.dll` is open work, and it is the highest-value one
+outstanding — CLAUDE.md names this exact case as the worked example of why oracle-diffed fixtures
+matter.
 
 ## Upstream
 None, not applicable — pure Rust-side bug (the single-merged-morph-record approximation); C# was

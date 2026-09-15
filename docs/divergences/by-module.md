@@ -82,15 +82,15 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/tests/analysis_syn_fs_gate.rs` | 001 |
 | `pg-parse/tests/exact_analysis_fs_recall.rs` | 002 |
 | `csharp_port_compounding.rs` | 003, 004, 005 |
-| `rust/conformance/allomorphy/discontinuous-env/`, `discontinuous_env_gate.rs` | 006 |
+| _(none -- 006 is unpinned)_ | 006 |
 | `csharp_port_affix_process.rs` | 007, 008 |
 | `csharp_port_rewrite.rs` | 009, 010, 013, 014, 015 |
 | `pg-rules/tests/rewrite_gate.rs` | 011, 012 |
-| `rust/conformance/rewrite/simultaneous-feeding*` | 016 |
+| _(none -- 016 is unpinned)_ | 016 |
 | `pg-rules/tests/memo_gate.rs`, `unapplied_rule_counts_reader_gate.rs` | 024 |
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `parity_divergence_census.rs` | 028 |
-| `rust/conformance/allomorphy/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
+| `machine/conformance/edge-cases/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
 ## Optimization and shared-correctness follow-up
 
 | C# / Rust seam | Entries | Shared fixtures |

@@ -1,7 +1,7 @@
 //! Measures the one soundness hazard the confirmation-free accuracy path in `pg_foma::backend_accuracy`
 //! rests on; see `docs/research/pg-foma-parity-divergence-census-design-notes.md` for the argument.
 
-use pg_conformance_fixtures::{discover, FixtureRef, Root};
+use pg_conformance_fixtures::{discover, FixtureRef};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
 use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
@@ -222,8 +222,8 @@ fn no_fixture_produces_a_candidate_only_identity() {
 fn no_registry_candidate_produces_a_candidate_only_identity() {
     let (measured, skipped) = census(
         |fixture| {
-            fixture.root == Root::Staging
-                && REGISTRY_CENSUS_FIXTURES.contains(&fixture.name.as_str())
+            // By name, not by root: graduation moves a fixture upstream and deletes the staged copy.
+            REGISTRY_CENSUS_FIXTURES.contains(&fixture.name.as_str())
         },
         registry_plans,
     );

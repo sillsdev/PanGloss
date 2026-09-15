@@ -40,7 +40,7 @@ wrong) morpheme sequence even when the surface string and overall parse succeed.
 `csharp_port_affix_process.rs::subsumed_affix_findings` pins both sub-cases. Regression witness
 named directly in the source doc: dropping the `Real`-with-no-runs fallback arm in
 `attribute_morphs` returns "tags" to the wrong `{"47 PAST"}` and "tag" to `{"47 PRES", "47"}`.
-Fixture: `rust/conformance/affix-shapes/truncate/` for sub-case (b).
+Fixture: `machine/conformance/edge-cases/truncate-morphotactic/` for sub-case (b).
 
 ## Upstream
 None, not applicable — pure Rust-side bug (an under-ported mechanism), fixed by completing the port

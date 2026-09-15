@@ -33,10 +33,8 @@ fn baseline_role(strategy: EmissionStrategy) -> CandidateRole {
 }
 
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
-    let fixture = discover()
-        .into_iter()
-        .find(|fixture| fixture.root == Root::Staging && fixture.name == FIXTURE)
-        .unwrap_or_else(|| panic!("missing pinned synthetic fixture {FIXTURE}"));
+    // By name, not by root: graduation deletes the staged copy, so keying on `Staging` breaks then.
+    let fixture = pg_conformance_fixtures::require_fixture("edge-cases", FIXTURE);
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     assert!(
         !grammar.templates.is_empty(),

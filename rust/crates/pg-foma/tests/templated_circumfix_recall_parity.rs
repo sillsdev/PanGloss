@@ -131,9 +131,11 @@ fn template_slot_circumfix_recall_parity_on_templated_backend() {
 /// Declaration order does not hide a later circumfix allomorph's suffix half.
 #[test]
 fn template_slot_later_circumfix_allomorph_keeps_its_suffix_half() {
-    let mut g = load(include_str!(
-        "../../../../conformance-staging/edge-cases/circumfix-in-template-slot/grammar.xml"
-    ));
+    // Read at run time: a compile-time path breaks the BUILD when the fixture graduates upstream.
+    let mut g = load(
+        &pg_conformance_fixtures::require_fixture("edge-cases", "circumfix-in-template-slot")
+            .load_grammar_xml(),
+    );
     let circ = mrule_id_of(&g, "mrCircum");
     let ordinary = mrule_id_of(&g, "mrOrdPfx");
     let ordinary_allomorph = match &mut g.mrules[ordinary.0 as usize] {

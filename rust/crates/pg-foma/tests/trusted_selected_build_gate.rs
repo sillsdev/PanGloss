@@ -37,10 +37,12 @@ const TUNED_FIXTURE: &str = r#"
 </Language></HermitCrabInput>
 "#;
 
-const TEMPLATED_FIXTURE: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../conformance-staging/edge-cases/template-category-sharing/grammar.xml"
-));
+/// Read at RUN time, not baked in with `include_str!`: a compile-time path breaks the BUILD when
+/// its fixture graduates upstream, instead of failing one test. Details: docs/design/fixture-pins.md
+fn templated_fixture() -> String {
+    pg_conformance_fixtures::require_fixture("edge-cases", "template-category-sharing")
+        .load_grammar_xml()
+}
 
 fn identities(grammar: &Grammar, analyses: &[WordAnalysis]) -> BTreeSet<AnalysisIdentity> {
     analyses
@@ -107,7 +109,7 @@ fn selected_tuned_surface_payload_reconstructs_exact_analysis_pipeline() {
 
 #[test]
 fn selected_templated_underlying_tokens_payload_reconstructs_exact_analysis_pipeline() {
-    let grammar = pg_grammar::load(TEMPLATED_FIXTURE).expect("synthetic fixture must load");
+    let grammar = pg_grammar::load(&templated_fixture()).expect("synthetic fixture must load");
     assert_selected_payload_route(
         &grammar,
         EmissionStrategy::TemplatedUnderlyingTokens,

@@ -34,7 +34,7 @@ population) makes `wakta`/`pakda` start parsing again" — i.e. those two words 
 this recheck exists specifically to reject.
 
 ## Evidence
-`rust/conformance/allomorphy/disjunctive-recheck/` (oracle-diffed). `pg-parse/tests/
+`machine/conformance/edge-cases/disjunctive-recheck/` (oracle-diffed). `pg-parse/tests/
 disjunctive_recheck_gate.rs` is explicitly a red-on-revert regression gate, phrased in its own doc
 comment as testing exactly the failure mode described above.
 

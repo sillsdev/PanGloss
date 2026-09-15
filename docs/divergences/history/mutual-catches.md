@@ -197,24 +197,21 @@ came up empty for any branch matching `rust`), so the original commit-by-commit 
 — who found it, exactly when, against what fixture — **could not be recovered by this
 investigation.**
 
-**Currently pinned by a dead gate — a "control that cannot act must say so" instance worth fixing.**
-`pg-parse/tests/discontinuous_env_gate.rs` still carries
-`#[ignore = "conformance/ not yet pulled into PanGloss as a submodule..."]` on both its tests, and
-reads fixtures from `rust/conformance/allomorphy/discontinuous-env/` — a path under `rust/` that has
-never existed in this repository's tree (verified: `Test-Path` false, no commit ever added a file
-under it). The actual conformance submodule that *did* land, on 2026-07-13, lives at
-`machine/conformance/`, an entirely different path that this test was never updated to point at. So
-since 2026-07-10, every run of the full suite has silently *not* exercised this regression pin — not
-because it's failing, but because it can never even attempt to run (the `have_fixture()` guard
-returns false and both tests `eprintln!` a skip message and return, without ever failing or
-reporting as skipped in a way `cargo test`'s summary would surface). The underlying defect this test
-guards against does not appear to have regressed (no fixture in `conformance-staging/` or the
-`machine` submodule currently reproduces `xpitz`/`muat`-shaped discontinuous-morph rejection failing,
-as far as this investigation checked), but the specific regression pin CLAUDE.md cites as the
-canonical mutual-catch example is not actually running. **Open action:** either point
-`discontinuous_env_gate.rs` at a real fixture (staged under `conformance-staging/` or landed in the
-`machine` submodule) and remove the stale `#[ignore]`, or retire the test explicitly and note in
-`validity.rs`'s W3.3 comment that the regression is now covered elsewhere (name where).
+**Was pinned by a dead gate; the gate is now gone and the entry is honestly UNPINNED.**
+`pg-parse/tests/discontinuous_env_gate.rs` read its fixture from the v1 layout
+(`conformance/allomorphy/discontinuous-env`) and carried `#[ignore]` on both tests, so it skipped
+twice over and never once ran in this tree. It was one of 13 such files, all pointing at a fixture
+layout the v1 -> v2 migration retired; 7 of the fixtures they named were carried into
+`machine/conformance/edge-cases/` under new names and the rest were not. The whole set has been
+deleted rather than left skipping — a test that cannot run must say so, and deleting it says so
+louder than an `#[ignore]` nobody reads.
+
+What the deletion does **not** do is restore the coverage. No fixture in either root reproduces the
+`xpitz`/`muat` shape — a discontinuous morph whose allomorph environment holds at its first piece
+and is violated at a later one — so the `attribute_morphs` contiguous-run split is unprotected.
+**Open action:** author that fixture against `hc.dll` (per `.claude/skills/conformance-grammars/
+SKILL.md`), then add a trace-level pin for it the way `disjunctive_recheck_gate.rs` now does for
+W3.2, since the generic replay diffs signatures only and cannot see a rejection *reason*.
 
 **Related, and already caught once:** `056af8e3` (2026-08-31) records that this repo's own circumfix
 refusal logic had over-cited W3.3 — a blanket refusal of any circumfix whose half carried a

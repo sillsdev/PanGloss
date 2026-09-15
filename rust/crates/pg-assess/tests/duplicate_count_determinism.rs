@@ -61,18 +61,12 @@ fn project_set(g: &Grammar, structured: &[pg_parse::WordAnalysis]) -> AnalysisSe
     AnalysisSet::from_observed(identities)
 }
 
-/// This fixture's C(12,6) analyses each fire a different rule subset and so exercise zero identity duplicates; self-skips if the submodule path is unavailable.
+/// This fixture's C(12,6) analyses each fire a different rule subset and so exercise zero identity duplicates.
 #[test]
 fn sanity_deep_optional_affix_nesting_produces_no_identity_duplicates() {
-    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let path = manifest_dir
-        .join("../../../machine/conformance/edge-cases/deep-optional-affix-nesting/grammar.xml");
-    if !path.exists() {
-        eprintln!("skipping: deep-optional-affix-nesting/grammar.xml not present on disk");
-        return;
-    }
-    let xml = std::fs::read_to_string(&path).expect("read grammar");
-    let g = load(&xml);
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "deep-optional-affix-nesting");
+    let g = load(&fixture.load_grammar_xml());
     let mut analyzer = FomaAnalyzer::new(&g).expect("fixture compiles");
 
     // k=2 leading x's: C(12,2) = 66 analyses, small enough to stay fast, large enough to make a spurious identity collision unlikely.

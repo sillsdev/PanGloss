@@ -295,6 +295,30 @@ pub fn discover_scoped(scope: ConformanceScope) -> Vec<FixtureRef> {
     out
 }
 
+/// The fixture with this `(category, name)`, panicking — never skipping — when it is absent.
+/// Why it fails rather than skips, and why it ignores the claimed scope: docs/design/fixture-pins.md
+pub fn require_fixture(category: &str, name: &str) -> FixtureRef {
+    let all = discover_scoped(ConformanceScope::All);
+    if let Some(found) = all
+        .iter()
+        .find(|f| f.category == category && f.name == name)
+    {
+        return found.clone();
+    }
+    let mut available: Vec<String> = all.iter().map(|f| f.label()).collect();
+    available.sort();
+    panic!(
+        "no conformance fixture `{category}/{name}` exists under either root.\n\n\
+         This test names a specific fixture, so an absent one is a failure, not a reason to skip. \
+         Either the fixture moved (the v1 -> v2 migration renamed many, e.g. \
+         `loader/n1-isactive` -> `edge-cases/loader-isactive`), or it was never carried over and \
+         this pin needs a replacement authored against the C# founding oracle.\n\n\
+         {} fixture(s) discovered:\n  {}",
+        all.len(),
+        available.join("\n  ")
+    );
+}
+
 /// The "graduation guard": fixture `(category, name)` identities that exist under BOTH roots.
 /// Non-empty means a staged fixture has been accepted upstream (its name now also exists under
 /// `machine/conformance/`) and the staged copy must be deleted in the same change — see
@@ -427,11 +451,9 @@ impl TryFrom<WordsYamlWire> for WordsYaml {
             Some(false) => {
                 let notes = wire.fieldworks_producible_notes.unwrap_or_default();
                 if notes.trim().is_empty() {
-                    return Err(
-                        "fieldworks_producible: false requires a non-empty \
+                    return Err("fieldworks_producible: false requires a non-empty \
                          fieldworks_producible_notes naming the offending construct(s)"
-                            .to_string(),
-                    );
+                        .to_string());
                 }
                 FieldworksProducibility::EngineOnly { notes }
             }
@@ -701,6 +723,21 @@ mod tests {
     }
 
     #[test]
+    fn require_fixture_finds_an_upstream_fixture_whatever_the_claimed_scope_is() {
+        // A named pin makes no coverage claim, so scope must not hide a healthy upstream fixture.
+        let found = require_fixture("edge-cases", "loader-isactive");
+        assert_eq!(found.root, Root::Machine);
+        assert!(found.grammar_path().is_file());
+    }
+
+    #[test]
+    #[should_panic(expected = "no conformance fixture `edge-cases/definitely-not-a-fixture`")]
+    fn require_fixture_panics_rather_than_returning_nothing() {
+        // The whole point: 32 legacy guard sites returned early instead, and skipped for months.
+        let _ = require_fixture("edge-cases", "definitely-not-a-fixture");
+    }
+
+    #[test]
     fn all_scope_is_a_superset_of_local_scope() {
         let local = discover_scoped(ConformanceScope::Local);
         let all = discover_scoped(ConformanceScope::All);
@@ -779,7 +816,10 @@ words:
         assert_eq!(parsed.words.len(), 2);
         assert_eq!(parsed.words[0].expected_signature(), "M1|foo");
         assert_eq!(parsed.words[1].expected_signature(), "-");
-        assert_eq!(parsed.fieldworks_producible, FieldworksProducibility::Unmarked);
+        assert_eq!(
+            parsed.fieldworks_producible,
+            FieldworksProducibility::Unmarked
+        );
     }
 
     fn minimal_doc_with(front_matter: &str) -> Result<WordsYaml, serde_yaml::Error> {
@@ -791,7 +831,10 @@ words:
     #[test]
     fn fieldworks_producible_true_parses() {
         let parsed = minimal_doc_with("fieldworks_producible: true").unwrap();
-        assert_eq!(parsed.fieldworks_producible, FieldworksProducibility::Producible);
+        assert_eq!(
+            parsed.fieldworks_producible,
+            FieldworksProducibility::Producible
+        );
     }
 
     #[test]
@@ -820,10 +863,9 @@ words:
 
     #[test]
     fn fieldworks_producible_false_with_empty_notes_is_a_parse_error() {
-        let error = minimal_doc_with(
-            "fieldworks_producible: false\nfieldworks_producible_notes: \"\"",
-        )
-        .expect_err("empty notes must not satisfy the non-empty requirement");
+        let error =
+            minimal_doc_with("fieldworks_producible: false\nfieldworks_producible_notes: \"\"")
+                .expect_err("empty notes must not satisfy the non-empty requirement");
         assert!(error.to_string().contains("fieldworks_producible_notes"));
     }
 

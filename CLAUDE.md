@@ -121,6 +121,8 @@ scoped per-machine versus per-worktree.
 `controls-that-cannot-act.md` — four incidents behind the one rule below.
 `agent-doc-gates.md` — what the three gates on this file and the skills check, and why they skip
 what they skip.
+`fixture-pins.md` — when a test may name a conformance fixture rather than let `discover()` sweep
+it, and why a named pin fails instead of skipping when its fixture is gone.
 
 **`docs/divergences/`** — every known C#/Rust difference, its kind, status, and pinning test.
 

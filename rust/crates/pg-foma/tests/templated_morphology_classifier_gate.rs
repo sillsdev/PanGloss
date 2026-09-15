@@ -836,9 +836,11 @@ fn owner_resolution_accepts_realizational_affix_allomorphs() {
 
 #[test]
 fn owner_resolution_accepts_template_slot_only_rules() {
-    let g = pg_grammar::load(include_str!(
-        "../../../../conformance-staging/edge-cases/circumfix-in-template-slot/grammar.xml"
-    ))
+    // Read at run time: a compile-time path breaks the BUILD when the fixture graduates upstream.
+    let g = pg_grammar::load(
+        &pg_conformance_fixtures::require_fixture("edge-cases", "circumfix-in-template-slot")
+            .load_grammar_xml(),
+    )
     .unwrap_or_else(|e| panic!("template-only owner fixture failed: {e}"));
     let candidate = match &g.mrules[0] {
         MorphRuleDef::AffixProcess(rule) => &rule.allomorphs[0],

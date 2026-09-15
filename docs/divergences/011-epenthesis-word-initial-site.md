@@ -37,5 +37,5 @@ None, not applicable — pure Rust-side bug; C#'s pattern walk already includes 
 
 ## Notes
 Once this fix and entry 012's landed together, `boundary_rules_required_pos_on_subrule_finding`'s
-POS gate composes correctly: `taba` resolves to `pos2` only, `ba` to `pos1` only. Oracle fixture:
-`rust/conformance/rewrite/word-initial-epenthesis/`.
+POS gate composes correctly: `taba` resolves to `pos2` only, `ba` to `pos1` only. The v1 oracle fixture for this did not survive the
+v1 -> v2 migration; the live pin is `pg-rules/tests/rewrite_gate.rs`.

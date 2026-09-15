@@ -7,7 +7,7 @@ use foma::options::FomaOptions;
 use foma::regex::fsm_parse_regex;
 use foma::types::Fsm;
 
-use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, Root, WordsYaml};
+use pg_conformance_fixtures::{assert_matches_oracle, FixtureRef, WordsYaml};
 use pg_foma::backend_mechanism::{
     BoundaryState, MechanismBody, MechanismGraph, MechanismGraphError, MechanismId, MechanismKind,
     MechanismNode,
@@ -43,11 +43,10 @@ const EXERCISES: &[&str] = &[
 /// The neutral name every fixture is reloaded under by `no_language_name_routing`; deliberately not a word in any language.
 const NEUTRAL_LANGUAGE_NAME: &str = "Zq0NeutralControl";
 
+/// By name, not by root: graduation deletes the staged copy, so keying on `Staging` breaks then.
+/// Why a named pin ignores the root: docs/design/fixture-pins.md
 fn staged(name: &str) -> FixtureRef {
-    discover()
-        .into_iter()
-        .find(|fixture| fixture.root == Root::Staging && fixture.name == name)
-        .unwrap_or_else(|| panic!("missing staged fixture conformance-staging/edge-cases/{name}"))
+    pg_conformance_fixtures::require_fixture("edge-cases", name)
 }
 
 fn load(xml: &str, label: &str) -> Grammar {

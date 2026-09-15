@@ -110,7 +110,6 @@ fn any_containment_failure_is_printed_with_its_missing_analysis() {
 /// FALSIFICATION: dropping a real oracle-required candidate from one backend's evidence must fail containment for exactly that backend and no other.
 #[test]
 fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
-    use pg_conformance_fixtures::Root;
     use pg_foma::backend_runtime::{
         evaluate_plans_observed_with_cache, RunEvaluationCache, RuntimeBudget,
     };
@@ -124,10 +123,8 @@ fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
         EmissionStrategy::TemplatedUnderlyingTokens,
     ];
 
-    let fixture = discover()
-        .into_iter()
-        .find(|fixture| fixture.root == Root::Staging && fixture.name == FIXTURE)
-        .unwrap_or_else(|| panic!("missing pinned synthetic fixture {FIXTURE}"));
+    // By name, not by root: graduation deletes the staged copy, so keying on `Staging` breaks then.
+    let fixture = pg_conformance_fixtures::require_fixture("edge-cases", FIXTURE);
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     let words: Vec<String> = fixture
         .load_words_yaml()

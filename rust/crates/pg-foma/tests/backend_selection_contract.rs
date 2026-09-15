@@ -81,12 +81,10 @@ fn missing_and_failed_backends_are_typed_errors_carrying_no_grammar_advice() {
 
 #[test]
 fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
-    // truncate-morphotactic is now admitted (non-empty, complete material); mpr-gated-exception's empty material is never admitted, a stable witness.
-    let grammar_xml = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../machine/conformance/edge-cases/mpr-gated-exception/grammar.xml"
-    ));
-    let grammar = pg_grammar::load(grammar_xml).expect("marker fixture must load");
+    // mpr-gated-exception's empty material is never admitted, a stable witness; read at run time so a moved submodule pin fails this test rather than the build.
+    let grammar_xml = pg_conformance_fixtures::require_fixture("edge-cases", "mpr-gated-exception")
+        .load_grammar_xml();
+    let grammar = pg_grammar::load(&grammar_xml).expect("marker fixture must load");
     let selection = pg_foma::backend_selection::select_backends_for_grammar(&grammar);
     let composed = selection
         .report_for(EmissionStrategy::PlanComposed)
