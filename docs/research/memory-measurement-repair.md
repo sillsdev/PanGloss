@@ -366,19 +366,6 @@ imposed by how much the `k!`-permutation cascade actually revisits any given sta
 particular word, not a policy failure. Whether a *cross-word* or *cross-run* cache would find more
 reuse for these same states is a different question this per-parse-scoped measurement cannot answer.
 
-**Is the memo a pure cache?** Yes, provably, from the existing (unmodified) source, not a new claim:
-`pg-memo/src/lib.rs`'s own module doc states "None of the three [caps] evicts: past any cap, a
-subtree simply goes unmemoized, degrading hit rate but never correctness -- a miss always falls back
-to full recomputation," and `AnalysisScope::has_memo_capacity`/`has_byte_capacity`
-(`pg-memo/src/lib.rs`) are pure admission checks with no eviction path anywhere in the type. A refused
-insert changes nothing about the analysis set a word returns -- confirmed empirically, not just by
-reading the contract, by §6's gates being byte-identical before and after T1 changed the byte budget's
-own admission threshold. Nogood entries (`MemoEntry::is_positive() == false`) are exact, not
-approximate: `run_mrule_cascade`'s subtree was actually explored to completion before a nogood is
-stored (`pg-memo/src/lib.rs`'s `MemoEntry` doc: "There is no 'budget exhausted' flag -- this branch
-has no per-subtree budget, so every stored subtree was explored to completion"), so a nogood hit is a
-correctness-neutral skip of re-exploring an already-proven-empty subtree, never a guess.
-
 ## 9. What remains unattributed after the repair
 
 - **Release build not measured.** Every number in §5/§7/§8 is from a `dev`-profile binary. Time-boxed
