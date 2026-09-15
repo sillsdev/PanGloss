@@ -1144,7 +1144,11 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         }
         pg_memo::profile::record_in_progress_depth(false, depth);
 
+        // Work-value window for this state's own (un-memoized) expansion (see `crate::memo_value`):
+        // ticks consumed between entry and store are the subtree work a hit on this key would save.
+        crate::memo_value::enter_subtree(self.budget.steps() as u64);
         let results = self.memo_apply_rules_raw(input, out, scope);
+        let subtree_work = crate::memo_value::exit_subtree(self.budget.steps() as u64);
 
         // Clear the guard, then store if under the cap; prefix lengths let a replay split each stored result.
         {
@@ -1171,7 +1175,13 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                     );
                 }
                 pg_memo::profile::record_insert(false, false);
-                crate::memo_value::record_insert(&key, results_bytes, cloned_results.len(), depth);
+                crate::memo_value::record_insert(
+                    &key,
+                    results_bytes,
+                    cloned_results.len(),
+                    depth,
+                    subtree_work,
+                );
                 s.record_stored_words(cloned_results.len());
                 s.record_stored_bytes(false, results_bytes);
                 s.memo.insert(

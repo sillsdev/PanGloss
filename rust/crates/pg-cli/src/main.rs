@@ -966,13 +966,19 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.replay_clones,
                 );
             }
-            // T5(b): per-mrule-memo-entry value (docs/research/memory-measurement-repair.md).
+            // T5(b): per-mrule-memo-entry value (docs/research/memory-measurement-repair.md),
+            // extended with work-saved (docs/research/memo-entry-work-value.md): `total_work`
+            // (M2, this word's whole parse -- same figure `HC_STEP_STATS`'s STEPS line prints, via
+            // `outcome.steps`, folded in here so one line carries both without correlating two)
+            // and the subtree-work aggregates (M1) `snapshot()` now also carries.
             if std::env::var("HC_MEMO_VALUE_STATS").is_ok() {
                 let s = pg_rules::memo_value::snapshot();
                 eprintln!(
                     "MEMOVALUE\t{i}\t{word}\tentries={}\ttotal_bytes={}\tzero_hit_entries={}\t\
                      zero_hit_bytes={}\tmean_hits={:.3}\tmean_results_len={:.3}\t\
-                     mean_depth_at_insert={:.3}\tvalue_p50={:.6}\tvalue_p90={:.6}",
+                     mean_depth_at_insert={:.3}\tvalue_p50={:.6}\tvalue_p90={:.6}\t\
+                     mean_subtree_work_inclusive={:.3}\tmean_subtree_work_exclusive={:.3}\t\
+                     mean_descendant_count={:.3}\ttotal_work_saved_exclusive={}\ttotal_work={}",
                     s.entries,
                     s.total_bytes,
                     s.zero_hit_entries,
@@ -982,7 +988,31 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.mean_depth_at_insert,
                     pg_rules::memo_value::value_per_byte_percentile(0.5),
                     pg_rules::memo_value::value_per_byte_percentile(0.9),
+                    s.mean_subtree_work_inclusive,
+                    s.mean_subtree_work_exclusive,
+                    s.mean_descendant_count,
+                    s.total_work_saved_exclusive,
+                    outcome.steps,
                 );
+            }
+            // Per-entry raw dump feeding the offline tuning-curve/joint-distribution analysis in
+            // `docs/research/memo-entry-work-value.md` (M3/M4) -- `HC_MEMO_VALUE_STATS`'s aggregates
+            // above cannot answer "what share of bytes sits in entries with subtree work <= K".
+            // Opt-in separately since this is one line per stored entry (thousands per hard word).
+            if std::env::var("HC_MEMO_VALUE_DUMP").is_ok() {
+                for e in pg_rules::memo_value::dump_entries() {
+                    eprintln!(
+                        "MEMOVALUEENTRY\t{i}\t{word}\tbytes={}\thits={}\twork_incl={}\twork_excl={}\t\
+                         descendants={}\tresults_len={}\tdepth={}",
+                        e.bytes,
+                        e.hits,
+                        e.subtree_work_inclusive,
+                        e.subtree_work_exclusive,
+                        e.descendant_count,
+                        e.results_len,
+                        e.depth_at_insert,
+                    );
+                }
             }
             // Peak live-search-frontier counters, independent of the memo caps above (`docs/research/live-frontier-memory-bound.md`).
             if std::env::var("HC_FRONTIER_STATS").is_ok() {
