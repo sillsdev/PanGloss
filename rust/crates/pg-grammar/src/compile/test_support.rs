@@ -17,6 +17,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         natural_classes: natural_classes_a,
         morphemes: morphemes_a,
         allomorph_owners: allomorph_owners_a,
+        allomorph_sources: allomorph_sources_a,
         prules: prules_a,
         mrules: mrules_a,
         templates: templates_a,
@@ -37,6 +38,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         natural_classes: natural_classes_b,
         morphemes: morphemes_b,
         allomorph_owners: allomorph_owners_b,
+        allomorph_sources: allomorph_sources_b,
         prules: prules_b,
         mrules: mrules_b,
         templates: templates_b,
@@ -58,6 +60,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
     );
     assert_eq!(format!("{:?}", morphemes_a), format!("{:?}", morphemes_b), "morphemes");
     assert_eq!(allomorph_owners_a, allomorph_owners_b, "allomorph_owners");
+    assert_eq!(allomorph_sources_a, allomorph_sources_b, "allomorph_sources");
     assert_eq!(format!("{:?}", prules_a), format!("{:?}", prules_b), "prules");
     assert_eq!(format!("{:?}", mrules_a), format!("{:?}", mrules_b), "mrules");
     assert_eq!(format!("{:?}", templates_a), format!("{:?}", templates_b), "templates");
