@@ -80,6 +80,31 @@ fn xample_results_by_word(parsed: &pg_xample_oracle::ParsedParseResponse) -> BTr
     parsed.words.iter().cloned().collect()
 }
 
+fn validate_usable_results(
+    label: &str,
+    results: &BTreeMap<String, XampleResult>,
+    words: &[&str],
+) -> Result<(), String> {
+    let mut missing = Vec::new();
+    let mut unusable = Vec::new();
+    for word in words {
+        match results.get(*word) {
+            None => missing.push(*word),
+            Some(result) if result.engine_error.is_some() || result.reached_max_analyses.is_some() => {
+                unusable.push((*word, &result.engine_error, &result.reached_max_analyses));
+            }
+            Some(_) => {}
+        }
+    }
+    if !missing.is_empty() {
+        return Err(format!("{label}: missing accepted words: {missing:?}"));
+    }
+    if !unusable.is_empty() {
+        return Err(format!("{label}: accepted words are unusable: {unusable:?}"));
+    }
+    Ok(())
+}
+
 // compared increments only when both sides are usable (no engine_error, not capped); an unusable side contributes nothing.
 fn accumulate(word: &str, xample: &XampleResult, hc: &XampleResult, compared: &mut usize, xample_only: &mut usize, hc_only: &mut usize) {
     let usable = xample.engine_error.is_none()
@@ -241,10 +266,12 @@ fn xample_migration_differential_gate() {
         .parse(&base_fwdata, &base_projected, "MPBase", &words, &temp_root.join("base-parse.json"), 2000)
         .unwrap_or_else(|e| panic!("baseline 'parse' failed: {e}"));
     let base_xample = xample_results_by_word(&base_parse);
+    validate_usable_results("baseline XAMPLE", &base_xample, ACCEPTED_WORDS).unwrap_or_else(|e| panic!("{e}"));
 
     let base_output = import_and_compile(&base_fwdata)
         .unwrap_or_else(|e| panic!("baseline import+compile must succeed (this project is the source of truth): {e}"));
     let base_hc = hc_results_by_word(&base_output.grammar, ACCEPTED_WORDS);
+    validate_usable_results("baseline HC", &base_hc, ACCEPTED_WORDS).unwrap_or_else(|e| panic!("{e}"));
 
     let mut compared_baseline = 0usize;
     let mut xample_only_baseline = 0usize;
@@ -310,32 +337,30 @@ fn xample_migration_differential_gate() {
         );
     }
 
-    // Never asserted equal to baseline: a successful compile does not mean the character substrate is complete, so accumulate's own usability gate absorbs the expected divergence.
     let mut compared_mutation = 0usize;
     let mut xample_only_mutation = 0usize;
     let mut hc_only_mutation = 0usize;
-    match import_and_compile(&clone_fwdata) {
-        Ok(clone_output) => {
-            let clone_hc = hc_results_by_word(&clone_output.grammar, ACCEPTED_WORDS);
-            for word in ACCEPTED_WORDS {
-                accumulate(
-                    word,
-                    &clone_xample[*word],
-                    &clone_hc[*word],
-                    &mut compared_mutation,
-                    &mut xample_only_mutation,
-                    &mut hc_only_mutation,
-                );
-            }
-            assert_substrate_report_matches_manifest(&clone_output, &case.expect.inferred_segments);
-        }
-        Err(e) => {
-            println!(
-                "NOTE: mutated-clone import+compile did not succeed -- character-substrate \
-                 completion did not resolve this project: {e}"
-            );
-        }
+    let clone_output = import_and_compile(&clone_fwdata)
+        .unwrap_or_else(|e| panic!("mutated-clone import+compile must succeed: {e}"));
+    let clone_hc = hc_results_by_word(&clone_output.grammar, ACCEPTED_WORDS);
+    validate_usable_results("mutated-clone XAMPLE", &clone_xample, ACCEPTED_WORDS)
+        .unwrap_or_else(|e| panic!("{e}"));
+    validate_usable_results("mutated-clone HC", &clone_hc, ACCEPTED_WORDS)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(case.expect.hc_analyses, fixture::ExpectRelation::SameAsBase);
+    assert_eq!(clone_hc, base_hc, "'{MUTATION_CASE_ID}': hc_analyses must be same_as_base");
+    for word in ACCEPTED_WORDS {
+        accumulate(
+            word,
+            &clone_xample[*word],
+            &clone_hc[*word],
+            &mut compared_mutation,
+            &mut xample_only_mutation,
+            &mut hc_only_mutation,
+        );
     }
+    assert_eq!(compared_mutation, ACCEPTED_WORDS.len(), "all accepted mutated words must be compared");
+    assert_substrate_report_matches_manifest(&clone_output, &case.expect.inferred_segments);
 
     // --- twice-run determinism: repeat the SAME case from the SAME base copy ---
     let mutate_out_2 = temp_root.join("mutate-out-2");
@@ -375,7 +400,8 @@ fn xample_migration_differential_gate() {
     println!("compared_baseline={compared_baseline} XAMPLE_ONLY_baseline={xample_only_baseline} HC_ONLY_baseline={hc_only_baseline}");
     println!("compared_mutation={compared_mutation} XAMPLE_ONLY_mutation={xample_only_mutation} HC_ONLY_mutation={hc_only_mutation}");
     println!("compared_total={compared} XAMPLE_ONLY_total={xample_only} HC_ONLY_total={hc_only}");
-    assert!(compared > 0, "at least one word must have run through both engines usably");
+    assert_eq!(compared_baseline, ACCEPTED_WORDS.len(), "all accepted baseline words must be compared");
+    assert_eq!(compared, ACCEPTED_WORDS.len() * 2, "all accepted words must be compared in both phases");
     assert!(
         xample_only <= XAMPLE_ONLY_RATCHET,
         "XAMPLE_ONLY_total={xample_only} exceeds the ratchet ({XAMPLE_ONLY_RATCHET}) -- a new divergence, or the ratchet needs a fresh measurement"
@@ -440,4 +466,17 @@ fn accumulate_counts_a_real_divergence_in_both_directions() {
         xample_only > XAMPLE_ONLY_RATCHET || hc_only > HC_ONLY_RATCHET,
         "a genuine divergence must be able to exceed this gate's own ratchets"
     );
+}
+
+#[test]
+fn usable_result_validation_rejects_zero_and_partial_results() {
+    let empty = BTreeMap::new();
+    let zero_error = validate_usable_results("empty", &empty, ACCEPTED_WORDS).unwrap_err();
+    assert!(zero_error.contains("missing accepted words"));
+
+    let mut partial = BTreeMap::new();
+    partial.insert("k".to_string(), result_of(&[], None, None));
+    let partial_error = validate_usable_results("partial", &partial, ACCEPTED_WORDS).unwrap_err();
+    assert!(partial_error.contains("xxxxxxk"));
+    assert!(partial_error.contains("xxxxxxxxxxxxk"));
 }
