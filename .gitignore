@@ -20,6 +20,9 @@
 # be committed or travel to another worktree -- see rust/tools/_common.ps1's Write-WorktreeMeta.
 /.pangloss-worktree.json
 
+# Local PR review scratch; publish durable reasoning in the PR or repository docs first.
+/.review/
+
 # Real-language optimizer/perf run output. These directories are named per language
 # (indonesian/, sena/, amharic/, aweti/) and their report.json embeds real-language words and
 # analyses, so committing them puts actual-language data and language-named paths in the repo --
