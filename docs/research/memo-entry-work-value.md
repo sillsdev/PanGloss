@@ -303,11 +303,13 @@ restricted to the biggest bytes in that same tail.
 
 1. **`subtree_work_exclusive`** -- the economically correct reading of "what a hit saves," reasoned in
    §1 and confirmed empirically in §6 -- has essentially no variation to exploit. 8-11 distinct values
-   per word, almost the entire population inside a ~6-tick band. There is no low-value tail in this
-   reading because there is no meaningful *value* spread at all: every stored state costs about the
-   same to regenerate locally, because by the time a hit would matter, every descendant it touches is
-   already independently memoized (or was refused independently, in which case exclusive cost already
-   reflects that it wasn't free).
+   per word, almost the entire population inside a ~6-tick band. **Correction (§10): this section
+   originally claimed a refused child's ticks were "already reflected" as not-free in its parent's
+   exclusive figure. That is wrong -- `pop_frame` subtracts a closed child frame's `inclusive` ticks
+   from its parent unconditionally, whether or not that child's store was later admitted (§1's own
+   wording already said this: "whether or not the store that follows is admitted"), so a refused
+   child is treated exactly like a stored one for this bookkeeping. §10 re-measures under forced
+   refusal to check whether that gap changes the finding.**
 2. **`subtree_work_inclusive`** -- the more intuitive "20 nodes beneath it" reading the task brief
    raised -- does vary widely, but a low-pass threshold on it makes the WRONG trade: at every K tested,
    for every word, the fraction of work-saved lost exceeds the fraction of bytes reclaimed, often by
@@ -335,6 +337,87 @@ or a structural property of the cascade generally. A grammar with far more mrule
 show real `work_excl` spread. Not tested here -- out of this task's word/cap grid, which was fixed to
 match §5 for comparability.
 
-## 9. Correctness gates
+## 10. Re-measurement under forced memory pressure
+
+§8's "already reflects" parenthetical was wrong (corrected above), and the premise behind it needed a
+real check, not just a corrected sentence: §1's justification for `exclusive` as "the work a hit
+saves" rests on nothing ever getting evicted, so a re-derivation finds every descendant memoized.
+Forcing refusals removes exactly that premise. If §6's flat `work_excl` distribution were an artifact
+of measuring only an uncontended cache, real pressure should make it spread.
+
+**Method**: same instrumentation, same word/cap grid, `HC_MEMO_BYTES=4194304` (the 4 MiB forced-refusal
+budget `memory-measurement-repair.md` §5 already used for the T1 admission check, reused rather than
+inventing a new one), one run per word/cap (default-budget rows are the existing §6 data, spot-checked
+below with `HC_MEMO_STATS=1` added -- it was not captured the first time). Release build, `--threads 1`,
+`pg.ps1 -Mode run`, foreground throughout.
+
+**Pressure actually engaged, confirmed by effect (`memo_insert_refused` from `HC_MEMO_STATS=1`'s
+`MEMOPROF` line), not assumed**:
+
+| word/cap | budget | inserts | refused | refusal % |
+|---|---|---:|---:|---:|
+| `oteʼikateʼika`@200k | default (256 MiB) | 2250 | 0 | 0.0% |
+| `oteʼikateʼika`@200k | tiny (4 MiB) | 748 | 2602 | 77.7% |
+| `oteʼikateʼika`@1M | default | 11757 | 0 | 0.0% |
+| `oteʼikateʼika`@1M | tiny | 3980 | 12902 | 76.4% |
+| `Ajkululape`@200k | default | 2724 | 0 | 0.0% |
+| `Ajkululape`@200k | tiny | 515 | 3808 | 88.1% |
+| `kukudziwisani`@1M (control) | default | 303 | 0 | 0.0% |
+| `kukudziwisani`@1M (control) | tiny | 303 | 0 | 0.0% |
+
+Default budget is confirmed 0% refused on all three pathological words (not assumed from "178 MB/132 MB
+< 256 MiB" -- directly read off `MEMOPROF`). The tiny budget forces real, heavy pressure (76-88%
+refused) on the three Aweti words. **`kukudziwisani` (Sena control) never engages pressure at either
+budget**: its total memo footprint (586,448 B) sits under even the 4 MiB tiny budget, so
+`memo_insert_refused=0` at both settings and its `MEMOVALUEENTRY` dump is byte-identical between the
+two runs (diffed directly, zero lines differ). **This word's tiny-budget row proves nothing about
+pressure and is not used as evidence below** -- reported as a null result, not silently dropped.
+
+**`subtree_work_exclusive` under pressure, the three words where pressure actually engaged**:
+
+| word/cap | budget | n stored | distinct `work_excl` values | min | p50 | p90 | max |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `oteʼikateʼika`@200k | default | 2250 | 9 | 5 | 38 | 39 | 43 |
+| `oteʼikateʼika`@200k | tiny | 748 | 9 | 5 | 38 | 40 | 43 |
+| `oteʼikateʼika`@1M | default | 11757 | 11 | 5 | 38 | 39 | 43 |
+| `oteʼikateʼika`@1M | tiny | 3980 | 9 | 5 | 37 | 39 | 43 |
+| `Ajkululape`@200k | default | 2724 | 8 | 5 | 41 | 42 | 43 |
+| `Ajkululape`@200k | tiny | 515 | 8 | 5 | 41 | 42 | 43 |
+
+**The distinct-value count and the band do not move.** Every word keeps 8-11 distinct `work_excl`
+values and the same ~37-43-tick band (plus the pre-existing minority value `5`, present at default
+budget too -- not new) whether 0% or up to 88% of nearby entries are refused. `p50`/`p90`/`max` are
+identical or within one tick between default and tiny for all three words.
+
+**Tuning-curve shape under pressure** (re-run of §6's K-grid on the tiny-budget dump,
+`oteʼikateʼika`@200k EXCLUSIVE shown, same shape on the other two): still a near step-function --
+`K=37`: 4.8% of bytes / 93.5% of work-saved already gone; `K=38`: 36.0% bytes / 99.5% work-saved;
+`K=40`: 95.3% bytes / 100% work-saved. If anything the trade looks **worse** under pressure than at
+default (§6's default-budget row for the same word hit only 68.6% work-saved-lost at `K=37`, not
+93.5%) -- refusing the survivors of a round that already refused 77.7% of candidates costs
+proportionally more of what little work-saved is left. No new lever appears; the shape that produced
+§8's negative is the same shape under real contention.
+
+**One-line answer**: `subtree_work_exclusive` stays flat under pressure. The flatness in §6 was not an
+artifact of an uncontended cache -- it holds at 0% refused and at 76-88% refused alike. The negative in
+§8 holds; work, read as the exclusive/marginal figure, is a genuinely dead signal for this grammar, not
+an artifact of the regime it was first measured in. (The `kukudziwisani` control could not test this,
+and does not pretend to -- reported above as inconclusive-by-construction, not folded into the
+"stays flat" claim.)
+
+**What the pressure test does NOT settle**: §1's *economic* argument for why `exclusive` should equal
+"what a hit saves" (descendants remain memoized) is still wrong whenever a descendant was refused, as
+corrected in §8 above -- `pop_frame` subtracts a closed child's ticks unconditionally, refused or not.
+What this section shows is that the *measured shape* (flat, narrow-band) is insensitive to pressure,
+not that the *bookkeeping* correctly accounts for refusal -- those are different claims. The reason the
+shape stays flat under pressure is more mundane than the original "descendants stay memoized" story:
+`work_excl` is dominated by one thing, a single pass over the stratum's own mrule list per node
+(`apply_one_mrule`'s tick, once per rule tried), which is a property of the grammar's rule count, not
+of memo state -- so it does not move whether the memo evicts nothing (default) or refuses most inserts
+(tiny). That is a structural explanation, not the no-eviction premise §1 originally gave; both point to
+the same conclusion (no exploitable low-value tail), but only the structural one survives contact with
+a pressured cache.
+
+## 11. Correctness gates
 
 <!-- filled in after gate runs complete -->
