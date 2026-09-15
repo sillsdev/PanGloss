@@ -20,6 +20,15 @@ widening. Issues [504](https://github.com/sillsdev/machine/issues/504),
 and [507](https://github.com/sillsdev/machine/issues/507) track the remaining shared correctness work.
 The rows below are historical observations at their stated dates, not current branch status.
 
+Cleanup commit `6030f44d` and the existing committed PanGloss history were published to `main`
+with owner approval. The inherited Machine pin is `3beb8bba`, introduced by PanGloss `431339e8`;
+it was local-only and is now published unchanged on `conformance/pangloss-pin-3beb8bba` so the
+dependency is fetchable. This preservation branch is not the current conformance truth source:
+shared correctness research uses `integrate-conformance-framework` at `a20bce12`. Updating the
+PanGloss pin and graduating duplicate staged fixtures remain separate integration work.
+The cleanup's divergence-catalogue gate passed all three tests after rebasing; this is not a
+full parser-suite or #505-fix claim. Existing dirty tracked files were preserved unchanged.
+
 ## 2026-09 — historical PriorityUnion / MergeEquivalentAnalyses work
 
 | Date | Repo | Locator | Summary | Status |
@@ -91,7 +100,8 @@ Every commit in this repo that moved the `machine` gitlink, oldest first:
 | 2026-08-19 | `8cb05155` | `74351b80` | Follows the branch's force-push to its new tip. |
 | 2026-09-01 | `1900c146` | `f42d9591` | 0.2.0 release prep bump. |
 | 2026-09-03 | `ab7ad2d9` | `25ddf914` | Pins at the two new port-divergence fixtures (see 2026-09-02 entry above). |
-| 2026-09-03 | `abfecf90` | `100d7bef` | **Current pin.** Adds cross-table root-respelling fixture. |
+| 2026-09-03 | `abfecf90` | `100d7bef` | Adds cross-table root-respelling fixture. |
+| 2026-09-15 | `431339e8` | `3beb8bba` | Classifies pinned fixtures by FieldWorks producibility; published on a preservation branch during cleanup integration. |
 
 **Currently behind the live branch.** `integrate-conformance-framework`'s tip in `machine` is
 `4823a05a` ("test: make memoization conformance default"), one commit ahead of the `100d7bef` pin

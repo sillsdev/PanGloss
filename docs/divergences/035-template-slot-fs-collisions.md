@@ -9,13 +9,18 @@ behavioural.
 Open research. Rust widening is implemented; its necessity and complete safety are not established. No equivalent widening patch is claimed merged in Machine.
 
 ## C# site
-`AnalysisAffixTemplatesRule / AnalysisAffixTemplateRule`.
+`AnalysisStratumRule` template `RuleBatch` / `AnalysisAffixTemplateRule` slot `RuleBatch`.
 
 ## Rust site
 `pg-rules/src/stratum.rs::run_template_batch_raw / apply_slot_batch`.
 
 ## Evidence
 `docs/research/pg-rules-analysis-syn-fs-gate-notes.md` records that both existing template tests still pass with both widening sites disabled. No load-bearing shared conformance collision grammar is identified. `template-category-sharing` is NOT that grammar.
+
+Machine `a20bce12` has no `AnalysisAffixTemplatesRule` class: the template battery uses `RuleBatch`.
+The unconstrained-suffix variant of C# `SameRuleUsedInMultipleTemplates` is a useful missing
+shared-grammar candidate, but it is not yet a measured red witness against current PanGloss.
+Its existing widening can preserve the valid continuation despite template-feature accumulation.
 
 The six-word template-exclusivity and homophonous-identity control is published in Machine
 [commit a20bce12](https://github.com/sillsdev/machine/commit/a20bce12), on
