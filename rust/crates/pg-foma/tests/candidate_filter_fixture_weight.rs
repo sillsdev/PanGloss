@@ -442,7 +442,7 @@ fn every_fixture_matches_the_engine_it_was_transcribed_from() {
         let words: WordsYaml = reference.load_words_yaml();
         let grammar = pg_grammar::load(&reference.load_grammar_xml())
             .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", reference.label()));
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&grammar, usize::MAX);
         let checked = assert_matches_oracle(&reference.label(), &words, &morpher);
         assert!(checked > 0, "{}: replayed zero words", reference.label());
         total_checked += checked;
@@ -476,7 +476,7 @@ fn enforced_filtering_keeps_every_analysis_off_keeps() {
             .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", reference.label()));
         let filter = filter_for(&grammar);
         enforced_passes = filter.pass_ids().len();
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&grammar, usize::MAX);
         for entry in &words.words {
             let outcome = morpher.parse_word(&entry.word);
             let analyses = &outcome.structured;
@@ -540,7 +540,7 @@ fn measure_declared_pass(fixture: &Fixture) -> PassCounters {
     let grammar = pg_grammar::load(&reference.load_grammar_xml())
         .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", reference.label()));
     let filter = filter_for(&grammar);
-    let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&grammar, usize::MAX);
     let mut own = PassCounters::default();
     for entry in &words.words {
         let analyses = morpher.parse_word(&entry.word).structured;

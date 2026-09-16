@@ -194,7 +194,7 @@ fn assert_word_parity(
 
 /// Anchors a whole fixture against its committed signature record via the shared oracle replay, so the per-word identity work below is a refinement of existing ground truth, not a second drifting one.
 fn anchor_against_committed_signatures(label: &str, grammar: &Grammar, words: &WordsYaml) {
-    let morpher = Morpher::new(grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(grammar, usize::MAX);
     let checked = assert_matches_oracle(label, words, &morpher);
     assert!(
         checked > 0,
@@ -208,7 +208,7 @@ fn occurrences_for(
     grammar: &Grammar,
     expectations: &[CommittedWord],
 ) -> BTreeMap<String, OccurrenceIdentities> {
-    let morpher = Morpher::new(grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(grammar, usize::MAX);
     expectations
         .iter()
         .map(|expect| {
@@ -596,7 +596,7 @@ fn root_index_discriminates_two_readings_of_one_surface() {
         "{label}: the root-position witness must come from the pinned fixture"
     );
 
-    let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&grammar, usize::MAX);
     let outcome = morpher.parse_word(witness);
     let occurrence = OccurrenceIdentities::project(&outcome.structured, &grammar)
         .expect("identity projection must not fault");
@@ -813,8 +813,8 @@ fn no_language_name_routing() {
             !expectations.is_empty(),
             "{label}: no adapter-visible committed words to compare"
         );
-        let original_morpher = Morpher::new(&original, usize::MAX).with_memo(true);
-        let control_morpher = Morpher::new(&control, usize::MAX).with_memo(true);
+        let original_morpher = Morpher::new(&original, usize::MAX);
+        let control_morpher = Morpher::new(&control, usize::MAX);
         for expect in &expectations {
             let left = OccurrenceIdentities::project(
                 &original_morpher.parse_word(&expect.word).structured,

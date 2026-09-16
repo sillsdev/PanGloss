@@ -10,7 +10,6 @@ members = [
     "crates/pg-foma",
     "crates/pg-fst",
     "crates/pg-rules",
-    "crates/pg-memo",
     "crates/pg-parse",
     "crates/pg-ffi",
     "crates/pg-cli",
@@ -116,7 +115,6 @@ pg-health = { path = "crates/pg-health" }
 pg-foma = { path = "crates/pg-foma" }
 pg-fst = { path = "crates/pg-fst" }
 pg-rules = { path = "crates/pg-rules" }
-pg-memo = { path = "crates/pg-memo" }
 pg-parse = { path = "crates/pg-parse" }
 pg-realize = { path = "crates/pg-realize" }
 pg-lexicon = { path = "crates/pg-lexicon" }

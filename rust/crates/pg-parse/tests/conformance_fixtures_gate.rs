@@ -41,7 +41,7 @@ fn all_discovered_fixtures_match_oracle() {
         let xml = f.load_grammar_xml();
         let grammar = pg_grammar::load(&xml)
             .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", f.label()));
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&grammar, usize::MAX);
         let label = f.label();
         let checked = assert_matches_oracle(&label, &words_yaml, &morpher);
         assert!(
@@ -71,7 +71,7 @@ fn w91_affix_shapes_covered_by_upstream_fixtures() {
     let truncate = require_fixture("edge-cases", "truncate-morphotactic");
 
     let g = pg_grammar::load(&austronesian.load_grammar_xml()).unwrap();
-    let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&g, usize::MAX);
     // infix: sumulat = SULAT + AV (-um- infixed after the first consonant).
     assert_eq!(
         morpher.parse_word("sumulat").signature(),
@@ -92,7 +92,7 @@ fn w91_affix_shapes_covered_by_upstream_fixtures() {
     assert_eq!(morpher.parse_word("pur").signature(), "PURE+INCP|pur");
 
     let g2 = pg_grammar::load(&truncate.load_grammar_xml()).unwrap();
-    let morpher2 = Morpher::new(&g2, usize::MAX).with_memo(true);
+    let morpher2 = Morpher::new(&g2, usize::MAX);
     // "gas" has two distinct analyses (direct + chained), per that fixture's words.yaml note.
     let gas = morpher2.parse_word("gas").signature();
     assert_eq!(

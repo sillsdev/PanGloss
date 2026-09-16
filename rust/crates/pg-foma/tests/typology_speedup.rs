@@ -394,7 +394,7 @@ fn process_fixture(f: &FixtureRef, floor_ns: u64, n: u32) -> Vec<Row> {
     let mut rows = Vec::new();
 
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&g, usize::MAX);
         time_complete_engine(&morpher, &words, root, category, fixture, floor_ns, n)
     })) {
         Ok(r) => rows.extend(r),

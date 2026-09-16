@@ -23,7 +23,7 @@ fn disjunctive_recheck_rejects_for_the_disjunctive_reason() {
     let fixture = require_fixture("edge-cases", "disjunctive-recheck");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml())
         .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", fixture.label()));
-    let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&grammar, usize::MAX);
 
     for word in ["wakta", "pakda"] {
         let sink = TreeTraceSink::new();

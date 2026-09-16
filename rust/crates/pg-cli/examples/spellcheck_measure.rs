@@ -136,7 +136,6 @@ fn main() {
     eprintln!("\nloaded {} wordforms from {words_path}", words.len());
 
     let morpher = Morpher::new(&grammar, step_cap)
-        .with_memo(true)
         .with_word_timeout(Some(Duration::from_millis(word_timeout_ms)));
 
     eprintln!(

@@ -62,7 +62,7 @@ fn fixture_cases() -> Vec<(pg_grammar::model::Grammar, Vec<Case>)> {
 fn sum_of_morph_rule_attempts_equals_steps() {
     let mut checked = 0usize;
     for (g, cases) in fixture_cases() {
-        let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&g, usize::MAX);
         for case in &cases {
             let (outcome, rows) =
                 morpher.parse_word_with_stats(case.word, &ParseOptions::default());
@@ -91,7 +91,7 @@ fn synthesis_direction_rows_are_nonzero_for_words_that_parse() {
     let mut parsed = 0usize;
     let mut total_synth_attempts: u64 = 0;
     for (g, cases) in fixture_cases() {
-        let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&g, usize::MAX);
         for case in &cases {
             let (outcome, rows) =
                 morpher.parse_word_with_stats(case.word, &ParseOptions::default());
@@ -119,7 +119,7 @@ fn synthesis_direction_rows_are_nonzero_for_words_that_parse() {
 #[test]
 fn stats_collection_does_not_change_the_parse_outcome() {
     for (g, cases) in fixture_cases() {
-        let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&g, usize::MAX);
         for case in &cases {
             let opts = ParseOptions::default();
             let off = morpher.parse_word_opts(case.word, &opts);
@@ -165,7 +165,7 @@ fn stats_collection_does_not_change_the_parse_outcome() {
 #[test]
 fn repeated_runs_produce_identical_rows() {
     for (g, cases) in fixture_cases() {
-        let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&g, usize::MAX);
         for case in &cases {
             let opts = ParseOptions::default();
             let (_o1, rows1) = morpher.parse_word_with_stats(case.word, &opts);
@@ -186,7 +186,7 @@ fn repeated_runs_produce_identical_rows() {
 #[test]
 fn rows_are_identical_across_concurrent_threads() {
     for (g, cases) in fixture_cases() {
-        let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&g, usize::MAX);
         for case in &cases {
             let opts = ParseOptions::default();
             let (_baseline_outcome, baseline_raw) = morpher.parse_word_with_stats(case.word, &opts);

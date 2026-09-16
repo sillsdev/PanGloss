@@ -20,7 +20,7 @@ fn reduplicated_words_keep_their_gold_signature() {
     };
     let xml = std::fs::read_to_string(&grammar_path).expect("read grammar");
     let grammar = load(&xml).unwrap_or_else(|e| panic!("failed to load grammar: {e}"));
-    let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&grammar, usize::MAX);
 
     // (word, expected signature) — expected values are the `parse-opt` golden's own rows.
     let cases = [

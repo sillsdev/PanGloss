@@ -28,10 +28,8 @@ fn shared_template_unconstrained_suffix_preserves_every_identity_in_both_orders(
         if reversed {
             grammar.strata[0].templates.reverse();
         }
-        for memo in [false, true] {
-            let morpher = Morpher::new(&grammar, usize::MAX).with_memo(memo);
-            let label = format!("{} reversed={reversed} memo={memo}", fixture.label());
-            assert_eq!(assert_matches_oracle(&label, &words, &morpher), 10);
-        }
+        let morpher = Morpher::new(&grammar, usize::MAX);
+        let label = format!("{} reversed={reversed}", fixture.label());
+        assert_eq!(assert_matches_oracle(&label, &words, &morpher), 10);
     }
 }

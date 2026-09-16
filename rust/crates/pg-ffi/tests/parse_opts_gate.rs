@@ -5,7 +5,7 @@ use std::ffi::c_void;
 use pangloss_ffi::{
     decode, decode_guess, encode_single, encode_single_guess, hc_buf_free, hc_grammar_free,
     hc_grammar_load, hc_parse_batch, hc_parse_batch_opts, hc_parse_word, hc_parse_word_opts,
-    DecodedWordGuess, HcError, HcResultBuf, HcStr, DEFAULT_MEMO, DEFAULT_STEP_CAP, HC_OK,
+    DecodedWordGuess, HcError, HcResultBuf, HcStr, DEFAULT_STEP_CAP, HC_OK,
 };
 
 const GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -287,7 +287,7 @@ fn hc_parse_word_bytes_for_a_real_word_are_byte_identical_to_the_in_process_enco
     }
 
     let grammar = pg_grammar::load(GRAMMAR_XML).expect("load grammar in-process");
-    let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
+    let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP);
     let outcome = morpher.parse_word("kad");
     let expected_bytes = encode_single(&outcome);
 

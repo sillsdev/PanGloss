@@ -5,9 +5,10 @@ Representational (self-described in the source as a "deliberate divergence," arg
 inert).
 
 ## Status
-Superseded — memoization is being removed from HC-Rust entirely (branch feat/remove-memoization), so the memo-side mechanism this entry compares no longer exists as a target; kept for history per the ledger's never-delete rule.
-
-Former status: Open — argued sound, actively guarded by a trip-wire test, not proposed upstream (nothing to propose: this is a Rust-only performance choice with no observable target in C#).
+Open — argued sound, actively guarded by a trip-wire test, not proposed upstream (nothing to
+propose: this is a Rust-only choice with no observable target in C#). Survived the memo's removal
+([045](045-memoization-removed.md)): `state_key` now serves `AnalyzerConfig::merge_equivalent`
+alone, so the saturation argument is unchanged but its one reader is the merge fold, not a cache.
 
 ## C# site
 `AnalysisStateKey.cs:14-34` — keeps the **full**, unsaturated per-rule unapplication count in the

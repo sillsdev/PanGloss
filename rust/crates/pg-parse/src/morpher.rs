@@ -2,7 +2,7 @@
 //! (confirm) → validity/surface filter → dedup → signature. Analysis chains strata
 //! surface→deepest; synthesis chains them deepest→surface. Ports C# `Morpher.ParseWord`.
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -11,7 +11,6 @@ use pg_grammar::model::{
     AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, MprSet,
     StratumId,
 };
-use pg_memo::AnalysisScope;
 use pg_rules::cache::RuleCache;
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
@@ -40,17 +39,12 @@ pub struct Morpher<'g> {
     lexical_patterns: Vec<(AllomorphId, LexEntryId)>,
     /// Global per-word step budget threaded through the cascades; `usize::MAX` means uncapped.
     cap: usize,
-    /// The order-invariant analysis memo; `false` reproduces the unmemoized engine (`--memo=off`).
-    /// Lives on `Morpher`, not `AnalyzerConfig`: full-literal construction there is pinned by `sena_analysis_stratum_terminates_on_short_words`.
-    memo: bool,
     /// `--word-timeout-ms`: independent wall-clock deadline alongside `cap`, needed because per-step cost is not uniform.
     word_timeout: Option<Duration>,
     /// Every matcher this grammar's rules need, compiled once and shared read-only across `--threads=N` workers.
     cache: RuleCache,
     /// C#'s settable `Morpher.MaxStemCount`; default `2`, and raising it stays bounded by the shared step/timeout budget.
     max_stem_count: u32,
-    /// Per-table memo byte budget (`pg_memo::AnalysisScope::with_byte_budget`); `None` disables it. Defaults to `pg_memo::DEFAULT_MEMO_BYTE_BUDGET`, overridable for tests via `with_memo_byte_budget`.
-    memo_byte_budget: Option<usize>,
 }
 
 /// Shared instrumentation and hard limits for bounded synthesis across multiple derivations.
@@ -194,11 +188,9 @@ impl<'g> Morpher<'g> {
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
             cap,
-            memo: true,
             word_timeout: None,
             cache: RuleCache::build(g),
             max_stem_count: 2, // C# `Morpher.MaxStemCount` ctor default (Morpher.cs:56)
-            memo_byte_budget: Some(pg_memo::DEFAULT_MEMO_BYTE_BUDGET),
         }
     }
 
@@ -230,12 +222,6 @@ impl<'g> Morpher<'g> {
         roots
     }
 
-    /// Toggle the order-invariant analysis memo (default on). `false` = the unmemoized baseline (`--memo=off`).
-    pub fn with_memo(mut self, memo: bool) -> Self {
-        self.memo = memo;
-        self
-    }
-
     /// Enforce final-template ordering even in strata with partial-rule rescue paths.
     pub fn with_always_enforce_final_templates(mut self, enforce: bool) -> Self {
         self.always_enforce_final_templates = enforce;
@@ -253,14 +239,6 @@ impl<'g> Morpher<'g> {
     /// Raising it cannot turn into an unbounded search — see `Self::max_stem_count`.
     pub fn with_max_stem_count(mut self, max_stem_count: u32) -> Self {
         self.max_stem_count = max_stem_count;
-        self
-    }
-
-    /// Override the analysis memo's per-table byte budget (default `pg_memo::DEFAULT_MEMO_BYTE_BUDGET`);
-    /// `None` disables it, for tests isolating the entry/word caps. See
-    /// `pg_memo::AnalysisScope::with_byte_budget`.
-    pub fn with_memo_byte_budget(mut self, byte_budget: Option<usize>) -> Self {
-        self.memo_byte_budget = byte_budget;
         self
     }
 
@@ -405,10 +383,6 @@ impl<'g> Morpher<'g> {
         };
         // One step budget shared by reference across every stratum × candidate; a per-instance counter would let one word explore `cap` steps per call.
         let budget = pg_rules::stratum::StepBudget::new(self.cap).with_timeout(self.word_timeout);
-        // One memo scope per parse, never shared across parses; disabled while tracing for the same reason merging is, above.
-        let scope_cell = (self.memo && !trace.is_tracing())
-            .then(|| RefCell::new(AnalysisScope::new().with_byte_budget(self.memo_byte_budget)));
-        let scope = scope_cell.as_ref();
         // Closure lives here because `pg-parse` owns `RootAllomorphIndex` and `pg-rules` cannot depend on `pg-parse`.
         let filter: NonHeadRootFilter =
             &|st: StratumId, shape: &pg_shape::Shape| self.search_roots(st, shape);
@@ -431,22 +405,20 @@ impl<'g> Morpher<'g> {
                     enforce,
                     all_templates_final: self.final_template_facts.all_templates_final()[s],
                 };
-                let res =
-                    pg_rules::stratum::analyze_stratum_scoped_filtered_ruled_traced_with_policy(
-                        g,
-                        StratumId(s as u8),
-                        w.clone(),
-                        &cfg,
-                        scope,
-                        Some(filter),
-                        rule_filter,
-                        Some(&self.cache),
-                        &budget,
-                        policy,
-                        stats,
-                        trace,
-                        node_parent,
-                    );
+                let res = pg_rules::stratum::analyze_stratum_filtered_ruled_traced_with_policy(
+                    g,
+                    StratumId(s as u8),
+                    w.clone(),
+                    &cfg,
+                    Some(filter),
+                    rule_filter,
+                    Some(&self.cache),
+                    &budget,
+                    policy,
+                    stats,
+                    trace,
+                    node_parent,
+                );
                 for o in res.words {
                     let k = o.dedup_key();
                     results.entry(k.clone()).or_insert_with(|| o.clone());
@@ -571,11 +543,6 @@ impl<'g> Morpher<'g> {
         for w in &ordered_matches {
             analyses.push((self.morpheme_join(w), self.surface_of(w)));
             structured.push(self.structured_analysis(w, guessed));
-        }
-
-        // `HC_WORD_STATS=1`: snapshot this word's memo tables before `scope_cell` drops (docs/research/word-memory-trace.md).
-        if let Some(scope) = scope {
-            pg_rules::word_stats::record_memo_snapshot(&scope.borrow());
         }
 
         ParseOutcome {

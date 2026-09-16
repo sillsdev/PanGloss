@@ -20,7 +20,7 @@ fn ana_recovers_free_fluctuating_analyses() {
     };
     let xml = std::fs::read_to_string(&grammar_path).expect("read grammar");
     let grammar = load(&xml).unwrap_or_else(|e| panic!("failed to load grammar: {e}"));
-    let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&grammar, usize::MAX);
 
     let got = morpher.parse_word("ana").signature();
     assert_eq!(

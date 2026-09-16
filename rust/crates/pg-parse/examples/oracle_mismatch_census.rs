@@ -21,7 +21,7 @@ fn main() {
                 continue;
             }
         };
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&grammar, usize::MAX);
         for w in &words_yaml.words {
             if !w.adapter_visible() {
                 continue;

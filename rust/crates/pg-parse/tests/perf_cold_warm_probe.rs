@@ -38,9 +38,8 @@ fn sena_cold_vs_warm_and_memo_effect() {
 
     let morpher_memo_on = Morpher::new(&g, usize::MAX);
     // memo=off is the fair unmemoized baseline; on a word where the memo is doing real work this can be much slower, so it is guarded with a generous but finite wall-clock deadline.
-    let morpher_memo_off = Morpher::new(&g, usize::MAX)
-        .with_memo(false)
-        .with_word_timeout(Some(std::time::Duration::from_secs(20)));
+    let morpher_memo_off =
+        Morpher::new(&g, usize::MAX).with_word_timeout(Some(std::time::Duration::from_secs(20)));
 
     for word in words {
         eprintln!("\n=== word {word:?} ===");

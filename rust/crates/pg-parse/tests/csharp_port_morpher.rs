@@ -1,4 +1,4 @@
-//! Ports selected `MorpherTests` cases from the C# HermitCrab oracle; the 3 thread/memo tests substitute Rust's `Morpher::with_memo(bool)` comparison for C#'s cut intra-word parallelism, since both compare two execution strategies over the same rule-cascade machinery.
+//! Ports selected `MorpherTests` cases from the C# HermitCrab oracle; the 3 thread tests compare two independent `Morpher`s over one grammar, since HC-Rust has no intra-word parallelism and C#'s was cut, leaving repeated-parse determinism as what those cases actually assert.
 
 mod csharp_port_common;
 use csharp_port_common::{
@@ -60,7 +60,10 @@ fn analyze_word_can_analyze_linear_returns_correct_analysis() {
     assert_morphs_eq(&m.parse_word("sagd"), &["32 PAST"]);
 }
 
-/// Ports `MorpherTests.AnalyzeWord_ConcurrentRepeatedParsing_IsDeterministic`: memo-on vs memo-off must agree, checked once per word since the split is a data-flow difference, not a race.
+/// Ports `MorpherTests.AnalyzeWord_ConcurrentRepeatedParsing_IsDeterministic`: two independent
+/// `Morpher`s over the same grammar must return the same analysis set for each word. Checked
+/// once per word rather than under threads, since a divergence here would be a data-flow
+/// difference (iteration order, interning), not a race.
 #[test]
 fn analyze_word_concurrent_repeated_parsing_is_deterministic() {
     let mrules = r#"
@@ -74,26 +77,28 @@ fn analyze_word_concurrent_repeated_parsing_is_deterministic() {
       </MorphologicalRule>
     "#;
     let g = build_grammar("", "", mrules, "mrEd", "");
-    let memo_on = Morpher::new(&g, usize::MAX).with_memo(true);
-    let memo_off = Morpher::new(&g, usize::MAX).with_memo(false);
+    let first = Morpher::new(&g, usize::MAX);
+    let second = Morpher::new(&g, usize::MAX);
     for word in ["sagd", "sag", "tag", "tagd", "gag", "xyzzy"] {
-        let a: BTreeSet<String> = memo_on
+        let a: BTreeSet<String> = first
             .parse_word(word)
             .analyses
             .into_iter()
             .map(|(m, s)| format!("{m}|{s}"))
             .collect();
-        let b: BTreeSet<String> = memo_off
+        let b: BTreeSet<String> = second
             .parse_word(word)
             .analyses
             .into_iter()
             .map(|(m, s)| format!("{m}|{s}"))
             .collect();
-        assert_eq!(a, b, "memo-on vs memo-off disagree for {word:?}");
+        assert_eq!(a, b, "repeated parses of {word:?} disagree");
     }
 }
 
-/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithCompounding`: a compounding rule commutes with a PAST-tense prefix, forcing the memoized cascade to revisit an equal state via different arrival orders.
+/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithCompounding`: a compounding
+/// rule commutes with a PAST-tense prefix, so the cascade reaches an equal state via different
+/// arrival orders -- the case where an order-dependent fold would diverge between runs.
 #[test]
 fn parse_word_single_threaded_matches_parallel_with_compounding() {
     let mrules = r#"
@@ -118,26 +123,28 @@ fn parse_word_single_threaded_matches_parallel_with_compounding() {
       </MorphologicalRule>
     "#;
     let g = build_grammar("", "", mrules, "mrCompound mrPrefix", "");
-    let memo_on = Morpher::new(&g, usize::MAX).with_memo(true);
-    let memo_off = Morpher::new(&g, usize::MAX).with_memo(false);
+    let first = Morpher::new(&g, usize::MAX);
+    let second = Morpher::new(&g, usize::MAX);
     for word in ["pʰutdidat", "pʰutdat"] {
-        let a: BTreeSet<String> = memo_on
+        let a: BTreeSet<String> = first
             .parse_word(word)
             .analyses
             .into_iter()
             .map(|(m, s)| format!("{m}|{s}"))
             .collect();
-        let b: BTreeSet<String> = memo_off
+        let b: BTreeSet<String> = second
             .parse_word(word)
             .analyses
             .into_iter()
             .map(|(m, s)| format!("{m}|{s}"))
             .collect();
-        assert_eq!(a, b, "memo-on vs memo-off disagree for {word:?}");
+        assert_eq!(a, b, "repeated parses of {word:?} disagree");
     }
 }
 
-/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithAffixTemplate`: two commuting prefixes plus an optional-slot template suffix reach the same state via different trail orders, exercising the template-battery memo.
+/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithAffixTemplate`: two
+/// commuting prefixes plus an optional-slot template suffix reach the same state via different
+/// trail orders, exercising the template battery's own dedup.
 #[test]
 fn parse_word_single_threaded_matches_parallel_with_affix_template() {
     let mrules = r#"
@@ -170,22 +177,22 @@ fn parse_word_single_threaded_matches_parallel_with_affix_template() {
       <AffixTemplate requiredPartsOfSpeech="posV"><Name>verb_template</Name><Slot morphologicalRules="mrEd" optional="true"><Name>Sl1</Name></Slot></AffixTemplate>
     "#;
     let g = build_grammar("", "", mrules, "mrDi mrGu", templates);
-    let memo_on = Morpher::new(&g, usize::MAX).with_memo(true);
-    let memo_off = Morpher::new(&g, usize::MAX).with_memo(false);
+    let first = Morpher::new(&g, usize::MAX);
+    let second = Morpher::new(&g, usize::MAX);
     for word in ["digusagd", "disagd", "gusagd", "sagd", "sag"] {
-        let a: BTreeSet<String> = memo_on
+        let a: BTreeSet<String> = first
             .parse_word(word)
             .analyses
             .into_iter()
             .map(|(m, s)| format!("{m}|{s}"))
             .collect();
-        let b: BTreeSet<String> = memo_off
+        let b: BTreeSet<String> = second
             .parse_word(word)
             .analyses
             .into_iter()
             .map(|(m, s)| format!("{m}|{s}"))
             .collect();
-        assert_eq!(a, b, "memo-on vs memo-off disagree for {word:?}");
+        assert_eq!(a, b, "repeated parses of {word:?} disagree");
     }
 }
 

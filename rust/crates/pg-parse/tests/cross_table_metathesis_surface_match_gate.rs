@@ -115,7 +115,7 @@ fn cross_table_metathesized_root_matches_its_own_surface() {
     );
     assert_eq!(g.strata.len(), 2, "fixture must declare exactly 2 strata");
 
-    let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&g, usize::MAX);
     assert_eq!(
         morpher.parse_word("xm").signature(),
         "ROOT1|xm",
@@ -129,7 +129,7 @@ fn cross_table_metathesized_root_matches_its_own_surface() {
 #[test]
 fn cross_table_root_raw_spelling_still_rejected() {
     let g = load();
-    let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&g, usize::MAX);
     assert_eq!(
         morpher.parse_word("mx").signature(),
         "-",
@@ -141,7 +141,7 @@ fn cross_table_root_raw_spelling_still_rejected() {
 #[test]
 fn same_table_metathesis_recall_is_unaffected() {
     let g = load();
-    let morpher = Morpher::new(&g, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&g, usize::MAX);
     assert_eq!(morpher.parse_word("xw").signature(), "ROOT2|xw");
     assert_eq!(
         morpher.parse_word("wx").signature(),

@@ -33,7 +33,7 @@ fn homophonous_suffix_grammar(k: usize) -> pg_grammar::model::Grammar {
 fn homophonous_suffix_fixture_is_genuinely_heavy_under_a_small_step_cap() {
     let g = homophonous_suffix_grammar(7);
     let word = format!("sag{}", "n".repeat(7));
-    let m = Morpher::new(&g, 500).with_memo(false);
+    let m = Morpher::new(&g, 500);
     let outcome = m.parse_word(&word);
     assert!(
         outcome.capped,
@@ -47,9 +47,7 @@ fn homophonous_suffix_fixture_is_genuinely_heavy_under_a_small_step_cap() {
 fn fifty_ms_word_timeout_fires_promptly_on_a_genuinely_slow_parse() {
     let g = homophonous_suffix_grammar(7);
     let word = format!("sag{}", "n".repeat(7));
-    let m = Morpher::new(&g, usize::MAX)
-        .with_memo(false)
-        .with_word_timeout(Some(Duration::from_millis(50)));
+    let m = Morpher::new(&g, usize::MAX).with_word_timeout(Some(Duration::from_millis(50)));
 
     let start = Instant::now();
     let outcome = m.parse_word(&word);

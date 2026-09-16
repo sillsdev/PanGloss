@@ -758,7 +758,6 @@ dependencies = [
  "pg-fst",
  "pg-fwdata",
  "pg-grammar",
- "pg-memo",
  "pg-pack",
  "pg-parse",
  "pg-realize",
@@ -915,15 +914,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pg-memo"
-version = "0.3.0"
-dependencies = [
- "pg-featstruct",
- "pg-grammar",
- "pg-shape",
-]
 
-[[package]]
 name = "pg-pack"
 version = "0.3.0"
 dependencies = [
@@ -946,7 +937,6 @@ dependencies = [
  "pg-fst",
  "pg-fwdata",
  "pg-grammar",
- "pg-memo",
  "pg-rules",
  "pg-shape",
  "pg-xample-oracle",
@@ -976,7 +966,6 @@ dependencies = [
  "pg-featstruct",
  "pg-fst",
  "pg-grammar",
- "pg-memo",
  "pg-shape",
  "rustc-hash",
  "smallvec",

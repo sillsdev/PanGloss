@@ -29,7 +29,7 @@ fn passing_ids_from_structurally_matching_fixtures(
         }
         structurally_matching_fixtures += 1;
 
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&grammar, usize::MAX);
         for w in &words_yaml.words {
             if !w.adapter_visible() {
                 continue; // self-check-only (guess:true parse), PROTOCOL.md section 3
@@ -169,7 +169,7 @@ fn the_hand_identified_witness_fixture_for_each_construct_still_qualifies() {
             "{}: this named witness fixture must be generic-replay-eligible",
             f.label()
         );
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&grammar, usize::MAX);
         let mut tags_it_while_passing = false;
         for w in &words_yaml.words {
             if !w.adapter_visible() || w.expect_skip {

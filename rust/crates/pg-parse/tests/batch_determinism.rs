@@ -36,7 +36,7 @@ fn indonesian_batch_is_thread_count_invariant() {
         words.len()
     );
 
-    let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&grammar, usize::MAX);
 
     let thread_counts = [1usize, 2, 4, 8];
     let mut runs: Vec<Vec<String>> = Vec::new();
@@ -91,7 +91,7 @@ fn indonesian_batch_output_order_matches_input_order() {
         .filter(|w| !w.is_empty())
         .collect();
 
-    let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&grammar, usize::MAX);
     let results = hc_parse_batch(&morpher, &words, 4);
     assert_eq!(results.len(), words.len());
     // Cross-check every entry against a direct sequential parse at the same index.

@@ -5,7 +5,7 @@
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--analyses` additionally writes one FieldWorks `ParseAnalysis` JSONL row per input case while
 //! preserving partial projections when a cap or timeout fires.
-//! `--step-cap N` bounds the unmemoized analysis cascade (memoization removes the need); omitted,
+//! `--step-cap N` bounds the analysis cascade; omitted,
 //! it defaults to `DEFAULT_STEP_CAP` (50,000,000) so every batch terminates deterministically --
 //! `--step-cap unbounded` opts back into no bound at all. See
 //! `docs/research/step-cap-default-measurements.md` for the measurements behind that number.
@@ -306,7 +306,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     eprintln!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
@@ -644,7 +644,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut step_cap: StepCap = DEFAULT_STEP_CAP;
     // --word-timeout-ms: an optional wall-clock deadline per word, independent of --step-cap; None (omitted) is a complete no-op.
     let mut word_timeout_ms: Option<u64> = None;
-    let mut memo = true;
     // Default (unspecified --threads only) is logical CPUs capped at 8, since per-word memory on a pathological grammar multiplies by thread count and an uncapped default can exhaust machine memory.
     const DEFAULT_THREAD_CAP: usize = 8;
     let mut threads: usize = std::thread::available_parallelism()
@@ -659,11 +658,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut stats_requested = false;
     let mut always_enforce_final_templates = false;
     let mut cache_path_arg: Option<String> = None;
-    let parse_memo = |v: &str| match v {
-        "on" | "true" | "1" => Ok(true),
-        "off" | "false" | "0" => Ok(false),
-        other => Err(format!("invalid --memo: {other} (expected on|off)")),
-    };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -692,13 +686,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     v.parse()
                         .map_err(|_| format!("invalid --word-timeout-ms: {v}"))?,
                 );
-            }
-            "--memo" => {
-                let v = it.next().ok_or("--memo requires a value")?;
-                memo = parse_memo(v)?;
-            }
-            s if s.starts_with("--memo=") => {
-                memo = parse_memo(&s["--memo=".len()..])?;
             }
             "--threads" => {
                 let v = it.next().ok_or("--threads requires a value")?;
@@ -744,7 +731,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
                 .into(),
         );
     };
@@ -809,21 +796,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
 
     let t_morpher = Instant::now();
     let mut morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
-        .with_memo(memo)
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(always_enforce_final_templates);
-    // Developer diagnostic mirroring HC_MEMO_STATS/HC_STEP_STATS: tune the memo byte budget without a rebuild ("none" disables it); unset leaves Morpher's own default.
-    if let Some(v) = std::env::var("HC_MEMO_BYTES").ok() {
-        let budget = if v.eq_ignore_ascii_case("none") {
-            None
-        } else {
-            Some(
-                v.parse::<usize>()
-                    .map_err(|e| format!("invalid HC_MEMO_BYTES: {v}: {e}"))?,
-            )
-        };
-        morpher = morpher.with_memo_byte_budget(budget);
-    }
     let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
     eprintln!(
         "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
@@ -903,58 +877,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     dedup_ns as f64 / 1e6,
                 );
             }
-            // `pg_memo::AnalysisScope`'s per-word lookup/hit/insert/fallthrough/size counters, opt-in since walking every insert's size is not free.
-            if std::env::var("HC_MEMO_STATS").is_ok() {
-                let s = pg_memo::profile::snapshot();
-                let mean_results_len = if s.insert_samples > 0 {
-                    s.insert_results_len_total as f64 / s.insert_samples as f64
-                } else {
-                    0.0
-                };
-                let mean_words = if s.insert_samples > 0 {
-                    s.insert_words_total as f64 / s.insert_samples as f64
-                } else {
-                    0.0
-                };
-                eprintln!(
-                    "MEMOPROF\t{i}\t{word}\t\
-                     memo_lookups={}\tmemo_hits_pos={}\tmemo_hits_nogood={}\tmemo_inserts={}\tmemo_insert_refused={}\tmemo_refused_entries={}\tmemo_refused_words={}\tmemo_refused_bytes={}\tmemo_fallthrough={}\tmemo_max_in_progress={}\t\
-                     tpl_lookups={}\ttpl_hits_pos={}\ttpl_hits_nogood={}\ttpl_inserts={}\ttpl_insert_refused={}\ttpl_refused_entries={}\ttpl_refused_words={}\ttpl_refused_bytes={}\ttpl_fallthrough={}\ttpl_max_in_progress={}\t\
-                     insert_samples={}\tresults_len_mean={:.3}\tresults_len_max={}\twords_per_entry_mean={:.3}\twords_per_entry_max={}\t\
-                     shape_seg_total={}\tsynfs_total={}\trealfs_total={}\tmorphs_total={}\treplay_clones={}",
-                    s.memo_lookups,
-                    s.memo_hits_positive,
-                    s.memo_hits_nogood,
-                    s.memo_inserts,
-                    s.memo_insert_refused,
-                    s.memo_insert_refused_entries,
-                    s.memo_insert_refused_words,
-                    s.memo_insert_refused_bytes,
-                    s.memo_fallthrough,
-                    s.memo_max_in_progress,
-                    s.tpl_lookups,
-                    s.tpl_hits_positive,
-                    s.tpl_hits_nogood,
-                    s.tpl_inserts,
-                    s.tpl_insert_refused,
-                    s.tpl_insert_refused_entries,
-                    s.tpl_insert_refused_words,
-                    s.tpl_insert_refused_bytes,
-                    s.tpl_fallthrough,
-                    s.tpl_max_in_progress,
-                    s.insert_samples,
-                    mean_results_len,
-                    s.insert_results_len_max,
-                    mean_words,
-                    s.insert_words_max,
-                    s.insert_shape_seg_total,
-                    s.insert_synfs_total,
-                    s.insert_realfs_total,
-                    s.insert_morphs_total,
-                    s.replay_clones,
-                );
-            }
-            // Peak live-search-frontier counters, independent of the memo caps above (`docs/research/live-frontier-memory-bound.md`).
+            // Peak live-search-frontier counters (`docs/research/live-frontier-memory-bound.md`).
             if std::env::var("HC_FRONTIER_STATS").is_ok() {
                 let f = pg_rules::stratum::frontier_profile::snapshot();
                 eprintln!(
@@ -984,7 +907,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     f.max_live_bytes,
                 );
             }
-            // Field-level byte attribution over the live frontier and the memo tables (docs/research/word-memory-trace.md).
+            // Field-level byte attribution over the live frontier (docs/research/word-memory-trace.md).
             if std::env::var("HC_WORD_STATS").is_ok() {
                 let s = pg_rules::word_stats::snapshot();
                 let b = &s.live_peak_breakdown;
@@ -996,8 +919,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                      live_root_runtime_id={}\tlive_non_heads={}\tlive_alternatives={}\t\
                      max_single_word_bytes={}\t\
                      alt_len_p50={}\talt_len_p90={}\talt_len_max={}\t\
-                     non_head_len_p50={}\tnon_head_len_p90={}\tnon_head_len_max={}\t\
-                     memo_key_bytes={}\tmemo_results_bytes={}\ttpl_key_bytes={}\ttpl_results_bytes={}",
+                     non_head_len_p50={}	non_head_len_p90={}	non_head_len_max={}",
                     s.live_peak_count,
                     s.live_peak_total,
                     b.base,
@@ -1018,10 +940,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     s.non_head_len_p50,
                     s.non_head_len_p90,
                     s.non_head_len_max,
-                    s.memo_key_bytes,
-                    s.memo_results_bytes,
-                    s.tpl_key_bytes,
-                    s.tpl_results_bytes,
                 );
             }
             // What `Word::alternatives` actually yields once expanded (docs/research/alt-yield.md).
@@ -1120,12 +1038,11 @@ fn run_batch(args: &[String]) -> Result<(), String> {
 
     eprintln!("PARSEELAPSED\tengine=default\telapsed_ms={parse_elapsed_ms:.3}");
     eprintln!(
-        "batch complete: {} words parsed ({} skipped), {} hit the step cap, {} timed out [memo={}, threads={}]",
+        "batch complete: {} words parsed ({} skipped), {} hit the step cap, {} timed out [threads={}]",
         parsed,
         skipped,
         capped_words,
         timed_out_words,
-        if memo { "on" } else { "off" },
         threads,
     );
     if stats_requested {
@@ -1137,7 +1054,6 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             &words,
             step_cap,
             word_timeout_ms,
-            memo,
             guess,
             always_enforce_final_templates,
             cache_path_arg.as_deref(),
@@ -1449,7 +1365,7 @@ mod tests {
             "analyses-cap-timeout",
             &grammar_xml,
             &format!("kad{}\n", "d".repeat(7)),
-            &["--step-cap", "500", "--memo", "off"],
+            &["--step-cap", "500"],
         );
         assert_eq!(capped_rows.len(), 1);
         assert_eq!(capped_rows[0]["capped"], true);
@@ -1681,7 +1597,7 @@ mod tests {
                 tag,
                 &grammar_xml,
                 &word,
-                &["--step-cap", "500", "--memo", "off", "--threads", threads],
+                &["--step-cap", "500", "--threads", threads],
             );
             let result_line = lines.last().expect("at least one line");
             let fields: Vec<&str> = result_line.split('\t').collect();

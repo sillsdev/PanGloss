@@ -13,9 +13,8 @@ use pg_grammar::model::{
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_scoped_filtered_ruled_traced_with_policy,
-    synthesize_stratum_traced, synthesize_template, AnalyzerConfig, FinalTemplateAnalysisPolicy,
-    StepBudget,
+    analyze_stratum, analyze_stratum_filtered_ruled_traced_with_policy, synthesize_stratum_traced,
+    synthesize_template, AnalyzerConfig, FinalTemplateAnalysisPolicy, StepBudget,
 };
 use pg_rules::trace::{NoopSink, TraceHandle, TraceSink, TreeTraceSink};
 use pg_rules::{MorphRecord, Word};
@@ -501,7 +500,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     assert!(baseline_histories.contains(&vec![template_rule, ordinary]));
 
     let disabled_stats = pg_rules::stats::StatsCollector::new(&g);
-    let disabled = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    let disabled = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         s,
         word(&g, "pak", s),
@@ -509,7 +508,6 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
             merge_equivalent: false,
             ..AnalyzerConfig::default()
         },
-        None,
         None,
         None,
         None,
@@ -543,7 +541,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     );
 
     let stats = pg_rules::stats::StatsCollector::new(&g);
-    let enforced = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    let enforced = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         s,
         word(&g, "pak", s),
@@ -551,7 +549,6 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
             merge_equivalent: false,
             ..AnalyzerConfig::default()
         },
-        None,
         None,
         None,
         None,
@@ -574,7 +571,7 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
     let mut trace_input = word(&g, "pak", s);
     let trace_root = trace_sink.analyze_word(&trace_input);
     trace_input.trace = Some(trace_root);
-    let traced = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    let traced = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         s,
         trace_input,
@@ -582,7 +579,6 @@ fn final_template_after_ordinary_rule_is_pruned_only_when_policy_enforced() {
             merge_equivalent: false,
             ..AnalyzerConfig::default()
         },
-        None,
         None,
         None,
         None,
@@ -629,12 +625,11 @@ fn enforced_stratum_exit_clears_final_template_state_before_output_dedup() {
     let ordinary_rule = suffix_rule(&g, 200, "p");
     let ordinary = push_mrule(&mut g, ordinary_rule);
     let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![ordinary], vec![]);
-    let out = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    let out = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         s,
         word(&g, "ap", s),
         &AnalyzerConfig::default(),
-        None,
         None,
         None,
         None,
@@ -684,12 +679,11 @@ fn final_template_state_resets_between_outer_and_inner_strata() {
         merge_equivalent: false,
         ..AnalyzerConfig::default()
     };
-    let outer_result = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    let outer_result = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         outer,
         word(&g, "pak", outer),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -716,12 +710,11 @@ fn final_template_state_resets_between_outer_and_inner_strata() {
     );
     after_outer.stratum = inner;
 
-    let inner_result = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    let inner_result = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         inner,
         after_outer,
         &cfg,
-        None,
         None,
         None,
         None,
@@ -782,12 +775,11 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
             .map(|w| w.mrule_apps.iter().flatten().copied().collect::<Vec<_>>())
             .collect::<Vec<_>>()
     };
-    let off = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    let off = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         s,
         word(&g, "pak", s),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -803,12 +795,11 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
     );
 
     let stats = pg_rules::stats::StatsCollector::new(&g);
-    let on = analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    let on = analyze_stratum_filtered_ruled_traced_with_policy(
         &g,
         s,
         word(&g, "pak", s),
         &cfg,
-        None,
         None,
         None,
         None,
