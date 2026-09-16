@@ -1,12 +1,14 @@
-# 018 — Realizational-FS diff: Rust avoids a latent C# null-crash
+# 018 — Realizational-FS diff: C# nulls the FS on a failed unify and crashes at Freeze; Rust keeps the prior value
 
 ## Kind
 Behavioural.
 
 ## Status
-Open — a deliberate Rust-side choice, not proposed upstream. This is exactly the shape CLAUDE.md's
-oracle-hierarchy rule warns about ("anything Rust believes is an improvement must be proposed
-upstream... rather than silently kept"), and it has not been proposed.
+Open, reported upstream 2026-09-16 as [sillsdev/machine#510](https://github.com/sillsdev/machine/issues/510).
+Rust keeps the alternative's prior realizational FS when the unify fails; C# nulls it and crashes at
+`Word.FreezeImpl`. Neither behaviour is justified yet; the issue asks HermitCrab to decide the
+semantics (the proposed answer is to drop the alternative) and to add a discriminating fixture.
+Rust stays as it is until that decision lands, so the entry stays open.
 
 ## C# site
 `Word.ExpandAlternatives` (Word.cs:515-524), specifically its realizational-FS diff step:
@@ -46,10 +48,11 @@ None — not exercised by any oracle-verified fixture, per the source doc commen
 documented, reasoned divergence, not a measured one.
 
 ## Upstream
-None, needed. Per this repo's own stated policy, this divergence should be proposed to
-`sillsdev/machine` as a fix to `Word.ExpandAlternatives`'s discarded-success-flag bug (C#'s own
-`Unify(diff, out newFS)` call ignoring its boolean return is a real latent defect, independent of
-what Rust does about it) rather than left as a silently-kept improvement.
+[Issue #510](https://github.com/sillsdev/machine/issues/510): the discarded `Unify` return and the
+deterministic `NullReferenceException` at `Word.FreezeImpl` (Word.cs:611) on the next statement, with
+the three candidate semantics and acceptance criteria (a synthetic fixture whose merged alternatives
+carry a later conflicting realizational delta). No fix PR yet: the semantics are undecided and no
+grammar has yet reproduced a failing unify on this path.
 
 ## Notes
 This is one of a small number of entries in this catalogue where Rust's behaviour is believed
