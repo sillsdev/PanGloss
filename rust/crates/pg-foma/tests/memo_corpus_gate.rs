@@ -36,8 +36,14 @@ fn identity_set(analyses: &[WordAnalysis], grammar: &Grammar) -> BTreeSet<Analys
         .collect()
 }
 
-// Generous enough for a slow corpus word (corpus-manifest.json documents several) without hanging forever.
-const WORD_TIMEOUT: Duration = Duration::from_secs(10);
+/// The gate's only load-dependent input; raise it via `PANGLOSS_GATE_WORD_TIMEOUT_SECS` so the deterministic step cap is the only cap that fires.
+fn word_timeout() -> Duration {
+    let secs = std::env::var("PANGLOSS_GATE_WORD_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(10);
+    Duration::from_secs(secs)
+}
 
 /// Per-corpus tally: both-completed words get a hard analysis-set-equality check; a step cap firing on only one side is recorded, never failed (memoization changes step consumption, not recall).
 #[derive(Default)]
@@ -46,6 +52,8 @@ struct CorpusTally {
     capped_both: usize,
     completed_only_on: usize,
     completed_only_off: usize,
+    /// Counted and printed, not silently dropped: a silent exclusion reads as "no regression".
+    timed_out: usize,
 }
 
 impl CorpusTally {
@@ -54,10 +62,16 @@ impl CorpusTally {
         self.capped_both += other.capped_both;
         self.completed_only_on += other.completed_only_on;
         self.completed_only_off += other.completed_only_off;
+        self.timed_out += other.timed_out;
     }
 
+    /// Timeouts included, so load moves words between printed buckets rather than out of the denominator.
     fn total(&self) -> usize {
-        self.completed_both + self.capped_both + self.completed_only_on + self.completed_only_off
+        self.completed_both
+            + self.capped_both
+            + self.completed_only_on
+            + self.completed_only_off
+            + self.timed_out
     }
 }
 
@@ -69,9 +83,10 @@ fn check_corpus(logical_name: &str, word_count: usize, step_cap: usize) -> Corpu
         "{logical_name}: word list yielded zero words"
     );
 
-    let memo_on = Morpher::new(&grammar, step_cap).with_word_timeout(Some(WORD_TIMEOUT));
+    let timeout = word_timeout();
+    let memo_on = Morpher::new(&grammar, step_cap).with_word_timeout(Some(timeout));
     let memo_off = Morpher::new(&grammar, step_cap)
-        .with_word_timeout(Some(WORD_TIMEOUT))
+        .with_word_timeout(Some(timeout))
         .with_memo(false);
     let opts = ParseOptions::default();
 
@@ -81,6 +96,7 @@ fn check_corpus(logical_name: &str, word_count: usize, step_cap: usize) -> Corpu
         let off = memo_off.parse_word_opts(word, &opts);
         // A wall-clock timeout is not a reproducible outcome, so it is excluded rather than compared.
         if on.timed_out || off.timed_out {
+            tally.timed_out += 1;
             continue;
         }
         // A cap firing on only one side reflects memoization's step-count effect, not a recall difference, and a capped run's partial set is never compared (not even as a subset) against a completed one -- recorded below, never failed.
@@ -100,8 +116,12 @@ fn check_corpus(logical_name: &str, word_count: usize, step_cap: usize) -> Corpu
         }
     }
     eprintln!(
-        "{logical_name}: completed both={} capped both={} completed only on={} completed only off={}",
-        tally.completed_both, tally.capped_both, tally.completed_only_on, tally.completed_only_off
+        "{logical_name}: completed both={} capped both={} completed only on={} completed only off={} timed out={}",
+        tally.completed_both,
+        tally.capped_both,
+        tally.completed_only_on,
+        tally.completed_only_off,
+        tally.timed_out
     );
     tally
 }
@@ -119,8 +139,8 @@ fn memo_parity_survives_aweti_sena_mbugwe() {
         total.add(&check_corpus(name, count, cap));
     }
     eprintln!(
-        "{} words completed only with memo on, {} only with memo off",
-        total.completed_only_on, total.completed_only_off
+        "{} words completed only with memo on, {} only with memo off, {} excluded by wall-clock timeout",
+        total.completed_only_on, total.completed_only_off, total.timed_out
     );
     corpus::record_cases("memo_parity_survives_aweti_sena_mbugwe", total.total());
 }
