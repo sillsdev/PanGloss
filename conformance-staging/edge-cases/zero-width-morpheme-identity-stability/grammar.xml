@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>ZeroWidthMorphemeIdentityStability</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum
+        characterDefinitionTable="table1"
+        morphologicalRuleOrder="unordered"
+        morphologicalRules="mrA2B mrB2A mrThird"
+      >
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <!-- A2B: N -> V, adds "u". Issue #506's reported repro calls this rule A2B. -->
+          <MorphologicalRule id="mrA2B" requiredPartsOfSpeech="posN" outputPartOfSpeech="posV">
+            <Name>A2B</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA2B">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stemA2B">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stemA2B" />
+                  <InsertSegments><PhoneticShape>u</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>A2B</MorphemeId>
+          </MorphologicalRule>
+          <!-- B2A: V -> N, adds "i". Issue #506's reported repro calls this rule B2A. -->
+          <MorphologicalRule id="mrB2A" requiredPartsOfSpeech="posV" outputPartOfSpeech="posN">
+            <Name>B2A</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB2A">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stemB2A">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stemB2A" />
+                  <InsertSegments><PhoneticShape>i</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>B2A</MorphemeId>
+          </MorphologicalRule>
+          <!--
+            THIRD: N -> V, copies the input without adding any segments. This is the zero-width
+            rule at issue in #506: it flips the syntactic category but leaves the shape untouched,
+            so it ties with the identity mapping under the stratum's unordered rule cascade.
+          -->
+          <MorphologicalRule id="mrThird" requiredPartsOfSpeech="posN" outputPartOfSpeech="posV">
+            <Name>THIRD</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subThird">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stemThird">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stemThird" />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>THIRD</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eRoot" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aRoot"><PhoneticShape>sag</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ROOT</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

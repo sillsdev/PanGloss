@@ -1,0 +1,148 @@
+# oracle-provenance: forward-synthesis
+# Mixed in practice -- sag, sagu, and sagi are oracle-recorded: verified against 50 fresh-process
+# runs of hc.dll (via conformance/adapters/hc-dotnet-wrapper.sh batch, built from this worktree at
+# f150e2a0) and agreed on every run. sagui's signatures are NOT oracle-recorded -- they are hand-derived
+# by forward synthesis (see that word's note below) and pinned as a DELIBERATE RED against the founding
+# oracle. References https://github.com/sillsdev/machine/issues/506.
+#
+# PanGloss-side addendum (2026-09-15, staged as conformance-staging/edge-cases/
+# zero-width-morpheme-identity-stability, PanGloss repo, branch fix/zero-width-morph-identity):
+# this exact grammar (byte-identical rule/lexicon shapes) was measured directly against
+# `pg_parse::Morpher::parse_word` -- 50 in-process parses of every word here, plus a separate
+# 20-fresh-process replay of the same compiled test binary for "sagui" specifically -- and every
+# run produced the identical multiset for every word, matching every `parses:` list below exactly,
+# INCLUDING sagui's forward-synthesized (oracle-disagreeing) answer. No PanGloss code change was
+# required. So: this fixture is RED against hc.dll by design (see above) and was already GREEN
+# against PanGloss on first measurement -- see docs/divergences/036-zero-width-morpheme-identity.md's
+# 2026-09-15 section for the full measurement (per-word signatures, in-process and cross-process
+# determinism check) and the mechanism (pg-rules/src/morph.rs's `attribute_morphs`: a zero-width
+# affix that contributes no output-side material is recorded as a `MorphStatus::Floating` marker at
+# the `FLOATING_ORDER` sentinel, which sorts after every real, positioned morph -- so a zero-width
+# rule anchored at the shape's last node already renders after the affix occupying that node, with no
+# insertion-order special case needed).
+#
+# THIS FIXTURE'S "sagui" ENTRY FAILS AGAINST hc.dll TODAY, ON PURPOSE. Issue #506 reports that
+# fresh-process runs of a root "sag" with an N<->V toggle pair (A2B adds "u", B2A adds "i") plus a
+# zero-width N->V rule (THIRD, category flip with no added segments) produce unstable "sagui" parse
+# identities: sometimes both toggle rules survive with THIRD, sometimes B2A is silently dropped from the
+# THIRD-inclusive analysis, sometimes both B2A and THIRD are dropped. 50 fresh-process runs of exactly
+# this grammar (see grammar.xml, same rule names) reproduced that instability directly:
+#   25/50  ROOT+A2B+B2A|sagui;ROOT+A2B+THIRD+B2A|sagui   (correct content, THIRD ordered mid-string)
+#   22/50  ROOT+A2B+B2A|sagui;ROOT+A2B+THIRD|sagui       (B2A silently dropped from the 2nd analysis)
+#    3/50  ROOT+A2B+B2A|sagui;ROOT+A2B|sagui             (both B2A and THIRD dropped from the 2nd)
+# Independently replicated 2026-09-15 in a separate 50-fresh-process sample: 22/50, 19/50, 9/50 across
+# those same three outputs. The proportions differ from the run above while the output SET does not,
+# which is itself the point -- this is genuine per-process nondeterminism, not a fixed misreading.
+# The same 50-run probe against Machine PR #500's head (b15073bb) still splits three ways: 20/50 correct
+# (ROOT+A2B+B2A+THIRD, the ordering pinned below), 24/50 dropping THIRD entirely so that BOTH analyses
+# render as the identical 2-morph signature, and 6/50 dropping B2A. PR #500 genuinely fixes the ORDERING
+# (base produced the correct B2A-then-THIRD order in 0 of 50 runs; PR #500's head produces it in 20 of
+# 50) but does NOT fix the dropping, and does not make the result deterministic.
+# A deterministic, single-threaded, in-process reproduction of the same defect (not merely a permutation
+# of the correct answer, but genuinely missing morphemes for a word whose surface form only those
+# morphemes explain) is pinned in
+# tests/SIL.Machine.Morphology.HermitCrab.Tests/ZeroWidthMorphemeIdentityStabilityTests.cs, which also
+# records why BidirList's unseeded skip-list Random was examined and ruled out as the mechanism (a node's
+# random level cannot change enumeration order; see the test file), and why this branch's own conformance
+# self-check -- run six times, in six fresh processes, at maxDegreeOfParallelism: 1
+# (ConformanceMorpherFactory's default -- fully single-threaded, no thread pool involved at all) -- still
+# gave three different verdicts (pass / fail-missing-B2A / fail-missing-both) for this fixture's own
+# sagui case, showing OS thread scheduling is not required for the cross-process instability either. The
+# better-supported (though not conclusively isolated) candidate is .NET's own per-process-randomized
+# string.GetHashCode(), which StringFeatureValue.GetValuesHashCode() and AnalysisStateKey.GetHashCode()
+# both fold into the hash codes that decide HashSet<Word>/Dictionary<AnalysisStateKey,Word> bucket order
+# -- i.e. which of several candidate derivations for "sagui" a given process happens to reach, and record
+# as canonical, first. The content-loss itself (an accepted analysis whose rule set cannot account for
+# every segment of the surface form) is demonstrated deterministically and independently of any of this,
+# by varying the three rules' registration order in-process instead.
+#
+# The correct answer, independent of any of the above runs, is forward synthesis: sag/N --A2B(+u)-->
+# sagu/V --B2A(+i)--> sagui/N is one valid derivation of "sagui" (root + A2B + B2A, 2 rules); stacking
+# THIRD (N->V, zero-width) on top of that same sagui/N adds a second, longer valid derivation that still
+# contains every one of A2B, B2A and THIRD (root + A2B + B2A + THIRD, 3 rules). Nothing else reaches root
+# "sag" from "sagui": A2B can never be the outermost/last-stripped rule during analysis, because "sagui"
+# does not end in "u" (A2B's own affix), so every valid analysis of "sagui" contains at least {A2B, B2A},
+# and THIRD is the only rule that may additionally be present. No analysis with only 1 or 2 of these three
+# morphemes can account for all of "sagui"'s segments -- that is exactly the family of wrong answers the
+# 50-run sample above produced.
+#
+# Word list:
+#   sag     bare root, category N. Also accepts a same-shape THIRD-only analysis (THIRD is zero-width and
+#           N->V, so it applies to the bare root without touching the string). Both parses are stable
+#           across 50 runs and serve as the fixture's non-vacuousness control: THIRD firing in isolation
+#           is not itself where the bug is.
+#   sagu    root+A2B only (V, via the "u" suffix). Control that A2B works alone.
+#   sagi    root+THIRD+B2A (N, via a zero-width N->V flip then the "i" suffix). Control that a zero-width
+#           rule composes correctly with a *following* rule when nothing else is competing for the same
+#           derivation slot.
+#   sagui   THE bug pin (see above). Two analyses are expected, both retaining A2B and B2A; only THIRD's
+#           presence differs. Deliberately red against the founding oracle.
+
+language: ZeroWidthMorphemeIdentityStability
+inspired_by: ["synthetic zero-width category-toggle probe (not modeling any real language)"]
+sources:
+  - "https://github.com/sillsdev/machine/issues/506"
+  - "tests/SIL.Machine.Morphology.HermitCrab.Tests/ZeroWidthMorphemeIdentityStabilityTests.cs"
+requires: []
+fieldworks_producible: true
+words:
+  - word: sag
+    note: >-
+      Bare root, category N. THIRD (N->V, zero-width) also applies to the bare root without touching the
+      string, so a second, same-shape analysis is expected. Both were stable across 50 fresh-process runs.
+    parses:
+      - signature: "ROOT|sag"
+        rules: []
+      - signature: "ROOT+THIRD|sag"
+        rules: [mrThird]
+        exercises: ["zero-width morphological rules", "syntactic category toggling"]
+
+  - word: sagu
+    note: root+A2B (category V, via the "u" suffix). Control that A2B works in isolation.
+    parses:
+      - signature: "ROOT+A2B|sagu"
+        rules: [mrA2B]
+
+  - word: sagi
+    note: >-
+      root+THIRD+B2A (category N: THIRD flips N->V with no added segments, then B2A's "i" suffix flips
+      V->N). Control that a zero-width rule composes correctly with a rule applied after it, with no
+      other rule competing for the same slot.
+    parses:
+      - signature: "ROOT+THIRD+B2A|sagi"
+        rules: [mrThird, mrB2A]
+        exercises: ["zero-width morphological rules", "syntactic category toggling"]
+
+  - word: sagui
+    note: >-
+      THE bug pin (issue #506), and the one word in this fixture that does NOT record oracle-observed
+      behaviour. Forward synthesis: root sag/N --A2B(+u)--> sagu/V --B2A(+i)--> sagui/N is a well-formed
+      2-morph analysis; stacking THIRD (N->V, zero-width) on top of that same sagui/N is a well-formed
+      3-morph analysis that still contains A2B and B2A. Both must survive. Instead, 50 fresh-process runs
+      of this exact grammar via hc.dll split three ways (see header): 25/50 kept the correct content
+      (with THIRD ordered mid-signature rather than last), 22/50 silently dropped B2A from the
+      THIRD-inclusive analysis, and 3/50 dropped both B2A and THIRD from it. A deterministic,
+      single-threaded (maxDegreeOfParallelism: 1) in-process reproduction in
+      ZeroWidthMorphemeIdentityStabilityTests.cs shows this is not only a cross-process race: for most
+      fixed registration orders of the three rules, the single-threaded engine deterministically returns
+      an analysis whose rule set cannot account for all of "sagui" -- e.g. {ROOT, A2B} alone, even though
+      A2B's own affix is "u" and "sagui" does not end in "u". The signatures below are what a correct
+      engine must return; this entry is expected to FAIL against hc.dll today -- see the header for why
+      that is deliberate, not a fixture bug.
+
+      CORRECTED 2026-09-15: this entry previously pinned "ROOT+A2B+THIRD+B2A", transcribed from the
+      majority content-correct hc.dll run. That ordering is wrong and is no longer pinned. THIRD requires
+      an N input, and the only N stage of this derivation that spells "sagui" is the one produced by B2A,
+      so THIRD is strictly the OUTERMOST rule: sag/N --A2B(+u)--> sagu/V --B2A(+i)--> sagui/N
+      --THIRD--> sagui/V. In a purely suffixing derivation the outermost morph renders rightmost, so a
+      zero-width morph anchored at the shape's last node belongs AFTER the affix occupying that node,
+      because it wraps it. Machine PR #500 states the same expected label ("SAG+A2B+B2A+THIRD") and its
+      fix exists precisely to render a wrapped rule's ID before the wrapping rule's. This fixture now
+      pins the forward-derived answer rather than an observed one, per the rule that a fixture may
+      disagree with the oracle when the answer is independently checkable.
+    parses:
+      - signature: "ROOT+A2B+B2A|sagui"
+        rules: [mrA2B, mrB2A]
+      - signature: "ROOT+A2B+B2A+THIRD|sagui"
+        rules: [mrA2B, mrB2A, mrThird]
+        exercises: ["zero-width morphological rules", "syntactic category toggling"]
