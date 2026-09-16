@@ -1,20 +1,10 @@
 //! Guesser conformance gate: drives the `guesser-pattern-root-fallback` staged fixture through `pg_parse::Morpher`/`ParseOptions`, proving guesser OFF/ON/negative-control behavior for its two out-of-lexicon words.
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::require_fixture;
 use pg_parse::{AnalysisProvenance, Morpher, ParseOptions};
 
 fn fixture_grammar() -> pg_grammar::model::Grammar {
-    let fixtures = discover();
-    let f = fixtures
-        .iter()
-        .find(|f| {
-            f.root == Root::Staging
-                && f.category == "edge-cases"
-                && f.name == "guesser-pattern-root-fallback"
-        })
-        .expect(
-            "conformance-staging/edge-cases/guesser-pattern-root-fallback must be discoverable",
-        );
+    let f = require_fixture("edge-cases", "guesser-pattern-root-fallback");
     pg_grammar::load(&f.load_grammar_xml())
         .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", f.label()))
 }

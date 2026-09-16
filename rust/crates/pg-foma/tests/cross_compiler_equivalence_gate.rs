@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::require_fixture;
 use pg_foma::backend_registry::{
     MaterializerContext, Registry, FAMILY_COMPLETE_TEMPLATE, FAMILY_SURFACE_PROBE_MORPHOLOGY,
     FAMILY_TOKEN_CASCADE_MORPHOLOGY,
@@ -426,10 +426,7 @@ fn template_flattened_uflexc_route_reports_typed_proposal_ratio_violation() {
         apply_candidate_budget: Some(3_000_000),
         ..RuntimeBudget::default()
     };
-    let fixture = discover()
-        .into_iter()
-        .find(|fixture| fixture.root == Root::Staging && fixture.name == "backend-template-generic")
-        .expect("missing pinned synthetic fixture backend-template-generic");
+    let fixture = require_fixture("edge-cases", "backend-template-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     assert!(!grammar.templates.is_empty());
     let pinned_words = fixture
@@ -540,12 +537,7 @@ fn three_pipeline_gate_reports_proposal_ratio_violation_details() {
 /// Builds each `LoweredCandidate` directly instead of through `Registry`: `Applicability::HasPhonologyOrTemplates` gates only what the optimizer auto-proposes, not what a compiler can legally build, and this template-less fixture would never trigger it.
 #[test]
 fn plan_composed_cannot_represent_compounding_construct_red1() {
-    let fixture = discover()
-        .into_iter()
-        .find(|fixture| {
-            fixture.root == Root::Staging && fixture.name == "compounding-non-recursive"
-        })
-        .expect("missing pinned synthetic fixture compounding-non-recursive");
+    let fixture = require_fixture("edge-cases", "compounding-non-recursive");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     let pinned_words = fixture
         .load_words_yaml()
@@ -626,12 +618,7 @@ fn plan_composed_cannot_represent_compounding_construct_red1() {
 /// Distinguishes headedness readings that share an identical flat `morphs|surface` signature: compares deduplicated `AnalysisIdentity` sets (root-index aware) instead, since a signature-only diff cannot tell the two readings apart.
 #[test]
 fn plan_composed_distinguishes_headedness_ambiguity_red2() {
-    let fixture = discover()
-        .into_iter()
-        .find(|fixture| {
-            fixture.root == Root::Staging && fixture.name == "head-ambiguous-compounding"
-        })
-        .expect("missing pinned synthetic fixture head-ambiguous-compounding");
+    let fixture = require_fixture("edge-cases", "head-ambiguous-compounding");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     let pinned_words = fixture
         .load_words_yaml()

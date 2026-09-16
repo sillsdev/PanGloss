@@ -1,7 +1,7 @@
 //! Closes a routing gap: a template-bearing grammar with no phonological rules must still be offered `EmissionStrategy::TemplatedUnderlyingTokens` via the widened `Applicability::HasPhonologyOrTemplates` gate, not only the plan-composed baseline's `uflexc` emitter.
 //! See `docs/research/pg-foma-templated-phonology-free-routing-notes.md` for why the old `HasPhonology`-only gate masked this and how the fix is verified beyond mere reachability.
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::require_fixture;
 use pg_foma::backend_optimizer::Certification;
 use pg_foma::backend_registry::{BackendInstance, MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
@@ -12,11 +12,7 @@ use pg_grammar::model::Grammar;
 const FAMILY: &str = "token-cascade-morphology";
 
 fn load(name: &str) -> Grammar {
-    let fixtures = discover();
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.root == Root::Staging && f.name == name)
-        .unwrap_or_else(|| panic!("missing staged fixture {name}"));
+    let fixture = require_fixture("edge-cases", name);
     pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load")
 }
 
@@ -118,11 +114,7 @@ fn phonology_bearing_fixture_offering_is_unchanged() {
 /// Correctness, not just reachability: asserts the candidate reaches a real, non-`BuildFailed` verdict with non-zero proposals on a phonology-free grammar (see `docs/research/pg-foma-templated-phonology-free-routing-notes.md`).
 #[test]
 fn templated_candidate_builds_and_proposes_on_the_phonology_free_fixture() {
-    let fixtures = discover();
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.root == Root::Staging && f.name == "backend-template-generic")
-        .expect("missing staged fixture backend-template-generic");
+    let fixture = require_fixture("edge-cases", "backend-template-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
 
     // Only the cheapest word (the boundary case, `words.yaml`'s first entry): this test is about the compiler reaching a real verdict, not replaying the fixture's full analysis pathology.

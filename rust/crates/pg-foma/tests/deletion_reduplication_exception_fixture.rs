@@ -1,17 +1,11 @@
-use pg_conformance_fixtures::{assert_matches_oracle, discover};
+use pg_conformance_fixtures::{assert_matches_oracle, require_fixture};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
 
 fn fixture() -> pg_conformance_fixtures::FixtureRef {
-    discover()
-        .into_iter()
-        .find(|f| {
-            f.root == pg_conformance_fixtures::Root::Staging
-                && f.name == "deletion-reduplication-exception-composite"
-        })
-        .expect("new staged fixture must be discoverable")
+    require_fixture("edge-cases", "deletion-reduplication-exception-composite")
 }
 
 #[test]

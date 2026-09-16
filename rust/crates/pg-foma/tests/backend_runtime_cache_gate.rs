@@ -1,6 +1,6 @@
 //! A run-scoped evaluator cache must never change a score, certification, or winner relative to the uncached path, and a cache prepared for fewer occurrences than requested must fail closed rather than select silently.
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::require_fixture;
 use pg_foma::backend_optimizer::{pareto_frontier, select_confirmed, Certification};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{
@@ -10,10 +10,7 @@ use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
-    let fixture = discover()
-        .into_iter()
-        .find(|fixture| fixture.root == Root::Staging && fixture.name == "backend-gated-generic")
-        .expect("staged backend-gated-generic fixture");
+    let fixture = require_fixture("edge-cases", "backend-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar");
     let words = fixture
         .load_words_yaml()

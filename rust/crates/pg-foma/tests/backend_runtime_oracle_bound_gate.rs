@@ -1,6 +1,6 @@
 //! Pins that a step-capped ground-truth oracle reports an explicit non-certifying `Certification::Truncated`, never reaching `certify_corpus` as a known-partial `expected` — otherwise a partial oracle can manufacture a bogus mismatch against a real, untruncated FST result, or wrongly certify an equally-truncated incomplete candidate. `oracle_step_cap: Some(0)` forces the truncation deterministically (`StepBudget::over_budget()` reports `capped` on its first check), reproducing the hazard without a genuinely pathological fixture.
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::require_fixture;
 use pg_foma::backend_optimizer::{pareto_frontier, select_confirmed, Certification};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{evaluate_plans, RuntimeBudget};
@@ -30,11 +30,7 @@ fn materialize_plans(
 
 #[test]
 fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_confirmation() {
-    let fixtures = discover();
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.root == Root::Staging && f.name == "backend-gated-generic")
-        .expect("missing staged fixture backend-gated-generic");
+    let fixture = require_fixture("edge-cases", "backend-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
     let words: Vec<String> = fixture
         .load_words_yaml()
@@ -100,10 +96,7 @@ fn a_capped_oracle_yields_an_explicit_truncation_never_a_word_mismatch_or_a_conf
 }
 #[test]
 fn a_mixed_complete_and_capped_oracle_cannot_certify_the_complete_subset() {
-    let fixture = discover()
-        .into_iter()
-        .find(|f| f.root == Root::Staging && f.name == "backend-gated-generic")
-        .expect("missing staged fixture backend-gated-generic");
+    let fixture = require_fixture("edge-cases", "backend-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
     let words = vec!["tulik".to_string(), "menulik".to_string()];
     let cap = 5;

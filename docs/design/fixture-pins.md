@@ -44,7 +44,12 @@ test keyed to a location is a test with an expiry date.
 3. **Filtering discovery on `root == Root::Staging`.** The subtlest, because it uses the discovery
    API and still looks right. It asserts the fixture is *staged*, which graduation is guaranteed to
    falsify. Bumping the submodule pin and deleting four graduated copies broke seven tests this way
-   at once.
+   at once. A repo-wide sweep (2026-09) found this shape well beyond the two `compounding-non-recursive`
+   sites (`cross_compiler_equivalence_gate.rs`, `uflexc_compound_loop.rs`) that first surfaced it:
+   roughly a dozen more single-fixture lookups across `pg-foma`/`pg-cli` test files, plus three
+   `root`-parameterized helpers (`strategy_aware_capability_gate.rs`'s `conformance_fixture`,
+   `orthogonal_basis_group_a.rs`'s `fixture_of`, `orthogonal_basis_group_b.rs`'s `Fixture::resolve`)
+   whose every call site hard-coded a root per fixture name — all converted to `require_fixture`.
 
 The fix in all three cases is the same: identify a fixture by `(category, name)` and let
 `require_fixture` find it in whichever root holds it. `Root` is worth filtering on only when the

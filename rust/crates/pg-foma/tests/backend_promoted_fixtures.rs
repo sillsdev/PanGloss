@@ -1,4 +1,4 @@
-use pg_conformance_fixtures::{assert_matches_oracle, discover, Root};
+use pg_conformance_fixtures::{assert_matches_oracle, require_fixture};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::enumerate::enumerate_default;
 use pg_foma::junctions::PhonologyProbe;
@@ -12,12 +12,8 @@ fn promoted_backend_fixtures_replay_and_offer_distinct_plans_or_elimination_evid
         "backend-ordered-generic",
         "backend-strata-generic",
     ];
-    let fixtures = discover();
     for name in expected {
-        let fixture = fixtures
-            .iter()
-            .find(|f| f.root == Root::Staging && f.name == name)
-            .unwrap_or_else(|| panic!("missing promoted fixture {name}"));
+        let fixture = require_fixture("edge-cases", name);
         let grammar = pg_grammar::load(&fixture.load_grammar_xml())
             .unwrap_or_else(|e| panic!("{name} failed to load: {e}"));
         let words = fixture.load_words_yaml();

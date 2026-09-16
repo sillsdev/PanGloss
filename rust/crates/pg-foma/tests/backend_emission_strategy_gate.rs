@@ -11,11 +11,7 @@ const FIXTURE: &str = "backend-gated-generic";
 const FAMILY: &str = FAMILY_TOKEN_CASCADE_MORPHOLOGY;
 
 fn load(name: &str) -> Grammar {
-    let fixtures = pg_conformance_fixtures::discover();
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.root == pg_conformance_fixtures::Root::Staging && f.name == name)
-        .unwrap_or_else(|| panic!("missing staged fixture {name}"));
+    let fixture = pg_conformance_fixtures::require_fixture("edge-cases", name);
     pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load")
 }
 

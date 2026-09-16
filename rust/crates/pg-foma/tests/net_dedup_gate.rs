@@ -1,7 +1,7 @@
 //! Pins net-level candidate dedup: that it fires, that it changes nothing it reports, and that a cached measurement cannot cross a grammar, a corpus, or an evidence mode. Every test is a NEGATIVE control by construction: `RunEvaluationCache::without_net_dedup` is the falsifier, so each test fails if the mechanism is reverted or neutered.
 //! See `docs/research/pg-foma-net-dedup-sizing-census.md` for why this optimization is sound and why score attribution cannot become order-dependent.
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::require_fixture;
 use pg_foma::backend_optimizer::{Certification, Score};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{
@@ -16,10 +16,7 @@ use pg_grammar::model::{Grammar, PhonRuleDef};
 const FIRING_FIXTURE: &str = "guesser-pattern-root-fallback";
 
 fn load(name: &str) -> (Grammar, Vec<String>) {
-    let fixture = discover()
-        .into_iter()
-        .find(|fixture| fixture.root == Root::Staging && fixture.name == name)
-        .unwrap_or_else(|| panic!("staged fixture {name}"));
+    let fixture = require_fixture("edge-cases", name);
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar");
     let words = fixture
         .load_words_yaml()

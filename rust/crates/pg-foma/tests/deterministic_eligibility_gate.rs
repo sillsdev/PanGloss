@@ -1,6 +1,6 @@
 //! Pins deterministic corpus eligibility: only the step cap classifies; a clock or memory fault must abort the run rather than produce a silent per-word exclusion.
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::require_fixture;
 use pg_foma::backend_optimizer::Certification;
 use pg_foma::backend_runtime::{
     OraclePreparationFault, RunEvaluationCache, RuntimeBudget, DEFAULT_ORACLE_LIVENESS_NET,
@@ -9,10 +9,7 @@ use pg_foma::backend_runtime::{
 use std::time::Duration;
 
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
-    let fixture = discover()
-        .into_iter()
-        .find(|f| f.root == Root::Staging && f.name == "backend-gated-generic")
-        .expect("missing staged fixture backend-gated-generic");
+    let fixture = require_fixture("edge-cases", "backend-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("staged fixture must load");
     (grammar, vec!["tulik".to_string(), "menulik".to_string()])
 }

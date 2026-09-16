@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, Root, WordsYaml};
+use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, WordsYaml};
 use pg_foma::compose_budget::{ComposeBudget, ComposeError};
 use pg_foma::parity::OccurrenceIdentities;
 use pg_foma::peel::ReduplicationPeeler;
@@ -99,27 +99,9 @@ impl Fixture {
         }
     }
 
+    // (category, name) alone is a unique key across both roots, so `self.root` is never part of the lookup.
     fn resolve(self) -> FixtureRef {
-        let want = match self.root {
-            FixtureRoot::Staging => Root::Staging,
-            FixtureRoot::Machine => Root::Machine,
-        };
-        discover()
-            .into_iter()
-            .find(|fixture| {
-                fixture.root == want
-                    && fixture.category == self.category
-                    && fixture.name == self.name
-            })
-            .unwrap_or_else(|| {
-                panic!(
-                    "missing fixture {:?}/{}/{} -- if this is an upstream fixture, the `machine` \
-                     submodule may not be initialized (see rust/tools/conformance.ps1); a fixture \
-                     that cannot be found must break loudly, never silently make an exercise \
-                     vacuous",
-                    self.root, self.category, self.name
-                )
-            })
+        pg_conformance_fixtures::require_fixture(self.category, self.name)
     }
 
     /// The loaded grammar plus its committed word record, which is what every exercise starts from.

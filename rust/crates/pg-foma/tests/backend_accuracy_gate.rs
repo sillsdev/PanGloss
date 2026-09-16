@@ -1,7 +1,7 @@
 //! The fast accuracy path, gated against the slow one: pins that it agrees with certification, is really confirmation-free, actually executes, and never reports a pass it did not earn -- but never that its verdict may select a candidate.
 //! See `docs/research/pg-foma-recipe-accuracy-gate-notes.md` for the four claims in full and why each matters.
 
-use pg_conformance_fixtures::{discover, Root};
+use pg_conformance_fixtures::require_fixture;
 use pg_foma::backend_accuracy::{candidate_admission_key, AccuracyVerdict};
 use pg_foma::backend_registry::{MaterializerContext, Registry};
 use pg_foma::backend_runtime::{
@@ -14,10 +14,7 @@ use pg_grammar::model::{Grammar, PhonRuleDef};
 const FIXTURE: &str = "backend-gated-generic";
 
 fn fixture(name: &str) -> (Grammar, Vec<String>) {
-    let fixture = discover()
-        .into_iter()
-        .find(|fixture| fixture.root == Root::Staging && fixture.name == name)
-        .unwrap_or_else(|| panic!("missing staged fixture {name}"));
+    let fixture = require_fixture("edge-cases", name);
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar must load");
     let words = fixture
         .load_words_yaml()

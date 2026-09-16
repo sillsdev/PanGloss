@@ -270,14 +270,8 @@ mod tests {
     /// This compiler must actually build for a template-bearing grammar that declares no phonological rules, not just for the phonology-bearing shape its existing callers exercised.
     #[test]
     fn phonology_free_templated_grammar_compiles_through_this_path() {
-        let fixtures = pg_conformance_fixtures::discover();
-        let fixture = fixtures
-            .iter()
-            .find(|f| {
-                f.root == pg_conformance_fixtures::Root::Staging
-                    && f.name == "backend-template-generic"
-            })
-            .expect("missing staged fixture backend-template-generic");
+        let fixture =
+            pg_conformance_fixtures::require_fixture("edge-cases", "backend-template-generic");
         let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
         assert!(
             grammar.prules.is_empty(),

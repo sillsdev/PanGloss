@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use pg_conformance_fixtures::{assert_matches_oracle, discover, FixtureRef, Root, WordsYaml};
+use pg_conformance_fixtures::{assert_matches_oracle, FixtureRef, Root, WordsYaml};
 use pg_foma::parity::OccurrenceIdentities;
 use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{
@@ -214,26 +214,9 @@ const EXERCISES: &[&Exercise] = &[
 
 // Fixture plumbing.
 
+// (category, name) alone is a unique key across both roots, so `exercise.root` is never part of the lookup.
 fn fixture_of(exercise: &Exercise) -> FixtureRef {
-    discover()
-        .into_iter()
-        .find(|found| {
-            found.root == exercise.root
-                && found.category == exercise.category
-                && found.name == exercise.name
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "missing conformance fixture {}:{}/{}. If it is an upstream (machine:) fixture, \
-                 this worktree's `machine` submodule is not initialized -- run \
-                 `rust/tools/conformance.ps1` (pg.ps1 -Mode test/-Mode corpus-test both do it in \
-                 characterization). Panicking rather than skipping on purpose: a fixture this file could \
-                 not LOOK at must never read as a fixture that passed.",
-                exercise.root.label(),
-                exercise.category,
-                exercise.name
-            )
-        })
+    pg_conformance_fixtures::require_fixture(exercise.category, exercise.name)
 }
 
 fn load(xml: &str, label: &str) -> Grammar {

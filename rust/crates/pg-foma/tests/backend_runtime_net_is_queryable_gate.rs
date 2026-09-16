@@ -262,11 +262,7 @@ fn corpus_indonesian_confirms_after_the_finish_step() {
 /// Non-vacuous on staged fixtures: this plan carries an out-of-scope marker and confirms anyway, evidence marker presence alone must never disqualify a candidate.
 #[test]
 fn the_evaluator_confirms_a_wholly_in_scope_grammar() {
-    let fixtures = discover();
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.root == Root::Staging && f.name == "backend-gated-generic")
-        .expect("missing staged fixture backend-gated-generic");
+    let fixture = pg_conformance_fixtures::require_fixture("edge-cases", "backend-gated-generic");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
 
     let words: Vec<String> = fixture

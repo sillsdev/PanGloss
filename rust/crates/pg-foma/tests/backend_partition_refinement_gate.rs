@@ -21,11 +21,7 @@ const FIXTURE: &str = "backend-ordered-generic";
 const REFINEMENT_FAMILIES: [&str; 2] = [FAMILY_SPECIALIZED_BRANCH, FAMILY_LAYERED_MORPHOLOGY];
 
 fn load() -> (Grammar, Vec<String>) {
-    let fixtures = pg_conformance_fixtures::discover();
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.root == pg_conformance_fixtures::Root::Staging && f.name == FIXTURE)
-        .unwrap_or_else(|| panic!("missing staged fixture {FIXTURE}"));
+    let fixture = pg_conformance_fixtures::require_fixture("edge-cases", FIXTURE);
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     let words = fixture
         .load_words_yaml()
