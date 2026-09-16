@@ -6,7 +6,9 @@ inert).
 
 ## Status
 Open — argued sound, actively guarded by a trip-wire test, not proposed upstream (nothing to
-propose: this is a Rust-only performance choice with no observable target in C#).
+propose: this is a Rust-only choice with no observable target in C#). Survived the memo's removal
+([040](040-memoization-removed.md)): `state_key` now serves `AnalyzerConfig::merge_equivalent`
+alone, so the saturation argument is unchanged but its one reader is the merge fold, not a cache.
 
 ## C# site
 `AnalysisStateKey.cs:14-34` — keeps the **full**, unsaturated per-rule unapplication count in the

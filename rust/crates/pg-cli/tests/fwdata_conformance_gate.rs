@@ -131,12 +131,9 @@ fn run_conformance(
     known_drift: &[(&str, &str)],
     max_mismatches_to_print: usize,
 ) -> usize {
-    let new_morpher = Morpher::new(new_grammar, usize::MAX)
-        .with_memo(true)
-        .with_word_timeout(Some(WORD_TIMEOUT));
-    let legacy_morpher = Morpher::new(legacy_grammar, usize::MAX)
-        .with_memo(true)
-        .with_word_timeout(Some(WORD_TIMEOUT));
+    let new_morpher = Morpher::new(new_grammar, usize::MAX).with_word_timeout(Some(WORD_TIMEOUT));
+    let legacy_morpher =
+        Morpher::new(legacy_grammar, usize::MAX).with_word_timeout(Some(WORD_TIMEOUT));
 
     let mut matched = 0usize;
     let mut timed_out = 0usize;

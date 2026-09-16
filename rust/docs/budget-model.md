@@ -4,9 +4,9 @@
 
 `pg-rules::stratum::StratumAnalyzer` owns its step counter as an instance field
 (`steps: Cell<usize>`, `stratum.rs`), constructed fresh — `Cell::new(0)` — every time
-`analyze_stratum`/`analyze_stratum_scoped`/`analyze_stratum_scoped_filtered` is called. The
+`analyze_stratum`/`analyze_stratum`/`analyze_stratum_filtered` is called. The
 production call site, `pg-parse::Morpher::parse_word`, calls
-`analyze_stratum_scoped_filtered` **once per (stratum × live candidate word)** inside a loop over
+`analyze_stratum_filtered` **once per (stratum × live candidate word)** inside a loop over
 `0..n_strata` (reversed) — and the candidate set can itself grow between strata. So a single
 `--step-cap=N` does not bound one `parse_word`'s search to `N` steps; it bounds *each* of the
 (potentially many) stratum-analyzer instantiations to `N`, giving an effective per-word budget of
@@ -31,10 +31,10 @@ regression risk with no upstream justification. Scope of this change is **analys
 A new `pg_rules::stratum::StepBudget`: a small `cap`/`steps: Cell<usize>`/`capped: Cell<bool>`
 struct with `tick()`/`over_budget()`/`capped()`. `pg-parse::Morpher::parse_word` constructs **one**
 `StepBudget` per call and passes it, by shared reference, into every
-`analyze_stratum_scoped_filtered` invocation of that parse's stratum loop — across every stratum
+`analyze_stratum_filtered` invocation of that parse's stratum loop — across every stratum
 and every candidate word. `StratumAnalyzer` now borrows `&StepBudget` instead of owning its own
 `Cell`s; `over_budget()`/`tick()` delegate to it. The three public entry points
-(`analyze_stratum`, `analyze_stratum_scoped`, `analyze_stratum_scoped_filtered`) now all take an
+(`analyze_stratum`, `analyze_stratum`, `analyze_stratum_filtered`) now all take an
 explicit `budget: &StepBudget` parameter instead of reading a `cap` out of `AnalyzerConfig`
 (`AnalyzerConfig.cap` is removed — every call site must now say what it shares the budget with).
 Test call sites that have no natural "one parse_word" scope construct their own

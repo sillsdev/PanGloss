@@ -29,15 +29,14 @@ pub type HcGrammarHandle = *mut std::ffi::c_void;
 ///
 /// `pub` so tests can build a plain in-process `pg_parse::Morpher` with the identical
 /// configuration the FFI handle uses internally — the FFI-vs-in-process parity test needs both
-/// sides run under the same budget/memo settings, or a mismatch there (not an encoding bug) could
+/// sides run under the same budget, or a mismatch there (not an encoding bug) could
 /// masquerade as one.
 pub const DEFAULT_ANALYSIS_POLICY: pg_lexicon::AnalysisPolicy =
     pg_lexicon::AnalysisPolicy::native_abi_v1();
 pub const DEFAULT_STEP_CAP: usize = DEFAULT_ANALYSIS_POLICY.step_cap;
-pub const DEFAULT_MEMO: bool = DEFAULT_ANALYSIS_POLICY.memo;
 
 fn native_v1_morpher(grammar: &'static Grammar) -> Morpher<'static> {
-    Morpher::new(grammar, DEFAULT_ANALYSIS_POLICY.step_cap).with_memo(DEFAULT_ANALYSIS_POLICY.memo)
+    Morpher::new(grammar, DEFAULT_ANALYSIS_POLICY.step_cap)
 }
 
 struct FomaState {

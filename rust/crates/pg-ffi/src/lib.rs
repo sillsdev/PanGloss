@@ -59,9 +59,7 @@ pub use error::{
     HC_ERR_UTF8, HC_OK,
 };
 pub use generate::hc_generate_words;
-pub use grammar::{
-    hc_grammar_free, hc_grammar_load, HcGrammarHandle, DEFAULT_MEMO, DEFAULT_STEP_CAP,
-};
+pub use grammar::{hc_grammar_free, hc_grammar_load, HcGrammarHandle, DEFAULT_STEP_CAP};
 pub use json::*;
 pub use parse::{
     hc_buf_free, hc_parse_batch, hc_parse_batch_opts, hc_parse_word, hc_parse_word_opts, HcStr,

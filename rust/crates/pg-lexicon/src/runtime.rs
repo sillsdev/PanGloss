@@ -178,7 +178,6 @@ impl SuppliedLexiconRuntime {
             self.analysis_policy.step_cap,
             snapshot.overlay(),
         )
-        .with_memo(self.analysis_policy.memo)
     }
 
     pub fn snapshot(&self) -> Arc<LexiconSnapshot> {

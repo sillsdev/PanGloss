@@ -4,7 +4,8 @@
 Representational.
 
 ## Status
-Open (a permanent design choice, not something with a natural "closed" state).
+Moot — closed by [040](040-memoization-removed.md). Both guards lived in `pg-memo`, which is
+deleted; HC-Rust has no re-entrancy guard because it has no memo to re-enter.
 
 ## C# site
 `AnalysisScope.cs:56-60`: a single `InProgress` set, shared between the mrule-cascade memo and the

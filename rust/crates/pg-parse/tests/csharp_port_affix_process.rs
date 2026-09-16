@@ -699,55 +699,30 @@ fn partial_rule() {
         "enforced sagstv identity (same inner rescue dependency as sagds)",
     );
 
-    // Memoized and unmemoized runs must agree on full identity, not just `signature()`, which a memo bug swapping two same-signature analyses could still pass.
-    let unmemoized_default = Morpher::new(&g, usize::MAX).with_memo(false);
-    for (word, expected) in [
-        ("sagds", &sagds_identity),
-        ("sagst", &sagst_identity),
-        ("sags", &sags_identity),
-        ("sagstv", &sagstv_identity),
-    ] {
-        assert_identity_multiset_eq(
-            &g,
-            &unmemoized_default.parse_word(word),
-            expected,
-            &format!("unmemoized {word} identity must match the memoized default"),
-        );
-    }
-
     // Rule-level partial markers protect rescue paths; lexical-entry partial markers do not, proven below by identity multiset rather than emptiness alone.
     let nonpartial_rules = mrules.replace(" partial=\"true\"", "");
     let mut nonpartial = build_grammar("", "", &nonpartial_rules, "mrS mrNom mrU", templates_final);
     for entry in &mut nonpartial.entries {
         entry.partial = true;
     }
-    let default_unmemoized = Morpher::new(&nonpartial, usize::MAX).with_memo(false);
-    let default_memoized = Morpher::new(&nonpartial, usize::MAX).with_memo(true);
-    let unmemoized = default_unmemoized.parse_word("sagds");
-    let memoized = default_memoized.parse_word("sagds");
-    assert_empty(&unmemoized);
-    assert_eq!(unmemoized.signature(), memoized.signature());
+    let nonpartial_morpher = Morpher::new(&nonpartial, usize::MAX);
+    let parsed = nonpartial_morpher.parse_word("sagds");
+    assert_empty(&parsed);
     assert_identity_multiset_eq(
         &nonpartial,
-        &unmemoized,
+        &parsed,
         &[],
-        "entry-partial sagds must stay empty (unmemoized)",
-    );
-    assert_identity_multiset_eq(
-        &nonpartial,
-        &memoized,
-        &[],
-        "entry-partial sagds must stay empty (memoized)",
+        "entry-partial sagds must stay empty",
     );
     assert_ne!(
-        identity_multiset(&nonpartial, &unmemoized),
+        identity_multiset(&nonpartial, &parsed),
         identity_multiset(&g, &m.parse_word("sagds")),
         "a lexical-entry partial marker must not stand in for the rule-partial rescue that lets the rule-partial grammar's sagds succeed"
     );
 
     let (with_stats, _, prune_rows) =
-        default_memoized.parse_word_with_stats_and_prunes("sagds", &ParseOptions::default());
-    assert_eq!(with_stats.signature(), memoized.signature());
+        nonpartial_morpher.parse_word_with_stats_and_prunes("sagds", &ParseOptions::default());
+    assert_eq!(with_stats.signature(), parsed.signature());
     assert_eq!(
         prune_rows
             .iter()
@@ -774,10 +749,10 @@ fn partial_rule() {
     );
 
     let sink = TreeTraceSink::new();
-    let traced = default_memoized.parse_word_traced("sagds", &ParseOptions::default(), &sink);
+    let traced = nonpartial_morpher.parse_word_traced("sagds", &ParseOptions::default(), &sink);
     assert_eq!(
         traced.signature(),
-        memoized.signature(),
+        parsed.signature(),
         "tracing must not change the enforced prune result"
     );
 

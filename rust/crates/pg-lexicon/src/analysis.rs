@@ -9,22 +9,15 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnalysisPolicy {
     pub step_cap: usize,
-    pub memo: bool,
 }
 
 impl AnalysisPolicy {
     pub const fn browser_default() -> Self {
-        Self {
-            step_cap: 100_000,
-            memo: true,
-        }
+        Self { step_cap: 100_000 }
     }
 
     pub const fn native_abi_v1() -> Self {
-        Self {
-            step_cap: 500_000,
-            memo: true,
-        }
+        Self { step_cap: 500_000 }
     }
 }
 
@@ -233,17 +226,11 @@ mod tests {
     fn named_analysis_policies_pin_host_contracts() {
         assert_eq!(
             AnalysisPolicy::browser_default(),
-            AnalysisPolicy {
-                step_cap: 100_000,
-                memo: true
-            }
+            AnalysisPolicy { step_cap: 100_000 }
         );
         assert_eq!(
             AnalysisPolicy::native_abi_v1(),
-            AnalysisPolicy {
-                step_cap: 500_000,
-                memo: true
-            }
+            AnalysisPolicy { step_cap: 500_000 }
         );
     }
     #[test]

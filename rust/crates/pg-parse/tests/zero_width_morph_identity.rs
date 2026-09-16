@@ -20,7 +20,7 @@ fn sagui_pins_the_forward_synthesized_multiset_with_third_outermost() {
     let xml = fixture.load_grammar_xml();
     let g = pg_grammar::load(&xml)
         .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", fixture.label()));
-    let m = Morpher::new(&g, usize::MAX).with_memo(true);
+    let m = Morpher::new(&g, usize::MAX);
 
     // Controls, per fixture STAGING.md.
     assert_multiset(&m, "sag", &["ROOT|sag", "ROOT+THIRD|sag"]);
@@ -45,10 +45,13 @@ fn sagui_is_deterministic_across_fresh_morphers_in_process() {
 
     let mut sigs = Vec::new();
     for _ in 0..50 {
-        let m = Morpher::new(&g, usize::MAX).with_memo(true);
+        let m = Morpher::new(&g, usize::MAX);
         sigs.push(m.parse_word("sagui").signature());
     }
     let first = &sigs[0];
-    assert!(sigs.iter().all(|s| s == first), "nondeterministic: {sigs:?}");
+    assert!(
+        sigs.iter().all(|s| s == first),
+        "nondeterministic: {sigs:?}"
+    );
     assert_eq!(*first, "ROOT+A2B+B2A+THIRD|sagui;ROOT+A2B+B2A|sagui");
 }

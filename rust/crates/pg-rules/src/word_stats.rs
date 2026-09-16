@@ -1,18 +1,15 @@
 //! `HC_WORD_STATS=1` diagnostic (env-gated, off by default): attributes the live search
-//! frontier's and the memo tables' retained bytes to `Word`'s own fields, checked against
+//! frontier's retained bytes to `Word`'s own fields, checked against
 //! `pg-cli`'s allocator-level `HC_ALLOC_STATS=1` ground truth (`docs/research/word-memory-trace.md`).
 //!
-//! Two things are recorded, mirroring `crate::stratum::frontier_profile`'s existing shape:
+//! Recorded, mirroring `crate::stratum::frontier_profile`'s existing shape:
 //! - [`record_live_words`] is called once per completed stratum pass (`crate::stratum::analyze`)
 //!   with that pass's own durable `words` accumulator — the only point that set exists before it
 //!   is either consumed by the next stratum or dropped. "Peak" here means the largest such
 //!   snapshot seen across the whole parse, not a continuously-sampled allocator peak.
-//! - [`record_memo_snapshot`] is called once, at the end of a word's whole parse (`pg-parse`,
-//!   right before its per-parse `AnalysisScope` is dropped), summing both memo tables' key and
-//!   results bytes.
 //!
-//! Zero cost when unset: [`enabled`] caches one env read per thread, and both record functions
-//! check it before doing any work.
+//! Zero cost when unset: [`enabled`] caches one env read per thread, and every record function
+//! checks it before doing any work.
 
 use std::cell::{Cell, RefCell};
 
@@ -32,15 +29,10 @@ thread_local! {
     // Per-stratum-pass samples (not deduplicated) for the p50/p90/max distribution below.
     static ALT_LENS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
     static NON_HEAD_LENS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
-
-    static MEMO_KEY_BYTES: Cell<u64> = const { Cell::new(0) };
-    static MEMO_RESULTS_BYTES: Cell<u64> = const { Cell::new(0) };
-    static TPL_KEY_BYTES: Cell<u64> = const { Cell::new(0) };
-    static TPL_RESULTS_BYTES: Cell<u64> = const { Cell::new(0) };
 }
 
 /// Cached `HC_WORD_STATS` read (one env lookup per thread), mirroring
-/// `pg_memo::profile::enabled`/`crate::stratum::frontier_profile::enabled`.
+/// `crate::stratum::frontier_profile::enabled`.
 pub fn enabled() -> bool {
     ENABLED.with(|c| {
         if let Some(v) = c.get() {
@@ -78,22 +70,6 @@ pub fn record_live_words(words: &[Word]) {
     }
 }
 
-/// Record one word's whole-parse memo-table footprint: `scope`'s two tables' key bytes
-/// (`pg_memo::AnalysisStateKey::estimate_bytes`, not counted anywhere else) plus results bytes
-/// (`pg_memo::AnalysisScope::memo_bytes_used`/`template_bytes_used`, the same totals the byte
-/// budget itself already tracks). Call once, right before the per-parse `AnalysisScope` is
-/// dropped (`pg-parse::morpher`).
-pub fn record_memo_snapshot(scope: &pg_memo::AnalysisScope<Word>) {
-    if !enabled() {
-        return;
-    }
-    let (memo_keys, tpl_keys) = scope.estimate_key_bytes();
-    MEMO_KEY_BYTES.with(|c| c.set(c.get().max(memo_keys as u64)));
-    MEMO_RESULTS_BYTES.with(|c| c.set(c.get().max(scope.memo_bytes_used() as u64)));
-    TPL_KEY_BYTES.with(|c| c.set(c.get().max(tpl_keys as u64)));
-    TPL_RESULTS_BYTES.with(|c| c.set(c.get().max(scope.template_bytes_used() as u64)));
-}
-
 /// p50/p90/max over a `u32` sample vector (sorted copy; small under this diagnostic's gate).
 fn percentiles(samples: &[u32]) -> (u32, u32, u32) {
     if samples.is_empty() {
@@ -108,7 +84,7 @@ fn percentiles(samples: &[u32]) -> (u32, u32, u32) {
     (idx(0.5), idx(0.9), *v.last().unwrap())
 }
 
-/// One word's whole cumulative word/memo byte picture — snapshot only, never reset.
+/// One word's whole cumulative word-byte picture — snapshot only, never reset.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WordStatsSnapshot {
     pub live_peak_total: u64,
@@ -121,10 +97,6 @@ pub struct WordStatsSnapshot {
     pub non_head_len_p50: u32,
     pub non_head_len_p90: u32,
     pub non_head_len_max: u32,
-    pub memo_key_bytes: u64,
-    pub memo_results_bytes: u64,
-    pub tpl_key_bytes: u64,
-    pub tpl_results_bytes: u64,
 }
 
 pub fn snapshot() -> WordStatsSnapshot {
@@ -141,10 +113,6 @@ pub fn snapshot() -> WordStatsSnapshot {
         non_head_len_p50: nh_p50,
         non_head_len_p90: nh_p90,
         non_head_len_max: nh_max,
-        memo_key_bytes: MEMO_KEY_BYTES.with(Cell::get),
-        memo_results_bytes: MEMO_RESULTS_BYTES.with(Cell::get),
-        tpl_key_bytes: TPL_KEY_BYTES.with(Cell::get),
-        tpl_results_bytes: TPL_RESULTS_BYTES.with(Cell::get),
     }
 }
 

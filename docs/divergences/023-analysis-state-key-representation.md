@@ -4,7 +4,10 @@
 Representational.
 
 ## Status
-Open (nothing to close — this is a permanent, deliberate representational choice, not a bug).
+Moot — closed by [040](040-memoization-removed.md). HC-Rust no longer memoizes, so the
+representational choice this entry describes no longer exists on the Rust side. The key type
+survives in `pg-rules/src/analysis_state_key.rs` for `merge_equivalent` only, with no interning
+pool and no per-parse scope.
 
 ## C# site
 `AnalysisStateKey.cs:26-34`, `:14-34`: the key holds **live references** — `Shape`, syntactic FS,

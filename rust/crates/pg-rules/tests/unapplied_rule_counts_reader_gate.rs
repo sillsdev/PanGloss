@@ -18,7 +18,7 @@ fn unapplied_rule_counts_has_no_reader_outside_state_key_and_the_max_apps_gate()
         "stratum.rs's current occurrences of `unapplied_rule_counts`: state_key's own build of \
          the key (1), and apply_one_mrule's `>= max_apps` gate (1). A changed count here means a \
          reader appeared or disappeared -- audit by hand whether state_key's max_apps saturation \
-         (pg_memo's module doc; this file's state_key doc comment) is still recall-safe before \
-         updating this number."
+         (`crate::analysis_state_key`'s module doc; stratum.rs's `state_key` doc comment) is \
+         still recall-safe before updating this number."
     );
 }

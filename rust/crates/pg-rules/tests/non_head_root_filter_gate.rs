@@ -12,7 +12,7 @@ use pg_grammar::model::{
     StratumId, TableId, VarTable,
 };
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_scoped_filtered, AnalyzerConfig, NonHeadRootFilter, StepBudget,
+    analyze_stratum, analyze_stratum_filtered, AnalyzerConfig, NonHeadRootFilter, StepBudget,
 };
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
@@ -196,12 +196,11 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
     };
 
     let cache = pg_rules::cache::RuleCache::build(&g);
-    let out = analyze_stratum_scoped_filtered(
+    let out = analyze_stratum_filtered(
         &g,
         s,
         word(&g, "apaka", s),
         &AnalyzerConfig::default(),
-        None,
         Some(filter),
         Some(&cache),
         &StepBudget::new(usize::MAX),
@@ -225,12 +224,11 @@ fn split_dropped_when_non_head_is_not_a_root() {
     let filter: NonHeadRootFilter = &|_st, _shape| Vec::new();
 
     let cache = pg_rules::cache::RuleCache::build(&g);
-    let out = analyze_stratum_scoped_filtered(
+    let out = analyze_stratum_filtered(
         &g,
         s,
         word(&g, "apaka", s),
         &AnalyzerConfig::default(),
-        None,
         Some(filter),
         Some(&cache),
         &StepBudget::new(usize::MAX),
@@ -268,12 +266,11 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
     };
 
     let cache = pg_rules::cache::RuleCache::build(&g);
-    let out = analyze_stratum_scoped_filtered(
+    let out = analyze_stratum_filtered(
         &g,
         s,
         word(&g, "apaka", s),
         &AnalyzerConfig::default(),
-        None,
         Some(filter),
         Some(&cache),
         &StepBudget::new(usize::MAX),
@@ -304,12 +301,11 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
     };
 
     let cache = pg_rules::cache::RuleCache::build(&g);
-    let out = analyze_stratum_scoped_filtered(
+    let out = analyze_stratum_filtered(
         &g,
         s,
         word(&g, "apaka", s),
         &AnalyzerConfig::default(),
-        None,
         Some(filter),
         Some(&cache),
         &StepBudget::new(usize::MAX),

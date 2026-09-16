@@ -3,7 +3,9 @@
 use std::collections::HashSet;
 use std::fs;
 
-use pg_conformance_fixtures::{discover_scoped, producibility_census, ConformanceScope, ProducibilityCensus};
+use pg_conformance_fixtures::{
+    discover_scoped, producibility_census, ConformanceScope, ProducibilityCensus,
+};
 use pg_foma::capability::{default_registry, CharacteristicKind, Disposition};
 use pg_foma::conformance_coverage::CoverageStatus;
 use pg_foma::coverage_ledger::{build_ledger, CoverageLedger};
@@ -31,7 +33,7 @@ fn passing_covered_constructs(fixtures: &[pg_conformance_fixtures::FixtureRef]) 
         let Ok(grammar) = pg_grammar::load(&xml) else {
             continue;
         };
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&grammar, usize::MAX);
 
         for w in &words_yaml.words {
             if !w.adapter_visible() {

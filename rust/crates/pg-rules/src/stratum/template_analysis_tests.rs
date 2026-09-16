@@ -81,7 +81,6 @@ fn analyze_template(g: &Grammar, template: TemplateId, input: &Word) -> Vec<Word
         None,
         None,
         None,
-        None,
         &budget,
         FinalTemplateAnalysisPolicy::default(),
         None,

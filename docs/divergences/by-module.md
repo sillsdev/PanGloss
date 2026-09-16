@@ -32,8 +32,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `Morpher.cs` (ctor, `_allomorphTries`, `IsPattern` partition) | 019 |
 | rule-spec constructors (LHS/RHS child type casts) | 020 |
 | `Morpher.cs` (`MaxStemCount`) | 022 |
-| `AnalysisStateKey.cs` | 023, 024 |
-| `AnalysisScope.cs` | 023, 024, 025 |
+| `AnalysisStateKey.cs` | 023, 024, 040 |
+| `AnalysisScope.cs` | 023, 024, 025, 040 |
 | `FeatureValue.cs` / `SimpleFeatureValue.cs` (shared variable/negation machinery) | 026 |
 | `Morpher.cs` (`MatchNodesWithPattern`, `LexicalGuess`) | 027 |
 | `HermitCrabExtensions.cs` | 027 |
@@ -68,8 +68,9 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-foma/src/replace.rs` (`reversed_slots`, `compile_rtl_branch_net`) | 017 |
 | `pg_lexicon::analysis`, FFI `hc_parse_word`/`hc_parse_batch` | 021 |
 | `pg-parse/src/morpher.rs` (`Morpher::with_max_stem_count`) | 022 |
-| `pg-memo/src/lib.rs` | 023, 024, 025 |
-| `pg-rules/src/stratum.rs` (`state_key`) | 024 |
+| _(was `pg-memo/src/lib.rs`, deleted)_ | 023, 025, 040 |
+| `pg-rules/src/analysis_state_key.rs` | 024, 040 |
+| `pg-rules/src/stratum.rs` (`state_key`) | 024, 040 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
 | `pg-rules/src/rewrite.rs` (`bind_or_check`, `resolve_bindings`) | 026 |
 | `pg-parse/src/guess.rs` | 019, 027 |
@@ -89,7 +90,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `csharp_port_rewrite.rs` | 009, 010, 013, 014, 015 |
 | `pg-rules/tests/rewrite_gate.rs` | 011, 012 |
 | _(none -- 016 is unpinned)_ | 016 |
-| `pg-rules/tests/memo_gate.rs`, `unapplied_rule_counts_reader_gate.rs` | 024 |
+| `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` | 024 |
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `parity_divergence_census.rs` | 028 |
 | `machine/conformance/edge-cases/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
@@ -98,8 +99,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 
 | C# / Rust seam | Entries | Shared fixtures |
 |---|---|---|
-| Analysis cascade / `memo_apply_rules` | 031 | Dedicated cache-hit conformance fixture still missing |
-| Template battery / `run_template_batch` | 032 | `template-category-sharing` checks exclusivity, not cache hits |
+| Analysis cascade _(memo removed, 040)_ | 031, 040 | Cache-hit fixture never existed; now a C#-only coverage question |
+| Template battery / `run_template_batch` _(memo removed, 040)_ | 032, 040 | `template-category-sharing` checks exclusivity; replay was never validated |
 | Final-template state / `stratum.rs` policy | 033 | `final-template-partial-discriminators` |
 | Stratum equivalence / `analyze_template` | 034 | Dedicated cross-engine collision fixture still missing |
 | Template and slot merge / `run_template_batch_raw`, `apply_slot_batch` | 035 | `template-category-sharing` is not a collision discriminator |

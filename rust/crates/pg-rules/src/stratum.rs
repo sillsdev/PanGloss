@@ -12,18 +12,17 @@
 //! run uncapped, and an exhausted budget reads to them as "rule didn't apply", so the
 //! mutually-recursive template/mrule descent unwinds cleanly with one counter and no cascade edits.
 
-use std::cell::{Cell, RefCell};
-use std::collections::hash_map::Entry;
+use std::cell::Cell;
 use std::rc::Rc;
 // `std::time::Instant` panics on wasm32-unknown-unknown; `web_time` substitutes only `Instant`, reusing std's `Duration` unchanged.
 use web_time::{Duration, Instant};
 
+use crate::analysis_state_key::{AnalysisStateKey, MorphHistoryKey};
 use pg_featstruct::{is_unifiable, subsumes, subtract, union};
 use pg_grammar::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
     StratumId, TemplateId,
 };
-use pg_memo::{AnalysisScope, AnalysisStateKey, MemoEntry, MorphHistoryKey};
 use pg_shape::Shape;
 use rustc_hash::{FxHashMap as HashMap, FxHashSet};
 
@@ -86,48 +85,12 @@ use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
-use crate::word::{
-    estimate_word_bytes, runtime_id, FinalTemplateState, MorphStatus, Word, WordKey,
-};
+use crate::word::{estimate_word_bytes, runtime_id, FinalTemplateState, Word, WordKey};
 use crate::{metathesis, morph, rewrite};
 
 #[cfg(test)]
 #[path = "stratum/template_analysis_tests.rs"]
 mod template_analysis_tests;
-
-/// The per-parse memo carrier this module threads through the analysis cascade. `pg-parse` owns one
-/// per `parse_word` call (see `pg_memo::AnalysisScope`) and hands it in via `analyze_stratum_scoped`.
-pub type MemoScope = RefCell<AnalysisScope<Word>>;
-
-/// A key→word dedup set preserving first-seen order, analogous to the plain `Cascade`'s internal `Acc`.
-struct OrderedDedup {
-    seen: HashMap<WordKey, ()>,
-    items: Vec<Word>,
-}
-
-impl OrderedDedup {
-    fn new() -> Self {
-        OrderedDedup {
-            seen: HashMap::default(),
-            items: Vec::new(),
-        }
-    }
-
-    /// Clones `w` only if its key is novel, to avoid an unconditional clone at every call site; returns whether it was newly inserted.
-    fn add(&mut self, w: &Word) -> bool {
-        if let Entry::Vacant(e) = self.seen.entry(w.dedup_key()) {
-            e.insert(());
-            self.items.push(w.clone());
-            true
-        } else {
-            false
-        }
-    }
-
-    fn into_items(self) -> Vec<Word> {
-        self.items
-    }
-}
 
 /// Where `apply_mrules`/`apply_templates` push each produced word instead of returning an owned `Vec<Word>` for the caller to concatenate -- the fix for the multiplicative re-flattening `docs/research/live-frontier-memory-bound.md` measured (`push` is the stratum's own dedup fold; `remaining`, when set, is `AnalyzerConfig::max_unapplications`'s live budget).
 struct WordSink<'x> {
@@ -136,7 +99,7 @@ struct WordSink<'x> {
 }
 
 impl WordSink<'_> {
-    /// Once the output cap is reached, further pushes are refused; the descent keeps recursing (cheap: the rule cascades below are memoized) but stops growing the output.
+    /// Once the output cap is reached, further pushes are refused; the descent keeps recursing but stops growing the output.
     fn done(&self) -> bool {
         self.remaining.is_some_and(|r| r.get() == 0)
     }
@@ -148,11 +111,11 @@ impl WordSink<'_> {
     }
 }
 
-/// `HC_FRONTIER_STATS=1` counters: the peak size of the *live search frontier* the un-memoized
-/// per-arrival cascade builds — `memo_apply_rules_raw`'s flattened recursive `local`, the
-/// memoized/raw cascade's dedup accumulator, the template battery's output, and the interleaved
-/// `apply_mrules`/`apply_templates` recursion depth — independent of any memo cap, since the memo
-/// bounds only what is *retained after* a call returns, never the in-flight set one call builds
+/// `HC_FRONTIER_STATS=1` counters: the peak size of the *live search frontier* the per-arrival
+/// cascade builds — the raw cascade's output, its dedup accumulator, the template battery's
+/// output, and the interleaved `apply_mrules`/`apply_templates` recursion depth. This is the
+/// bound that survived the memo's removal: it measures the in-flight set one call builds, which
+/// no retention policy ever bounded
 /// (see `docs/research/live-frontier-memory-bound.md`). Off by default; every field is a plain
 /// thread-local max, so disabled cost is one cached env read, no allocation.
 pub mod frontier_profile {
@@ -178,7 +141,7 @@ pub mod frontier_profile {
         static MAX_LIVE_BYTES: Cell<u64> = const { Cell::new(0) };
     }
 
-    /// Cached `HC_FRONTIER_STATS` read (one env lookup per thread), mirroring `pg_memo::profile::enabled`.
+    /// Cached `HC_FRONTIER_STATS` read (one env lookup per thread).
     pub fn enabled() -> bool {
         ENABLED.with(|c| {
             if let Some(v) = c.get() {
@@ -190,8 +153,8 @@ pub mod frontier_profile {
         })
     }
 
-    /// RAII depth tracker for the mutually-recursive `apply_mrules`/`apply_templates`/
-    /// `memo_apply_rules_raw` descent: construct on entry to a frame, drop restores the caller's
+    /// RAII depth tracker for the mutually-recursive `apply_mrules`/`apply_templates`
+    /// descent: construct on entry to a frame, drop restores the caller's
     /// depth. Only ever constructed when `enabled()` (via `.then(DepthGuard::enter)`), so the
     /// no-op cost when disabled is a single `bool` check, no `Cell` traffic.
     pub struct DepthGuard;
@@ -261,8 +224,7 @@ pub mod frontier_profile {
         MAX_LIVE_BYTES.with(|c| c.set(c.get().max(bytes)));
     }
 
-    /// One word's whole cumulative frontier picture -- snapshot only, never reset (mirrors
-    /// `pg_memo::profile::MemoProfileSnapshot`).
+    /// One word's whole cumulative frontier picture -- snapshot only, never reset.
     #[derive(Debug, Clone, Copy, Default)]
     pub struct FrontierProfileSnapshot {
         pub max_depth: u64,
@@ -323,25 +285,6 @@ pub mod frontier_profile {
         MAX_APPLY_TEMPLATES_BYTES.with(|c| c.set(0));
         MAX_LIVE_WORDS.with(|c| c.set(0));
         MAX_LIVE_BYTES.with(|c| c.set(0));
-    }
-}
-
-#[cfg(test)]
-mod ordered_dedup_tests {
-    use super::*;
-    use pg_shape::ShapeBuilder;
-
-    #[test]
-    fn add_clones_only_when_novel() {
-        let mut dedup = OrderedDedup::new();
-        let w = Word::new(ShapeBuilder::new().finish(), StratumId(0));
-
-        assert!(dedup.add(&w), "first insertion of this key is novel");
-        assert!(
-            !dedup.add(&w),
-            "a repeat of the same key must not insert (or clone) again"
-        );
-        assert_eq!(dedup.items.len(), 1, "only the first insertion is stored");
     }
 }
 
@@ -620,7 +563,7 @@ fn analysis_state_after_mrule(
 #[derive(Clone, Copy, Debug)]
 pub struct AnalyzerConfig {
     /// Mirrors C# `Morpher.MergeEquivalentAnalyses` (default `true`): collapse this stratum's
-    /// candidates that share a `pg_memo::AnalysisStateKey` (or an equal `WordKey` differing only in
+    /// candidates that share an analysis state (or an equal `WordKey` differing only in
     /// syntactic FS) into one canonical word, folding the repeats into its `Word::alternatives`. A
     /// de-duplication, not a pruning — synthesis re-expands them.
     pub merge_equivalent: bool,
@@ -630,7 +573,7 @@ pub struct AnalyzerConfig {
     /// Mirrors C# `Morpher.MaxStemCount` (default `2`): refuse to unapply a compounding rule once
     /// `non_heads.len() + 1 >= max_stem_count`. Without it, a compounding subrule whose patterns
     /// are "1+ of any segment" matches every split of every substring at every depth — a
-    /// Catalan-scale blowup that either explodes the memo or burns the whole step budget.
+    /// Catalan-scale blowup that burns the whole step budget.
     pub max_stem_count: u32,
 }
 
@@ -665,48 +608,30 @@ pub fn analyze_stratum(
     cfg: &AnalyzerConfig,
     budget: &StepBudget,
 ) -> StratumAnalysis {
-    analyze_stratum_scoped(g, stratum, input, cfg, None, budget)
+    analyze_stratum_filtered(g, stratum, input, cfg, None, None, budget)
 }
 
-/// Analyze `input` through `stratum` with the order-invariant memo active: an `AnalysisScope`
-/// carries the nogood/positive/template memo across the whole descent, and `pg-parse` reuses one
-/// scope for every stratum and input word of a single `parse_word`. Passing `None` (via
-/// `analyze_stratum`) reproduces the unmemoized engine byte-for-byte — the fair A/B baseline.
-pub fn analyze_stratum_scoped(
-    g: &Grammar,
-    stratum: StratumId,
-    input: Word,
-    cfg: &AnalyzerConfig,
-    scope: Option<&MemoScope>,
-    budget: &StepBudget,
-) -> StratumAnalysis {
-    analyze_stratum_scoped_filtered(g, stratum, input, cfg, scope, None, None, budget)
-}
-
-/// Identical to `analyze_stratum_scoped`, plus the compounding non-head root filter (C#'s
+/// Identical to `analyze_stratum`, plus the compounding non-head root filter (C#'s
 /// `AnalysisCompoundingRule.Apply` root-allomorph-search gate). Production callers pass
 /// `Some(cache)` — the cache is built once per `Morpher` and shared across every stratum,
 /// candidate, and worker of a parse. `None` recompiles matchers per call, which is what the
 /// unfiltered entry points above hand in: hand-built fixtures do not always register their
 /// `AffixAllomorphDef.id`s in `Grammar::allomorph_owners`, which the cache requires — see
 /// `crate::cache`'s module doc.
-#[allow(clippy::too_many_arguments)]
-pub fn analyze_stratum_scoped_filtered(
+pub fn analyze_stratum_filtered(
     g: &Grammar,
     stratum: StratumId,
     input: Word,
     cfg: &AnalyzerConfig,
-    scope: Option<&MemoScope>,
     non_head_root_filter: Option<NonHeadRootFilter>,
     cache: Option<&RuleCache>,
     budget: &StepBudget,
 ) -> StratumAnalysis {
-    analyze_stratum_scoped_filtered_ruled(
+    analyze_stratum_filtered_ruled(
         g,
         stratum,
         input,
         cfg,
-        scope,
         non_head_root_filter,
         None,
         cache,
@@ -714,26 +639,24 @@ pub fn analyze_stratum_scoped_filtered(
     )
 }
 
-/// Identical to `analyze_stratum_scoped_filtered`, plus the morphological-rule/template-level
+/// Identical to `analyze_stratum_filtered`, plus the morphological-rule/template-level
 /// selector — see `RuleFilter`. `None` admits every rule, exactly as passing no filter does.
 #[allow(clippy::too_many_arguments)]
-pub fn analyze_stratum_scoped_filtered_ruled(
+pub fn analyze_stratum_filtered_ruled(
     g: &Grammar,
     stratum: StratumId,
     input: Word,
     cfg: &AnalyzerConfig,
-    scope: Option<&MemoScope>,
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
     budget: &StepBudget,
 ) -> StratumAnalysis {
-    analyze_stratum_scoped_filtered_ruled_traced(
+    analyze_stratum_filtered_ruled_traced(
         g,
         stratum,
         input,
         cfg,
-        scope,
         non_head_root_filter,
         rule_filter,
         cache,
@@ -744,17 +667,16 @@ pub fn analyze_stratum_scoped_filtered_ruled(
     )
 }
 
-/// `analyze_stratum_scoped_filtered_ruled`'s traced sibling — identical in every other respect.
+/// `analyze_stratum_filtered_ruled`'s traced sibling — identical in every other respect.
 /// The intended caller is `pg_parse::Morpher::parse_word_selected_traced`; see `crate::morph`'s
 /// analysis-tracing docs and `StratumAnalyzer`'s `trace`/`parent` fields. `stats` is `None` for
 /// every existing caller — gated collection is `pg-parse`'s decision, not this layer's.
 #[allow(clippy::too_many_arguments)]
-pub fn analyze_stratum_scoped_filtered_ruled_traced(
+pub fn analyze_stratum_filtered_ruled_traced(
     g: &Grammar,
     stratum: StratumId,
     input: Word,
     cfg: &AnalyzerConfig,
-    scope: Option<&MemoScope>,
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
@@ -763,12 +685,11 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> StratumAnalysis {
-    analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+    analyze_stratum_filtered_ruled_traced_with_policy(
         g,
         stratum,
         input,
         cfg,
-        scope,
         non_head_root_filter,
         rule_filter,
         cache,
@@ -780,16 +701,15 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced(
     )
 }
 
-/// Policy-aware sibling of `analyze_stratum_scoped_filtered_ruled_traced`. Existing wrappers keep
+/// Policy-aware sibling of `analyze_stratum_filtered_ruled_traced`. Existing wrappers keep
 /// pruning disabled for API compatibility; production parse callers use this sibling after
 /// selecting a policy from the grammar's precomputed facts.
 #[allow(clippy::too_many_arguments)]
-pub fn analyze_stratum_scoped_filtered_ruled_traced_with_policy(
+pub fn analyze_stratum_filtered_ruled_traced_with_policy(
     g: &Grammar,
     stratum: StratumId,
     input: Word,
     cfg: &AnalyzerConfig,
-    scope: Option<&MemoScope>,
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
@@ -803,7 +723,6 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced_with_policy(
         g,
         stratum,
         *cfg,
-        scope,
         non_head_root_filter,
         rule_filter,
         cache,
@@ -817,7 +736,7 @@ pub fn analyze_stratum_scoped_filtered_ruled_traced_with_policy(
 }
 
 /// The stratum orchestrator. Borrows the caller's `StepBudget` rather than owning its own step counter.
-struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
+struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     g: &'g Grammar,
     stratum_id: StratumId,
     stratum: &'g pg_grammar::model::StratumDef,
@@ -826,31 +745,28 @@ struct StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
     reversed_mrules: Vec<MRuleId>,
     cfg: AnalyzerConfig,
     budget: &'b StepBudget,
-    /// The order-invariant memo, or `None` for the unmemoized baseline; see `analyze_stratum_scoped`.
-    scope: Option<&'s MemoScope>,
     /// The non-head lexicon filter, or `None` for unfiltered. See `NonHeadRootFilter`.
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
     /// The mrule/template selector, or `None` to admit every rule. See `RuleFilter`.
     rule_filter: Option<RuleFilter<'r>>,
-    /// The compile-once FST cache; `None` recompiles per call. See `analyze_stratum_scoped` for why the fallback is still needed.
+    /// The compile-once FST cache; `None` recompiles per call. See `analyze_stratum_filtered` for why the fallback is still needed.
     cache: Option<&'c RuleCache>,
     /// The gated `--stats` collector, or `None` when stats collection is off; see `crate::stats`.
     stats: Option<&'b StatsCollector>,
     /// Caller-decided final-template prune policy for this stratum.
     policy: FinalTemplateAnalysisPolicy,
-    /// The analysis-side trace sink; every entry point but `analyze_stratum_scoped_filtered_ruled_traced` passes `NoopSink`.
+    /// The analysis-side trace sink; every entry point but `analyze_stratum_filtered_ruled_traced` passes `NoopSink`.
     trace: &'t dyn TraceSink,
     /// The ambient trace cursor; call sites resolve `word.trace.unwrap_or(parent)` so successful (un)applications nest under the deepest event on that branch.
     parent: TraceHandle,
 }
 
-impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
+impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     #[allow(clippy::too_many_arguments)]
     fn new(
         g: &'g Grammar,
         stratum_id: StratumId,
         cfg: AnalyzerConfig,
-        scope: Option<&'s MemoScope>,
         non_head_root_filter: Option<NonHeadRootFilter<'f>>,
         rule_filter: Option<RuleFilter<'r>>,
         cache: Option<&'c RuleCache>,
@@ -870,7 +786,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             reversed_mrules,
             cfg,
             budget,
-            scope,
             non_head_root_filter,
             rule_filter,
             cache,
@@ -887,19 +802,20 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         self.rule_filter.is_none_or(|f| f(r))
     }
 
-    /// The order-independent memo key for `w`, with each rule's count saturated at its `max_apps` -- the only reader compares `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate, `AnalysisStateKey.cs:14-34` -- deliberate divergence).
+    /// The order-independent state key for `w` (`AnalyzerConfig::merge_equivalent`'s fold key),
+    /// with each rule's count saturated at its `max_apps` -- the only reader compares
+    /// `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate,
+    /// `AnalysisStateKey.cs:14-34` -- deliberate divergence).
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
         let morph_history = w
             .morphs
             .iter()
-            .map(|morph| {
-                MorphHistoryKey::new(
-                    morph.allomorph,
-                    morph.morpheme,
-                    morph.order,
-                    Self::morph_status_key(morph.status),
-                    runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
-                )
+            .map(|morph| MorphHistoryKey {
+                allomorph: morph.allomorph,
+                morpheme: morph.morpheme,
+                order: morph.order,
+                status: morph.status,
+                runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
             })
             .collect();
         let rule_counts = w
@@ -911,25 +827,16 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
                 (saturated > 0).then_some((id, saturated))
             })
             .collect();
-        AnalysisStateKey::new_with_state_and_morph_history(
+        AnalysisStateKey::new(
             w.shape.clone(),
             w.stratum,
             w.syn_fs.clone(),
             w.real_fs.clone(),
             w.non_heads.len() as u32,
             rule_counts,
-            w.flags.final_template_state as u8,
+            w.flags.final_template_state,
             morph_history,
         )
-    }
-
-    fn morph_status_key(status: MorphStatus) -> u8 {
-        match status {
-            MorphStatus::Real => 0,
-            MorphStatus::Floating => 1,
-            MorphStatus::SubsumedChild => 2,
-            MorphStatus::SubsumedFirst => 3,
-        }
     }
 
     /// True once the shared budget is exhausted; delegates to the shared `StepBudget`.
@@ -1031,10 +938,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
 
     /// The mrule cascade over the reversed rule list: permutation for `Linear`, combination for `Unordered`, deduped by full word key.
     fn run_mrule_cascade(&self, input: &Word) -> Vec<Word> {
-        // Memoization targets only the Unordered `k!` walk; Linear strata use the plain cascade.
-        if let (MorphRuleOrder::Unordered, Some(scope)) = (self.order, self.scope) {
-            return self.mrule_cascade_memoized(input, scope);
-        }
         let apply_rule = |i: usize, w: &Word| {
             self.apply_one_mrule(self.reversed_mrules[i], w, RuleInvocationRole::Ordinary)
         };
@@ -1052,175 +955,6 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             );
         }
         out.words
-    }
-
-    /// `HC_MEMO_STATS=1` size proxy: `(total_words, shape_segments, syn_feats, real_feats, morphs)` summed recursively into every `non_heads` descendant.
-    fn word_tree_metrics(results: &[Word]) -> (usize, usize, usize, usize, usize) {
-        fn walk(w: &Word, acc: &mut (usize, usize, usize, usize, usize)) {
-            acc.0 += 1;
-            acc.1 += w.shape.len();
-            acc.2 += w.syn_fs.len();
-            acc.3 += w.real_fs.len();
-            acc.4 += w.morphs.len();
-            for nh in &w.non_heads {
-                walk(nh, acc);
-            }
-        }
-        let mut acc = (0, 0, 0, 0, 0);
-        for w in results {
-            walk(w, &mut acc);
-        }
-        acc
-    }
-
-    /// The memoized analog of `Cascade::combination`, memoizing every interior node's subtree, not just the top-level entry.
-    fn mrule_cascade_memoized(&self, input: &Word, scope: &MemoScope) -> Vec<Word> {
-        let mut out = OrderedDedup::new();
-        self.memo_apply_rules(input, &mut out, scope);
-        if frontier_profile::enabled() {
-            frontier_profile::record_dedup(
-                out.items.len(),
-                crate::word::estimate_words_bytes(&out.items),
-            );
-        }
-        out.into_items()
-    }
-
-    /// The memo wrapper around one node's subtree expansion; `out` is the shared deduped accumulator.
-    fn memo_apply_rules(
-        &self,
-        input: &Word,
-        out: &mut OrderedDedup,
-        scope: &MemoScope,
-    ) -> Vec<Word> {
-        if self.over_budget() {
-            return Vec::new();
-        }
-        let (key, hit_replayed) = {
-            let key = self.state_key(input);
-            let s = scope.borrow();
-            pg_memo::profile::record_lookup(false);
-            // Positive-replay or nogood hit: replay each stored result onto this arrival's own trail/non-head prefix.
-            let replayed = s.memo.get(&key).map(|entry| {
-                pg_memo::profile::record_hit(false, entry.is_positive());
-                if entry.is_positive() {
-                    pg_memo::profile::record_hit_results_len(entry.results.len());
-                }
-                entry
-                    .results
-                    .iter()
-                    .map(|stored| {
-                        // `replay_onto` clones `stored` internally (`Word::replay_onto`'s `self.clone()`).
-                        pg_memo::profile::record_replay_clone();
-                        stored.replay_onto(
-                            input,
-                            entry.mrule_trail_prefix_length,
-                            entry.non_head_prefix_length,
-                        )
-                    })
-                    .collect::<Vec<Word>>()
-            });
-            (key, replayed)
-        };
-        if let Some(replayed) = hit_replayed {
-            for r in &replayed {
-                if out.add(r) {
-                    pg_memo::profile::record_replay_clone();
-                }
-            }
-            return replayed;
-        }
-
-        // In-flight re-entry guard: a key already expanding falls through to a plain unmemoized expansion (correctness-neutral; cannot fire in analysis).
-        let (fresh, depth) = {
-            let mut s = scope.borrow_mut();
-            let fresh = s.in_progress.insert(key.clone());
-            (fresh, s.in_progress.len())
-        };
-        if !fresh {
-            pg_memo::profile::record_fallthrough(false);
-            return self.memo_apply_rules_raw(input, out, scope);
-        }
-        pg_memo::profile::record_in_progress_depth(false, depth);
-
-        let results = self.memo_apply_rules_raw(input, out, scope);
-
-        // Clear the guard, then store if under the cap; prefix lengths let a replay split each stored result.
-        {
-            let mut s = scope.borrow_mut();
-            s.in_progress.remove(&key);
-            // Byte estimate only walked once the cheaper entry/word caps already admit the attempt.
-            let results_bytes = if s.has_memo_capacity(results.len()) {
-                Some(crate::word::estimate_words_bytes(&results))
-            } else {
-                None
-            };
-            if let Some(results_bytes) = results_bytes.filter(|&b| s.has_byte_capacity(false, b)) {
-                let cloned_results = results.clone();
-                if pg_memo::profile::enabled() {
-                    let (total_words, shape_seg, syn_feats, real_feats, morphs) =
-                        Self::word_tree_metrics(&cloned_results);
-                    pg_memo::profile::record_insert_size(
-                        cloned_results.len(),
-                        total_words,
-                        shape_seg,
-                        syn_feats,
-                        real_feats,
-                        morphs,
-                    );
-                }
-                pg_memo::profile::record_insert(false, false);
-                s.record_stored_words(cloned_results.len());
-                s.record_stored_bytes(false, results_bytes);
-                s.memo.insert(
-                    key,
-                    MemoEntry::new(
-                        cloned_results,
-                        input.mrule_apps.len(),
-                        input.non_heads.len(),
-                    ),
-                );
-            } else {
-                pg_memo::profile::record_insert(false, true);
-                pg_memo::profile::record_insert_refused_reason(
-                    false,
-                    s.memo_entries_at_cap(),
-                    s.would_exceed_word_budget(results.len()),
-                    results_bytes.is_some(),
-                );
-            }
-        }
-        results
-    }
-
-    /// One node's un-memoized expansion, with the descent itself memoized; no reachable-root gate, matching the baseline cascade.
-    fn memo_apply_rules_raw(
-        &self,
-        input: &Word,
-        out: &mut OrderedDedup,
-        scope: &MemoScope,
-    ) -> Vec<Word> {
-        let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
-        let mut local = Vec::new();
-        let in_key = input.dedup_key();
-        for i in 0..self.reversed_mrules.len() {
-            for result in
-                self.apply_one_mrule(self.reversed_mrules[i], input, RuleInvocationRole::Ordinary)
-            {
-                out.add(&result);
-                local.push(result.clone());
-                // Self-loop guard. Always false here — every unapplication changes the key.
-                let is_self_loop = in_key == result.dedup_key();
-                if is_self_loop {
-                    continue;
-                }
-                local.extend(self.memo_apply_rules(&result, out, scope));
-            }
-        }
-        if frontier_profile::enabled() {
-            frontier_profile::record_local(local.len(), crate::word::estimate_words_bytes(&local));
-        }
-        local
     }
 
     /// Run the mrule cascade, then per stratum order interleave templates, streaming each output into `sink` (see `WordSink`) rather than returning an owned subtree.
@@ -1250,7 +984,7 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
             return;
         }
         let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
-        // Reject an all-final battery before memo lookup or template work.
+        // Reject an all-final battery before any template work.
         if self.policy.enforce
             && input.flags.final_template_state == crate::word::FinalTemplateState::NonTemplate
             && self.policy.all_templates_final
@@ -1286,78 +1020,8 @@ impl<'g, 's, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 's, 'f, 'r, 'c, 'b, 't> {
         }
     }
 
-    /// The template `RuleBatch`, memoized separately from the mrule memo when a scope is present.
+    /// The template battery: non-disjunctive union of every affix template's output, deduped by key.
     fn run_template_batch(&self, input: &Word) -> Vec<Word> {
-        let Some(scope) = self.scope else {
-            return self.run_template_batch_raw(input);
-        };
-        let key = self.state_key(input);
-        {
-            let s = scope.borrow();
-            pg_memo::profile::record_lookup(true);
-            if let Some(entry) = s.template_memo.get(&key) {
-                pg_memo::profile::record_hit(true, entry.is_positive());
-                let replayed: Vec<Word> = entry
-                    .results
-                    .iter()
-                    .map(|stored| {
-                        stored.replay_onto(
-                            input,
-                            entry.mrule_trail_prefix_length,
-                            entry.non_head_prefix_length,
-                        )
-                    })
-                    .collect();
-                drop(s);
-                return replayed;
-            }
-        }
-        let (fresh, depth) = {
-            let mut s = scope.borrow_mut();
-            let fresh = s.template_in_progress.insert(key.clone());
-            (fresh, s.template_in_progress.len())
-        };
-        if !fresh {
-            pg_memo::profile::record_fallthrough(true);
-            return self.run_template_batch_raw(input);
-        }
-        pg_memo::profile::record_in_progress_depth(true, depth);
-        let results = self.run_template_batch_raw(input);
-        {
-            let mut s = scope.borrow_mut();
-            s.template_in_progress.remove(&key);
-            let results_bytes = if s.has_template_capacity(results.len()) {
-                Some(crate::word::estimate_words_bytes(&results))
-            } else {
-                None
-            };
-            if let Some(results_bytes) = results_bytes.filter(|&b| s.has_byte_capacity(true, b)) {
-                pg_memo::profile::record_insert(true, false);
-                s.record_stored_words(results.len());
-                s.record_stored_bytes(true, results_bytes);
-                s.template_memo.insert(
-                    key,
-                    MemoEntry::new(
-                        results.clone(),
-                        input.mrule_apps.len(),
-                        input.non_heads.len(),
-                    ),
-                );
-            } else {
-                pg_memo::profile::record_insert(true, true);
-                pg_memo::profile::record_insert_refused_reason(
-                    true,
-                    s.template_entries_at_cap(),
-                    s.would_exceed_word_budget(results.len()),
-                    results_bytes.is_some(),
-                );
-            }
-        }
-        results
-    }
-
-    /// The un-memoized template battery: non-disjunctive union of every affix template's output, deduped by key.
-    fn run_template_batch_raw(&self, input: &Word) -> Vec<Word> {
         let mut seen: HashMap<WordKey, usize> = HashMap::default();
         let mut out: Vec<Word> = Vec::new();
         for &tid in &self.stratum.templates {

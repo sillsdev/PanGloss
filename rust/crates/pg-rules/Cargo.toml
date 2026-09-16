@@ -10,7 +10,6 @@ pg-featstruct.workspace = true
 pg-shape.workspace = true
 pg-fst.workspace = true
 pg-grammar.workspace = true
-pg-memo.workspace = true
 smallvec.workspace = true
 hashbrown.workspace = true
 rustc-hash.workspace = true

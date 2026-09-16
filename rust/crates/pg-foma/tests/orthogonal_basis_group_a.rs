@@ -430,7 +430,7 @@ impl ExerciseRun {
 
 /// Anchors the fixture against its committed signatures, so per-word work below refines existing ground truth rather than drifting independently.
 fn anchor_against_committed_signatures(label: &str, grammar: &Grammar, words: &WordsYaml) {
-    let morpher = Morpher::new(grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(grammar, usize::MAX);
     let checked = assert_matches_oracle(label, words, &morpher);
     assert!(
         checked > 0,
@@ -444,7 +444,7 @@ fn occurrences_for(
     grammar: &Grammar,
     expectations: &[CommittedWord],
 ) -> BTreeMap<String, OccurrenceIdentities> {
-    let morpher = Morpher::new(grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(grammar, usize::MAX);
     expectations
         .iter()
         .map(|expect| {
@@ -1165,7 +1165,7 @@ fn strata_exercise_per_stratum_character_table() {
     );
 
     // -- BOTTOM end: the final stratum's table scopes surface tokenization.
-    let morpher = Morpher::new(&run.grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(&run.grammar, usize::MAX);
     let skipped: Vec<&str> = run
         .words
         .words

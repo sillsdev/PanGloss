@@ -21,7 +21,7 @@ fn passing_covered_constructs() -> HashSet<String> {
             // A fixture this preview can't even load contributes no coverage either way -- `conformance_fixtures_gate.rs` already gates load failures for real.
             continue;
         };
-        let morpher = Morpher::new(&grammar, usize::MAX).with_memo(true);
+        let morpher = Morpher::new(&grammar, usize::MAX);
 
         for w in &words_yaml.words {
             if !w.adapter_visible() {

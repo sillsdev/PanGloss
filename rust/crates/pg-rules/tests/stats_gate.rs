@@ -14,8 +14,7 @@ use pg_rules::stats::{
     Direction, ObjectKind, PRuleStatsCtx, StatsCollector, ALLOMORPH_NONE, WIRED_COUNTERS,
 };
 use pg_rules::stratum::{
-    analyze_stratum_scoped_filtered_ruled_traced, synthesize_stratum_traced, AnalyzerConfig,
-    StepBudget,
+    analyze_stratum_filtered_ruled_traced, synthesize_stratum_traced, AnalyzerConfig, StepBudget,
 };
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::Word;
@@ -231,12 +230,11 @@ fn max_apps_rejection_contributes_no_attempt() {
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let stats = StatsCollector::new(&g);
 
-    let out = analyze_stratum_scoped_filtered_ruled_traced(
+    let out = analyze_stratum_filtered_ruled_traced(
         &g,
         s,
         word(&g, "appp", s),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -310,12 +308,11 @@ fn not_applied_fires_when_an_attempted_rule_matches_nothing() {
     let stats = StatsCollector::new(&g);
 
     // "aaa" carries no appended "p" for the rule to strip, so it is attempted and fails.
-    let out = analyze_stratum_scoped_filtered_ruled_traced(
+    let out = analyze_stratum_filtered_ruled_traced(
         &g,
         s,
         word(&g, "aaa", s),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -359,12 +356,11 @@ fn reached_but_empty_invocation_ticks_rule_level_not_applied_once() {
     let stats = StatsCollector::new(&g);
 
     // "aaa" carries no trailing "p" for either allomorph to unapply, so both are reached and fail.
-    let out = analyze_stratum_scoped_filtered_ruled_traced(
+    let out = analyze_stratum_filtered_ruled_traced(
         &g,
         s,
         word(&g, "aaa", s),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -418,12 +414,11 @@ fn allomorph_rows_sum_to_the_rules_tick_count() {
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let stats = StatsCollector::new(&g);
 
-    let out = analyze_stratum_scoped_filtered_ruled_traced(
+    let out = analyze_stratum_filtered_ruled_traced(
         &g,
         s,
         word(&g, "appp", s),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -499,12 +494,11 @@ fn allomorph_rows_never_carry_nonzero_attempts() {
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let stats = StatsCollector::new(&g);
 
-    let out = analyze_stratum_scoped_filtered_ruled_traced(
+    let out = analyze_stratum_filtered_ruled_traced(
         &g,
         s,
         word(&g, "appp", s),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -551,12 +545,11 @@ fn synthesis_confirm_pass_records_its_own_synthesis_direction_rows() {
     let cache = RuleCache::build(&g);
     let stats = StatsCollector::new(&g);
 
-    let out = analyze_stratum_scoped_filtered_ruled_traced(
+    let out = analyze_stratum_filtered_ruled_traced(
         &g,
         s,
         word(&g, "appp", s),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -701,12 +694,11 @@ fn wired_counters_matches_reality() {
     let budget = StepBudget::new(usize::MAX);
     let s = push_stratum(&mut mg, MorphRuleOrder::Unordered, vec![mrid]);
     let mstats = StatsCollector::new(&mg);
-    let _ = analyze_stratum_scoped_filtered_ruled_traced(
+    let _ = analyze_stratum_filtered_ruled_traced(
         &mg,
         s,
         word(&mg, "appp", s),
         &cfg,
-        None,
         None,
         None,
         None,
@@ -723,12 +715,11 @@ fn wired_counters_matches_reality() {
     let na_rid = push_mrule(&mut na_g, na_rule);
     let na_s = push_stratum(&mut na_g, MorphRuleOrder::Unordered, vec![na_rid]);
     let na_stats = StatsCollector::new(&na_g);
-    let _ = analyze_stratum_scoped_filtered_ruled_traced(
+    let _ = analyze_stratum_filtered_ruled_traced(
         &na_g,
         na_s,
         word(&na_g, "aaa", na_s),
         &cfg,
-        None,
         None,
         None,
         None,

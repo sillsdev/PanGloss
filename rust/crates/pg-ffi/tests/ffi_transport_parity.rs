@@ -6,7 +6,7 @@ use std::ffi::c_void;
 
 use pangloss_ffi::{
     decode, encode_single, hc_buf_free, hc_grammar_free, hc_grammar_load, hc_parse_batch,
-    hc_parse_word, DecodedWord, HcError, HcResultBuf, HcStr, DEFAULT_MEMO, DEFAULT_STEP_CAP, HC_OK,
+    hc_parse_word, DecodedWord, HcError, HcResultBuf, HcStr, DEFAULT_STEP_CAP, HC_OK,
 };
 
 fn load_handle(xml: &str) -> *mut c_void {
@@ -45,7 +45,7 @@ fn ffi_batch_matches_in_process_for_full_corpus() {
 
     // Independent in-process grammar load under the SAME step-cap/memo config the FFI handle uses, so a config mismatch can't masquerade as an encoding bug.
     let grammar = pg_grammar::load(&xml).expect("load indonesian grammar in-process");
-    let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
+    let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP);
 
     let handle = load_handle(&xml);
 
@@ -109,7 +109,7 @@ fn ffi_single_word_matches_in_process_for_full_corpus() {
     };
 
     let grammar = pg_grammar::load(&xml).expect("load indonesian grammar in-process");
-    let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP).with_memo(DEFAULT_MEMO);
+    let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP);
     let handle = load_handle(&xml);
 
     let mut mismatches = Vec::new();

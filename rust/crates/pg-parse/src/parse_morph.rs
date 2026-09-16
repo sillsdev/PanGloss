@@ -1034,7 +1034,7 @@ mod tests {
     }
 
     #[test]
-    fn unordered_two_stage_homophonous_parse_keeps_source_trails_with_and_without_memo() {
+    fn unordered_two_stage_homophonous_parse_keeps_both_ordered_source_trails() {
         const XML: &str = r#"<HermitCrabInput><Language>
           <Name>TwoStageHomophonousProjection</Name>
           <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
@@ -1131,17 +1131,9 @@ mod tests {
             result
         }
 
-        let memo_on = crate::Morpher::new(&grammar, usize::MAX)
-            .with_memo(true)
-            .parse_word("abc");
-        let memo_off = crate::Morpher::new(&grammar, usize::MAX)
-            .with_memo(false)
-            .parse_word("abc");
-        let on = projected(&grammar, &memo_on);
-        let off = projected(&grammar, &memo_off);
-        assert_eq!(on, off, "memo must preserve both ordered source trails");
+        let parsed = crate::Morpher::new(&grammar, usize::MAX).parse_word("abc");
         assert_eq!(
-            on,
+            projected(&grammar, &parsed),
             vec![
                 vec![
                     (

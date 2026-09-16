@@ -306,7 +306,7 @@ fn assert_word_parity(
 
 /// Anchor a whole fixture against its committed signature record; called first in every exercise so the per-word identity work is a refinement of existing ground truth, not a second one.
 fn anchor_whole_fixture(label: &str, grammar: &Grammar, words: &WordsYaml) {
-    let morpher = Morpher::new(grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(grammar, usize::MAX);
     let checked = assert_matches_oracle(label, words, &morpher);
     assert!(
         checked > 0,
@@ -325,7 +325,7 @@ fn occurrences_for(
         "{label}: no adapter-visible committed words -- an exercise that compares nothing is not \
          an exercise"
     );
-    let morpher = Morpher::new(grammar, usize::MAX).with_memo(true);
+    let morpher = Morpher::new(grammar, usize::MAX);
     expectations
         .iter()
         .map(|expect| {
