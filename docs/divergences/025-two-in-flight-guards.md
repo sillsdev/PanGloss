@@ -4,7 +4,9 @@
 Representational.
 
 ## Status
-Open (a permanent design choice, not something with a natural "closed" state).
+Superseded — memoization is being removed from HC-Rust entirely (branch feat/remove-memoization), so the memo-side mechanism this entry compares no longer exists as a target; kept for history per the ledger's never-delete rule.
+
+Former status: Open (a permanent design choice, not something with a natural "closed" state).
 
 ## C# site
 `AnalysisScope.cs:56-60`: a single `InProgress` set, shared between the mrule-cascade memo and the

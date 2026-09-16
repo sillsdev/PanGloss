@@ -4,7 +4,9 @@
 Representational.
 
 ## Status
-Open (nothing to close — this is a permanent, deliberate representational choice, not a bug).
+Superseded — memoization is being removed from HC-Rust entirely (branch feat/remove-memoization), so the memo-side mechanism this entry compares no longer exists as a target; kept for history per the ledger's never-delete rule.
+
+Former status: Open (nothing to close — this is a permanent, deliberate representational choice, not a bug).
 
 ## C# site
 `AnalysisStateKey.cs:26-34`, `:14-34`: the key holds **live references** — `Shape`, syntactic FS,

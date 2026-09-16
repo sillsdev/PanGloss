@@ -6,7 +6,9 @@ This entry separates implementation status from the evidence needed to trust it 
 efficiency.
 
 ## Status
-Implemented in both engines; implementations are not asserted identical. Machine #456 merged. Rust's memo work has independent history.
+Superseded — memoization is being removed from HC-Rust entirely (branch feat/remove-memoization), so the memo-side mechanism this entry compares no longer exists as a target; kept for history per the ledger's never-delete rule.
+
+Former status: Implemented in both engines; implementations are not asserted identical. Machine #456 merged. Rust's memo work has independent history.
 
 ## C# site
 `AnalysisStratumRule / AnalysisScope`.

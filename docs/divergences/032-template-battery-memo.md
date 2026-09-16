@@ -6,7 +6,9 @@ This entry separates implementation status from the evidence needed to trust it 
 efficiency.
 
 ## Status
-Implemented in both engines; Machine #456 merged. This is separate from cascade memoization and from template-output merging.
+Superseded — memoization is being removed from HC-Rust entirely (branch feat/remove-memoization), so the memo-side mechanism this entry compares no longer exists as a target; kept for history per the ledger's never-delete rule.
+
+Former status: Implemented in both engines; Machine #456 merged. This is separate from cascade memoization and from template-output merging.
 
 ## C# site
 `AnalysisAffixTemplatesRule / AnalysisScope`.
