@@ -16,7 +16,7 @@
 
 use std::cell::{Cell, RefCell};
 
-use crate::word::{estimate_word_bytes_breakdown, WordByteBreakdown};
+use crate::word::{estimate_word_bytes_breakdown, estimate_words_breakdown, WordByteBreakdown};
 use crate::Word;
 
 thread_local! {
@@ -52,25 +52,25 @@ pub fn enabled() -> bool {
     })
 }
 
-/// Record one stratum pass's live `words` accumulator. Walks every word's field-level byte
-/// breakdown (`crate::word::estimate_word_bytes_breakdown`, which recurses into `non_heads` and
-/// `alternatives`); keeps the snapshot with the largest total seen so far, plus a running
-/// distribution of `alternatives.len()`/`non_heads.len()` and the largest single `Word`.
+/// Record one stratum pass's live `words` accumulator. Two different questions need two different
+/// dedup scopes (`crate::word::estimate_words_breakdown`'s doc): "how big is this one word's whole
+/// reachable subtree" (`max_single_word_bytes`, the percentile distributions below) is a per-word,
+/// undeduped walk, since a pathological single `Word` is pathological regardless of what else is
+/// live; "how many bytes does this WHOLE PASS retain" (`total`, this snapshot's own peak) is the
+/// pass-level walk with one `alternatives` seen-set shared across every word in `words`, so a
+/// `Rc<Word>` alternative held by two different canonicals in this pass is charged once, not twice.
 pub fn record_live_words(words: &[Word]) {
     if !enabled() {
         return;
     }
-    let mut total = 0u64;
-    let mut breakdown = WordByteBreakdown::default();
     for w in words {
-        let b = estimate_word_bytes_breakdown(w);
-        let t = b.total() as u64;
-        total += t;
-        breakdown.add_assign(&b);
-        MAX_SINGLE_WORD_BYTES.with(|c| c.set(c.get().max(t)));
+        let single = estimate_word_bytes_breakdown(w).total() as u64;
+        MAX_SINGLE_WORD_BYTES.with(|c| c.set(c.get().max(single)));
         ALT_LENS.with(|v| v.borrow_mut().push(w.alternatives.len() as u32));
         NON_HEAD_LENS.with(|v| v.borrow_mut().push(w.non_heads.len() as u32));
     }
+    let breakdown = estimate_words_breakdown(words);
+    let total = breakdown.total() as u64;
     if total > LIVE_PEAK_TOTAL.with(Cell::get) {
         LIVE_PEAK_TOTAL.with(|c| c.set(total));
         LIVE_PEAK_COUNT.with(|c| c.set(words.len() as u64));

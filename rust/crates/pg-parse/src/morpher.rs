@@ -466,6 +466,15 @@ impl<'g> Morpher<'g> {
             for aw in results.values() {
                 // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
                 alt_yield::record_canonical(aw.alternatives.len());
+                // `HC_CLOCK_SAMPLE=1`: samples the synthesis phase, invisible to stratum-pass-boundary sampling (docs/research/memory-measurement-repair.md).
+                if pg_rules::clock_sample::enabled() {
+                    // Borrows `matches.values()` directly -- no clone/collect, so the sample cannot inflate the allocator peak it reads.
+                    pg_rules::clock_sample::record(
+                        "synthesis_loop",
+                        matches.values(),
+                        scope.map(std::cell::RefCell::borrow).as_deref(),
+                    );
+                }
                 let looked_up =
                     self.lexical_lookup_filtered(aw, lex_entry_filter, trace, root, stats);
                 if looked_up.is_empty() {

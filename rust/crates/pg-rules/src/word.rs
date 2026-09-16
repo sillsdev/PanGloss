@@ -11,7 +11,7 @@
 //! are also owned here, since MPR gating/accumulation and obligatory-feature accumulation both
 //! read/write the word's own state as rules apply.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::rc::Rc;
 
 use pg_featstruct::{FeatId, FeatureStruct};
@@ -621,14 +621,14 @@ impl Word {
 }
 
 /// Approximate heap-byte cost of one `Shape` (per-node overhead plus `feat_width` `u64` lanes); a rough estimate is sufficient since this only sizes the memo byte budget, so no allocator introspection.
-fn estimate_shape_bytes(shape: &Shape) -> usize {
+pub(crate) fn estimate_shape_bytes(shape: &Shape) -> usize {
     const PER_NODE_FIXED: usize = 16; // kind + char_def(u32) + flags + cd_set, rounded up
     let n = shape.len();
     n * PER_NODE_FIXED + n * shape.feat_width() as usize * std::mem::size_of::<u64>()
 }
 
 /// Approximate heap-byte cost of one `FeatureStruct`, recursing into `Complex` values.
-fn estimate_fs_bytes(fs: &FeatureStruct) -> usize {
+pub(crate) fn estimate_fs_bytes(fs: &FeatureStruct) -> usize {
     const ENTRY_FIXED: usize = 24; // FeatId + enum discriminant + Vec slot overhead, rounded up
     fs.entries()
         .iter()
@@ -702,21 +702,32 @@ impl WordByteBreakdown {
 
 /// Approximate heap-byte cost of one `Word`, broken down by field. Recurses into `non_heads` (the
 /// nested-`Word` growth the memo byte budget exists to bound) and into `alternatives` (the
-/// stratum-merge's folded-candidate list — see `WordByteBreakdown::alternatives`'s doc for why
-/// this recursion was added). `source`'s `Rc<Word>` chain is deliberately **not** recursed into:
-/// it is shared across many stratum outputs (see the field's doc), so counting its pointee per
-/// clone would wildly overstate distinct memory: only the pointer's own bytes are counted here,
-/// same as any other `Option<Rc<_>>` field.
+/// stratum-merge's folded-candidate list — see `WordByteBreakdown::alternatives`'s doc). `source`'s
+/// `Rc<Word>` chain is deliberately **not** recursed into: it is shared across many stratum outputs
+/// (see the field's doc), so counting its pointee per clone would wildly overstate distinct memory —
+/// only the pointer's own bytes are counted here, same as any other `Option<Rc<_>>` field.
 ///
-/// `alternatives` is now `Vec<Rc<Word>>` too, but is still recursed into (unlike `source`) because
-/// the per-entry budget this feeds wants each owner's full attributable cost. That does mean two
-/// owners that both hold a clone of the same canonical `Word` — the memo store and the live
-/// frontier, most commonly, since a `Vec<Word>` clone now clones `Rc` pointers instead of the
-/// subtree — will each count that shared subtree in full: a real double-count of one allocation
-/// across two totals, not merely a hypothetical one. It biases the byte budget conservative
-/// (evicts sooner than the true retained set requires) rather than under; it is not a live-memory
-/// bound (see the step-cap contract).
+/// Dedup scope: a single top-level `Word`'s own subtree, keyed on `Rc::as_ptr`, so an `alternatives`
+/// entry reachable twice from *this one* `w` (e.g. via two different `non_heads`) is charged once.
+/// It does **not** dedup against any other `Word` passed to a separate call — see
+/// `estimate_words_breakdown` for the pass-level scope that needs (and `docs/research/
+/// memory-measurement-repair.md` for why each scope was picked for its caller). Before this pass-
+/// level scope existed, EVERY call here (including this single-word one) was already known and
+/// documented to double-count a shared `alternatives` entry per referrer -- a deliberate
+/// conservative-by-construction trade-off, not a latent bug (it only ever charged *more* than the
+/// true retained set, biasing the byte budget toward evicting sooner). This function's own
+/// undocumented-until-now claim was fixed too, since a per-word walk can still see the same `Rc`
+/// twice via two different `non_heads`.
 pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
+    let mut seen = HashSet::new();
+    estimate_word_bytes_breakdown_seen(w, &mut seen)
+}
+
+/// Shared recursion for both public entry points: `seen` charges each `alternatives` pointer once per call, not once per referrer.
+fn estimate_word_bytes_breakdown_seen(
+    w: &Word,
+    seen: &mut HashSet<*const Word>,
+) -> WordByteBreakdown {
     let mut b = WordByteBreakdown {
         base: std::mem::size_of::<Word>(),
         shape: estimate_shape_bytes(&w.shape),
@@ -732,10 +743,12 @@ pub fn estimate_word_bytes_breakdown(w: &Word) -> WordByteBreakdown {
         alternatives: 0,
     };
     for nh in &w.non_heads {
-        b.non_heads += estimate_word_bytes_breakdown(nh).total();
+        b.non_heads += estimate_word_bytes_breakdown_seen(nh, seen).total();
     }
     for alt in &w.alternatives {
-        b.alternatives += estimate_word_bytes_breakdown(alt).total();
+        if seen.insert(Rc::as_ptr(alt)) {
+            b.alternatives += estimate_word_bytes_breakdown_seen(alt, seen).total();
+        }
     }
     b
 }
@@ -746,9 +759,36 @@ pub fn estimate_word_bytes(w: &Word) -> usize {
     estimate_word_bytes_breakdown(w).total()
 }
 
-/// Approximate heap-byte cost of a `MemoEntry`'s `results`, the payload the memo byte budget accounts against.
+/// Sum of each `Word` in `words`'s byte breakdown, sharing ONE `alternatives` seen-set across the
+/// whole slice: an `Rc<Word>` alternative retained by more than one word in `words` is still one
+/// heap allocation, so it is charged once for the group, not once per referrer. This is the scope
+/// `pg_rules::word_stats::record_live_words` ("live peak", one stratum pass's whole `words`
+/// accumulator) and the memo byte budget (`AnalysisScope::has_byte_capacity`, charged per
+/// `MemoEntry::results` at insert time) both need. It does **not** dedup across separate calls —
+/// two different memo entries, or this pass against a previous one — so a shared allocation already
+/// paid for elsewhere can still be recharged in a later call; that residual is documented in
+/// `docs/research/memory-measurement-repair.md` rather than silently claimed fixed.
+/// Generic over any borrowed source (`&[Word]`, `&Vec<Word>`, a `HashMap` `.values()` iterator, ...)
+/// so a caller with only a borrowed collection -- `pg-parse`'s synthesis-loop `HC_CLOCK_SAMPLE=1`
+/// sample point, in particular -- never has to clone a whole `Word` set just to measure it; cloning
+/// there would inflate the very allocator peak the sample exists to read.
+pub fn estimate_words_breakdown<'w, I>(words: I) -> WordByteBreakdown
+where
+    I: IntoIterator<Item = &'w Word>,
+{
+    let mut seen = HashSet::new();
+    let mut b = WordByteBreakdown::default();
+    for w in words {
+        b.add_assign(&estimate_word_bytes_breakdown_seen(w, &mut seen));
+    }
+    b
+}
+
+/// Approximate heap-byte cost of a `MemoEntry`'s `results` (or any other `Word` group charged
+/// together), the payload the memo byte budget accounts against. See `estimate_words_breakdown` for
+/// the dedup scope and the borrowed-iterator rationale.
 pub fn estimate_words_bytes(words: &[Word]) -> usize {
-    words.iter().map(estimate_word_bytes).sum()
+    estimate_words_breakdown(words).total()
 }
 
 #[cfg(test)]
@@ -758,6 +798,37 @@ mod tests {
 
     fn w() -> Word {
         Word::new(ShapeBuilder::new().finish(), StratumId(0))
+    }
+
+    /// T1: one pass-level call charges a shared alternative once; two separate per-word calls still double-charge it.
+    #[test]
+    fn shared_alternative_across_two_words_is_charged_once_by_the_pass_level_walk() {
+        let mut shared = w();
+        shared.morphs = vec![MorphRecord::new(AllomorphId(1), MorphemeId(2), 0)];
+        let shared = Rc::new(shared);
+
+        let mut a = w();
+        a.alternatives.push(Rc::clone(&shared));
+        let mut b = w();
+        b.alternatives.push(Rc::clone(&shared));
+
+        let alt_cost = estimate_word_bytes_breakdown(&shared).total();
+        assert!(
+            alt_cost > 0,
+            "the shared alternative needs nonzero measured cost for this test to mean anything"
+        );
+
+        // Two independent per-word calls: each pays for the shared alternative in full.
+        let per_word_sum =
+            estimate_word_bytes_breakdown(&a).total() + estimate_word_bytes_breakdown(&b).total();
+
+        // One pass-level call over both words: the shared alternative is charged exactly once.
+        let one_pass = estimate_words_breakdown(&[a, b]).total();
+        assert_eq!(
+            one_pass,
+            per_word_sum - alt_cost,
+            "the pass-level walk must drop exactly one duplicate charge of the shared alternative"
+        );
     }
 
     #[test]
