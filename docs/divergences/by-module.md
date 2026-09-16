@@ -39,7 +39,9 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `HermitCrabExtensions.cs` | 027 |
 | `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
 | FieldWorks `HCLoader.cs` (`LoadCircumfixAffixProcessAllomorph`) | 039 |
-| (none — no C# equivalent) | 021, 028, 029 |
+| `Stratum.cs` (`CharacterDefinitionTable` property) | 041 |
+| `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
+| (none — no C# equivalent) | 021, 028, 029, 040, 042, 044 |
 
 ## By Rust module
 
@@ -76,6 +78,14 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | 028 |
 | `pg_foma::emit` (`verify_tags_reachable`) | 029 |
 | `pg-grammar/src/compile/affixes.rs` (`build_circumfix_allomorphs`) | 039 |
+| `pg-foma/src/replace.rs` (`SegAlphabet::render_tokens`, `RepresentationAliasMap`, `compile_rewrite_rule_subset`, `compile_metathesis_swap_net`) | 040 |
+| `pg-foma/src/replace.rs` (`pattern_slots`, `compile_rtl_branch_net`) | 017, 044 |
+| `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | 044 |
+| `pg-rules/src/cache.rs` (`owning_table_for_prule`/`_metathesis_rule`/`_morpheme`/`_allomorph`/`_mrule`/`_compounding_rule`) | 041 |
+| `pg-rules/src/metathesis.rs` (`synthesize`/`analyze` table resolution) | 041 |
+| `pg-rules/src/metathesis.rs` (`synthesis_reorder`) | 042 |
+| `pg-rules/src/stratum.rs` (`synthesize_stratum_traced`) | 043 |
+| `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
 
 ## By fixture / test file
 
@@ -94,6 +104,11 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `parity_divergence_census.rs` | 028 |
 | `machine/conformance/edge-cases/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
 | `conformance-staging/edge-cases/circumfix-conditioned-halves/` (HCLoader shape; fwdata path unpinned) | 039 |
+| `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma/tests/two_table_shared_representation_recall.rs` | 040, 043 |
+| `conformance-staging/edge-cases/multi-table-metathesis-shared-representation/`, `pg-foma/tests/multi_table_metathesis_shared_representation.rs` | 040, 041, 042 |
+| `conformance-staging/edge-cases/segment-natural-class-table-binding/`, `pg-foma/tests/segment_natural_class_table_binding_discriminates.rs` | 010, 041 |
+| `conformance-staging/edge-cases/right-to-left-segments-environment/`, `pg-foma/src/capability.rs` unit tests | 044 |
+| `conformance-staging/edge-cases/right-to-left-cross-table-segments-environment/` | 044 |
 ## Optimization and shared-correctness follow-up
 
 | C# / Rust seam | Entries | Shared fixtures |

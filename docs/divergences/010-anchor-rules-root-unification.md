@@ -50,6 +50,22 @@ gated on `!PhonFeatureSystem::is_empty()` so zero-feature grammars (Sena) are un
 `root_trie::edge_matches` and `surface::matching_reps_for_node` fall back to that closure on an
 equality miss.
 
+**2026-09-02 update (`addbdba7`):** the closure in `matching_reps_for_node` was itself still a
+char-def-identity-or-closure GATE applied unconditionally before the feature-lane check ran — correct
+for a zero-feature table (identity/`StrRep` is C#'s own regime there) but an unnecessary, occasionally
+wrong, extra filter on a feature-bearing table, where C# has no identity gate of any kind
+(`GetMatchingStrReps` matches by `FeatureStruct.IsUnifiable` alone). Exposed when
+`conformance-staging/edge-cases/segment-natural-class-table-binding` became loadable by hc.dll: for
+word `g`, hc.dll reports a SECOND analysis (`"ROOT1|z"`, a cross-table respelling — table t0's "z" and
+table t1's "g" are the same feature bundle spelled by two tables) that pre-fix Rust's identity/closure
+gate on `matching_reps_for_node` dropped, because the node's table-local char_def index (from table
+t0) was compared against table t1's own closure. Fixed by branching on `lanes.is_empty()`: a
+zero-feature table keeps the original identity-or-closure gate bit-for-bit; a feature-bearing table
+now skips char-def identity entirely and lets the caller's own `flat_unifiable` lane check decide
+membership, matching C#'s single, uniform regime exactly. `words.yaml`'s `g` entry now records both
+analyses. (Entry 043 documents a similarly-discovered, but mechanistically unrelated, divergence
+found the same way on a different fixture in the same investigation.)
+
 ## Upstream
 None, not applicable — pure Rust-side bug; C# was already correct (its own two-regime split is
 implicit in how `CharacterDefinitionTable.Add` decides whether to attach `StrRep` at all).
