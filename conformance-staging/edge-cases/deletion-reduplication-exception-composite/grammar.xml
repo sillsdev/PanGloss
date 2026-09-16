@@ -189,7 +189,7 @@
     </PhonologicalRuleDefinitions>
     <Strata>
       <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered"
-        morphologicalRules="mrNPfx mrRedupFull mrSuf mrSufAlt"
+        morphologicalRules="mrNPfx mrRedupFull"
         phonologicalRules="prNasalAssimBilabial prNasalAssimAlveolar prObstruentDeletion">
         <Name>Main</Name>
         <MorphologicalRuleDefinitions>
@@ -236,6 +236,14 @@
             <MorphemeId>RDPL</MorphemeId>
           </MorphologicalRule>
         </MorphologicalRuleDefinitions>
+        <!-- CONVERSION (false->true, mirrors mpr-gated-exception): mrSuf/mrSufAlt moved into one
+             AffixTemplate Slot so excludedMPRFeatures is producible (HCLoader.cs:1690-1731). -->
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posMPR">
+            <Name>sufTemplate</Name>
+            <Slot optional="true" morphologicalRules="mrSuf mrSufAlt"><Name>sufSlot</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
         <LexicalEntries>
           
           <LexicalEntry id="eTulik" partOfSpeech="posNasal">

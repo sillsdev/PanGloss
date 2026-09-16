@@ -72,7 +72,8 @@ only its own neighboring context, and a union naturally partitions itself across
 each piece touches. `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` now builds this
 union directly (calling the same guid-to-`EnvironmentDef` conversion `build_root_allomorph` already
 used, extracted into `compile/environment.rs::resolve_environment_defs`), and
-`conformance-staging/edge-cases/circumfix-conditioned-halves/` pins the corrected mechanism -- see
+`conformance-staging/edge-cases/circumfix-conditioned-halves/` pinned the corrected mechanism until
+2026-09-16 (it now pins the HCLoader shape instead; see "Superseded" below) -- see
 its own STAGING.md for the differential-loading caveat (that fixture, and every
 `conformance-staging`/`machine/conformance` fixture, loads via `pg_grammar::load`'s native HC-XML
 path, which never reaches `build_circumfix_allomorphs` at all; that function is reachable only from
@@ -113,11 +114,27 @@ naive window-grep of the `MoAffixAllomorph` records in `aweti.fwdata` -- that se
 and is misleading. Read the imported snapshot (`pangloss import`) instead; the loader reads the
 snapshot, so the snapshot is the authority.
 
-## A separate, oracle-confirmed limitation: the disjunctive-allomorph re-check
+## Superseded 2026-09-16: the union-of-environments encoding is not what HCLoader builds
+
+`HCLoader.LoadCircumfixAffixProcessAllomorph` (HCLoader.cs:1273-1332) does not put the halves'
+conditions into `Environments` at all. It splits each half's `PhEnvironment` at `_` and embeds the
+prefix half's RIGHT context and the suffix half's LEFT context as literal mandatory nodes inside the
+one `stem` Lhs pattern (`PrefixNull`, `LoadPatternNodes(prefixContexts.Item2)`, `AnyStar`,
+`LoadPatternNodes(suffixContexts.Item1)`, `SuffixNull`; :1286-1300). Only the OUTER contexts (left of
+the prefix, right of the suffix) become one `AllomorphEnvironment` (:1313-1322). Rewriting
+`circumfix-conditioned-halves` into that shape and re-running the C# oracle parses ALL FOUR cells of
+the 2x2 cross product; the three rejections the section below describes are a property of the
+union-of-environments encoding, not of conditioned circumfixes. `build_circumfix_allomorphs`
+(`compile/affixes.rs`, the `environments` union plus `lhs = any_plus`) therefore produces a grammar
+that parses differently from the one FieldWorks builds for the same project whenever two pairings
+share a literal half -- recorded as divergence 039. The section below is kept as the record of why.
+
+## A separate, oracle-confirmed limitation of the union encoding: the disjunctive-allomorph re-check
 
 Fixing the refusal is necessary but **not sufficient** to make a full N-way cross product (N>1
-pairings sharing a literal half) analyze every cell correctly, in EITHER engine. `conformance-
-staging/edge-cases/circumfix-conditioned-halves/` pins this empirically: a 2x2 cross product (2
+pairings sharing a literal half) analyze every cell correctly, in EITHER engine, under the union
+encoding. The pre-2026-09-16 `conformance-
+staging/edge-cases/circumfix-conditioned-halves/` pinned this empirically: a 2x2 cross product (2
 prefixes x 2 suffixes, each pairing's combined allomorph correctly carrying the union of its own two
 environments) built from 4 sibling allomorphs of ONE rule only analyzes its FIRST-declared cell;
 oracle-checked (`rust/tools/oracle-conformance.ps1`) against the C# founding oracle, the other three

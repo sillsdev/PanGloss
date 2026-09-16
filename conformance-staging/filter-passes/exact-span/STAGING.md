@@ -32,9 +32,10 @@ near-homograph root would absorb the very segment the negative rows leave uncove
 would be vacuous. One part of speech, one prefix and one suffix each on its own correct side, no
 `AffixTemplate`, no co-occurrence rules, no rule features, one unconstrained allomorph per entry.
 
-The Stratum is `morphologicalRuleOrder="linear"` for the same measured reason as
-`structural-transition`: under `unordered` the two derivation orders of `matinlu` serialize to the
-same text and duplicated that row's signature.
+The Stratum is `morphologicalRuleOrder="unordered"`, the only order HCLoader emits. The prefix and
+suffix rules commute, so `matinlu` and `makesalu` each carry the identical signature twice -- oracle-attested
+on 2026-09-16, and what a FieldWorks user sees, since HCParser does not dedupe. The pass judges each analysis
+on its own, so the duplicate changes nothing it can discriminate.
 
 Residual overlap: none identified. The absence of phonology is what makes spans certifiable, and it
 is also what leaves every other pass with nothing to say about these rows.

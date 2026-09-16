@@ -3,7 +3,7 @@
 
 use pg_conformance_fixtures::{
     all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
-    producibility_census, OracleProvenance,
+    producibility_census, require_fixture, OracleProvenance,
 };
 use pg_parse::Morpher;
 
@@ -66,17 +66,9 @@ fn all_discovered_fixtures_match_oracle() {
 /// Named regression pin for the four affix-shape constructs, so their coverage doesn't silently disappear if `all_discovered_fixtures_match_oracle` is ever narrowed.
 #[test]
 fn w91_affix_shapes_covered_by_upstream_fixtures() {
-    let fixtures = discover();
-    let austronesian = fixtures
-        .iter()
-        .find(|f| f.category == "languages" && f.name == "metathesis-phase-isolation")
-        .expect(
-            "languages/metathesis-phase-isolation must be discoverable (machine submodule initialized?)",
-        );
-    let truncate = fixtures
-        .iter()
-        .find(|f| f.category == "edge-cases" && f.name == "truncate-morphotactic")
-        .expect("edge-cases/truncate-morphotactic must be discoverable");
+    // Named pins search both roots whatever the run's claimed scope: docs/design/fixture-pins.md
+    let austronesian = require_fixture("languages", "metathesis-phase-isolation");
+    let truncate = require_fixture("edge-cases", "truncate-morphotactic");
 
     let g = pg_grammar::load(&austronesian.load_grammar_xml()).unwrap();
     let morpher = Morpher::new(&g, usize::MAX).with_memo(true);

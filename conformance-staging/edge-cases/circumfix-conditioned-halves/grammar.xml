@@ -4,21 +4,15 @@
   <Language>
     <Name>CircumfixConditionedHalves</Name>
     <!-- A circumfix whose 4 subrules realize a 2-prefix ("pu"/"ki") x 2-suffix ("mo"/"zo")
-         cross-product, mirroring circumfix-cross-product-and-infix-drop's mrCross but with each
-         pairing carrying LIVE per-side phonological conditioning (edge-triggered circumfix
-         allomorphy is a well-attested typological pattern) instead of that fixture's deliberately
-         unconstrained ncAny-only subrules.
-
-         Each subrule declares TWO RequiredEnvironments entries on the SAME MorphologicalSubrule:
-         one gating the prefix side (a RightEnvironment: what the stem must START with), one gating
-         the suffix side (a LeftEnvironment: what the stem must END with). This exercises
-         pg-rules/src/validity.rs's per-run environments_ok (Any-of-declared-envs, evaluated
-         independently at each contiguous MorphRecord run, ALL runs must find a satisfier): at the
-         prefix run only the RightEnvironment can hold (there is nothing to its left), and at the
-         suffix run only the LeftEnvironment can hold, so declaring the UNION of both sides on one
-         allomorph is the correct encoding, not the single-sided attempts
-         circumfix-cross-product-and-infix-drop's STAGING.md records as "abandoned". See
-         docs/research/circumfix-cross-product-loading.md for the corrected reading. -->
+         cross-product, built the way HCLoader's IsCircumfix() path actually builds one
+         (HCLoader.cs:1051-1082): each prefix-half allomorph x suffix-half allomorph pairing gets
+         its own MorphologicalSubrule, and each half's phonological context is embedded as literal
+         mandatory pattern nodes inside the ONE shared stem Lhs (HCLoader.cs:1289-1290 for the
+         prefix-side first segment, :1298-1299 for the suffix-side last segment), never as a
+         RequiredEnvironments element, which LoadCircumfixAffixProcessAllomorph never stacks more
+         than once per allomorph (HCLoader.cs:1273-1332, hcAllo.Environments.Add at :1322). The
+         former encoding's stacked-RequiredEnvironments rejection of puabzo/kibamo/kibbzo was an
+         XML-only artifact of that unproducible shape, removed 2026-09-16. -->
     <PartsOfSpeech>
       <PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech>
     </PartsOfSpeech>
@@ -53,88 +47,72 @@
           <MorphologicalRule id="mrCirc" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot">
             <Name>circ</Name>
             <MorphologicalSubrules>
-              <!-- subVV: prefix pu- (stem must START with a vowel) x suffix -mo (stem must END
-                   with a vowel). Fires only for a V-initial, V-final stem (eAA, "aa"). -->
+              <!-- subVV: prefix pu- (stem's first segment must be [V]) x suffix -mo (stem's last
+                   segment must be [V]). Fires only for a V-initial, V-final stem (eAA, "aa"). -->
               <MorphologicalSubrule id="subVV">
                 <MorphologicalInput>
-                  <PhoneticSequence id="vvStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="vvFirst"><SimpleContext naturalClass="ncV" /></PhoneticSequence>
+                  <PhoneticSequence id="vvMid"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="vvLast"><SimpleContext naturalClass="ncV" /></PhoneticSequence>
                 </MorphologicalInput>
                 <MorphologicalOutput>
                   <InsertSegments><PhoneticShape>pu</PhoneticShape></InsertSegments>
-                  <CopyFromInput index="vvStem" />
+                  <CopyFromInput index="vvFirst" />
+                  <CopyFromInput index="vvMid" />
+                  <CopyFromInput index="vvLast" />
                   <InsertSegments><PhoneticShape>mo</PhoneticShape></InsertSegments>
                 </MorphologicalOutput>
-                <RequiredEnvironments>
-                  <Environment>
-                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
-                  </Environment>
-                  <Environment>
-                    <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
-                  </Environment>
-                </RequiredEnvironments>
               </MorphologicalSubrule>
-              <!-- subVC: prefix pu- (stem starts with a vowel) x suffix -zo (stem must END with a
-                   consonant). Fires only for a V-initial, C-final stem (eAB, "ab"). -->
+              <!-- subVC: prefix pu- (stem's first segment must be [V]) x suffix -zo (stem's last
+                   segment must be [C]). Fires only for a V-initial, C-final stem (eAB, "ab"). -->
               <MorphologicalSubrule id="subVC">
                 <MorphologicalInput>
-                  <PhoneticSequence id="vcStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="vcFirst"><SimpleContext naturalClass="ncV" /></PhoneticSequence>
+                  <PhoneticSequence id="vcMid"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="vcLast"><SimpleContext naturalClass="ncC" /></PhoneticSequence>
                 </MorphologicalInput>
                 <MorphologicalOutput>
                   <InsertSegments><PhoneticShape>pu</PhoneticShape></InsertSegments>
-                  <CopyFromInput index="vcStem" />
+                  <CopyFromInput index="vcFirst" />
+                  <CopyFromInput index="vcMid" />
+                  <CopyFromInput index="vcLast" />
                   <InsertSegments><PhoneticShape>zo</PhoneticShape></InsertSegments>
                 </MorphologicalOutput>
-                <RequiredEnvironments>
-                  <Environment>
-                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
-                  </Environment>
-                  <Environment>
-                    <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncC" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
-                  </Environment>
-                </RequiredEnvironments>
               </MorphologicalSubrule>
-              <!-- subCV: prefix ki- (stem must START with a consonant) x suffix -mo (stem must END
-                   with a vowel). Fires only for a C-initial, V-final stem (eBA, "ba"). Declared
-                   3rd (non-first), echoing circumfix-cross-product-and-infix-drop's own "declared
-                   later" reachability concern. -->
+              <!-- subCV: prefix ki- (stem's first segment must be [C]) x suffix -mo (stem's last
+                   segment must be [V]). Fires only for a C-initial, V-final stem (eBA, "ba").
+                   Declared 3rd (non-first), echoing circumfix-cross-product-and-infix-drop's own
+                   "declared later" reachability concern. -->
               <MorphologicalSubrule id="subCV">
                 <MorphologicalInput>
-                  <PhoneticSequence id="cvStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="cvFirst"><SimpleContext naturalClass="ncC" /></PhoneticSequence>
+                  <PhoneticSequence id="cvMid"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="cvLast"><SimpleContext naturalClass="ncV" /></PhoneticSequence>
                 </MorphologicalInput>
                 <MorphologicalOutput>
                   <InsertSegments><PhoneticShape>ki</PhoneticShape></InsertSegments>
-                  <CopyFromInput index="cvStem" />
+                  <CopyFromInput index="cvFirst" />
+                  <CopyFromInput index="cvMid" />
+                  <CopyFromInput index="cvLast" />
                   <InsertSegments><PhoneticShape>mo</PhoneticShape></InsertSegments>
                 </MorphologicalOutput>
-                <RequiredEnvironments>
-                  <Environment>
-                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncC" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
-                  </Environment>
-                  <Environment>
-                    <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
-                  </Environment>
-                </RequiredEnvironments>
               </MorphologicalSubrule>
-              <!-- subCC: prefix ki- (stem starts with a consonant) x suffix -zo (stem must END
-                   with a consonant): the 4th cross-product cell, declared last. Fires only for a
+              <!-- subCC: prefix ki- (stem's first segment must be [C]) x suffix -zo (stem's last
+                   segment must be [C]): the 4th cross-product cell, declared last. Fires only for a
                    C-initial, C-final stem (eBB, "bb"). -->
               <MorphologicalSubrule id="subCC">
                 <MorphologicalInput>
-                  <PhoneticSequence id="ccStem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="ccFirst"><SimpleContext naturalClass="ncC" /></PhoneticSequence>
+                  <PhoneticSequence id="ccMid"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="ccLast"><SimpleContext naturalClass="ncC" /></PhoneticSequence>
                 </MorphologicalInput>
                 <MorphologicalOutput>
                   <InsertSegments><PhoneticShape>ki</PhoneticShape></InsertSegments>
-                  <CopyFromInput index="ccStem" />
+                  <CopyFromInput index="ccFirst" />
+                  <CopyFromInput index="ccMid" />
+                  <CopyFromInput index="ccLast" />
                   <InsertSegments><PhoneticShape>zo</PhoneticShape></InsertSegments>
                 </MorphologicalOutput>
-                <RequiredEnvironments>
-                  <Environment>
-                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncC" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
-                  </Environment>
-                  <Environment>
-                    <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncC" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
-                  </Environment>
-                </RequiredEnvironments>
               </MorphologicalSubrule>
             </MorphologicalSubrules>
             <MorphemeId>CIRC</MorphemeId>

@@ -1,26 +1,20 @@
-# oracle-provenance: founding-oracle machine-commit=caa4ddde8782557c6fb58cac57e4761ffcafc2a6 verified-date=2026-08-31
-# RECONCILED 2026-08-31: rust/tools/oracle-conformance.ps1's hc-conformance.exe self-check PASSED
-# against every word below (signature AND traced rules: both matched). Any older "NOT the C#
-# founding oracle" / "Oracle: pangloss" sentence elsewhere in this file's own header describes how
-# it was originally authored, not its current verification status -- superseded by the marker above.
-# Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment. Oracle:
-# C# founding oracle (SIL.Machine.Morphology.HermitCrab.Tool / hc.dll, via
-# machine/conformance/adapters/hc-dotnet-wrapper.sh) AND pangloss (`pg_parse::Morpher`, driven
-# directly), cross-checked to agree -- see STAGING.md's "Verification" section for both runs.
+# oracle-provenance: founding-oracle machine-commit=f150e2a005ce639f7d68ef17fb0db25b2f6aaa3c verified-date=2026-09-16
+# Synthetic construct-shaped mimic -- see STAGING.md and grammar.xml's own header comment.
 
 language: CrossStemMaterialDetermination
 inspired_by: ["synthetic cross-stem material-determination probe (not modeling any real language)"]
 sources:
   - "cross-stem material-determination containment regression"
 requires: []
-fieldworks_producible: false
+fieldworks_producible: true
 fieldworks_producible_notes: >-
-  mrSfx's two MorphologicalSubrules (subSfxKa, subSfxKo) each carry a DIFFERENT
-  MorphologicalInput.requiredMPRFeatures value (mprPfxA vs mprPfxB) on the same rule. HCLoader
-  computes one requiredMprFeatures list per MSA and applies it onto every subrule
-  LoadAffixProcessAllomorphs yields alike (HCLoader.cs:966-969, mirrored at :999,:1024,:1042) -- two
-  subrules of one rule can never diverge in this attribute from a FieldWorks project, per
-  PROTOCOL.md section 9's second usage-level check.
+  The FieldWorks "class-changing affix" pattern. Each derivational prefix writes one inflection class
+  (MoDerivAffMsa.ToInflectionClassRA -> OutMprFeatures, HCLoader.cs:954-955); the suffix is an
+  inflectional affix in a template slot whose two MoAffixAllomorphs each name a different
+  InflectionClassesRC, which HCLoader adds to that allomorph's RequiredMprFeatures alone
+  (HCLoader.cs:1113-1123). The features sit in an inflClasses-shaped group (matchType any,
+  outputType overwrite), as LoadLanguage builds it. An earlier note claimed two subrules could never
+  diverge in requiredMPRFeatures; that was true only of the MSA-level list at :966-969.
 words:
   - word: tolu
     note: ROOT bare, no prefix/suffix applied -- a plain control.

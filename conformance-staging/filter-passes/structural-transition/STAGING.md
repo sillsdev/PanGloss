@@ -29,9 +29,10 @@ No `AffixTemplate` at all, which is the deliberate separation from the sibling
 of speech, no co-occurrence rules, no rule features, no phonological rules, one unconstrained
 allomorph per entry, fixed-shape affixes tiling exactly.
 
-The Stratum is `morphologicalRuleOrder="linear"`. Under `unordered` this engine recursively
-interleaves free-standing rules and the two derivation orders of `takolurmu` serialize to the same
-text, which was measured producing a duplicated identical signature for that row.
+The Stratum is `morphologicalRuleOrder="unordered"`, the only order HCLoader emits. The prefix and
+suffix rules commute, so `takolurmu` carries the identical signature twice -- oracle-attested on 2026-09-16,
+and what a FieldWorks user sees, since HCParser does not dedupe. The pass judges each analysis on its own, so
+the duplicate changes nothing it can discriminate.
 
 Residual overlap: a `MorphotacticIndex` rich enough to model template slots would also call
 `slot-order`'s reversed row a forbidden transition. The two fixtures are separated by construct

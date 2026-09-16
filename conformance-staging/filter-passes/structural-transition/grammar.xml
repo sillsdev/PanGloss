@@ -40,7 +40,7 @@
     <Strata>
       <Stratum
         characterDefinitionTable="table1"
-        morphologicalRuleOrder="linear"
+        morphologicalRuleOrder="unordered"
         morphologicalRules="mrTa mrMu"
       >
         <Name>Main</Name>

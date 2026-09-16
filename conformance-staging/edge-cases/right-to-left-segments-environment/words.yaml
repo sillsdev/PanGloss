@@ -12,6 +12,11 @@ sources:
 requires: [phonology]
 fieldworks_producible: false
 fieldworks_producible_notes: >-
+  PERMANENTLY KEEP-ENGINE-ONLY, not a temporary or deferred verdict (re-examined 2026-09-16): the surface
+  behaviour (a rewrite gated on one literal right-adjacent segment) is reachable through an
+  IPhSimpleContextSeg context, but that lowers to a Constraint node and never touches the
+  Segments-node lowering this fixture exists to pin; rewriting it that way would keep the words and
+  lose the coverage.
   Exercises Segments.characterDefinitionTable: an inline literal Segments node with an explicit
   table reference sits inside a phonological rule's RightEnvironment PhoneticTemplate. HCLoader
   builds exactly one CharacterDefinitionTable per grammar (HCLoader.cs:204,2669-2742), and its

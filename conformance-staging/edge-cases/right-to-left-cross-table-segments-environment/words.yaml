@@ -8,6 +8,12 @@ sources:
 requires: [phonology]
 fieldworks_producible: false
 fieldworks_producible_notes: >-
+  PERMANENTLY KEEP-ENGINE-ONLY, not a temporary or deferred verdict (re-examined 2026-09-16): the effect
+  itself -- one spelling resolving to different segment identities depending on the table -- has no
+  single-table analog. HCLoader builds one table from PhonemeSetsOS[0] and reuses it for every
+  stratum, and inside that table a second phoneme sharing a grapheme is dropped as DuplicateGrapheme
+  (HCLoader.cs:2686-2689); several PhCodes per phoneme run the other way (many spellings, one
+  identity). Kept because each two-table fixture pins a distinct Rust seam (see STAGING.md).
   Core premise (a cross-table Segments atom in an RTL rule's own environment) requires two distinct
   CharacterDefinitionTables (t0/Foreign, t1/Owning) referenced by different Stratum elements, plus an
   explicit Segments@characterDefinitionTable override to the non-owning table; HCLoader builds

@@ -19,6 +19,17 @@ This is genuinely cross-stem: the prefix and the material-determining suffix are
 the surface string, the root sits between them, and the dependency is carried through the
 derivation state rather than through any local phonological environment.
 
+## FieldWorks shape (converted 2026-09-16)
+
+This is FieldWorks' "class-changing affix" pattern. Each derivational prefix writes an inflection
+class (`ToInflectionClassRA` → `OutMprFeatures`, HCLoader.cs:954-955); `mrSfx` is an inflectional
+affix in a template slot whose two allomorphs each name a different `InflectionClassesRC`, added to
+that allomorph's `RequiredMprFeatures` alone (HCLoader.cs:1113-1123). The features sit in an
+`inflClasses`-shaped group. The fixture was first staged with `mrSfx` on the stratum's own rule
+list and `fieldworks_producible: false`; the note behind that verdict cited only the MSA-level
+list at HCLoader.cs:966-969 and missed the per-allomorph addend. Moving the rule into the slot
+changed no word's signature or traced rules (oracle re-run below).
+
 ## What it pins
 
 - `tolu` (bare root): a plain control.
@@ -93,11 +104,10 @@ Not yet proposed upstream. Candidate destination:
 `machine/conformance/edge-cases/cross-stem-material-determination/`. On acceptance, delete this
 staged copy in the same change (graduation guard enforces this mechanically).
 
-## Oracle provenance (reconciled 2026-08-31)
+## Oracle provenance (re-verified 2026-09-16)
 
-ust/tools/oracle-conformance.ps1 ran hc-conformance.exe self-check (C# founding oracle,
-machine commit caa4ddde8782557c6fb58cac57e4761ffcafc2a6) directly against this fixture's
-grammar.xml + words.yaml: PASS -- every word's signature and traced ules: list matched. The
-fixture's words.yaml now carries # oracle-provenance: founding-oracle. Any "Oracle discipline"
-section below describes how this fixture was originally authored, not its current verification
-status.
+`rust/tools/oracle-conformance.ps1` ran the hc-conformance.exe self-check (C# founding oracle,
+machine commit f150e2a005ce639f7d68ef17fb0db25b2f6aaa3c) against the template-slot grammar:
+PASS, every word's signature and traced `rules:` list matched. The "Oracle discipline" and
+"Verification" sections above describe how the fixture was originally authored (stratum-level
+`mrSfx`), not its current verification status.

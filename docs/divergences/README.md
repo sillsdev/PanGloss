@@ -110,6 +110,7 @@ what the original claim got wrong.
 | 036 | [Zero-width morpheme identity preservation](036-zero-width-morpheme-identity.md) | behavioural | open | `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs / MarkMorph` | `pg-rules/src/morph.rs::attribute_morphs` | See entry: implementation, fixture and evidence status are separate |
 | 037 | [Oracle annotation ordering instability](037-oracle-annotation-ordering.md) | behavioural | open | `BidirList / tied-node annotation ordering (suspected)` | `pg-parse oracle comparison dependency; no BidirList port claim` | See entry: implementation, fixture and evidence status are separate |
 | 038 | [Edge-segment prefilter candidate](038-edge-segment-prefilter.md) | efficiency | open | `AnalysisAffixProcessAllomorphRuleSpec candidate matching` | `No current Rust port identified` | See entry: implementation, fixture and evidence status are separate |
+| 039 | [fwdata circumfix conditioning encoding](039-fwdata-circumfix-conditioning-encoding.md) | behavioural | open | `HCLoader.LoadCircumfixAffixProcessAllomorph` (FieldWorks) | `pg-grammar/src/compile/affixes.rs::build_circumfix_allomorphs` | `conformance-staging/edge-cases/circumfix-conditioned-halves` pins the HCLoader shape; the fwdata path has no pin yet |
 
 ## Evidence and upstream reporting
 

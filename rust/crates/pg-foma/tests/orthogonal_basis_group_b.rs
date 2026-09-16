@@ -17,7 +17,7 @@ use pg_parse::Morpher;
 
 // The exercises, named by what they compose rather than by any language.
 
-/// Compounding exercise 1: MPR gating of head and non-head at two different levels.
+/// Compounding exercise 1: rule-level MPR gating of the head (group-unaware) plus a syntactic non-head gate.
 const COMPOUNDING_MPR_GATED: Fixture = Fixture::staged("compounding-non-recursive");
 /// Compounding exercise 2: a rule whose own output re-enters its own input.
 const COMPOUNDING_SELF_FEEDING: Fixture = Fixture::staged("recursive-endocentric-compounding");
@@ -517,9 +517,9 @@ fn assert_peel_offers_base(label: &str, grammar: &Grammar, word: &str, base: &st
 
 // Compounding: two exercises.
 
-/// Compounding exercise 1: MPR gating of the head and the non-head at two levels that read the same MPR groups differently (`fasubel`/`tikubel`/`numobel`/`fasuzon` witness each half); `max_apps == 1` keeps it independent of exercise 2's recursion.
+/// Compounding exercise 1: the rule-level head MPR gate is a flat overlap over an all-type group (`fasubel`/`tikubel` each carry one member, `numobel` none) and the non-head gate is syntactic (`fasuzon`); `max_apps == 1` keeps it independent of exercise 2's recursion.
 #[test]
-fn compounding_exercise_mpr_gates_head_and_non_head_at_two_levels() {
+fn compounding_exercise_mpr_gates_head_by_flat_overlap_and_non_head_by_pos() {
     let (label, grammar, words) = COMPOUNDING_MPR_GATED.open();
     anchor_whole_fixture(&label, &grammar, &words);
 
@@ -534,32 +534,30 @@ fn compounding_exercise_mpr_gates_head_and_non_head_at_two_levels() {
         "{label}: the RULE-level head MPR gate is what this exercise is about and it is now empty, \
          which would make every MPR assertion below vacuous"
     );
+    // HCLoader never sets a compounding subrule's MPR gate; fusional-realizational-morphology pins that path.
     assert!(
         compounding
             .subrules
             .iter()
-            .any(|subrule| !subrule.required_mpr.is_empty()),
-        "{label}: the SUBRULE-level MPR gate -- the group-AWARE half of the contrast -- is gone"
+            .all(|subrule| subrule.required_mpr.is_empty()),
+        "{label}: a SUBRULE-level MPR gate has reappeared on a FieldWorks-producible fixture"
     );
 
     let expectations = committed_words(&words);
     let occurrences = occurrences_for(&label, &grammar, &expectations);
 
-    assert_identities_and_multiplicity(
-        &label,
-        &occurrences,
-        "fasubel",
-        1,
-        "the one head/non-head pair satisfying both the group-unaware rule-level gate and the \
-         group-aware subrule gate",
-    );
-    assert_no_derivation(
-        &label,
-        &occurrences,
-        "tikubel",
-        "the head carries only one member of the subrule's all-type MPR group, which the \
-         group-AWARE reading correctly excludes and a flat overlap test would wrongly admit",
-    );
+    for (word, member) in [("fasubel", "first"), ("tikubel", "second")] {
+        assert_identities_and_multiplicity(
+            &label,
+            &occurrences,
+            word,
+            1,
+            &format!(
+                "the head carries only the {member} member of the rule-level all-type MPR group, \
+                 which the flat overlap admits and a group-aware reading would wrongly refuse"
+            ),
+        );
+    }
     assert_no_derivation(
         &label,
         &occurrences,

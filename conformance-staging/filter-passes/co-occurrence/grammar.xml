@@ -3,22 +3,10 @@
 <HermitCrabInput>
   <Language>
     <Name>Tanasil</Name>
-    <!-- Pathology: MUTUALLY EXCLUSIVE AND MUTUALLY DEPENDENT TENSE/EMPHASIS SUFFIXES. Three
-         suffixes attach to one category on one side of the root and combine freely as far as the
-         morphotactics are concerned; what constrains them is a pair of static
-         MorphemeCoOccurrenceRules - PAST excludes FUT anywhere in the word, and EMPH requires PAST
-         anywhere in the word.
-
-         That makes co-occurrence the only thing wrong with the negative rows here. Every suffix is
-         individually attachable to every root, all three are on the correct side, there is no
-         AffixTemplate so no slot order exists, one part of speech so no signature conflict is
-         expressible, no MorphologicalPhonologicalRuleFeatures, no PhonologicalRules, one
-         unconstrained allomorph per entry, and fixed-shape affixes that tile exactly.
-
-         Both rule types are exercised deliberately: an exclusion whose negative row carries the
-         forbidden pair, and a requirement whose negative row carries a morpheme whose partner is
-         absent. A pass that implemented only one of the two would leave half of this fixture's
-         invalid candidates alive.
+    <!-- Pathology: MUTUALLY EXCLUSIVE TENSE SUFFIXES. Pins static co-occurrence EXCLUSION only
+         (PAST excludes FUT anywhere); the type="require" rule (EMPH requires PAST) was removed
+         2026-09-16 because FieldWorks' HCLoader builds Exclude constraints only from
+         MoMorphAdhocProhib (HCLoader.cs:2213-2239); requirement has no FieldWorks equivalent.
 
          Shape family: agglutinative suffixing morphology with epistemic/tense co-occurrence
          constraints; invented lexemes only. -->
@@ -99,8 +87,6 @@
     <MorphemeCoOccurrenceRules>
       <!-- Exclusion: no word may carry both tense markers. -->
       <MorphemeCoOccurrenceRule isActive="yes" type="exclude" primaryMorpheme="mrPast" otherMorphemes="mrFut" adjacency="anywhere" />
-      <!-- Requirement: the emphatic is licensed only in a past-marked word. -->
-      <MorphemeCoOccurrenceRule isActive="yes" type="require" primaryMorpheme="mrEmph" otherMorphemes="mrPast" adjacency="anywhere" />
     </MorphemeCoOccurrenceRules>
   </Language>
 </HermitCrabInput>

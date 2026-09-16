@@ -69,7 +69,7 @@ demands promotion to `wired`.
 | `ownership` | `structural.ownership.v1` | **producer-blocked** | 2 (measures 0 today) | Prefix homophonous with a free root, plus surfaces made only of affix material |
 | `structural-transition` | `structural.transition.v1` | **producer-blocked** | 3 (measures 0 today) | Affix material on the wrong side of the root, both directions |
 | `slot-order` | `symbolic.slot_order.v1` | awaiting-pass | 2 | One `AffixTemplate` with two ordered suffix slots, reversed |
-| `co-occurrence` | `symbolic.co_occurrence.v1` | awaiting-pass | 4 | `MorphemeCoOccurrenceRule` exclusion and requirement |
+| `co-occurrence` | `symbolic.co_occurrence.v1` | awaiting-pass | 2 | `MorphemeCoOccurrenceRule` exclusion only |
 | `static-signature` | `symbolic.static_signature.v1` | awaiting-pass | 4 | Category selection plus an `excludedMPRFeatures` exception class |
 | `allomorph-compatibility` | `local.allomorph.v1` | awaiting-pass | 4 | A root whose every allomorph is environment-restricted, with no elsewhere form |
 | `exact-span` | `local.exact_span.v1` | awaiting-pass | 4 | Phonology-free fixed-shape morphology, surfaces one segment off |

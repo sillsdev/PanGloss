@@ -7,11 +7,18 @@ All names, roots, and surfaces are invented and carry no actual-language data. `
 
 Graduation target: `machine/conformance/edge-cases/deletion-reduplication-exception-composite/`.
 
-## Oracle provenance (reconciled 2026-08-31)
+## FieldWorks producibility (converted false -> true, 2026-09-16)
 
-ust/tools/oracle-conformance.ps1 ran hc-conformance.exe self-check (C# founding oracle,
-machine commit caa4ddde8782557c6fb58cac57e4761ffcafc2a6) directly against this fixture's
-grammar.xml + words.yaml: PASS -- every word's signature and traced ules: list matched. The
-fixture's words.yaml now carries # oracle-provenance: founding-oracle. Any "Oracle discipline"
-section below describes how this fixture was originally authored, not its current verification
-status.
+`mrSuf`/`mrSufAlt` moved off the stratum's own `morphologicalRules` list into one Slot of a
+posMPR-gated `AffixTemplate` (`sufTemplate`/`sufSlot`), mirroring `mpr-gated-exception`'s own
+conversion, so `mrSuf`'s `excludedMPRFeatures="mprException"` is now reachable via
+`LoadAffixTemplate`'s slot-blocking loop (HCLoader.cs:1690-1731). `mrRedupFull` and the
+deletion/nasal-assimilation rules are untouched.
+
+## Oracle provenance (reconciled 2026-09-16)
+
+`rust/tools/oracle-conformance.ps1` ran `hc-conformance.exe` self-check (C# founding oracle,
+machine commit `f150e2a005ce639f7d68ef17fb0db25b2f6aaa3c`) directly against this fixture's
+grammar.xml + words.yaml after the conversion above: PASS -- every word's signature and traced
+`rules:` list matched, unchanged from the pre-conversion run. The fixture's `words.yaml` carries
+`# oracle-provenance: founding-oracle`.

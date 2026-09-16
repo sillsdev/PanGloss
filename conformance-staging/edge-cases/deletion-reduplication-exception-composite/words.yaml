@@ -1,38 +1,24 @@
-# oracle-provenance: founding-oracle machine-commit=caa4ddde8782557c6fb58cac57e4761ffcafc2a6 verified-date=2026-08-31
-# RECONCILED 2026-08-31: rust/tools/oracle-conformance.ps1's hc-conformance.exe self-check PASSED
-# against every word below (signature AND traced rules: both matched). Any older "NOT the C#
-# founding oracle" / "Oracle: pangloss" sentence elsewhere in this file's own header describes how
-# it was originally authored, not its current verification status -- superseded by the marker above.
-# agglutinative-Austronesian reference corpus's pathology mimic -- see STAGING.md and grammar.xml's
-# own header comment. Oracle:
-# pangloss (`pg_parse::Morpher`, driven directly -- see STAGING.md's "Verification" section), NOT the
-# C# founding oracle -- authored and verified against this repo's own Rust engine only. Signatures
-# below are transcribed verbatim from that run, not hand-derived.
+# oracle-provenance: founding-oracle machine-commit=f150e2a005ce639f7d68ef17fb0db25b2f6aaa3c verified-date=2026-09-16
+# RECONCILED 2026-09-16: rust/tools/oracle-conformance.ps1's hc-conformance.exe self-check PASSED
+# against every word below (signature AND traced rules: both matched) after the false->true conversion.
 #
-# Authoring note: an early draft gave every vowel (a/e/i/u/o) and several consonants (l/k/s/v/d) an
-# IDENTICAL feature bundle (only `featPlace=vocalic`/`fPlaceOther` respectively distinguished them
-# from other classes, not from each other) -- `pg_parse`'s own shape-rendering correctly collapsed
-# feature-identical segments into a bracketed alternates class (e.g. "t[aeiuo][lvd][aeiuo][ks]"
-# instead of the literal "tulik"), obscuring the actual pin. Fixed by giving every segment a fully
-# unique feature bundle (featHigh/featBack added for the vowels; featPlace values split apart for the
-# consonants) -- see grammar.xml's own PhonologicalFeatureSystem comment. Every signature below is
-# now literal.
+# Authoring note: every segment carries a fully unique feature bundle so pg_parse's shape-rendering
+# never collapses feature-identical segments into a bracketed alternates class (see grammar.xml's
+# PhonologicalFeatureSystem comment).
 
 language: DeletionReduplicationExceptionComposite
 inspired_by: ["synthetic agglutinative-Austronesian nasal-assimilation/deletion + MPR-exclusion probe (not modeling any real language)"]
 sources:
   - "docs/conformance-staging-plan.md pathology catalog (agglutinative-Austronesian row)"
 requires: [phonology]
-fieldworks_producible: false
+fieldworks_producible: true
 fieldworks_producible_notes: >-
-  mrSuf's MorphologicalInput excludedMPRFeatures="mprException" sits on a plain stratum-level
-  MorphologicalRule, and this grammar has no AffixTemplate at all. HCLoader assigns
-  AffixProcessAllomorph.ExcludedMprFeatures at exactly one site (HCLoader.cs:1717), inside
-  LoadAffixTemplate's irregular-inflected-form slot-blocking loop, and only ever adds
-  ILexEntryInflType-derived features to a rule already reached through an AffixTemplate Slot. A
-  stratum-level (non-templated) rule's excludedMPRFeatures has no HCLoader code path at all, so
-  vokadan's distinguishing exclusion cannot come from a FieldWorks project. HC-engine-only for this
-  reason.
+  mrSuf and mrSufAlt now sit in one Slot of a posMPR-gated AffixTemplate (sufTemplate/sufSlot), tried
+  as alternatives exactly as they were at stratum level. HCLoader.cs sets
+  AffixProcessAllomorph.ExcludedMprFeatures only inside LoadAffixTemplate's own slot-blocking loop
+  (HCLoader.cs:1690-1731), so mrSuf's excludedMPRFeatures="mprException" gate is now reachable from a
+  real FieldWorks project. Re-verified against the C# founding oracle after the move: every signature
+  and traced rules: list below is unchanged, including vokadan's own expect_fail.
 words:
   - word: tulik
     note: TULIK bare root, no prefix -- a plain control.

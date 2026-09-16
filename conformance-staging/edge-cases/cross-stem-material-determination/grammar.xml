@@ -21,9 +21,13 @@
     </PartsOfSpeech>
     <!-- No PhonologicalRule/MetathesisRule element at all - pure morphotactics, so requires: []
          (mechanically derived, per the conformance-grammars skill's own note). -->
+    <!-- The two features are inflection classes in FieldWorks terms: a derivational prefix writes one
+         via ToInflectionClassRA (HCLoader.cs:954-955), and each suffix allomorph requires its own via
+         InflectionClassesRC (HCLoader.cs:1113-1123), grouped as HCLoader's inflClasses group. -->
     <MorphologicalPhonologicalRuleFeatures>
       <MorphologicalPhonologicalRuleFeature id="mprPfxA">PrefixAChosen</MorphologicalPhonologicalRuleFeature>
       <MorphologicalPhonologicalRuleFeature id="mprPfxB">PrefixBChosen</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeatureGroup matchType="any" outputType="overwrite" features="mprPfxA mprPfxB"><Name>inflClasses</Name></MorphologicalPhonologicalRuleFeatureGroup>
     </MorphologicalPhonologicalRuleFeatures>
     <CharacterDefinitionTable id="table1">
       <Name>Main</Name>
@@ -43,7 +47,7 @@
     </NaturalClasses>
     <Strata>
       <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered"
-        morphologicalRules="mrPfxA mrPfxB mrSfx">
+        morphologicalRules="mrPfxA mrPfxB">
         <Name>Main</Name>
         <MorphologicalRuleDefinitions>
           <!-- Prefix A: assigns mprPfxA on the derived word (MorphologicalOutput MPRFeatures). -->
@@ -74,11 +78,11 @@
             </MorphologicalSubrules>
             <MorphemeId>PFXB</MorphemeId>
           </MorphologicalRule>
-          <!-- ONE suffix rule, TWO allomorphs: the suffix's FORM (not merely its licensing)
-               covaries with which prefix fired: subSfxKa requires mprPfxA (assigned only by
-               mrPfxA) and realizes "-ka"; subSfxKo requires mprPfxB (assigned only by mrPfxB) and
-               realizes "-ko". Neither subrule can apply to a stem that carries the OTHER prefix's
-               feature, so the two cross-combinations have no valid derivation at all. -->
+          <!-- ONE inflectional suffix rule, TWO allomorphs, reached through the template slot below:
+               the suffix's FORM (not merely its licensing) covaries with which prefix fired.
+               subSfxKa requires mprPfxA (written only by mrPfxA) and realizes "-ka"; subSfxKo
+               requires mprPfxB and realizes "-ko". Neither can apply to a stem carrying the OTHER
+               prefix's feature, so the two cross-combinations have no valid derivation at all. -->
           <MorphologicalRule id="mrSfx" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot">
             <Name>sfx</Name>
             <MorphologicalSubrules>
@@ -100,6 +104,14 @@
             <MorphemeId>SFX</MorphemeId>
           </MorphologicalRule>
         </MorphologicalRuleDefinitions>
+        <!-- Per-allomorph requiredMPRFeatures is only emitted for an inflectional affix, which
+             FieldWorks reaches through a template slot; the stratum rules above are derivational. -->
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posRoot">
+            <Name>sfxTemplate</Name>
+            <Slot optional="true" morphologicalRules="mrSfx"><Name>sfxSlot</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
         <LexicalEntries>
           <LexicalEntry id="eRoot" partOfSpeech="posRoot">
             <Allomorphs><Allomorph id="aRoot"><PhoneticShape>tolu</PhoneticShape></Allomorph></Allomorphs>

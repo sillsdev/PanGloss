@@ -48,8 +48,8 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
-            // 64 -> 65: the exact-inverse analysis fold recovers one fixture this backend previously missed.
-            oracle_exact: 65,
+            // 64 -> 65 (exact-inverse analysis fold), 65 -> 66 (seven staged fixtures rewritten into the FieldWorks shape).
+            oracle_exact: 66,
             compiles_but_misses: 1,
             refused: 1,
             unmeasurable: 0,
@@ -61,15 +61,16 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
             // 45 -> 46: same recovery as TunedSurfaceProbed above, from the exact-inverse analysis fold.
             oracle_exact: 46,
             compiles_but_misses: 1,
-            refused: 20,
+            // 20 -> 21: circumfix-conditioned-halves now carries HCLoader's edge-constrained stem Lhs, which this selector refuses.
+            refused: 21,
             unmeasurable: 0,
         },
     ),
     (
         EmissionStrategy::PlanComposed,
         Bucket {
-            // 32 -> 33: the same one-fixture recovery every backend sees from the exact-inverse fold.
-            oracle_exact: 33,
+            // 32 -> 33 (exact-inverse fold), 33 -> 34 (seven staged fixtures rewritten into the FieldWorks shape).
+            oracle_exact: 34,
             compiles_but_misses: 0,
             refused: 31,
             unmeasurable: 3,
@@ -132,6 +133,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
     let mut scored_fixtures = 0usize;
     let mut soundness_violations: Vec<String> = Vec::new();
     let mut pinned_outcomes: Vec<(&'static str, EmissionStrategy, &'static str)> = Vec::new();
+    // Named, not only counted, so a moved ratchet says WHICH fixture moved.
+    let mut not_exact: Vec<String> = Vec::new();
 
     for fixture in &fixtures {
         match load_and_measure(fixture) {
@@ -143,7 +146,11 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         .iter_mut()
                         .find(|(s, _)| *s == cell.strategy)
                         .expect("every EmissionStrategy has a bucket entry");
-                    match outcome_label(&cell.outcome) {
+                    let label = outcome_label(&cell.outcome);
+                    if label != "oracle_exact" {
+                        not_exact.push(format!("{} [{:?}]: {label}", row.label, cell.strategy));
+                    }
+                    match label {
                         "oracle_exact" => bucket.oracle_exact += 1,
                         "compiles_but_misses" => bucket.compiles_but_misses += 1,
                         "refused" => bucket.refused += 1,
@@ -190,6 +197,12 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
          gaining or losing expect_crash is a real, reviewable event, not just a count)"
     );
 
+    not_exact.sort();
+    eprintln!("backend_scoreboard_gate: cells that are not oracle_exact:");
+    for line in &not_exact {
+        eprintln!("  {line}");
+    }
+
     for (strategy, expected) in EXPECTED {
         let (_, measured) = buckets
             .iter()
@@ -199,7 +212,8 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
             measured, expected,
             "{strategy:?}: measured {measured:?} but the ratchet says {expected:?} -- a WORSENED \
              count is a regression, an IMPROVED one means this constant is stale and must be \
-             updated deliberately (see this module's own reconciliation note)"
+             updated deliberately (see this module's own reconciliation note); the non-exact \
+             cells are listed on stderr above"
         );
     }
 
