@@ -18,7 +18,7 @@ open. PanGloss deliberately defaults the library `Morpher` and CLI to memoizatio
 
 ## Evidence
 
-Current Rust commits: `779776c8` (preserved measurement instrumentation and gate fix) and `d91c665e` (memo default change and this entry).
+Current Rust commits: `779776c8` (preserved measurement instrumentation and gate fix) and `2493d11b` (memo default change).
 
 Current C# checkout commit: `a4b29742b6274a01c7398ca3e800a19fa6d2c9aa` (`master`, `Port transductive alignment model (#466)`).
 
