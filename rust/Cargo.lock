@@ -871,6 +871,7 @@ dependencies = [
  "pg-featstruct",
  "pg-fwdata",
  "pg-grammar",
+ "pg-parse",
  "pg-shape",
  "pg-snapshot",
  "quick-xml",

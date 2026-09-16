@@ -114,7 +114,7 @@ naive window-grep of the `MoAffixAllomorph` records in `aweti.fwdata` -- that se
 and is misleading. Read the imported snapshot (`pangloss import`) instead; the loader reads the
 snapshot, so the snapshot is the authority.
 
-## Superseded 2026-09-16: the union-of-environments encoding is not what HCLoader builds
+## Superseded 2026-09-16, fixed same day: the union-of-environments encoding is not what HCLoader builds
 
 `HCLoader.LoadCircumfixAffixProcessAllomorph` (HCLoader.cs:1273-1332) does not put the halves'
 conditions into `Environments` at all. It splits each half's `PhEnvironment` at `_` and embeds the
@@ -123,11 +123,11 @@ one `stem` Lhs pattern (`PrefixNull`, `LoadPatternNodes(prefixContexts.Item2)`, 
 `LoadPatternNodes(suffixContexts.Item1)`, `SuffixNull`; :1286-1300). Only the OUTER contexts (left of
 the prefix, right of the suffix) become one `AllomorphEnvironment` (:1313-1322). Rewriting
 `circumfix-conditioned-halves` into that shape and re-running the C# oracle parses ALL FOUR cells of
-the 2x2 cross product; the three rejections the section below describes are a property of the
-union-of-environments encoding, not of conditioned circumfixes. `build_circumfix_allomorphs`
-(`compile/affixes.rs`, the `environments` union plus `lhs = any_plus`) therefore produces a grammar
-that parses differently from the one FieldWorks builds for the same project whenever two pairings
-share a literal half -- recorded as divergence 039. The section below is kept as the record of why.
+the 2x2 cross product; the three rejections the section below describes were a property of the
+union-of-environments encoding, not of conditioned circumfixes. `build_circumfix_allomorphs` now
+builds the HCLoader shape too (a new `build_circumfix_lhs` helper, fanning out over each half's
+resolved environment cross product like `GetAffixAllomorphEnvironments`), closing divergence 039;
+the section below is kept as the record of why the old encoding was wrong.
 
 ## A separate, oracle-confirmed limitation of the union encoding: the disjunctive-allomorph re-check
 
@@ -158,10 +158,12 @@ than one T3.3-conditioned pairing sharing a literal half into the same rule, and
 order) is **not yet verified** -- this finding is pinned on a synthetic grammar, per this repo's
 synthetic-data rule, and generalizing it to Aweti's specific data needs its own investigation.
 
-## The open gap (narrowed, not closed)
+## The open gap (narrowed further, not closed)
 
 The environment-carrying-half refusal this section used to describe is gone: `build_circumfix_
-allomorphs` no longer drops a conditioned pairing. The remaining refusal in that function --
+allomorphs` no longer drops a conditioned pairing, and (2026-09-16) it now builds the same Lhs/
+environment split HCLoader does, so the fwdata-compiled grammar no longer disagrees with FieldWorks'
+own loader for a project with a conditioned circumfix. The remaining refusal in that function --
 `prefixes.is_empty() || suffixes.is_empty()` (an entry with no loadable half on one side) -- is still
 a WARNING with no record on `Grammar` of what was dropped, so `pangloss fst-health` can still report
 `representability=WithinLimits` while a rule that needed a missing half is silently absent -- a

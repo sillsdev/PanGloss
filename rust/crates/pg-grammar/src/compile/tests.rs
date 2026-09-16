@@ -879,9 +879,9 @@ fn a_circumfix_half_carrying_an_environment_builds_with_it_unioned_in() {
     );
 }
 
-/// Both halves conditioned: the combined allomorph must carry the UNION of both, not just one side.
+/// Both halves conditioned on their OUTER context (each env's inner side is empty here): the two outer contexts combine into one `AllomorphEnvironment`, per HCLoader.cs:1313-1322.
 #[test]
-fn a_circumfix_with_environments_on_both_halves_unions_them() {
+fn a_circumfix_with_environments_on_both_halves_combines_the_outer_contexts_into_one() {
     let (mut snapshot, _f) = circumfix_snapshot(&["env-after-vowel"], &["env-before-vowel"]);
     snapshot
         .phonology
@@ -908,8 +908,8 @@ fn a_circumfix_with_environments_on_both_halves_unions_them() {
     assert_eq!(built.len(), 1);
     assert_eq!(
         built[0].environments.len(),
-        2,
-        "both halves' environments must both survive, unioned onto one allomorph: {:?}",
+        1,
+        "HCLoader calls Environments.Add at most once per allomorph: {:?}",
         built[0].environments
     );
 }
@@ -949,6 +949,92 @@ fn a_circumfix_half_carrying_a_position_builds_with_it_unioned_in() {
         "the prefix half's position must survive onto the combined allomorph like an environment would: {:?}",
         built[0].environments
     );
+}
+
+/// The structural half of docs/divergences/039's fix; parse behavior is pinned in `tests/circumfix_conditioning_parity.rs`.
+#[test]
+fn circumfix_cross_product_embeds_each_halfs_context_in_lhs_not_environment_union() {
+    let (mut snapshot, f) = fixture();
+    for (guid, rep) in [("ph-b", "b"), ("ph-p", "p"), ("ph-o", "o"), ("ph-z", "z")] {
+        snapshot.phonology.phonemes.push(phoneme(guid, rep));
+    }
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-v".to_string(),
+            name: "V".to_string(),
+            phonemes: vec!["ph-a".to_string()],
+        });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-c".to_string(),
+            name: "C".to_string(),
+            phonemes: vec!["ph-b".to_string()],
+        });
+    for (guid, rep) in [
+        ("env-stem-starts-v", "/_[V]"),
+        ("env-stem-starts-c", "/_[C]"),
+        ("env-stem-ends-v", "/[V]_"),
+        ("env-stem-ends-c", "/[C]_"),
+    ] {
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: guid.to_string(),
+                name: guid.to_string(),
+                representation: rep.to_string(),
+            });
+    }
+
+    let mut prefix_pu = simple_allomorph("allo-prefix-pu", MorphType::Prefix, "pu");
+    prefix_pu.environments = vec!["env-stem-starts-v".to_string()];
+    let mut prefix_ki = simple_allomorph("allo-prefix-ki", MorphType::Prefix, "ki");
+    prefix_ki.environments = vec!["env-stem-starts-c".to_string()];
+    let mut suffix_mo = simple_allomorph("allo-suffix-mo", MorphType::Suffix, "mo");
+    suffix_mo.environments = vec!["env-stem-ends-v".to_string()];
+    let mut suffix_zo = simple_allomorph("allo-suffix-zo", MorphType::Suffix, "zo");
+    suffix_zo.environments = vec!["env-stem-ends-c".to_string()];
+
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-circumfix".to_string(),
+        citation_form: vec![ws("sen", "ki-...-zo")],
+        lexeme_morph_type: MorphType::Circumfix,
+        allomorphs: vec![prefix_pu, prefix_ki, suffix_mo, suffix_zo],
+        msas: vec![Msa::Inflectional {
+            guid: "msa-circumfix".to_string(),
+            part_of_speech: Some(f.noun_pos.clone()),
+            slots: Vec::new(),
+            features: None,
+            exception_features: Vec::new(),
+        }],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(
+        !warnings.iter().any(|w| w.contains("circumfix")),
+        "unexpected circumfix warnings: {warnings:?}"
+    );
+
+    let built = circumfix_rule_allomorphs(&grammar);
+    assert_eq!(
+        built.len(),
+        4,
+        "2 prefix halves x 2 suffix halves is a 2x2 cross-product: {built:?}"
+    );
+    for allo in &built {
+        assert!(
+            allo.environments.is_empty(),
+            "every environment here only conditions a stem edge already embedded in Lhs \
+             (HCLoader.cs:1289-1290/:1298-1299), so none should survive as an AllomorphEnvironment: {:?}",
+            allo.environments
+        );
+    }
 }
 
 // --- feature-structure / basic feature-system sanity --------------------------------------------
@@ -1541,7 +1627,7 @@ fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
     });
     compile_recording_ok(&variant_entry_variant);
 
-    // Both circumfix halves conditioned (mirrors a_circumfix_with_environments_on_both_halves_unions_them).
+    // Both circumfix halves conditioned (mirrors a_circumfix_with_environments_on_both_halves_combines_the_outer_contexts_into_one).
     let (mut both_halves_circumfix, _f) =
         circumfix_snapshot(&["env-after-vowel"], &["env-before-vowel"]);
     both_halves_circumfix

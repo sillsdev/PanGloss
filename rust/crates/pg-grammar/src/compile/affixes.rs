@@ -10,8 +10,8 @@ use pg_snapshot::{
 
 use crate::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, EnvironmentDef, MRuleId,
-    MorphRuleDef, MorphemeId, MorphemeInfo, OutputAction, PartRef, Pattern, ReduplicationHint,
-    SimpleContext, SourceMorphPlacement, StratumId,
+    MorphRuleDef, MorphemeId, MorphemeInfo, OutputAction, PartRef, Pattern, PatternNode,
+    ReduplicationHint, SimpleContext, SourceMorphPlacement, StratumId,
 };
 
 use super::environment;
@@ -477,7 +477,7 @@ pub(crate) fn is_circumfix_suffix_half(mt: MorphType) -> bool {
     )
 }
 
-/// One allomorph per prefix-half x suffix-half pairing, environments/positions unioned from both halves; see docs/research/circumfix-cross-product-loading.md.
+/// One allomorph per (prefix, prefix-env) x (suffix, suffix-env) combination, HCLoader's own cross product (HCLoader.cs:1060-1332); see docs/divergences/039.
 #[allow(clippy::too_many_arguments)]
 fn build_circumfix_allomorphs(
     entry: &LexEntry,
@@ -575,52 +575,106 @@ fn build_circumfix_allomorphs(
                 LineageTarget::MRule(mrule_id.0),
                 InventoryKey::object(InventoryKind::Allomorph, suffix.guid.clone()),
             );
-            // Union of both halves' conditioning, `positions` included per `combined_env_guids` below.
-            let mut environments = super::environment::resolve_environment_defs(
-                prefix
-                    .environments
-                    .iter()
-                    .chain(&prefix.positions)
-                    .map(String::as_str),
-                ctx,
-                &prefix.guid,
-                warnings,
-            );
-            environments.extend(super::environment::resolve_environment_defs(
-                suffix
-                    .environments
-                    .iter()
-                    .chain(&suffix.positions)
-                    .map(String::as_str),
-                ctx,
-                &suffix.guid,
-                warnings,
-            ));
-            out.push((
-                vec![prefix.guid.clone(), suffix.guid.clone()],
-                SourceMorphPlacement::Append,
-                AffixAllomorphDef {
-                    id: AllomorphId(0),
-                    environments,
-                    co_occurrence: Vec::new(),
-                    required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
-                    vars: crate::model::VarTable::default(),
-                    required_mpr,
-                    excluded_mpr: crate::model::MprSet::EMPTY,
-                    out_mpr,
-                    redup_hint: ReduplicationHint::Implicit,
-                    lhs: vec![Pattern {
-                        nodes: environment::any_plus(ctx),
-                    }],
-                    // Leading AND trailing insert around one copy: what `pg_foma::emit::classify_affix` reads as `Role::CircumfixPrefix`.
-                    rhs: vec![lead, OutputAction::Copy(PartRef::Input(0)), trail],
-                    properties: Vec::new(),
-                },
-            ));
+
+            // `GetAffixAllomorphEnvironments` (HCLoader.cs:1167-1170): `positions` chained onto `environments`, one pass per resolved environment plus a trailing blank pass if the list was empty or any entry failed.
+            let prefix_env_guids: Vec<&str> = prefix
+                .environments
+                .iter()
+                .chain(&prefix.positions)
+                .map(String::as_str)
+                .collect();
+            let prefix_passes = resolve_environments(&prefix_env_guids, &prefix.guid, ctx, warnings);
+            let suffix_env_guids: Vec<&str> = suffix
+                .environments
+                .iter()
+                .chain(&suffix.positions)
+                .map(String::as_str)
+                .collect();
+            let suffix_passes = resolve_environments(&suffix_env_guids, &suffix.guid, ctx, warnings);
+
+            for prefix_pass in &prefix_passes {
+                for suffix_pass in &suffix_passes {
+                    let (lhs_nodes, environments) = match build_circumfix_lhs(
+                        prefix_pass.as_ref(),
+                        suffix_pass.as_ref(),
+                        ctx,
+                    ) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            warnings.push(format!(
+                                "circumfix allomorph {:?}/{:?}: {e}; one environment combination \
+                                 skipped",
+                                prefix.guid, suffix.guid
+                            ));
+                            continue;
+                        }
+                    };
+                    out.push((
+                        vec![prefix.guid.clone(), suffix.guid.clone()],
+                        SourceMorphPlacement::Append,
+                        AffixAllomorphDef {
+                            id: AllomorphId(0),
+                            environments,
+                            co_occurrence: Vec::new(),
+                            required_syn_fs: acc
+                                .fs_interner
+                                .intern(pg_featstruct::FeatureStruct::EMPTY),
+                            vars: crate::model::VarTable::default(),
+                            required_mpr,
+                            excluded_mpr: crate::model::MprSet::EMPTY,
+                            out_mpr,
+                            redup_hint: ReduplicationHint::Implicit,
+                            lhs: vec![Pattern { nodes: lhs_nodes }],
+                            // Leading AND trailing insert around one copy: what `pg_foma::emit::classify_affix` reads as `Role::CircumfixPrefix`.
+                            rhs: vec![lead.clone(), OutputAction::Copy(PartRef::Input(0)), trail.clone()],
+                            properties: Vec::new(),
+                        },
+                    ));
+                }
+            }
         }
     }
     let _ = msa;
     out
+}
+
+/// `LoadCircumfixAffixProcessAllomorph`'s Lhs/environment split (HCLoader.cs:1276-1323): each conditioned half's inner (stem-adjacent) context becomes literal nodes next to its `PrefixNull`/`SuffixNull`, and only the outer contexts become one `AllomorphEnvironment`.
+fn build_circumfix_lhs(
+    prefix_env: Option<&(String, String)>,
+    suffix_env: Option<&(String, String)>,
+    ctx: &Ctx,
+) -> Result<(Vec<PatternNode>, Vec<EnvironmentDef>), String> {
+    let mut nodes = Vec::new();
+    let mut left_env_pattern = None;
+    let mut right_env_pattern = None;
+    if prefix_env.is_none() && suffix_env.is_none() {
+        nodes.extend(environment::any_plus(ctx));
+    } else {
+        if let Some((left_str, right_str)) = prefix_env {
+            nodes.push(environment::prefix_null(ctx));
+            nodes.extend(environment::pattern_nodes(right_str, ctx)?);
+            if !left_str.is_empty() {
+                left_env_pattern = environment::load_environment_pattern(left_str, true, ctx)?;
+            }
+        }
+        nodes.extend(environment::any_star(ctx));
+        if let Some((left_str, right_str)) = suffix_env {
+            nodes.extend(environment::pattern_nodes(left_str, ctx)?);
+            nodes.push(environment::suffix_null(ctx));
+            if !right_str.is_empty() {
+                right_env_pattern = environment::load_environment_pattern(right_str, false, ctx)?;
+            }
+        }
+    }
+    let mut environments = Vec::new();
+    if left_env_pattern.is_some() || right_env_pattern.is_some() {
+        environments.push(EnvironmentDef {
+            require: true,
+            left: left_env_pattern,
+            right: right_env_pattern,
+        });
+    }
+    Ok((nodes, environments))
 }
 
 /// Whether `form` is a reduplication/bracket-pattern affix shape rather than literal text -- shared by `is_valid_rule_form`'s rejection and by `collect_text_uses`'s substrate-usage collection, so the two classify the same shape identically.

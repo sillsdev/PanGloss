@@ -33,6 +33,10 @@ pg-grammar = { path = ".", features = ["test-support"] }
 # tests/conversion_inventory_gate.rs: measures the FieldWorks conversion-loss delta end to end
 # (import through compile). No cycle: pg-fwdata depends only on pg-snapshot, never on pg-grammar.
 pg-fwdata.workspace = true
+# compile/tests.rs's circumfix-conditioning tests parse a compiled Grammar end to end; a
+# dev-dependency cycle (pg-parse depends on pg-grammar normally) is fine since dev-deps are never
+# built for pg-parse's own compile.
+pg-parse.workspace = true
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
