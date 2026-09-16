@@ -61,6 +61,8 @@ An entry's `Status` is one of:
 - **`fixed-in-rust`** — Rust had a genuine bug (its output differed from hc.dll's), and it has been
   fixed to match hc.dll, verified against the oracle or a fixture. No proposal to hc.dll was needed
   because hc.dll was already correct.
+- **`wont-fix`** — a real difference that no supported input can reach (typically an HC-XML-only
+  shape FieldWorks cannot author), closed deliberately with the reachability evidence in the entry.
 - **`not-a-bug`** — investigated as a suspected divergence and found, on reading both sources
   directly, not to be one (a misdiagnosis, a stale suspicion, or a difference that provably cannot
   affect any parse).
@@ -91,7 +93,7 @@ what the original claim got wrong.
 | 017 | [RTL + bounded quantifier: shallow-reverse mirror risk](017-rtl-bounded-quantifier-shallow-reverse.md) | behavioural | open | (no C# equivalent path; structural risk in the Rust FST builder) | `pg-foma/src/replace.rs::reversed_slots`, `compile_rtl_branch_net` | none — unreproduced by design |
 | 018 | [Realizational-FS diff: Rust avoids a latent C# null-crash](018-realizational-fs-diff-null-avoidance.md) | behavioural | open | `Word.ExpandAlternatives`/`FeatureStruct.Unify` (Word.cs:515-524) | `pg-rules/src/word.rs::expand_alternatives` | none — not exercised by any oracle-verified fixture |
 | 019 | [Root-allomorph trie previously mis-indexed pattern allomorphs](019-root-trie-pattern-indexing.md) | behavioural | fixed-in-rust | `Morpher.cs:39-47` (partition of pattern vs. non-pattern allomorphs) | `pg-parse/src/root_trie.rs::RootAllomorphTrie::build` | (see module doc; no dedicated named test found — unverified beyond the doc comment) |
-| 020 | [Bounded `Quantifier` spanning a whole LHS/RHS: silently inert, not refused](020-bounded-quantifier-whole-pattern-unsupported.md) | unported | open | rule-spec constructors (cast every LHS/RHS child to a non-quantifier type; throws on load) | `pg-rules/src/rewrite.rs::width_matches` and callers | none |
+| 020 | [Bounded `Quantifier` spanning a whole LHS/RHS: silently inert, not refused](020-bounded-quantifier-whole-pattern-unsupported.md) | unported | wont-fix | rule-spec constructors (cast every LHS/RHS child to a non-quantifier type; throws on load) | `pg-rules/src/rewrite.rs::width_matches` and callers | none |
 | 021 | [Guesser FFI symbols could return an unmarked guessed analysis](021-guesser-ffi-unmarked-overclaim.md) | behavioural | fixed-in-rust | (no C# equivalent — FFI-boundary-only defect) | `pg_lexicon::analysis`, `hc_parse_word`/`hc_parse_batch` | `docs/hermitcrab-rust-port-audit.md` §3a |
 | 022 | [`Morpher.MaxStemCount`: hardcoded then made configurable](022-max-stem-count-configurable.md) | representational | fixed-in-rust | `Morpher.cs:56,72` | `pg-parse/src/morpher.rs::Morpher::with_max_stem_count` | `csharp_port_compounding.rs` (`SimpleRules` final reconfiguration) |
 | 023 | [`AnalysisStateKey` representation: interned ids vs live references](023-analysis-state-key-representation.md) | representational | superseded | `AnalysisStateKey.cs:26-34` | `pg-memo/src/lib.rs` | none — structural, not test-pinned |

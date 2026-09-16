@@ -4,7 +4,7 @@
 Unported.
 
 ## Status
-Open.
+Won't fix. The shape is XML-only: LibLCM models `PhSegmentRule.StrucDesc` as a sequence of `PhSimpleContext` (MasterLCModel.xml, class 128, prop 6), and a `PhIterationContext` is not a simple context, so no FieldWorks project can put a bounded quantifier as the whole structural description. No conformance fixture exercises the shape either (checked 2026-09-16: no grammar.xml in either root has a lone quantified sequence as a rule's PhoneticInput or PhoneticOutput). Closed without a loader lint; reopen only if HC-XML authoring of this shape becomes a supported input.
 
 ## C# site
 The rule-spec constructors that build a `SynthesisRewriteRuleSpec`/`FeatureAnalysisRewriteRuleSpec`
