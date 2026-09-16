@@ -67,6 +67,9 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-foma/src/replace.rs` (`reversed_slots`, `compile_rtl_branch_net`) | 017 |
 | `pg_lexicon::analysis`, FFI `hc_parse_word`/`hc_parse_batch` | 021 |
 | `pg-parse/src/morpher.rs` (`Morpher::with_max_stem_count`) | 022 |
+| `pg-parse/src/morpher.rs` (`Morpher::new`, `with_memo`) | 039 |
+| `pg-cli/src/main.rs` (`run_batch --memo`) | 039 |
+| `pg-cli/src/surface.rs` (`--memo` description) | 039 |
 | `pg-memo/src/lib.rs` | 023, 024, 025 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024 |
 | `pg-featstruct/src/tree.rs`, `pg-featstruct/src/ops.rs` | 026 |
@@ -91,6 +94,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `parity_divergence_census.rs` | 028 |
 | `machine/conformance/edge-cases/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
+| `pg-parse/src/morpher.rs` unit test; `pg-foma/tests/memo_corpus_gate.rs` | 039 |
 ## Optimization and shared-correctness follow-up
 
 | C# / Rust seam | Entries | Shared fixtures |

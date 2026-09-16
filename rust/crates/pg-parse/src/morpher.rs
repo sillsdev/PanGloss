@@ -194,7 +194,7 @@ impl<'g> Morpher<'g> {
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
             cap,
-            memo: true,
+            memo: false,
             word_timeout: None,
             cache: RuleCache::build(g),
             max_stem_count: 2, // C# `Morpher.MaxStemCount` ctor default (Morpher.cs:56)
@@ -230,7 +230,7 @@ impl<'g> Morpher<'g> {
         roots
     }
 
-    /// Toggle the order-invariant analysis memo (default on). `false` = the unmemoized baseline (`--memo=off`).
+    /// Toggle the order-invariant analysis memo (default off). `true` opts into memoization (`--memo=on`).
     pub fn with_memo(mut self, memo: bool) -> Self {
         self.memo = memo;
         self
@@ -1579,5 +1579,12 @@ mod trace_tests {
         word.mrule_apps = vec![Some(pg_grammar::model::MRuleId(0))];
         word.mrule_app_index = 0;
         assert!(!m.is_word_valid(&word));
+    }
+
+    #[test]
+    fn memo_is_off_by_default_but_can_be_enabled_explicitly() {
+        let g = minimal_grammar();
+        assert!(!Morpher::new(&g, usize::MAX).memo);
+        assert!(Morpher::new(&g, usize::MAX).with_memo(true).memo);
     }
 }

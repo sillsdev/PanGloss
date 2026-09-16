@@ -180,7 +180,7 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--memo",
         takes_value: true,
-        summary: "on|off; enable/disable analysis memoization (default on)",
+        summary: "on|off; enable/disable analysis memoization (default off)",
     },
     FlagSpec {
         name: "--threads",

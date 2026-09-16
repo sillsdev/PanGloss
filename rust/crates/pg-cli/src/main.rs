@@ -1,7 +1,7 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--memo=on|off] [--threads N] [--analyses <path>] [--always-enforce-final-templates]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--analyses` additionally writes one FieldWorks `ParseAnalysis` JSONL row per input case while
 //! preserving partial projections when a cap or timeout fires.
@@ -646,7 +646,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut step_cap: StepCap = DEFAULT_STEP_CAP;
     // --word-timeout-ms: an optional wall-clock deadline per word, independent of --step-cap; None (omitted) is a complete no-op.
     let mut word_timeout_ms: Option<u64> = None;
-    let mut memo = true;
+    let mut memo = false;
     // Default (unspecified --threads only) is logical CPUs capped at 8, since per-word memory on a pathological grammar multiplies by thread count and an uncapped default can exhaust machine memory.
     const DEFAULT_THREAD_CAP: usize = 8;
     let mut threads: usize = std::thread::available_parallelism()

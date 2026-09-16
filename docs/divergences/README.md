@@ -110,6 +110,7 @@ what the original claim got wrong.
 | 036 | [Zero-width morpheme identity preservation](036-zero-width-morpheme-identity.md) | behavioural | open | `SynthesisAffixProcessAllomorphRuleSpec.ApplyRhs / MarkMorph` | `pg-rules/src/morph.rs::attribute_morphs` | See entry: implementation, fixture and evidence status are separate |
 | 037 | [Oracle annotation ordering instability](037-oracle-annotation-ordering.md) | behavioural | open | `BidirList / tied-node annotation ordering (suspected)` | `pg-parse oracle comparison dependency; no BidirList port claim` | See entry: implementation, fixture and evidence status are separate |
 | 038 | [Edge-segment prefilter candidate](038-edge-segment-prefilter.md) | efficiency | open | `AnalysisAffixProcessAllomorphRuleSpec candidate matching` | `No current Rust port identified` | See entry: implementation, fixture and evidence status are separate |
+| 039 | [Memoization default differs from C#](039-memo-default-off.md) | behavioural | open | `AnalysisScope` memoization | `pg-parse/src/morpher.rs::Morpher::new`, `pg-cli/src/main.rs::run_batch` | `pg-parse` constructor test; `pg-foma/tests/memo_corpus_gate.rs`; `docs/research/memo-is-a-net-cost.md` |
 
 ## Evidence and upstream reporting
 
