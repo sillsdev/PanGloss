@@ -739,7 +739,7 @@ pub fn synthesize_with_mpr(
         if !subrule_applicable(g, sr, syn_fs, mpr) {
             continue;
         }
-        // `rule.mode` selects the function pair for Feature/Narrow; Epenthesis reuses `syn_epenthesis` for both modes, since its collect-then-apply shape already matches Simultaneous and stands in for Iterative.
+        // WHY: `rule.mode` selects the application semantics for every rewrite kind.
         let did = match (classify(rule, sr), rule.mode) {
             (Kind::Feature, RewriteMode::Iterative) => {
                 let target = lhs_fst(g, table_id, &rule.lhs, dir_of(rule), true);
@@ -765,10 +765,10 @@ pub fn synthesize_with_mpr(
                 let right = compile_env(g, table_id, sr.right_env.as_ref());
                 sim_narrow(g, table, rule, sr, &mut ms, &target, &left, &right)
             }
-            (Kind::Epenthesis, _) => {
+            (Kind::Epenthesis, mode) => {
                 let left = compile_env(g, table_id, sr.left_env.as_ref());
                 let right = compile_env(g, table_id, sr.right_env.as_ref());
-                syn_epenthesis(g, table, sr, &mut ms, &left, &right)
+                syn_epenthesis(g, table, sr, &mut ms, &left, &right, mode, dir_of(rule))
             }
         };
         applied |= did;
@@ -855,8 +855,17 @@ pub(crate) fn synthesize_with_mpr_cached(
                 &sc.syn_left,
                 &sc.syn_right,
             ),
-            (Kind::Epenthesis, _) => {
-                syn_epenthesis(g, table, sr, &mut ms, &sc.syn_left, &sc.syn_right)
+            (Kind::Epenthesis, mode) => {
+                syn_epenthesis(
+                    g,
+                    table,
+                    sr,
+                    &mut ms,
+                    &sc.syn_left,
+                    &sc.syn_right,
+                    mode,
+                    dir_of(rule),
+                )
             }
         };
         applied |= did;
@@ -974,10 +983,10 @@ pub fn synthesize_with_mpr_traced(
                 let right = compile_env(g, table_id, sr.right_env.as_ref());
                 sim_narrow(g, table, rule, sr, &mut ms, &target, &left, &right)
             }
-            (Kind::Epenthesis, _) => {
+            (Kind::Epenthesis, mode) => {
                 let left = compile_env(g, table_id, sr.left_env.as_ref());
                 let right = compile_env(g, table_id, sr.right_env.as_ref());
-                syn_epenthesis(g, table, sr, &mut ms, &left, &right)
+                syn_epenthesis(g, table, sr, &mut ms, &left, &right, mode, dir_of(rule))
             }
         };
         applied |= did;
@@ -1092,8 +1101,17 @@ pub fn synthesize_with_mpr_cached_traced(
                 &sc.syn_left,
                 &sc.syn_right,
             ),
-            (Kind::Epenthesis, _) => {
-                syn_epenthesis(g, table, sr, &mut ms, &sc.syn_left, &sc.syn_right)
+            (Kind::Epenthesis, mode) => {
+                syn_epenthesis(
+                    g,
+                    table,
+                    sr,
+                    &mut ms,
+                    &sc.syn_left,
+                    &sc.syn_right,
+                    mode,
+                    dir_of(rule),
+                )
             }
         };
         applied |= did;
@@ -1186,12 +1204,22 @@ pub fn analyze(
                         sr.rhs.nodes.len(),
                         &left,
                         &right,
+                        rule.mode,
+                        reverse(dir_of(rule)),
                     ) {
                         any = true;
                     }
                     any
                 } else {
-                    ana_epenthesis(&mut ms, target.as_ref(), sr.rhs.nodes.len(), &left, &right)
+                    ana_epenthesis(
+                        &mut ms,
+                        target.as_ref(),
+                        sr.rhs.nodes.len(),
+                        &left,
+                        &right,
+                        rule.mode,
+                        reverse(dir_of(rule)),
+                    )
                 }
             }
         };
@@ -1301,6 +1329,8 @@ pub(crate) fn analyze_cached(
                         sr.rhs.nodes.len(),
                         &sc.ana_left,
                         &sc.ana_right,
+                        rule.mode,
+                        reverse(dir_of(rule)),
                     ) {
                         any = true;
                     }
@@ -1312,6 +1342,8 @@ pub(crate) fn analyze_cached(
                         sr.rhs.nodes.len(),
                         &sc.ana_left,
                         &sc.ana_right,
+                        rule.mode,
+                        reverse(dir_of(rule)),
                     )
                 }
             }
@@ -1401,12 +1433,22 @@ pub fn analyze_traced(
                         sr.rhs.nodes.len(),
                         &left,
                         &right,
+                        rule.mode,
+                        reverse(dir_of(rule)),
                     ) {
                         any = true;
                     }
                     any
                 } else {
-                    ana_epenthesis(&mut ms, target.as_ref(), sr.rhs.nodes.len(), &left, &right)
+                    ana_epenthesis(
+                        &mut ms,
+                        target.as_ref(),
+                        sr.rhs.nodes.len(),
+                        &left,
+                        &right,
+                        rule.mode,
+                        reverse(dir_of(rule)),
+                    )
                 }
             }
         };
@@ -1526,6 +1568,8 @@ pub fn analyze_cached_traced(
                         sr.rhs.nodes.len(),
                         &sc.ana_left,
                         &sc.ana_right,
+                        rule.mode,
+                        reverse(dir_of(rule)),
                     ) {
                         any = true;
                     }
@@ -1537,6 +1581,8 @@ pub fn analyze_cached_traced(
                         sr.rhs.nodes.len(),
                         &sc.ana_left,
                         &sc.ana_right,
+                        rule.mode,
+                        reverse(dir_of(rule)),
                     )
                 }
             }
@@ -2242,7 +2288,7 @@ fn ana_narrow_general(
 
 // Epenthesis (LHS empty).
 
-/// C# `EpenthesisSynthesisRewriteSubruleSpec.ApplyRhs`: insert the RHS nodes at each site where both environments hold, marking them dirty; sites are collected once against the current shape and applied without rescanning, since epenthesis in the reference grammars sits between fixed contexts and never cascades.
+/// WHY: Simultaneous remains snapshot-based because only Iterative insertions feed later sites.
 fn syn_epenthesis(
     g: &Grammar,
     table: &CharDefTable,
@@ -2250,6 +2296,8 @@ fn syn_epenthesis(
     ms: &mut MutShape,
     left: &Option<EnvFst>,
     right: &Option<EnvFst>,
+    mode: RewriteMode,
+    dir: Direction,
 ) -> bool {
     let rhs_nodes: Vec<MutNode> = sr
         .rhs
@@ -2257,6 +2305,76 @@ fn syn_epenthesis(
         .iter()
         .map(|n| new_seg_node(g, table, n, false))
         .collect();
+
+    if mode == RewriteMode::Iterative {
+        if rhs_nodes.is_empty() {
+            return false;
+        }
+        // WHY: SynthesisRewriteRuleSpec.cs:23-30 keeps empty-LHS targets eligible.
+        let iterative_rhs_nodes: Vec<MutNode> = if dir == Direction::RightToLeft {
+            rhs_nodes.iter().rev().cloned().collect()
+        } else {
+            rhs_nodes.clone()
+        };
+        // WHY: RewriteSubruleSpec.cs ends left-env matching at the target and starts right-env matching after it.
+        let mut cursor = None;
+        let mut applied = false;
+        loop {
+            let (segs, node_of) = ms.segs(true);
+            let mut candidates: Vec<usize> = ms
+                .nodes
+                .iter()
+                .enumerate()
+                .filter_map(|(node, n)| {
+                    if !matches!(n.kind, NodeKind::Segment | NodeKind::LeftAnchor | NodeKind::RightAnchor)
+                    {
+                        return None;
+                    }
+                    match (dir, cursor) {
+                        (Direction::LeftToRight, Some(start)) if node < start => None,
+                        (Direction::RightToLeft, Some(start)) if node > start => None,
+                        _ => Some(node),
+                    }
+                })
+                .collect();
+            if dir == Direction::RightToLeft {
+                candidates.reverse();
+            }
+            let site_node = candidates.into_iter().find(|&node| {
+                let (left_end, right_start) = match ms.nodes[node].kind {
+                    NodeKind::LeftAnchor => (0, 0),
+                    NodeKind::RightAnchor => (segs.len(), segs.len()),
+                    NodeKind::Segment => {
+                        let site = node_of
+                            .iter()
+                            .position(|&mapped| mapped == node)
+                            .expect("epenthesis segment target must reach the matcher");
+                        (site + 1, site + 1)
+                    }
+                    NodeKind::Boundary => return false,
+                };
+                // WHY: An empty-LHS target has no C# Clean constraint, so a dirty insertion remains eligible.
+                let left_holds = left_env_ok(left, &segs, left_end);
+                left_holds && right_env_ok(right, &segs, right_start)
+            });
+            let Some(site_node) = site_node else {
+                break;
+            };
+            // WHY: EpenthesisSynthesisRewriteSubruleSpec.cs adds after target, dirties Iterative RHS, and caps Shape.Count at 256.
+            if ms.nodes.len().saturating_add(iterative_rhs_nodes.len()) > 256 {
+                panic!("An epenthesis rewrite rule is stuck in an infinite loop.");
+            }
+            let mut inserted = iterative_rhs_nodes.clone();
+            for node in &mut inserted {
+                node.dirty = true;
+            }
+            ms.nodes.splice(site_node + 1..site_node + 1, inserted);
+            applied = true;
+            // WHY: IterativePhonologicalPatternRule.cs resumes at the first inserted node.
+            cursor = Some(site_node + 1);
+        }
+        return applied;
+    }
 
     // Sites: gaps after a segment node where both environments hold, collected once against the current shape then inserted descending.
     let (segs, node_of) = ms.segs(true);
@@ -2306,31 +2424,84 @@ fn ana_epenthesis(
     expected_len: usize,
     left: &Option<EnvFst>,
     right: &Option<EnvFst>,
+    mode: RewriteMode,
+    dir: Direction,
 ) -> bool {
     let Some(target) = target else {
         return false; // no RHS material to have epenthesized (see `ana_epenthesis_target_lanes`).
     };
 
-    let (segs, node_of) = ms.segs(false);
+    if mode == RewriteMode::Simultaneous {
+        let (segs, node_of) = ms.segs(false);
+        let mut applied = false;
+        for (s, e) in all_spans(target, &segs) {
+            let target_nodes: Vec<usize> = node_of[s..e].to_vec();
+            // WHY: Reject an over-wide Optional-skip span before it can mark the wrong extra node.
+            if !width_matches(&target_nodes, expected_len) {
+                continue;
+            }
+            if !left_env_ok(left, &segs, s) || !right_env_ok(right, &segs, e) {
+                continue;
+            }
+            // WHY: Require at least one target node that is not already optional.
+            if target_nodes.iter().all(|&n| ms.nodes[n].optional) {
+                continue;
+            }
+            for &n in &target_nodes {
+                ms.nodes[n].optional = true;
+                ms.nodes[n].dirty = true;
+            }
+            applied = true;
+        }
+        return applied;
+    }
+
+    // WHY: IterativePhonologicalPatternRule.cs marks one target dirty, then resumes in matcher direction.
+    let mut cursor = None;
     let mut applied = false;
-    for (s, e) in all_spans(target, &segs) {
-        let target_nodes: Vec<usize> = node_of[s..e].to_vec();
-        // Width guard: reject an over-wide Optional-skip span before it can mark the wrong (extra) node Optional below; see `width_matches`.
-        if !width_matches(&target_nodes, expected_len) {
-            continue;
+    loop {
+        let (segs, node_of) = ms.segs(false);
+        let mut spans = all_spans(target, &segs);
+        if dir == Direction::RightToLeft {
+            spans.reverse();
         }
-        if !left_env_ok(left, &segs, s) || !right_env_ok(right, &segs, e) {
-            continue;
+        let mut acted = false;
+        for (s, e) in spans {
+            let target_nodes: Vec<usize> = node_of[s..e].to_vec();
+            if target_nodes.is_empty()
+                || target_nodes.iter().any(|&n| ms.nodes[n].dirty)
+                || !width_matches(&target_nodes, expected_len)
+                || !left_env_ok(left, &segs, s)
+                || !right_env_ok(right, &segs, e)
+                || target_nodes.iter().all(|&n| ms.nodes[n].optional)
+            {
+                continue;
+            }
+            let start_node = *target_nodes.first().expect("nonempty epenthesis target");
+            let end_node = *target_nodes.last().expect("nonempty epenthesis target");
+            let beyond = match dir {
+                Direction::LeftToRight => end_node + 1,
+                Direction::RightToLeft => start_node.saturating_sub(1),
+            };
+            if let Some(start) = cursor {
+                if (dir == Direction::LeftToRight && start_node < start)
+                    || (dir == Direction::RightToLeft && start_node > start)
+                {
+                    continue;
+                }
+            }
+            for &n in &target_nodes {
+                ms.nodes[n].optional = true;
+                ms.nodes[n].dirty = true;
+            }
+            cursor = Some(beyond);
+            applied = true;
+            acted = true;
+            break;
         }
-        // Nonvacuous: at least one target node is not already optional.
-        if target_nodes.iter().all(|&n| ms.nodes[n].optional) {
-            continue;
+        if !acted {
+            break;
         }
-        for &n in &target_nodes {
-            ms.nodes[n].optional = true;
-            ms.nodes[n].dirty = true;
-        }
-        applied = true;
     }
     applied
 }

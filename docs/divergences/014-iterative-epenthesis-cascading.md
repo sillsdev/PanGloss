@@ -1,11 +1,10 @@
-# 014 — Iterative epenthesis cascading is unimplemented
+# 014 — Iterative epenthesis cascading
 
 ## Kind
 Behavioural.
 
 ## Status
-Open. This is the most significant *currently unfixed, known* behavioural bug in the phonological
-rule engine.
+Fixed-in-rust.
 
 ## C# site
 `IterativePhonologicalPatternRule`, whose real semantics find one match, apply it (mutating the live
@@ -16,47 +15,37 @@ iterative cursor that never re-visits a position it has already advanced past.
 `pg_rules::rewrite::syn_epenthesis` (`rust/crates/pg-rules/src/rewrite.rs`).
 
 ## What differs
-`syn_epenthesis` collects every candidate site against **one unmutated snapshot** of the shape and
-splices all accepted sites in unconditionally, regardless of the rule's declared `RewriteMode` — it
-is structurally `Simultaneous`-shaped even when a rule asks for `Iterative` semantics.
+The original two-epenthesis-rule claim was partly a porting error: the C# last reconfiguration's
+feature-rule LHS had been dropped, and restoring that `<PhoneticInput>` makes
+`epenthesis_rules_iterative_cascade_finding` pass even with the old Rust epenthesis loop.
 
-Concretely, on `RewriteRuleTests.EpenthesisRules`' last reconfiguration (two bare `Iterative`-mode
-rules composed in one stratum): `m.parse_word("butubu")` returns empty against the C# oracle's
-`{"25"}` (re-verified directly against `dotnet test`). Root cause: on root 25's shape, `rule1` alone
-produces two insertions correctly, but `rule2`'s `[V]_[V]` environment then finds **three** separate
-V-V adjacencies in the resulting 7-segment intermediate shape (each of `rule1`'s freshly-inserted
-vowel nodes creates a new adjacent pair) and inserts at all three, producing a shape that no longer
-matches the expected surface — where C#'s true iterative cursor, which never re-visits an
-already-advanced-past position, would only accept a subset.
+The real divergence is the Iterative engine loop. C# finds one target on the live shape, inserts RHS
+nodes immediately after it, keeps freshly inserted nodes eligible because an empty LHS has no Clean
+filter, and resumes at the first inserted node without revisiting an advanced-past position. Rust
+now mirrors that cursor and retains the C# `Shape.Count == 256` runaway guard. The Simultaneous
+branch remains collect-all-then-apply against one unmutated snapshot.
 
 **Precise rule each side follows:** C# applies one match, then re-scans the mutated shape for the
 next one, for as many iterations as matches remain (each new match reflects earlier insertions). Rust
-computes all matches against the original shape once and applies all of them at once — equivalent to
-C#'s `Simultaneous` semantics, not `Iterative`.
+now does the same for `Iterative`; its `Simultaneous` branch still computes all matches against the
+original shape once and applies them at once.
 
 ## Can it change a parse?
-Yes, and does today: the cited case returns empty where C# returns `{"25"}` — this is a straight
-recall loss for any grammar with two or more cascading `Iterative` epenthesis rules in one stratum.
+Yes: the oracle-verified `iterative-epenthesis-cascade` fixture distinguishes the live cursor. It
+requires `uotaa -> BOTH|uotaa`, `uotaata -> OVER|uotaata`, and `uotatata -> no parse`.
 
 ## Evidence
-`csharp_port_rewrite.rs::epenthesis_rules_iterative_cascade_finding` is deliberately `#[ignore]`d,
-split out from the rest of `epenthesis_rules` (entries 011/012/013) precisely so those fixes could
-ship without regressing on this unresolved case. `docs/hermitcrab-rust-port-audit.md` §3a records
-this as item 6 of the original squash-copy gap list, root cause "narrowed to two candidate
-mechanisms" at the time, now narrowed further and stated definitively above.
-`docs/hermitcrab-rust-port-audit.md` also separately flags `syn_epenthesis` as "structurally
-Simultaneous-shaped regardless of a rule's declared Iterative mode" — the same root cause described
-here from a different discovery path (two cascading Iterative epenthesis rules over-fire relative to
-C#'s true cursor walk).
+The corrected port pin is `csharp_port_rewrite.rs::epenthesis_rules_iterative_cascade_finding`.
+The cursor pin is `csharp_port_rewrite.rs::epenthesis_rules_iterative_rtl_self_feeds_until_cap`,
+which expects the C# `InfiniteLoopException` message. The oracle pin is the upstream fixture
+`machine/conformance/edge-cases/iterative-epenthesis-cascade` (red on the old engine and on a first
+cursor attempt that let the left context reach back across the cursor); its siblings
+`discontinuous-morph-environment`, `simultaneous-feeding`, and
+`simultaneous-feeding-control-iterative` pin entries 006 and 016 through the same conformance gate.
 
 ## Upstream
-None, not applicable — this is a genuine Rust-side capability gap; C#'s iterative cursor is correct
-and is the target to converge on.
+None, not applicable — C#'s iterative cursor is the reference behavior and Rust now follows it.
 
 ## Notes
-Deliberately not fixed at time of discovery: making `syn_epenthesis` faithfully iterative is
-described in its own source as "a substantially larger, separate rewrite of the epenthesis synthesis
-path that every other epenthesis reconfiguration in this file depends on," with real risk of
-regressing the sub-cases that do pass (entries 011-013). Anyone picking this up should budget for a
-rewrite of the synthesis-side epenthesis site-collection loop from "collect all, splice all" to
-"find one, apply, re-scan," not a local patch.
+The Iterative cursor resumes at the first inserted node, while failed matches advance past their
+target. The Simultaneous path remains snapshot-based for entry 016 and `sim_feature` parity.

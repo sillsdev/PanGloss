@@ -31,8 +31,11 @@ for any grammar using `Simultaneous` mode over overlapping matches. Not reachabl
 has real, distinct semantics.
 
 ## Evidence
-Oracle-verified via the `rewrite/simultaneous-feeding`/`rewrite/simultaneous-feeding-control-iterative`
-conformance fixtures (both oracle-diffed, not HC-Rust-only).
+`machine/conformance/edge-cases/simultaneous-feeding/` and
+`simultaneous-feeding-control-iterative/` (oracle-verified 2026-09-16): byte-identical grammars
+except `multipleApplicationOrder`; `gigugu` parses only under simultaneous application and `gigugi`
+only under iterative. Proven discriminating by loading `simultaneous` as `Iterative`: HC-Rust then
+drops `gigugu`. The v1 fixtures this entry used to cite died with the v1 layout; these replace them.
 
 ## Upstream
 None, not applicable — closed capability gap; C# was already correct.

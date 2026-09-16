@@ -52,7 +52,8 @@ fn memo_on_and_off_agree_on_every_fixture_word() {
             continue;
         }
         let words_yaml = fixture.load_words_yaml();
-        if words_yaml.words.is_empty() {
+        // An expect_crash fixture aborts the parse on both sides, so there is no identity set to compare.
+        if words_yaml.words.is_empty() || words_yaml.skip_in_generic_replay().is_some() {
             continue;
         }
         let label = fixture.label();

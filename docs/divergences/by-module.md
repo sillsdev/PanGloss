@@ -60,7 +60,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/rewrite.rs` (`ana_feature`) | 009, 015 |
 | `pg-parse/src/root_trie.rs` (`RootAllomorphIndex::search`, `RootAllomorphTrie::build`) | 009, 019 |
 | `pg-grammar/src/chardef.rs` (`unif_closure`/`unifiable_cds`) | 010 |
-| `pg-rules/src/rewrite.rs` (`syn_epenthesis`) | 011, 013, 014 |
+| `pg-rules/src/rewrite.rs` (`syn_epenthesis`, `ana_epenthesis`) | 011, 013, 014 |
 | `pg-rules/src/rewrite.rs` (`compile_lane_fst`) | 012 |
 | `pg-rules/src/rewrite.rs` (`compile_lane_fst_grouped`) | 015 |
 | `pg-rules/src/rewrite.rs` (`sim_feature`) | 016 |
@@ -94,11 +94,12 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/tests/analysis_syn_fs_gate.rs` | 001 |
 | `pg-parse/tests/exact_analysis_fs_recall.rs` | 002 |
 | `csharp_port_compounding.rs` | 003, 004, 005 |
-| _(none -- 006 is unpinned)_ | 006 |
+| `machine/conformance/edge-cases/discontinuous-morph-environment/` | 006 |
 | `csharp_port_affix_process.rs` | 007, 008 |
 | `csharp_port_rewrite.rs` | 009, 010, 013, 014, 015 |
+| `machine/conformance/edge-cases/iterative-epenthesis-cascade/` | 014 |
 | `pg-rules/tests/rewrite_gate.rs` | 011, 012 |
-| _(none -- 016 is unpinned)_ | 016 |
+| `machine/conformance/edge-cases/simultaneous-feeding/`, `simultaneous-feeding-control-iterative/` | 016 |
 | `pg-rules/tests/memo_gate.rs`, `unapplied_rule_counts_reader_gate.rs` | 024 |
 | `pg-parse/src/guess.rs` unit tests | 027 |
 | `parity_divergence_census.rs` | 028 |

@@ -404,15 +404,12 @@ fn epenthesis_rules() {
     assert_morphs_eq(&m7.parse_word("biiibuii"), &["18"]);
 }
 
-/// Ports `RewriteRuleTests.EpenthesisRules`' last reconfiguration (cs:1370-1394): two `Iterative`-mode rules composed in one stratum, root "25" expected surface "butubu".
-/// Open: `syn_epenthesis` is structurally Simultaneous-shaped regardless of declared mode, so composing two Iterative rules over-fires; full trace docs/research/csharp-port-rewrite-divergences.md.
+/// Keeps the C# last reconfiguration live after restoring its dropped feature-rule LHS; this is not the cursor regression pin.
 #[test]
-#[ignore = "syn_epenthesis is structurally Simultaneous-shaped regardless of a rule's declared \
-            Iterative mode, so composing two Iterative epenthesis rules over-fires relative to \
-            C#'s true iterative cursor walk; see docs/research/csharp-port-rewrite-divergences.md."]
 fn epenthesis_rules_iterative_cascade_finding() {
     let g9 = build_grammar(
         r#"<PhonologicalRule id="pr4"><Name>rule4</Name>
+             <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticInput>
              <PhonologicalSubrules><PhonologicalSubrule>
                <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncBackRnd" /></PhoneticSequence></PhoneticOutput>
                <Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBackRndV" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment>
@@ -434,6 +431,27 @@ fn epenthesis_rules_iterative_cascade_finding() {
     );
     let m9 = Morpher::new(&g9, usize::MAX);
     assert_morphs_eq(&m9.parse_word("butubu"), &["25"]);
+}
+
+/// Pins C#'s right-to-left Iterative epenthesis self-feed and its 256-node safety cap.
+#[test]
+#[should_panic(expected = "stuck in an infinite loop")]
+fn epenthesis_rules_iterative_rtl_self_feeds_until_cap() {
+    let g = build_grammar(
+        r#"<PhonologicalRule id="pr4" multipleApplicationOrder="rightToLeftIterative"><Name>rule4</Name>
+             <PhonologicalSubrules><PhonologicalSubrule>
+               <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncHfuV" /></PhoneticSequence></PhoneticOutput>
+               <Environment><LeftEnvironment><PhoneticTemplate initialBoundaryCondition="true" /></LeftEnvironment></Environment>
+             </PhonologicalSubrule></PhonologicalSubrules>
+           </PhonologicalRule>"#,
+        "pr4",
+        "",
+        "",
+        "",
+    );
+    let m = Morpher::new(&g, usize::MAX);
+    let outcome = m.parse_word("ipʰit");
+    assert_morphs_eq(&outcome, &["1"]);
 }
 
 /// Ports `RewriteRuleTests.DeletionRules` (cs:1345-1559) reconfigurations 5-7 (the two-rules negative case); reconfigurations 1-4 are `deletion_rules_multi_position_reinsertion`.
