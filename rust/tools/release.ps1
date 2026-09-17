@@ -156,10 +156,21 @@ git -C $repoRoot commit -m "release: v$Version$skipNote"
 git -C $repoRoot tag -a "v$Version" -m "PanGloss v$Version$skipNote"
 
 # --- artifact -------------------------------------------------------------------------------
-$artifactExit = Invoke-GatedPg -PgArgs @{ Mode = 'release'; MaxConcurrent = $MaxConcurrent } -SuccessPattern '(?m)^\s*Finished `.*` profile'
+
+# The export line, not just cargo's: -Mode release exits 28 when it compiled but had nothing to copy out.
+$artifactExit = Invoke-GatedPg -PgArgs @{ Mode = 'release'; MaxConcurrent = $MaxConcurrent } -SuccessPattern '(?m)^\[pg\] release artifact: '
 if ($artifactExit -ne 0) { Write-Host '[release] artifact build failed AFTER tagging -- fix and re-run -Mode release; the tag itself is sound'; exit 33 }
 
+$distDir = Join-Path $repoRoot "dist\v$Version"
+$artifacts = @(Get-ChildItem $distDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -ne '.sha256' })
+if ($artifacts.Count -eq 0) {
+    Write-Host "[release] -Mode release reported success but $distDir holds no binary -- refusing to call this release complete."
+    exit 33
+}
+
 Write-Host ''
-Write-Host "[release] v$Version tagged. Publishing stays manual:"
+Write-Host "[release] v$Version tagged. Artifacts (outside every reclaimable target dir):"
+foreach ($a in $artifacts) { Write-Host "    $($a.FullName)  ($([math]::Round($a.Length / 1MB, 1)) MB, sha256 in $($a.Name).sha256)" }
+Write-Host '[release] Publishing stays manual:'
 Write-Host "    git push origin HEAD --follow-tags"
 exit 0

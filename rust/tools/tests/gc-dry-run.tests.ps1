@@ -28,17 +28,18 @@ function New-FakeTarget {
 }
 
 $dirUnknown = New-FakeTarget -Root $root -Name 'dir-unknown' -Marker $null
-$dirPreserved = New-FakeTarget -Root $root -Name 'dir-preserved' -Marker @{
+# Schema 1 with the retired flag still set: it must now classify by worktree liveness like any other.
+$dirLegacyFlag = New-FakeTarget -Root $root -Name 'dir-legacy-flag' -Marker @{
     schema_version = 1; repository_id = 'REPO1'; worktree_path = 'C:\wt'; created_utc = 'x'; last_used_utc = 'x'; preserved = $true
 }
 $dirLive = New-FakeTarget -Root $root -Name 'dir-live' -Marker @{
-    schema_version = 1; repository_id = 'REPO1'; worktree_path = 'C:\wt'; created_utc = 'x'; last_used_utc = 'x'; preserved = $false
+    schema_version = 2; repository_id = 'REPO1'; worktree_path = 'C:\wt'; created_utc = 'x'; last_used_utc = 'x'
 }
 $dirDisposable = New-FakeTarget -Root $root -Name 'dir-disposable' -Marker @{
-    schema_version = 1; repository_id = 'REPO1'; worktree_path = 'C:\wt'; created_utc = 'x'; last_used_utc = 'x'; preserved = $false
+    schema_version = 2; repository_id = 'REPO1'; worktree_path = 'C:\wt'; created_utc = 'x'; last_used_utc = 'x'
 }
 $dirOtherRepo = New-FakeTarget -Root $root -Name 'dir-other-repo' -Marker @{
-    schema_version = 1; repository_id = 'REPO2'; worktree_path = 'C:\wt2'; created_utc = 'x'; last_used_utc = 'x'; preserved = $false
+    schema_version = 2; repository_id = 'REPO2'; worktree_path = 'C:\wt2'; created_utc = 'x'; last_used_utc = 'x'
 }
 # The shared compiler-cache directory, never a target dir; must be skipped by name despite having no marker.
 $sccacheDir = Join-Path $root 'sccache'
@@ -50,14 +51,18 @@ function Get-Class { param($Path) ($classification | Where-Object { $_.Path -eq 
 Test-Case 'an unmarked directory classifies as unknown' {
     Assert-Equal 'unknown' (Get-Class $dirUnknown)
 }
-Test-Case 'a marker with preserved=true classifies as preserved' {
-    Assert-Equal 'preserved' (Get-Class $dirPreserved)
+Test-Case 'a stale preserved=true from a schema-1 marker no longer shields anything' {
+    # It shielded 16 research caches (~110 GB) holding no deliverable, while gc deleted the one that did.
+    Assert-Equal 'disposable' (Get-Class $dirLegacyFlag)
 }
-Test-Case 'a non-preserved marker whose slug is a live worktree classifies as live' {
+Test-Case 'a marker whose slug is a live worktree classifies as live' {
     Assert-Equal 'live' (Get-Class $dirLive)
 }
-Test-Case 'a non-preserved marker whose slug is NOT a live worktree classifies as disposable' {
+Test-Case 'a marker whose slug is NOT a live worktree classifies as disposable' {
     Assert-Equal 'disposable' (Get-Class $dirDisposable)
+}
+Test-Case 'no directory can classify as preserved any more -- the class is gone, not merely unused' {
+    Assert-Equal 0 @($classification | Where-Object { $_.Class -eq 'preserved' }).Count
 }
 Test-Case 'a marker naming a different repository_id classifies as other-repo' {
     Assert-Equal 'other-repo' (Get-Class $dirOtherRepo)
@@ -66,7 +71,7 @@ Test-Case 'the shared sccache directory is never classified at all (not a target
     Assert-True ($null -eq (Get-Class $sccacheDir))
 }
 Test-Case 'classification itself never deletes anything' {
-    foreach ($d in @($dirUnknown, $dirPreserved, $dirLive, $dirDisposable, $dirOtherRepo, $sccacheDir)) {
+    foreach ($d in @($dirUnknown, $dirLegacyFlag, $dirLive, $dirDisposable, $dirOtherRepo, $sccacheDir)) {
         Assert-True (Test-Path $d) "classification must not have deleted $d"
     }
 }
@@ -75,7 +80,7 @@ Test-Case 'dry run (-Apply not passed) deletes nothing, regardless of class' {
     $r = Invoke-TargetGc -Classification $classification -Apply:$false -Roots @($root)
     Assert-True $r.Skipped
     Assert-Equal 0 $r.Deleted.Count
-    foreach ($d in @($dirUnknown, $dirPreserved, $dirLive, $dirDisposable, $dirOtherRepo)) {
+    foreach ($d in @($dirUnknown, $dirLegacyFlag, $dirLive, $dirDisposable, $dirOtherRepo)) {
         Assert-True (Test-Path $d) "dry run must not have deleted $d"
     }
 }
@@ -83,7 +88,7 @@ Test-Case 'dry run (-Apply not passed) deletes nothing, regardless of class' {
 Test-Case 'a busy process that claims no path cannot speak for any directory' {
     # Its own probe, so the shared fixtures stay intact for the ordering-independent cases below.
     $probe = New-FakeTarget -Root $root -Name 'claimless-probe' -Marker @{
-        schema_version = 1; repository_id = 'REPO1'; worktree_path = 'C:\wt'; created_utc = 'x'; last_used_utc = 'x'; preserved = $false
+        schema_version = 2; repository_id = 'REPO1'; worktree_path = 'C:\wt'; created_utc = 'x'; last_used_utc = 'x'
     }
     $fakeBusyProcess = [PSCustomObject]@{ ProcessId = 99999; Name = 'cargo.exe' }
     $classified = [PSCustomObject]@{ Path = $probe; Class = 'disposable'; SizeGB = 0 }
@@ -136,14 +141,16 @@ Test-Case 'a recently written directory blocks itself, since CARGO_TARGET_DIR na
     Assert-True ($r.SkipReason -match 'last') "skip reason must name the recency: $($r.SkipReason)"
 }
 
-Test-Case '-Apply with no busy processes deletes ONLY the disposable directory' {
+Test-Case '-Apply with no busy processes deletes ONLY the disposable directories' {
     $r = Invoke-TargetGc -Classification $classification -Apply:$true -BusyProcesses @() -Roots @($root)
     Assert-False $r.Skipped
-    Assert-Equal 1 $r.Deleted.Count
+    # Two, not one: the legacy-flag dir joined this class when `preserved` stopped being consulted.
+    Assert-Equal 2 $r.Deleted.Count
     Assert-Contains $r.Deleted $dirDisposable
+    Assert-Contains $r.Deleted $dirLegacyFlag
     Assert-False (Test-Path $dirDisposable) 'the disposable directory must actually be removed'
     Assert-True (Test-Path $dirUnknown) 'unknown must survive -Apply'
-    Assert-True (Test-Path $dirPreserved) 'preserved must survive -Apply'
+    Assert-False (Test-Path $dirLegacyFlag) 'a schema-1 dir with the retired flag and a dead worktree must now be reclaimed, not shielded'
     Assert-True (Test-Path $dirLive) 'live must survive -Apply'
     Assert-True (Test-Path $dirOtherRepo) 'other-repo must survive -Apply'
 }

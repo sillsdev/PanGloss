@@ -53,9 +53,10 @@
                   printed. -Scope local needs no submodule, so it skips that init entirely.
                   `test` and `corpus-test` claim `all` explicitly and print it too.
     release       cargo build --release -- the actual fat-LTO deliverable profile, for optimized
-                  binaries and production-equivalent perf measurements. Marks the target dir's
-                  ownership marker `preserved` on success so a dry-run gc reports it rather than
-                  offering to delete it.
+                  binaries and production-equivalent perf measurements. On success it COPIES the
+                  binaries out to dist/v<version>/ with a .sha256 beside each, and exits 28 if the
+                  build produced nothing to copy: the target dir is a cache gc may reclaim, so a
+                  deliverable left only there is not a deliverable.
     doctor        prints the preflight record and exits non-zero on an unsafe/incomplete
                   environment -- including the `machine` conformance-submodule state (attempts the
                   same auto-init test/corpus-test do, since it's cheap and idempotent once already
@@ -65,7 +66,7 @@
                   (without failing on) any Resource-Exhaustion-Detector history from the last 7
                   days -- see Get-ResourceExhaustionEvents in _common.ps1.
     gc            reports (dry-run, the default) or removes (-Apply) managed target directories
-                  this repository owns and no longer needs. Never touches an unmarked, preserved,
+                  this repository owns and no longer needs. Never touches an unmarked, other-repo,
                   or still-live directory -- see Get-TargetClassification/Invoke-TargetGc in
                   _common.ps1.
     run           runs an arbitrary PanGloss binary -- an example, a workspace bin, or an
@@ -910,7 +911,7 @@ try {
     $freeAfter = if ($targetDir) { Get-FreeSpaceGB $targetDir } else { $null }
     if ($null -ne $freeAfter -and $freeAfter -lt 15) {
         Write-Host "[pg] WARNING: only ${freeAfter}GB free on the target drive after this run." -ForegroundColor Red
-        Write-Host '[pg] Recover with: pg.ps1 -Mode gc (dry run, then -Apply). It only removes target dirs this repository owns and never touches an unmarked, preserved, or still-live one.' -ForegroundColor Yellow
+        Write-Host '[pg] Recover with: pg.ps1 -Mode gc (dry run, then -Apply). It only removes target dirs this repository owns and never touches an unmarked, other-repo, or still-live one.' -ForegroundColor Yellow
         Write-Host '[pg] If that frees little, the space is likely a LOCAL rust/target from a bare-cargo run, which sits on the system drive because it bypassed target-dir redirection.' -ForegroundColor Yellow
     }
 }
@@ -931,8 +932,22 @@ if ($code -eq 4 -and $Filter -and -not $TestTarget) {
 }
 
 if ($Mode -eq 'release' -and $code -eq 0 -and $targetDir) {
-    # A failed build never registers a release deliverable -- mark `preserved` only after cargo itself reports success.
-    Write-TargetOwnership -TargetDir $targetDir -RepositoryId $repoId -WorktreePath $repoRoot -Preserved | Out-Null
+    # A failed build has no deliverable to export, so this runs only after cargo itself reports success.
+    $version = Get-WorkspaceVersion -RustRoot $rustRoot
+    if (-not $version) {
+        Write-Host '[pg] release: could not read the workspace version from rust/Cargo.toml -- the binary is NOT exported and stays only in the target dir, which gc may reclaim.' -ForegroundColor Red
+        $code = $script:ExitCodeReleaseArtifactNotExported
+    } else {
+        $export = Export-ReleaseArtifact -TargetDir $targetDir -RepoRoot $repoRoot -Version $version
+        if (-not $export.Ok) {
+            Write-Host "[pg] release: $($export.Detail) -- nothing exported. A release build that produces no binary is a failure, not a pass." -ForegroundColor Red
+            $code = $script:ExitCodeReleaseArtifactNotExported
+        } else {
+            foreach ($e in $export.Exported) {
+                Write-Host "[pg] release artifact: $($e.Path) ($($e.SizeMB) MB, sha256 $($e.Sha256))" -ForegroundColor Green
+            }
+        }
+    }
 }
 
 exit $code

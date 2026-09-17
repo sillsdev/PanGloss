@@ -306,7 +306,14 @@ built to fail in the conservative direction. If you touch any of it, keep that p
   produced object files; an orphaned `find` has produced a closed pipe. `rust/tools/tests/
   orphan-reaping.tests.ps1` asserts that no Rust build binary can be selected by the scan sweep at
   any age or CPU.
-- **`gc` never deletes a target dir whose worktree still exists**, is unmarked, or is preserved.
+- **`gc` never deletes a target dir whose worktree still exists**, is unmarked, or belongs to another
+  repository. It has no way to spare one that is none of those, and deliberately so: a target dir is
+  a cache, and `-Mode release` copies the binaries out to `dist/v<version>/` (each with a `.sha256`)
+  so nothing worth keeping is left where gc can reclaim it. A `preserved` flag used to exist here,
+  set on any target dir a release build had ever touched and never cleared. It shielded 16 research
+  caches holding no deliverable (~110 GB) and failed to shield the one binary that mattered, because
+  that build ran in a worktree whose marker predated the flag; gc deleted v0.3.0's own artifact. The
+  lesson generalizes past gc: **protect the file, not the directory it happened to be built in.**
 - **The build-slot semaphore and job budget are machine-wide conventions**, not per-invocation
   guarantees — `Get-CargoJobBudget` divides by `MaxConcurrent` precisely so two worktrees building
   at once still leave the interactive reserve free.

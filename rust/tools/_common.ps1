@@ -31,12 +31,16 @@
   worktree SLUG (leaf directory name) rather than an absolute path or repository identity, because
   cache roots are shared across independent clones. A marker naming a different repository_id is
   refused rather than silently adopted, since reusing it would mix build artifacts across repos.
-  `preserved` is monotonic once set (an explicit release deliverable) -- an ordinary build/test call
-  never clears it. Get-TargetClassification sorts every managed target dir under the configured
-  roots into exactly one of five classes -- unknown (no marker), other-repo, preserved, live (marker's
-  worktree still exists), disposable (this repo's, not preserved, worktree gone) -- and
-  Invoke-TargetGc (`pg.ps1 -Mode gc -Apply`) ever deletes only the last one, and only when no
-  cargo/rustc/link/sccache process is running anywhere on the machine.
+  Get-TargetClassification sorts every managed target dir under the configured roots into exactly one
+  of four classes -- unknown (no marker), other-repo, live (marker's worktree still exists),
+  disposable (this repo's, worktree gone) -- and Invoke-TargetGc (`pg.ps1 -Mode gc -Apply`) ever
+  deletes only the last one, and only when no cargo/rustc/link/sccache process is running anywhere on
+  the machine. A target dir is a CACHE and carries no deliverable: `-Mode release` copies the binary
+  out to dist/ (Export-ReleaseArtifact) precisely so nothing here has to survive its worktree.
+  There was a fifth class, `preserved`, set on any target dir a release build had ever touched and
+  never cleared. It protected 16 research caches (~110 GB) that held nothing, and did not protect the
+  one v0.3.0 binary that mattered, because that build ran in a worktree whose marker predated the
+  flag. Export the file; let the cache be a cache.
 
   Preflight exit codes (10-19), one per distinct failure so a caller can branch without parsing text:
   10 wrong worktree base, 11 missing corpus file, 12 low disk, 13 sccache unavailable, 14 bad target
@@ -1724,6 +1728,8 @@ $script:ExitCodeOracleUnavailable = 25
 $script:ExitCodeOracleDivergence = 26
 # Wait-ManagedProcessTree declared $Process (procgov, or the bare exe without it) wedged: alive, tree idle past the bound.
 $script:ExitCodeManagedProcessWedged = 27
+# -Mode release compiled but produced nothing exportable: the deliverable exists only in a reclaimable cache, so the build is not a pass.
+$script:ExitCodeReleaseArtifactNotExported = 28
 
 function Get-FilterZeroMatchHint {
     <#
@@ -1908,8 +1914,7 @@ function Write-TargetOwnership {
     param(
         [Parameter(Mandatory)][string]$TargetDir,
         [Parameter(Mandatory)][string]$RepositoryId,
-        [Parameter(Mandatory)][string]$WorktreePath,
-        [switch]$Preserved
+        [Parameter(Mandatory)][string]$WorktreePath
     )
     $path = Get-TargetOwnershipPath -TargetDir $TargetDir
     $createdUtc = (Get-Date).ToUniversalTime().ToString('o')
@@ -1929,17 +1934,13 @@ function Write-TargetOwnership {
         # created_utc survives every rewrite: it is the target dir's age, not this invocation's start time.
         if ($existing -and $existing.created_utc) { $createdUtc = $existing.created_utc }
     }
-    # $isPreserved, not $preserved: PowerShell variable names are case-insensitive, colliding with the -Preserved switch above.
-    $isPreserved = $false
-    if ($Preserved) { $isPreserved = $true }
-    if ($existing -and $existing.preserved) { $isPreserved = $true }
+    # schema 2 drops `preserved`; a marker written by schema 1 still classifies, its stale flag simply ignored.
     $marker = [ordered]@{
-        schema_version = 1
+        schema_version = 2
         repository_id  = $RepositoryId
         worktree_path  = $WorktreePath
         created_utc    = $createdUtc
         last_used_utc  = (Get-Date).ToUniversalTime().ToString('o')
-        preserved      = $isPreserved
     }
     ($marker | ConvertTo-Json -Depth 4) | Set-Content -Path $path -Encoding utf8
     return [PSCustomObject]@{ Ok = $true; Detail = 'ownership marker written'; Path = $path }
@@ -2597,6 +2598,58 @@ function Write-Preflight {
 
 # --- gc: marker-aware classification + the actual (side-effecting) deletion step, kept separate. ---
 
+function Export-ReleaseArtifact {
+    <#
+      .DESCRIPTION
+      Copies a successful release build's binaries OUT of the target dir into
+      `dist/v<version>/`, each beside a `.sha256` file, and returns one row per binary. This is what
+      replaced the gc `preserved` flag: a cache that must survive is a contradiction, and the flag
+      both over-protected (16 research caches, ~110 GB) and under-protected (v0.3.0's own binary was
+      deleted by gc, because its worktree's marker predated the flag).
+
+      REFUSES rather than reporting success when the release profile produced no binary at all: an
+      export that copied nothing must not read as an export. A binary the build did not refresh is
+      still copied -- cargo skips relinking an up-to-date target, so requiring a new mtime here would
+      refuse exactly the reproducible rebuild this is most useful for.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$TargetDir,
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$Version,
+        [string[]]$BinaryNames = @('pangloss.exe', 'pangloss')
+    )
+    $releaseDir = Join-Path $TargetDir 'release'
+    $found = @()
+    foreach ($name in $BinaryNames) {
+        $candidate = Join-Path $releaseDir $name
+        if (Test-Path $candidate) { $found += (Get-Item $candidate) }
+    }
+    if ($found.Count -eq 0) {
+        return [PSCustomObject]@{ Ok = $false; Detail = "no release binary under $releaseDir (looked for: $($BinaryNames -join ', '))"; Exported = @() }
+    }
+    $destDir = Join-Path (Join-Path $RepoRoot 'dist') "v$Version"
+    New-Item -ItemType Directory -Force -Path $destDir | Out-Null
+    $exported = @()
+    foreach ($bin in $found) {
+        $dest = Join-Path $destDir $bin.Name
+        Copy-Item -LiteralPath $bin.FullName -Destination $dest -Force
+        $hash = (Get-FileHash -LiteralPath $dest -Algorithm SHA256).Hash
+        Set-Content -Path "$dest.sha256" -Value "$hash  $($bin.Name)" -Encoding ascii
+        $exported += [PSCustomObject]@{ Path = $dest; SizeMB = [math]::Round((Get-Item $dest).Length / 1MB, 1); Sha256 = $hash }
+    }
+    return [PSCustomObject]@{ Ok = $true; Detail = "exported $($exported.Count) binary(ies) to $destDir"; Exported = $exported }
+}
+
+function Get-WorkspaceVersion {
+    # The [workspace.package] version release.ps1 stamps; every crate inherits it.
+    param([Parameter(Mandatory)][string]$RustRoot)
+    $toml = Join-Path $RustRoot 'Cargo.toml'
+    if (-not (Test-Path $toml)) { return $null }
+    $m = [regex]::Match((Get-Content $toml -Raw), '(?m)^version\s*=\s*"([^"]+)"')
+    if (-not $m.Success) { return $null }
+    return $m.Groups[1].Value
+}
+
 function Get-ManagedTargetDirs {
     # -Roots is a parameter so tests can point this at a temp dir instead of the real cache roots.
     param([Parameter(Mandatory)][string[]]$Roots)
@@ -2609,7 +2662,7 @@ function Get-ManagedTargetDirs {
 function Get-TargetClassification {
     <#
       .DESCRIPTION
-      Five classes -- unknown, other-repo, preserved, live, disposable -- documented in this file's
+      Four classes -- unknown, other-repo, live, disposable -- documented in this file's
       own header; only `disposable` is ever a candidate for deletion. -LiveSlugs is a parameter
       (default calls the real Get-LiveWorktreeSlugs) so tests can inject a fixed slug list instead of
       depending on this checkout's actual `git worktree list` output.
@@ -2638,15 +2691,11 @@ function Get-TargetClassification {
             $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'other-repo'; SizeGB = $sizeGB; Detail = "owned by a different repository ($($marker.repository_id))" }
             continue
         }
-        if ($marker.preserved) {
-            $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'preserved'; SizeGB = $sizeGB; Detail = 'explicitly preserved (release deliverable)' }
-            continue
-        }
         if ($LiveSlugs -contains $d.Name) {
             $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'live'; SizeGB = $sizeGB; Detail = 'worktree still exists in `git worktree list`' }
             continue
         }
-        $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'disposable'; SizeGB = $sizeGB; Detail = 'owned by this repository, not preserved, worktree no longer exists' }
+        $out += [PSCustomObject]@{ Path = $d.FullName; Class = 'disposable'; SizeGB = $sizeGB; Detail = 'owned by this repository, worktree no longer exists (a release binary from it lives in dist/, not here)' }
     }
     return $out
 }
