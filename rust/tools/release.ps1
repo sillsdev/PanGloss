@@ -46,6 +46,8 @@ $toolRoot = $PSScriptRoot
 $repoRoot = (Resolve-Path (Join-Path $toolRoot '..\..')).Path
 $cargoToml = Join-Path $repoRoot 'rust\Cargo.toml'
 $changelog = Join-Path $repoRoot 'CHANGELOG.md'
+# Gates that ran but could not judge (absent oracle); recorded in the tag alongside -SkipGate, kept apart because -SkipGate is validated.
+$gateNotes = @()
 
 function Write-Gate([string]$name, [string]$state) { Write-Host ("[release] gate {0,-8} {1}" -f $name, $state) }
 
@@ -110,7 +112,7 @@ else {
     if ($oracleExit -eq 25) {
         # Exe-not-found is the absent-tool case, not a divergence: warn loudly, record, continue.
         Write-Gate 'oracle' 'UNAVAILABLE on this machine (exe not found) -- recorded, not treated as passed'
-        $SkipGate = @($SkipGate) + 'oracle-unavailable'
+        $gateNotes += 'oracle-unavailable'
     }
     elseif ($oracleExit -ne 0) { Write-Gate 'oracle' "REFUSED -- oracle-conformance exited $oracleExit"; exit 34 }
     else { Write-Gate 'oracle' 'green (no divergence outside baseline)' }
@@ -142,7 +144,8 @@ $checkExit = Invoke-GatedPg -PgArgs @{ Mode = 'check'; MaxConcurrent = $MaxConcu
 if ($checkExit -ne 0) { Write-Host '[release] post-stamp check failed; version stamp left in tree for inspection'; exit 33 }
 
 git -C $repoRoot add rust/Cargo.toml rust/Cargo.lock CHANGELOG.md
-$skipNote = if ($SkipGate) { "`n`nGates skipped or unavailable: $($SkipGate -join ', ')" } else { '' }
+$recorded = @($SkipGate) + @($gateNotes)
+$skipNote = if ($recorded) { "`n`nGates skipped or unavailable: $($recorded -join ', ')" } else { '' }
 git -C $repoRoot commit -m "release: v$Version$skipNote"
 git -C $repoRoot tag -a "v$Version" -m "PanGloss v$Version$skipNote"
 

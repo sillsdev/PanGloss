@@ -292,6 +292,17 @@ function Get-Baseline {
     return $map
 }
 
+function Test-DeclaredForwardSynthesis {
+    # True when the fixture's words.yaml carries the PROTOCOL.md marker for expectations the oracle is known to lose.
+    param([string]$FixturesRoot, [string]$Fixture)
+    $words = Join-Path $FixturesRoot ($Fixture -replace '/', '\') | Join-Path -ChildPath 'words.yaml'
+    if (-not (Test-Path $words)) { return $false }
+    foreach ($line in (Get-Content $words -TotalCount 20)) {
+        if ($line -match '^\s*#\s*oracle-provenance:\s*forward-synthesis\b') { return $true }
+    }
+    return $false
+}
+
 function Test-SelfCheckRun {
     <#
       .DESCRIPTION
@@ -322,10 +333,16 @@ function Test-SelfCheckRun {
     $fails = $results | Where-Object { $_.Status -eq 'FAIL' }
     $newDivergences = @()
     $baselined = @()
+    $declaredRed = @()
 
     foreach ($f in $fails) {
+        # PROTOCOL.md lets a fixture pin a forward-synthesized answer the oracle currently loses; it says so in words.yaml and is red against hc.dll by design, in either root.
+        if (Test-DeclaredForwardSynthesis -FixturesRoot $FixturesRoot -Fixture $f.Fixture) {
+            $declaredRed += $f
+            continue
+        }
         if ($ExpectCleanBaseline) {
-            # machine/conformance is already C#-authored ground truth, so no fail there is ever baselined.
+            # machine/conformance is C#-authored: every observed-provenance fixture there must pass its own oracle.
             $newDivergences += $f
             continue
         }
@@ -333,6 +350,14 @@ function Test-SelfCheckRun {
             $baselined += $f
         } else {
             $newDivergences += $f
+        }
+    }
+
+    if ($declaredRed.Count -gt 0) {
+        Write-Host ""
+        Write-Host "[oracle-conformance] $($declaredRed.Count) fixture(s) under $RootLabel declare '# oracle-provenance: forward-synthesis' and are red against hc.dll by design -- tolerated, not gating:" -ForegroundColor Yellow
+        foreach ($f in $declaredRed) {
+            Write-Host "  $($f.Fixture): [declared forward-synthesis] $($f.Reason)" -ForegroundColor Yellow
         }
     }
 
@@ -391,7 +416,11 @@ if ($Scope -eq 'all') {
         exit $script:ExitCodeOracleUnavailable
     }
     $pinExe = Find-PinOracleExe -Explicit $PinExePath -PinCommit $pinCommit
-    if (-not $pinExe) { exit $script:ExitCodeOracleUnavailable }
+    if (-not $pinExe) {
+        # A divergence already found outranks a missing control exe; exiting 25 here would let a caller read it as merely unavailable.
+        if (-not $ok) { Write-Host '[oracle-conformance] FAILED: new divergence under conformance-staging (the control run was also unavailable).' -ForegroundColor Red; exit $script:ExitCodeOracleDivergence }
+        exit $script:ExitCodeOracleUnavailable
+    }
     Write-Host "[oracle-conformance] control exe (pin-matched, commit $pinCommit): $pinExe" -ForegroundColor Cyan
     $controlOk = Test-SelfCheckRun -ExePath $pinExe -FixturesRoot $machineConformanceRoot -RootLabel 'machine/conformance (control, upstream, pin-matched exe)' `
         -Baseline @{} -IncludePathological:$IncludePathological -Propose:$Propose -ExpectCleanBaseline
