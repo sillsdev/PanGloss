@@ -596,6 +596,18 @@ fn gated_backend_tag() -> String {
     format!("backend={}", GATED_BACKEND.label())
 }
 
+/// Derives the TunedSurface closure-work cap `size_mode` actually authorizes, from the shipped
+/// `ManagedV1` envelope's own `compile_limits` projection -- never a second, independently-guessed
+/// constant.
+pub(crate) fn tuned_closure_work_limit_for_mode(size_mode: CompileSizeMode) -> usize {
+    pg_foma::resource_envelope::ResourceEnvelope::for_id(
+        pg_foma::resource_envelope::ResourceEnvelopeId::ManagedV1,
+    )
+    .compile_limits(size_mode)
+    .backend
+    .tuned_surface_closure_work_cap
+}
+
 fn capability_gate(g: &Grammar, enforce: bool, allow_unproven: bool) -> GateResult {
     use pg_foma::capability::CompileDecision;
     let selection = pg_foma::backend_selection::select_backends_for_grammar(g);

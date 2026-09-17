@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use pg_foma::analyzer::FomaProposer;
-use pg_foma::backend_selection::select_backends;
+use pg_foma::backend_selection::select_backends_with_tuned_closure_work_limit;
 use pg_foma::capability::CompileDecision;
 use pg_foma::composite::FomaAnalyzer;
 use pg_foma::grammar_semantics::GrammarSemantics;
@@ -308,22 +308,37 @@ fn render_checks_table(checks: &[CheckResult], policy: &ThresholdPolicy) -> Stri
     out
 }
 
+/// Renders one finding's remedies as rank + description + caveat, the richer form both the FST-health and backend-assessment tables now share.
+fn render_remedies(remedies: &[pg_foma::health::Remedy]) -> String {
+    if remedies.is_empty() {
+        return "none".to_string();
+    }
+    remedies
+        .iter()
+        .map(|remedy| {
+            let caveat = remedy
+                .caveat
+                .as_deref()
+                .map(|text| format!(" (caveat: {})", markdown_cell(text)))
+                .unwrap_or_default();
+            format!(
+                "#{}: {}{}",
+                remedy.rank,
+                markdown_cell(&remedy.description),
+                caveat,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("<br>")
+}
+
 fn render_health_findings(health: Option<&HealthReport>) -> Option<String> {
     let report = health?;
     let mut out = String::new();
     writeln!(out, "| Severity | Code | Phase | Explanation | Remedies |").unwrap();
     writeln!(out, "|---|---|---|---|---|").unwrap();
     for finding in &report.findings {
-        let remedies = if finding.remedies.is_empty() {
-            "none".to_string()
-        } else {
-            finding
-                .remedies
-                .iter()
-                .map(|remedy| remedy.description.replace('|', "\\|").replace('\n', " "))
-                .collect::<Vec<_>>()
-                .join("<br>")
-        };
+        let remedies = render_remedies(&finding.remedies);
         writeln!(
             out,
             "| `{:?}` | `{}` | `{:?}` | {} | {} |",
@@ -408,10 +423,7 @@ fn render_backend_assessments(
                 .map(|evidence| {
                     markdown_cell(&format!(
                         "metric={:?}; value={:?}; threshold={:?}; provenance={:?}",
-                        evidence.metric,
-                        evidence.value,
-                        evidence.threshold,
-                        evidence.provenance,
+                        evidence.metric, evidence.value, evidence.threshold, evidence.provenance,
                     ))
                 })
                 .collect::<Vec<_>>()
@@ -425,28 +437,7 @@ fn render_backend_assessments(
             writeln!(out, "| Code | Severity | Explanation | Remedies |").unwrap();
             writeln!(out, "|---|---|---|---|").unwrap();
             for finding in &assessment.findings {
-                let remedies = if finding.remedies.is_empty() {
-                    "none".to_string()
-                } else {
-                    finding
-                        .remedies
-                        .iter()
-                        .map(|remedy| {
-                            let caveat = remedy
-                                .caveat
-                                .as_deref()
-                                .map(|text| format!(" (caveat: {})", markdown_cell(text)))
-                                .unwrap_or_default();
-                            format!(
-                                "#{}: {}{}",
-                                remedy.rank,
-                                markdown_cell(&remedy.description),
-                                caveat,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("<br>")
-                };
+                let remedies = render_remedies(&finding.remedies);
                 writeln!(
                     out,
                     "| `{}` | `{:?}` | {} | {} |",
@@ -679,6 +670,7 @@ fn render_markdown_with_assessments(
         .unwrap();
         writeln!(out).unwrap();
         if let Some(report) = fst_health {
+            // Backtick-wraps only the debug fmt, unlike `fst_health::render_admission_summary` -- not a candidate for that helper without changing this report's rendered markdown.
             writeln!(
                 out,
                 "Admission: `{:?}` ({})",
@@ -838,6 +830,7 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
             }
         }
     }
+    // Not `main.rs::resolve_compile_size_mode`: that fn's precondition needs an `Engine` this command never has -- `make-report` always compiles via Foma.
     #[cfg(feature = "developer-tools")]
     let size_mode = if remove_size_limits {
         CompileSizeMode::DeveloperStress
@@ -903,7 +896,10 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
 
     // One derivation, shared by every place this command needs the capability verdict, rather than three independent characterize walks over the same grammar.
     let semantics = GrammarSemantics::derive(&grammar);
-    let selection = select_backends(&semantics);
+    let selection = select_backends_with_tuned_closure_work_limit(
+        &semantics,
+        crate::tuned_closure_work_limit_for_mode(size_mode),
+    );
     let decision = crate::gated_backend_decision(&selection);
     let capability_overridden = capability_override_engaged(&decision, allow_unproven);
     let attempt_compile = matches!(
@@ -1357,7 +1353,10 @@ mod tests {
             .expect("assessment rendering must produce markdown");
         assert!(rendered.contains("Shapes: synthetic-shape"), "{rendered}");
         assert!(rendered.contains("Cost evidence:"), "{rendered}");
-        assert!(rendered.contains("metric=CompositeRulePairCount"), "{rendered}");
+        assert!(
+            rendered.contains("metric=CompositeRulePairCount"),
+            "{rendered}"
+        );
         assert!(rendered.contains("value=Count(42)"), "{rendered}");
         assert!(rendered.contains("threshold=Some(Count(10))"), "{rendered}");
         assert!(rendered.contains("provenance=ProvenBound"), "{rendered}");
@@ -1406,7 +1405,8 @@ mod tests {
     /// The FST health section must show the per-axis breakdown, not just the collapsed band.
     #[test]
     fn fst_health_section_shows_the_per_axis_breakdown() {
-        let (result, out_path) = run_make_report_raw("admission-axes", ADMIT_GRAMMAR_XML, &["--repeats=1"]);
+        let (result, out_path) =
+            run_make_report_raw("admission-axes", ADMIT_GRAMMAR_XML, &["--repeats=1"]);
         assert!(result.is_ok(), "{result:?}");
         let text = fs::read_to_string(&out_path).expect("read report.md");
         assert!(text.contains("## FST health findings"), "{text}");
@@ -1414,7 +1414,12 @@ mod tests {
             text.contains("Admission:") && text.contains("representability="),
             "expected an Admission line naming all four axes: {text}"
         );
-        for axis in ["representability=", "readiness=", "containment=", "process="] {
+        for axis in [
+            "representability=",
+            "readiness=",
+            "containment=",
+            "process=",
+        ] {
             assert!(text.contains(axis), "missing axis {axis:?}: {text}");
         }
     }
@@ -1595,7 +1600,10 @@ mod tests {
     fn admitted_current_grammar_never_engages_capability_override_for_supplied_pack() {
         let grammar = pg_grammar::load(ADMIT_GRAMMAR_XML).expect("admitted fixture loads");
         let semantics = GrammarSemantics::derive(&grammar);
-        let selection = select_backends(&semantics);
+        let selection = select_backends_with_tuned_closure_work_limit(
+            &semantics,
+            crate::tuned_closure_work_limit_for_mode(CompileSizeMode::Managed),
+        );
         let decision = crate::gated_backend_decision(&selection);
 
         assert!(!capability_override_engaged(&decision, true));

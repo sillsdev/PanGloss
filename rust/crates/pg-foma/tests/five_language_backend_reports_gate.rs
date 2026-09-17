@@ -112,18 +112,24 @@ fn assert_backend(
     );
 }
 
-fn assert_default_resource_no_path(selection: &BackendSelection) {
+fn assert_default_resource_path_via_tuned_surface(selection: &BackendSelection) {
     assert!(
-        selection.is_no_path(),
-        "expected no default path: {selection:?}"
+        !selection.is_no_path(),
+        "expected a default path admitted through TunedSurface: {selection:?}"
     );
-    assert_eq!(selection.preferred(), None);
-    assert!(selection.selected().is_empty());
+    assert_eq!(
+        selection.preferred(),
+        Some(EmissionStrategy::TunedSurfaceProbed)
+    );
+    assert_eq!(
+        selection.selected(),
+        vec![EmissionStrategy::TunedSurfaceProbed]
+    );
     assert_backend(
         selection,
         EmissionStrategy::TunedSurfaceProbed,
         BackendStatus::Accepted,
-        Severity::NotProductionReady,
+        Severity::LargeMultiplier,
         Some(FindingCode::ProvenBoundExceedsBudget),
         Some("tuned-surface-resource-envelope"),
     );
@@ -150,7 +156,7 @@ fn assert_default_resource_no_path(selection: &BackendSelection) {
 fn indonesian_backend_reports_are_complete() {
     let grammar = load_xml("indonesian-hc.xml");
     let selection = characterize("indonesian", &grammar);
-    assert_default_resource_no_path(&selection);
+    assert_default_resource_path_via_tuned_surface(&selection);
 
     let retry = select_backends_for_grammar_with_tuned_closure_work_limit(
         &grammar,
@@ -216,19 +222,19 @@ fn sena_backend_reports_are_complete() {
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn amharic_backend_reports_are_complete() {
     let selection = characterize("amharic", &load_xml("amharic-hc.xml"));
-    assert_default_resource_no_path(&selection);
+    assert_default_resource_path_via_tuned_surface(&selection);
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn aweti_backend_reports_are_complete() {
     let selection = characterize("aweti", &load_snapshot("aweti.json"));
-    assert_default_resource_no_path(&selection);
+    assert_default_resource_path_via_tuned_surface(&selection);
 }
 
 #[test]
 #[ignore = "needs local gitignored corpus data; run with --include-ignored"]
 fn mbugwe_backend_reports_are_complete() {
     let selection = characterize("mbugwe", &load_fwdata("mbugwe.fwdata"));
-    assert_default_resource_no_path(&selection);
+    assert_default_resource_path_via_tuned_surface(&selection);
 }

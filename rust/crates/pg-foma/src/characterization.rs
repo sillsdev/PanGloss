@@ -342,12 +342,9 @@ pub fn characterize_tuned_surface_closure(
         .expect("envelope emitter must retain closure evidence")
 }
 
-/// Backend-specific resource characterization for TunedSurface structural closure.
-///
-/// A returned finding is a proven lower bound above `limit`, so it is an operational `NotProductionReady`: a
-/// complete finite strategy remains known, but this envelope declines to start the expensive
-/// surface-emission pass. `None` means only that this particular proven bound did not exceed the
-/// envelope; it is not a completeness certificate or a prediction that construction will finish.
+/// Backend-specific resource ESTIMATE for TunedSurface structural closure, run before any real
+/// construction begins. A returned finding is a proven measured count above `limit` — an analysis
+/// of magnitude, not a refusal; `None` means only that this proven bound did not exceed `limit`.
 pub(crate) fn tuned_surface_resource_finding_with_limit(
     grammar: &Grammar,
     limit: usize,
@@ -391,7 +388,7 @@ pub(crate) fn tuned_surface_resource_finding_with_limit(
     let safety = "Don't make any change that would make your language invalid!".to_string();
     Some(HealthFinding {
         code: FindingCode::ProvenBoundExceedsBudget,
-        severity: Severity::NotProductionReady,
+        severity: Severity::LargeMultiplier,
         phase: Phase::Characterization,
         affected,
         metric: Metric::CompositeRulePairCount,
@@ -399,19 +396,20 @@ pub(crate) fn tuned_surface_resource_finding_with_limit(
         provenance: ValueProvenance::ProvenBound,
         threshold: Some(MetricValue::Count(limit as u64)),
         explanation: format!(
-            "TunedSurface must visit more than {limit} reachable root/chain-state x rule pairs to \
-             prove complete surface pre-expansion and structural closure. The characterization \
-             stopped after {visited} visits; surface pre-expansion saw {} root allomorphs and {} \
-             candidate rules, while structural closure saw {structural_roots} root allomorphs and \
-             {structural_rules} candidate rules. This is not an affix-depth complaint: the current \
-             TunedSurface operational envelope is too small, so this backend will not start \
-             construction or write a partial FST.",
+            "TunedSurface's reachable root/chain-state x rule-pair count has already passed \
+             {limit}, this stage's provisional reference figure, before surface pre-expansion and \
+             structural closure finished proving themselves complete: {visited} pairs visited so \
+             far (surface pre-expansion saw {} root allomorphs and {} candidate rules, structural \
+             closure saw {structural_roots} root allomorphs and {structural_rules} candidate \
+             rules). This is not an affix-depth complaint, and it is not a statement that this \
+             backend cannot be built: it is a magnitude estimate against a reference figure that \
+             real grammars have already exceeded well past this margin.",
             preexpand.root_allomorphs, preexpand.candidate_rules,
         ),
         remedies: vec![
             Remedy {
                 rank: 1,
-                description: "Retry TunedSurface from a clean state with a larger named closure-work envelope; success still requires the complete worklist to empty.".to_string(),
+                description: "Remove the internal construction caps entirely for a non-production, developer-stress attempt (--remove-size-limits): the only remaining bound is machine-health containment. This reference figure has already been wrong in the blocking direction on real grammars, so retrying with a bigger guessed number is the same mistake again; removing the cap is not.".to_string(),
                 requires_linguistic_equivalence: false,
                 caveat: None,
             },
@@ -439,6 +437,64 @@ pub fn tuned_surface_resource_finding(grammar: &Grammar) -> Option<HealthFinding
     )
 }
 
+/// The `(code, severity, provenance, remedy)` tuple for a non-`Complete` closure terminal.
+fn closure_terminal_finding_shape(
+    terminal: ClosureTerminal,
+) -> (FindingCode, Severity, ValueProvenance, &'static str) {
+    match terminal {
+        ClosureTerminal::Refused(ClosureStopReason::UnboundedTransition)
+        | ClosureTerminal::Refused(ClosureStopReason::UnsupportedTransition) => (
+            FindingCode::BackendCoverageIncomplete,
+            Severity::CannotRepresent,
+            ValueProvenance::Observed,
+            "Use the full morphological-parser engine or a backend that represents this construct with a finite/looping mechanism.",
+        ),
+        // Any other refusal reason is treated as a compiler fault, not a grammar verdict.
+        ClosureTerminal::Refused(_) => (
+            FindingCode::BackendCompilationFailed,
+            Severity::NotProductionReady,
+            ValueProvenance::Observed,
+            "Use the full morphological-parser engine and inspect the typed closure refusal.",
+        ),
+        ClosureTerminal::Incomplete(reason) => match reason {
+            ClosureStopReason::WorkBudgetReached => (
+                FindingCode::ResourceBudgetReached,
+                Severity::NotProductionReady,
+                ValueProvenance::Observed,
+                "TunedSurface stopped after its closure work budget was reached; rerun with --remove-size-limits (developer stress mode, not for production) to remove the internal construction caps, bounded only by machine-health containment, or use the full morphological-parser engine.",
+            ),
+            ClosureStopReason::DepthBudgetReached => (
+                FindingCode::ResourceBudgetReached,
+                Severity::NotProductionReady,
+                ValueProvenance::Observed,
+                "TunedSurface stopped after its closure depth budget was reached; rerun with --remove-size-limits (developer stress mode, not for production) to remove the internal construction caps, bounded only by machine-health containment, or use the full morphological-parser engine.",
+            ),
+            ClosureStopReason::EnumerationBudgetReached => (
+                FindingCode::ResourceBudgetReached,
+                Severity::NotProductionReady,
+                ValueProvenance::Observed,
+                "TunedSurface stopped after its closure enumeration budget was reached; rerun with --remove-size-limits (developer stress mode, not for production) to remove the internal construction caps, bounded only by machine-health containment, or use the full morphological-parser engine.",
+            ),
+            ClosureStopReason::ResourceBudgetReached => (
+                FindingCode::ResourceBudgetReached,
+                Severity::NotProductionReady,
+                ValueProvenance::Observed,
+                "TunedSurface stopped after its named resource envelope was reached; rerun with --remove-size-limits (developer stress mode, not for production) to remove the internal construction caps, bounded only by machine-health containment, or use the full morphological-parser engine.",
+            ),
+            // An Incomplete stop carrying a representability reason is treated as a compiler inconsistency, not a budget trip.
+            ClosureStopReason::UnboundedTransition
+            | ClosureStopReason::UnsupportedTransition
+            | ClosureStopReason::InternalConstructionFault => (
+                FindingCode::BackendCompilationFailed,
+                Severity::NotProductionReady,
+                ValueProvenance::Observed,
+                "Use the full morphological-parser engine and inspect the typed closure refusal.",
+            ),
+        },
+        ClosureTerminal::Complete => unreachable!(),
+    }
+}
+
 /// Characterize Tuned Surface under one selected, immutable product envelope snapshot.
 pub fn tuned_surface_resource_finding_for_envelope(
     grammar: &Grammar,
@@ -450,54 +506,7 @@ pub fn tuned_surface_resource_finding_for_envelope(
         return None;
     }
     let evidence = result.evidence;
-    let (code, severity, provenance, remedy) = match terminal {
-        ClosureTerminal::Refused(ClosureStopReason::UnboundedTransition)
-        | ClosureTerminal::Refused(ClosureStopReason::UnsupportedTransition) => (
-            FindingCode::BackendCoverageIncomplete,
-            Severity::CannotRepresent,
-            ValueProvenance::Observed,
-            "Use the full morphological-parser engine or a backend that represents this construct with a finite/looping mechanism.",
-        ),
-        // Containment-class refusals: a cost cap, never a representability gap.
-        ClosureTerminal::Refused(ClosureStopReason::WorkBudgetReached) => (
-            FindingCode::ResourceBudgetReached,
-            Severity::NotProductionReady,
-            ValueProvenance::Observed,
-            "TunedSurface refused after its closure work budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
-        ),
-        ClosureTerminal::Refused(ClosureStopReason::DepthBudgetReached) => (
-            FindingCode::ResourceBudgetReached,
-            Severity::NotProductionReady,
-            ValueProvenance::Observed,
-            "TunedSurface refused after its closure depth budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
-        ),
-        ClosureTerminal::Refused(ClosureStopReason::EnumerationBudgetReached) => (
-            FindingCode::ResourceBudgetReached,
-            Severity::NotProductionReady,
-            ValueProvenance::Observed,
-            "TunedSurface refused after its closure enumeration budget was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
-        ),
-        ClosureTerminal::Refused(ClosureStopReason::ResourceBudgetReached) => (
-            FindingCode::ResourceBudgetReached,
-            Severity::NotProductionReady,
-            ValueProvenance::Observed,
-            "TunedSurface refused after its named resource envelope was reached; retry with a larger named resource envelope or use the full morphological-parser engine.",
-        ),
-        // Not containment: the compiler itself may be broken, so the code stays distinct.
-        ClosureTerminal::Refused(ClosureStopReason::InternalConstructionFault) => (
-            FindingCode::BackendCompilationFailed,
-            Severity::NotProductionReady,
-            ValueProvenance::Observed,
-            "Use the full morphological-parser engine and inspect the typed closure refusal.",
-        ),
-        ClosureTerminal::Incomplete(_) => (
-            FindingCode::ResourceBudgetReached,
-            Severity::NotProductionReady,
-            ValueProvenance::Observed,
-            "Retry TunedSurface with a larger named resource envelope or use the full morphological-parser engine.",
-        ),
-        ClosureTerminal::Complete => unreachable!(),
-    };
+    let (code, severity, provenance, remedy) = closure_terminal_finding_shape(terminal);
     let metric = Metric::CompositeRulePairCount;
     let threshold = Some(MetricValue::Count(
         envelope.backend().tuned_surface_closure_work_cap as u64,
@@ -651,7 +660,7 @@ fn unbounded_quantifier_findings(profile: &CharacteristicsProfile) -> Vec<Health
         .collect()
 }
 
-/// Bounded-product case for `MorphRuleOrder::Unordered` strata: `within_bound == false` means the exact rule count is already proven to exceed `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, so this is `ProvenBound`/`NotProductionReady` (a containment cap, not a representability gap; matches `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm).
+/// Bounded-product case for `MorphRuleOrder::Unordered` strata: `within_bound == false` means the exact rule count is already proven to exceed `DEFAULT_ORDERING_MULTIPLICITY_BUDGET`, so this is `ProvenBound`/`NotProductionReady` (a self-imposed construction-budget cap, Readiness-class rather than a representability gap; matches `crate::health_evaluator::compose_error_finding`'s `OrderingMultiplicityExceeded` arm).
 fn unordered_stratum_findings(profile: &CharacteristicsProfile) -> Vec<HealthFinding> {
     profile
         .unordered_stratum_details()
@@ -709,6 +718,7 @@ fn rule_interaction_product_finding(profile: &CharacteristicsProfile) -> Option<
 mod tests {
     use super::*;
     use crate::capability_entry::best_case_across_backends;
+    use crate::health::FindingClass;
 
     fn load_machine_fixture(path: &str) -> Grammar {
         let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -800,12 +810,14 @@ mod tests {
             CompileDecision::ConfirmOnly,
             "one compiler can still handle this grammar, so the join must not refuse it"
         );
-        assert!(
-            !findings.iter().any(|f| f.severity == Severity::MachineLimit
-                && f.code == FindingCode::UnknownUnboundedConstruct),
-            "the semantic-uncertainty finding is Refuse-derived, so it must be absent here: \
-             {findings:?}"
-        );
+        // ConfirmOnly always raises cost_uncertainty_finding's UnknownUnboundedConstruct at LargeMultiplier; this file never constructs Severity::MachineLimit at all.
+        let cost_finding = findings
+            .iter()
+            .find(|f| f.code == FindingCode::UnknownUnboundedConstruct)
+            .unwrap_or_else(|| {
+                panic!("a ConfirmOnly decision must raise a cost-uncertainty finding: {findings:?}")
+            });
+        assert_eq!(cost_finding.severity, Severity::LargeMultiplier);
     }
 
     /// A comfortably-within-budget unordered stratum must raise no `OrderingRuleCount` finding, proving the check above is real gating.
@@ -823,14 +835,16 @@ mod tests {
         );
     }
 
+    /// An estimate, not a refusal: `LargeMultiplier`, so this alone must never exclude the backend.
     #[test]
-    fn tuned_surface_resource_finding_is_error_with_proven_pair_work() {
+    fn tuned_surface_resource_finding_is_a_large_multiplier_estimate_with_proven_pair_work() {
         let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
         let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
-            .expect("a one-pair envelope must reject this finite structural closure");
+            .expect("a one-pair envelope must exceed this finite structural closure's count");
 
         assert_eq!(finding.code, FindingCode::ProvenBoundExceedsBudget);
-        assert_eq!(finding.severity, Severity::NotProductionReady);
+        assert_eq!(finding.severity, Severity::LargeMultiplier);
+        assert_eq!(finding.code.class(), FindingClass::Readiness);
         assert_eq!(finding.phase, Phase::Characterization);
         assert_eq!(finding.metric, Metric::CompositeRulePairCount);
         assert_eq!(finding.provenance, ValueProvenance::ProvenBound);
@@ -839,6 +853,22 @@ mod tests {
         assert!(
             !finding.affected.is_empty(),
             "the dominant contributing rules must be named"
+        );
+        assert!(
+            !finding.explanation.contains("will not start construction"),
+            "an estimate must never claim the backend will not be built: {finding:?}"
+        );
+        assert_eq!(
+            finding.remedies[0].rank,
+            1,
+            "the top remedy must be removing the internal caps, not a bigger guessed number"
+        );
+        assert!(
+            finding.remedies[0].description.contains("--remove-size-limits")
+                && finding.remedies[0].description.contains("machine-health containment"),
+            "the top remedy must point at removing internal caps under containment, never a \
+             larger named envelope: {:?}",
+            finding.remedies[0]
         );
         assert!(
             finding.remedies.iter().any(|remedy| remedy
@@ -860,6 +890,41 @@ mod tests {
         );
     }
 
+    /// A live budget stop reaches `Incomplete`, never `Refused`; pins the reason-specific remedy landing there.
+    #[test]
+    fn closure_terminal_finding_shape_gives_incomplete_budget_stops_reason_specific_remedy() {
+        for reason in [
+            ClosureStopReason::WorkBudgetReached,
+            ClosureStopReason::DepthBudgetReached,
+            ClosureStopReason::EnumerationBudgetReached,
+            ClosureStopReason::ResourceBudgetReached,
+        ] {
+            let (code, severity, provenance, remedy) =
+                closure_terminal_finding_shape(ClosureTerminal::Incomplete(reason));
+            assert_eq!(code, FindingCode::ResourceBudgetReached, "{reason:?}");
+            assert_eq!(severity, Severity::NotProductionReady, "{reason:?}");
+            assert_eq!(provenance, ValueProvenance::Observed, "{reason:?}");
+            assert!(
+                remedy.contains("--remove-size-limits") && remedy.contains("machine-health containment"),
+                "{reason:?} remedy must point at developer stress mode, not a larger limit: {remedy}"
+            );
+        }
+    }
+
+    #[test]
+    fn closure_terminal_finding_shape_keeps_refused_representability_reasons_cannot_represent() {
+        for reason in [
+            ClosureStopReason::UnboundedTransition,
+            ClosureStopReason::UnsupportedTransition,
+        ] {
+            let (code, severity, provenance, _remedy) =
+                closure_terminal_finding_shape(ClosureTerminal::Refused(reason));
+            assert_eq!(code, FindingCode::BackendCoverageIncomplete, "{reason:?}");
+            assert_eq!(severity, Severity::CannotRepresent, "{reason:?}");
+            assert_eq!(provenance, ValueProvenance::Observed, "{reason:?}");
+        }
+    }
+
     #[test]
     fn tuned_surface_resource_finding_includes_preexpand_rule_pairs() {
         let grammar =
@@ -874,7 +939,7 @@ mod tests {
         let finding = tuned_surface_resource_finding_with_limit(&grammar, 1)
             .expect("ordinary phonology-sensitive rule pairs must consume the same tuned envelope");
         assert_eq!(finding.metric, Metric::CompositeRulePairCount);
-        assert_eq!(finding.severity, Severity::NotProductionReady);
+        assert_eq!(finding.severity, Severity::LargeMultiplier);
         assert!(matches!(finding.value, MetricValue::Count(value) if value > 1));
     }
 

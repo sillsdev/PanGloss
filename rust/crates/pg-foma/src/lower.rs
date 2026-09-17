@@ -510,6 +510,8 @@ pub enum UnsupportedPatternNode {
     Anchor,
     /// A disagree-polarity `AlphaVar` occurrence, refused under every scope.
     AlphaDisagreePolarity,
+    /// `fsm_parse_regex` rejected a lowered span template's rendered text.
+    RegexRejected,
 }
 
 impl std::fmt::Display for UnsupportedPatternNode {
@@ -520,6 +522,9 @@ impl std::fmt::Display for UnsupportedPatternNode {
             UnsupportedPatternNode::Anchor => "Anchor (word-boundary condition)",
             UnsupportedPatternNode::AlphaDisagreePolarity => {
                 "Context with a disagree-polarity AlphaVariable"
+            }
+            UnsupportedPatternNode::RegexRejected => {
+                "a lowered span template foma's own regex parser rejected"
             }
         };
         f.write_str(label)
@@ -611,13 +616,11 @@ fn diagnose_unsupported_nodes(
 }
 
 /// Compiles `text` to an `Fsm` acceptor, treating an empty rendered string as the empty-string language rather than an invalid regex, since `render_slots` legitimately returns `""` for an absent/empty pattern.
-fn parse_template(opts: &FomaOptions, text: &str) -> Fsm {
+fn parse_template(opts: &FomaOptions, text: &str) -> Result<Fsm, UnsupportedPatternNode> {
     if text.is_empty() {
-        fsm_empty_string()
+        Ok(fsm_empty_string())
     } else {
-        fsm_parse_regex(opts, text, None, None).unwrap_or_else(|| {
-            panic!("pg_foma::lower: foma rejected a lowered span template regex {text:?}")
-        })
+        fsm_parse_regex(opts, text, None, None).ok_or(UnsupportedPatternNode::RegexRejected)
     }
 }
 
@@ -732,9 +735,9 @@ pub fn lower_span(
         let focus_text = render_slots(alphabet, &focus_slots, asg);
         let right_text = render_slots(alphabet, &right_slots, asg);
 
-        let left_tpl = parse_template(opts, &left_text);
-        let focus_tpl = parse_template(opts, &focus_text);
-        let right_tpl = parse_template(opts, &right_text);
+        let left_tpl = parse_template(opts, &left_text)?;
+        let focus_tpl = parse_template(opts, &focus_text)?;
+        let right_tpl = parse_template(opts, &right_text)?;
 
         // Sigma* . left_template  (suffix language: any prefix, ending in the left template).
         let this_left = fsm_concat(opts, fsm_universal(), left_tpl);

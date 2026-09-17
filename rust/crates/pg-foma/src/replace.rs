@@ -349,8 +349,8 @@ impl RepresentationAliasMap {
     /// shape to `multi_table_detail`'s own pairwise scan (that function's own doc: "cheap for any
     /// grammar in scope — table counts are small"). Built fresh per call (not memoized across
     /// rules) — deliberately simple for now; alias-set size/rebuild cost is a `ComposeBudget`
-    /// question the design doc's own "What this design does NOT settle" section defers to future
-    /// measurement on a real multi-table grammar, not something to guess a cache shape for here.
+    /// question that needs measurement on a real multi-table grammar before any cache shape is
+    /// worth guessing at.
     pub(crate) fn build(g: &Grammar) -> Self {
         let mut by_repr: HashMap<String, Vec<(TableId, CharDefId)>> = HashMap::new();
         for (ti, table) in g.char_tables.iter().enumerate() {
@@ -1178,8 +1178,8 @@ pub fn compile_and_compose_rules_recall_safe(
 }
 
 /// `compile_and_compose_rules`'s core, with the `ComposeBudget` threaded in explicitly rather
-/// than read from env -- what tests call directly (design doc §6: "explicit-caps constructors,
-/// never env vars").
+/// than read from env -- what tests call directly, so parallel test runs never race
+/// process-global env state.
 #[allow(clippy::too_many_arguments)]
 pub fn compile_and_compose_rules_with_budget(
     opts: &FomaOptions,

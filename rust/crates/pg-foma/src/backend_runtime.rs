@@ -1154,18 +1154,7 @@ pub struct RuntimeEvaluation {
     pub certification: Certification,
     pub score: Score,
     /// Which compiler ACTUALLY produced the measured network, as opposed to which one the candidate
-    /// declared.
-    ///
-    /// These differ, and the difference is invisible without this field. `evaluate_plans`
-    /// evaluates a marker-carrying baseline evidence-first: it composes the plan, and only if that
-    /// FAILS does it fall back to the tuned emitter. That fallback is deliberate and must stay -- a
-    /// blanket veto on marker presence previously dropped grammars whose composed baseline confirms
-    /// perfectly well (`mpr-gated-exception` scores 27/38 confirmed as `PlanComposed` despite
-    /// carrying a marker). But it means a candidate declaring `PlanComposed` can be measured on the
-    /// tuned network: `backend-ordered-generic`'s baseline reports 79 states / 154 arcs and 366
-    /// proposals, which is the tuned network, while its declared strategy still says `PlanComposed`.
-    /// Anything attributing that measurement -- a report field, a diagram caption, a comparison
-    /// between candidates -- must read THIS, not the declaration.
+    /// declared -- report consumers must read this field, not the candidate's own declaration.
     pub realized_strategy: EmissionStrategy,
 }
 
@@ -1433,17 +1422,6 @@ fn build_failed_evaluated(
     )
 }
 
-fn tuned_surface_resource_refusal(grammar: &Grammar, limit: usize) -> Option<String> {
-    crate::characterization::tuned_surface_resource_finding_with_limit(grammar, limit).map(
-        |finding| {
-            format!(
-                "resource characterization refused TunedSurface: {}",
-                finding.explanation
-            )
-        },
-    )
-}
-
 /// `EmissionStrategy::TunedSurfaceProbed`: the default compilation of this grammar, through `FomaProposer::new` (emit -> lexc -> foma compile) rather than `build_controllable`.
 fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     grammar: &Grammar,
@@ -1451,14 +1429,33 @@ fn evaluate_via_tuned_emit_mode<const OBSERVE: bool>(
     expected: &[(String, Vec<WordAnalysis>)],
     budget: RuntimeBudget,
 ) -> EvaluatedPlan {
-    if let Some(reason) =
-        tuned_surface_resource_refusal(grammar, budget.resolved_tuned_closure_work_limit())
-    {
-        return failed_evaluated_over(
-            EmissionStrategy::TunedSurfaceProbed,
-            Certification::StaticRejected { reason },
-            0,
-            expected.len() as u64,
+    let resource_finding = crate::characterization::tuned_surface_resource_finding_with_limit(
+        grammar,
+        budget.resolved_tuned_closure_work_limit(),
+    );
+    if let Some(finding) = &resource_finding {
+        // Only representability or host-containment may stop construction; an internal, uncalibrated cost estimate is carried forward as a warning instead.
+        if matches!(
+            finding.class(),
+            crate::health::FindingClass::Representability | crate::health::FindingClass::Containment
+        ) {
+            return failed_evaluated_over(
+                EmissionStrategy::TunedSurfaceProbed,
+                Certification::StaticRejected {
+                    reason: format!(
+                        "resource characterization refused TunedSurface: {}",
+                        finding.explanation
+                    ),
+                },
+                0,
+                expected.len() as u64,
+            );
+        }
+        eprintln!(
+            "runtime-evaluate: TunedSurface carries a {:?} finding ({}) that does not block construction: {}",
+            finding.class(),
+            finding.code.code(),
+            finding.explanation
         );
     }
     let t = Instant::now();
@@ -1653,6 +1650,33 @@ fn unbuildable_marker_reason(candidate: &LoweredCandidate) -> Option<String> {
     })
 }
 
+/// Evidence first: markers alone never condemn a candidate, so this relabels only a genuine post-measurement failure, never a resource breach.
+fn attribute_unbuildable_markers(candidate: &LoweredCandidate, measured: EvaluatedPlan) -> EvaluatedPlan {
+    let observed = &measured.evaluation.certification;
+    if observed.selectable() || matches!(observed, Certification::ResourceBreach { .. }) {
+        return measured;
+    }
+    let Some(reason) = unbuildable_marker_reason(candidate) else {
+        return measured;
+    };
+    let EvaluatedPlan {
+        evaluation,
+        words,
+        divergence,
+    } = measured;
+    EvaluatedPlan {
+        words,
+        divergence,
+        evaluation: RuntimeEvaluation {
+            certification: Certification::Unsupported {
+                reason: format!("{reason}; observed failure: {:?}", evaluation.certification),
+            },
+            score: evaluation.score,
+            realized_strategy: evaluation.realized_strategy,
+        },
+    }
+}
+
 /// Builds one plan-composed candidate's network and turns it into a proposer, kept as its own function so the confirmation-free accuracy path and the certification path always propose from the SAME compiled network; returns an owned proposer because `from_precompiled_network`'s `apply_init` deep-clones the `Fsm`, matching `FomaProposer::new`'s own documented drop-after-`apply_init` lifetime.
 fn realize_plan_composed(
     candidate: &LoweredCandidate,
@@ -1827,16 +1851,6 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
     let evaluated: Vec<EvaluatedPlan> = plans
         .iter()
         .map(|candidate| {
-            if candidate.adapter.interprets_plan() {
-                if let Some(reason) = unbuildable_marker_reason(candidate) {
-                    return failed_evaluated_over(
-                        EmissionStrategy::PlanComposed,
-                        Certification::Unsupported { reason },
-                        0,
-                        expected.len() as u64,
-                    );
-                }
-            }
             // Adapter dispatch comes first: the two whole-grammar adapters never touch build_controllable, so routing them through the composed path below would attribute the wrong compiler's network to the candidate.
             match candidate.adapter {
                 LoweringAdapter::ControllablePlanCompose => {}
@@ -1949,6 +1963,7 @@ fn evaluate_plans_with_cache_mode<const OBSERVE: bool>(
                     let (_spent_proposer, peeler, owners, morpher, _filter) =
                         analyzer.into_parts_with_morpher();
                     confirm_pieces = Some((peeler, owners, morpher));
+                    let measured = attribute_unbuildable_markers(candidate, measured);
                     if let Some(reuse_key) = reuse_key {
                         cache.record_net_measurement(reuse_key, &measured);
                     }
@@ -2102,9 +2117,32 @@ fn realize_accuracy_proposer(
     }
     match candidate.adapter {
         LoweringAdapter::TunedSurfaceEmit => {
-            if let Some(reason) = tuned_surface_resource_refusal(grammar, tuned_closure_work_limit)
+            if let Some(finding) =
+                crate::characterization::tuned_surface_resource_finding_with_limit(
+                    grammar,
+                    tuned_closure_work_limit,
+                )
             {
-                return Err((EmissionStrategy::TunedSurfaceProbed, reason));
+                // Only representability or host-containment may withhold the proposer; a cost estimate is carried forward as a warning instead.
+                if matches!(
+                    finding.class(),
+                    crate::health::FindingClass::Representability
+                        | crate::health::FindingClass::Containment
+                ) {
+                    return Err((
+                        EmissionStrategy::TunedSurfaceProbed,
+                        format!(
+                            "resource characterization refused TunedSurface: {}",
+                            finding.explanation
+                        ),
+                    ));
+                }
+                eprintln!(
+                    "accuracy-realize: TunedSurface carries a {:?} finding ({}) that does not block construction: {}",
+                    finding.class(),
+                    finding.code.code(),
+                    finding.explanation
+                );
             }
             FomaProposer::new(grammar)
                 .map(|proposer| (EmissionStrategy::TunedSurfaceProbed, proposer))
@@ -2243,7 +2281,7 @@ mod tests {
     }
 
     #[test]
-    fn tuned_resource_refusal_happens_before_any_foma_build() {
+    fn tuned_resource_finding_no_longer_refuses_construction() {
         let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
         let evaluated = evaluate_via_tuned_emit_mode::<false>(
             &grammar,
@@ -2255,18 +2293,22 @@ mod tests {
             },
         );
 
-        assert!(matches!(
-            evaluated.evaluation.certification,
-            Certification::StaticRejected { .. }
-        ));
-        assert_eq!(
-            evaluated.evaluation.score.build, 0,
-            "a characterization refusal must return before FomaProposer::new"
+        assert!(
+            !matches!(
+                evaluated.evaluation.certification,
+                Certification::StaticRejected { .. }
+            ),
+            "a Readiness-class resource finding must never short-circuit construction: {:?}",
+            evaluated.evaluation.certification
+        );
+        assert!(
+            evaluated.evaluation.score.build > 0,
+            "construction must actually be attempted once presence-based refusal is removed"
         );
     }
 
     #[test]
-    fn tuned_resource_refusal_also_guards_accuracy_realization() {
+    fn tuned_resource_finding_no_longer_guards_accuracy_realization() {
         let grammar = load_machine_fixture("edge-cases/truncate-morphotactic/grammar.xml");
         let budget = RuntimeBudget {
             tuned_closure_work_limit: Some(0),
@@ -2282,12 +2324,16 @@ mod tests {
         };
 
         let assessed = assess_accuracy_with_cache(&grammar, &[candidate], &[], budget, &mut cache);
-        assert!(matches!(
-            &assessed[0].verdict,
-            AccuracyVerdict::NotDetermined { reason }
-                if reason.contains("resource characterization refused TunedSurface")
-        ));
-        assert_eq!(assessed[0].counters, AccuracyCounters::default());
+        // A readiness-class cost estimate must not withhold the proposer, even at a zero limit.
+        assert!(
+            !matches!(
+                &assessed[0].verdict,
+                AccuracyVerdict::NotDetermined { reason }
+                    if reason.contains("resource characterization refused TunedSurface")
+            ),
+            "the resource finding must no longer refuse accuracy realization: {:?}",
+            assessed[0].verdict
+        );
     }
 
     #[test]

@@ -552,9 +552,7 @@ fn insert_action_texts(rhs: &[OutputAction]) -> InsertText<'_> {
     }
 }
 
-/// `pub(crate)`: `crate::peel::ReduplicationPeeler` reuses this too. Its `redup_rules` and
-/// `suffix_surfaces` (see its own `new`) are built only from `AffixProcess`/`Realizational`
-/// allomorphs, so a Compounding rule id never reaches this function from that caller either.
+/// `pub(crate)`: also used by `crate::peel::ReduplicationPeeler`. Panics on a `Compounding` id.
 pub(crate) fn owning_morpheme(g: &Grammar, mid: MRuleId) -> MorphemeId {
     match &g.mrules[mid.0 as usize] {
         MorphRuleDef::AffixProcess(def) => def.morpheme,
@@ -4203,19 +4201,47 @@ pub fn emit_tuned_surface_for_request(
     result
 }
 
-fn emit_with_budget_profiled_with_strategy_and_trace(
+/// The handful of behaviors that genuinely differ between the two [`emit_backbone`] callers,
+/// beyond what `TextMode`/`phon`/`table` already select structurally on their own.
+#[derive(Clone, Copy, Debug)]
+struct EmitBackbonePolicy {
+    /// Runs `crate::preexpand`'s composite pipeline and its unbounded/depth-budget refusals.
+    /// `false` permanently for [`emit_underlying_templated`] -- its own doc names the OOM this avoids.
+    run_composite_pipeline: bool,
+    /// `roots.is_empty()` is checked before the classification/grouping loops when `true` (so an
+    /// early refusal's `EmitReport` never carries loop-populated `counts`/`uncovered`), after them
+    /// when `false`. The two callers disagree on this and both must keep their own order.
+    check_roots_early: bool,
+    /// Periodic ceiling on `counts.lexc_lines`, refused via [`emit_line_budget_breach`]. `None`
+    /// skips the checks entirely -- the composite-pipeline caller polices scale via `enum_budget`.
+    line_cap: Option<usize>,
+    /// Runs [`verify_tags_reachable`]'s post-emission foma-recompile check, and the symbol-table
+    /// bookkeeping that check needs to avoid flagging a symbol nothing ever wrote an entry for.
+    verify_tags_reachable: bool,
+}
+
+/// Shared backbone for both lexc emitters: `TextMode::SurfaceProbed` (composite pipeline, closure
+/// tracing, compile profiling) and `TextMode::UnderlyingTokens` (templated, line-budget-capped,
+/// post-emission tag-reachability check) -- see [`EmitBackbonePolicy`] for what genuinely differs.
+#[allow(clippy::too_many_arguments)]
+fn emit_backbone(
     g: &Grammar,
+    mode: TextMode<'_>,
     precision: PrecisionConfig,
+    allowed_entries: Option<&HashSet<LexEntryId>>,
     enum_budget: &crate::morphotactics::EnumerationBudget,
     mut profile: Option<&mut CompileProfileBuilder>,
-    strategy: SurfaceEmitStrategy,
     closure_trace: Option<&crate::characterization::ClosureTrace>,
     allow_env_trace: bool,
     selected_compose: Option<crate::resource_envelope::ComposeEnvelope>,
+    policy: EmitBackbonePolicy,
 ) -> EmitResult {
     let mut stage_start = Instant::now();
     let width = tags::tag_width(g.morphemes.len());
-    let table = surface_table(g);
+    let table = match mode {
+        TextMode::SurfaceProbed => surface_table(g),
+        TextMode::UnderlyingTokens(alphabet) => alphabet.table(),
+    };
 
     let mut uncovered: Vec<UncoveredItem> = Vec::new();
     let mut counts = EmitCounts {
@@ -4228,17 +4254,27 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     let catalog = ConstraintCatalog::build(g);
     let mut pk = PrecisionEmit::build(&catalog, precision);
 
-    // None for a grammar with no phonological rules at all, so every phon.as_ref() call site below behaves exactly as the baseline emission path did.
-    let phon = PhonologyProbe::new(g);
+    // None under UnderlyingTokens (the token text already IS the underlying spelling) and for a SurfaceProbed grammar with no phonological rules at all.
+    let phon: Option<PhonologyProbe> = match mode {
+        TextMode::SurfaceProbed => PhonologyProbe::new(g),
+        TextMode::UnderlyingTokens(_) => None,
+    };
+    let phon = phon.as_ref();
 
     // Single source of truth: everything below branches on these two decisions, never on a second, independent call to should_run/structural_candidate_rules.
-    let (plan_wants_composite_emission, plan_wants_structural_composite) = match strategy.derivation
+    let (plan_wants_composite_emission, plan_wants_structural_composite) = if policy.run_composite_pipeline
     {
-        SurfaceDerivationPolicy::ReifiedPlan => plan_topology_decisions(g, phon.as_ref()),
+        plan_topology_decisions(g, phon)
+    } else {
+        (false, false)
     };
 
     // A Plan leaf is an opaque marker with no rule content, so the candidate rule list is still computed directly; plan_wants_structural_composite, not !struct_rules.is_empty(), is what gates the heavier Morpher/RuleCache machinery below.
-    let struct_rules = structural_candidate_rules(g);
+    let struct_rules = if policy.run_composite_pipeline {
+        structural_candidate_rules(g)
+    } else {
+        Vec::new()
+    };
     let mut unbounded_closure_rules = BTreeSet::new();
     if plan_wants_composite_emission {
         unbounded_closure_rules.extend(
@@ -4301,18 +4337,15 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     trace_emit_stage(CompileStage::SurfaceSetup, stage_start.elapsed(), allow_env_trace);
     stage_start = Instant::now();
 
-    let allowed_entries = match strategy.root_scope {
-        SurfaceRootScopePolicy::AllRoots => None,
-    };
     let roots = collect_roots(
         g,
         &mut uncovered,
         &mut counts,
-        phon.as_ref(),
+        phon,
         &rule_cache,
         morpher.as_ref(),
         allowed_entries,
-        TextMode::SurfaceProbed,
+        mode,
     );
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::RootCollection, stage_start.elapsed());
@@ -4338,14 +4371,13 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         cap,
         counter: &probe_counter,
     });
-    // Shared by both composite builders below, so a grammar shaped like Aweti trips one cross-thread total rather than each builder overrunning its own.
 
     // plan_wants_composite_emission decides whether this rule-application pre-expansion + boundary-fusion probing runs at all; skipping it entirely (rather than calling in and relying on should_run) still yields the identical zero pairs/zero composites.
     let (mut composites, composite_report) = if plan_wants_composite_emission {
         crate::preexpand::build_composites_with_mode_and_trace(
             g,
             width,
-            phon.as_ref(),
+            phon,
             &morphotactic_index,
             explore_mode,
             probe_budget,
@@ -4386,7 +4418,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                 &morphotactic_index,
                 explore_mode,
                 probe_budget,
-                phon.as_ref(),
+                phon,
                 enum_budget,
                 closure_trace,
             );
@@ -4413,21 +4445,30 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         if let Some(trace) = closure_trace {
             trace.stop(crate::characterization::ClosureStopReason::EnumerationBudgetReached);
         }
-        let reason = format!(
-            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when \
-             enumeration aborted at the cap -- a floor, not a total (limit {limit}; Aweti's measured \
-             uncapped total is ~15x this cap). \
-             This grammar's morphotactics produce more composite lexc material than the eager \
-             Rust-side enumerator (`pg_foma::preexpand`/`pg_foma::emit::build_structural_composites`) \
-             can safely expand into a literal lexc source without risking a multi-GB `.lexc` file and \
-             an out-of-memory crash in foma's own `apply_up` (the Aweti grammar -- 855 roots, 123 \
-             rules, 3 strata -- is the motivating case: 2,833,559 fusion entries, a 691MB/9.7M-line \
-             lexc, and an ~8.8GB `apply_up` allocation that killed the process outright). Use the \
-             default (full) morphological-parser engine for this grammar instead of the foma-composite \
-             engine, or -- only if you understand why this grammar's dynamic enumeration tree is this \
-             large -- raise the budget via HC_ENUM_ENTRY_BUDGET/HC_ENUM_PROBE_BUDGET and re-run.",
-            measure.label()
-        );
+        // The composite pipeline's own failure mode (fusion-entry/pair-probe explosion) only applies when it actually runs; the templated caller never triggers this today but keeps the check for defensive parity.
+        let reason = if policy.run_composite_pipeline {
+            format!(
+                "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when \
+                 enumeration aborted at the cap -- a floor, not a total (limit {limit}; Aweti's measured \
+                 uncapped total is ~15x this cap). \
+                 This grammar's morphotactics produce more composite lexc material than the eager \
+                 Rust-side enumerator (`pg_foma::preexpand`/`pg_foma::emit::build_structural_composites`) \
+                 can safely expand into a literal lexc source without risking a multi-GB `.lexc` file and \
+                 an out-of-memory crash in foma's own `apply_up` (the Aweti grammar -- 855 roots, 123 \
+                 rules, 3 strata -- is the motivating case: 2,833,559 fusion entries, a 691MB/9.7M-line \
+                 lexc, and an ~8.8GB `apply_up` allocation that killed the process outright). Use the \
+                 default (full) morphological-parser engine for this grammar instead of the foma-composite \
+                 engine, or -- only if you understand why this grammar's dynamic enumeration tree is this \
+                 large -- raise the budget via HC_ENUM_ENTRY_BUDGET/HC_ENUM_PROBE_BUDGET and re-run.",
+                measure.label()
+            )
+        } else {
+            format!(
+                "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when \
+                 enumeration aborted at the cap -- a floor, not a total (limit {limit}).",
+                measure.label()
+            )
+        };
         return EmitResult {
             lexc_source: String::new(),
             report: EmitReport {
@@ -4504,6 +4545,31 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         };
     }
 
+    // roots.is_empty()'s two check sites (see EmitBackbonePolicy::check_roots_early's own doc) share this body.
+    let empty_roots_result = |uncovered: Vec<UncoveredItem>, counts: EmitCounts| -> EmitResult {
+        if let Some(trace) = closure_trace {
+            trace.refuse(crate::characterization::ClosureStopReason::UnsupportedTransition);
+        }
+        EmitResult {
+            lexc_source: String::new(),
+            report: EmitReport {
+                uncovered,
+                counts,
+                tier: FomaTier::Unsupported {
+                    reason: "no root allomorph in this grammar produced any literal lexc text"
+                        .to_string(),
+                },
+                enum_budget_exceeded: None,
+                closure_refusal: None,
+                closure_evidence: closure_trace.map(|trace| trace.result()),
+            },
+            retry_authorization: None,
+        }
+    };
+    if policy.check_roots_early && roots.is_empty() {
+        return empty_roots_result(uncovered, counts);
+    }
+
     // Mirrors trie.rs's standalone-derivational-affix-rule loop, except Role::None rules are included in both zones instead of silently dropped.
     let mut deriv_prefix: Vec<MRuleId> = Vec::new();
     let mut deriv_suffix: Vec<MRuleId> = Vec::new();
@@ -4550,6 +4616,23 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         }
     }
 
+    // Only reachable under UnderlyingTokens: needs a live SegAlphabet to encode variants, and no SurfaceProbed template today mixes a coupled/prefix+suffix slot.
+    let atomic_carriers = if let TextMode::UnderlyingTokens(alphabet) = mode {
+        match atomic_template_carriers(g, alphabet, counts.clone(), uncovered.clone()) {
+            Ok(carriers) => carriers,
+            Err(refusal) => return refusal,
+        }
+    } else {
+        HashMap::new()
+    };
+    if !atomic_carriers.is_empty() && has_compounding_rules {
+        return atomic_carrier_refusal(
+            uncovered,
+            counts,
+            "atomic template carrier requires a bounded non-compounding root/post topology",
+        );
+    }
+
     // Template groups: one per distinct `required_syn_fs`, first-seen template document order.
     let mut group_keys: Vec<FsId> = Vec::new();
     let mut group_templates: Vec<Vec<usize>> = Vec::new();
@@ -4576,26 +4659,8 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         })
         .collect();
 
-    if roots.is_empty() {
-        if let Some(trace) = closure_trace {
-            trace.refuse(crate::characterization::ClosureStopReason::UnsupportedTransition);
-        }
-        let report = EmitReport {
-            uncovered,
-            counts,
-            tier: FomaTier::Unsupported {
-                reason: "no root allomorph in this grammar produced any literal lexc text"
-                    .to_string(),
-            },
-            enum_budget_exceeded: None,
-            closure_refusal: None,
-            closure_evidence: closure_trace.map(|trace| trace.result()),
-        };
-        return EmitResult {
-            lexc_source: String::new(),
-            report,
-            retry_authorization: None,
-        };
+    if !policy.check_roots_early && roots.is_empty() {
+        return empty_roots_result(uncovered, counts);
     }
 
     let has_template_less_section =
@@ -4605,22 +4670,39 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // Every root/rule morpheme reachable from any emission site; declaring an unused symbol is harmless.
     let mut symbols: BTreeSet<(bool, u32)> = BTreeSet::new();
+    // Which MRuleId owns each non-root morpheme (verify_tags_reachable callers only), for a readable UncoveredItem::id ("mrule105" rather than a bare morpheme index); first-seen wins.
+    let mut affix_owner_mrule: HashMap<u32, MRuleId> = HashMap::new();
     for r in &roots {
         symbols.insert((true, r.morpheme.0));
     }
     for &mid in deriv_prefix.iter().chain(deriv_suffix.iter()) {
-        symbols.insert((false, owning_morpheme(g, mid).0));
+        if policy.verify_tags_reachable && allomorphs_of(g, mid).is_empty() {
+            continue;
+        }
+        let owner = owning_morpheme(g, mid);
+        symbols.insert((false, owner.0));
+        if policy.verify_tags_reachable {
+            affix_owner_mrule.entry(owner.0).or_insert(mid);
+        }
     }
     for t in &g.templates {
         for slot in &t.slots {
             for &mid in &slot.rules {
-                if !matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) {
-                    symbols.insert((false, owning_morpheme(g, mid).0));
+                if matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_)) {
+                    continue;
+                }
+                if policy.verify_tags_reachable && allomorphs_of(g, mid).is_empty() {
+                    continue;
+                }
+                let owner = owning_morpheme(g, mid);
+                symbols.insert((false, owner.0));
+                if policy.verify_tags_reachable {
+                    affix_owner_mrule.entry(owner.0).or_insert(mid);
                 }
             }
         }
     }
-    // A composite's tag chain can reference a rule morpheme no other site declares, e.g. an Infix rule (in no deriv layer, no slot).
+    // A composite's tag chain can reference a rule morpheme no other site declares, e.g. an Infix rule (in no deriv layer, no slot); empty whenever the composite pipeline is off.
     for c in &composites {
         for &(is_root, m) in &c.chain_morphemes {
             symbols.insert((is_root, m.0));
@@ -4641,15 +4723,18 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         out.push_str(sym);
         out.push('\n');
     }
-    // Declares each base+combining-mark run as one lexc multichar symbol, so an NFD-decomposed letter compiles to a single known arc instead of racing foma's own apply-time combining-mark merge.
-    for sym in combining_run_symbols(table) {
-        out.push_str(&sym);
-        out.push('\n');
-    }
-    // Same fix, for a combining run spanning the boundary between two different char-defs rather than sitting inside one.
-    for sym in boundary_combining_run_symbols(table) {
-        out.push_str(&sym);
-        out.push('\n');
+    // Combining-mark run declarations are meaningless in UnderlyingTokens' PUA token space, so only run against real Unicode surface text.
+    if matches!(mode, TextMode::SurfaceProbed) {
+        // Declares each base+combining-mark run as one lexc multichar symbol, so an NFD-decomposed letter compiles to a single known arc instead of racing foma's own apply-time combining-mark merge.
+        for sym in combining_run_symbols(table) {
+            out.push_str(&sym);
+            out.push('\n');
+        }
+        // Same fix, for a combining run spanning the boundary between two different char-defs rather than sitting inside one.
+        for sym in boundary_combining_run_symbols(table) {
+            out.push_str(&sym);
+            out.push('\n');
+        }
     }
 
     // One lexc entry line per accepted spelling of one root; pk lets precision's owner-side gate reroute a root allomorph's own entries too, not just rule-side ones.
@@ -4660,7 +4745,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                               pk: &mut PrecisionEmit| {
         write_root_entries_with_width(out, roots, continuation, counts, pk, width);
     };
-    // The `{name}Stripped` sibling of a roots lexicon; falls back to a bare passthrough if no root offered a stripped spelling, to keep the lexicon non-empty. Only called when phon.is_some().
+    // The `{name}Stripped` sibling of a roots lexicon; falls back to a bare passthrough if no root offered a stripped spelling, to keep the lexicon non-empty. Only ever invoked when phon.is_some() (build_compound_chain's own emit_stripped guard), which is always false under UnderlyingTokens.
     let write_stripped_root_entries =
         |out: &mut String,
          roots: &[&RootRec],
@@ -4696,25 +4781,37 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
         let cross = all_roots.len().saturating_mul(non_head_count);
         let limit = closure_trace.map_or_else(
-            || selected_compose.map_or_else(
-                crate::compose_budget::compound_pair_budget_from_env,
-                |compose| compose.compound_pair_cap,
-            ),
+            || {
+                selected_compose.map_or_else(
+                    crate::compose_budget::compound_pair_budget_from_env,
+                    |compose| compose.compound_pair_cap,
+                )
+            },
             crate::characterization::ClosureTrace::compound_pair_cap,
         );
         if cross > limit {
             if let Some(trace) = closure_trace {
                 trace.stop(crate::characterization::ClosureStopReason::ResourceBudgetReached);
             }
-            let reason = format!(
-                "compound head x non-head root-pair cross product ({cross} = {} heads x {non_head_count} \
-                 licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit {limit}). This grammar's \
-                 compounding rule(s) license too large a cross product to safely emit -- raise the \
-                 budget only if you understand why this grammar's compounding is this large, or fall \
-                 back to another engine for this grammar. Never silently truncated: an honest refusal, \
-                 not a partial/unsound network.",
-                all_roots.len()
-            );
+            let reason = if policy.run_composite_pipeline {
+                format!(
+                    "compound head x non-head root-pair cross product ({cross} = {} heads x {non_head_count} \
+                     licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit {limit}). This grammar's \
+                     compounding rule(s) license too large a cross product to safely emit -- raise the \
+                     budget only if you understand why this grammar's compounding is this large, or fall \
+                     back to another engine for this grammar. Never silently truncated: an honest refusal, \
+                     not a partial/unsound network.",
+                    all_roots.len()
+                )
+            } else {
+                format!(
+                    "compound head x non-head root-pair cross product ({cross} = {} heads x \
+                     {non_head_count} licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit \
+                     {limit}). Never silently truncated: an honest refusal, not a partial/unsound \
+                     network.",
+                    all_roots.len()
+                )
+            };
             return EmitResult {
                 lexc_source: String::new(),
                 report: EmitReport {
@@ -4733,7 +4830,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             };
         }
 
-        // Shared with emit_underlying_templated via compound_chain_depth_and_budget_check.
+        // Shared between both callers via compound_chain_depth_and_budget_check.
         compound_extra_levels = match compound_chain_depth_and_budget_check(
             g,
             &uncovered,
@@ -4753,7 +4850,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
     }
 
     let has_templates = !g.templates.is_empty();
-    // Composites are emitted once into a single shared Composites lexicon, with every roots lexicon bare-redirecting into it, so a composite stem is reachable everywhere an ordinary root is; the upward approximation this allows is confirm's job to prune.
+    // Composites are emitted once into a single shared Composites lexicon, with every roots lexicon bare-redirecting into it, so a composite stem is reachable everywhere an ordinary root is; the upward approximation this allows is confirm's job to prune. Always empty when the composite pipeline is off.
     let has_composites = !composites.is_empty();
 
     // LEXICON Root: bare roots, the template-less section, then the outer-prefix hop into per-template dispatch.
@@ -4770,6 +4867,11 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         // Template paths go through the outer prefix derivation layer first, then per-template dispatch.
         write_bare(&mut out, "OuterPfx0", &mut counts);
     }
+    if let Some(cap) = policy.line_cap {
+        if counts.lexc_lines > cap {
+            return emit_line_budget_breach(uncovered.clone(), counts.clone(), counts.lexc_lines, cap);
+        }
+    }
 
     if has_templates {
         build_deriv_chain(
@@ -4783,18 +4885,21 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             "TmplDispatch",
             &mut uncovered,
             &mut counts,
-            phon.as_ref(),
+            phon,
             false,
             &mut pk,
-            TextMode::SurfaceProbed,
+            mode,
         );
-        // Deduped: templates with no prefix slots all point straight at their group's prefix-derivation entry. classify_template here only probes prefix-emptiness; its uncovered routing happens on the real pass below.
+        // Deduped: templates with no prefix slots (and no mixed atomic-carrier slot) all point straight at their group's prefix-derivation entry. classify_template here only probes prefix-emptiness; its uncovered routing happens on the real pass below.
         write_lexicon_header(&mut out, "TmplDispatch");
         let mut dispatch_lines: BTreeSet<String> = BTreeSet::new();
         for (gi, tis) in group_templates.iter().enumerate() {
             for &ti in tis {
                 let (prefix_slots, _) = classify_template(g, &g.templates[ti], &mut Vec::new());
-                if prefix_slots.is_empty() {
+                let has_mixed = atomic_carriers
+                    .keys()
+                    .any(|&(template_index, _)| template_index == ti);
+                if prefix_slots.is_empty() && !has_mixed {
                     dispatch_lines.insert(format!("G{gi}PfxD0"));
                 } else {
                     dispatch_lines.insert(format!("T{ti}P0"));
@@ -4816,11 +4921,16 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             "#",
             &mut uncovered,
             &mut counts,
-            phon.as_ref(),
+            phon,
             false,
             &mut pk,
-            TextMode::SurfaceProbed,
+            mode,
         );
+    }
+    if let Some(cap) = policy.line_cap {
+        if counts.lexc_lines > cap {
+            return emit_line_budget_breach(uncovered.clone(), counts.clone(), counts.lexc_lines, cap);
+        }
     }
 
     // ---- Template-less derivation section (trie.rs:1035-1063) ----
@@ -4836,10 +4946,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             "TLRoots",
             &mut uncovered,
             &mut counts,
-            phon.as_ref(),
+            phon,
             true,
             &mut pk,
-            TextMode::SurfaceProbed,
+            mode,
         );
         write_lexicon_header(&mut out, "TLRoots");
         // Splits into head-eligible (TLPost: both TLSfx0 and TLCmp) vs. head-ineligible (TLPostNoCmp: TLSfx0 only); both reach TLSfx0, so plain-word recall never regresses, only the TLCmp option is withheld from an unlicensed head.
@@ -4887,10 +4997,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
                     roots_name,
                     &mut uncovered,
                     counts,
-                    phon.as_ref(),
+                    phon,
                     true,
                     pk,
-                    TextMode::SurfaceProbed,
+                    mode,
                 );
             };
             build_compound_chain(
@@ -4924,11 +5034,16 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
             "#",
             &mut uncovered,
             &mut counts,
-            phon.as_ref(),
+            phon,
             false,
             &mut pk,
-            TextMode::SurfaceProbed,
+            mode,
         );
+    }
+    if let Some(cap) = policy.line_cap {
+        if counts.lexc_lines > cap {
+            return emit_line_budget_breach(uncovered.clone(), counts.clone(), counts.lexc_lines, cap);
+        }
     }
 
     // ---- Per-group root sections + per-template slot chains ----
@@ -4939,880 +5054,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
         for &ti in &group_templates[gi] {
             let template = &g.templates[ti];
             let (_, suffix_slots) = classify_template(g, template, &mut uncovered);
-            if suffix_slots.is_empty() {
-                join_lines.insert("OuterSfx0".to_string());
-            } else {
-                let entry = build_slot_chain(
-                    &mut out,
-                    g,
-                    table,
-                    &format!("T{ti}Z"),
-                    &suffix_slots,
-                    Role::Suffix,
-                    template.required_syn_fs,
-                    width,
-                    "OuterSfx0",
-                    &mut uncovered,
-                    &mut counts,
-                    phon.as_ref(),
-                    &mut pk,
-                    TextMode::SurfaceProbed,
-                );
-                join_lines.insert(entry);
-            }
-        }
-        let join_name = format!("G{gi}Join");
-        write_lexicon_header(&mut out, &join_name);
-        for line in &join_lines {
-            write_bare(&mut out, line, &mut counts);
-        }
-
-        let sfx_deriv_entry = build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            &format!("G{gi}SfxD"),
-            Role::Suffix,
-            &deriv_suffix,
-            width,
-            &join_name,
-            &mut uncovered,
-            &mut counts,
-            phon.as_ref(),
-            false,
-            &mut pk,
-            TextMode::SurfaceProbed,
-        );
-
-        let post_name = format!("G{gi}Post");
-        write_lexicon_header(&mut out, &post_name);
-        write_bare(&mut out, &sfx_deriv_entry, &mut counts);
-        if has_compounding_rules {
-            let cmp_name = format!("G{gi}Cmp");
-            write_bare(&mut out, &cmp_name, &mut counts);
-            // Same prefix-derivation fix per group as the template-less TLCmp section above; the head side here is deliberately left ungated, since template+compounding interaction is an unproven composition node.
-            let group_non_head_roots: Vec<&RootRec> = match &compound_license {
-                Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
-                None => all_roots.clone(),
-            };
-            let mut group_prefix_hop =
-                |out: &mut String,
-                 pfx_base: &str,
-                 roots_name: &str,
-                 counts: &mut EmitCounts,
-                 pk: &mut PrecisionEmit| {
-                    build_deriv_chain(
-                        out,
-                        g,
-                        table,
-                        pfx_base,
-                        Role::Prefix,
-                        &deriv_prefix,
-                        width,
-                        roots_name,
-                        &mut uncovered,
-                        counts,
-                        phon.as_ref(),
-                        true,
-                        pk,
-                        TextMode::SurfaceProbed,
-                    );
-                };
-            build_compound_chain(
-                &mut out,
-                &cmp_name,
-                compound_extra_levels,
-                &group_non_head_roots,
-                &all_roots,
-                &sfx_deriv_entry,
-                &mut counts,
-                &mut pk,
-                phon.is_some(),
-                &mut group_prefix_hop,
-                &write_root_entries,
-                &write_stripped_root_entries,
-            );
-        }
-
-        let roots_name = format!("G{gi}Roots");
-        write_lexicon_header(&mut out, &roots_name);
-        let key_fs = g.fs_interner.get(key);
-        let eligible_roots: Vec<&RootRec> = roots
-            .iter()
-            .filter(|r| {
-                // A compound can re-categorize a root via its head, so admitting every root to every group when the grammar has compounding rules is upward-safe (confirm prunes) and adds no asymptotic cost, since compound sections already carry all_roots per group.
-                has_compounding_rules
-                    || permissive[gi]
-                    || key_fs.is_empty()
-                    || is_unifiable(g.fs_interner.get(r.category), key_fs)
-            })
-            .collect();
-        if eligible_roots.is_empty() {
-            // Defensive: keeps the lexicon non-empty for a group whose category no root can satisfy.
-            write_bare(&mut out, &post_name, &mut counts);
-        } else {
-            write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts, &mut pk);
-        }
-        // The group's root section also admits every composite stem, via the shared Composites lexicon, with no per-group category filtering.
-        if has_composites {
-            write_bare(&mut out, "Composites", &mut counts);
-        }
-        if phon.is_some() {
-            // G{gi}PfxD's final level routes deletion-junction hits here, using the same eligible_roots/passthrough choice as the intact lexicon above.
-            write_lexicon_header(&mut out, &format!("{roots_name}Stripped"));
-            if eligible_roots.is_empty() {
-                write_bare(&mut out, &post_name, &mut counts);
-            } else {
-                write_stripped_root_entries(
-                    &mut out,
-                    &eligible_roots,
-                    &post_name,
-                    &mut counts,
-                    &mut pk,
-                );
-            }
-        }
-
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            &format!("G{gi}PfxD"),
-            Role::Prefix,
-            &deriv_prefix,
-            width,
-            &roots_name,
-            &mut uncovered,
-            &mut counts,
-            phon.as_ref(),
-            true,
-            &mut pk,
-            TextMode::SurfaceProbed,
-        );
-
-        for &ti in &group_templates[gi] {
-            let template = &g.templates[ti];
-            let (prefix_slots, _) = classify_template(g, template, &mut Vec::new());
-            if prefix_slots.is_empty() {
-                continue; // LEXICON Root already points straight at G{gi}PfxD0.
-            }
-            build_slot_chain(
-                &mut out,
-                g,
-                table,
-                &format!("T{ti}P"),
-                &prefix_slots,
-                Role::Prefix,
-                template.required_syn_fs,
-                width,
-                &format!("G{gi}PfxD0"),
-                &mut uncovered,
-                &mut counts,
-                phon.as_ref(),
-                &mut pk,
-                TextMode::SurfaceProbed,
-            );
-        }
-
-        if let Some(p) = profile.as_deref_mut() {
-            p.push_group_lines(gi, counts.lexc_lines - group_lines_before);
-        }
-    }
-
-    // ---- Shared composites section (see LEXICON Root's comment for the design) ----
-    if has_composites {
-        write_lexicon_header(&mut out, "Composites");
-        for c in &composites {
-            for v in &c.variants {
-                write_tag_entry(
-                    &mut out,
-                    &c.tag_lexc,
-                    v,
-                    "CompositeExit",
-                    &mut counts,
-                    &mut pk,
-                    None,
-                );
-            }
-        }
-        // The union of every post-root continuation, so a composite stem can go wherever an ordinary root can.
-        write_lexicon_header(&mut out, "CompositeExit");
-        write_bare(&mut out, "#", &mut counts);
-        if has_template_less_section {
-            write_bare(&mut out, "TLPost", &mut counts);
-        }
-        for gi in 0..group_keys.len() {
-            write_bare(&mut out, &format!("G{gi}Post"), &mut counts);
-        }
-    }
-
-    // Drops "infix"/"circumfix-prefix"/"reduplication" uncovered items for a rule that composites now cover; a rule that matched zero roots keeps its uncovered items, honestly.
-    uncovered.retain(|u| {
-        let rule_idx = || {
-            u.id.strip_prefix("mrule")
-                .and_then(|rest| rest.split('#').next())
-                .and_then(|s| s.parse::<u32>().ok())
-        };
-        !((u.kind == "infix"
-            && rule_idx().is_some_and(|idx| {
-                composite_report.covered_infix_rules.contains(&idx)
-                    || struct_covered_rules.contains(&idx)
-            }))
-            || ((u.kind == "circumfix-prefix" || u.kind == "reduplication")
-                && rule_idx().is_some_and(|idx| struct_covered_rules.contains(&idx))))
-    });
-
-    // Dedup: the same rule/allomorph can be visited from multiple slots/groups/levels.
-    let mut seen_uncovered: BTreeSet<(String, String, String)> = BTreeSet::new();
-    uncovered.retain(|u| seen_uncovered.insert((u.kind.clone(), u.id.clone(), u.reason.clone())));
-
-    let tier = if uncovered.is_empty() {
-        FomaTier::Full
-    } else {
-        FomaTier::Partial {
-            uncovered: uncovered.len(),
-        }
-    };
-
-    // Last use of profile in this function: a plain move, unlike every earlier stage push above.
-    if let Some(p) = profile {
-        p.set_total_lexc_lines(counts.lexc_lines);
-        p.push_stage(CompileStage::LexcConstruction, stage_start.elapsed());
-    }
-
-    EmitResult {
-        lexc_source: out,
-        report: EmitReport {
-            uncovered,
-            counts,
-            tier,
-            enum_budget_exceeded: None,
-            closure_refusal: None,
-            closure_evidence: closure_trace.map(|trace| trace.result()),
-        },
-        retry_authorization: None,
-    }
-}
-
-/// Breach constructor for `emit_underlying_templated`, builds the same empty-lexc `Unsupported` `EmitResult` shape every other breach in this module uses.
-fn emit_line_budget_breach(
-    uncovered: Vec<UncoveredItem>,
-    counts: EmitCounts,
-    lines: usize,
-    limit: usize,
-) -> EmitResult {
-    let reason = format!(
-        "templated lexc emission exceeds this path's line budget: {lines} lexc lines written (limit \
-         {limit}). This grammar's templated morphotactics produce more literal lexc material than \
-         `emit_underlying_templated`'s line budget allows; raise HC_COMPOSE_LINE_BUDGET only if you \
-         understand why this grammar's templated emission is this large, or fall back to another \
-         engine for this grammar."
-    );
-    EmitResult {
-        lexc_source: String::new(),
-        report: EmitReport {
-            uncovered,
-            counts,
-            tier: FomaTier::Unsupported { reason },
-            enum_budget_exceeded: None,
-            closure_refusal: None,
-            closure_evidence: None,
-        },
-        retry_authorization: None,
-    }
-}
-
-/// Post-emission check for a tag that was classified, declared, and had entries written, yet is absent from the compiled net's own sigma, narrowed against a known foma-rs tokenizer false positive.
-/// See docs/research/foma-rs-zero-digit-multichar-symbol-bug.md.
-fn verify_tags_reachable(
-    lexc_source: &str,
-    symbols: &BTreeSet<(bool, u32)>,
-    affix_owner_mrule: &HashMap<u32, MRuleId>,
-    width: usize,
-    uncovered: &mut Vec<UncoveredItem>,
-) {
-    let opts = FomaOptions::default();
-    let Some(net) = fsm_lexc_parse_string(&opts, None, lexc_source) else {
-        return;
-    };
-    let sigma: HashSet<&str> = net.sigma.iter().map(|s| s.symbol.as_str()).collect();
-
-    // See this function's own doc for the upstream artifact this checks for.
-    let is_known_zero_escape_artifact = |tag_text: &str| -> bool {
-        tag_text.contains('0')
-            && tag_text
-                .chars()
-                .all(|c| sigma.contains(c.to_string().as_str()))
-    };
-
-    let already_reported: HashSet<String> = uncovered.iter().map(|u| u.id.clone()).collect();
-    let has_other_reason = |label: &str| -> bool {
-        already_reported.contains(label)
-            || already_reported
-                .iter()
-                .any(|id| id.starts_with(&format!("{label}#")))
-    };
-    for &(is_root, id) in symbols {
-        let mid = MorphemeId(id);
-        let (tag_text, label) = if is_root {
-            (
-                tags::root_tag_text(mid, width),
-                format!("root-morpheme{id}"),
-            )
-        } else {
-            let label = match affix_owner_mrule.get(&id) {
-                Some(mrid) => format!("mrule{}", mrid.0),
-                None => format!("morpheme{id}"),
-            };
-            (tags::morph_tag_text(mid, width), label)
-        };
-        let reachable =
-            sigma.contains(tag_text.as_str()) || is_known_zero_escape_artifact(&tag_text);
-        if !reachable && !has_other_reason(&label) {
-            uncovered.push(UncoveredItem {
-                kind: "unreachable-after-lexc-compile".to_string(),
-                id: label.clone(),
-                reason: format!(
-                    "{label}'s tag {tag_text} is declared in Multichar_Symbols and its lexicon \
-                     entries are written, but the compiled lexc network's own alphabet does not \
-                     contain it (and this is not the known %0-escape decomposition artifact -- see \
-                     verify_tags_reachable's own doc) -- this fragment may be genuinely \
-                     UNREACHABLE from Root even though it looks fully wired in the emitted lexc \
-                     source"
-                ),
-            });
-        }
-    }
-}
-
-/// Templated-morphotactics emitter: `emit_with_budget`'s
-/// structural skeleton (template grouping, slot chains, derivation layers) refitted with
-/// `TextMode::UnderlyingTokens` instead of `TextMode::SurfaceProbed` — every leaf text site
-/// emits plain UNDERLYING text in `alphabet`'s token space, meant to be composed with
-/// `crate::replace::compile_and_compose_rules`'s rule cascade rather than this crate's own
-/// surface-junction machinery. Returns the SAME `EmitResult` shape `emit_with_budget` does, so
-/// a caller can inspect `report.tier`/`report.counts`/`report.uncovered` identically.
-///
-/// `allowed_entries`: mirrors `uflexc::emit_underlying_filtered`'s own convention exactly (that
-/// module's doc: "not a coverage gap — a DIFFERENT group's lexicon has it") — `crate::gate`'s
-/// static MPR/POS partition design, for whenever a templated grammar needs it. `None` (every
-/// caller today; Aweti has zero gated subrules — `crate::gate::find_gated_subrules` returns empty
-/// for it) includes every entry, unfiltered.
-///
-/// What this function deliberately does NOT do, and why:
-/// - **No FST precision knob.** `PrecisionConfig::Strip` only, hardcoded — every `write_tag_entry`/
-///   `build_deriv_chain`/`build_slot_chain` call below still takes a `PrecisionEmit` (unchanged
-///   function signatures), but it is always the pure-passthrough one (`crate::precision`'s own
-///   doc: "under `Strip` this is byte-identical to the pre-knob emitter").
-/// - **No junction probing, no bare-root phonology enrichment.** `phon` is `None` at every call
-///   site — the affix/root's own underlying spelling already IS the token text
-///   (`TextMode::UnderlyingTokens`'s whole point); this ALSO means every `{name}Stripped`
-///   sibling lexicon `emit_with_budget` writes (module doc, "Junction-aware affix/root
-///   emission") is skipped outright here, since nothing ever tests `phon.is_some()` true.
-/// - **No composite pipeline at all** (`crate::preexpand::build_composites_with_mode`,
-///   `build_structural_composites`) — this is the mechanism whose `O(roots × rules^depth)`
-///   eager Rust-side enumeration is exactly what OOMs on Aweti (855 roots × 135 mrules;
-///   `EmitReport::enum_budget_exceeded`'s own error text cites 2,833,559 fusion entries / 691MB
-///   lexc / ~8.8GB `apply_up` allocation for this grammar specifically), so skipping it
-///   unconditionally is the scale fix this function exists for. The `EnumerationBudget`
-///   plumbing is still threaded in and checked below regardless — defensive parity with
-///   `emit_with_budget`'s own shape, even though nothing in this function's own call graph
-///   (`collect_roots`/`build_deriv_chain`/`build_slot_chain` under this mode never recurse the way
-///   `struct_extend` does) can actually trip it today.
-/// - **Aweti's 41 single-sided-truncation `is_structural_rule` mrules are NOT specially handled.**
-///   Under `TextMode::SurfaceProbed`, `build_structural_composites` is what gives these rules
-///   their CORRECT (LHS-material-dropped) surface; the ordinary two-entry `emit_rule_allomorphs`
-///   path this function DOES use emits each such allomorph's literal `InsertSegments` text
-///   verbatim, with no drop applied — upward-safe in the sense that it never emits LESS than a
-///   correct entry would (module doc convention throughout this crate), but it can genuinely MISS
-///   the correct underlying form for a root that needs the drop, if no OTHER allomorph of the same
-///   rule happens to cover it unconditionally. The general shape of the fix would be representing a
-///   structural allomorph via its OWN alternative underlying forms rather than the surface-probe
-///   composite path.
-pub fn emit_underlying_templated(
-    g: &Grammar,
-    alphabet: &SegAlphabet,
-    allowed_entries: Option<&HashSet<LexEntryId>>,
-) -> EmitResult {
-    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
-    // Reuses EmitCounts::lexc_lines rather than a second counter, checked at a handful of checkpoints between major emission blocks rather than after every line, since build_deriv_chain/build_slot_chain are shared with the SurfaceProbed path and must stay byte-identical for it.
-    let compose_budget = ComposeBudget::from_env();
-    let line_cap = compose_budget.line_cap();
-    let width = tags::tag_width(g.morphemes.len());
-    let table = alphabet.table();
-
-    let mut uncovered: Vec<UncoveredItem> = Vec::new();
-    let mut counts = EmitCounts {
-        entries: g.entries.len(),
-        rules: g.mrules.len(),
-        ..Default::default()
-    };
-
-    // No FST precision knob under this mode: built once, always Strip, a pure passthrough.
-    let catalog = ConstraintCatalog::build(g);
-    let mut pk = PrecisionEmit::build(&catalog, PrecisionConfig::Strip);
-
-    // No junction probing or bare-root phonology enrichment under this mode: phon stays None at every downstream call site below.
-    let phon: Option<&PhonologyProbe> = None;
-    let rule_cache = RuleCache::build(g);
-    let morpher: Option<&Morpher> = None;
-
-    let mode = TextMode::UnderlyingTokens(alphabet);
-    let roots = collect_roots(
-        g,
-        &mut uncovered,
-        &mut counts,
-        phon,
-        &rule_cache,
-        morpher,
-        allowed_entries,
-        mode,
-    );
-
-    // Checked here for parity with emit_with_budget's own shape; defensive, not load-bearing, since nothing in this function's call graph increments it today.
-    if let Some((measure, value, limit)) = enum_budget.trip_reason() {
-        let reason = format!(
-            "grammar exceeds the foma-engine's eager-enumeration budget: {} = {value} when enumeration aborted at the cap -- a floor, not a total (limit {limit}).",
-            measure.label()
-        );
-        return EmitResult {
-            lexc_source: String::new(),
-            report: EmitReport {
-                uncovered,
-                counts,
-                tier: FomaTier::Unsupported {
-                    reason: reason.clone(),
-                },
-                enum_budget_exceeded: Some(EnumBudgetExceeded {
-                    measure: measure.label(),
-                    value,
-                    limit,
-                }),
-                closure_refusal: None,
-                closure_evidence: None,
-            },
-            retry_authorization: None,
-        };
-    }
-
-    if roots.is_empty() {
-        return EmitResult {
-            lexc_source: String::new(),
-            report: EmitReport {
-                uncovered,
-                counts,
-                tier: FomaTier::Unsupported {
-                    reason: "no root allomorph in this grammar produced any literal lexc text"
-                        .to_string(),
-                },
-                enum_budget_exceeded: None,
-                closure_refusal: None,
-                closure_evidence: None,
-            },
-            retry_authorization: None,
-        };
-    }
-
-    // Identical classification logic to emit_with_budget's own loop, including Role::None in both zones.
-    let mut deriv_prefix: Vec<MRuleId> = Vec::new();
-    let mut deriv_suffix: Vec<MRuleId> = Vec::new();
-    let mut has_compounding_rules = false;
-    let mut category_changing_out: Vec<FsId> = Vec::new();
-    for sd in &g.strata {
-        for &mid in &sd.mrules {
-            match &g.mrules[mid.0 as usize] {
-                MorphRuleDef::Compounding(_) => {
-                    has_compounding_rules = true;
-                    continue;
-                }
-                MorphRuleDef::AffixProcess(def) => {
-                    if !g.fs_interner.get(def.out_syn_fs).is_empty() {
-                        category_changing_out.push(def.out_syn_fs);
-                    }
-                }
-                MorphRuleDef::Realizational(_) => {}
-            }
-            match rule_role(g, mid) {
-                Role::Prefix => deriv_prefix.push(mid),
-                Role::Suffix => deriv_suffix.push(mid),
-                Role::None => {
-                    deriv_prefix.push(mid);
-                    deriv_suffix.push(mid);
-                }
-                // Given both zones below, like Role::None.
-                Role::CircumfixPrefix => {}
-                other => uncovered.push(UncoveredItem {
-                    kind: other.label().to_string(),
-                    id: format!("mrule{}", mid.0),
-                    reason: format!(
-                        "standalone rule's primary allomorph classifies as {other:?}; not representable (v1)"
-                    ),
-                }),
-            }
-            // Checked unconditionally (not just when rule_role itself said CircumfixPrefix): rule_role only reads allomorph 0, so a rule like mrMixed (allomorph 0 Suffix, allomorph 1 circumfix) already landed in deriv_suffix above and still needs deriv_prefix for its tagged occurrence.
-            if any_allomorph_is_circumfix_prefix(g, mid) {
-                if !deriv_prefix.contains(&mid) {
-                    deriv_prefix.push(mid);
-                }
-                if !deriv_suffix.contains(&mid) {
-                    deriv_suffix.push(mid);
-                }
-            }
-        }
-    }
-
-    let atomic_carriers = match atomic_template_carriers(g, alphabet, counts.clone(), uncovered.clone())
-    {
-        Ok(carriers) => carriers,
-        Err(refusal) => return refusal,
-    };
-    if !atomic_carriers.is_empty() && has_compounding_rules {
-        return atomic_carrier_refusal(
-            uncovered,
-            counts,
-            "atomic template carrier requires a bounded non-compounding root/post topology",
-        );
-    }
-
-    // Identical grouping to emit_with_budget's own: one per distinct required_syn_fs, first-seen order.
-    let mut group_keys: Vec<FsId> = Vec::new();
-    let mut group_templates: Vec<Vec<usize>> = Vec::new();
-    for (ti, t) in g.templates.iter().enumerate() {
-        counts.slots += t.slots.len();
-        match group_keys.iter().position(|&k| k == t.required_syn_fs) {
-            Some(gi) => group_templates[gi].push(ti),
-            None => {
-                group_keys.push(t.required_syn_fs);
-                group_templates.push(vec![ti]);
-            }
-        }
-    }
-    counts.groups = group_keys.len();
-
-    let permissive: Vec<bool> = group_keys
-        .iter()
-        .map(|&key| {
-            let key_fs = g.fs_interner.get(key);
-            category_changing_out
-                .iter()
-                .any(|&ocat| is_unifiable(g.fs_interner.get(ocat), key_fs))
-        })
-        .collect();
-
-    let has_template_less_section =
-        !deriv_prefix.is_empty() || !deriv_suffix.is_empty() || has_compounding_rules;
-    let has_templates = !g.templates.is_empty();
-
-    let mut out = String::new();
-
-    // No composite/flag/combining-mark symbols here: no composite pipeline, no precision knob, and the token space is PUA codepoints, never Unicode combining marks.
-    let mut symbols: BTreeSet<(bool, u32)> = BTreeSet::new();
-    // Which MRuleId owns each non-root morpheme, for a readable UncoveredItem::id ("mrule105" rather than a bare morpheme index); first-seen wins.
-    let mut affix_owner_mrule: HashMap<u32, MRuleId> = HashMap::new();
-    for r in &roots {
-        symbols.insert((true, r.morpheme.0));
-    }
-    for &mid in deriv_prefix.iter().chain(deriv_suffix.iter()) {
-        if allomorphs_of(g, mid).is_empty() {
-            continue;
-        }
-        let owner = owning_morpheme(g, mid);
-        symbols.insert((false, owner.0));
-        affix_owner_mrule.entry(owner.0).or_insert(mid);
-    }
-    for t in &g.templates {
-        for slot in &t.slots {
-            for &mid in &slot.rules {
-                if !matches!(g.mrules[mid.0 as usize], MorphRuleDef::Compounding(_))
-                    && !allomorphs_of(g, mid).is_empty()
-                {
-                    let owner = owning_morpheme(g, mid);
-                    symbols.insert((false, owner.0));
-                    affix_owner_mrule.entry(owner.0).or_insert(mid);
-                }
-            }
-        }
-    }
-    out.push_str("Multichar_Symbols\n");
-    for &(is_root, id) in &symbols {
-        let lexc = if is_root {
-            tags::root_tag_lexc(MorphemeId(id), width)
-        } else {
-            tags::morph_tag_lexc(MorphemeId(id), width)
-        };
-        out.push_str(&lexc);
-        out.push('\n');
-    }
-
-    // Mirrors emit_with_budget's own write_root_entries closure; no write_stripped_root_entries equivalent, since phon is always None here.
-    let write_root_entries = |out: &mut String,
-                              roots: &[&RootRec],
-                              continuation: &str,
-                              counts: &mut EmitCounts,
-                              pk: &mut PrecisionEmit| {
-        write_root_entries_with_width(out, roots, continuation, counts, pk, width);
-    };
-    let all_roots: Vec<&RootRec> = roots.iter().collect();
-
-    // The same license-gated head/non-head subsets + compound-pair budget check emit_with_budget computes; None for the common no-compounding-rule grammar.
-    let compound_license = if has_compounding_rules {
-        compound_license(g)
-    } else {
-        None
-    };
-    if let Some(license) = &compound_license {
-        let non_head_count =
-            filter_roots_by_license(g, &all_roots, &license.non_head_eligible).len();
-        let cross = all_roots.len().saturating_mul(non_head_count);
-        let limit = crate::compose_budget::compound_pair_budget_from_env();
-        if cross > limit {
-            let reason = format!(
-                "compound head x non-head root-pair cross product ({cross} = {} heads x \
-                 {non_head_count} licensed non-heads) exceeds HC_COMPOUND_PAIR_BUDGET (limit \
-                 {limit}). Never silently truncated: an honest refusal, not a partial/unsound \
-                 network.",
-                all_roots.len()
-            );
-            return EmitResult {
-                lexc_source: String::new(),
-                report: EmitReport {
-                    uncovered,
-                    counts,
-                    tier: FomaTier::Unsupported { reason },
-                    enum_budget_exceeded: Some(EnumBudgetExceeded {
-                        measure: "compound head x non-head root pairs",
-                        value: cross,
-                        limit,
-                    }),
-                    closure_refusal: None,
-                    closure_evidence: None,
-                },
-                retry_authorization: None,
-            };
-        }
-    }
-
-    // Overwritten below when has_compounding_rules; stays 1 for every no-compounding grammar, mirroring emit_with_budget_profiled's default.
-    let mut compound_extra_levels: usize = 1;
-    if compound_license.is_some() {
-        // Shares compound_chain_depth_and_budget_check with emit_with_budget_profiled.
-        compound_extra_levels = match compound_chain_depth_and_budget_check(
-            g,
-            &uncovered,
-            &counts,
-            None,
-            None,
-        ) {
-            Ok(levels) => levels,
-            Err(early_return) => return early_return,
-        };
-    }
-    // Exists only to satisfy build_compound_chain's shared signature; phon is always None on this templated path, so build_compound_chain never actually invokes it.
-    let write_stripped_root_entries_noop =
-        |_out: &mut String,
-         _roots: &[&RootRec],
-         _continuation: &str,
-         _counts: &mut EmitCounts,
-         _pk: &mut PrecisionEmit| {
-            unreachable!(
-            "write_stripped_root_entries is only ever invoked when phon.is_some(), and phon is \
-             always None on the P6 templated path"
-        )
-        };
-
-    // LEXICON Root: bare roots, the template-less section, then the outer-prefix hop; no Composites bare-redirect, since this path has no composite pipeline.
-    write_lexicon_header(&mut out, "Root");
-    let bare_roots = bare_admissible_roots(&all_roots, &mut counts);
-    write_root_entries(&mut out, &bare_roots, "#", &mut counts, &mut pk);
-    if has_template_less_section {
-        write_bare(&mut out, "TLPfx0", &mut counts);
-    }
-    if has_templates {
-        write_bare(&mut out, "OuterPfx0", &mut counts);
-    }
-    if counts.lexc_lines > line_cap {
-        return emit_line_budget_breach(
-            uncovered.clone(),
-            counts.clone(),
-            counts.lexc_lines,
-            line_cap,
-        );
-    }
-
-    if has_templates {
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            "OuterPfx",
-            Role::Prefix,
-            &deriv_prefix,
-            width,
-            "TmplDispatch",
-            &mut uncovered,
-            &mut counts,
-            phon,
-            false,
-            &mut pk,
-            mode,
-        );
-        write_lexicon_header(&mut out, "TmplDispatch");
-        let mut dispatch_lines: BTreeSet<String> = BTreeSet::new();
-        for (gi, tis) in group_templates.iter().enumerate() {
-            for &ti in tis {
-                let (prefix_slots, _) = classify_template(g, &g.templates[ti], &mut Vec::new());
-                let has_mixed = atomic_carriers
-                    .keys()
-                    .any(|&(template_index, _)| template_index == ti);
-                if prefix_slots.is_empty() && !has_mixed {
-                    dispatch_lines.insert(format!("G{gi}PfxD0"));
-                } else {
-                    dispatch_lines.insert(format!("T{ti}P0"));
-                }
-            }
-        }
-        for line in &dispatch_lines {
-            write_bare(&mut out, line, &mut counts);
-        }
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            "OuterSfx",
-            Role::Suffix,
-            &deriv_suffix,
-            width,
-            "#",
-            &mut uncovered,
-            &mut counts,
-            phon,
-            false,
-            &mut pk,
-            mode,
-        );
-    }
-    if counts.lexc_lines > line_cap {
-        return emit_line_budget_breach(
-            uncovered.clone(),
-            counts.clone(),
-            counts.lexc_lines,
-            line_cap,
-        );
-    }
-
-    // ---- Template-less derivation section ----
-    if has_template_less_section {
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            "TLPfx",
-            Role::Prefix,
-            &deriv_prefix,
-            width,
-            "TLRoots",
-            &mut uncovered,
-            &mut counts,
-            phon,
-            true,
-            &mut pk,
-            mode,
-        );
-        write_lexicon_header(&mut out, "TLRoots");
-        // Same head-eligible/head-ineligible split as emit_with_budget's own TLRoots/TLPost/TLPostNoCmp.
-        let (tl_head_ok, tl_head_no): (Vec<&RootRec>, Vec<&RootRec>) = match &compound_license {
-            Some(license) => all_roots.iter().copied().partition(|r| {
-                root_lex_entry(g, r.id).is_some_and(|le| license.head_eligible.contains(&le))
-            }),
-            None => (all_roots.clone(), Vec::new()),
-        };
-        write_root_entries(&mut out, &tl_head_ok, "TLPost", &mut counts, &mut pk);
-        if !tl_head_no.is_empty() {
-            write_root_entries(&mut out, &tl_head_no, "TLPostNoCmp", &mut counts, &mut pk);
-        }
-        write_lexicon_header(&mut out, "TLPost");
-        write_bare(&mut out, "TLSfx0", &mut counts);
-        if has_compounding_rules {
-            write_bare(&mut out, "TLCmp", &mut counts);
-            // Same depth-budgeted build_compound_chain as the SurfaceProbed path, narrowed to the licensed non-head subset.
-            let tl_non_head_roots: Vec<&RootRec> = match &compound_license {
-                Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
-                None => all_roots.clone(),
-            };
-            let mut tl_prefix_hop = |out: &mut String,
-                                     pfx_base: &str,
-                                     roots_name: &str,
-                                     counts: &mut EmitCounts,
-                                     pk: &mut PrecisionEmit| {
-                build_deriv_chain(
-                    out,
-                    g,
-                    table,
-                    pfx_base,
-                    Role::Prefix,
-                    &deriv_prefix,
-                    width,
-                    roots_name,
-                    &mut uncovered,
-                    counts,
-                    phon,
-                    true,
-                    pk,
-                    mode,
-                );
-            };
-            build_compound_chain(
-                &mut out,
-                "TLCmp",
-                compound_extra_levels,
-                &tl_non_head_roots,
-                &all_roots,
-                "TLSfx0",
-                &mut counts,
-                &mut pk,
-                phon.is_some(),
-                &mut tl_prefix_hop,
-                &write_root_entries,
-                &write_stripped_root_entries_noop,
-            );
-        }
-        if !tl_head_no.is_empty() {
-            // TLPost's head-ineligible twin, written after the whole TLCmp block so entries never interleave.
-            write_lexicon_header(&mut out, "TLPostNoCmp");
-            write_bare(&mut out, "TLSfx0", &mut counts);
-        }
-        build_deriv_chain(
-            &mut out,
-            g,
-            table,
-            "TLSfx",
-            Role::Suffix,
-            &deriv_suffix,
-            width,
-            "#",
-            &mut uncovered,
-            &mut counts,
-            phon,
-            false,
-            &mut pk,
-            mode,
-        );
-    }
-    if counts.lexc_lines > line_cap {
-        return emit_line_budget_breach(
-            uncovered.clone(),
-            counts.clone(),
-            counts.lexc_lines,
-            line_cap,
-        );
-    }
-
-    // ---- Per-group root sections + per-template slot chains ----
-    for (gi, &key) in group_keys.iter().enumerate() {
-        let mut join_lines: BTreeSet<String> = BTreeSet::new();
-        for &ti in &group_templates[gi] {
-            let template = &g.templates[ti];
-            let (_, suffix_slots) = classify_template(g, template, &mut uncovered);
+            // A mixed atomic-carrier slot is spliced in separately below; strip it from the ordinary suffix chain here so it isn't emitted twice.
             let mixed_slot = atomic_carriers
                 .iter()
                 .find_map(|(&(template_index, slot_index), carrier)| {
@@ -5877,7 +5119,7 @@ pub fn emit_underlying_templated(
         if has_compounding_rules {
             let cmp_name = format!("G{gi}Cmp");
             write_bare(&mut out, &cmp_name, &mut counts);
-            // Same depth-budgeted chain as the template-less TLCmp section above; the head side stays ungated (unproven template+compounding interaction), only the non-head side below is narrowed.
+            // Same prefix-derivation fix per group as the template-less TLCmp section above; the head side here is deliberately left ungated, since template+compounding interaction is an unproven composition node.
             let group_non_head_roots: Vec<&RootRec> = match &compound_license {
                 Some(license) => filter_roots_by_license(g, &all_roots, &license.non_head_eligible),
                 None => all_roots.clone(),
@@ -5917,7 +5159,7 @@ pub fn emit_underlying_templated(
                 phon.is_some(),
                 &mut group_prefix_hop,
                 &write_root_entries,
-                &write_stripped_root_entries_noop,
+                &write_stripped_root_entries,
             );
         }
 
@@ -5927,6 +5169,7 @@ pub fn emit_underlying_templated(
         let eligible_roots: Vec<&RootRec> = roots
             .iter()
             .filter(|r| {
+                // A compound can re-categorize a root via its head, so admitting every root to every group when the grammar has compounding rules is upward-safe (confirm prunes) and adds no asymptotic cost, since compound sections already carry all_roots per group.
                 has_compounding_rules
                     || permissive[gi]
                     || key_fs.is_empty()
@@ -5934,9 +5177,29 @@ pub fn emit_underlying_templated(
             })
             .collect();
         if eligible_roots.is_empty() {
+            // Defensive: keeps the lexicon non-empty for a group whose category no root can satisfy.
             write_bare(&mut out, &post_name, &mut counts);
         } else {
             write_root_entries(&mut out, &eligible_roots, &post_name, &mut counts, &mut pk);
+        }
+        // The group's root section also admits every composite stem, via the shared Composites lexicon, with no per-group category filtering.
+        if has_composites {
+            write_bare(&mut out, "Composites", &mut counts);
+        }
+        if phon.is_some() {
+            // G{gi}PfxD's final level routes deletion-junction hits here, using the same eligible_roots/passthrough choice as the intact lexicon above.
+            write_lexicon_header(&mut out, &format!("{roots_name}Stripped"));
+            if eligible_roots.is_empty() {
+                write_bare(&mut out, &post_name, &mut counts);
+            } else {
+                write_stripped_root_entries(
+                    &mut out,
+                    &eligible_roots,
+                    &post_name,
+                    &mut counts,
+                    &mut pk,
+                );
+            }
         }
 
         build_deriv_chain(
@@ -6149,21 +5412,71 @@ pub fn emit_underlying_templated(
             }
         }
 
+        if let Some(p) = profile.as_deref_mut() {
+            p.push_group_lines(gi, counts.lexc_lines - group_lines_before);
+        }
         // Checked at the end of each group's own emission, so a pathological grammar bails during the group that crossed the cap, not several groups later.
-        if counts.lexc_lines > line_cap {
-            return emit_line_budget_breach(
-                uncovered.clone(),
-                counts.clone(),
-                counts.lexc_lines,
-                line_cap,
-            );
+        if let Some(cap) = policy.line_cap {
+            if counts.lexc_lines > cap {
+                return emit_line_budget_breach(
+                    uncovered.clone(),
+                    counts.clone(),
+                    counts.lexc_lines,
+                    cap,
+                );
+            }
         }
     }
 
-    // Run before the final dedup/tier computation, so any new findings fold in like every other uncovered source.
-    verify_tags_reachable(&out, &symbols, &affix_owner_mrule, width, &mut uncovered);
+    // ---- Shared composites section (see LEXICON Root's comment for the design) ----
+    if has_composites {
+        write_lexicon_header(&mut out, "Composites");
+        for c in &composites {
+            for v in &c.variants {
+                write_tag_entry(
+                    &mut out,
+                    &c.tag_lexc,
+                    v,
+                    "CompositeExit",
+                    &mut counts,
+                    &mut pk,
+                    None,
+                );
+            }
+        }
+        // The union of every post-root continuation, so a composite stem can go wherever an ordinary root can.
+        write_lexicon_header(&mut out, "CompositeExit");
+        write_bare(&mut out, "#", &mut counts);
+        if has_template_less_section {
+            write_bare(&mut out, "TLPost", &mut counts);
+        }
+        for gi in 0..group_keys.len() {
+            write_bare(&mut out, &format!("G{gi}Post"), &mut counts);
+        }
+    }
 
-    // Same dedup convention as emit_with_budget.
+    // Drops "infix"/"circumfix-prefix"/"reduplication" uncovered items for a rule that composites now cover; a rule that matched zero roots keeps its uncovered items, honestly. A no-op whenever the composite pipeline is off (both sets stay empty).
+    uncovered.retain(|u| {
+        let rule_idx = || {
+            u.id.strip_prefix("mrule")
+                .and_then(|rest| rest.split('#').next())
+                .and_then(|s| s.parse::<u32>().ok())
+        };
+        !((u.kind == "infix"
+            && rule_idx().is_some_and(|idx| {
+                composite_report.covered_infix_rules.contains(&idx)
+                    || struct_covered_rules.contains(&idx)
+            }))
+            || ((u.kind == "circumfix-prefix" || u.kind == "reduplication")
+                && rule_idx().is_some_and(|idx| struct_covered_rules.contains(&idx))))
+    });
+
+    if policy.verify_tags_reachable {
+        // Run before the final dedup/tier computation, so any new findings fold in like every other uncovered source.
+        verify_tags_reachable(&out, &symbols, &affix_owner_mrule, width, &mut uncovered);
+    }
+
+    // Dedup: the same rule/allomorph can be visited from multiple slots/groups/levels.
     let mut seen_uncovered: BTreeSet<(String, String, String)> = BTreeSet::new();
     uncovered.retain(|u| seen_uncovered.insert((u.kind.clone(), u.id.clone(), u.reason.clone())));
 
@@ -6175,6 +5488,12 @@ pub fn emit_underlying_templated(
         }
     };
 
+    // Last use of profile in this function: a plain move, unlike every earlier stage push above.
+    if let Some(p) = profile {
+        p.set_total_lexc_lines(counts.lexc_lines);
+        p.push_stage(CompileStage::LexcConstruction, stage_start.elapsed());
+    }
+
     EmitResult {
         lexc_source: out,
         report: EmitReport {
@@ -6183,10 +5502,168 @@ pub fn emit_underlying_templated(
             tier,
             enum_budget_exceeded: None,
             closure_refusal: None,
+            closure_evidence: closure_trace.map(|trace| trace.result()),
+        },
+        retry_authorization: None,
+    }
+}
+
+/// `emit_with_budget_profiled`'s real core: [`emit_backbone`] under `TextMode::SurfaceProbed`,
+/// with the composite pipeline and closure-trace/profile plumbing turned on.
+fn emit_with_budget_profiled_with_strategy_and_trace(
+    g: &Grammar,
+    precision: PrecisionConfig,
+    enum_budget: &crate::morphotactics::EnumerationBudget,
+    profile: Option<&mut CompileProfileBuilder>,
+    strategy: SurfaceEmitStrategy,
+    closure_trace: Option<&crate::characterization::ClosureTrace>,
+    allow_env_trace: bool,
+    selected_compose: Option<crate::resource_envelope::ComposeEnvelope>,
+) -> EmitResult {
+    let allowed_entries = match strategy.root_scope {
+        SurfaceRootScopePolicy::AllRoots => None,
+    };
+    // A second SurfaceDerivationPolicy variant would need a real branch here; today's only variant is what emit_backbone's composite pipeline already assumes.
+    match strategy.derivation {
+        SurfaceDerivationPolicy::ReifiedPlan => {}
+    }
+    emit_backbone(
+        g,
+        TextMode::SurfaceProbed,
+        precision,
+        allowed_entries,
+        enum_budget,
+        profile,
+        closure_trace,
+        allow_env_trace,
+        selected_compose,
+        EmitBackbonePolicy {
+            run_composite_pipeline: true,
+            check_roots_early: false,
+            line_cap: None,
+            verify_tags_reachable: false,
+        },
+    )
+}
+
+/// Breach constructor for `emit_underlying_templated`, builds the same empty-lexc `Unsupported` `EmitResult` shape every other breach in this module uses.
+fn emit_line_budget_breach(
+    uncovered: Vec<UncoveredItem>,
+    counts: EmitCounts,
+    lines: usize,
+    limit: usize,
+) -> EmitResult {
+    let reason = format!(
+        "templated lexc emission exceeds this path's line budget: {lines} lexc lines written (limit \
+         {limit}). This grammar's templated morphotactics produce more literal lexc material than \
+         `emit_underlying_templated`'s line budget allows; raise HC_COMPOSE_LINE_BUDGET only if you \
+         understand why this grammar's templated emission is this large, or fall back to another \
+         engine for this grammar."
+    );
+    EmitResult {
+        lexc_source: String::new(),
+        report: EmitReport {
+            uncovered,
+            counts,
+            tier: FomaTier::Unsupported { reason },
+            enum_budget_exceeded: None,
+            closure_refusal: None,
             closure_evidence: None,
         },
         retry_authorization: None,
     }
+}
+
+/// Post-emission check for a tag that was classified, declared, and had entries written, yet is absent from the compiled net's own sigma, narrowed against a known foma-rs tokenizer false positive.
+/// See docs/research/foma-rs-zero-digit-multichar-symbol-bug.md.
+fn verify_tags_reachable(
+    lexc_source: &str,
+    symbols: &BTreeSet<(bool, u32)>,
+    affix_owner_mrule: &HashMap<u32, MRuleId>,
+    width: usize,
+    uncovered: &mut Vec<UncoveredItem>,
+) {
+    let opts = FomaOptions::default();
+    let Some(net) = fsm_lexc_parse_string(&opts, None, lexc_source) else {
+        return;
+    };
+    let sigma: HashSet<&str> = net.sigma.iter().map(|s| s.symbol.as_str()).collect();
+
+    // See this function's own doc for the upstream artifact this checks for.
+    let is_known_zero_escape_artifact = |tag_text: &str| -> bool {
+        tag_text.contains('0')
+            && tag_text
+                .chars()
+                .all(|c| sigma.contains(c.to_string().as_str()))
+    };
+
+    let already_reported: HashSet<String> = uncovered.iter().map(|u| u.id.clone()).collect();
+    let has_other_reason = |label: &str| -> bool {
+        already_reported.contains(label)
+            || already_reported
+                .iter()
+                .any(|id| id.starts_with(&format!("{label}#")))
+    };
+    for &(is_root, id) in symbols {
+        let mid = MorphemeId(id);
+        let (tag_text, label) = if is_root {
+            (
+                tags::root_tag_text(mid, width),
+                format!("root-morpheme{id}"),
+            )
+        } else {
+            let label = match affix_owner_mrule.get(&id) {
+                Some(mrid) => format!("mrule{}", mrid.0),
+                None => format!("morpheme{id}"),
+            };
+            (tags::morph_tag_text(mid, width), label)
+        };
+        let reachable =
+            sigma.contains(tag_text.as_str()) || is_known_zero_escape_artifact(&tag_text);
+        if !reachable && !has_other_reason(&label) {
+            uncovered.push(UncoveredItem {
+                kind: "unreachable-after-lexc-compile".to_string(),
+                id: label.clone(),
+                reason: format!(
+                    "{label}'s tag {tag_text} is declared in Multichar_Symbols and its lexicon \
+                     entries are written, but the compiled lexc network's own alphabet does not \
+                     contain it (and this is not the known %0-escape decomposition artifact -- see \
+                     verify_tags_reachable's own doc) -- this fragment may be genuinely \
+                     UNREACHABLE from Root even though it looks fully wired in the emitted lexc \
+                     source"
+                ),
+            });
+        }
+    }
+}
+
+/// Templated-morphotactics emitter: [`emit_backbone`] under `TextMode::UnderlyingTokens`, with the
+/// composite pipeline permanently off (the OOM-avoidance scale fix this exists for) and
+/// [`verify_tags_reachable`] plus the line-budget refusal on instead; see [`EmitBackbonePolicy`].
+pub fn emit_underlying_templated(
+    g: &Grammar,
+    alphabet: &SegAlphabet,
+    allowed_entries: Option<&HashSet<LexEntryId>>,
+) -> EmitResult {
+    let enum_budget = crate::morphotactics::EnumerationBudget::from_env();
+    let line_cap = ComposeBudget::from_env().line_cap();
+    emit_backbone(
+        g,
+        TextMode::UnderlyingTokens(alphabet),
+        PrecisionConfig::Strip,
+        allowed_entries,
+        &enum_budget,
+        None,
+        None,
+        false,
+        None,
+        EmitBackbonePolicy {
+            run_composite_pipeline: false,
+            check_roots_early: true,
+            line_cap: Some(line_cap),
+            verify_tags_reachable: true,
+        },
+    )
 }
 
 #[cfg(test)]

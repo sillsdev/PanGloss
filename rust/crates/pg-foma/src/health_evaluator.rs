@@ -77,11 +77,14 @@
 //!    that the proposer omitted. `ValueProvenance::Observed` (not `Predicted`) is used throughout
 //!    this module's `FomaTier`-derived findings because the uncovered count is an exact, already-
 //!    counted value, never a heuristic guess.
-//! 4. **`crate::emit::FomaTier::Unsupported` maps to `FindingCode::UnknownUnboundedConstruct`
-//!    at `Severity::NotProductionReady`**: this backend produced no usable network, while another
-//!    backend may succeed. This is "any uncertainty that could omit an analysis fails closed" for
-//!    one route, (total, not partial, coverage loss), not the ordinary bounded-cost-uncertainty
-//!    shape the code otherwise names. `MetricValue::Unbounded` is used here (this compile's
+//! 4. **`crate::emit::FomaTier::Unsupported` splits into two different codes by cause, not one**
+//!    (`unsupported_tier_finding`): a `crate::emit::ClosureRefusalCode::DepthBudgetExceeded` stop
+//!    maps to `FindingCode::ResourceBudgetReached` at `Severity::NotProductionReady` (containment
+//!    -- this attempt halted at an internal cap, saying nothing about the grammar), while every
+//!    other cause maps to `FindingCode::BackendCoverageIncomplete` at `Severity::CannotRepresent`
+//!    (representability -- this backend produced no usable network at all, the maximal case of
+//!    "any uncertainty that could omit an analysis fails closed"). `MetricValue::Unbounded` is used
+//!    for the coverage-gap case when no `pending_successors` count is available (this compile's
 //!    residual coverage is definitionally unknown, not a countable partial gap).
 //! 5. **`crate::emit::EnumBudgetExceeded`'s free-form `measure: &'static str` label has no
 //!    dedicated `Metric`** (it names one of several different eager-enumeration measures --
@@ -286,14 +289,17 @@ fn retry_with_internal_caps_removed_remedy() -> Remedy {
     }
 }
 
-/// The threshold a non-`Severity::WithinLimits` size finding crossed -- read from the shared `IDEAL_MAX_BYTES` constant so a threshold change cannot desync a second copy.
-fn size_band_crossed_threshold(severity: Severity) -> MetricValue {
+/// The single threshold a non-`Severity::WithinLimits` size finding crossed -- read from the shared `IDEAL_MAX_BYTES` constant so a threshold change cannot desync a second copy.
+fn size_threshold_crossed(severity: Severity) -> MetricValue {
     match severity {
         Severity::WithinLimits => {
             unreachable!("payload_size_finding filters Severity::WithinLimits before calling this")
         }
         Severity::NotProductionReady => MetricValue::Bytes(crate::health::IDEAL_MAX_BYTES),
-        Severity::Elevated | Severity::LargeMultiplier | Severity::MachineLimit | Severity::CannotRepresent => {
+        Severity::Elevated
+        | Severity::LargeMultiplier
+        | Severity::MachineLimit
+        | Severity::CannotRepresent => {
             unreachable!(
                 "severity_for_size_bytes produces only WithinLimits/NotProductionReady; every other severity is reserved for non-size producers"
             )
@@ -315,10 +321,10 @@ fn payload_size_finding(bytes: u64) -> Option<HealthFinding> {
         metric: Metric::PayloadBytes,
         value: MetricValue::Bytes(bytes),
         provenance: ValueProvenance::Observed,
-        threshold: Some(size_band_crossed_threshold(severity)),
+        threshold: Some(size_threshold_crossed(severity)),
         explanation: format!(
-            "Final FST payload is {bytes} bytes, in the {severity:?} band (R6 decimal-byte size \
-             thresholds)."
+            "Final FST payload is {bytes} bytes, over the {limit}-byte {severity:?} threshold.",
+            limit = crate::health::IDEAL_MAX_BYTES,
         ),
         remedies: Vec::new(),
     })
@@ -831,6 +837,7 @@ mod tests {
         for error in cases {
             let health = evaluate_foma_error(&error, None);
             assert!(!health.findings.is_empty(), "empty health for {error}");
+            // Ordinal is correct here: this asks only whether admission blocks (a tier question), never which class caused it.
             assert!(
                 health.admission() >= Severity::NotProductionReady,
                 "health for {error} must block publication, got {:?}",
@@ -920,7 +927,8 @@ mod tests {
     }
 
     #[test]
-    fn fst_health_evaluator_over_ideal_payload_produces_not_production_ready_payload_size_band_finding() {
+    fn fst_health_evaluator_over_ideal_payload_produces_not_production_ready_payload_size_band_finding(
+    ) {
         let bytes = 500_000_000u64;
         let report = evaluate_health(Some(bytes), None, &[], &[], None);
         assert_eq!(report.findings.len(), 1);
@@ -1112,9 +1120,9 @@ mod tests {
         assert_eq!(finding.class(), FindingClass::Representability);
     }
 
-    /// An artificial cap is never a representability verdict, however deep it stopped.
+    /// An artificial cap is a self-imposed Readiness label, never a representability verdict or the host-watchdog Containment class.
     #[test]
-    fn fst_health_evaluator_depth_budget_stop_is_containment_not_cannot_represent() {
+    fn fst_health_evaluator_depth_budget_stop_is_readiness_not_cannot_represent() {
         let report = EmitReport {
             uncovered: Vec::new(),
             counts: EmitCounts::default(),
@@ -1135,18 +1143,17 @@ mod tests {
         let finding = &health.findings[0];
         assert_eq!(finding.code, FindingCode::ResourceBudgetReached);
         assert_eq!(finding.severity, Severity::NotProductionReady);
-        assert_eq!(finding.class(), FindingClass::Containment);
+        assert_eq!(finding.class(), FindingClass::Readiness);
         assert_ne!(
             finding.severity,
             Severity::MachineLimit,
             "a depth-budget stop halted one attempt; it must never condemn the grammar"
         );
         assert!(
-            finding
-                .remedies
-                .iter()
-                .any(|remedy| remedy.description.contains("internal size/work caps removed")),
-            "a containment stop must name the caps-removed retry route: {:?}",
+            finding.remedies.iter().any(|remedy| remedy
+                .description
+                .contains("internal size/work caps removed")),
+            "a self-imposed budget stop must name the caps-removed retry route: {:?}",
             finding.remedies
         );
     }
@@ -1429,7 +1436,8 @@ mod tests {
 
     /// The total-emitted-lexc-lines dimension -- `CompileWorkBudget`.
     #[test]
-    fn fst_health_evaluator_profile_compile_work_lines_approaching_budget_produces_large_multiplier() {
+    fn fst_health_evaluator_profile_compile_work_lines_approaching_budget_produces_large_multiplier(
+    ) {
         let lines = (DEFAULT_LINE_BUDGET as f64 * 0.95) as u64;
         let profile = synthetic_profile(ProfileLabel::Production, None, None, Some(lines));
         let health = evaluate_health(None, None, &[], &[], Some(&profile));
@@ -1507,7 +1515,7 @@ mod tests {
         "kind": "bytes",
         "value": 100000000
       },
-      "explanation": "Final FST payload is 250000000 bytes, in the NotProductionReady band (R6 decimal-byte size thresholds).",
+      "explanation": "Final FST payload is 250000000 bytes, over the 100000000-byte NotProductionReady threshold.",
       "remedies": []
     },
     {

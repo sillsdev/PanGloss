@@ -3,13 +3,16 @@
 use std::fs;
 
 use pg_foma::analyzer::FomaProposer;
-use pg_foma::backend_selection::{select_backends, BackendReport, BackendSelection, BackendStatus};
+use pg_foma::backend_selection::{
+    select_backends_with_tuned_closure_work_limit, BackendReport, BackendSelection, BackendStatus,
+};
 use pg_foma::capability::CompileDecision;
 use pg_foma::emit::{EmitReport, FomaTier};
 use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::health::{
-    FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity, ValueProvenance,
+    FindingClass, FindingCode, HealthFinding, HealthReport, Metric, MetricValue, Phase, Severity,
+    ValueProvenance,
 };
 
 use pg_foma::health_evaluator::{evaluate_foma_error, evaluate_health};
@@ -31,10 +34,10 @@ const PLACEHOLDER_RUNTIME_PAYLOAD: &[u8] =
 runtime-payload serializer exists yet anywhere in this workspace; this byte content is NOT a \
 compiled artifact and must never be loaded as one.";
 
-/// Fallback foma payload, used only when this grammar's foma compile did not succeed or `--watchdog` was passed; the real path writes `FomaProposer::foma_binary_payload()` instead.
+/// Fallback foma payload used when this grammar's foma compile did not succeed or produced no readable network.
 const PLACEHOLDER_FOMA_PAYLOAD: &[u8] = b"PANGLOSS-PLACEHOLDER-FOMA-PAYLOAD: this grammar's foma \
-compile did not succeed (or --watchdog was passed), so no compiled network was available to \
-serialize; this byte content is NOT a compiled network and must never be loaded as one.";
+compile did not succeed, so no compiled network was available to serialize; this byte content is \
+NOT a compiled network and must never be loaded as one.";
 
 #[cfg(feature = "developer-tools")]
 const CAPABILITY_REFUSAL_REMEDIATION: &str =
@@ -200,7 +203,7 @@ fn completeness_certificate(
     })
 }
 
-/// Applies readiness independently of capability trust; raw NotProductionReady/MachineLimit/CannotRepresent findings never admit.
+/// Refuses only when a finding is Containment, Process, or Representability class; a Readiness finding (e.g. an oversized payload or a self-imposed budget stop) publishes at any severity.
 pub(crate) fn validate_health_readiness(
     report: &HealthReport,
     worker_containment: bool,
@@ -215,19 +218,20 @@ pub(crate) fn validate_health_readiness(
     if report
         .findings
         .iter()
-        .any(|finding| finding.phase == Phase::Apply && finding.severity >= Severity::NotProductionReady)
+        .any(|finding| finding.class() == FindingClass::Containment)
     {
         return Err(format!(
-            "FST health is an apply containment failure; it cannot be overridden and no .pgpack was written ({by_class})"
+            "FST health is a host containment failure; it cannot be overridden and no .pgpack was written ({by_class})"
         ));
     }
-    if report
-        .findings
-        .iter()
-        .any(|finding| finding.severity >= Severity::NotProductionReady)
-    {
+    if report.findings.iter().any(|finding| {
+        matches!(
+            finding.class(),
+            FindingClass::Process | FindingClass::Representability
+        )
+    }) {
         return Err(format!(
-            "FST health is {admission:?}; no .pgpack was written. A correctness override cannot admit an oversized artifact, a contained attempt, or an unrepresentable feature. ({by_class})"
+            "FST health is {admission:?}; no .pgpack was written. A correctness override cannot admit a contained attempt, a process/tooling fault, or an unrepresentable feature. ({by_class})"
         ));
     }
     Ok(())
@@ -248,16 +252,13 @@ fn record_foma_payload_availability(report: &mut HealthReport, payload_is_real: 
         value: MetricValue::Unbounded,
         provenance: ValueProvenance::Observed,
         threshold: None,
-        explanation: "no compiled Foma payload is available for this pack; a successful watchdog health check does not transport the compiled network, so production publication must stop instead of silently substituting a placeholder".to_string(),
+        explanation: "no compiled Foma payload is available for this pack -- either the compile itself did not succeed, or (under --watchdog) the compiled network could not be read back from the worker's out-of-band payload file -- so production publication must stop instead of silently substituting a placeholder".to_string(),
         remedies: Vec::new(),
     });
 }
 
 /// Removes overridden capability gaps from readiness; proven-route gaps remain CannotRepresent.
-fn project_overridden_capability_findings(
-    report: &mut HealthReport,
-    capability_overridden: bool,
-) {
+fn project_overridden_capability_findings(report: &mut HealthReport, capability_overridden: bool) {
     if capability_overridden {
         report
             .findings
@@ -310,6 +311,7 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
             }
         }
     }
+    // Not `main.rs::resolve_compile_size_mode`: that fn's precondition needs an `Engine` this command never has -- `pack` always compiles via Foma.
     #[cfg(feature = "developer-tools")]
     let size_mode = if remove_size_limits {
         CompileSizeMode::DeveloperStress
@@ -348,22 +350,20 @@ pub fn run_pack(args: &[String]) -> Result<(), String> {
 
     eprintln!(
         "pack complete: {out_path} ({} bytes) -- capability_trust={}, required_runtime_features={:?}, \
-         fst_health admission={:?} ({}). NOTE: the runtime payload section is an honestly-labeled \
+         fst_health admission={}. NOTE: the runtime payload section is an honestly-labeled \
          PLACEHOLDER (no Rust-HermitCrab runtime-payload serializer exists yet anywhere in this \
          workspace -- see this module's own doc). The foma payload section is {} -- do not treat a \
          placeholder section as a usable compiled artifact.",
         built.bytes.len(),
         if built.manifest.capability_trust.is_unproven() { "overridden/unproven" } else { "proven" },
         built.manifest.required_runtime_features.runtime_operations,
-        built.manifest.fst_health.admission(),
-        built.manifest.fst_health.admission_by_class().render(),
+        crate::fst_health::render_admission_summary(&built.manifest.fst_health),
         if built.foma_payload_is_real {
             "REAL compiled-network bytes (foma::io::fsm_write_binary, the same encoding \
              fsm_read_binary_mem reads back)"
         } else {
-            "a PLACEHOLDER (this grammar's foma compile did not succeed, or --watchdog was passed \
-             and the worker protocol does not yet return the compiled network across the process \
-             boundary)"
+            "a PLACEHOLDER (this grammar's foma compile did not succeed, or -- under --watchdog -- \
+             the compiled network could not be read back from the worker's out-of-band payload file)"
         },
     );
     Ok(())
@@ -400,7 +400,10 @@ pub(crate) fn build_pack(
 
     // ---- ADR 0001/0005: the capability-trust stamp ---------------------------------------------
     let backend = crate::GATED_BACKEND.label();
-    let selection = select_backends(semantics);
+    let selection = select_backends_with_tuned_closure_work_limit(
+        semantics,
+        crate::tuned_closure_work_limit_for_mode(size_mode),
+    );
     let decision = crate::gated_backend_decision(&selection);
     let capability_trust = match &decision {
         CompileDecision::Admit => {
@@ -497,14 +500,14 @@ pub(crate) fn build_pack(
         Option<String>,
         Option<EmitReport>,
     ) = if watchdog {
-        let (health, containment_failed) =
+        let (health, containment_failed, foma_payload, compile_error) =
             run_fst_health_under_watchdog(grammar_path, size_mode)?;
         worker_containment_failed = containment_failed;
         (
             health.clone(),
-            None,
+            foma_payload,
             health.findings,
-            Some("watchdog compilation did not return a serializable FST payload".to_string()),
+            compile_error,
             None,
         )
     } else {
@@ -643,11 +646,19 @@ fn worker_containment_fired(outcome: &pg_foma::worker::WorkerOutcome) -> bool {
     !matches!(outcome, pg_foma::worker::WorkerOutcome::Completed(_))
 }
 
-/// Runs the FST-health compile in a re-exec'd `__compile-worker-child` process under a killable watchdog, mapping the outcome to a `HealthReport` and reporting whether the supervisor actually killed the child (a real worker-containment event, as opposed to the child completing on its own).
+/// Runs the FST-health compile under a killable watchdog child process; a length mismatch when reading the result back is a hard error, never a silent `None`.
 fn run_fst_health_under_watchdog(
     grammar_path: &str,
     size_mode: CompileSizeMode,
-) -> Result<(pg_foma::health::HealthReport, bool), String> {
+) -> Result<
+    (
+        pg_foma::health::HealthReport,
+        bool,
+        Option<Vec<u8>>,
+        Option<String>,
+    ),
+    String,
+> {
     let format = infer_grammar_format(grammar_path);
     let mut request = pg_foma::worker::CompileWorkerRequest::new(grammar_path.to_string(), format);
     request.size_mode = size_mode;
@@ -660,9 +671,20 @@ fn run_fst_health_under_watchdog(
         &request,
         &envelope,
     );
-    eprintln!("watchdog: compile-worker outcome: {outcome:?}");
+    eprintln!(
+        "watchdog: compile-worker outcome: {}",
+        outcome.describe_without_payload_bytes()
+    );
     let worker_containment_failed = worker_containment_fired(&outcome);
-    Ok((outcome.health_report(), worker_containment_failed))
+    let compile_error = outcome.gated_compile_error_detail();
+    let health = outcome.health_report();
+    let foma_payload = outcome.take_completed_foma_payload()?;
+    Ok((
+        health,
+        worker_containment_failed,
+        foma_payload,
+        compile_error,
+    ))
 }
 
 #[cfg(test)]
@@ -670,9 +692,10 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    fn synthetic_health(severity: Severity) -> HealthReport {
+    /// One finding at `severity` coded `code` -- pass only a pairing a real producer emits; severity and code never vary independently in production.
+    fn synthetic_health(severity: Severity, code: FindingCode) -> HealthReport {
         HealthReport::new(vec![HealthFinding {
-            code: FindingCode::ResourceBudgetReached,
+            code,
             severity,
             phase: Phase::Compile,
             affected: vec!["synthetic composite route".to_string()],
@@ -685,28 +708,50 @@ mod tests {
         }])
     }
 
+    /// A production-real code per severity; `WithinLimits` has no real finding (it's `admission()`'s empty-list default), so it's paired only to test the ordinal boundary, not as a real pairing.
+    fn representative_code_for(severity: Severity) -> FindingCode {
+        match severity {
+            Severity::WithinLimits => FindingCode::ResourceBudgetReached,
+            Severity::Elevated => FindingCode::DuplicateAnalysisOverlap,
+            Severity::LargeMultiplier => FindingCode::IntermediateNetworkGrowth,
+            Severity::NotProductionReady => FindingCode::ResourceBudgetReached,
+            Severity::MachineLimit => FindingCode::HostContainmentFired,
+            Severity::CannotRepresent => FindingCode::BackendCoverageIncomplete,
+        }
+    }
+
     #[test]
     fn health_large_multiplier_publishes_without_override() {
-        let report = synthetic_health(Severity::LargeMultiplier);
+        let report = synthetic_health(
+            Severity::LargeMultiplier,
+            FindingCode::IntermediateNetworkGrowth,
+        );
         assert!(validate_health_readiness(&report, false).is_ok());
         assert_eq!(report.admission(), Severity::LargeMultiplier);
     }
 
+    /// A `FindingClass::Readiness` finding still publishes at `NotProductionReady`, since it labels something that DID get built.
     #[test]
-    fn health_not_production_ready_refuses_publication_without_override() {
-        let report = synthetic_health(Severity::NotProductionReady);
-        let error = validate_health_readiness(&report, false).unwrap_err();
-        assert!(error.contains("no .pgpack was written"));
+    fn health_not_production_ready_readiness_class_still_publishes() {
+        let report = synthetic_health(
+            Severity::NotProductionReady,
+            FindingCode::ResourceBudgetReached,
+        );
+        assert_eq!(
+            FindingCode::ResourceBudgetReached.class(),
+            FindingClass::Readiness
+        );
+        assert!(validate_health_readiness(&report, false).is_ok());
         assert_eq!(report.admission(), Severity::NotProductionReady);
     }
 
     /// The refusal message must name the failing axis, not just the collapsed severity band.
     #[test]
     fn readiness_refusal_message_names_the_failing_axis() {
-        let report = synthetic_health(Severity::NotProductionReady);
+        let report = synthetic_health(Severity::MachineLimit, FindingCode::HostContainmentFired);
         let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(
-            error.contains("containment=NotProductionReady"),
+            error.contains("containment=MachineLimit"),
             "expected the per-axis breakdown in the refusal message: {error}"
         );
         assert!(error.contains("representability=WithinLimits"));
@@ -714,7 +759,7 @@ mod tests {
         assert!(error.contains("process=WithinLimits"));
     }
 
-    /// Regression guard: the richer refusal message must not move which reports get refused.
+    /// Regression guard: refusal tracks `FindingClass`, never severity or phase alone.
     #[test]
     fn validate_health_readiness_decision_matrix_is_unchanged() {
         let severities = [
@@ -729,18 +774,23 @@ mod tests {
         for &severity in &severities {
             for &phase in &phases {
                 for &worker_containment in &[false, true] {
-                    let mut report = synthetic_health(severity);
+                    let mut report = synthetic_health(severity, representative_code_for(severity));
                     report.findings[0].phase = phase;
 
+                    let class = representative_code_for(severity).class();
                     let expected_ok = !worker_containment
-                        && !(phase == Phase::Apply && severity >= Severity::NotProductionReady)
-                        && severity < Severity::NotProductionReady;
+                        && !matches!(
+                            class,
+                            FindingClass::Containment
+                                | FindingClass::Process
+                                | FindingClass::Representability
+                        );
 
                     let actual_ok = validate_health_readiness(&report, worker_containment).is_ok();
                     assert_eq!(
                         actual_ok, expected_ok,
                         "severity={severity:?} phase={phase:?} worker_containment={worker_containment} \
-                         must decide ok={expected_ok}"
+                         class={class:?} must decide ok={expected_ok}"
                     );
                 }
             }
@@ -749,7 +799,7 @@ mod tests {
 
     #[test]
     fn health_machine_limit_refuses_publication_without_override() {
-        let report = synthetic_health(Severity::MachineLimit);
+        let report = synthetic_health(Severity::MachineLimit, FindingCode::HostContainmentFired);
         let error = validate_health_readiness(&report, false).unwrap_err();
         assert!(error.contains("no .pgpack was written"));
         assert_eq!(report.admission(), Severity::MachineLimit);
@@ -757,16 +807,25 @@ mod tests {
 
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn correctness_override_does_not_override_health_not_production_ready() {
-        let report = synthetic_health(Severity::NotProductionReady);
+    fn correctness_override_does_not_override_health_process_failure() {
+        let report = synthetic_health(
+            Severity::NotProductionReady,
+            FindingCode::BackendCompilationFailed,
+        );
+        assert_eq!(
+            FindingCode::BackendCompilationFailed.class(),
+            FindingClass::Process
+        );
         assert!(validate_health_readiness(&report, false).is_err());
         assert_eq!(report.admission(), Severity::NotProductionReady);
     }
 
     #[test]
     fn proven_route_keeps_unexpected_backend_coverage_gap_cannot_represent() {
-        let mut report = synthetic_health(Severity::CannotRepresent);
-        report.findings[0].code = FindingCode::BackendCoverageIncomplete;
+        let mut report = synthetic_health(
+            Severity::CannotRepresent,
+            FindingCode::BackendCoverageIncomplete,
+        );
 
         project_overridden_capability_findings(&mut report, false);
 
@@ -777,7 +836,10 @@ mod tests {
 
     #[test]
     fn gated_selection_findings_enter_health_before_projection() {
-        let mut static_health = synthetic_health(Severity::NotProductionReady);
+        let mut static_health = synthetic_health(
+            Severity::NotProductionReady,
+            FindingCode::ResourceBudgetReached,
+        );
         let static_finding = static_health.findings.remove(0);
         let gated_report = BackendReport::accepted(
             crate::GATED_BACKEND,
@@ -795,7 +857,8 @@ mod tests {
             .findings
             .iter()
             .any(|finding| finding.code == FindingCode::ResourceBudgetReached));
-        assert!(validate_health_readiness(&health, false).is_err());
+        // A Readiness-class finding, however severe, labels a built artifact -- it must publish.
+        assert!(validate_health_readiness(&health, false).is_ok());
 
         let mut overridden = health;
         project_overridden_capability_findings(&mut overridden, true);
@@ -817,42 +880,34 @@ mod tests {
             closure_evidence: None,
         };
 
-        assert!(completeness_certificate(
-            crate::GATED_BACKEND,
-            Some(&report),
-            true,
-            false,
-        )
-        .is_none());
-        assert!(completeness_certificate(
-            crate::GATED_BACKEND,
-            Some(&report),
-            true,
-            true,
-        )
-        .is_some());
+        assert!(
+            completeness_certificate(crate::GATED_BACKEND, Some(&report), true, false,).is_none()
+        );
+        assert!(
+            completeness_certificate(crate::GATED_BACKEND, Some(&report), true, true,).is_some()
+        );
     }
 
     #[cfg(feature = "developer-tools")]
     #[test]
     fn capability_override_does_not_admit_health_cannot_represent() {
-        let mut report = synthetic_health(Severity::CannotRepresent);
-        report.findings[0].code = FindingCode::BackendCoverageIncomplete;
-        assert!(validate_health_readiness(&report, false).is_err());
-        assert_eq!(
-            report.admission(),
-            Severity::CannotRepresent
+        let report = synthetic_health(
+            Severity::CannotRepresent,
+            FindingCode::BackendCoverageIncomplete,
         );
+        assert!(validate_health_readiness(&report, false).is_err());
         assert_eq!(report.admission(), Severity::CannotRepresent);
     }
 
+    /// Containment refusal is phase-independent: `Phase::Apply` and `Phase::Compile` refuse via the same class test.
     #[cfg(feature = "developer-tools")]
     #[test]
-    fn health_apply_containment_cannot_be_overridden() {
-        let mut report = synthetic_health(Severity::MachineLimit);
+    fn health_host_containment_cannot_be_overridden_at_apply_phase() {
+        let mut report =
+            synthetic_health(Severity::MachineLimit, FindingCode::HostContainmentFired);
         report.findings[0].phase = Phase::Apply;
         let error = validate_health_readiness(&report, false).unwrap_err();
-        assert!(error.contains("apply containment"));
+        assert!(error.contains("host containment failure"));
     }
 
     #[test]
@@ -922,7 +977,8 @@ mod tests {
     #[cfg(feature = "developer-tools")]
     #[test]
     fn missing_foma_payload_cannot_downgrade_or_override_machine_limit_worker_failure() {
-        let mut report = synthetic_health(Severity::MachineLimit);
+        let mut report =
+            synthetic_health(Severity::MachineLimit, FindingCode::HostContainmentFired);
         record_foma_payload_availability(&mut report, false);
 
         let error = validate_health_readiness(&report, true).unwrap_err();
@@ -933,13 +989,20 @@ mod tests {
     /// A completed watchdog run must not be reported as a worker containment failure just because the flag was passed.
     #[test]
     fn watchdog_flag_without_actual_containment_does_not_report_containment_failure() {
-        let health = synthetic_health(Severity::LargeMultiplier);
+        let health = synthetic_health(
+            Severity::LargeMultiplier,
+            FindingCode::IntermediateNetworkGrowth,
+        );
         let outcome = pg_foma::worker::WorkerOutcome::Completed(
             pg_foma::worker::CompileWorkerOutcome::Success {
                 final_state_count: Some(1),
                 final_arc_count: Some(1),
                 uncovered_count: 0,
                 health: health.clone(),
+                foma_payload_file: Some(pg_foma::worker::FomaPayloadFile {
+                    path: "synthetic-does-not-need-to-exist.bin".to_string(),
+                    len: 24,
+                }),
             },
         );
 
@@ -950,7 +1013,10 @@ mod tests {
     /// The same mapping must still report a real supervisor-observed kill as a containment failure.
     #[test]
     fn watchdog_kill_is_reported_as_worker_containment_failure() {
-        let health = synthetic_health(Severity::LargeMultiplier);
+        let health = synthetic_health(
+            Severity::LargeMultiplier,
+            FindingCode::IntermediateNetworkGrowth,
+        );
         let outcome = pg_foma::worker::WorkerOutcome::WallTimeoutKilled {
             elapsed: std::time::Duration::from_secs(5),
             limit: std::time::Duration::from_secs(1),
@@ -1141,28 +1207,32 @@ mod tests {
         assert_eq!(finding.severity, Severity::NotProductionReady);
     }
 
-    /// Injects the byte count at the `evaluate_health` seam rather than compiling a genuine >100MB network.
+    /// Injects the byte count at the `evaluate_health` seam instead of compiling a genuine >100MB network; an oversized-but-compiled payload is a size label, not a reason to withhold the artifact.
     #[test]
-    fn an_oversized_pack_is_refused_publication() {
+    fn an_oversized_pack_still_publishes_with_a_label() {
         let oversized = pg_foma::health::IDEAL_MAX_BYTES + 1;
         let health = evaluate_health(Some(oversized), None, &[], &[], None);
+        assert_eq!(
+            FindingCode::PayloadSizeBand.class(),
+            FindingClass::Readiness
+        );
         assert!(
-            validate_health_readiness(&health, false).is_err(),
-            "an oversized payload must be refused publication"
+            validate_health_readiness(&health, false).is_ok(),
+            "an oversized-but-compiled payload must still publish, labeled NotProductionReady"
         );
 
-        // Mirrors `run_pack`'s own gate-then-write sequence, so a refusal here must leave no file.
-        let dir = scratch_dir("oversized-refusal");
+        // Mirrors `run_pack`'s own gate-then-write sequence, so the label must not block the write.
+        let dir = scratch_dir("oversized-still-publishes");
         let out_path = dir.join("out.pgpack");
         let attempt: Result<(), String> = (|| {
             validate_health_readiness(&health, false)?;
             fs::write(&out_path, b"unused").map_err(|e| e.to_string())?;
             Ok(())
         })();
-        assert!(attempt.is_err());
+        assert!(attempt.is_ok());
         assert!(
-            !out_path.exists(),
-            "no .pgpack may be written for a refused oversized payload"
+            out_path.exists(),
+            "an oversized-but-built payload must still be written, labeled not-production-ready"
         );
     }
 
@@ -1177,7 +1247,10 @@ mod tests {
 
         let bytes = std::fs::read(&out_path).expect("read out.pgpack");
         let read = pg_pack::read_pack(&bytes).expect("a pack this command wrote must read back");
-        assert_eq!(read.manifest.resource_envelope_id, ResourceEnvelopeId::ManagedV1);
+        assert_eq!(
+            read.manifest.resource_envelope_id,
+            ResourceEnvelopeId::ManagedV1
+        );
         assert_eq!(read.manifest.compile_size_mode, CompileSizeMode::Managed);
     }
 
@@ -1235,7 +1308,10 @@ mod tests {
                 "--reason=synthetic field trial",
             ],
         );
-        assert!(result.is_ok(), "developer evidence pack must build: {result:?}");
+        assert!(
+            result.is_ok(),
+            "developer evidence pack must build: {result:?}"
+        );
         let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
         let read = pg_pack::read_pack(&bytes).expect("read local developer evidence pack");
         assert!(read.manifest.capability_trust.is_unproven());
@@ -1252,7 +1328,10 @@ mod tests {
             REFUSE_GRAMMAR_XML,
             &["--allow-unproven", "--reason=synthetic indelibility check"],
         );
-        assert!(result.is_ok(), "developer evidence pack must build: {result:?}");
+        assert!(
+            result.is_ok(),
+            "developer evidence pack must build: {result:?}"
+        );
         let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
         let first_read = pg_pack::read_pack(&bytes).expect("first read");
         assert!(first_read.manifest.capability_trust.is_unproven());
@@ -1294,7 +1373,10 @@ mod tests {
         )
         .expect("capability override may collect an evidence pack");
 
-        assert_eq!(built.manifest.fst_health.admission(), Severity::WithinLimits);
+        assert_eq!(
+            built.manifest.fst_health.admission(),
+            Severity::WithinLimits
+        );
         assert!(built
             .manifest
             .fst_health
@@ -1318,7 +1400,10 @@ mod tests {
             REDUP_GRAMMAR_XML,
             &["--allow-unproven", "--reason=synthetic redup-feature check"],
         );
-        assert!(result.is_ok(), "developer evidence pack must build: {result:?}");
+        assert!(
+            result.is_ok(),
+            "developer evidence pack must build: {result:?}"
+        );
         let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
         let read = pg_pack::read_pack(&bytes).expect("read redup pack");
         assert!(
@@ -1341,7 +1426,10 @@ mod tests {
             REFUSE_GRAMMAR_XML,
             &["--allow-unproven"],
         );
-        assert!(result.is_ok(), "developer evidence pack must build: {result:?}");
+        assert!(
+            result.is_ok(),
+            "developer evidence pack must build: {result:?}"
+        );
         let bytes = std::fs::read(&out_path).expect("read local developer evidence pack");
         let read = pg_pack::read_pack(&bytes).expect("read pack");
         match &read.manifest.capability_trust {

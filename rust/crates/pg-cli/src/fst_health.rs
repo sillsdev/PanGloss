@@ -190,8 +190,8 @@ fn build_health_report(
     Ok(HealthReport::new(findings))
 }
 
-/// The `admission (per-axis breakdown)` fragment of `run_fst_health`'s completion message.
-fn render_admission_summary(report: &HealthReport) -> String {
+/// Renders an `admission (per-axis breakdown)` fragment for a completion message.
+pub(crate) fn render_admission_summary(report: &HealthReport) -> String {
     format!(
         "{:?} ({})",
         report.admission(),

@@ -335,9 +335,9 @@ pub enum FindingCode {
     RuleInteractionProduct,
 }
 
-/// Which of the three independent admission questions a `FindingCode` answers. A finding never
-/// blurs these: representability, readiness, and containment are checked separately and none may
-/// stand in for another.
+/// Which of the four independent admission questions a `FindingCode` answers. A finding never
+/// blurs these: representability, readiness, containment, and process are checked separately and
+/// none may stand in for another.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FindingClass {
     /// Can this backend preserve every valid HermitCrab analysis? A failure here means PanGloss
@@ -346,8 +346,11 @@ pub enum FindingClass {
     /// Is the complete result acceptably sized/fast/maintainable to release? A failure here does
     /// not mean the grammar is unsupported.
     Readiness,
-    /// Did THIS attempt stay inside its operational safety boundary? Says nothing about the
-    /// language; never makes partial output usable.
+    /// Did an EXTERNAL host-protection watchdog abort this attempt (near-OOM, out of disk, an
+    /// RSS/wall-clock kill)? The only code this class ever names is
+    /// [`FindingCode::HostContainmentFired`]; an internal, self-imposed construction cap is
+    /// [`FindingClass::Readiness`] instead, never this. Says nothing about the language; never
+    /// makes partial output usable.
     Containment,
     /// The attempt failed for a reason that is not a statement about the grammar at all (bad
     /// input, worker/protocol failure, internal compiler fault).
@@ -468,7 +471,7 @@ impl FindingCode {
         Self::ALL.iter().copied().find(|c| c.code() == code)
     }
 
-    /// Which of the three independent admission questions this code answers. Exhaustive match, no
+    /// Which of the four independent admission questions this code answers. Exhaustive match, no
     /// catch-all arm — adding a variant breaks this build until it is classified here.
     pub const fn class(self) -> FindingClass {
         match self {
@@ -481,8 +484,8 @@ impl FindingCode {
             FindingCode::ApplicationTimeWork => FindingClass::Readiness,
             FindingCode::UnknownUnboundedConstruct => FindingClass::Readiness,
             FindingCode::CompileWorkBudget => FindingClass::Readiness,
-            FindingCode::ResourceBudgetReached => FindingClass::Containment,
-            FindingCode::ProvenBoundExceedsBudget => FindingClass::Containment,
+            FindingCode::ResourceBudgetReached => FindingClass::Readiness,
+            FindingCode::ProvenBoundExceedsBudget => FindingClass::Readiness,
             FindingCode::BackendCompilationFailed => FindingClass::Process,
             FindingCode::BuildProcessFailed => FindingClass::Process,
             FindingCode::HostContainmentFired => FindingClass::Containment,
@@ -566,7 +569,7 @@ pub struct HealthFinding {
 }
 
 impl HealthFinding {
-    /// Which of the three independent admission questions this finding's code answers.
+    /// Which of the four independent admission questions this finding's code answers.
     pub fn class(&self) -> FindingClass {
         self.code.class()
     }
@@ -642,7 +645,7 @@ impl HealthReport {
 
     /// The worst severity among this report's findings of `class`, or `Severity::WithinLimits`
     /// when no finding of that class is present. This is additive reporting alongside
-    /// `admission`: it answers one of the three independent admission questions in isolation,
+    /// `admission`: it answers one of the four independent admission questions in isolation,
     /// never combined with the others.
     pub fn worst_by_class(&self, class: FindingClass) -> Severity {
         self.findings
@@ -653,7 +656,7 @@ impl HealthReport {
             .unwrap_or(Severity::WithinLimits)
     }
 
-    /// The three independent admission questions (plus `Process`) answered separately, never
+    /// The four independent admission questions answered separately, never
     /// blurred into one severity. `admission()` remains the single worst-of-all value that gates
     /// publication; this is an additional per-class view onto the same findings, not a
     /// replacement.
@@ -1019,20 +1022,37 @@ mod tests {
         }
     }
 
+    /// Fails the moment any code besides the host watchdog is misfiled into Containment.
     #[test]
-    fn containment_codes_are_about_the_attempt_not_the_language() {
+    fn containment_class_names_only_the_host_watchdog() {
         let containment: Vec<FindingCode> = FindingCode::ALL
             .iter()
             .copied()
             .filter(|code| code.class() == FindingClass::Containment)
             .collect();
+        assert_eq!(containment, vec![FindingCode::HostContainmentFired]);
+    }
+
+    #[test]
+    fn internal_budget_codes_are_readiness_not_containment() {
+        for code in [
+            FindingCode::ResourceBudgetReached,
+            FindingCode::ProvenBoundExceedsBudget,
+        ] {
+            assert_eq!(
+                code.class(),
+                FindingClass::Readiness,
+                "{code:?} is a self-imposed cap; it labels an attempt and must never exclude a \
+                 backend the way Containment does"
+            );
+        }
+    }
+
+    #[test]
+    fn host_containment_fired_is_containment() {
         assert_eq!(
-            containment,
-            vec![
-                FindingCode::ResourceBudgetReached,
-                FindingCode::ProvenBoundExceedsBudget,
-                FindingCode::HostContainmentFired,
-            ]
+            FindingCode::HostContainmentFired.class(),
+            FindingClass::Containment
         );
     }
 
@@ -1072,11 +1092,14 @@ mod tests {
     }
 
     #[test]
-    fn admission_by_class_separates_a_resource_stop_from_a_representability_gap() {
+    fn admission_by_class_separates_a_host_watchdog_stop_from_a_representability_gap() {
         // Demonstrates the blur is gone: one severity used to hide which question was failing.
         let report = HealthReport::new(vec![
-            class_finding(FindingCode::ResourceBudgetReached, Severity::NotProductionReady), // Containment
-            class_finding(FindingCode::BackendCoverageIncomplete, Severity::CannotRepresent), // Representability
+            class_finding(FindingCode::HostContainmentFired, Severity::MachineLimit), // Containment
+            class_finding(
+                FindingCode::BackendCoverageIncomplete,
+                Severity::CannotRepresent,
+            ), // Representability
         ]);
 
         // The existing publish-gating value is untouched: still the plain max over everything.
@@ -1085,8 +1108,8 @@ mod tests {
         let by_class = report.admission_by_class();
         assert_eq!(
             by_class.containment,
-            Severity::NotProductionReady,
-            "the resource stop must be visible on its own axis"
+            Severity::MachineLimit,
+            "the host watchdog stop must be visible on its own axis"
         );
         assert_eq!(
             by_class.representability,
@@ -1100,13 +1123,16 @@ mod tests {
     #[test]
     fn admission_by_class_render_names_all_four_axes() {
         let report = HealthReport::new(vec![
-            class_finding(FindingCode::ResourceBudgetReached, Severity::NotProductionReady), // Containment
-            class_finding(FindingCode::BackendCoverageIncomplete, Severity::CannotRepresent), // Representability
+            class_finding(FindingCode::HostContainmentFired, Severity::MachineLimit), // Containment
+            class_finding(
+                FindingCode::BackendCoverageIncomplete,
+                Severity::CannotRepresent,
+            ), // Representability
         ]);
         assert_eq!(
             report.admission_by_class().render(),
             "representability=CannotRepresent, readiness=WithinLimits, \
-             containment=NotProductionReady, process=WithinLimits"
+             containment=MachineLimit, process=WithinLimits"
         );
     }
 
@@ -1136,12 +1162,21 @@ mod tests {
             )]),
             HealthReport::new(vec![
                 class_finding(FindingCode::CompileWorkBudget, Severity::NotProductionReady),
-                class_finding(FindingCode::BackendCoverageIncomplete, Severity::LargeMultiplier),
+                class_finding(
+                    FindingCode::BackendCoverageIncomplete,
+                    Severity::LargeMultiplier,
+                ),
             ]),
             HealthReport::new(vec![
-                class_finding(FindingCode::BackendCompilationFailed, Severity::MachineLimit),
+                class_finding(
+                    FindingCode::BackendCompilationFailed,
+                    Severity::MachineLimit,
+                ),
                 class_finding(FindingCode::ProposalVolume, Severity::Elevated),
-                class_finding(FindingCode::ProvenBoundExceedsBudget, Severity::LargeMultiplier),
+                class_finding(
+                    FindingCode::ProvenBoundExceedsBudget,
+                    Severity::LargeMultiplier,
+                ),
             ]),
         ];
 

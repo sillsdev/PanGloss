@@ -286,7 +286,7 @@ fn missing_and_failed_backends_are_typed_errors_with_shared_advice() {
 }
 
 #[test]
-fn tuned_surface_resource_finding_is_reported_and_not_production_ready_is_not_selected() {
+fn tuned_surface_resource_finding_is_reported_and_backend_is_still_selected() {
     let grammar_xml = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../../machine/conformance/edge-cases/truncate-morphotactic/grammar.xml"
@@ -301,11 +301,16 @@ fn tuned_surface_resource_finding_is_reported_and_not_production_ready_is_not_se
         .expect("TunedSurface must always have one report");
 
     assert_eq!(selection.reports().len(), BACKEND_PREFERENCE.len());
-    assert_eq!(tuned.worst_severity(), Severity::NotProductionReady);
+    // Readiness class: a magnitude estimate against an uncalibrated budget must not exclude a backend.
+    assert_eq!(tuned.worst_severity(), Severity::LargeMultiplier);
     assert_eq!(tuned.findings().len(), 1);
     assert_eq!(
         tuned.findings()[0].code,
         FindingCode::ProvenBoundExceedsBudget
+    );
+    assert_eq!(
+        tuned.findings()[0].code.class(),
+        pg_foma::health::FindingClass::Readiness
     );
     assert_eq!(tuned.findings()[0].metric, Metric::CompositeRulePairCount);
     assert_eq!(
@@ -318,16 +323,20 @@ fn tuned_surface_resource_finding_is_reported_and_not_production_ready_is_not_se
         .any(|evidence| evidence.metric == Metric::CompositeRulePairCount));
     assert!(!tuned.advice_references().is_empty());
     assert!(
-        !selection
+        selection
             .selected()
             .contains(&EmissionStrategy::TunedSurfaceProbed),
-        "a proven resource NotProductionReady finding remains reportable but cannot receive an implicit override"
+        "a Readiness-only finding is diagnostic, never a selection veto: {selection:?}"
+    );
+    assert_eq!(
+        selection.preferred(),
+        Some(EmissionStrategy::TunedSurfaceProbed),
+        "TunedSurface is the only normal-generation candidate here, so it must be preferred: {selection:?}"
     );
     assert!(
-        selection.is_no_path(),
-        "the fixture has no complete route: TunedSurface exceeds the named envelope, Templated \
-         refuses its unordered rules, and PlanComposed cannot build its required structural \
-         subtree: {selection:?}"
+        !selection.is_no_path(),
+        "TunedSurface remains a selectable path even though it carries a large-multiplier \
+         warning: {selection:?}"
     );
 
     let retried =
@@ -340,8 +349,8 @@ fn tuned_surface_resource_finding_is_reported_and_not_production_ready_is_not_se
             .report_for(EmissionStrategy::TunedSurfaceProbed)
             .expect("the retry must retain the TunedSurface report")
             .worst_severity(),
-        Severity::NotProductionReady,
-        "a larger named envelope must rerun characterization instead of preserving the NotProductionReady finding"
+        Severity::LargeMultiplier,
+        "a larger named envelope must rerun characterization instead of preserving the earlier finding"
     );
 }
 

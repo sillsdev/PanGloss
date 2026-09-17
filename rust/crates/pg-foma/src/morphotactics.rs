@@ -38,7 +38,7 @@
 //!    `ChainState::seed` bakes this into `template_entry_disabled`, carried unchanged by every
 //!    `MorphotacticIndex::next_state` transition.
 //!
-//! ## Recall trap: surface-vacuous rules in mandatory slots (plan doc "Recall trap")
+//! ## Recall trap: surface-vacuous rules in mandatory slots
 //! A realizational rule whose allomorph RHS is EXACTLY `[Copy(0), Copy(1), .., Copy(n-1)]` (every
 //! LHS part copied, in order, and NOTHING else -- no `InsertSegments`, no `Modify`, no
 //! `InsertContext`) adds no surface material at all; the engine still applies it in a mandatory
@@ -49,41 +49,40 @@
 //! non-empty text" as vacuous, a looser and UNSOUND-for-pruning test: a rule whose RHS reorders or
 //! drops LHS parts without inserting anything still changes the shape, so treating it as skippable
 //! could cause `extend`/`struct_extend` to jump a slot the engine's real word would not have
-//! skipped, which is a recall-losing direction the plan's iron rule forbids). Do not loosen this
+//! skipped, which is a recall-losing direction this pruning must never take). Do not loosen this
 //! back to the example's version without re-deriving the soundness argument.
 //!
 //! `slot_skippable(slot) = slot.rules.is_empty() || slot.optional || slot.rules.any(rule_may_be_vacuous)`
 //! is used everywhere the engine walk uses `slot_optional` -- a strict, recall-safe
 //! over-approximation (costs only extra exploration, never drops a legal chain). A `Compounding`
-//! rule in a slot's rule list counts as non-vacuous unconditionally (per the plan doc: compounding
-//! always consumes a real extra root, never a silent skip).
+//! rule in a slot's rule list counts as non-vacuous unconditionally (compounding always consumes a
+//! real extra root, never a silent skip).
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use pg_featstruct::{is_unifiable, FeatureStruct, FsId, Interner};
 use pg_grammar::model::{Grammar, MRuleId, MorphRuleDef, OutputAction, PartRef, SlotDef};
 use rustc_hash::FxHashMap;
 
-/// The flat/pruned escape hatch (plan doc "Wiring": "an internal parameter... NOT a runtime branch
-/// tests can't control"). Threaded explicitly from every caller -- `crate::emit::emit_with_precision`
-/// resolves this from `HC_PREEXPAND_FLAT` exactly once (via `explore_mode_from_env`) and passes it
-/// down; unit/gate tests construct it directly, never through the env var, so parallel test
-/// processes never race process-global env state.
+/// The flat/pruned escape hatch: an internal parameter, not a runtime branch tests can't control,
+/// threaded explicitly from every caller -- `crate::emit::emit_with_precision` resolves this from
+/// `HC_PREEXPAND_FLAT` exactly once (via `explore_mode_from_env`) and passes it down; unit/gate
+/// tests construct it directly, never through the env var, so parallel test processes never race
+/// process-global env state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ExploreMode {
     /// Consult `MorphotacticIndex::next_state` before every recursive step -- the production
     /// default.
     Pruned,
     /// Skip the automaton entirely (`Some(state.clone())` unconditionally) -- the pre-fix
-    /// behavior, kept only for A/B measurement (plan doc "Sizing results" table; the Amharic
-    /// subset gate compares this against `Pruned`).
+    /// behavior, kept only for A/B measurement -- the Amharic subset gate compares this against
+    /// `Pruned`.
     Flat,
 }
 
 /// Resolves the flat/pruned choice for the PRODUCTION `emit`/`emit_with_precision` path from
-/// `HC_PREEXPAND_FLAT` (plan doc's env-gated-diagnostic precedent, mirroring the repo's existing
-/// `CENSUS_DUMP_D5` convention). Read exactly ONCE per `emit_with_precision` call -- tests must
-/// construct `ExploreMode` directly, never call this, so parallel test threads/processes never
-/// race process-global env state (plan doc "Wiring").
+/// `HC_PREEXPAND_FLAT` (mirroring the repo's existing `CENSUS_DUMP_D5` convention). Read exactly
+/// ONCE per `emit_with_precision` call -- tests must construct `ExploreMode` directly, never call
+/// this, so parallel test threads/processes never race process-global env state.
 pub(crate) fn explore_mode_from_env() -> ExploreMode {
     match std::env::var("HC_PREEXPAND_FLAT") {
         Ok(v) if v == "1" => ExploreMode::Flat,
@@ -93,10 +92,10 @@ pub(crate) fn explore_mode_from_env() -> ExploreMode {
 
 /// `HC_PREEXPAND_PROBE_CAP=<n>` (measurement-only, off by default): the total probe ceiling shared
 /// across BOTH `crate::preexpand::build_composites_with_mode` and
-/// `crate::emit::build_structural_composites` for one `emit`/`emit_with_precision` call (plan doc
-/// "Instrumentation" -- "measuring Aweti can never OOM the machine again"). `None` (the env var
-/// unset) means production behavior, completely unchanged -- callers must not build a
-/// `ProbeBudget` at all in that case.
+/// `crate::emit::build_structural_composites` for one `emit`/`emit_with_precision` call, so a
+/// measurement run of a pathological grammar can be bounded instead of exhausting memory. `None`
+/// (the env var unset) means production behavior, completely unchanged -- callers must not build
+/// a `ProbeBudget` at all in that case.
 pub(crate) fn probe_cap_from_env() -> Option<usize> {
     std::env::var("HC_PREEXPAND_PROBE_CAP")
         .ok()
@@ -275,12 +274,11 @@ impl EnumerationBudget {
     }
 }
 
-/// Subset-construction state for one in-progress composite chain (module doc). `free`/`mid` mirror
-/// the plan doc's `ChainState` exactly; `template_entry_disabled` is the "carry a bool in the
-/// state" option the plan doc names for the partial-root gate (module doc, engine fact 5) -- baked
-/// in at `ChainState::seed` and carried unchanged by every `MorphotacticIndex::next_state`
-/// transition (a partial root never enters a template for the chain's entire lifetime, not just
-/// the current call).
+/// Subset-construction state for one in-progress composite chain (module doc).
+/// `template_entry_disabled` carries the partial-root gate (module doc, engine fact 5) as a bool
+/// in this state -- baked in at `ChainState::seed` and carried unchanged by every
+/// `MorphotacticIndex::next_state` transition (a partial root never enters a template for the
+/// chain's entire lifetime, not just the current call).
 ///
 /// `mid` stores template ids as `u16` (not `MorphotacticIndex`'s native `u32` `TemplateId`) --
 /// `MorphotacticIndex::build` asserts every grammar's template count fits, which every reference/
@@ -515,7 +513,7 @@ impl MorphotacticIndex {
             .unwrap_or(&[])
     }
 
-    /// Subset construction (module doc / plan doc "The automaton"): every legal way `rule` can fire
+    /// Subset construction (module doc): every legal way `rule` can fire
     /// from `state`, merged into ONE resulting state (a rule application is a single atomic event;
     /// the "site" a specific application used is exactly the nondeterminism a subset-construction
     /// state must summarize, not enumerate). Returns `None` iff `rule` has NO contribution at all --

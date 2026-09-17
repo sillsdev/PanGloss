@@ -14,16 +14,18 @@
 //! or `ConfirmOnly` — `ConfirmOnly` is a recall-preserving mode, not a defect) AND none of its
 //! findings show it cannot produce a usable artifact: a `crate::health::FindingClass::
 //! Representability` finding (the feature cannot be faithfully proposed) or a `FindingClass::
-//! Containment` finding (this attempt was itself stopped, internally or by the host watchdog,
-//! before finishing) both mean there is nothing built to select. A `FindingClass::Readiness`
-//! finding — including `Severity::NotProductionReady`, e.g. an oversized compiled payload — is a
-//! label on an artifact that DID get built, so it never excludes a backend here; see
+//! Containment` finding (the external host watchdog stopped this attempt before finishing) both
+//! mean there is nothing built to select. A `FindingClass::Readiness` finding — including
+//! `Severity::NotProductionReady`, e.g. an oversized compiled payload or a self-imposed
+//! construction budget reached with nothing built — is a label on an artifact or an attempt, so
+//! it never excludes a backend here; see
 //! `BackendReport::is_normal_candidate` for the exact predicate. Refusals and every excluded
 //! report remain visible in `reports`/`excluded`, never silently dropped.
 //!
 //! Candidate ranking is deterministic and deliberately modest: clean reports first, then worst
-//! severity, then finding count, with `BACKEND_PREFERENCE` only as the final tie-break. Cost
-//! evidence is retained for callers and explanations; it never overrides correctness.
+//! Readiness-class severity (the only class a normal candidate can still carry), then finding
+//! count, with `BACKEND_PREFERENCE` only as the final tie-break. Cost evidence is retained for
+//! callers and explanations; it never overrides correctness.
 
 use pg_grammar::model::Grammar;
 
@@ -227,19 +229,19 @@ impl BackendReport {
     /// A backend is a normal-generation candidate when correctness admits it AND no finding shows
     /// it cannot produce a usable artifact. That second test asks "which question failed", never
     /// "how high on the severity scale" — a `FindingClass::Representability` finding means the
-    /// feature cannot be faithfully proposed, a `FindingClass::Containment` finding means this
-    /// attempt itself was stopped (self-imposed budget or the external host watchdog) before
-    /// producing one, and a `FindingClass::Process` finding means the attempt failed for a reason
-    /// unrelated to the grammar (bad input, worker/protocol failure); all three leave nothing to
-    /// build. The `status == Accepted` check already makes the `Process` exclusion redundant for
-    /// every producer that exists today (`BackendReport::missing`/`failed` both attach a Process
-    /// finding and also set a non-`Accepted` status), pinned by
-    /// `a_process_finding_excludes_even_if_status_were_accepted`; listing it here too makes the
-    /// predicate correct on its own terms rather than by that coincidence. A `FindingClass::
-    /// Readiness` finding — including one at `Severity::NotProductionReady`, e.g. an oversized
-    /// payload — labels an artifact that DID get built, so it never excludes here; publication
-    /// gating for it lives in `pg_cli::pack::validate_health_readiness`, a separate gate this
-    /// predicate does not reach.
+    /// feature cannot be faithfully proposed, a `FindingClass::Containment` finding means the
+    /// external host watchdog stopped this attempt before producing one, and a `FindingClass::
+    /// Process` finding means the attempt failed for a reason unrelated to the grammar (bad
+    /// input, worker/protocol failure); all three leave nothing to build. The `status == Accepted`
+    /// check already makes the `Process` exclusion redundant for every producer that exists today
+    /// (`BackendReport::missing`/`failed` both attach a Process finding and also set a
+    /// non-`Accepted` status), pinned by `a_process_finding_excludes_even_if_status_were_accepted`;
+    /// listing it here too makes the predicate correct on its own terms rather than by that
+    /// coincidence. A `FindingClass::Readiness` finding — including one at
+    /// `Severity::NotProductionReady`, e.g. an oversized payload or a self-imposed construction
+    /// budget reached with nothing built THIS attempt — labels an artifact or an attempt, so it
+    /// never excludes here; publication gating for it lives in
+    /// `pg_cli::pack::validate_health_readiness`, a separate gate this predicate does not reach.
     pub fn is_normal_candidate(&self) -> bool {
         self.status == BackendStatus::Accepted
             && !matches!(self.decision, CompileDecision::Refuse(_))
@@ -251,11 +253,22 @@ impl BackendReport {
             })
     }
 
+    /// Worst severity among this report's `FindingClass::Readiness` findings only; other classes are already excluded before this runs.
+    fn worst_readiness_severity(&self) -> Severity {
+        self.findings
+            .iter()
+            .filter(|finding| finding.code.class() == FindingClass::Readiness)
+            .map(|finding| finding.severity)
+            .max()
+            .unwrap_or(Severity::WithinLimits)
+    }
+
+    // Severity here is read post-`is_normal_candidate`, so it is already confined to Readiness.
     fn rank_key(&self) -> (bool, Severity, usize) {
         (
             // `false` sorts before `true`: a zero-finding report wins before severity is consulted.
             !self.findings.is_empty(),
-            self.worst_severity(),
+            self.worst_readiness_severity(),
             self.findings.len(),
         )
     }
@@ -1049,6 +1062,79 @@ mod tests {
         assert_eq!(
             crate::health::FindingCode::CompileWorkBudget.class(),
             FindingClass::Readiness
+        );
+    }
+
+    /// A self-imposed construction-budget stop is Readiness, never Containment, so it ranks like any other readiness label instead of being excluded.
+    #[test]
+    fn a_self_imposed_budget_stop_ranks_like_any_other_readiness_finding() {
+        let reports = vec![
+            BackendReport::accepted(
+                EmissionStrategy::TunedSurfaceProbed,
+                CompileDecision::Admit,
+                vec![finding(
+                    crate::health::Severity::NotProductionReady,
+                    crate::health::FindingCode::ProvenBoundExceedsBudget,
+                )],
+            )
+            .unwrap(),
+            BackendReport::accepted(
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                CompileDecision::Admit,
+                vec![],
+            )
+            .unwrap(),
+        ];
+        let selection = BackendSelection::from_reports(reports);
+
+        assert!(
+            selection
+                .selected()
+                .contains(&EmissionStrategy::TunedSurfaceProbed),
+            "a self-imposed budget stop must never exclude the backend: {selection:?}"
+        );
+        assert_eq!(
+            selection.selected(),
+            vec![
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                EmissionStrategy::TunedSurfaceProbed,
+            ],
+            "the clean report ranks ahead of the one carrying a NotProductionReady readiness label"
+        );
+    }
+
+    /// Severity still orders candidates, but only ever within the Readiness class.
+    #[test]
+    fn readiness_severity_orders_candidates_within_the_class() {
+        let reports = vec![
+            BackendReport::accepted(
+                EmissionStrategy::TunedSurfaceProbed,
+                CompileDecision::Admit,
+                vec![finding(
+                    crate::health::Severity::NotProductionReady,
+                    crate::health::FindingCode::PayloadSizeBand,
+                )],
+            )
+            .unwrap(),
+            BackendReport::accepted(
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                CompileDecision::Admit,
+                vec![finding(
+                    crate::health::Severity::LargeMultiplier,
+                    crate::health::FindingCode::RuleInteractionProduct,
+                )],
+            )
+            .unwrap(),
+        ];
+        let selection = BackendSelection::from_reports(reports);
+
+        assert_eq!(
+            selection.selected(),
+            vec![
+                EmissionStrategy::TemplatedUnderlyingTokens,
+                EmissionStrategy::TunedSurfaceProbed,
+            ],
+            "a LargeMultiplier warning must rank ahead of a NotProductionReady label, both Readiness"
         );
     }
 

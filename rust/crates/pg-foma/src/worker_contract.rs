@@ -14,7 +14,7 @@ pub(crate) const PROTOCOL_VERSION: u32 = 1;
 
 pub(crate) const V1_LIMITS: WorkerLimits = WorkerLimits {
     max_request_bytes: 4 * 1024 * 1024,
-    max_result_bytes: 16 * 1024 * 1024,
+    max_result_bytes: 16 * 1024 * 1024, // the compiled network travels out-of-band as a scratch-file path + length, so this never scales with artifact size.
     max_captured_stderr_bytes: 4 * 1024 * 1024,
     max_wall_timeout_ms: 24 * 60 * 60 * 1000,
     max_rss_limit_mb: 256 * 1024,

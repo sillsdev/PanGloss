@@ -146,7 +146,9 @@ pub const WORKER_PROTOCOL_VERSION: u32 = crate::worker_contract::PROTOCOL_VERSIO
 pub struct WorkerLimits {
     /// Ceiling on one serialized `CompileWorkerRequest` frame's byte length.
     pub max_request_bytes: u64,
-    /// Ceiling on one serialized `CompileWorkerResult` frame's byte length.
+    /// Ceiling on one serialized `CompileWorkerResult` frame's byte length. The compiled network
+    /// itself travels out-of-band as a scratch-file path + length (`FomaPayloadFile`), so this
+    /// bound never scales with the artifact's own size.
     pub max_result_bytes: u64,
     /// Ceiling on total captured stderr bytes the supervisor retains from the child.
     pub max_captured_stderr_bytes: u64,
@@ -375,6 +377,17 @@ pub struct CompileWorkerResult {
     pub outcome: CompileWorkerOutcome,
 }
 
+/// Where the child wrote the compiled network: the small result frame carries this path and exact
+/// byte length instead of the payload bytes themselves, so the frame stays bounded regardless of
+/// the artifact's own size.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FomaPayloadFile {
+    /// Absolute path to the scratch file holding the compiled network bytes.
+    pub path: String,
+    /// The exact byte length the child wrote -- the parent must verify this against what it reads.
+    pub len: u64,
+}
+
 /// Every terminal outcome the CHILD itself can observe and report (see `WorkerOutcome` for the
 /// outcomes only the PARENT can observe -- a kill, a crash, a flooded pipe).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -385,6 +398,10 @@ pub enum CompileWorkerOutcome {
         final_arc_count: Option<i64>,
         uncovered_count: usize,
         health: HealthReport,
+        /// The compiled network's out-of-band location; `None` only when writing it failed (see
+        /// the accompanying `health` finding for why).
+        #[serde(default)]
+        foma_payload_file: Option<FomaPayloadFile>,
     },
     /// A deterministic `ComposeBudget`/enumeration budget tripped before or during compilation;
     /// `detail` is the originating error's `Display` text and `health` retains its findings.
@@ -453,6 +470,73 @@ fn load_grammar_for_worker(
     }
 }
 
+fn success_outcome(
+    final_state_count: Option<i64>,
+    final_arc_count: Option<i64>,
+    uncovered_count: usize,
+    health: HealthReport,
+    foma_payload_file: Option<FomaPayloadFile>,
+) -> CompileWorkerOutcome {
+    CompileWorkerOutcome::Success {
+        final_state_count,
+        final_arc_count,
+        uncovered_count,
+        health,
+        foma_payload_file,
+    }
+}
+
+/// A collision-free scratch path for one child's compiled-network handoff file.
+fn unique_foma_payload_path() -> std::path::PathBuf {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "pangloss-compile-worker-foma-payload-{}-{n}-{nanos}.bin",
+        std::process::id()
+    ))
+}
+
+/// Writes `bytes` to a fresh scratch file and reports its path and exact length.
+fn write_foma_payload_file(bytes: &[u8]) -> io::Result<FomaPayloadFile> {
+    let path = unique_foma_payload_path();
+    std::fs::write(&path, bytes)?;
+    Ok(FomaPayloadFile {
+        path: path.to_string_lossy().into_owned(),
+        len: bytes.len() as u64,
+    })
+}
+
+/// Honest tooling-fault finding for a failed payload-file write; disk-full is worded separately from every other cause, and neither is ever phrased as a claim about the grammar.
+fn foma_payload_write_failed_finding(error: &io::Error) -> HealthFinding {
+    let explanation = if error.kind() == io::ErrorKind::StorageFull {
+        format!(
+            "the compiled network could not be written to the host's scratch directory because \
+             the disk is full ({error}) -- genuine machine-resource containment"
+        )
+    } else {
+        format!(
+            "the compiled network could not be written to the host's scratch directory ({error}) \
+             -- a tooling or environment fault"
+        )
+    };
+    HealthFinding {
+        code: FindingCode::BuildProcessFailed,
+        severity: Severity::NotProductionReady,
+        phase: Phase::Compile,
+        affected: vec!["foma-payload".to_string()],
+        metric: Metric::UnknownUnboundedWork,
+        value: MetricValue::Unbounded,
+        provenance: ValueProvenance::Observed,
+        threshold: None,
+        explanation,
+        remedies: Vec::new(),
+    }
+}
+
 /// Loads `request`'s grammar and runs it through `FomaProposer::new_with_budget_and_profile` under `request`'s own `ComposeBudget` -- the same production path, wrapped in `catch_unwind` as best-effort panic containment only (does not protect against stack overflow or allocator OOM).
 fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorkerOutcome {
     let grammar = match load_grammar_for_worker(&request.grammar_path, request.grammar_format) {
@@ -515,19 +599,36 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
                 .report
                 .as_ref()
                 .expect("FomaProposer::new always runs the tuned emitter and supplies its report");
-            let health = crate::health_evaluator::evaluate_health(
+            let mut health = crate::health_evaluator::evaluate_health(
                 None,
                 Some(report),
                 &[],
                 &[],
                 Some(&profile),
             );
-            CompileWorkerOutcome::Success {
-                final_state_count: profile.final_state_count,
-                final_arc_count: profile.final_arc_count,
-                uncovered_count: report.uncovered.len(),
+            let final_state_count = profile.final_state_count;
+            let final_arc_count = profile.final_arc_count;
+            let uncovered_count = report.uncovered.len();
+            let foma_bytes = proposer.foma_binary_payload().ok();
+            let foma_payload_file = match foma_bytes {
+                Some(bytes) => match write_foma_payload_file(&bytes) {
+                    Ok(file) => Some(file),
+                    Err(io_error) => {
+                        health
+                            .findings
+                            .push(foma_payload_write_failed_finding(&io_error));
+                        None
+                    }
+                },
+                None => None,
+            };
+            success_outcome(
+                final_state_count,
+                final_arc_count,
+                uncovered_count,
                 health,
-            }
+                foma_payload_file,
+            )
         }
         Err(err @ FomaError::UnorderedOrderingMultiplicityExceeded { .. }) => {
             let health = crate::health_evaluator::evaluate_foma_error(&err, Some(&profile));
@@ -945,6 +1046,88 @@ impl WorkerOutcome {
             }
         }
     }
+
+    /// Reads and deletes the child's out-of-band payload file, returning `Ok(None)` for every
+    /// outcome that never wrote one. Rejects (never returns) a file whose length differs from
+    /// what the child reported -- that gap means truncation, not a legitimate zero-length artifact.
+    pub fn take_completed_foma_payload(&self) -> Result<Option<Vec<u8>>, String> {
+        match self {
+            WorkerOutcome::Completed(CompileWorkerOutcome::Success {
+                foma_payload_file: Some(file),
+                ..
+            }) => read_and_remove_foma_payload_file(file).map(Some),
+            _ => Ok(None),
+        }
+    }
+
+    /// A `{:?}`-shaped summary safe to log: the payload is already just a path and length here,
+    /// never raw network bytes, so logging this can never dump a compiled network's content to
+    /// stderr.
+    pub fn describe_without_payload_bytes(&self) -> String {
+        match self {
+            WorkerOutcome::Completed(CompileWorkerOutcome::Success {
+                final_state_count,
+                final_arc_count,
+                uncovered_count,
+                health,
+                foma_payload_file,
+            }) => {
+                let payload = match foma_payload_file {
+                    Some(file) => format!("Some({file:?})"),
+                    None => "None".to_string(),
+                };
+                format!(
+                    "Completed(Success {{ final_state_count: {final_state_count:?}, \
+                     final_arc_count: {final_arc_count:?}, uncovered_count: {uncovered_count}, \
+                     health: {health:?}, foma_payload_file: {payload} }})"
+                )
+            }
+            other => format!("{other:?}"),
+        }
+    }
+
+    /// `Some(detail)` naming why this outcome is not a completed `Success`; `None` exactly when
+    /// the child reported `Success`, with or without a payload the wire result limit could carry.
+    pub fn gated_compile_error_detail(&self) -> Option<String> {
+        match self {
+            WorkerOutcome::Completed(
+                CompileWorkerOutcome::Success { .. } | CompileWorkerOutcome::SelectedSuccess { .. },
+            ) => None,
+            WorkerOutcome::Completed(
+                CompileWorkerOutcome::BudgetTripped { detail, .. }
+                | CompileWorkerOutcome::CompileFailed { detail, .. }
+                | CompileWorkerOutcome::GrammarLoadFailed { detail }
+                | CompileWorkerOutcome::ProtocolViolation { detail }
+                | CompileWorkerOutcome::SelectedCompileFailed { detail },
+            ) => Some(detail.clone()),
+            other => Some(format!("watchdog supervisor outcome: {other:?}")),
+        }
+    }
+}
+
+/// Reads the payload file's bytes, always deleting it afterward, and rejects a length that does not match what the child reported.
+fn read_and_remove_foma_payload_file(file: &FomaPayloadFile) -> Result<Vec<u8>, String> {
+    let path = std::path::Path::new(&file.path);
+    let read_result = std::fs::read(path);
+    if let Err(remove_err) = std::fs::remove_file(path) {
+        if remove_err.kind() != io::ErrorKind::NotFound {
+            eprintln!(
+                "warning: could not delete compile-worker scratch file {}: {remove_err}",
+                file.path
+            );
+        }
+    }
+    let bytes = read_result.map_err(|e| format!("reading {}: {e}", file.path))?;
+    if bytes.len() as u64 != file.len {
+        return Err(format!(
+            "compile-worker payload file {} is {} byte(s) but the worker reported {} -- refusing \
+             a possibly truncated network rather than packaging it",
+            file.path,
+            bytes.len(),
+            file.len
+        ));
+    }
+    Ok(bytes)
 }
 
 fn build_process_failure_health(detail: String) -> HealthReport {
@@ -1649,8 +1832,132 @@ mod tests {
             final_arc_count: Some(4),
             uncovered_count: 0,
             health: real_health.clone(),
+            foma_payload_file: Some(FomaPayloadFile {
+                path: "synthetic-does-not-need-to-exist.bin".to_string(),
+                len: 24,
+            }),
         });
         assert_eq!(outcome.health_report(), real_health);
+        assert!(outcome.gated_compile_error_detail().is_none());
+    }
+
+    /// A collision-free scratch file of raw bytes, mirroring `scratch_grammar_file`'s naming convention.
+    fn scratch_bytes_file(tag: &str, bytes: &[u8]) -> std::path::PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "pg-foma-worker-test-{tag}-{}-{n}.bin",
+            std::process::id()
+        ));
+        std::fs::write(&path, bytes).expect("write scratch payload bytes");
+        path
+    }
+
+    /// A completed `Success` with a payload file hands its bytes back and deletes the file; without a payload it reports `Ok(None)`, never a compile error.
+    #[test]
+    fn take_completed_foma_payload_round_trips_and_is_none_for_every_other_outcome() {
+        let bytes = b"synthetic-network-bytes".to_vec();
+        let path = scratch_bytes_file("payload-roundtrip", &bytes);
+        let carrying = WorkerOutcome::Completed(CompileWorkerOutcome::Success {
+            final_state_count: Some(1),
+            final_arc_count: Some(1),
+            uncovered_count: 0,
+            health: HealthReport::new(Vec::new()),
+            foma_payload_file: Some(FomaPayloadFile {
+                path: path.to_string_lossy().into_owned(),
+                len: bytes.len() as u64,
+            }),
+        });
+        assert_eq!(carrying.take_completed_foma_payload(), Ok(Some(bytes)));
+        assert!(!path.exists(), "a read payload file must be deleted");
+
+        let empty = WorkerOutcome::Completed(CompileWorkerOutcome::Success {
+            final_state_count: Some(1),
+            final_arc_count: Some(1),
+            uncovered_count: 0,
+            health: HealthReport::new(Vec::new()),
+            foma_payload_file: None,
+        });
+        assert_eq!(empty.take_completed_foma_payload(), Ok(None));
+        assert!(empty.gated_compile_error_detail().is_none());
+
+        let killed = WorkerOutcome::WallTimeoutKilled {
+            elapsed: Duration::from_secs(1),
+            limit: Duration::from_secs(1),
+        };
+        assert_eq!(killed.take_completed_foma_payload(), Ok(None));
+        assert!(killed.gated_compile_error_detail().is_some());
+    }
+
+    /// A length mismatch between what the child reported and what is on disk is a hard error, and the mismatched file is still cleaned up.
+    #[test]
+    fn take_completed_foma_payload_rejects_a_length_mismatch_as_an_error() {
+        let path = scratch_bytes_file("mismatch", b"short");
+        let outcome = WorkerOutcome::Completed(CompileWorkerOutcome::Success {
+            final_state_count: Some(1),
+            final_arc_count: Some(1),
+            uncovered_count: 0,
+            health: HealthReport::new(Vec::new()),
+            foma_payload_file: Some(FomaPayloadFile {
+                path: path.to_string_lossy().into_owned(),
+                len: 999_999,
+            }),
+        });
+
+        let error = outcome
+            .take_completed_foma_payload()
+            .expect_err("a length mismatch must never be packaged as complete");
+        assert!(error.contains("byte(s) but"), "error: {error}");
+        assert!(
+            !path.exists(),
+            "the mismatched file must still be cleaned up"
+        );
+    }
+
+    /// A large payload succeeds via the file handoff: the result frame stays far under the wire limit regardless of the payload's own size.
+    #[test]
+    fn oversized_payload_succeeds_via_file_handoff_and_keeps_the_frame_small() {
+        let oversized = vec![7u8; (V1_WORKER_LIMITS.max_result_bytes + 1024) as usize];
+        let file = write_foma_payload_file(&oversized).expect("write oversized payload file");
+        assert_eq!(file.len, oversized.len() as u64);
+
+        let outcome = success_outcome(Some(1), Some(1), 0, HealthReport::new(Vec::new()), Some(file));
+        let framed = serde_json::to_vec(&CompileWorkerResult {
+            protocol_version: WORKER_PROTOCOL_VERSION,
+            outcome: outcome.clone(),
+        })
+        .expect("serialize result frame");
+        assert!(
+            (framed.len() as u64) < V1_WORKER_LIMITS.max_result_bytes,
+            "the result frame must stay small even though the referenced payload exceeds it"
+        );
+
+        match outcome {
+            CompileWorkerOutcome::Success {
+                foma_payload_file: Some(file),
+                ..
+            } => {
+                let read_back = std::fs::read(&file.path).expect("read scratch payload file");
+                assert_eq!(read_back.len() as u64, file.len);
+                let _ = std::fs::remove_file(&file.path);
+            }
+            other => panic!("expected Success with a payload file, got {other:?}"),
+        }
+    }
+
+    /// Disk-full is worded as machine-resource containment; every other write failure is worded as a tooling/environment fault.
+    #[test]
+    fn foma_payload_write_failed_finding_names_disk_full_separately_from_other_causes() {
+        let disk_full = io::Error::new(io::ErrorKind::StorageFull, "no space left on device");
+        let disk_full_finding = foma_payload_write_failed_finding(&disk_full);
+        assert_eq!(disk_full_finding.code, FindingCode::BuildProcessFailed);
+        assert!(disk_full_finding.explanation.contains("disk is full"));
+        assert!(!disk_full_finding.explanation.to_lowercase().contains("grammar"));
+
+        let denied = io::Error::new(io::ErrorKind::PermissionDenied, "access is denied");
+        let denied_finding = foma_payload_write_failed_finding(&denied);
+        assert!(!denied_finding.explanation.contains("disk is full"));
+        assert!(!denied_finding.explanation.to_lowercase().contains("grammar"));
     }
 
     /// An external-monitor abort answers "was the attempt contained", never a grammar question.

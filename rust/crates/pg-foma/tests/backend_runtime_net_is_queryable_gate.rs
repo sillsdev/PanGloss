@@ -295,7 +295,7 @@ fn the_evaluator_confirms_a_wholly_in_scope_grammar() {
     }
 }
 
-/// A plan that advertises subtrees its compiler cannot build is refused before measurement.
+/// A refused candidate whose plan needs unbuildable subtrees is attributed as that limitation, never as a word-level mismatch; marker presence alone never condemns it.
 #[test]
 fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
     let fixtures = discover();
@@ -341,13 +341,16 @@ fn out_of_scope_marker_subtrees_are_attributed_not_blamed_on_the_grammar() {
                 );
                 continue;
             }
-            assert!(
-                matches!(e.certification, Certification::Unsupported { .. }),
-                "{}: a PlanComposed candidate whose plan requires {markers:?} must be refused before \
-                 build_controllable can silently omit those subtrees, got {:?}",
-                fixture.label(),
-                e.certification
-            );
+            // Confirmed is legitimate: the omitted subtree may contribute nothing this corpus needs.
+            if !e.certification.selectable() {
+                assert!(
+                    matches!(e.certification, Certification::Unsupported { .. }),
+                    "{}: a refused PlanComposed candidate whose plan requires {markers:?} must be \
+                     reported as that limitation rather than as a word-level mismatch, got {:?}",
+                    fixture.label(),
+                    e.certification
+                );
+            }
         }
         exercised.push(fixture.label());
     }
