@@ -299,8 +299,6 @@ pub mod readiness_policy;
 /// trusted or unassessed check render as passing. See that module's own doc for the full honesty-
 /// rule contract.
 pub mod readiness_verdict;
-/// Versioned worker protocol constants and frame limits.
-pub(crate) mod worker_contract;
 /// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
 /// rewrite rule, used by `build` and `gate`.
 pub mod replace;
@@ -340,6 +338,8 @@ pub mod witnessed_coverage;
 pub(crate) mod word_timer;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod worker;
+/// Versioned worker protocol constants and frame limits.
+pub(crate) mod worker_contract;
 
 /// Re-exported so downstream crates have a single, versioned door into the
 /// `foma` runtime rather than depending on it directly.

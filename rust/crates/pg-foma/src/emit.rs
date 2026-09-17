@@ -3915,10 +3915,14 @@ fn emit_with_budget_profiled_with_strategy_and_trace(
 
     // A Plan leaf is an opaque marker with no rule content, so the candidate rule list is still computed directly; plan_wants_structural_composite, not !struct_rules.is_empty(), is what gates the heavier Morpher/RuleCache machinery below.
     let struct_rules = structural_candidate_rules(g);
-    let unbounded_closure_rules = unbounded_closure_rule_ordinals(g, &struct_rules, (
-        plan_wants_composite_emission,
-        plan_wants_structural_composite,
-    ));
+    let unbounded_closure_rules = unbounded_closure_rule_ordinals(
+        g,
+        &struct_rules,
+        (
+            plan_wants_composite_emission,
+            plan_wants_structural_composite,
+        ),
+    );
     if !unbounded_closure_rules.is_empty() {
         if let Some(trace) = closure_trace {
             trace.refuse(crate::characterization::ClosureStopReason::UnboundedTransition);
@@ -6692,4 +6696,3 @@ mod aweti_enum_census {
         });
     }
 }
-

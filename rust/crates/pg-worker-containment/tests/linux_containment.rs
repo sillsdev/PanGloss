@@ -120,12 +120,10 @@ fn run_clean_child(
     let deadline = Instant::now() + Duration::from_secs(10);
     let exit = process.reap_direct_child(deadline).expect("reap child");
     process.wait_tree_empty(deadline).expect("empty tree");
-    assert!(
-        process
-            .poll_containment(deadline)
-            .expect("final poll")
-            .is_none()
-    );
+    assert!(process
+        .poll_containment(deadline)
+        .expect("final poll")
+        .is_none());
     let evidence = process
         .final_evidence_and_peak(deadline)
         .expect("final evidence");
@@ -739,13 +737,11 @@ fn stdin_stdout_and_stderr_remain_connected_to_the_contained_child() {
         finish_reader(stderr_handle, stderr_receiver),
         b"stderr marker\n"
     );
-    assert!(
-        process
-            .final_evidence_and_peak(deadline)
-            .expect("final evidence")
-            .memory_limit
-            .is_none()
-    );
+    assert!(process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence")
+        .memory_limit
+        .is_none());
 }
 
 #[test]
@@ -776,13 +772,11 @@ fn contained_stdio_works_when_supervisor_stdin_is_closed() {
         finish_reader(stderr_handle, stderr_receiver),
         b"stderr marker\n"
     );
-    assert!(
-        process
-            .final_evidence_and_peak(deadline)
-            .expect("final evidence")
-            .memory_limit
-            .is_none()
-    );
+    assert!(process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence")
+        .memory_limit
+        .is_none());
 }
 
 #[test]
@@ -856,13 +850,11 @@ fn termination_kills_descendant_tree_and_closes_both_pipes_within_deadline() {
     let stderr = finish_reader(stderr_handle, stderr_receiver);
     assert!(stdout.windows(6).any(|bytes| bytes == b"holder"));
     assert!(stderr.windows(6).any(|bytes| bytes == b"holder"));
-    assert!(
-        process
-            .final_evidence_and_peak(deadline)
-            .expect("final evidence")
-            .memory_limit
-            .is_none()
-    );
+    assert!(process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence")
+        .memory_limit
+        .is_none());
     assert!(!late.exists(), "killed descendant wrote delayed sentinel");
     fs::remove_dir_all(&directory).expect("remove test directory");
 }
@@ -1020,13 +1012,11 @@ fn ordinary_abort_and_timeout_have_no_memory_limit_evidence() {
     let exit = process.reap_direct_child(deadline).expect("reap abort");
     assert!(matches!(exit.termination, ChildTermination::Signaled(_)));
     process.wait_tree_empty(deadline).expect("empty tree");
-    assert!(
-        process
-            .final_evidence_and_peak(deadline)
-            .expect("final evidence")
-            .memory_limit
-            .is_none()
-    );
+    assert!(process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence")
+        .memory_limit
+        .is_none());
     let _ = finish_reader(stdout_handle, stdout_receiver);
     let _ = finish_reader(stderr_handle, stderr_receiver);
 
@@ -1052,13 +1042,11 @@ fn ordinary_abort_and_timeout_have_no_memory_limit_evidence() {
     process
         .wait_tree_empty(deadline)
         .expect("empty timeout tree");
-    assert!(
-        process
-            .final_evidence_and_peak(deadline)
-            .expect("final evidence")
-            .memory_limit
-            .is_none()
-    );
+    assert!(process
+        .final_evidence_and_peak(deadline)
+        .expect("final evidence")
+        .memory_limit
+        .is_none());
     let _ = finish_reader(stdout_handle, stdout_receiver);
     let _ = finish_reader(stderr_handle, stderr_receiver);
     assert!(!late.exists());

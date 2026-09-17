@@ -65,14 +65,8 @@ fn quantifier_unbounded_lhs_focus_now_compiles() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &ro,
-        &mut skipped,
-        &mut tuple_reports,
-    );
+    let composed =
+        compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports);
 
     // The quantifier-bearing rule is no longer skipped at all -- it compiles to a real network, alpha-free (a trivial 1-entry tuple report).
     assert!(

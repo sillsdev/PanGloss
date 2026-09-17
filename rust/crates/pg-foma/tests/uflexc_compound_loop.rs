@@ -246,8 +246,7 @@ fn a_grammar_without_compounding_emits_no_compound_machinery() {
     );
 
     let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let report = emit_underlying_filtered(&g, &alphabet, None)
-        .expect("control fixture must emit");
+    let report = emit_underlying_filtered(&g, &alphabet, None).expect("control fixture must emit");
     let lexc = &report.lexc_source;
     assert!(
         !lexc.contains("AfterRoot") && !lexc.contains("UCmp"),
@@ -273,8 +272,7 @@ fn the_compound_unroll_stays_bounded_on_the_staged_fixture() {
         .expect("missing pinned synthetic fixture compounding-non-recursive");
     let g = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     let alphabet = SegAlphabet::new(&g.char_tables[0]);
-    let report = emit_underlying_filtered(&g, &alphabet, None)
-        .expect("fixture must emit");
+    let report = emit_underlying_filtered(&g, &alphabet, None).expect("fixture must emit");
 
     let net = fsm_lexc_parse_string(&FomaOptions::default(), None, &report.lexc_source)
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", report.lexc_source));

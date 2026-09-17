@@ -79,10 +79,7 @@ const TEMPLATED_CONTRIBUTORS: &[&str] = &[
     "Rule ordering affects cascade depth and intermediate alphabets",
     "Null and deletion rules add epsilon/truncation branches to the relation",
 ];
-const TEMPLATED_REMEDIES: &[&str] = &[
-    "regularize-phonology",
-    "order-rules",
-];
+const TEMPLATED_REMEDIES: &[&str] = &["regularize-phonology", "order-rules"];
 const TEMPLATED_SOURCES: &[&str] = &["src/emit.rs", "src/replace.rs", "src/enumerate.rs"];
 const TEMPLATED_ENVELOPES: &[Envelope] = &[Envelope {
     id: "templated-underlying-rewrite",

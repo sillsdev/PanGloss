@@ -1056,7 +1056,15 @@ pub fn compile_and_compose_rules(
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
 ) -> Option<Fsm> {
-    compile_and_compose_rules_internal(opts, g, alphabet, prules_in_order, skipped, tuple_reports, false)
+    compile_and_compose_rules_internal(
+        opts,
+        g,
+        alphabet,
+        prules_in_order,
+        skipped,
+        tuple_reports,
+        false,
+    )
 }
 
 /// Compile the same ordered cascade for a propose-then-confirm caller, but preserve an identity
@@ -1083,7 +1091,15 @@ pub fn compile_and_compose_rules_recall_safe(
     skipped: &mut Vec<String>,
     tuple_reports: &mut Vec<(String, Vec<TupleReport>)>,
 ) -> Option<Fsm> {
-    compile_and_compose_rules_internal(opts, g, alphabet, prules_in_order, skipped, tuple_reports, true)
+    compile_and_compose_rules_internal(
+        opts,
+        g,
+        alphabet,
+        prules_in_order,
+        skipped,
+        tuple_reports,
+        true,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1246,9 +1262,7 @@ fn slot_candidates(
     match slot {
         Slot::Fixed(cd) => Some(expand(std::slice::from_ref(cd))),
         Slot::Union(members) => Some(expand(members)),
-        Slot::ForeignFixed { .. } | Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor => {
-            None
-        }
+        Slot::ForeignFixed { .. } | Slot::Alpha { .. } | Slot::Repeat { .. } | Slot::Anchor => None,
     }
 }
 
@@ -1440,8 +1454,7 @@ pub(crate) fn compile_metathesis_rule(
         table,
         table_id,
         &alias_map,
-    )
-    else {
+    ) else {
         return None;
     };
 
@@ -1462,8 +1475,7 @@ pub(crate) fn compile_metathesis_rule(
                 table,
                 table_id,
                 &alias_map,
-            )
-            else {
+            ) else {
                 // Kept as an honest `None` rather than `unreachable!` in case this equivalence is ever violated.
                 return None;
             };
@@ -1620,9 +1632,8 @@ mod owning_table_tests {
         let g = two_table_alpha_grammar();
         let rule = rewrite_rule_by_xml_id(&g, "prule_alpha_t1");
         let opts = FomaOptions::default();
-        let (net, reports) =
-            compile_rewrite_rule_subset(&opts, &g, rule, &|_| true)
-                .expect("prule_alpha_t1 must compile");
+        let (net, reports) = compile_rewrite_rule_subset(&opts, &g, rule, &|_| true)
+            .expect("prule_alpha_t1 must compile");
         assert!(net.statecount > 0);
         assert_eq!(reports.len(), 1, "exactly one alpha-bearing subrule");
         assert_eq!(

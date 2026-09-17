@@ -84,14 +84,8 @@ fn alpha_scale_recall_parity_via_generator_and_oracle() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let rules_net = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &ro,
-        &mut skipped,
-        &mut tuple_reports,
-    );
+    let rules_net =
+        compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports);
     assert!(
         skipped.is_empty(),
         "neither alpha rule should be skipped: {skipped:?}"

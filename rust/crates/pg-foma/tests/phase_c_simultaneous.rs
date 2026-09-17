@@ -11,9 +11,7 @@ use foma::lexcread::fsm_lexc_parse_string;
 use foma::minimize::fsm_minimize;
 use foma::options::FomaOptions;
 
-use pg_foma::replace::{
-    compile_and_compose_rules, is_fully_supported_shape, SegAlphabet,
-};
+use pg_foma::replace::{compile_and_compose_rules, is_fully_supported_shape, SegAlphabet};
 use pg_foma::tags;
 use pg_foma::uflexc::emit_underlying_filtered;
 use pg_grammar::model::{Grammar, LexEntryId, PhonRuleDef, RewriteMode};
@@ -160,14 +158,8 @@ fn sim_trivial_lone_subrule_now_compiles() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &ro,
-        &mut skipped,
-        &mut tuple_reports,
-    );
+    let composed =
+        compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports);
 
     assert!(
         skipped.is_empty(),
@@ -432,14 +424,8 @@ fn sim_overlap_env_stays_honest_unsupported() {
 
     let mut skipped = Vec::new();
     let mut tuple_reports = Vec::new();
-    let composed = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &ro,
-        &mut skipped,
-        &mut tuple_reports,
-    );
+    let composed =
+        compile_and_compose_rules(&opts, &g, &alphabet, &ro, &mut skipped, &mut tuple_reports);
 
     assert_eq!(
         skipped,

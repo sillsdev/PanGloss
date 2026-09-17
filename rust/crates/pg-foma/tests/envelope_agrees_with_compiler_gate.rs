@@ -228,7 +228,10 @@ fn report_envelope_compiler_divergence() {
     for label in &strict {
         eprintln!("  {label}");
     }
-    eprintln!("too lax (envelope admitted, compiler refused): {}", lax.len());
+    eprintln!(
+        "too lax (envelope admitted, compiler refused): {}",
+        lax.len()
+    );
     for (label, reason) in &lax {
         eprintln!("  {label}: {reason}");
     }
@@ -239,4 +242,3 @@ fn report_envelope_compiler_divergence() {
         "no fixture agreed, so this sweep is measuring nothing"
     );
 }
-

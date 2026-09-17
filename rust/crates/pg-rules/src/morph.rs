@@ -374,8 +374,7 @@ fn ana_affix_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in
-            ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
+        for mut w in ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
         {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
@@ -427,9 +426,9 @@ fn ana_realizational_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in ana_realizational_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs,
-        ) {
+        for mut w in
+            ana_realizational_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs)
+        {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }

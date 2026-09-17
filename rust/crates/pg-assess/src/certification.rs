@@ -37,15 +37,24 @@ pub enum CaseStatus {
         elapsed_us: u64,
         limit_us: u64,
     },
-    InvalidShape { side: String },
-    NotAttempted { reason: String },
+    InvalidShape {
+        side: String,
+    },
+    NotAttempted {
+        reason: String,
+    },
     CandidateBudget {
         dimension: String,
         value: u64,
         limit: u64,
     },
-    IdentityProjection { side: String, reason: String },
-    SetupFailure { reason: String },
+    IdentityProjection {
+        side: String,
+        reason: String,
+    },
+    SetupFailure {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -355,10 +364,7 @@ impl ThreeLanguageDenominatorGate {
     ///
     /// The expected list is intentionally explicit.  A gate must not infer its denominator from
     /// the evidence it is supposed to certify.
-    pub fn new_with_expected<L, E>(
-        ledgers: L,
-        expected: E,
-    ) -> Result<Self, DenominatorError>
+    pub fn new_with_expected<L, E>(ledgers: L, expected: E) -> Result<Self, DenominatorError>
     where
         L: IntoIterator<Item = CertificationLedger>,
         E: IntoIterator<Item = (String, usize)>,
@@ -451,15 +457,12 @@ impl ThreeLanguageDenominatorGate {
 
     pub fn can_certify(&self) -> bool {
         self.ledgers.len() == self.expected_denominators.len()
-            && self
-                .ledgers
-                .iter()
-                .all(|ledger| {
-                    self.expected_denominators
-                        .get(&ledger.language)
-                        .is_some_and(|expected| *expected == ledger.reconcile().declared)
-                        && ledger.can_certify()
-                })
+            && self.ledgers.iter().all(|ledger| {
+                self.expected_denominators
+                    .get(&ledger.language)
+                    .is_some_and(|expected| *expected == ledger.reconcile().declared)
+                    && ledger.can_certify()
+            })
     }
 
     pub fn canonical_value(&self) -> Value {

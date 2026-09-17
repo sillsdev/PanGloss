@@ -244,11 +244,7 @@ mod tests {
             this_crate_semver().1 + 1,
             this_crate_semver().2,
         );
-        let manifest = synthetic_manifest(
-            required,
-            RUNTIME_PAYLOAD,
-            FOMA_PAYLOAD,
-        );
+        let manifest = synthetic_manifest(required, RUNTIME_PAYLOAD, FOMA_PAYLOAD);
         let bytes = pg_pack::write_pack(&manifest, RUNTIME_PAYLOAD, FOMA_PAYLOAD).unwrap();
         assert!(matches!(
             load_pack(&bytes),

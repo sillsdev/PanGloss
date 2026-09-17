@@ -324,5 +324,4 @@ mod tests {
         let parsed: CompileProfile = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, profile);
     }
-
 }

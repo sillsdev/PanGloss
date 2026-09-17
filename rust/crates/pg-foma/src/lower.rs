@@ -36,9 +36,7 @@ use foma::structures::{fsm_empty_set, fsm_empty_string, fsm_isempty};
 use foma::types::Fsm;
 
 use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
-use pg_grammar::model::{
-    Grammar, NaturalClassKind, Pattern, PatternNode, TableId, VarId,
-};
+use pg_grammar::model::{Grammar, NaturalClassKind, Pattern, PatternNode, TableId, VarId};
 
 use crate::replace::SegAlphabet;
 
@@ -1048,8 +1046,14 @@ mod tests {
         let table = &g.char_tables[0];
         let rule = quantifier_probe_rule(&g, "prUnboundedLargeMin");
         let mut next_occurrence = 0usize;
-        let slots = pattern_slots(&g, table, &rule.lhs, &mut next_occurrence, PatternLowerScope::Baseline)
-            .expect("an unbounded quantifier with min=1000 must lower");
+        let slots = pattern_slots(
+            &g,
+            table,
+            &rule.lhs,
+            &mut next_occurrence,
+            PatternLowerScope::Baseline,
+        )
+        .expect("an unbounded quantifier with min=1000 must lower");
         match &slots[0] {
             Slot::Repeat { min, max, .. } => {
                 assert_eq!(*min, 1000);

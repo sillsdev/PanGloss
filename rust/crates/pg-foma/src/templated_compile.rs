@@ -85,8 +85,7 @@ pub fn compile_templated_morphotactics(
 
     match &emitted.report.tier {
         crate::emit::FomaTier::Full => {}
-        crate::emit::FomaTier::Unsupported { .. }
-        | crate::emit::FomaTier::Partial { .. } => {
+        crate::emit::FomaTier::Unsupported { .. } | crate::emit::FomaTier::Partial { .. } => {
             return Err(TemplatedCompileError::Unsupported(emitted.report));
         }
     }

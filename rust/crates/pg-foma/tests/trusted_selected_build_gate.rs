@@ -120,12 +120,8 @@ fn selected_templated_underlying_tokens_payload_reconstructs_exact_analysis_pipe
 fn stale_completed_build_evidence_is_rejected_before_runtime() {
     let grammar = pg_grammar::load(TUNED_FIXTURE).expect("synthetic fixture must load");
     let request = CompileAttempt::try_new().expect("compile attempt");
-    let build = compile_completed_backend(
-        &grammar,
-        EmissionStrategy::TunedSurfaceProbed,
-        &request,
-    )
-    .expect("fixture must produce a completed build");
+    let build = compile_completed_backend(&grammar, EmissionStrategy::TunedSurfaceProbed, &request)
+        .expect("fixture must produce a completed build");
     let grammar_id = grammar_identity(&grammar);
 
     let other_request = CompileAttempt::try_new().expect("second compile attempt");
@@ -136,15 +132,11 @@ fn stale_completed_build_evidence_is_rejected_before_runtime() {
             &other_request,
             &grammar_id,
         )
-            .is_err(),
+        .is_err(),
         "a build from another attempt must not become a selected artifact"
     );
-    let build = compile_completed_backend(
-        &grammar,
-        EmissionStrategy::TunedSurfaceProbed,
-        &request,
-    )
-    .expect("fixture must produce a second completed build");
+    let build = compile_completed_backend(&grammar, EmissionStrategy::TunedSurfaceProbed, &request)
+        .expect("fixture must produce a second completed build");
     assert!(
         select_completed_build(
             EmissionStrategy::TunedSurfaceProbed,

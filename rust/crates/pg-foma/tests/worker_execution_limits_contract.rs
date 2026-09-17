@@ -9,10 +9,7 @@ const GIB: u64 = 1024 * 1024 * 1024;
 
 #[test]
 fn execution_limits_have_the_ratified_finite_defaults() {
-    assert_eq!(
-        DEFAULT_EXECUTION_LIMITS.max_serialized_fst_bytes(),
-        GIB
-    );
+    assert_eq!(DEFAULT_EXECUTION_LIMITS.max_serialized_fst_bytes(), GIB);
     assert_eq!(
         DEFAULT_EXECUTION_LIMITS.max_committed_memory_bytes(),
         10 * GIB
@@ -25,12 +22,8 @@ fn execution_limits_have_the_ratified_finite_defaults() {
 
 #[test]
 fn execution_limits_are_configurable_but_cannot_be_disabled() {
-    let custom = ExecutionLimits::try_new(
-        2 * GIB,
-        12 * GIB,
-        Duration::from_secs(15 * 60),
-    )
-    .expect("positive custom limits are valid");
+    let custom = ExecutionLimits::try_new(2 * GIB, 12 * GIB, Duration::from_secs(15 * 60))
+        .expect("positive custom limits are valid");
     assert_eq!(custom.max_serialized_fst_bytes(), 2 * GIB);
     assert_eq!(custom.max_committed_memory_bytes(), 12 * GIB);
     assert_eq!(custom.max_wall_time(), Duration::from_secs(15 * 60));
@@ -86,10 +79,7 @@ fn wire_frame_limits_remain_separate_from_execution_limits() {
         .expect("wire-frame limit declaration must be closed");
     let declaration = &source[start..=end];
 
-    for field in [
-        "max_request_bytes:",
-        "max_result_bytes:",
-    ] {
+    for field in ["max_request_bytes:", "max_result_bytes:"] {
         assert!(
             declaration.contains(field),
             "wire-frame limit {field} must remain explicit"

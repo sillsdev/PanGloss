@@ -25,8 +25,7 @@ fn plans(grammar: &pg_grammar::model::Grammar) -> Vec<pg_foma::enumerate::Lowere
         .map(|id| &grammar.prules[id.0 as usize])
         .collect::<Vec<_>>();
     let phonology = pg_foma::junctions::PhonologyProbe::new(grammar);
-    let baseline =
-        pg_foma::enumerate::enumerate_default(grammar, &prules, phonology.as_ref());
+    let baseline = pg_foma::enumerate::enumerate_default(grammar, &prules, phonology.as_ref());
     pg_foma::backend_registry::Registry::seeded()
         .materialize_distinct(&pg_foma::backend_registry::MaterializerContext {
             grammar,

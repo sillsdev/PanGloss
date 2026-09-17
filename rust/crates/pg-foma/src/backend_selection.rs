@@ -459,4 +459,3 @@ pub fn select_backends(semantics: &GrammarSemantics<'_>) -> BackendSelection {
 pub fn select_backends_for_grammar(g: &Grammar) -> BackendSelection {
     select_backends(&GrammarSemantics::derive(g))
 }
-

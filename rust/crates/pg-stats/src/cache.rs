@@ -498,7 +498,10 @@ mod tests {
         drop(legacy);
 
         let outcome = StatsCache::open(&cache_path, "hash-a").unwrap();
-        assert!(outcome.wiped, "an unversioned legacy schema must be replaced");
+        assert!(
+            outcome.wiped,
+            "an unversioned legacy schema must be replaced"
+        );
         let grammar_hash: String = outcome
             .cache
             .connection()
@@ -735,7 +738,9 @@ mod tests {
         let cache = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
         let engines: i64 = cache
             .connection()
-            .query_row("SELECT COUNT(DISTINCT engine) FROM run", [], |row| row.get(0))
+            .query_row("SELECT COUNT(DISTINCT engine) FROM run", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(engines, 1);
     }
@@ -745,9 +750,7 @@ mod tests {
         let dir = TempDir::new("pg-stats-stale-grammar");
         let cache_path = dir.path().join("cache.sqlite3");
         let mut stale = StatsCache::open(&cache_path, "hash-a").unwrap().cache;
-        stale
-            .flush(&sample_run(), &[sample_word("apu")])
-            .unwrap();
+        stale.flush(&sample_run(), &[sample_word("apu")]).unwrap();
 
         let mut fresh = StatsCache::open(&cache_path, "hash-b").unwrap();
         assert!(fresh.wiped);

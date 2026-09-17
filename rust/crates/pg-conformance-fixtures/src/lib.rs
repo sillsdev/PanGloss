@@ -19,8 +19,8 @@
 //! are different claims, so an unclaimed run panics instead of picking one -- read `SCOPE_ENV`'s
 //! own doc for why silently picking either is worse than refusing.
 
-pub mod corpus;
 pub mod case_set;
+pub mod corpus;
 
 use std::path::{Path, PathBuf};
 

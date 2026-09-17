@@ -119,10 +119,7 @@ impl FilterIndex {
                 rules.sort_unstable();
                 rules.dedup();
                 sites.insert(site, TraceSlotId(slots.len() as u32));
-                slots.push(SlotFacts {
-                    stratum,
-                    rules,
-                });
+                slots.push(SlotFacts { stratum, rules });
             }
         }
 

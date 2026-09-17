@@ -191,12 +191,7 @@ fn finished_net_from_lexc(grammar: &Grammar, alphabet: &SegAlphabet, lexc_source
     let opts = FomaOptions::default();
     let net = fsm_lexc_parse_string(&opts, None, lexc_source)
         .expect("emitted lexc must compile to a network");
-    pg_foma::build::finish_controllable_net(
-        &opts,
-        net,
-        &grammar.char_tables[0],
-        alphabet,
-    )
+    pg_foma::build::finish_controllable_net(&opts, net, &grammar.char_tables[0], alphabet)
 }
 
 /// The production plan-composed pipeline `backend_runtime::realize_plan_composed` hands to a proposer: `build::build_controllable` (applying `reroute_null_shaped_affix_chains`), then `finish_controllable_net`.
@@ -206,9 +201,8 @@ fn finished_production_net(grammar: &Grammar) -> Fsm {
     let phonology = PhonologyProbe::new(grammar);
     let plan = enumerate_default(grammar, &prules, phonology.as_ref());
     let opts = FomaOptions::default();
-    let mut built =
-        pg_foma::build::build_controllable(&plan, &opts, grammar, &alphabet, &prules)
-            .expect("the default plan must build on a synthetic fixture");
+    let mut built = pg_foma::build::build_controllable(&plan, &opts, grammar, &alphabet, &prules)
+        .expect("the default plan must build on a synthetic fixture");
     let net = built
         .net
         .take()

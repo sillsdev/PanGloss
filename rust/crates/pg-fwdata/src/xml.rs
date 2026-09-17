@@ -147,14 +147,9 @@ pub fn parse_fwdata(path: &Path) -> Result<RawGraph, ImportError> {
                     if class == "LexEntry" {
                         graph.lex_entry_order.push(guid.clone());
                     }
-                    graph.records.insert(
-                        guid.clone(),
-                        Record {
-                            class,
-                            guid,
-                            node,
-                        },
-                    );
+                    graph
+                        .records
+                        .insert(guid.clone(), Record { class, guid, node });
                 } else {
                     let mut skip_buf = Vec::new();
                     reader

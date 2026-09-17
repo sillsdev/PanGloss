@@ -85,10 +85,7 @@ mod trace_render;
 
 /// Accepts experimental FST controls only in `developer-tools` builds, before positional parsing.
 fn accept_developer_flag(arg: &str) -> Result<(), String> {
-    debug_assert!(matches!(
-        arg,
-        "--allow-unproven"
-    ));
+    debug_assert!(matches!(arg, "--allow-unproven"));
     #[cfg(feature = "developer-tools")]
     {
         let _ = arg;
@@ -96,7 +93,9 @@ fn accept_developer_flag(arg: &str) -> Result<(), String> {
     }
     #[cfg(not(feature = "developer-tools"))]
     {
-        Err(format!("unknown option: {arg} (developer-tools feature required)"))
+        Err(format!(
+            "unknown option: {arg} (developer-tools feature required)"
+        ))
     }
 }
 
@@ -109,8 +108,7 @@ fn reject_unknown_option(arg: &str) -> Result<(), String> {
 }
 
 #[cfg(feature = "developer-tools")]
-const REPORT_DEVELOPER_HELP: &str =
-    " [--allow-unproven]";
+const REPORT_DEVELOPER_HELP: &str = " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
 const REPORT_DEVELOPER_HELP: &str = "";
 
@@ -1187,7 +1185,5 @@ mod tests {
                 );
             }
         }
-
     }
-
 }

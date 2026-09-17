@@ -289,10 +289,7 @@ impl FomaProposer {
     /// this file's own `fst_profile_new_with_budget_matches_new_with_budget_and_profile` test.
     // See the `#[allow(clippy::result_large_err)]` justification on `Self::new` above.
     #[allow(clippy::result_large_err)]
-    pub(crate) fn new_with_budget(
-        g: &Grammar,
-        compose_budget: &ComposeBudget,
-    ) -> Result<Self> {
+    pub(crate) fn new_with_budget(g: &Grammar, compose_budget: &ComposeBudget) -> Result<Self> {
         Self::new_with_budget_and_profile(g, compose_budget).0
     }
 
@@ -645,7 +642,6 @@ mod budget_tests {
             reason: "synthetic refusal".to_string()
         }));
     }
-
 }
 
 #[cfg(test)]
@@ -791,7 +787,6 @@ mod apply_budget_tests {
         );
         assert_eq!(diagnostics.unique_candidates, 0);
     }
-
 }
 
 #[cfg(test)]
@@ -892,5 +887,4 @@ mod profile_tests {
 
         assert_eq!(without_profile.propose("ka"), with_profile.propose("ka"));
     }
-
 }
