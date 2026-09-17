@@ -49,6 +49,22 @@ $changelog = Join-Path $repoRoot 'CHANGELOG.md'
 
 function Write-Gate([string]$name, [string]$state) { Write-Host ("[release] gate {0,-8} {1}" -f $name, $state) }
 
+# Runs one pg.ps1 mode and judges it by effect: exit 27 (the wrapper's wedged-governor code, payload
+# already finished) passes only when the transcript itself proves the payload succeeded.
+function Invoke-GatedPg([string[]]$PgArgs, [string]$SuccessPattern) {
+    $transcript = & (Join-Path $toolRoot 'pg.ps1') @PgArgs 2>&1 | ForEach-Object { Write-Host $_; "$_" }
+    $exit = $LASTEXITCODE
+    if ($exit -eq 0) { return 0 }
+    if ($exit -eq 27) {
+        $joined = $transcript -join "`n"
+        if ($joined -match $SuccessPattern -and $joined -notmatch '(?m)^\s*FAIL \[|(?m)^error(\[|:)') {
+            Write-Host '[release] wrapper exited 27 after the payload finished; the transcript shows the payload succeeded, so this gate passes on evidence.' -ForegroundColor Yellow
+            return 0
+        }
+    }
+    return $exit
+}
+
 # --- gate 1: clean tree ---------------------------------------------------------------------
 $dirty = git -C $repoRoot status --porcelain --ignore-submodules=all
 if ($dirty) {
@@ -69,8 +85,8 @@ else {
 # --- gate 3: rustdoc ------------------------------------------------------------------------
 if ($SkipGate -contains 'doc') { Write-Gate 'doc' 'SKIPPED (recorded)' }
 else {
-    & (Join-Path $toolRoot 'pg.ps1') -Mode doc -MaxConcurrent $MaxConcurrent
-    if ($LASTEXITCODE -ne 0) { Write-Gate 'doc' "REFUSED -- pg.ps1 -Mode doc exited $LASTEXITCODE"; exit 32 }
+    $docExit = Invoke-GatedPg -PgArgs @('-Mode', 'doc', '-MaxConcurrent', $MaxConcurrent) -SuccessPattern '(?m)^\s*Finished `dev` profile'
+    if ($docExit -ne 0) { Write-Gate 'doc' "REFUSED -- pg.ps1 -Mode doc exited $docExit"; exit 32 }
     Write-Gate 'doc' 'green'
 }
 
@@ -78,8 +94,9 @@ else {
 if ($SkipGate -contains 'test') { Write-Gate 'test' 'SKIPPED (recorded)' }
 else {
     $env:PANGLOSS_CONFORMANCE_SCOPE = 'all'
-    & (Join-Path $toolRoot 'pg.ps1') -Mode test -MaxConcurrent $MaxConcurrent
-    if ($LASTEXITCODE -ne 0) { Write-Gate 'test' "REFUSED -- pg.ps1 -Mode test exited $LASTEXITCODE"; exit 33 }
+    # nextest's summary is the evidence: a run with any failure prints "N failed" there.
+    $testExit = Invoke-GatedPg -PgArgs @('-Mode', 'test', '-MaxConcurrent', $MaxConcurrent) -SuccessPattern '(?m)^\s*Summary \[.*\] \d+ tests? run: \d+ passed(?!.*\d+ (failed|timed out))'
+    if ($testExit -ne 0) { Write-Gate 'test' "REFUSED -- pg.ps1 -Mode test exited $testExit"; exit 33 }
     Write-Gate 'test' 'green'
 }
 
@@ -119,8 +136,8 @@ if ($DryRun) {
 $stamped = $tomlText -replace '(?m)^(version\s*=\s*)"[^"]+"', ('$1"' + $Version + '"')
 Set-Content -Path $cargoToml -Value $stamped -NoNewline
 # Cargo.lock records every workspace crate's version; regenerate it or the tagged tree won't build with --locked.
-& (Join-Path $toolRoot 'pg.ps1') -Mode check -MaxConcurrent $MaxConcurrent
-if ($LASTEXITCODE -ne 0) { Write-Host '[release] post-stamp check failed; version stamp left in tree for inspection'; exit 33 }
+$checkExit = Invoke-GatedPg -PgArgs @('-Mode', 'check', '-MaxConcurrent', $MaxConcurrent) -SuccessPattern '(?m)^\s*Finished `.*` profile'
+if ($checkExit -ne 0) { Write-Host '[release] post-stamp check failed; version stamp left in tree for inspection'; exit 33 }
 
 git -C $repoRoot add rust/Cargo.toml rust/Cargo.lock CHANGELOG.md
 $skipNote = if ($SkipGate) { "`n`nGates skipped or unavailable: $($SkipGate -join ', ')" } else { '' }
@@ -128,8 +145,8 @@ git -C $repoRoot commit -m "release: v$Version$skipNote"
 git -C $repoRoot tag -a "v$Version" -m "PanGloss v$Version$skipNote"
 
 # --- artifact -------------------------------------------------------------------------------
-& (Join-Path $toolRoot 'pg.ps1') -Mode release -MaxConcurrent $MaxConcurrent
-if ($LASTEXITCODE -ne 0) { Write-Host '[release] artifact build failed AFTER tagging -- fix and re-run -Mode release; the tag itself is sound'; exit 33 }
+$artifactExit = Invoke-GatedPg -PgArgs @('-Mode', 'release', '-MaxConcurrent', $MaxConcurrent) -SuccessPattern '(?m)^\s*Finished `.*` profile'
+if ($artifactExit -ne 0) { Write-Host '[release] artifact build failed AFTER tagging -- fix and re-run -Mode release; the tag itself is sound'; exit 33 }
 
 Write-Host ''
 Write-Host "[release] v$Version tagged. Publishing stays manual:"
