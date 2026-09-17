@@ -1279,7 +1279,9 @@ impl Grammar {
     }
 
     /// Compute and validate the single grammar-wide source of final-template prune facts.
-    pub fn final_template_prune_facts(&self) -> Result<FinalTemplatePruneFacts, crate::GrammarError> {
+    pub fn final_template_prune_facts(
+        &self,
+    ) -> Result<FinalTemplatePruneFacts, crate::GrammarError> {
         let strata_len = self.strata.len();
         let rule_owner = self.validated_rule_owner_strata()?;
 
@@ -1338,8 +1340,11 @@ impl Grammar {
         let mut first_partial = None;
         let partial_rule_count = self.partial_morpheme_facts()?.partial_rule_count();
         for (id, _) in self.partial_affix_process_rules() {
-            let Some(owner) = rule_owner[id] else { continue };
-            first_partial = Some(first_partial.map_or(owner.0 as usize, |p: usize| p.min(owner.0 as usize)));
+            let Some(owner) = rule_owner[id] else {
+                continue;
+            };
+            first_partial =
+                Some(first_partial.map_or(owner.0 as usize, |p: usize| p.min(owner.0 as usize)));
         }
         let partial_rule_at_or_below = (0..strata_len)
             .map(|i| first_partial.is_some_and(|p| i >= p))

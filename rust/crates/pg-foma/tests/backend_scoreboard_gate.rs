@@ -121,8 +121,10 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
         fixtures.len()
     );
 
-    let mut buckets: Vec<(EmissionStrategy, Bucket)> =
-        ALL_STRATEGIES.iter().map(|&s| (s, Bucket::default())).collect();
+    let mut buckets: Vec<(EmissionStrategy, Bucket)> = ALL_STRATEGIES
+        .iter()
+        .map(|&s| (s, Bucket::default()))
+        .collect();
     let mut excluded: Vec<String> = Vec::new();
     let mut scored_fixtures = 0usize;
     let mut soundness_violations: Vec<String> = Vec::new();

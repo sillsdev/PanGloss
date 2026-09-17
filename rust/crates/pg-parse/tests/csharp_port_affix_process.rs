@@ -650,23 +650,48 @@ fn partial_rule() {
         root_index: 0,
         category: Some("posN".to_string()),
     }];
-    assert_identity_multiset_eq(&g, &m.parse_word("sagds"), &sagds_identity, "default sagds identity");
-    assert_identity_multiset_eq(&g, &enforced.parse_word("sagds"), &[], "enforced sagds identity");
-    assert_identity_multiset_eq(&g, &m.parse_word("sagst"), &sagst_identity, "default sagst identity");
+    assert_identity_multiset_eq(
+        &g,
+        &m.parse_word("sagds"),
+        &sagds_identity,
+        "default sagds identity",
+    );
+    assert_identity_multiset_eq(
+        &g,
+        &enforced.parse_word("sagds"),
+        &[],
+        "enforced sagds identity",
+    );
+    assert_identity_multiset_eq(
+        &g,
+        &m.parse_word("sagst"),
+        &sagst_identity,
+        "default sagst identity",
+    );
     assert_identity_multiset_eq(
         &g,
         &enforced.parse_word("sagst"),
         &sagst_identity,
         "enforced sagst identity (the final slot is already filled, so no rescue is needed)",
     );
-    assert_identity_multiset_eq(&g, &m.parse_word("sags"), &sags_identity, "default sags identity");
+    assert_identity_multiset_eq(
+        &g,
+        &m.parse_word("sags"),
+        &sags_identity,
+        "default sags identity",
+    );
     assert_identity_multiset_eq(
         &g,
         &enforced.parse_word("sags"),
         &sags_identity,
         "enforced sags identity (the optional slot is left empty, so no rescue is needed)",
     );
-    assert_identity_multiset_eq(&g, &m.parse_word("sagstv"), &sagstv_identity, "default sagstv identity");
+    assert_identity_multiset_eq(
+        &g,
+        &m.parse_word("sagstv"),
+        &sagstv_identity,
+        "default sagstv identity",
+    );
     assert_identity_multiset_eq(
         &g,
         &enforced.parse_word("sagstv"),
@@ -692,13 +717,7 @@ fn partial_rule() {
 
     // Rule-level partial markers protect rescue paths; lexical-entry partial markers do not, proven below by identity multiset rather than emptiness alone.
     let nonpartial_rules = mrules.replace(" partial=\"true\"", "");
-    let mut nonpartial = build_grammar(
-        "",
-        "",
-        &nonpartial_rules,
-        "mrS mrNom mrU",
-        templates_final,
-    );
+    let mut nonpartial = build_grammar("", "", &nonpartial_rules, "mrS mrNom mrU", templates_final);
     for entry in &mut nonpartial.entries {
         entry.partial = true;
     }
@@ -726,8 +745,8 @@ fn partial_rule() {
         "a lexical-entry partial marker must not stand in for the rule-partial rescue that lets the rule-partial grammar's sagds succeed"
     );
 
-    let (with_stats, _, prune_rows) = default_memoized
-        .parse_word_with_stats_and_prunes("sagds", &ParseOptions::default());
+    let (with_stats, _, prune_rows) =
+        default_memoized.parse_word_with_stats_and_prunes("sagds", &ParseOptions::default());
     assert_eq!(with_stats.signature(), memoized.signature());
     assert_eq!(
         prune_rows

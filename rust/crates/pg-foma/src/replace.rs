@@ -564,16 +564,19 @@ pub fn grammar_has_untokenizable_root_shape(g: &Grammar) -> bool {
     g.strata.iter().any(|stratum| {
         let stratum_table = &g.char_tables[stratum.table.0 as usize];
         stratum.entries.iter().any(|&entry_id| {
-            g.entries[entry_id.0 as usize].allomorphs.iter().any(|allo| {
-                !SegAlphabet::shape_is_tokenizable(&allo.shape.shape)
-                    && crate::emit::pattern_root_token_route(
-                        &alphabet,
-                        stratum_table,
-                        &allo.shape.shape,
-                        allo.environments.is_empty(),
-                    )
-                    .is_none()
-            })
+            g.entries[entry_id.0 as usize]
+                .allomorphs
+                .iter()
+                .any(|allo| {
+                    !SegAlphabet::shape_is_tokenizable(&allo.shape.shape)
+                        && crate::emit::pattern_root_token_route(
+                            &alphabet,
+                            stratum_table,
+                            &allo.shape.shape,
+                            allo.environments.is_empty(),
+                        )
+                        .is_none()
+                })
         })
     })
 }

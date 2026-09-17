@@ -57,7 +57,10 @@ mod tests {
     #[test]
     fn label_and_from_label_round_trip() {
         for strategy in ALL {
-            assert_eq!(EmissionStrategy::from_label(strategy.label()), Some(strategy));
+            assert_eq!(
+                EmissionStrategy::from_label(strategy.label()),
+                Some(strategy)
+            );
         }
     }
 

@@ -68,9 +68,9 @@ impl FromStr for StepCap {
         if s == "unbounded" {
             return Ok(StepCap::Unbounded);
         }
-        let n: u64 = s
-            .parse()
-            .map_err(|_| format!("invalid step cap {s:?}: expected \"unbounded\" or a positive integer"))?;
+        let n: u64 = s.parse().map_err(|_| {
+            format!("invalid step cap {s:?}: expected \"unbounded\" or a positive integer")
+        })?;
         NonZeroU64::new(n).map(StepCap::Finite).ok_or_else(|| {
             "--step-cap 0 is rejected: a zero cap fires before the first step".to_string()
         })

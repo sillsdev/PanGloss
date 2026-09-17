@@ -127,7 +127,9 @@ fn the_envelope_never_refuses_a_surface_probe_that_compiles() {
         .iter()
         .filter(|row| {
             row.agreement == Agreement::TooStrict
-                && row.label.ends_with(EmissionStrategy::TunedSurfaceProbed.label())
+                && row
+                    .label
+                    .ends_with(EmissionStrategy::TunedSurfaceProbed.label())
         })
         .map(|row| row.label.as_str())
         .collect();
@@ -242,7 +244,9 @@ fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
 
 /// Compiles `grammar` with `strategy`; asserts the attempt never panics, returns whether it compiled.
 fn compiled_without_panicking(grammar: &Grammar, strategy: EmissionStrategy, label: &str) -> bool {
-    match panic::catch_unwind(AssertUnwindSafe(|| compile_with_backend_for_measurement(grammar, strategy))) {
+    match panic::catch_unwind(AssertUnwindSafe(|| {
+        compile_with_backend_for_measurement(grammar, strategy)
+    })) {
         Ok(result) => result.is_ok(),
         Err(_) => panic!("{label}: {strategy:?} panicked instead of returning a typed refusal"),
     }

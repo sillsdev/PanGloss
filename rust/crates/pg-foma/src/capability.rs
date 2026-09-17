@@ -3565,11 +3565,12 @@ impl GrammarWideCheck for UntokenizableRootShapeCheck {
             CompileDecision::Refuse(vec![CapabilityDiagnostic {
                 predicate: self.id(),
                 construct: "root allomorph shape naming an abstract natural-class node".to_string(),
-                witness: "EmissionStrategy::TemplatedUnderlyingTokens's SegAlphabet::encode_shape \
+                witness:
+                    "EmissionStrategy::TemplatedUnderlyingTokens's SegAlphabet::encode_shape \
                           requires every root allomorph shape to name a concrete character \
                           definition; a root carrying an abstract class-derived node has no single \
                           codepoint to hand it, so the templated route cannot tokenize this lexicon"
-                    .to_string(),
+                        .to_string(),
             }])
         })
     }
@@ -3604,7 +3605,10 @@ pub struct CapabilityContributions<'a> {
 }
 
 impl<'a> CapabilityContributions<'a> {
-    pub fn new(predicates: &'a PredicateRegistry, grammar_wide: &'a [Box<dyn GrammarWideCheck>]) -> Self {
+    pub fn new(
+        predicates: &'a PredicateRegistry,
+        grammar_wide: &'a [Box<dyn GrammarWideCheck>],
+    ) -> Self {
         Self {
             predicates,
             grammar_wide,
@@ -3988,7 +3992,9 @@ fn templated_shape_floor(semantics: &GrammarSemantics<'_>) -> CompileDecision {
                     // `emit_rule_allomorphs`'s ordinary literal-insert branch already handles a plain Prefix/Suffix/None role regardless of this classifier's verdict; consulting it here would over-claim a refusal the real emission path never makes (see `pattern_root_token_route_gate.rs`'s `guesser-pattern-root-fallback` case).
                     if matches!(
                         crate::emit::classify_affix(&allomorph.rhs),
-                        crate::emit::Role::Prefix | crate::emit::Role::Suffix | crate::emit::Role::None
+                        crate::emit::Role::Prefix
+                            | crate::emit::Role::Suffix
+                            | crate::emit::Role::None
                     ) {
                         continue;
                     }
@@ -4308,7 +4314,8 @@ pub fn compose_envelope_for_strategy(
 }
 
 /// `strategy_floor`'s own refusal id -- not a registered `CapabilityPredicate` or `GrammarWideCheck` (it has no plan node and applies identically to every strategy), so `crate::backend_selection::capability_shape_key` reads this constant directly rather than the registry lookup those two shapes go through.
-pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE: &str = "strategy-coverage.construct-not-representable";
+pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE: &str =
+    "strategy-coverage.construct-not-representable";
 /// The shape key `crate::backend_selection::capability_shape_key` returns for [`STRATEGY_FLOOR_NOT_REPRESENTABLE_PREDICATE`].
 pub(crate) const STRATEGY_FLOOR_NOT_REPRESENTABLE_SHAPE_KEY: &str = "nonregular-process-morphology";
 

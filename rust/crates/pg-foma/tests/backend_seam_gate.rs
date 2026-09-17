@@ -43,8 +43,12 @@ fn sweep_shape_keys() -> (BTreeSet<ShapeRow>, BTreeSet<&'static str>) {
 /// Which of the three dispatchers `EmissionStrategy` names today, pinned so the seam consolidation is checked against a recorded fact rather than an assumption re-derived after the change.
 fn dispatcher_for(strategy: EmissionStrategy) -> &'static str {
     match strategy {
-        EmissionStrategy::TunedSurfaceProbed => "emit::emit_tuned_surface_for_request -> analyzer::FomaProposer::new",
-        EmissionStrategy::TemplatedUnderlyingTokens => "emit::emit_underlying_templated -> templated_compile.rs",
+        EmissionStrategy::TunedSurfaceProbed => {
+            "emit::emit_tuned_surface_for_request -> analyzer::FomaProposer::new"
+        }
+        EmissionStrategy::TemplatedUnderlyingTokens => {
+            "emit::emit_underlying_templated -> templated_compile.rs"
+        }
         EmissionStrategy::PlanComposed => "enumerate -> build::build_controllable",
     }
 }
@@ -54,7 +58,10 @@ fn dispatcher_for(strategy: EmissionStrategy) -> &'static str {
 fn backend_seam_shape_key_table_is_pinned() {
     let (rows, predicate_ids) = sweep_shape_keys();
 
-    eprintln!("backend-seam-gate: {} distinct (predicate, shape key) row(s)", rows.len());
+    eprintln!(
+        "backend-seam-gate: {} distinct (predicate, shape key) row(s)",
+        rows.len()
+    );
     for (predicate, shape_key) in &rows {
         eprintln!("  {predicate} -> {shape_key}");
     }
@@ -69,14 +76,35 @@ fn backend_seam_shape_key_table_is_pinned() {
     // Row provenance: seven ids resolve via `GrammarWideCheck` field lookup, `simultaneous.subrule-overlap` via the match's explicit arm, and `strategy-coverage.construct-not-representable` via the sniffing fallback's final default arm alone.
     let expected: BTreeSet<ShapeRow> = [
         ("simultaneous.subrule-overlap", "wide-phonology"),
-        ("strategy-coverage.construct-not-representable", "nonregular-process-morphology"),
-        ("strategy-coverage.templated-unsupported-shape", "nonregular-process-morphology"),
-        ("strategy-materializer.marker-subtree-not-buildable", "plan-composed-missing-subtrees"),
-        ("strategy-materializer.tokenizable-root-required", "nonregular-process-morphology"),
+        (
+            "strategy-coverage.construct-not-representable",
+            "nonregular-process-morphology",
+        ),
+        (
+            "strategy-coverage.templated-unsupported-shape",
+            "nonregular-process-morphology",
+        ),
+        (
+            "strategy-materializer.marker-subtree-not-buildable",
+            "plan-composed-missing-subtrees",
+        ),
+        (
+            "strategy-materializer.tokenizable-root-required",
+            "nonregular-process-morphology",
+        ),
         ("surface-probe.root-spelling-cap", "repeated-application"),
-        ("templated-route.emission-uncovered", "nonregular-process-morphology"),
-        ("templated-route.rule-cascade-uncompilable", "nonregular-process-morphology"),
-        ("templated-route.tokenizable-root-shape", "nonregular-process-morphology"),
+        (
+            "templated-route.emission-uncovered",
+            "nonregular-process-morphology",
+        ),
+        (
+            "templated-route.rule-cascade-uncompilable",
+            "nonregular-process-morphology",
+        ),
+        (
+            "templated-route.tokenizable-root-shape",
+            "nonregular-process-morphology",
+        ),
     ]
     .into_iter()
     .collect();

@@ -37,7 +37,10 @@ fn tsp_admits_and_certifies_the_pure_ablaut_rule() {
         proposer.err()
     );
 
-    let fixture = discover().into_iter().find(|f| f.label() == FIXTURE).unwrap();
+    let fixture = discover()
+        .into_iter()
+        .find(|f| f.label() == FIXTURE)
+        .unwrap();
     let words: Vec<String> = fixture
         .load_words_yaml()
         .words

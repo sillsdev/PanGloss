@@ -1809,11 +1809,17 @@ fn load_morph_rhs(
 }
 
 fn source_morph_placement(rhs: &[OutputAction]) -> SourceMorphPlacement {
-    rhs.iter().enumerate().any(|(index, action)| {
-        index > 0
-            && index + 1 < rhs.len()
-            && matches!(action, OutputAction::InsertSegments { .. } | OutputAction::InsertContext(_))
-    }).then_some(SourceMorphPlacement::InsertBeforeLast)
+    rhs.iter()
+        .enumerate()
+        .any(|(index, action)| {
+            index > 0
+                && index + 1 < rhs.len()
+                && matches!(
+                    action,
+                    OutputAction::InsertSegments { .. } | OutputAction::InsertContext(_)
+                )
+        })
+        .then_some(SourceMorphPlacement::InsertBeforeLast)
         .unwrap_or(SourceMorphPlacement::Append)
 }
 
@@ -2612,10 +2618,7 @@ mod tests {
         assert_eq!(facts.all_templates_final(), &[false, true, false]);
         assert!(facts.slot_rules_disjoint_from_mrules());
         assert_eq!(facts.default_prune_enabled(), &[true, false, false]);
-        assert_eq!(
-            facts.disabled_strata(),
-            &[StratumId(1), StratumId(2)]
-        );
+        assert_eq!(facts.disabled_strata(), &[StratumId(1), StratumId(2)]);
 
         let mut entry_only = load(XML).unwrap();
         entry_only.entries[0].partial = true;
@@ -2699,7 +2702,9 @@ mod tests {
         }
 
         let both = grammar(true, true);
-        let facts = both.partial_morpheme_facts().expect("valid partial inventory");
+        let facts = both
+            .partial_morpheme_facts()
+            .expect("valid partial inventory");
         assert_eq!(facts.partial_entry_count(), 1);
         assert_eq!(facts.partial_rule_count(), 1);
         assert_eq!(facts.total_count(), 2);

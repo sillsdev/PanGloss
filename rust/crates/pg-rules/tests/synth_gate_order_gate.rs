@@ -252,7 +252,11 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
     input.syn_fs = one_feature_fs(0b01);
     input.flags.is_partial = true;
     let baseline = synthesize_stratum(&g, s, input.clone(), 10_000, &cache);
-    assert_eq!(baseline.len(), 1, "partial-word rescue allows the final gate");
+    assert_eq!(
+        baseline.len(),
+        1,
+        "partial-word rescue allows the final gate"
+    );
     let out = synthesize_stratum_traced_with_policy(
         &g,
         s,
@@ -267,7 +271,10 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
         &NoopSink,
         TraceHandle::DUMMY,
     );
-    assert!(out.is_empty(), "override must enforce the final-template prohibition");
+    assert!(
+        out.is_empty(),
+        "override must enforce the final-template prohibition"
+    );
 
     let (mut g, s, r, mut input, cache) = build_fixture();
     if let MorphRuleDef::AffixProcess(def) = &mut g.mrules[r.0 as usize] {
@@ -276,7 +283,11 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
     input.syn_fs = one_feature_fs(0b01);
     input.flags.is_partial = false;
     let baseline = synthesize_stratum(&g, s, input.clone(), 10_000, &cache);
-    assert_eq!(baseline.len(), 1, "partial-rule rescue allows the final gate");
+    assert_eq!(
+        baseline.len(),
+        1,
+        "partial-rule rescue allows the final gate"
+    );
     let out = synthesize_stratum_traced_with_policy(
         &g,
         s,
@@ -291,7 +302,10 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
         &NoopSink,
         TraceHandle::DUMMY,
     );
-    assert!(out.is_empty(), "override must bypass the partial-rule rescue");
+    assert!(
+        out.is_empty(),
+        "override must bypass the partial-rule rescue"
+    );
 }
 
 #[test]
@@ -327,7 +341,8 @@ fn synthesis_override_bypasses_partial_word_rescue_for_compounding() {
     input.flags.is_last_applied_rule_final = Some(true);
     input.flags.is_partial = true;
 
-    let baseline = synthesize_with_policy(&g, &input, &rule, FinalTemplateSynthesisPolicy::default());
+    let baseline =
+        synthesize_with_policy(&g, &input, &rule, FinalTemplateSynthesisPolicy::default());
     assert_eq!(baseline.len(), 1, "partial-word rescue allows compounding");
     let enforced = synthesize_with_policy(
         &g,

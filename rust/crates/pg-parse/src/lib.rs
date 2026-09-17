@@ -21,7 +21,7 @@ pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFIL
 pub use morpher::{GenMorpheme, Morpher, ParseOptions, ParseOutcome, SynthesisBudget};
 pub use overlay::{RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 pub use parse_morph::{
-    project_parse_analysis, project_parse_analyses, ParseAnalysis, ParseMorph,
+    project_parse_analyses, project_parse_analysis, ParseAnalysis, ParseMorph,
     ParseProjectionError, PARSE_ANALYSIS_PROFILE,
 };
 pub use root_trie::{RootAllomorphIndex, RootAllomorphTrie};

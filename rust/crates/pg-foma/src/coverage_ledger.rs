@@ -880,7 +880,9 @@ mod tests {
             row.strategies_cannot_represent,
             vec![
                 EmissionStrategy::PlanComposed.label().to_string(),
-                EmissionStrategy::TemplatedUnderlyingTokens.label().to_string(),
+                EmissionStrategy::TemplatedUnderlyingTokens
+                    .label()
+                    .to_string(),
             ]
         );
         assert!(

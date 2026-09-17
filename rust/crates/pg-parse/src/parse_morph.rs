@@ -34,13 +34,30 @@ pub struct ParseMorph {
 /// Why a confirmed analysis cannot be represented with authoritative source identities.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParseProjectionError {
-    MissingOccurrences { expected: usize },
-    UnresolvedMorpheme { ordinal: u32 },
-    UnresolvedAllomorph { ordinal: u32 },
-    MissingMsa { ordinal: u32 },
-    MissingSourceForm { allomorph: u32, slot: usize },
-    UnsupportedSourceFormArity { allomorph: u32, count: usize },
-    MissingCircumfixOccurrence { allomorph: u32, occurrence: usize },
+    MissingOccurrences {
+        expected: usize,
+    },
+    UnresolvedMorpheme {
+        ordinal: u32,
+    },
+    UnresolvedAllomorph {
+        ordinal: u32,
+    },
+    MissingMsa {
+        ordinal: u32,
+    },
+    MissingSourceForm {
+        allomorph: u32,
+        slot: usize,
+    },
+    UnsupportedSourceFormArity {
+        allomorph: u32,
+        count: usize,
+    },
+    MissingCircumfixOccurrence {
+        allomorph: u32,
+        occurrence: usize,
+    },
     GuessedStringUnavailable,
     UnsupportedRuntimeRoot,
     NonCanonicalSourceGuid {
@@ -166,9 +183,7 @@ pub fn project_parse_analysis(
             continue;
         }
         let occurrence = &occurrences[i];
-        if occurrence.morpheme_id == MorphemeId::GUESSED.0
-            || occurrence.allomorph_id == u32::MAX
-        {
+        if occurrence.morpheme_id == MorphemeId::GUESSED.0 || occurrence.allomorph_id == u32::MAX {
             return Err(ParseProjectionError::UnsupportedRuntimeRoot);
         }
 
@@ -188,9 +203,7 @@ pub fn project_parse_analysis(
             }
             continue;
         }
-        if source.form_guids.len() == 1
-            && ordinary_morphemes.contains(&occurrence.morpheme_id)
-        {
+        if source.form_guids.len() == 1 && ordinary_morphemes.contains(&occurrence.morpheme_id) {
             for (j, candidate) in occurrences.iter().enumerate().skip(i) {
                 if candidate.allomorph_id == occurrence.allomorph_id
                     && candidate.morpheme_id == occurrence.morpheme_id
@@ -234,12 +247,7 @@ pub fn project_parse_analysis(
                         slot: 0,
                     },
                 )?;
-                let form = require_guid(
-                    form,
-                    "MoForm",
-                    occurrence.allomorph_id,
-                    Some(0),
-                )?;
+                let form = require_guid(form, "MoForm", occurrence.allomorph_id, Some(0))?;
                 used[i] = true;
                 ordinary_morphemes.push(occurrence.morpheme_id);
                 for (j, candidate) in occurrences.iter().enumerate().skip(i + 1) {
@@ -262,14 +270,16 @@ pub fn project_parse_analysis(
                 ));
             }
             2 => {
-                let j = occurrences.iter().enumerate().skip(i + 1).find_map(
-                    |(j, candidate)| {
+                let j = occurrences
+                    .iter()
+                    .enumerate()
+                    .skip(i + 1)
+                    .find_map(|(j, candidate)| {
                         (!used[j]
                             && candidate.allomorph_id == occurrence.allomorph_id
                             && candidate.morpheme_id == occurrence.morpheme_id)
                             .then_some(j)
-                    },
-                );
+                    });
                 let j = j.ok_or(ParseProjectionError::MissingCircumfixOccurrence {
                     allomorph: occurrence.allomorph_id,
                     occurrence: 1,
@@ -280,24 +290,14 @@ pub fn project_parse_analysis(
                         slot: 0,
                     },
                 )?;
-                let first = require_guid(
-                    first,
-                    "MoForm",
-                    occurrence.allomorph_id,
-                    Some(0),
-                )?;
+                let first = require_guid(first, "MoForm", occurrence.allomorph_id, Some(0))?;
                 let second = source.form_guids[1].clone().ok_or(
                     ParseProjectionError::MissingSourceForm {
                         allomorph: occurrence.allomorph_id,
                         slot: 1,
                     },
                 )?;
-                let second = require_guid(
-                    second,
-                    "MoForm",
-                    occurrence.allomorph_id,
-                    Some(1),
-                )?;
+                let second = require_guid(second, "MoForm", occurrence.allomorph_id, Some(1))?;
                 used[i] = true;
                 used[j] = true;
                 events.push((
@@ -341,9 +341,7 @@ pub fn project_parse_analysis(
             morphs.push(morph);
         }
     }
-    Ok(ParseAnalysis {
-        morphs,
-    })
+    Ok(ParseAnalysis { morphs })
 }
 
 /// Keeps one projection error attached to each input analysis.
@@ -362,9 +360,13 @@ mod tests {
     use super::*;
     use crate::{AnalysisProvenance, MorphOccurrence};
     use pg_featstruct::FeatureStruct;
-    use pg_grammar::model::{MprSet, MorphemeInfo, SourceMorphPlacement, StratumId};
+    use pg_grammar::model::{MorphemeInfo, MprSet, SourceMorphPlacement, StratumId};
 
-    fn grammar(msa: Option<&str>, infl_type: Option<&str>, forms: Vec<Vec<Option<&str>>>) -> Grammar {
+    fn grammar(
+        msa: Option<&str>,
+        infl_type: Option<&str>,
+        forms: Vec<Vec<Option<&str>>>,
+    ) -> Grammar {
         const XML: &str = r#"<HermitCrabInput><Language>
           <Name>ParseMorphProjection</Name>
           <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
@@ -874,10 +876,10 @@ mod tests {
             "XML ids must not be treated as portable source MSA identities"
         );
         assert!(
-            grammar.allomorph_sources.iter().all(|source| source
-                .form_guids
+            grammar
+                .allomorph_sources
                 .iter()
-                .all(Option::is_none)),
+                .all(|source| source.form_guids.iter().all(Option::is_none)),
             "XML ids must not be treated as portable source MoForm identities"
         );
         inject_trusted_xml_fixture_metadata(
@@ -964,10 +966,10 @@ mod tests {
             "XML ids must not be treated as portable source MSA identities"
         );
         assert!(
-            grammar.allomorph_sources.iter().all(|source| source
-                .form_guids
+            grammar
+                .allomorph_sources
                 .iter()
-                .all(Option::is_none)),
+                .all(|source| source.form_guids.iter().all(Option::is_none)),
             "XML ids must not be treated as portable source MoForm identities"
         );
         inject_trusted_xml_fixture_metadata(
@@ -1077,10 +1079,10 @@ mod tests {
             .morphemes
             .iter()
             .all(|morpheme| morpheme.source_msa_guid.is_none()));
-        assert!(grammar.allomorph_sources.iter().all(|source| source
-            .form_guids
+        assert!(grammar
+            .allomorph_sources
             .iter()
-            .all(Option::is_none)));
+            .all(|source| source.form_guids.iter().all(Option::is_none)));
         inject_trusted_xml_fixture_metadata(
             &mut grammar,
             "22222222-2222-4222-8222-222222222222",
@@ -1103,7 +1105,10 @@ mod tests {
             ],
         );
 
-        fn projected(grammar: &Grammar, outcome: &crate::ParseOutcome) -> Vec<Vec<(String, String)>> {
+        fn projected(
+            grammar: &Grammar,
+            outcome: &crate::ParseOutcome,
+        ) -> Vec<Vec<(String, String)>> {
             let mut result: Vec<Vec<(String, String)>> = outcome
                 .structured
                 .iter()

@@ -67,8 +67,7 @@ fn every_registered_predicate_has_a_negative_witness_or_is_named_in_the_backlog(
         .copied()
         .filter(|p| registered.contains(p))
         .collect();
-    let missing: BTreeSet<&'static str> =
-        registered.difference(&witnessed).copied().collect();
+    let missing: BTreeSet<&'static str> = registered.difference(&witnessed).copied().collect();
     let allowed: BTreeSet<&'static str> = WITHOUT_NEGATIVE_WITNESS.iter().copied().collect();
 
     let regressed: Vec<&&str> = missing.difference(&allowed).collect();

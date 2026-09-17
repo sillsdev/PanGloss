@@ -1,7 +1,9 @@
 //! Regression gate: analysis-side syntactic-FS accumulation narrows with `PriorityUnion`, not `Add`.
 //! See `docs/research/pg-rules-analysis-syn-fs-gate-notes.md`.
 
-use pg_featstruct::{add, is_unifiable, unify, FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits};
+use pg_featstruct::{
+    add, is_unifiable, unify, FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits,
+};
 use pg_grammar::model::{Grammar, MorphRuleDef, StratumId};
 use pg_rules::morph::analyze;
 use pg_rules::Word;
@@ -274,8 +276,7 @@ fn analysis_required_fs_overrides_accumulated_value_priority_union() {
         "the inner rule's LHS should match the whole word exactly once"
     );
     assert_eq!(
-        out1[0].syn_fs,
-        pl,
+        out1[0].syn_fs, pl,
         "PriorityUnion must replace sg with pl entirely, not accumulate both"
     );
     let old_add_result = add(&sg, &pl, &|f| g.syn_features.mask(f));

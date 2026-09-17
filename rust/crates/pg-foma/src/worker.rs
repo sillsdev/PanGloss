@@ -366,7 +366,8 @@ fn compile_grammar_from_request(request: &CompileWorkerRequest) -> CompileWorker
 
 /// `EmissionStrategy::from_label` is the single owner of the label<->strategy mapping; this used to re-parse it independently.
 fn strategy_from_worker_route(route: &str) -> Result<EmissionStrategy, String> {
-    EmissionStrategy::from_label(route).ok_or_else(|| format!("unknown selected backend route {route:?}"))
+    EmissionStrategy::from_label(route)
+        .ok_or_else(|| format!("unknown selected backend route {route:?}"))
 }
 
 /// Carries a selected payload until the result header and optional raw frame are written.
@@ -718,7 +719,10 @@ mod tests {
             serde_json::from_slice(&metadata).expect("result must deserialize");
         match result.outcome {
             CompileWorkerOutcome::SelectedNotProductionReady { health: reported } => {
-                assert_eq!(reported, health, "the typed readiness report must survive the wire");
+                assert_eq!(
+                    reported, health,
+                    "the typed readiness report must survive the wire"
+                );
             }
             other => panic!("expected SelectedNotProductionReady; got {other:?}"),
         }

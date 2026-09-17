@@ -132,7 +132,12 @@ fn strategy_aware_decisions(
     candidates
         .iter()
         .map(|candidate| {
-            compose_envelope_for_strategy(&semantics, &candidate.plan, candidate.strategy(), registry)
+            compose_envelope_for_strategy(
+                &semantics,
+                &candidate.plan,
+                candidate.strategy(),
+                registry,
+            )
         })
         .collect()
 }

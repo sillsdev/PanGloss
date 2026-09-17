@@ -95,8 +95,9 @@ fn build_category_change_grammar(upper_mrule_ids: &str) -> Grammar {
 </HermitCrabInput>
 "#
     );
-    pg_grammar::load(&xml)
-        .unwrap_or_else(|e| panic!("merged_analyses_fs_generalization grammar failed to load: {e}\n---\n{xml}"))
+    pg_grammar::load(&xml).unwrap_or_else(|e| {
+        panic!("merged_analyses_fs_generalization grammar failed to load: {e}\n---\n{xml}")
+    })
 }
 
 /// Ports `MorpherTests.ParseWord_MergedEquivalentAnalyses_CanonicalFsCoversEveryAlternative`: `r1`-then-`r0` and `r2`-alone both un-apply to stem "zudz" with distinct rule multisets (no state-key fold) and distinct narrowed FS (N vs V), so only the V-FS `r2` candidate survives `r3` below.

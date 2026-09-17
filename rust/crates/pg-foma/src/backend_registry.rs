@@ -7,9 +7,9 @@ use std::fmt;
 use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
+use crate::backend::backend_for;
 use crate::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
-use crate::backend::backend_for;
 use crate::oracle::{
     permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
 };
@@ -728,7 +728,9 @@ impl Materializer for SeededFamily {
             plan,
             adapter: self.adapter,
             // Derived, never declared: `Identity` under a plan-interpreting adapter hands back the baseline plan verbatim, so it alone is this grammar's default compilation.
-            role: if self.transform == SafeTransform::Identity && backend_for(self.adapter).interprets_plan() {
+            role: if self.transform == SafeTransform::Identity
+                && backend_for(self.adapter).interprets_plan()
+            {
                 CandidateRole::Baseline
             } else {
                 CandidateRole::Alternative

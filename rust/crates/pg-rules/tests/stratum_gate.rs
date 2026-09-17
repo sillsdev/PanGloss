@@ -298,7 +298,10 @@ fn unordered_combination_reaches_root_linear_permutation_misses() {
 // (c) Affix template with an optional slot → both slot-filled and slot-skipped analyses.
 
 /// A stratum with two suffix slots whose optionality is explicit.
-fn template_stratum_with_optionality(slot0_optional: bool, slot1_optional: bool) -> (Grammar, StratumId) {
+fn template_stratum_with_optionality(
+    slot0_optional: bool,
+    slot1_optional: bool,
+) -> (Grammar, StratumId) {
     let mut g = load_alpha_grammar();
     let (ra, rb) = (suffix_rule(&g, 200, "p"), suffix_rule(&g, 300, "k"));
     let a = push_mrule(&mut g, ra); // slot 0
@@ -377,7 +380,11 @@ fn all_optional_final_template_does_not_duplicate_the_unapplied_seed() {
     );
     assert!(!out.capped);
     // Four fill/skip choices converge to three singular shapes after ordinary dedup.
-    assert_eq!(out.words.len(), 3, "optional choices must not duplicate convergent shapes");
+    assert_eq!(
+        out.words.len(),
+        3,
+        "optional choices must not duplicate convergent shapes"
+    );
     let mut shapes = out
         .words
         .iter()
@@ -672,12 +679,7 @@ fn final_template_state_resets_between_outer_and_inner_strata() {
 
     let outer_rule = prefix_rule(&g, 200, "p");
     let outer_rule = push_mrule(&mut g, outer_rule);
-    let outer = push_stratum(
-        &mut g,
-        MorphRuleOrder::Unordered,
-        vec![outer_rule],
-        vec![],
-    );
+    let outer = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![outer_rule], vec![]);
     let cfg = AnalyzerConfig {
         merge_equivalent: false,
         ..AnalyzerConfig::default()
@@ -734,8 +736,7 @@ fn final_template_state_resets_between_outer_and_inner_strata() {
     );
     assert!(inner_result.words.iter().any(|w| {
         char_defs(&w.shape) == vec![cd(&g, "char_a")]
-            && w
-                .mrule_apps
+            && w.mrule_apps
                 .iter()
                 .flatten()
                 .copied()
@@ -822,12 +823,10 @@ fn compounding_analysis_marks_non_template_before_final_template_selection() {
     );
     assert!(!histories(&on.words).contains(&vec![compound, final_rule]));
     assert!(histories(&on.words).contains(&vec![final_rule, compound]));
-    assert!(
-        stats
-            .prune_rows()
-            .iter()
-            .any(|row| row.counters.template_batteries_skipped > 0)
-    );
+    assert!(stats
+        .prune_rows()
+        .iter()
+        .any(|row| row.counters.template_batteries_skipped > 0));
 }
 
 // Synthesis template battery (forward direction) — SynthesisAffixTemplateRule.ApplySlots.
