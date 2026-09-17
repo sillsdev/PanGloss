@@ -135,6 +135,69 @@ Test-Case 'idleness must be CONTIGUOUS -- flapping in and out never accumulates 
     Assert-False $r.Wedged 'alternating idle/busy across 40 simulated minutes must never trip a 3-minute contiguous bound'
 }
 
+# --- Lingering job helpers: the observed cause of a wedge on a CLEAN run (vctip.exe outlives link.exe inside the job) ---
+
+Test-Case 'Remove-LingeringJobHelpers kills only the named telemetry helper among the job members and returns exactly that row' {
+    $members = @(
+        (New-FakeProc -Pid_ 1 -Name 'procgov.exe' -ParentPid 0 -Created $now.AddMinutes(-10)),
+        (New-FakeProc -Pid_ 7 -Name 'vctip.exe' -ParentPid 4242 -Created $now.AddMinutes(-2)),
+        (New-FakeProc -Pid_ 9 -Name 'sccache.exe' -ParentPid 1 -Created $now.AddMinutes(-9))
+    )
+    $script:killed = @()
+    $reaped = @(Remove-LingeringJobHelpers -Members $members -KillAction { param($ProcessId) $script:killed += $ProcessId })
+    Assert-Equal 1 $reaped.Count 'exactly one row reaped'
+    Assert-Equal 7 $reaped[0].ProcessId 'the helper, found by job membership even though its parent (4242) is gone'
+    Assert-Equal '7' ($script:killed -join ',') 'nothing but the helper is killed -- never the wrapper, never a real build process'
+}
+
+Test-Case 'an sccache SERVER (bare exe, no arguments) inside the job is reaped; an sccache CLIENT carrying a rustc command line is not' {
+    $server = New-FakeProc -Pid_ 11 -Name 'sccache.exe' -ParentPid 4242 -Created $now.AddMinutes(-3)
+    $server.CommandLine = '"C:\Users\x\.cargo\bin\sccache.exe"'
+    $client = New-FakeProc -Pid_ 12 -Name 'sccache.exe' -ParentPid 5 -Created $now.AddMinutes(-1)
+    $client.CommandLine = '"sccache" C:\toolchain\bin\rustc.exe --crate-name pg_rules --edition=2021 src\lib.rs'
+    Assert-True (Test-SccacheServerRow -Row $server) 'the bare exe is the daemon'
+    Assert-False (Test-SccacheServerRow -Row $client) 'a client is live build work and must never be killed'
+    $script:killed = @()
+    $reaped = @(Remove-LingeringJobHelpers -Members @($server, $client) -KillAction { param($ProcessId) $script:killed += $ProcessId })
+    Assert-Equal '11' ($script:killed -join ',') 'only the daemon is reaped'
+    Assert-Equal 1 $reaped.Count
+}
+
+Test-Case 'an empty member list reaps nothing and is not an error' {
+    $reaped = @(Remove-LingeringJobHelpers -Members @())
+    Assert-Equal 0 $reaped.Count
+}
+
+Test-Case 'Wait-ManagedProcessTree hands an idle tree to the LingerReaper and returns the exit code once the wrapper exits on its own' {
+    $fake = [PSCustomObject]@{ HasExited = $false; Id = 1; ExitCode = 0 }
+    $idle = @((New-FakeProc -Pid_ 1 -Name 'procgov.exe' -ParentPid 0 -Created $now))
+    $script:reaperCalls = 0
+    $reaper = {
+        param($Snapshot)
+        $script:reaperCalls++
+        # Killing the helper empties the job; procgov then exits by itself, which is what the fake models here.
+        $fake.HasExited = $true
+        @((New-FakeProc -Pid_ 7 -Name 'vctip.exe' -ParentPid 4242 -Created $now))
+    }
+    $script:simNow = $now
+    $sleep = { param($Seconds) $script:simNow = $script:simNow.AddMinutes(1) }
+    $r = Wait-ManagedProcessTree -Process $fake -PollSeconds 1 -MaxIdleMinutes 3 `
+        -SnapshotProvider { $idle } -SleepAction $sleep -NowProvider { $script:simNow } -LingerReaper $reaper
+    Assert-Equal 1 $script:reaperCalls 'the reaper runs on the first idle poll, not after the idle bound'
+    Assert-False $r.Wedged 'the wrapper exited once the helper was gone, so this is a normal return, not a wedge'
+    Assert-Equal 0 $r.ExitCode
+}
+
+Test-Case 'a LingerReaper that finds nothing leaves the wedge detector exactly as before' {
+    $fake = [PSCustomObject]@{ HasExited = $false; Id = 1; ExitCode = $null }
+    $idle = @((New-FakeProc -Pid_ 1 -Name 'procgov.exe' -ParentPid 0 -Created $now))
+    $script:simNow = $now
+    $sleep = { param($Seconds) $script:simNow = $script:simNow.AddMinutes(1) }
+    $r = Wait-ManagedProcessTree -Process $fake -PollSeconds 1 -MaxIdleMinutes 3 `
+        -SnapshotProvider { $idle } -SleepAction $sleep -NowProvider { $script:simNow } -LingerReaper { param($Snapshot) @() }
+    Assert-True $r.Wedged 'with no helper to reap, an idle wrapper is still declared wedged at the bound'
+}
+
 # --- Real-process falsification (see this file's own header for why a plain pwsh sleep stands in for cargo) ---
 
 $script:CommonPath = (Resolve-Path "$PSScriptRoot\..\_common.ps1").Path

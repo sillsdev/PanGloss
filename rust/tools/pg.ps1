@@ -830,6 +830,15 @@ if (-not $memCheckNow.Ok) {
     exit $script:ExitCodeLowMemory
 }
 
+if ($usedSccache) {
+    $sccacheServer = Confirm-SccacheServerOutsideJob
+    if ($sccacheServer) {
+        Write-Host "[pg] sccache server outside the job: pid $($sccacheServer.ProcessId), up since $($sccacheServer.CreationDate.ToString('HH:mm:ss'))." -ForegroundColor DarkGray
+    } else {
+        Write-Host '[pg] WARNING: could not prove an sccache server is running outside the job; an in-job client will spawn one inside it and the wrapper will have to reap it after the build.' -ForegroundColor Yellow
+    }
+}
+
 $code = 1
 try {
     if ($Mode -eq 'run') {

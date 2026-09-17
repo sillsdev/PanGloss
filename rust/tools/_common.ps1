@@ -416,9 +416,10 @@ function Get-JobCpuRatePercent {
 function Ensure-ProcGovNative {
     <#
       .DESCRIPTION
-      JIT-defines the P/Invoke surface Terminate-ProcGovJob needs (OpenJobObject/TerminateJobObject/
-      CloseHandle). Split out so a caller that never hits the kill path never pays Add-Type's cost,
-      and so the type is defined at most once per process.
+      JIT-defines the P/Invoke surface Terminate-ProcGovJob and Get-ProcGovJobMembers need
+      (OpenJobObject/TerminateJobObject/IsProcessInJob/OpenProcess/CloseHandle). Split out so a
+      caller that never hits the kill path never pays Add-Type's cost, and so the type is defined at
+      most once per process.
     #>
     if (-not ([System.Management.Automation.PSTypeName]'PanGlossProcGov.Native').Type) {
         Add-Type @'
@@ -431,11 +432,104 @@ namespace PanGlossProcGov {
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool TerminateJobObject(IntPtr job, uint exitCode);
         [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
+        [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool CloseHandle(IntPtr handle);
     }
 }
 '@
     }
+}
+
+# MSVC's linker launches this Visual Studio telemetry helper; it outlives link.exe, stays in the job, and keeps procgov waiting for an empty job.
+$script:LingeringJobHelperNames = @('vctip.exe')
+
+function Get-ProcGovJobMembers {
+    <#
+      .DESCRIPTION
+      Every snapshot row the kernel says is a member of procgov's named job. Membership, not
+      ancestry: a helper whose parent already exited is re-parented and invisible to
+      Get-ProcessDescendants, yet it is exactly what holds the job open. A job name procgov never
+      created (or already tore down) gives an empty list, never an error.
+    #>
+    param([Parameter(Mandatory)][string]$JobName, [Parameter(Mandatory)]$Snapshot)
+    Ensure-ProcGovNative
+    $job = [PanGlossProcGov.Native]::OpenJobObject([uint32]0x0004, $false, $JobName)
+    if ($job -eq [IntPtr]::Zero) { return @() }
+    $members = @()
+    try {
+        foreach ($p in @($Snapshot)) {
+            if (-not $p.ProcessId) { continue }
+            $h = [PanGlossProcGov.Native]::OpenProcess([uint32]0x1000, $false, [uint32]$p.ProcessId)
+            if ($h -eq [IntPtr]::Zero) { continue }
+            try {
+                $inJob = $false
+                if ([PanGlossProcGov.Native]::IsProcessInJob($h, $job, [ref]$inJob) -and $inJob) { $members += $p }
+            } finally {
+                [void][PanGlossProcGov.Native]::CloseHandle($h)
+            }
+        }
+    } finally {
+        [void][PanGlossProcGov.Native]::CloseHandle($job)
+    }
+    return $members
+}
+
+function Remove-LingeringJobHelpers {
+    <#
+      .DESCRIPTION
+      Kills the job members named in $script:LingeringJobHelperNames and returns the rows it killed,
+      so the caller can print each one by effect. Pure over $Members and $KillAction: the membership
+      query and the kill are both injected, which is what lets the tests drive it with no real job.
+    #>
+    param(
+        [Parameter(Mandatory)][AllowEmptyCollection()]$Members,
+        [scriptblock]$KillAction = { param($ProcessId) & taskkill /F /PID $ProcessId 2>$null | Out-Null }
+    )
+    $reaped = @()
+    foreach ($p in @($Members)) {
+        if (($p.Name -in $script:LingeringJobHelperNames) -or (Test-SccacheServerRow -Row $p)) {
+            & $KillAction $p.ProcessId
+            $reaped += $p
+        }
+    }
+    return $reaped
+}
+
+function Test-SccacheServerRow {
+    <#
+      .DESCRIPTION
+      The sccache SERVER is the bare exe with no arguments; a client carries the rustc command line.
+      A server found INSIDE a build's job was spawned by an in-job client after the outside server
+      died, and it never exits, so procgov never returns: the second observed cause of exit 27 on a
+      clean run. Killing it costs one cold server start; Confirm-SccacheServerOutsideJob restarts
+      it outside any job before the next build.
+    #>
+    param([Parameter(Mandatory)]$Row)
+    if ($Row.Name -ne 'sccache.exe') { return $false }
+    $args_ = ([string]$Row.CommandLine) -replace '^\s*("[^"]*"|\S+)', ''
+    return ($args_.Trim() -eq '')
+}
+
+function Confirm-SccacheServerOutsideJob {
+    <#
+      .DESCRIPTION
+      Called right before a governed build launches, AFTER any build-slot wait: a client inside the
+      job spawns the server itself when none is listening, and that server inherits the job, keeping
+      it non-empty forever. `--start-server` daemonizes one outside any job (this process is outside
+      one); "Address in use" means one is already listening and is equally fine. `--show-stats` is
+      NOT enough: measured here, the server it auto-spawns to answer does not stay up. Returns the
+      server row when found so the caller can print pid and start time; $null means "could not
+      prove a server is outside".
+    #>
+    if (-not (Get-Command sccache -ErrorAction SilentlyContinue)) { return $null }
+    $out = & sccache --start-server 2>&1
+    if ($LASTEXITCODE -ne 0 -and (($out -join ' ') -notmatch 'Address in use')) { return $null }
+    $server = @(Get-ProcessSnapshot | Where-Object { Test-SccacheServerRow -Row $_ } | Sort-Object CreationDate | Select-Object -First 1)
+    if ($server.Count -eq 0) { return $null }
+    return $server[0]
 }
 
 function Terminate-ProcGovJob {
@@ -805,6 +899,8 @@ function Use-Sccache {
     }
     if (-not (Get-Command sccache -ErrorAction SilentlyContinue)) { return $false }
     $env:RUSTC_WRAPPER = 'sccache'
+    # The stock 600s idle exit is what let the server die during a slot wait and get respawned INSIDE the job by the first in-job client (Confirm-SccacheServerOutsideJob).
+    if (-not $env:SCCACHE_IDLE_TIMEOUT) { $env:SCCACHE_IDLE_TIMEOUT = '0' }
     # Deliberately on the HDD root: a cache hit is one blob read, so capacity matters more than seek time here.
     if (-not $env:SCCACHE_DIR) { $env:SCCACHE_DIR = Join-Path $script:HddCacheRoot 'sccache' }
     New-Item -ItemType Directory -Force -Path $env:SCCACHE_DIR | Out-Null
@@ -1180,13 +1276,20 @@ function Wait-ManagedProcessTree {
         [string[]]$ExtraLiveNames = @(),
         [scriptblock]$SnapshotProvider = { Get-ProcessSnapshot },
         [scriptblock]$SleepAction = { param($Seconds) Start-Sleep -Seconds $Seconds },
-        [scriptblock]$NowProvider = { Get-Date }
+        [scriptblock]$NowProvider = { Get-Date },
+        # Given the snapshot once the tree reads idle; returns the rows it reaped. procgov waits for its job to EMPTY, so a lingering helper (Remove-LingeringJobHelpers) is the one thing between "cargo returned" and "the wrapper returns".
+        [scriptblock]$LingerReaper = $null
     )
     $idleSince = $null
     while (-not $Process.HasExited) {
         $snapshot = & $SnapshotProvider
         $now = & $NowProvider
         if (Test-ManagedProcessTreeIdle -RootPid $Process.Id -Snapshot $snapshot -ExtraLiveNames $ExtraLiveNames) {
+            if ($LingerReaper) {
+                foreach ($r in @(& $LingerReaper $snapshot)) {
+                    Write-Host "[pg] reaped $($r.Name) (pid $($r.ProcessId)): it outlived the build inside the job and was holding the wrapper open." -ForegroundColor Yellow
+                }
+            }
             if (-not $idleSince) { $idleSince = $now }
             elseif (($now - $idleSince).TotalMinutes -ge $MaxIdleMinutes) {
                 return [PSCustomObject]@{ Wedged = $true; IdleSince = $idleSince; ExitCode = $null }
@@ -1278,7 +1381,11 @@ function Invoke-ProcessInJobObject {
             if ($payloadName -and -not [System.IO.Path]::GetExtension($payloadName)) { $payloadName = "$payloadName.exe" }
             $WaitExtraLiveNames = @($payloadName)
         }
-        $wait = Wait-ManagedProcessTree -Process $psi -PollSeconds $WaitPollSeconds -MaxIdleMinutes $WaitMaxIdleMinutes -ExtraLiveNames $WaitExtraLiveNames
+        $reaper = $null
+        if ($jobName) {
+            $reaper = { param($Snapshot) Remove-LingeringJobHelpers -Members @(Get-ProcGovJobMembers -JobName $jobName -Snapshot $Snapshot) }.GetNewClosure()
+        }
+        $wait = Wait-ManagedProcessTree -Process $psi -PollSeconds $WaitPollSeconds -MaxIdleMinutes $WaitMaxIdleMinutes -ExtraLiveNames $WaitExtraLiveNames -LingerReaper $reaper
         if ($wait.Wedged) {
             $liveNames = @($script:LiveBuildActivityNames) + @($WaitExtraLiveNames)
             Write-Host "[pg] REFUSING to wait any longer: pid $($psi.Id) ($launchExe) is alive but its process tree has matched none of {$($liveNames -join ', ')} for ${WaitMaxIdleMinutes}+ minute(s) (idle since $($wait.IdleSince))." -ForegroundColor Red
