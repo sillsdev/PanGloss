@@ -21,10 +21,10 @@ use crate::error::{
 pub type HcGrammarHandle = *mut std::ffi::c_void;
 
 /// Matches the Indonesian parity-gate configuration already established by the M6/M7 work
-/// (`--step-cap 500000 --memo=on`; see MEMORY `rust-parity-facts`): a bounded budget by default
+/// (`--step-cap 500000`; see MEMORY `rust-parity-facts`): a bounded budget by default
 /// so a native host cannot trigger the unbounded-memory runaway documented there (a prior session
-/// hit 55GB+ on an unmemoized/uncapped Indonesian word) merely by loading a grammar and parsing.
-/// Plan §4.2's ABI has no step-cap/memo parameter yet in `hc_grammar_load` — a candidate addition
+/// hit 55GB+ on an uncapped Indonesian word) merely by loading a grammar and parsing.
+/// Plan §4.2's ABI has no step-cap parameter yet in `hc_grammar_load` — a candidate addition
 /// for the #448 budgets port (M10) if a host ever needs a different budget.
 ///
 /// `pub` so tests can build a plain in-process `pg_parse::Morpher` with the identical

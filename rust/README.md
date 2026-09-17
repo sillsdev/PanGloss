@@ -27,7 +27,6 @@ Language Pack. Build reports and word-assessment reports are separate immutable 
 | `pg-shape` | shapes (struct-of-arrays), annotation spans, builders |
 | `pg-fst` | pattern compile, FSA traversal, registers (CSR arc storage) |
 | `pg-rules` | phonological + morphological rules, templates, strata, cascades |
-| `pg-memo` | `AnalysisStateKey`, nogood + template memo, trail replay |
 | `pg-parse` | Morpher pipeline: segment → analyze → lookup → synthesize → dedup |
 | `pg-ffi` | C ABI (`cdylib`) with `catch_unwind` boundary |
 | `pg-cli` | `pangloss` binary: batch, parity-diff, bench (mirrors C# `hc batch` TSV) |

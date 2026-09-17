@@ -1155,7 +1155,7 @@ impl<'g> FomaAnalyzer<'g> {
     /// is documented read-only after `build` (and is already shared across every
     /// `pangloss batch --threads=N` worker as a single `&RuleCache`), and it carries no per-word
     /// state — a `parse_word` call's mutable state lives in its own `StepBudget`/`AnalyzerConfig`,
-    /// not on the `Morpher`. The only `Morpher` fields a caller can vary (`cap`, `memo`,
+    /// not on the `Morpher`. The only `Morpher` fields a caller can vary (`cap`,
     /// `word_timeout`, `max_stem_count`) are construction-time knobs, so a supplied `Morpher` also
     /// lets a caller set them once for a whole batch of analyzers. Pair with
     /// `Self::into_parts_with_morpher` to hand it back for the next one.

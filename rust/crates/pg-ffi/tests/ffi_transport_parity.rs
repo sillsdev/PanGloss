@@ -43,7 +43,7 @@ fn ffi_batch_matches_in_process_for_full_corpus() {
         "test data assumption stale: expected 121 Indonesian words"
     );
 
-    // Independent in-process grammar load under the SAME step-cap/memo config the FFI handle uses, so a config mismatch can't masquerade as an encoding bug.
+    // Independent in-process grammar load under the SAME step-cap config the FFI handle uses, so a config mismatch can't masquerade as an encoding bug.
     let grammar = pg_grammar::load(&xml).expect("load indonesian grammar in-process");
     let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP);
 

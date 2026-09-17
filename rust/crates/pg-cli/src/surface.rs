@@ -170,17 +170,12 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--step-cap",
         takes_value: true,
-        summary: "N or \"unbounded\"; bound the unmemoized analysis cascade's step count per word (default: 50000000, a runaway guard)",
+        summary: "N or \"unbounded\"; bound the analysis cascade's step count per word (default: 50000000, a runaway guard)",
     },
     FlagSpec {
         name: "--word-timeout-ms",
         takes_value: true,
         summary: "wall-clock deadline per word, independent of --step-cap",
-    },
-    FlagSpec {
-        name: "--memo",
-        takes_value: true,
-        summary: "on|off; enable/disable analysis memoization (default on)",
     },
     FlagSpec {
         name: "--threads",
