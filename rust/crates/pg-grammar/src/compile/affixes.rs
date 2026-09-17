@@ -4,8 +4,8 @@ use pg_snapshot::lexicon::{Allomorph, LexEntry, Msa, RuleMapping};
 use pg_snapshot::morphology::MorphType;
 use pg_snapshot::phonology::PhonContext;
 use pg_snapshot::{
-    ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, SourceRef,
-    Snapshot,
+    ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot,
+    SourceRef,
 };
 
 use crate::model::{
@@ -58,7 +58,10 @@ pub(crate) fn build_affix_rule(
     let mut rule_form_allos: Vec<&Allomorph> = Vec::new();
     for &allo in allos {
         if is_valid_rule_form(allo, ctx, warnings) {
-            ctx.selected(InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()));
+            ctx.selected(InventoryKey::object(
+                InventoryKind::Allomorph,
+                allo.guid.clone(),
+            ));
             rule_form_allos.push(allo);
         }
     }
@@ -583,14 +586,16 @@ fn build_circumfix_allomorphs(
                 .chain(&prefix.positions)
                 .map(String::as_str)
                 .collect();
-            let prefix_passes = resolve_environments(&prefix_env_guids, &prefix.guid, ctx, warnings);
+            let prefix_passes =
+                resolve_environments(&prefix_env_guids, &prefix.guid, ctx, warnings);
             let suffix_env_guids: Vec<&str> = suffix
                 .environments
                 .iter()
                 .chain(&suffix.positions)
                 .map(String::as_str)
                 .collect();
-            let suffix_passes = resolve_environments(&suffix_env_guids, &suffix.guid, ctx, warnings);
+            let suffix_passes =
+                resolve_environments(&suffix_env_guids, &suffix.guid, ctx, warnings);
 
             for prefix_pass in &prefix_passes {
                 for suffix_pass in &suffix_passes {
@@ -626,7 +631,11 @@ fn build_circumfix_allomorphs(
                             redup_hint: ReduplicationHint::Implicit,
                             lhs: vec![Pattern { nodes: lhs_nodes }],
                             // Leading AND trailing insert around one copy: what `pg_foma::emit::classify_affix` reads as `Role::CircumfixPrefix`.
-                            rhs: vec![lead.clone(), OutputAction::Copy(PartRef::Input(0)), trail.clone()],
+                            rhs: vec![
+                                lead.clone(),
+                                OutputAction::Copy(PartRef::Input(0)),
+                                trail.clone(),
+                            ],
                             properties: Vec::new(),
                         },
                     ));

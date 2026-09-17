@@ -422,13 +422,16 @@ mod tests {
     fn grammar_hash_ignores_conversion_provenance_differences() {
         let snap_a = sample_snapshot();
         let mut snap_b = sample_snapshot();
-        snap_b.conversion_provenance.import_issues.push(ConversionIssue {
-            code: "test.issue".to_string(),
-            class: IssueClass::AmbiguousSource,
-            source: None,
-            fatal: false,
-            message: "an import diagnostic".to_string(),
-        });
+        snap_b
+            .conversion_provenance
+            .import_issues
+            .push(ConversionIssue {
+                code: "test.issue".to_string(),
+                class: IssueClass::AmbiguousSource,
+                source: None,
+                fatal: false,
+                message: "an import diagnostic".to_string(),
+            });
         assert_ne!(snap_a.conversion_provenance, snap_b.conversion_provenance);
         assert_eq!(snap_a.grammar_hash(), snap_b.grammar_hash());
     }

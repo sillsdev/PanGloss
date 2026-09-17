@@ -263,7 +263,8 @@ fn a_grammar_without_compounding_emits_no_compound_machinery() {
 /// The bounded unroll must stay bounded: additive growth (one extra non-head level over the licensed root allomorphs), never multiplicative; ceilings below are generous but would catch a self-feeding loop.
 #[test]
 fn the_compound_unroll_stays_bounded_on_the_staged_fixture() {
-    let fixture = pg_conformance_fixtures::require_fixture("edge-cases", "compounding-non-recursive");
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "compounding-non-recursive");
     let g = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
     let alphabet = SegAlphabet::new(&g.char_tables[0]);
     let report = emit_underlying_filtered(&g, &alphabet, None).expect("fixture must emit");

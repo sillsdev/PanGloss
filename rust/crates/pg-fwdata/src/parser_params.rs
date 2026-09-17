@@ -38,8 +38,9 @@ pub fn parse_with_issues(
             ParserSettingsPresence::default(),
         ));
     };
-    let root = parse_full_document(raw)
-        .map_err(|error| invalid_active_parser(format!("ParserParameters XML is malformed: {error}")))?;
+    let root = parse_full_document(raw).map_err(|error| {
+        invalid_active_parser(format!("ParserParameters XML is malformed: {error}"))
+    })?;
     // `root` is our synthetic document root; its first child should be `<ParserParameters>`.
     let Some(params_elem) = root
         .children
@@ -328,13 +329,19 @@ mod tests {
             "<ParserParameters><ActiveParser>XAmple </ActiveParser></ParserParameters>",
             "<ParserParameters><ActiveParser> \n\t</ActiveParser></ParserParameters>",
         ] {
-            assert!(parse_with_issues(Some(raw)).is_err(), "{raw:?} must be fatal");
+            assert!(
+                parse_with_issues(Some(raw)).is_err(),
+                "{raw:?} must be fatal"
+            );
         }
     }
 
     #[test]
     fn only_absent_raw_uses_parser_defaults() {
-        assert_eq!(parse_with_issues(None).unwrap().0, ParserParameters::default());
+        assert_eq!(
+            parse_with_issues(None).unwrap().0,
+            ParserParameters::default()
+        );
         assert!(parse_with_issues(Some("")).is_err());
         assert!(parse_with_issues(Some(" \n\t")).is_err());
     }

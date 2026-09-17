@@ -4,7 +4,9 @@ use hashbrown::HashMap;
 
 use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Msa, Sense};
 use pg_snapshot::morphology::{LexEntryInflType, MorphType};
-use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SelectionRecorder, SourceRef, Snapshot};
+use pg_snapshot::{
+    InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot, SourceRef,
+};
 
 use crate::model::{LexEntryDef, LexEntryId, MRuleId, RootAllomorphDef, StratumId};
 use crate::GrammarError;
@@ -83,10 +85,16 @@ pub(crate) fn build(
         ctx.selected(entry_key.clone());
         ctx.represented(entry_key);
         for allo in &entry.allomorphs {
-            ctx.considered(InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()));
+            ctx.considered(InventoryKey::object(
+                InventoryKind::Allomorph,
+                allo.guid.clone(),
+            ));
         }
         for msa in &entry.msas {
-            ctx.considered(InventoryKey::object(InventoryKind::Msa, msa.guid().to_string()));
+            ctx.considered(InventoryKey::object(
+                InventoryKind::Msa,
+                msa.guid().to_string(),
+            ));
         }
         // A sense is read only for its gloss text (`sense_gloss`); it is never dropped/warned on its own, so it goes straight to represented.
         for sense in &entry.senses {

@@ -319,8 +319,7 @@ fn extract_rules(ctx: &mut Ctx, phon_data: &Record) -> Vec<PhonologicalRule> {
                 "PhMetathesisRule" => {
                     ctx.considered(key.clone());
                     ctx.selected(key.clone());
-                    let rule =
-                        extract_metathesis_rule(ctx, rec).map(PhonologicalRule::Metathesis);
+                    let rule = extract_metathesis_rule(ctx, rec).map(PhonologicalRule::Metathesis);
                     if rule.is_some() {
                         ctx.represented(key);
                     }

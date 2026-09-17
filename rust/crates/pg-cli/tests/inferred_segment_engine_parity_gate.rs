@@ -7,14 +7,15 @@ use pg_snapshot::feature::{
 };
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Lexicon, Msa, Sense};
 use pg_snapshot::morphology::{AffixSlot, AffixTemplate, MorphType, Morphology, PartOfSpeech};
-use pg_snapshot::phonology::{
-    BoundaryMarker, Environment, NaturalClass, Phoneme, Phonology,
-};
+use pg_snapshot::phonology::{BoundaryMarker, Environment, NaturalClass, Phoneme, Phonology};
 use pg_snapshot::project::Project;
 use pg_snapshot::{ActiveParser, FeatureSystems, Snapshot, WsForm};
 
 fn ws(ws: &str, form: &str) -> WsForm {
-    WsForm { ws: ws.to_string(), form: form.to_string() }
+    WsForm {
+        ws: ws.to_string(),
+        form: form.to_string(),
+    }
 }
 
 fn phoneme(guid: &str, rep: &str) -> Phoneme {
@@ -58,7 +59,11 @@ fn base_snapshot() -> Snapshot {
         default_inflection_class: None,
         inflectable_features: Vec::new(),
         stem_names: Vec::new(),
-        affix_slots: vec![AffixSlot { guid: slot.clone(), name: "Pl".to_string(), optional: false }],
+        affix_slots: vec![AffixSlot {
+            guid: slot.clone(),
+            name: "Pl".to_string(),
+            optional: false,
+        }],
         affix_templates: vec![AffixTemplate {
             guid: template,
             name: "NounTemplate".to_string(),
@@ -175,29 +180,49 @@ fn base_snapshot() -> Snapshot {
             }],
             ..Phonology::default()
         },
-        Morphology { parts_of_speech: vec![pos], ..Morphology::default() },
-        Lexicon { entries: vec![stem_kuma, stem_q, suffix] },
+        Morphology {
+            parts_of_speech: vec![pos],
+            ..Morphology::default()
+        },
+        Lexicon {
+            entries: vec![stem_kuma, stem_q, suffix],
+        },
     );
 
-    snapshot.feature_systems.phonological.closed_features.push(ClosedFeature {
-        guid: feature_guid,
-        name: "Frontness".to_string(),
-        abbreviation: "frnt".to_string(),
-        values: vec![
-            FeatureValueSymbol { guid: front_guid.clone(), name: "front".to_string(), abbreviation: "fr".to_string() },
-            FeatureValueSymbol { guid: back_guid, name: "back".to_string(), abbreviation: "bk".to_string() },
-        ],
-    });
-    snapshot.phonology.natural_classes.push(NaturalClass::Features {
-        guid: "nc-front".to_string(),
-        name: "Front".to_string(),
-        features: FeatureStructure {
-            values: vec![FeatureValue {
-                feature: "feat-frontness".to_string(),
-                value: FeatureValueKind::Closed { value: front_guid },
-            }],
-        },
-    });
+    snapshot
+        .feature_systems
+        .phonological
+        .closed_features
+        .push(ClosedFeature {
+            guid: feature_guid,
+            name: "Frontness".to_string(),
+            abbreviation: "frnt".to_string(),
+            values: vec![
+                FeatureValueSymbol {
+                    guid: front_guid.clone(),
+                    name: "front".to_string(),
+                    abbreviation: "fr".to_string(),
+                },
+                FeatureValueSymbol {
+                    guid: back_guid,
+                    name: "back".to_string(),
+                    abbreviation: "bk".to_string(),
+                },
+            ],
+        });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(NaturalClass::Features {
+            guid: "nc-front".to_string(),
+            name: "Front".to_string(),
+            features: FeatureStructure {
+                values: vec![FeatureValue {
+                    feature: "feat-frontness".to_string(),
+                    value: FeatureValueKind::Closed { value: front_guid },
+                }],
+            },
+        });
     snapshot.phonology.environments.push(Environment {
         guid: "env-front".to_string(),
         name: String::new(),
@@ -209,13 +234,21 @@ fn base_snapshot() -> Snapshot {
 }
 
 fn compile(snapshot: &Snapshot) -> pg_grammar::model::Grammar {
-    compile_project_with(snapshot, CompileOptions { substrate: SubstratePolicy::Auto, ..CompileOptions::default() })
-        .expect("fixture must compile")
-        .grammar
+    compile_project_with(
+        snapshot,
+        CompileOptions {
+            substrate: SubstratePolicy::Auto,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("fixture must compile")
+    .grammar
 }
 
 fn analyze_direct(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
-    pg_parse::Morpher::new(grammar, usize::MAX).parse_word(word).signature()
+    pg_parse::Morpher::new(grammar, usize::MAX)
+        .parse_word(word)
+        .signature()
 }
 
 fn analyze_fst_confirm(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
@@ -235,7 +268,10 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
     );
 
     let mut explicit_snapshot = inferred_snapshot.clone();
-    explicit_snapshot.phonology.phonemes.push(phoneme("ph-explicit-q", "q"));
+    explicit_snapshot
+        .phonology
+        .phonemes
+        .push(phoneme("ph-explicit-q", "q"));
     let explicit = compile(&explicit_snapshot);
 
     let mut valued_snapshot = inferred_snapshot;
@@ -246,7 +282,9 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
         features: Some(FeatureStructure {
             values: vec![FeatureValue {
                 feature: "feat-frontness".to_string(),
-                value: FeatureValueKind::Closed { value: "val-back".to_string() },
+                value: FeatureValueKind::Closed {
+                    value: "val-back".to_string(),
+                },
             }],
         }),
         basic_ipa_symbol: None,
@@ -261,7 +299,10 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
             "direct-HC analysis of {word:?} must match between the inferred and \
              explicit-featureless grammars"
         );
-        assert_ne!(inferred_direct, "-", "expected {word:?} to have at least one analysis");
+        assert_ne!(
+            inferred_direct, "-",
+            "expected {word:?} to have at least one analysis"
+        );
 
         let inferred_fst = analyze_fst_confirm(&inferred, word);
         let explicit_fst = analyze_fst_confirm(&explicit, word);
@@ -270,7 +311,10 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
             "FST-confirm analysis of {word:?} must match between the inferred and \
              explicit-featureless grammars"
         );
-        assert_ne!(inferred_fst, "-", "expected {word:?} to have at least one FST-confirmed analysis");
+        assert_ne!(
+            inferred_fst, "-",
+            "expected {word:?} to have at least one FST-confirmed analysis"
+        );
     }
 
     let inferred_qta_direct = analyze_direct(&inferred, "qta");

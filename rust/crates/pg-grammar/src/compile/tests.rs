@@ -17,7 +17,7 @@ use pg_snapshot::phonology::{
 use pg_snapshot::project::Project;
 use pg_snapshot::{
     ActiveParser, ConversionIssue, FeatureSystems, InventoryKey, InventoryKind, IssueClass,
-    SourceInventoryStatus, Snapshot, WsForm,
+    Snapshot, SourceInventoryStatus, WsForm,
 };
 
 use crate::model::{MorphRuleDef, TemplateSlotZone};
@@ -331,7 +331,8 @@ fn invalid_environment_string_is_a_warning_not_an_error() {
         .environments
         .push("env-bad".to_string());
 
-    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    let out =
+        compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
     assert!(
         out.issues
             .iter()
@@ -578,7 +579,10 @@ fn inflectional_msa_with_no_slots_is_a_partial_rule() {
 #[test]
 fn missing_morph_boundary_marker_is_recorded_rejected_with_the_legacy_warning_text() {
     let (mut snapshot, _f) = fixture();
-    snapshot.phonology.boundary_markers.retain(|b| b.guid != "bd-plus");
+    snapshot
+        .phonology
+        .boundary_markers
+        .retain(|b| b.guid != "bd-plus");
     snapshot.morphology.parser_parameters.no_default_compounding = true;
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
@@ -1521,7 +1525,10 @@ fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
     compile_recording_ok(&partial_rule);
 
     let (mut no_default_compounding, _f) = fixture();
-    no_default_compounding.morphology.parser_parameters.no_default_compounding = true;
+    no_default_compounding
+        .morphology
+        .parser_parameters
+        .no_default_compounding = true;
     compile_recording_ok(&no_default_compounding);
 
     let (mut clitic_rules, _f) = fixture();
@@ -1794,7 +1801,11 @@ fn unsegmentable_allomorph_is_rejected_with_the_expected_code_and_the_legacy_war
             .any(|w| w.contains("cannot segment") && w.contains("allo-stem")),
         "expected the legacy 'cannot segment' warning to survive unchanged; got {warnings:?}"
     );
-    assert_eq!(grammar.entries.len(), 0, "the unsegmentable stem entry must be dropped");
+    assert_eq!(
+        grammar.entries.len(),
+        0,
+        "the unsegmentable stem entry must be dropped"
+    );
 
     let key = InventoryKey::object(InventoryKind::Allomorph, "allo-stem".to_string());
     assert!(
@@ -1812,21 +1823,30 @@ fn unsegmentable_allomorph_is_rejected_with_the_expected_code_and_the_legacy_war
 #[test]
 fn a_disabled_compound_rule_is_considered_but_not_selected_with_no_issue() {
     let (mut snapshot, _f) = fixture();
-    snapshot.morphology.compound_rules.push(CompoundRule::Endocentric {
-        guid: "cr-disabled".to_string(),
-        name: "Disabled".to_string(),
-        disabled: true,
-        head_last: false,
-        left: CompoundConstituentRequirement::default(),
-        right: CompoundConstituentRequirement::default(),
-        overriding: CompoundOutcome::default(),
-    });
+    snapshot
+        .morphology
+        .compound_rules
+        .push(CompoundRule::Endocentric {
+            guid: "cr-disabled".to_string(),
+            name: "Disabled".to_string(),
+            disabled: true,
+            head_last: false,
+            left: CompoundConstituentRequirement::default(),
+            right: CompoundConstituentRequirement::default(),
+            overriding: CompoundOutcome::default(),
+        });
 
     let (_grammar, _warnings, inventory, issues) = compile_recording_ok(&snapshot);
     let key = InventoryKey::object(InventoryKind::CompoundRule, "cr-disabled".to_string());
     assert!(inventory.considered.contains(&key), "must be considered");
-    assert!(!inventory.selected.contains(&key), "a disabled rule must never be selected");
-    assert!(!inventory.rejected.contains(&key), "a disabled rule is not a rejection");
+    assert!(
+        !inventory.selected.contains(&key),
+        "a disabled rule must never be selected"
+    );
+    assert!(
+        !inventory.rejected.contains(&key),
+        "a disabled rule is not a rejection"
+    );
     assert!(
         issues.iter().all(|i| i.message != "cr-disabled"),
         "a disabled rule must not produce an issue"
@@ -1856,7 +1876,9 @@ fn an_unresolved_environment_guid_on_a_root_allomorph_is_a_quiet_attachment_reje
         "the dangling environment attachment must still be recorded rejected"
     );
     assert!(
-        issues.iter().any(|i| i.code == super::issue_codes::ENVIRONMENT_UNRESOLVED && !i.fatal),
+        issues
+            .iter()
+            .any(|i| i.code == super::issue_codes::ENVIRONMENT_UNRESOLVED && !i.fatal),
         "expected a non-fatal ENVIRONMENT_UNRESOLVED issue; got {issues:?}"
     );
 }
@@ -1929,7 +1951,8 @@ fn default_compounding_synthesizes_exactly_two_compound_rule_atoms_only_when_non
             right: CompoundConstituentRequirement::default(),
             overriding: CompoundOutcome::default(),
         });
-    let (_grammar2, _warnings2, inventory2, _issues2) = compile_recording_ok(&snapshot_with_authored);
+    let (_grammar2, _warnings2, inventory2, _issues2) =
+        compile_recording_ok(&snapshot_with_authored);
     let synthesized_compound_rules_2 = inventory2
         .synthesized
         .iter()
@@ -1947,7 +1970,9 @@ fn custom_strata_setting_is_recorded_rejected() {
     assert!(warnings.iter().any(|w| w.contains("Strata")));
     let key = InventoryKey::setting(InventoryKind::StrataConfiguration, "Strata");
     assert!(inventory.rejected.contains(&key));
-    assert!(issues.iter().any(|i| i.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED && !i.fatal));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED && !i.fatal));
 }
 
 /// `is_valid_rule_form`'s three reject sites must select the allomorph before rejecting it (`rejected ⊆ selected`), for both the positionless-infix and the bracket-pattern (reduplication) routes.
@@ -1989,7 +2014,8 @@ fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
         .iter()
         .any(|i| i.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM));
 
-    let bracket_key = InventoryKey::object(InventoryKind::Allomorph, "allo-bracket-form".to_string());
+    let bracket_key =
+        InventoryKey::object(InventoryKind::Allomorph, "allo-bracket-form".to_string());
     assert!(
         inventory.selected.contains(&bracket_key),
         "the bracket-pattern allomorph must be selected before rejection"
@@ -2025,23 +2051,30 @@ fn circumfix_typed_allomorph_outside_a_cross_product_is_selected_before_quiet_re
     assert!(warnings.is_empty(), "this rejection is quiet: {warnings:?}");
 
     let key = InventoryKey::object(InventoryKind::Allomorph, "allo-bare-circumfix".to_string());
-    assert!(inventory.selected.contains(&key), "must be selected before rejection");
+    assert!(
+        inventory.selected.contains(&key),
+        "must be selected before rejection"
+    );
     assert!(inventory.rejected.contains(&key));
-    assert!(issues.iter().any(
-        |i| i.code == super::issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM
-    ));
+    assert!(issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM));
 }
 
 /// `build_phon_features`'s complex-feature drop must select the feature before rejecting it (`rejected ⊆ selected`).
 #[test]
 fn complex_phonological_feature_is_recorded_selected_before_rejected() {
     let (mut snapshot, _f) = fixture();
-    snapshot.feature_systems.phonological.complex_features.push(ComplexFeature {
-        guid: "cf-phon".to_string(),
-        name: "PhonComplex".to_string(),
-        abbreviation: "pc".to_string(),
-        feature_type: None,
-    });
+    snapshot
+        .feature_systems
+        .phonological
+        .complex_features
+        .push(ComplexFeature {
+            guid: "cf-phon".to_string(),
+            name: "PhonComplex".to_string(),
+            abbreviation: "pc".to_string(),
+            feature_type: None,
+        });
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
@@ -2084,7 +2117,10 @@ fn template_only_mrule_orphaned_by_no_template_is_revoked_unreachable_after_comp
     });
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.is_empty(), "compaction revocation is silent: {warnings:?}");
+    assert!(
+        warnings.is_empty(),
+        "compaction revocation is silent: {warnings:?}"
+    );
 
     let msa_key = InventoryKey::object(InventoryKind::Msa, "msa-orphan".to_string());
     assert!(inventory.rejected.contains(&msa_key));
@@ -2116,7 +2152,10 @@ fn affix_allomorph_unsegmentable_text_is_a_recall_gap_not_a_project_refusal() {
 
     let out = compile_project_with(&snapshot, CompileOptions::default())
         .expect("one unrepresentable affix allomorph must not refuse the whole project");
-    assert!(out.issues.iter().any(|i| i.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE && !i.fatal));
+    assert!(out
+        .issues
+        .iter()
+        .any(|i| i.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE && !i.fatal));
     assert!(
         out.grammar.mrules.iter().all(|r| match r {
             MorphRuleDef::AffixProcess(d) => d.allomorphs.is_empty(),
@@ -2130,13 +2169,17 @@ fn affix_allomorph_unsegmentable_text_is_a_recall_gap_not_a_project_refusal() {
 #[test]
 fn natclass_segments_member_unresolved_is_non_fatal() {
     let (mut snapshot, _f) = fixture();
-    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
-        guid: "nc-bad".to_string(),
-        name: "Bad".to_string(),
-        phonemes: vec!["ph-does-not-exist".to_string()],
-    });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-bad".to_string(),
+            name: "Bad".to_string(),
+            phonemes: vec!["ph-does-not-exist".to_string()],
+        });
 
-    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    let out =
+        compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
     assert!(
         out.issues
             .iter()
@@ -2151,20 +2194,24 @@ fn natclass_segments_member_unresolved_is_non_fatal() {
 fn compound_rule_side_pos_unresolved_is_non_fatal() {
     let (mut snapshot, _f) = fixture();
     snapshot.morphology.parser_parameters.no_default_compounding = true;
-    snapshot.morphology.compound_rules.push(CompoundRule::Endocentric {
-        guid: "crule-bad-pos".to_string(),
-        name: "bad".to_string(),
-        disabled: false,
-        head_last: true,
-        left: CompoundConstituentRequirement {
-            part_of_speech: Some("pos-does-not-exist".to_string()),
-            exception_features: Vec::new(),
-        },
-        right: CompoundConstituentRequirement::default(),
-        overriding: CompoundOutcome::default(),
-    });
+    snapshot
+        .morphology
+        .compound_rules
+        .push(CompoundRule::Endocentric {
+            guid: "crule-bad-pos".to_string(),
+            name: "bad".to_string(),
+            disabled: false,
+            head_last: true,
+            left: CompoundConstituentRequirement {
+                part_of_speech: Some("pos-does-not-exist".to_string()),
+                exception_features: Vec::new(),
+            },
+            right: CompoundConstituentRequirement::default(),
+            overriding: CompoundOutcome::default(),
+        });
 
-    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    let out =
+        compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
     assert!(
         out.issues
             .iter()
@@ -2178,18 +2225,25 @@ fn compound_rule_side_pos_unresolved_is_non_fatal() {
 #[test]
 fn phonological_rule_build_failure_is_non_fatal() {
     let (mut snapshot, _f) = fixture();
-    snapshot.phonology.rules.push(PhonologicalRule::Rewrite(pg_snapshot::phonology::RewriteRule {
-        guid: "prule-bad".to_string(),
-        name: "bad".to_string(),
-        direction: RuleDirection::LeftToRight,
-        structural_description: vec![PhonContext::Segment { phoneme: "ph-does-not-exist".to_string() }],
-        feature_constraint_variables: Vec::new(),
-        right_hand_sides: Vec::new(),
-    }));
+    snapshot.phonology.rules.push(PhonologicalRule::Rewrite(
+        pg_snapshot::phonology::RewriteRule {
+            guid: "prule-bad".to_string(),
+            name: "bad".to_string(),
+            direction: RuleDirection::LeftToRight,
+            structural_description: vec![PhonContext::Segment {
+                phoneme: "ph-does-not-exist".to_string(),
+            }],
+            feature_constraint_variables: Vec::new(),
+            right_hand_sides: Vec::new(),
+        },
+    ));
 
-    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    let out =
+        compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
     assert!(
-        out.issues.iter().any(|i| i.code == super::issue_codes::RULE_BUILD_FAILED && !i.fatal),
+        out.issues
+            .iter()
+            .any(|i| i.code == super::issue_codes::RULE_BUILD_FAILED && !i.fatal),
         "expected a non-fatal RULE_BUILD_FAILED issue; got {:?}",
         out.issues
     );
@@ -2218,13 +2272,16 @@ fn cooccurrence_refusal_on_a_primary_whose_own_mrule_is_pruned_by_reachability_i
         senses: Vec::new(),
         entry_refs: Vec::new(),
     });
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
-        guid: "coocc-on-dead-code".to_string(),
-        disabled: false,
-        primary: "allo-orphan".to_string(),
-        others: vec!["allo-does-not-exist".to_string()],
-        adjacency: Adjacency::Anywhere,
-    });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-on-dead-code".to_string(),
+            disabled: false,
+            primary: "allo-orphan".to_string(),
+            others: vec!["allo-does-not-exist".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
 
     let out = compile_project_with(&snapshot, CompileOptions::default()).expect(
         "a co-occurrence refusal over a primary that reachability prunes as dead code must not \
@@ -2241,13 +2298,16 @@ fn cooccurrence_refusal_on_a_primary_whose_own_mrule_is_pruned_by_reachability_i
 #[test]
 fn cooccurrence_refusal_on_a_reachable_affix_owned_primary_still_refuses() {
     let (mut snapshot, _f) = fixture();
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
-        guid: "coocc-on-live-code".to_string(),
-        disabled: false,
-        primary: "allo-suffix".to_string(),
-        others: vec!["allo-does-not-exist".to_string()],
-        adjacency: Adjacency::Anywhere,
-    });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-on-live-code".to_string(),
+            disabled: false,
+            primary: "allo-suffix".to_string(),
+            others: vec!["allo-does-not-exist".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
 
     let err = compile_project_with(&snapshot, CompileOptions::default()).expect_err(
         "a co-occurrence refusal over a primary that survives reachability compaction must still refuse",
@@ -2262,32 +2322,47 @@ fn cooccurrence_refusal_on_a_reachable_affix_owned_primary_still_refuses() {
 #[test]
 fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive() {
     let (mut snapshot, _f) = fixture();
-    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
-        guid: "nc-orphan".to_string(),
-        name: String::new(),
-        phonemes: vec!["ph-a".to_string()],
-    });
-    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
-        guid: "nc-last-unnamed".to_string(),
-        name: String::new(),
-        phonemes: vec!["ph-i".to_string()],
-    });
-    snapshot.phonology.natural_classes.push(SnapNaturalClass::Segments {
-        guid: "nc-vowel".to_string(),
-        name: "V".to_string(),
-        phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
-    });
-    snapshot.phonology.environments.push(pg_snapshot::phonology::Environment {
-        guid: "env-v".to_string(),
-        name: String::new(),
-        representation: "/_[V]".to_string(),
-    });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-orphan".to_string(),
+            name: String::new(),
+            phonemes: vec!["ph-a".to_string()],
+        });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-last-unnamed".to_string(),
+            name: String::new(),
+            phonemes: vec!["ph-i".to_string()],
+        });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-v".to_string(),
+            name: String::new(),
+            representation: "/_[V]".to_string(),
+        });
     snapshot.lexicon.entries[1].allomorphs[0]
         .environments
         .push("env-v".to_string());
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.is_empty(), "compaction revocation is silent: {warnings:?}");
+    assert!(
+        warnings.is_empty(),
+        "compaction revocation is silent: {warnings:?}"
+    );
 
     let orphan_key = InventoryKey::object(InventoryKind::NaturalClass, "nc-orphan".to_string());
     assert!(inventory.rejected.contains(&orphan_key));
@@ -2295,7 +2370,10 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
     assert!(issues
         .iter()
         .any(|i| i.code == super::issue_codes::NATURAL_CLASS_UNREFERENCED_COMPACTED));
-    assert!(!grammar.natural_classes.iter().any(|d| d.xml_id == "nc-orphan"));
+    assert!(!grammar
+        .natural_classes
+        .iter()
+        .any(|d| d.xml_id == "nc-orphan"));
 
     let referenced_key = InventoryKey::object(InventoryKind::NaturalClass, "nc-vowel".to_string());
     assert!(inventory.represented.contains(&referenced_key));
@@ -2324,34 +2402,47 @@ fn morpheme_coocurrence_rule_targeting_a_compacted_away_morpheme_is_revoked_but_
         senses: Vec::new(),
         entry_refs: Vec::new(),
     });
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Morpheme {
-        guid: "coocc-dropped".to_string(),
-        disabled: false,
-        primary: f.stem_msa.clone(),
-        others: vec!["msa-orphan".to_string()],
-        adjacency: Adjacency::Anywhere,
-    });
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Morpheme {
-        guid: "coocc-survives".to_string(),
-        disabled: false,
-        primary: f.stem_msa.clone(),
-        others: vec![f.suffix_msa.clone()],
-        adjacency: Adjacency::Anywhere,
-    });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Morpheme {
+            guid: "coocc-dropped".to_string(),
+            disabled: false,
+            primary: f.stem_msa.clone(),
+            others: vec!["msa-orphan".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Morpheme {
+            guid: "coocc-survives".to_string(),
+            disabled: false,
+            primary: f.stem_msa.clone(),
+            others: vec![f.suffix_msa.clone()],
+            adjacency: Adjacency::Anywhere,
+        });
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.is_empty(), "compaction revocation is silent: {warnings:?}");
+    assert!(
+        warnings.is_empty(),
+        "compaction revocation is silent: {warnings:?}"
+    );
 
-    let dropped_key =
-        InventoryKey::object(InventoryKind::MorphemeCoOccurrence, "coocc-dropped".to_string());
+    let dropped_key = InventoryKey::object(
+        InventoryKind::MorphemeCoOccurrence,
+        "coocc-dropped".to_string(),
+    );
     assert!(inventory.rejected.contains(&dropped_key));
     assert!(!inventory.represented.contains(&dropped_key));
     assert!(issues
         .iter()
         .any(|i| i.code == super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE));
 
-    let survives_key =
-        InventoryKey::object(InventoryKind::MorphemeCoOccurrence, "coocc-survives".to_string());
+    let survives_key = InventoryKey::object(
+        InventoryKind::MorphemeCoOccurrence,
+        "coocc-survives".to_string(),
+    );
     assert!(inventory.represented.contains(&survives_key));
 }
 
@@ -2375,8 +2466,11 @@ fn fixture_represented_msa_and_natural_class_atoms_match_the_final_grammar_exact
         .filter(|k| k.kind == InventoryKind::Msa)
         .filter_map(object_guid)
         .collect();
-    let grammar_msas: std::collections::BTreeSet<String> =
-        grammar.morphemes.iter().map(|m| m.xml_key.clone()).collect();
+    let grammar_msas: std::collections::BTreeSet<String> = grammar
+        .morphemes
+        .iter()
+        .map(|m| m.xml_key.clone())
+        .collect();
     assert_eq!(represented_msas, grammar_msas);
 
     let represented_natclasses: std::collections::BTreeSet<String> = inventory
@@ -2476,18 +2570,27 @@ fn allomorph_cooccurrence_rule_whose_owner_is_compacted_away_is_revoked() {
         senses: Vec::new(),
         entry_refs: Vec::new(),
     });
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
-        guid: "coocc-owner-orphaned".to_string(),
-        disabled: false,
-        primary: "allo-orphan".to_string(),
-        others: vec!["allo-stem".to_string()],
-        adjacency: Adjacency::Anywhere,
-    });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-owner-orphaned".to_string(),
+            disabled: false,
+            primary: "allo-orphan".to_string(),
+            others: vec!["allo-stem".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.is_empty(), "compaction revocation is silent: {warnings:?}");
+    assert!(
+        warnings.is_empty(),
+        "compaction revocation is silent: {warnings:?}"
+    );
 
-    let key = InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-owner-orphaned".to_string());
+    let key = InventoryKey::object(
+        InventoryKind::AllomorphCoOccurrence,
+        "coocc-owner-orphaned".to_string(),
+    );
     assert!(inventory.rejected.contains(&key));
     assert!(!inventory.represented.contains(&key));
     assert!(issues
@@ -2530,13 +2633,16 @@ fn allomorph_cooccurrence_rule_whose_only_target_is_compacted_away_is_revoked() 
         senses: Vec::new(),
         entry_refs: Vec::new(),
     });
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
-        guid: "coocc-target-orphaned".to_string(),
-        disabled: false,
-        primary: "allo-suffix".to_string(),
-        others: vec!["allo-orphan".to_string()],
-        adjacency: Adjacency::Anywhere,
-    });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-target-orphaned".to_string(),
+            disabled: false,
+            primary: "allo-suffix".to_string(),
+            others: vec!["allo-orphan".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert_eq!(
@@ -2549,7 +2655,10 @@ fn allomorph_cooccurrence_rule_whose_only_target_is_compacted_away_is_revoked() 
         "the legacy warning text/order must stay byte-identical"
     );
 
-    let key = InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-target-orphaned".to_string());
+    let key = InventoryKey::object(
+        InventoryKind::AllomorphCoOccurrence,
+        "coocc-target-orphaned".to_string(),
+    );
     assert!(inventory.rejected.contains(&key));
     assert!(!inventory.represented.contains(&key));
     assert!(issues
@@ -2574,25 +2683,34 @@ fn allomorph_cooccurrence_rule_whose_only_target_is_compacted_away_is_revoked() 
 #[test]
 fn allomorph_cooccurrence_rule_whose_owner_and_targets_survive_stays_represented() {
     let (mut snapshot, _f) = fixture();
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
-        guid: "coocc-survives".to_string(),
-        disabled: false,
-        primary: "allo-suffix".to_string(),
-        others: vec!["allo-stem".to_string()],
-        adjacency: Adjacency::Anywhere,
-    });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-survives".to_string(),
+            disabled: false,
+            primary: "allo-suffix".to_string(),
+            others: vec!["allo-stem".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
 
     let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
 
-    let key = InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-survives".to_string());
+    let key = InventoryKey::object(
+        InventoryKind::AllomorphCoOccurrence,
+        "coocc-survives".to_string(),
+    );
     assert!(inventory.represented.contains(&key));
 
     let found = grammar.mrules.iter().any(|r| match r {
         MorphRuleDef::AffixProcess(d) => d.allomorphs.iter().any(|a| !a.co_occurrence.is_empty()),
         _ => false,
     });
-    assert!(found, "the surviving co-occurrence rule must remain on its owner's allomorph");
+    assert!(
+        found,
+        "the surviving co-occurrence rule must remain on its owner's allomorph"
+    );
 }
 
 /// One owner allomorph with TWO co-occurrence rules: pins the per-rule `idx`, never exercised at index >= 1 before this test.
@@ -2615,21 +2733,27 @@ fn owner_with_two_cooccurrence_rules_revokes_only_the_one_whose_target_is_compac
         entry_refs: Vec::new(),
     });
     // idx 0 on "allo-suffix": targets "allo-stem", which survives compaction -- must stay represented.
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
-        guid: "coocc-idx0-survives".to_string(),
-        disabled: false,
-        primary: "allo-suffix".to_string(),
-        others: vec!["allo-stem".to_string()],
-        adjacency: Adjacency::Anywhere,
-    });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-idx0-survives".to_string(),
+            disabled: false,
+            primary: "allo-suffix".to_string(),
+            others: vec!["allo-stem".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
     // idx 1 on the SAME owner "allo-suffix": targets "allo-orphan", which is compacted away -- must be revoked.
-    snapshot.morphology.adhoc_prohibitions.push(AdhocProhibition::Allomorph {
-        guid: "coocc-idx1-revoked".to_string(),
-        disabled: false,
-        primary: "allo-suffix".to_string(),
-        others: vec!["allo-orphan".to_string()],
-        adjacency: Adjacency::Anywhere,
-    });
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-idx1-revoked".to_string(),
+            disabled: false,
+            primary: "allo-suffix".to_string(),
+            others: vec!["allo-orphan".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert_eq!(
@@ -2642,14 +2766,30 @@ fn owner_with_two_cooccurrence_rules_revokes_only_the_one_whose_target_is_compac
         "only the idx-1 rule's target compaction produces a warning"
     );
 
-    let survives =
-        InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-idx0-survives".to_string());
-    let revoked =
-        InventoryKey::object(InventoryKind::AllomorphCoOccurrence, "coocc-idx1-revoked".to_string());
-    assert!(inventory.represented.contains(&survives), "idx 0's rule must stay represented");
-    assert!(!inventory.rejected.contains(&survives), "idx 0's rule must not be revoked");
-    assert!(inventory.rejected.contains(&revoked), "idx 1's rule must be revoked");
-    assert!(!inventory.represented.contains(&revoked), "idx 1's rule must not stay represented");
+    let survives = InventoryKey::object(
+        InventoryKind::AllomorphCoOccurrence,
+        "coocc-idx0-survives".to_string(),
+    );
+    let revoked = InventoryKey::object(
+        InventoryKind::AllomorphCoOccurrence,
+        "coocc-idx1-revoked".to_string(),
+    );
+    assert!(
+        inventory.represented.contains(&survives),
+        "idx 0's rule must stay represented"
+    );
+    assert!(
+        !inventory.rejected.contains(&survives),
+        "idx 0's rule must not be revoked"
+    );
+    assert!(
+        inventory.rejected.contains(&revoked),
+        "idx 1's rule must be revoked"
+    );
+    assert!(
+        !inventory.represented.contains(&revoked),
+        "idx 1's rule must not stay represented"
+    );
     assert!(issues
         .iter()
         .any(|i| i.code == super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE));
@@ -2737,7 +2877,10 @@ fn every_compile_stage_warning_becomes_a_non_fatal_conversion_issue() {
     let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
     assert_eq!(out.issues.len(), warnings.len());
     for issue in &out.issues {
-        assert!(!issue.fatal, "adapted compile-stage issue must be non-fatal: {issue:?}");
+        assert!(
+            !issue.fatal,
+            "adapted compile-stage issue must be non-fatal: {issue:?}"
+        );
     }
     assert!(out
         .issues
@@ -2749,13 +2892,16 @@ fn every_compile_stage_warning_becomes_a_non_fatal_conversion_issue() {
 #[test]
 fn refuse_rejects_a_fatal_imported_issue_but_measure_only_retains_it() {
     let (mut snapshot, _f) = fixture();
-    snapshot.conversion_provenance.import_issues.push(ConversionIssue {
-        code: "test.imported-fatal".to_string(),
-        class: IssueClass::InvalidSource,
-        source: None,
-        fatal: true,
-        message: "test: a fatal import-stage issue".to_string(),
-    });
+    snapshot
+        .conversion_provenance
+        .import_issues
+        .push(ConversionIssue {
+            code: "test.imported-fatal".to_string(),
+            class: IssueClass::InvalidSource,
+            source: None,
+            fatal: true,
+            message: "test: a fatal import-stage issue".to_string(),
+        });
 
     let err = compile_project_with(&snapshot, CompileOptions::default())
         .expect_err("a fatal imported issue must refuse under Refuse");
@@ -2770,7 +2916,10 @@ fn refuse_rejects_a_fatal_imported_issue_but_measure_only_retains_it() {
         },
     )
     .expect("MeasureOnly must never refuse");
-    assert!(measured.issues.iter().any(|i| i.code == "test.imported-fatal" && i.fatal));
+    assert!(measured
+        .issues
+        .iter()
+        .any(|i| i.code == "test.imported-fatal" && i.fatal));
 }
 
 /// Unknown source provenance is fatal under `Refuse` too; `MeasureOnly` retains it instead.
@@ -2871,7 +3020,11 @@ fn ambiguous_symbol_without_ldml_drops_only_that_allomorph() {
         .issues
         .iter()
         .any(|i| i.code == "substrate.classification-ambiguous" && !i.fatal));
-    assert_eq!(out.grammar.entries.len(), 0, "the fixture's only entry (the stem) is dropped");
+    assert_eq!(
+        out.grammar.entries.len(),
+        0,
+        "the fixture's only entry (the stem) is dropped"
+    );
 }
 
 /// Pins the claim `substrate`'s module doc makes (rather than leaving it an unlinked prose claim): a substrate-unresolved literal and the real owner's independent segmentation failure land on the SAME allomorph, both non-fatal -- refusing at the substrate layer would duplicate, not add to, the owner's own decision.
@@ -2927,7 +3080,8 @@ fn a_literal_authored_boundary_marker_inside_a_root_form_is_not_a_false_substrat
     assert!(
         out.issues
             .iter()
-            .all(|i| i.code != "substrate.position-unmapped" && i.code != "conversion.unsegmentable-form"),
+            .all(|i| i.code != "substrate.position-unmapped"
+                && i.code != "conversion.unsegmentable-form"),
         "expected no substrate issue at all; got {:?}",
         out.issues
     );
@@ -2942,7 +3096,10 @@ fn a_literal_authored_boundary_marker_inside_a_root_form_is_not_a_false_substrat
 fn accept_unspecified_graphemes_changes_the_effect_not_just_the_message() {
     let (mut snapshot, _) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
-    snapshot.morphology.parser_parameters.accept_unspecified_graphemes = true;
+    snapshot
+        .morphology
+        .parser_parameters
+        .accept_unspecified_graphemes = true;
     snapshot.project.exemplar_characters.push("q".to_string());
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "quma")];
 
@@ -2956,34 +3113,41 @@ fn add_feature_based_rule_that_can_match_unspecified_q(snapshot: &mut Snapshot) 
     let feature_guid = "feat-frontness".to_string();
     let front_guid = "val-front".to_string();
     let back_guid = "val-back".to_string();
-    snapshot.feature_systems.phonological.closed_features.push(ClosedFeature {
-        guid: feature_guid.clone(),
-        name: "Frontness".to_string(),
-        abbreviation: "frnt".to_string(),
-        values: vec![
-            FeatureValueSymbol {
-                guid: front_guid.clone(),
-                name: "front".to_string(),
-                abbreviation: "fr".to_string(),
-            },
-            FeatureValueSymbol {
-                guid: back_guid,
-                name: "back".to_string(),
-                abbreviation: "bk".to_string(),
-            },
-        ],
-    });
+    snapshot
+        .feature_systems
+        .phonological
+        .closed_features
+        .push(ClosedFeature {
+            guid: feature_guid.clone(),
+            name: "Frontness".to_string(),
+            abbreviation: "frnt".to_string(),
+            values: vec![
+                FeatureValueSymbol {
+                    guid: front_guid.clone(),
+                    name: "front".to_string(),
+                    abbreviation: "fr".to_string(),
+                },
+                FeatureValueSymbol {
+                    guid: back_guid,
+                    name: "back".to_string(),
+                    abbreviation: "bk".to_string(),
+                },
+            ],
+        });
     let nc_guid = "nc-front".to_string();
-    snapshot.phonology.natural_classes.push(SnapNaturalClass::Features {
-        guid: nc_guid.clone(),
-        name: "Front".to_string(),
-        features: FeatureStructure {
-            values: vec![FeatureValue {
-                feature: feature_guid.clone(),
-                value: FeatureValueKind::Closed { value: front_guid },
-            }],
-        },
-    });
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Features {
+            guid: nc_guid.clone(),
+            name: "Front".to_string(),
+            features: FeatureStructure {
+                values: vec![FeatureValue {
+                    feature: feature_guid.clone(),
+                    value: FeatureValueKind::Closed { value: front_guid },
+                }],
+            },
+        });
     let class_context = || pg_snapshot::phonology::PhonContext::NaturalClass {
         natural_class: nc_guid.clone(),
         plus_variables: Vec::new(),
@@ -3053,13 +3217,18 @@ fn inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment()
     let q_id = inferred.grammar.char_tables[0]
         .lookup_nfd("q")
         .expect("q must be in the compiled table");
-    let inferred_lanes = inferred.grammar.char_tables[0].get(q_id).feature_lanes().to_vec();
+    let inferred_lanes = inferred.grammar.char_tables[0]
+        .get(q_id)
+        .feature_lanes()
+        .to_vec();
 
     let mut explicit_snapshot = snapshot.clone();
     add_explicit_featureless_segment(&mut explicit_snapshot, "q");
     let explicit = compile_project_with(&explicit_snapshot, CompileOptions::default()).unwrap();
     let explicit_id = explicit.grammar.char_tables[0].lookup_nfd("q").unwrap();
-    let explicit_lanes = explicit.grammar.char_tables[0].get(explicit_id).feature_lanes();
+    let explicit_lanes = explicit.grammar.char_tables[0]
+        .get(explicit_id)
+        .feature_lanes();
     assert_eq!(
         inferred_lanes, explicit_lanes,
         "an inferred segment must carry the exact same unspecified-feature semantics as an \
@@ -3122,7 +3291,11 @@ fn xample_authored_project_infers_a_missing_exemplar_segment_from_a_suffix_form(
             _ => None,
         })
         .collect();
-    assert_eq!(affix_rules.len(), 1, "the suffix rule must not have vanished into a warning");
+    assert_eq!(
+        affix_rules.len(),
+        1,
+        "the suffix rule must not have vanished into a warning"
+    );
     assert_eq!(affix_rules[0].allomorphs.len(), 1);
 }
 
@@ -3133,7 +3306,8 @@ fn bracket_pattern_affix_form_still_compiles_unaffected_and_publishes_unsupporte
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "[X]")];
 
-    let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    let out =
+        compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
     assert!(
         out.issues
             .iter()
@@ -3167,8 +3341,11 @@ fn text_use_collection_covers_every_represented_allomorph() {
     let mut collection_issues = Vec::new();
     super::affixes::collect_text_uses(&snapshot, &mut recorder, &mut collection_issues);
     assert!(collection_issues.is_empty());
-    let collected: std::collections::BTreeSet<String> =
-        recorder.text_uses().iter().map(|(source, _)| source.id.clone()).collect();
+    let collected: std::collections::BTreeSet<String> = recorder
+        .text_uses()
+        .iter()
+        .map(|(source, _)| source.id.clone())
+        .collect();
 
     let (_grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
     let represented_allomorphs: Vec<String> = inventory
@@ -3216,7 +3393,11 @@ fn precomposed_diacritic_mid_word_never_reselects_the_next_already_registered_ch
         "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
         out.issues
     );
-    assert_eq!(out.substrate.inferred_segments.len(), 0, "\"b\" must not be re-inferred");
+    assert_eq!(
+        out.substrate.inferred_segments.len(),
+        0,
+        "\"b\" must not be re-inferred"
+    );
     assert_eq!(out.substrate.ambiguous_uses.len(), 1);
 
     let refused = compile_project_with(&snapshot, CompileOptions::default());
@@ -3298,11 +3479,14 @@ fn environment_only_undeclared_exemplar_is_completed_from_usage() {
     let (mut snapshot, _f) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.project.exemplar_characters.push("q".to_string());
-    snapshot.phonology.environments.push(pg_snapshot::phonology::Environment {
-        guid: "env-q".to_string(),
-        name: String::new(),
-        representation: "/q_".to_string(),
-    });
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "env-q".to_string(),
+            name: String::new(),
+            representation: "/q_".to_string(),
+        });
     snapshot.lexicon.entries[1].allomorphs[0]
         .environments
         .push("env-q".to_string());

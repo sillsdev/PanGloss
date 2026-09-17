@@ -64,7 +64,13 @@ pub(crate) fn import_fwbackup(path: &Path) -> Result<(Snapshot, ImportReport), I
     let (mut snapshot, warnings) = extract::extract(&graph, &stem)?;
     let provenance = snapshot.conversion_provenance.clone();
     apply_exemplars(&mut snapshot, &ldml);
-    Ok((snapshot, ImportReport { warnings, provenance }))
+    Ok((
+        snapshot,
+        ImportReport {
+            warnings,
+            provenance,
+        },
+    ))
 }
 
 /// As [`import_fwbackup`], but also returns the [`InventoryDelta`]; panics if the recorder's own invariants are violated rather than return an untrustworthy measurement.
@@ -81,7 +87,10 @@ pub(crate) fn import_fwbackup_measured(
     let (inventory, issues) = recorder.finish();
     Ok((
         snapshot,
-        ImportReport { warnings, provenance },
+        ImportReport {
+            warnings,
+            provenance,
+        },
         InventoryDelta::from_stage(inventory, issues),
     ))
 }
@@ -197,7 +206,9 @@ mod tests {
         assert!(ex.contains(&"\u{0190}".to_string()));
         assert!(ex.contains(&"CH".to_string()));
         assert!(ex.contains(&"a\u{0303}".to_string()));
-        assert!(!ex.iter().any(|s| s.contains('{') || s.contains('}') || s.contains('[')));
+        assert!(!ex
+            .iter()
+            .any(|s| s.contains('{') || s.contains('}') || s.contains('[')));
     }
 
     #[test]

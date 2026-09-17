@@ -49,6 +49,9 @@ fn sagui_is_deterministic_across_fresh_morphers_in_process() {
         sigs.push(m.parse_word("sagui").signature());
     }
     let first = &sigs[0];
-    assert!(sigs.iter().all(|s| s == first), "nondeterministic: {sigs:?}");
+    assert!(
+        sigs.iter().all(|s| s == first),
+        "nondeterministic: {sigs:?}"
+    );
     assert_eq!(*first, "ROOT+A2B+B2A+THIRD|sagui;ROOT+A2B+B2A|sagui");
 }

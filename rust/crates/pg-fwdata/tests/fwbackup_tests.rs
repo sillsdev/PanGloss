@@ -11,10 +11,7 @@ fn write_backup(dir: &std::path::Path) -> std::path::PathBuf {
     write_backup_with_fwdata(dir, &fwdata)
 }
 
-fn write_backup_with_fwdata(
-    dir: &std::path::Path,
-    fwdata: &[u8],
-) -> std::path::PathBuf {
+fn write_backup_with_fwdata(dir: &std::path::Path, fwdata: &[u8]) -> std::path::PathBuf {
     let out = dir.join("Proj 1.fwbackup");
     let file = std::fs::File::create(&out).unwrap();
     let mut z = zip::ZipWriter::new(file);
@@ -40,7 +37,14 @@ fn fwbackup_imports_the_embedded_fwdata_and_exemplars() {
     let (direct, _) = pg_fwdata::import_file(&fixture_fwdata()).unwrap();
     assert_eq!(snapshot.lexicon, direct.lexicon);
     // The fixture's default vernacular writing system is "fx", matching the LDML entry.
-    assert_eq!(direct.project.vernacular_writing_systems.first().map(String::as_str), Some("fx"));
+    assert_eq!(
+        direct
+            .project
+            .vernacular_writing_systems
+            .first()
+            .map(String::as_str),
+        Some("fx")
+    );
     assert_eq!(
         snapshot.project.exemplar_characters,
         vec!["a", "b", "c", "ch"]
@@ -68,15 +72,17 @@ fn malformed_xample_cap_reaches_fwbackup_import_report() {
     let dir = tempfile::tempdir().unwrap();
     let source = std::fs::read_to_string(fixture_fwdata()).unwrap();
     let needle = "&lt;MaxPrefixes&gt;2&lt;/MaxPrefixes&gt;";
-    assert!(source.contains(needle), "fixture text to replace must be present");
-    let variant = source.replacen(
-        needle,
-        "&lt;MaxPrefixes&gt;many&lt;/MaxPrefixes&gt;",
-        1,
+    assert!(
+        source.contains(needle),
+        "fixture text to replace must be present"
     );
+    let variant = source.replacen(needle, "&lt;MaxPrefixes&gt;many&lt;/MaxPrefixes&gt;", 1);
     let backup = write_backup_with_fwdata(dir.path(), variant.as_bytes());
     let (snapshot, report) = pg_fwdata::import_file(&backup).unwrap();
-    assert_eq!(snapshot.morphology.parser_parameters.xample.max_prefixes, None);
+    assert_eq!(
+        snapshot.morphology.parser_parameters.xample.max_prefixes,
+        None
+    );
     let warning = report
         .warnings
         .iter()

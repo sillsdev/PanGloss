@@ -59,7 +59,10 @@ pub(crate) fn build_raw(
                 key,
                 issue_codes::PHONEME_NO_REPRESENTATION,
                 IssueClass::InvalidSource,
-                format!("phoneme {:?} has no grapheme representation; skipped", ph.guid),
+                format!(
+                    "phoneme {:?} has no grapheme representation; skipped",
+                    ph.guid
+                ),
             );
             continue;
         }

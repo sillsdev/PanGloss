@@ -151,7 +151,10 @@ fn assert_ratchet(fixture: &str, stage: &str, delta: &InventoryDelta, ratchet: &
 #[test]
 fn conversion_inventory_gate() {
     let fixtures = fixtures();
-    assert!(!fixtures.is_empty(), "no checked-in project fixture discovered");
+    assert!(
+        !fixtures.is_empty(),
+        "no checked-in project fixture discovered"
+    );
 
     let mut all_keys: BTreeSet<pg_snapshot::InventoryKey> = BTreeSet::new();
 
@@ -176,22 +179,33 @@ fn conversion_inventory_gate() {
         print_census(&snapshot.conversion_provenance.source_census);
         print_inventory("import", &import_delta.inventory);
         print_delta("import", &import_delta);
-        assert_ratchet(fixture.name, "import", &import_delta, &import_ratchet(fixture.name));
+        assert_ratchet(
+            fixture.name,
+            "import",
+            &import_delta,
+            &import_ratchet(fixture.name),
+        );
 
         let (grammar, compile_warnings, compile_delta) = compile_project_measured(&snapshot)
             .unwrap_or_else(|e| panic!("{}: must compile: {e}", fixture.name));
 
         print_inventory("compile", &compile_delta.inventory);
         print_delta("compile", &compile_delta);
-        assert_ratchet(fixture.name, "compile", &compile_delta, &compile_ratchet(fixture.name));
+        assert_ratchet(
+            fixture.name,
+            "compile",
+            &compile_delta,
+            &compile_ratchet(fixture.name),
+        );
 
         // --- serialize/reload round trip: must recompile to an equal Grammar, byte-identical warnings
         let json = snapshot.to_json();
         let reloaded = Snapshot::from_json(&json)
             .unwrap_or_else(|e| panic!("{}: reloaded snapshot must parse: {e}", fixture.name));
         let (grammar_reloaded, warnings_reloaded, _reloaded_delta) =
-            compile_project_measured(&reloaded)
-                .unwrap_or_else(|e| panic!("{}: reloaded snapshot must compile: {e}", fixture.name));
+            compile_project_measured(&reloaded).unwrap_or_else(|e| {
+                panic!("{}: reloaded snapshot must compile: {e}", fixture.name)
+            });
         assert_grammars_equal(&grammar, &grammar_reloaded);
         assert_eq!(
             compile_warnings.len(),
@@ -200,7 +214,11 @@ fn conversion_inventory_gate() {
             fixture.name
         );
         for (a, b) in compile_warnings.iter().zip(warnings_reloaded.iter()) {
-            assert_eq!(a, b, "{}: reloaded warnings must be byte-identical", fixture.name);
+            assert_eq!(
+                a, b,
+                "{}: reloaded warnings must be byte-identical",
+                fixture.name
+            );
         }
 
         for key in import_delta
@@ -227,5 +245,8 @@ fn conversion_inventory_gate() {
         !all_keys.is_empty(),
         "no InventoryKeys observed across any fixture -- the gate compared nothing"
     );
-    println!("total distinct InventoryKeys compared across all fixtures: {}", all_keys.len());
+    println!(
+        "total distinct InventoryKeys compared across all fixtures: {}",
+        all_keys.len()
+    );
 }

@@ -124,6 +124,12 @@ fn consumed_slot_preserves_rule_analysis_features() {
     assert_eq!(direct.len(), 1);
     assert_eq!(output.len(), 1);
     assert_eq!(output[0].shape, direct[0].shape);
-    assert_eq!(direct[0].syn_fs, g.fs_interner.get(g.entries[1].syn_fs).clone());
-    assert_eq!(output[0].syn_fs, g.fs_interner.get(g.entries[1].syn_fs).clone());
+    assert_eq!(
+        direct[0].syn_fs,
+        g.fs_interner.get(g.entries[1].syn_fs).clone()
+    );
+    assert_eq!(
+        output[0].syn_fs,
+        g.fs_interner.get(g.entries[1].syn_fs).clone()
+    );
 }

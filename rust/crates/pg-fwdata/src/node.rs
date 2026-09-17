@@ -236,7 +236,9 @@ pub fn parse_full_document(xml: &str) -> Result<Node, DocumentError> {
                     return Err(document_error("unclosed element"));
                 }
                 if stack[0].children.len() != 1 {
-                    return Err(document_error("document must have exactly one root element"));
+                    return Err(document_error(
+                        "document must have exactly one root element",
+                    ));
                 }
                 return Ok(stack
                     .pop()

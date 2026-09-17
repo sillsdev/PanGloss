@@ -20,7 +20,10 @@ pub(crate) fn build(
     warnings: &mut Vec<String>,
 ) -> Result<(), GrammarError> {
     for r in &snapshot.morphology.compound_rules {
-        ctx.considered(InventoryKey::object(InventoryKind::CompoundRule, r.guid().to_string()));
+        ctx.considered(InventoryKey::object(
+            InventoryKind::CompoundRule,
+            r.guid().to_string(),
+        ));
     }
     let rules: Vec<&CompoundRule> = snapshot
         .morphology
@@ -79,8 +82,8 @@ pub(crate) fn build(
                         key,
                         issue_codes::COMPOUND_RULE_BUILD_FAILED,
                         IssueClass::UnrepresentableForHc,
-                         format!("compound rule {name:?}: build failed; skipped"),
-                     ),
+                        format!("compound rule {name:?}: build failed; skipped"),
+                    ),
                 }
             }
             CompoundRule::Exocentric {
@@ -90,7 +93,17 @@ pub(crate) fn build(
                 to,
                 ..
             } => {
-                let ids = build_exo(rule.guid(), name, left, right, to, max_apps, ctx, acc, warnings)?;
+                let ids = build_exo(
+                    rule.guid(),
+                    name,
+                    left,
+                    right,
+                    to,
+                    max_apps,
+                    ctx,
+                    acc,
+                    warnings,
+                )?;
                 if ids.is_empty() {
                     // `build_exo` already pushed its own warning on failure; recording must not add a second one.
                     ctx.reject_quietly(
@@ -114,9 +127,9 @@ pub(crate) fn build(
                         ctx.selected(expansion.clone());
                         ctx.represent_via(LineageTarget::MRule(member_id.0), expansion);
                     }
-                     for id in ids {
-                         morphology_mrules.push(id);
-                     }
+                    for id in ids {
+                        morphology_mrules.push(id);
+                    }
                 }
             }
         }
@@ -320,7 +333,8 @@ fn build_exo(
     let Some(left_fs) = side_required_fs(rule_guid, roles::LEFT, left, ctx, acc, warnings) else {
         return Ok(Vec::new());
     };
-    let Some(right_fs) = side_required_fs(rule_guid, roles::RIGHT, right, ctx, acc, warnings) else {
+    let Some(right_fs) = side_required_fs(rule_guid, roles::RIGHT, right, ctx, acc, warnings)
+    else {
         return Ok(Vec::new());
     };
     let out_pos = to.part_of_speech.as_deref().and_then(|p| {

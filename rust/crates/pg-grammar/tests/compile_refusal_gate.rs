@@ -13,8 +13,16 @@ fn repo_root() -> PathBuf {
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("git rev-parse must run -- required to discover checked-in fixtures");
-    assert!(out.status.success(), "git rev-parse --show-toplevel failed: {}", String::from_utf8_lossy(&out.stderr));
-    PathBuf::from(String::from_utf8(out.stdout).expect("git output must be utf8").trim())
+    assert!(
+        out.status.success(),
+        "git rev-parse --show-toplevel failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    PathBuf::from(
+        String::from_utf8(out.stdout)
+            .expect("git output must be utf8")
+            .trim(),
+    )
 }
 
 /// Every `.fwdata`/`.fwbackup` git actually tracks under `root` -- discovered, not hardcoded, so a second one added later cannot be silently missed and an empty/wrong root cannot pass vacuously.
@@ -24,7 +32,11 @@ fn discover_committed_fixtures(root: &Path) -> Vec<(String, PathBuf)> {
         .current_dir(root)
         .output()
         .expect("git ls-files must run -- required to discover checked-in fixtures");
-    assert!(out.status.success(), "git ls-files failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "git ls-files failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let listing = String::from_utf8(out.stdout).expect("git ls-files output must be utf8");
     listing
         .lines()
@@ -44,10 +56,14 @@ fn checked_in_fixtures() -> Vec<(String, PathBuf)> {
 
 /// A real FieldWorks project outside this repo, reported only, never a gate input.
 fn real_corpus(project_dir_name: &str) -> Option<PathBuf> {
-    let base = std::env::var("PANGLOSS_FW_PROJECTS_DIR").map(PathBuf::from).unwrap_or_else(|_| {
-        PathBuf::from(r"C:\Users\johnm\Documents\repos\FieldWorks\DistFiles\Projects")
-    });
-    let path = base.join(project_dir_name).join(format!("{project_dir_name}.fwdata"));
+    let base = std::env::var("PANGLOSS_FW_PROJECTS_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            PathBuf::from(r"C:\Users\johnm\Documents\repos\FieldWorks\DistFiles\Projects")
+        });
+    let path = base
+        .join(project_dir_name)
+        .join(format!("{project_dir_name}.fwdata"));
     path.exists().then_some(path)
 }
 
@@ -62,7 +78,11 @@ fn compile_project_refusal_differential_gate() {
     let mut agree = 0usize;
 
     for (name, path) in checked_in_fixtures() {
-        assert!(path.exists(), "checked-in fixture missing: {}", path.display());
+        assert!(
+            path.exists(),
+            "checked-in fixture missing: {}",
+            path.display()
+        );
         let (snapshot, _report) =
             pg_fwdata::import_file(&path).unwrap_or_else(|e| panic!("{name}: must import: {e}"));
 
@@ -129,8 +149,8 @@ fn real_corpus_refusal_baseline_gate() {
             continue;
         };
         found_any = true;
-        let (snapshot, _report) = pg_fwdata::import_file(&path)
-            .unwrap_or_else(|e| panic!("{project}: must import: {e}"));
+        let (snapshot, _report) =
+            pg_fwdata::import_file(&path).unwrap_or_else(|e| panic!("{project}: must import: {e}"));
         let compiles = compile_project(&snapshot).is_ok();
         println!(
             "{project}: production Refuse compiles={compiles} (baseline expects \
@@ -173,10 +193,16 @@ fn import_and_compile_layers_disagree_about_the_dangling_environment_reference()
         .import_issues
         .iter()
         .find(|issue| {
-            issue.source.as_ref().is_some_and(|s| s.kind == "PhEnvironment" && s.id == dangling_guid)
+            issue
+                .source
+                .as_ref()
+                .is_some_and(|s| s.kind == "PhEnvironment" && s.id == dangling_guid)
         })
         .expect("import stage must record a fatal issue for the dangling PhEnvironment reference");
-    assert!(import_verdict.fatal, "import layer's verdict on this guid must be fatal");
+    assert!(
+        import_verdict.fatal,
+        "import layer's verdict on this guid must be fatal"
+    );
     assert_eq!(import_verdict.class, IssueClass::InvalidSource);
 
     // The compile stage (affixes::resolve_environments, for this affix allomorph) independently downgrades the SAME guid to a non-fatal warning; MeasureOnly bypasses Refuse so that downgrade stays observable rather than being masked by the refusal.
@@ -201,5 +227,8 @@ fn import_and_compile_layers_disagree_about_the_dangling_environment_reference()
     );
 
     let refuse = compile_project(&snapshot);
-    assert!(refuse.is_err(), "the import layer's fatal verdict must still govern compile_project's default outcome");
+    assert!(
+        refuse.is_err(),
+        "the import layer's fatal verdict must still govern compile_project's default outcome"
+    );
 }

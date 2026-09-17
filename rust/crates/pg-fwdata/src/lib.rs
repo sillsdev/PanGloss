@@ -85,7 +85,13 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
     fwbackup::apply_exemplars(&mut snapshot, &ldml);
     warnings.extend(ldml_warning);
-    Ok((snapshot, ImportReport { warnings, provenance }))
+    Ok((
+        snapshot,
+        ImportReport {
+            warnings,
+            provenance,
+        },
+    ))
 }
 
 /// As [`import_file`], but also returns the [`InventoryDelta`] derived from the same import's
@@ -103,7 +109,8 @@ pub fn import_file_measured(
     }
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
-    let (mut snapshot, mut warnings, recorder) = extract::extract_recording(&graph, &filename_stem)?;
+    let (mut snapshot, mut warnings, recorder) =
+        extract::extract_recording(&graph, &filename_stem)?;
     let provenance = snapshot.conversion_provenance.clone();
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
     fwbackup::apply_exemplars(&mut snapshot, &ldml);
@@ -114,13 +121,18 @@ pub fn import_file_measured(
     let (inventory, issues) = recorder.finish();
     Ok((
         snapshot,
-        ImportReport { warnings, provenance },
+        ImportReport {
+            warnings,
+            provenance,
+        },
         InventoryDelta::from_stage(inventory, issues),
     ))
 }
 
 /// Reads every `WritingSystemStore/*.ldml` file next to `fwdata_path`; a missing directory is silent (matches `.fwbackup`'s tolerant absence of embedded LDML), but an existing, unreadable one -- a different fact from "never shipped" -- returns a warning rather than looking identical to it.
-fn read_sibling_writing_system_store(fwdata_path: &Path) -> (Vec<(String, String)>, Option<Warning>) {
+fn read_sibling_writing_system_store(
+    fwdata_path: &Path,
+) -> (Vec<(String, String)>, Option<Warning>) {
     let Some(parent) = fwdata_path.parent() else {
         return (Vec::new(), None);
     };
@@ -157,7 +169,11 @@ fn read_sibling_writing_system_store(fwdata_path: &Path) -> (Vec<(String, String
         if entry_path.extension().and_then(|e| e.to_str()) != Some("ldml") {
             continue;
         }
-        let Some(tag) = entry_path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+        let Some(tag) = entry_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(str::to_string)
+        else {
             continue;
         };
         match std::fs::read_to_string(&entry_path) {

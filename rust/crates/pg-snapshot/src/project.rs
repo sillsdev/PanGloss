@@ -34,7 +34,8 @@ mod tests {
 
     #[test]
     fn project_without_exemplars_deserializes_to_empty() {
-        let old = r#"{"name":"P","vernacularWritingSystems":["xx"],"analysisWritingSystems":["en"]}"#;
+        let old =
+            r#"{"name":"P","vernacularWritingSystems":["xx"],"analysisWritingSystems":["en"]}"#;
         let p: Project = serde_json::from_str(old).unwrap();
         assert!(p.exemplar_characters.is_empty());
     }

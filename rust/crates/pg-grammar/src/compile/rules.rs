@@ -152,7 +152,9 @@ fn build_rewrite_rule(
 
     let mut subrules = Vec::new();
     for rhs in &r.right_hand_sides {
-        subrules.push(build_subrule(&r.guid, rhs, &lhs, mode, ctx, &vars, warnings)?);
+        subrules.push(build_subrule(
+            &r.guid, rhs, &lhs, mode, ctx, &vars, warnings,
+        )?);
     }
 
     Ok(RewriteRuleDef {

@@ -78,7 +78,11 @@ fn failing_char(text: &str, position: usize) -> Option<char> {
 }
 
 /// `Ok` is a trustworthy failing character; `Err` is a `remap_error_position` mismap that must refuse rather than be treated as the real failure -- `None` when `position` is past the end of the word (word-final combining mark, no original position at all), `Some` when it lands mid-word on an already-registered character (the next real character after the mark).
-fn position_mismap(raw: &RawCharDefBuild, text: &str, position: usize) -> Result<char, Option<char>> {
+fn position_mismap(
+    raw: &RawCharDefBuild,
+    text: &str,
+    position: usize,
+) -> Result<char, Option<char>> {
     match failing_char(text, position) {
         None => Err(None),
         Some(ch) if raw.seen_nfd.contains(&nfd(&ch.to_string())) => Err(Some(ch)),
@@ -87,7 +91,12 @@ fn position_mismap(raw: &RawCharDefBuild, text: &str, position: usize) -> Result
 }
 
 /// Non-fatal and per-allomorph -- see the module doc's granularity note.
-fn unsegmentable_issue(source: &SourceRef, text: &str, ch: char, position: usize) -> ConversionIssue {
+fn unsegmentable_issue(
+    source: &SourceRef,
+    text: &str,
+    ch: char,
+    position: usize,
+) -> ConversionIssue {
     ConversionIssue {
         code: issues::SUBSTRATE_UNSEGMENTABLE_FORM.to_string(),
         class: IssueClass::SubstrateUnresolvable,
@@ -172,14 +181,21 @@ pub(crate) fn complete(
             if let Err(invalid) = segment(&table, text) {
                 match position_mismap(&raw, text, invalid.position) {
                     Ok(ch) => issues.push(unsegmentable_issue(source, text, ch, invalid.position)),
-                    Err(mismap_ch) => {
-                        issues.push(unmapped_position_issue(source, text, mismap_ch, invalid.position))
-                    }
+                    Err(mismap_ch) => issues.push(unmapped_position_issue(
+                        source,
+                        text,
+                        mismap_ch,
+                        invalid.position,
+                    )),
                 }
                 report.unresolved_uses.push(source.clone());
             }
         }
-        return SubstrateCompletion { raw, report, issues };
+        return SubstrateCompletion {
+            raw,
+            report,
+            issues,
+        };
     }
 
     let mut already_reported: Vec<(SourceRef, char)> = Vec::new();
@@ -196,7 +212,12 @@ pub(crate) fn complete(
                 Err(mismap_ch) => {
                     let key = (source.clone(), invalid.position);
                     if !already_reported_unmapped.contains(&key) {
-                        issues.push(unmapped_position_issue(source, text, mismap_ch, invalid.position));
+                        issues.push(unmapped_position_issue(
+                            source,
+                            text,
+                            mismap_ch,
+                            invalid.position,
+                        ));
                         report.ambiguous_uses.push(source.clone());
                         already_reported_unmapped.push(key);
                     }
@@ -228,14 +249,22 @@ pub(crate) fn complete(
         let representation = ch.to_string();
         raw.seen_nfd.insert(nfd(&representation));
         raw.raw_defs.push(inferred_raw_def(&representation, kind));
-        let inferred = InferredChar { representation, kind, evidence };
+        let inferred = InferredChar {
+            representation,
+            kind,
+            evidence,
+        };
         match kind {
             CharDefKind::Segment => report.inferred_segments.push(inferred),
             CharDefKind::Boundary => report.inferred_boundaries.push(inferred),
         }
     }
 
-    SubstrateCompletion { raw, report, issues }
+    SubstrateCompletion {
+        raw,
+        report,
+        issues,
+    }
 }
 
 /// Flags an inferred segment that satisfies a `Feature`-kind natural class only via HC's full-mask unspecified-lane default -- a migration difference, never fatal.

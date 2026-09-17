@@ -66,7 +66,11 @@ pub enum MutationOperation {
 impl MutationOperation {
     fn to_wire_json(&self) -> serde_json::Value {
         match self {
-            MutationOperation::RemovePhoneme { guid, assert_representations, require_unreferenced } => {
+            MutationOperation::RemovePhoneme {
+                guid,
+                assert_representations,
+                require_unreferenced,
+            } => {
                 serde_json::json!({
                     "op": "remove_phoneme",
                     "guid": guid,
@@ -74,7 +78,9 @@ impl MutationOperation {
                     "requireUnreferenced": require_unreferenced,
                 })
             }
-            MutationOperation::RemoveAllPhonemes { require_unreferenced } => serde_json::json!({
+            MutationOperation::RemoveAllPhonemes {
+                require_unreferenced,
+            } => serde_json::json!({
                 "op": "remove_all_phonemes",
                 "requireUnreferenced": require_unreferenced,
             }),
@@ -98,11 +104,27 @@ pub struct MutationExpectation {
 #[derive(Debug)]
 pub enum FixtureError {
     Malformed(serde_yaml::Error),
-    UnsupportedVersion { found: u64 },
-    UnknownOperation { case_id: String, found: String },
-    UnsupportedExpectRelation { case_id: String, field: &'static str, found: String },
-    Io { path: PathBuf, source: std::io::Error },
-    Sha256Mismatch { path: PathBuf, expected: String, actual: String },
+    UnsupportedVersion {
+        found: u64,
+    },
+    UnknownOperation {
+        case_id: String,
+        found: String,
+    },
+    UnsupportedExpectRelation {
+        case_id: String,
+        field: &'static str,
+        found: String,
+    },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    Sha256Mismatch {
+        path: PathBuf,
+        expected: String,
+        actual: String,
+    },
 }
 
 impl fmt::Display for FixtureError {
@@ -192,15 +214,28 @@ pub fn parse_manifest(yaml_text: &str) -> Result<PhonologyMutations, FixtureErro
             operations.push(convert_operation(&raw_case.id, raw_op)?);
         }
         let expect = convert_expect(&raw_case.id, raw_case.expect)?;
-        cases.push(MutationCase { id: raw_case.id, operations, expect });
+        cases.push(MutationCase {
+            id: raw_case.id,
+            operations,
+            expect,
+        });
     }
-    Ok(PhonologyMutations { base_sha256: raw.base_sha256, cases })
+    Ok(PhonologyMutations {
+        base_sha256: raw.base_sha256,
+        cases,
+    })
 }
 
 // One `operations[]` entry: a single-key mapping, dispatched on that key by hand (see `RawCase.operations`).
-fn convert_operation(case_id: &str, value: serde_yaml::Value) -> Result<MutationOperation, FixtureError> {
+fn convert_operation(
+    case_id: &str,
+    value: serde_yaml::Value,
+) -> Result<MutationOperation, FixtureError> {
     let mapping = value.as_mapping().filter(|m| m.len() == 1).ok_or_else(|| {
-        FixtureError::UnknownOperation { case_id: case_id.to_string(), found: format!("{value:?}") }
+        FixtureError::UnknownOperation {
+            case_id: case_id.to_string(),
+            found: format!("{value:?}"),
+        }
     })?;
     let (key, body) = mapping.iter().next().expect("checked len == 1 above");
     let key_str = key.as_str().ok_or_else(|| FixtureError::UnknownOperation {
@@ -220,9 +255,14 @@ fn convert_operation(case_id: &str, value: serde_yaml::Value) -> Result<Mutation
         "remove_all_phonemes" => {
             let body: RemoveAllPhonemesBody =
                 serde_yaml::from_value(body.clone()).map_err(FixtureError::Malformed)?;
-            Ok(MutationOperation::RemoveAllPhonemes { require_unreferenced: body.require_unreferenced })
+            Ok(MutationOperation::RemoveAllPhonemes {
+                require_unreferenced: body.require_unreferenced,
+            })
         }
-        other => Err(FixtureError::UnknownOperation { case_id: case_id.to_string(), found: other.to_string() }),
+        other => Err(FixtureError::UnknownOperation {
+            case_id: case_id.to_string(),
+            found: other.to_string(),
+        }),
     }
 }
 
@@ -234,7 +274,11 @@ fn convert_expect(case_id: &str, raw: RawExpect) -> Result<MutationExpectation, 
     })
 }
 
-fn parse_relation(case_id: &str, field: &'static str, value: &str) -> Result<ExpectRelation, FixtureError> {
+fn parse_relation(
+    case_id: &str,
+    field: &'static str,
+    value: &str,
+) -> Result<ExpectRelation, FixtureError> {
     match value {
         "same_as_base" => Ok(ExpectRelation::SameAsBase),
         other => Err(FixtureError::UnsupportedExpectRelation {
@@ -248,9 +292,14 @@ fn parse_relation(case_id: &str, field: &'static str, value: &str) -> Result<Exp
 /// Hashes `project_path` and compares it (case-insensitively) to `manifest.base_sha256` --
 /// verifying the manifest still describes the project checked in beside it, per this crate's
 /// CLAUDE.md rule that a stale manifest must fail loudly rather than be silently trusted.
-pub fn verify_base_sha256(manifest: &PhonologyMutations, project_path: &Path) -> Result<(), FixtureError> {
-    let bytes = std::fs::read(project_path)
-        .map_err(|source| FixtureError::Io { path: project_path.to_path_buf(), source })?;
+pub fn verify_base_sha256(
+    manifest: &PhonologyMutations,
+    project_path: &Path,
+) -> Result<(), FixtureError> {
+    let bytes = std::fs::read(project_path).map_err(|source| FixtureError::Io {
+        path: project_path.to_path_buf(),
+        source,
+    })?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
     let actual = format!("{:x}", hasher.finalize());
@@ -301,14 +350,21 @@ cases:
         );
         assert_eq!(manifest.cases.len(), 2);
 
-        let empty = manifest.case("empty-phoneme-inventory").expect("case present");
+        let empty = manifest
+            .case("empty-phoneme-inventory")
+            .expect("case present");
         assert_eq!(
             empty.operations,
-            vec![MutationOperation::RemoveAllPhonemes { require_unreferenced: true }]
+            vec![MutationOperation::RemoveAllPhonemes {
+                require_unreferenced: true
+            }]
         );
         assert_eq!(empty.expect.xample_projection, ExpectRelation::SameAsBase);
         assert_eq!(empty.expect.hc_analyses, ExpectRelation::SameAsBase);
-        assert_eq!(empty.expect.inferred_segments, vec!["x".to_string(), "k".to_string()]);
+        assert_eq!(
+            empty.expect.inferred_segments,
+            vec!["x".to_string(), "k".to_string()]
+        );
 
         let remove_k = manifest.case("remove-k-only").expect("case present");
         assert_eq!(
@@ -335,7 +391,8 @@ cases:
         let mut mapping = value.as_mapping().unwrap().clone();
         mapping.remove("base_sha256");
         let text = serde_yaml::to_string(&mapping).unwrap();
-        let err = parse_manifest(&text).expect_err("a manifest missing base_sha256 must be refused");
+        let err =
+            parse_manifest(&text).expect_err("a manifest missing base_sha256 must be refused");
         assert!(matches!(err, FixtureError::Malformed(_)));
     }
 
@@ -354,8 +411,13 @@ cases:
 
     #[test]
     fn unknown_expect_relation_is_refused() {
-        let text = REAL_MANIFEST.replacen("xample_projection: same_as_base", "xample_projection: definitely_different", 1);
-        let err = parse_manifest(&text).expect_err("an expect value outside the v1 vocabulary must be refused");
+        let text = REAL_MANIFEST.replacen(
+            "xample_projection: same_as_base",
+            "xample_projection: definitely_different",
+            1,
+        );
+        let err = parse_manifest(&text)
+            .expect_err("an expect value outside the v1 vocabulary must be refused");
         match err {
             FixtureError::UnsupportedExpectRelation { field, found, .. } => {
                 assert_eq!(field, "xample_projection");
@@ -375,7 +437,8 @@ cases:
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("not-the-real-project.fwdata");
         std::fs::write(&path, b"definitely not the checked-in project bytes").unwrap();
-        let err = verify_base_sha256(&manifest, &path).expect_err("a mismatched digest must be refused");
+        let err =
+            verify_base_sha256(&manifest, &path).expect_err("a mismatched digest must be refused");
         assert!(matches!(err, FixtureError::Sha256Mismatch { .. }));
         assert!(err.to_string().contains(&manifest.base_sha256));
         std::fs::remove_dir_all(&dir).ok();
@@ -396,7 +459,10 @@ cases:
         let mut hasher = Sha256::new();
         hasher.update(bytes);
         let digest = format!("{:x}", hasher.finalize());
-        let manifest = PhonologyMutations { base_sha256: digest, ..manifest };
+        let manifest = PhonologyMutations {
+            base_sha256: digest,
+            ..manifest
+        };
         verify_base_sha256(&manifest, &path).expect("matching digest must succeed");
         std::fs::remove_dir_all(&dir).ok();
     }
