@@ -50,7 +50,7 @@ $changelog = Join-Path $repoRoot 'CHANGELOG.md'
 function Write-Gate([string]$name, [string]$state) { Write-Host ("[release] gate {0,-8} {1}" -f $name, $state) }
 
 # Judges a pg.ps1 mode by effect: exit 27 (wedged governor, payload already finished) passes only when the transcript proves the payload succeeded.
-function Invoke-GatedPg([string[]]$PgArgs, [string]$SuccessPattern) {
+function Invoke-GatedPg([hashtable]$PgArgs, [string]$SuccessPattern) {
     $transcript = & (Join-Path $toolRoot 'pg.ps1') @PgArgs 2>&1 | ForEach-Object { Write-Host $_; "$_" }
     $exit = $LASTEXITCODE
     if ($exit -eq 0) { return 0 }
@@ -84,7 +84,7 @@ else {
 # --- gate 3: rustdoc ------------------------------------------------------------------------
 if ($SkipGate -contains 'doc') { Write-Gate 'doc' 'SKIPPED (recorded)' }
 else {
-    $docExit = Invoke-GatedPg -PgArgs @('-Mode', 'doc', '-MaxConcurrent', $MaxConcurrent) -SuccessPattern '(?m)^\s*Finished `dev` profile'
+    $docExit = Invoke-GatedPg -PgArgs @{ Mode = 'doc'; MaxConcurrent = $MaxConcurrent } -SuccessPattern '(?m)^\s*Finished `dev` profile'
     if ($docExit -ne 0) { Write-Gate 'doc' "REFUSED -- pg.ps1 -Mode doc exited $docExit"; exit 32 }
     Write-Gate 'doc' 'green'
 }
@@ -94,7 +94,7 @@ if ($SkipGate -contains 'test') { Write-Gate 'test' 'SKIPPED (recorded)' }
 else {
     $env:PANGLOSS_CONFORMANCE_SCOPE = 'all'
     # nextest's summary is the evidence: a run with any failure prints "N failed" there.
-    $testExit = Invoke-GatedPg -PgArgs @('-Mode', 'test', '-MaxConcurrent', $MaxConcurrent) -SuccessPattern '(?m)^\s*Summary \[.*\] \d+ tests? run: \d+ passed(?!.*\d+ (failed|timed out))'
+    $testExit = Invoke-GatedPg -PgArgs @{ Mode = 'test'; MaxConcurrent = $MaxConcurrent } -SuccessPattern '(?m)^\s*Summary \[.*\] \d+ tests? run: \d+ passed(?!.*\d+ (failed|timed out))'
     if ($testExit -ne 0) { Write-Gate 'test' "REFUSED -- pg.ps1 -Mode test exited $testExit"; exit 33 }
     Write-Gate 'test' 'green'
 }
@@ -135,7 +135,7 @@ if ($DryRun) {
 $stamped = $tomlText -replace '(?m)^(version\s*=\s*)"[^"]+"', ('$1"' + $Version + '"')
 Set-Content -Path $cargoToml -Value $stamped -NoNewline
 # Cargo.lock records every workspace crate's version; regenerate it or the tagged tree won't build with --locked.
-$checkExit = Invoke-GatedPg -PgArgs @('-Mode', 'check', '-MaxConcurrent', $MaxConcurrent) -SuccessPattern '(?m)^\s*Finished `.*` profile'
+$checkExit = Invoke-GatedPg -PgArgs @{ Mode = 'check'; MaxConcurrent = $MaxConcurrent } -SuccessPattern '(?m)^\s*Finished `.*` profile'
 if ($checkExit -ne 0) { Write-Host '[release] post-stamp check failed; version stamp left in tree for inspection'; exit 33 }
 
 git -C $repoRoot add rust/Cargo.toml rust/Cargo.lock CHANGELOG.md
@@ -144,7 +144,7 @@ git -C $repoRoot commit -m "release: v$Version$skipNote"
 git -C $repoRoot tag -a "v$Version" -m "PanGloss v$Version$skipNote"
 
 # --- artifact -------------------------------------------------------------------------------
-$artifactExit = Invoke-GatedPg -PgArgs @('-Mode', 'release', '-MaxConcurrent', $MaxConcurrent) -SuccessPattern '(?m)^\s*Finished `.*` profile'
+$artifactExit = Invoke-GatedPg -PgArgs @{ Mode = 'release'; MaxConcurrent = $MaxConcurrent } -SuccessPattern '(?m)^\s*Finished `.*` profile'
 if ($artifactExit -ne 0) { Write-Host '[release] artifact build failed AFTER tagging -- fix and re-run -Mode release; the tag itself is sound'; exit 33 }
 
 Write-Host ''
