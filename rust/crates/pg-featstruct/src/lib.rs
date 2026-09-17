@@ -8,7 +8,7 @@
 //! - **DAG unifier** — the full port for syntactic/head/foot/realizational feature structures
 //!   that can nest, carry string features, and bind variables.
 //!
-//! Frozen instances are interned to `FsId(u32)` so the memo key and all gating comparisons are
+//! Frozen instances are interned to `FsId(u32)` so the analysis state key and all gating comparisons are
 //! integer compares.
 #![forbid(unsafe_code)]
 
@@ -25,10 +25,10 @@ pub use tree::{FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue};
 /// Stable per-grammar identity of a frozen feature structure.
 ///
 /// Assigned by an `Interner`; equality is a `u32` compare, which is the whole point — it turns
-/// the memo key and every gating comparison into integer compares.
+/// the analysis state key and every gating comparison into integer compares.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct FsId(pub u32);
 
-// Hot-struct size discipline: `SymbolBits`/`FsId` are compared/copied in the traversal and memo hot paths, so a refactor must not silently fatten them.
+// Hot-struct size discipline: `SymbolBits`/`FsId` are compared/copied in the traversal hot paths, so a refactor must not silently fatten them.
 const _: () = assert!(std::mem::size_of::<SymbolBits>() == 8);
 const _: () = assert!(std::mem::size_of::<FsId>() == 4);

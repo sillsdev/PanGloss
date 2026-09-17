@@ -1,4 +1,4 @@
-//! Regression guard for `--word-timeout-ms`: a genuinely slow, real `parse_word` call (not a synthetic loop, not a 0ms-deadline vacuous case) times out promptly, unmemoized, on a fixture of `k` homophonous one-shot suffix rules whose unmemoized unwind is genuinely combinatorial.
+//! Regression guard for `--word-timeout-ms`: a genuinely slow, real `parse_word` call (not a synthetic loop, not a 0ms-deadline vacuous case) times out promptly on a fixture of `k` homophonous one-shot suffix rules whose unwind is genuinely combinatorial.
 
 mod csharp_port_common;
 use csharp_port_common::build_grammar_custom_lexicon;
@@ -37,7 +37,7 @@ fn homophonous_suffix_fixture_is_genuinely_heavy_under_a_small_step_cap() {
     let outcome = m.parse_word(&word);
     assert!(
         outcome.capped,
-        "a step-cap of 500 (vs. the ~13699 steps an unbounded unmemoized run takes) must fire"
+        "a step-cap of 500 (vs. the ~13699 steps an unbounded run takes) must fire"
     );
     assert!(!outcome.timed_out, "no --word-timeout-ms was configured");
 }

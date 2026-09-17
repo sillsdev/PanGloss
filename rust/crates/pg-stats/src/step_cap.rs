@@ -1,7 +1,7 @@
 //! `StepCap`: the `--step-cap` value shared by `pg-cli`'s parsing and this crate's stats cache.
 //!
 //! A step cap is resource containment, never a correctness verdict (see `CLAUDE.md`'s "Classify
-//! FST evidence before changing limits"): it bounds the unmemoized analysis cascade so a batch
+//! FST evidence before changing limits"): it bounds the analysis cascade so a batch
 //! terminates deterministically, and firing it produces a typed incomplete outcome, never a wrong
 //! answer.
 

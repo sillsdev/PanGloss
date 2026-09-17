@@ -795,7 +795,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     let mut timed_out_words = 0u64;
 
     let t_morpher = Instant::now();
-    let mut morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
+    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(always_enforce_final_templates);
     let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
@@ -1532,7 +1532,7 @@ mod tests {
         }
     }
 
-    /// `k` homophonous one-shot suffix rules unapplying "d", so an unmemoized unwind is genuinely combinatorial; `MINI_GRAMMAR_XML`'s root-only lookup takes zero steps and cannot exercise a real `--step-cap` firing.
+    /// `k` homophonous one-shot suffix rules unapplying "d", so the unwind is genuinely combinatorial; `MINI_GRAMMAR_XML`'s root-only lookup takes zero steps and cannot exercise a real `--step-cap` firing.
     fn homophonous_suffix_grammar_xml(k: usize) -> String {
         let mut mrule_defs = String::new();
         let mut ids = Vec::with_capacity(k);
@@ -1587,7 +1587,7 @@ mod tests {
         )
     }
 
-    /// A small `--step-cap` fires on a genuinely combinatorial unmemoized unwind, in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
+    /// A small `--step-cap` fires on a genuinely combinatorial unwind, in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
     #[test]
     fn step_cap_small_writes_cap_row_both_thread_modes() {
         let grammar_xml = homophonous_suffix_grammar_xml(7);

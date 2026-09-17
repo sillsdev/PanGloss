@@ -69,8 +69,7 @@
       ],
       "requiring_tests": [
         "pg-foma --test f1_large_lexicon_gate",
-        "pg-foma --test five_language_backend_reports_gate sena_backend_reports_are_complete",
-        "pg-foma --test memo_corpus_gate memo_parity_survives_aweti_sena_mbugwe"
+        "pg-foma --test five_language_backend_reports_gate sena_backend_reports_are_complete"
       ]
     },
     {
@@ -116,8 +115,7 @@
       ],
       "requiring_tests": [
         "pg-foma --test p6_templated_morphotactics_gate",
-        "pg-foma --test five_language_backend_reports_gate aweti_backend_reports_are_complete",
-        "pg-foma --test memo_corpus_gate memo_parity_survives_aweti_sena_mbugwe"
+        "pg-foma --test five_language_backend_reports_gate aweti_backend_reports_are_complete"
       ]
     },
     {
@@ -138,8 +136,7 @@
       ],
       "requiring_tests": [
         "pg-foma --test mbugwe_corpus_smoke_gate mbugwe_grammar_compiles_and_oracle_parses_a_sample",
-        "pg-foma --test five_language_backend_reports_gate mbugwe_backend_reports_are_complete",
-        "pg-foma --test memo_corpus_gate memo_parity_survives_aweti_sena_mbugwe"
+        "pg-foma --test five_language_backend_reports_gate mbugwe_backend_reports_are_complete"
       ]
     }
   ]

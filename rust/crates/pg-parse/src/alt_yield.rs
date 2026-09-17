@@ -9,7 +9,7 @@
 //! - [`record_expansion`]: the length of each `Word::expand_alternatives()` call's return value.
 //! - [`record_identity`]: every synthesized candidate that passes the validity/surface-match
 //!   gate (the same gate feeding `matches`), projected to [`crate::identity::AnalysisIdentity`] —
-//!   the identity `pg-parse/tests/memo_parity_gate.rs` dedups analysis-identity sets on — and
+//!   ordered stable morpheme keys, root position, and stable category — and
 //!   inserted into a running set. Its final size is the DISTINCT count.
 //!
 //! Zero cost when unset: [`enabled`] caches one env read per thread.
