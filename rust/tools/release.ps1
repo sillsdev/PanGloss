@@ -50,8 +50,12 @@ $changelog = Join-Path $repoRoot 'CHANGELOG.md'
 function Write-Gate([string]$name, [string]$state) { Write-Host ("[release] gate {0,-8} {1}" -f $name, $state) }
 
 # Judges a pg.ps1 mode by effect: exit 27 (wedged governor, payload already finished) passes only when the transcript proves the payload succeeded.
+# pg.ps1 runs in a child pwsh so cargo's console output (Start-Process -NoNewWindow inherits the child's stdout, a pipe here) lands in the transcript; called in-process it bypasses the pipeline and the Summary line is never seen.
 function Invoke-GatedPg([hashtable]$PgArgs, [string]$SuccessPattern) {
-    $transcript = & (Join-Path $toolRoot 'pg.ps1') @PgArgs 2>&1 | ForEach-Object { Write-Host $_; "$_" }
+    $pwsh = (Get-Process -Id $PID).Path
+    $argv = @('-NoProfile', '-NonInteractive', '-File', (Join-Path $toolRoot 'pg.ps1'))
+    foreach ($k in $PgArgs.Keys) { $argv += "-$k"; $argv += "$($PgArgs[$k])" }
+    $transcript = & $pwsh @argv 2>&1 | ForEach-Object { Write-Host $_; "$_" }
     $exit = $LASTEXITCODE
     if ($exit -eq 0) { return 0 }
     if ($exit -eq 27) {
