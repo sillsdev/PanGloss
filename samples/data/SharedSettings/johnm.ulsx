@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<UserLexiconSettings>
+  <WritingSystems>
+    <WritingSystem id="en">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Times New Roman</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="pt">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Times New Roman</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="awe">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Charis SIL</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="id">
+      <LocalKeyboard>basic_kbdus</LocalKeyboard>
+      <KnownKeyboards>
+        <KnownKeyboard>basic_kbdus</KnownKeyboard>
+      </KnownKeyboards>
+      <DefaultFontName>Charis</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="swh">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Calibri Light</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="mgz">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Andika</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="mgz-fonipa-x-emic">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Charis SIL</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="mgz-fonipa-x-etic">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Charis SIL</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="seh">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Doulos SIL</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="seh-fonipa-x-etic">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Charis SIL</DefaultFontName>
+    </WritingSystem>
+    <WritingSystem id="am">
+      <LocalKeyboard>en-US_English</LocalKeyboard>
+      <DefaultFontName>Abyssinica SIL</DefaultFontName>
+    </WritingSystem>
+  </WritingSystems>
+</UserLexiconSettings>

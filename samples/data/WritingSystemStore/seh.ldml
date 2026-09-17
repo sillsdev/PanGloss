@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<ldml>
+  <identity>
+    <version number="" />
+    <generation date="2026-09-16T23:57:02Z" />
+    <language type="seh" />
+    <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+      <sil:identity windowsLCID="1033" />
+    </special>
+  </identity>
+  <layout>
+    <orientation>
+      <characterOrder>left-to-right</characterOrder>
+    </orientation>
+  </layout>
+  <collations>
+    <defaultCollation>standard</defaultCollation>
+    <collation type="standard" />
+  </collations>
+  <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+    <sil:external-resources>
+      <sil:font name="Doulos SIL" types="default" />
+      <sil:font name="Georgia" />
+      <sil:font name="Impact" />
+      <sil:font name="Gentium Book Basic" />
+    </sil:external-resources>
+  </special>
+  <characters>
+    <exemplarCharacters>['\-A-PR-Za-pr-z]</exemplarCharacters>
+    <exemplarCharacters type="punctuation">[\ -"(-*,./\:;?\[-\]\{-\}\u00AB\u00BB\u2018\u2019\u201C\u201D\u2028]</exemplarCharacters>
+  </characters>
+</ldml>

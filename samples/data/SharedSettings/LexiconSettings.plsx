@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<ProjectLexiconSettings>
+  <WritingSystems>
+    <WritingSystem id="en">
+      <Abbreviation>Eng</Abbreviation>
+      <LanguageName>English</LanguageName>
+      <SystemCollation />
+    </WritingSystem>
+    <WritingSystem id="pt">
+      <Abbreviation>Por</Abbreviation>
+      <LanguageName>Portuguese</LanguageName>
+      <SystemCollation />
+    </WritingSystem>
+    <WritingSystem id="awe">
+      <Abbreviation>Awe</Abbreviation>
+      <LanguageName>Awetí</LanguageName>
+    </WritingSystem>
+    <WritingSystem id="id">
+      <Abbreviation>Ind</Abbreviation>
+      <LanguageName>Indonesian</LanguageName>
+    </WritingSystem>
+    <WritingSystem id="swh">
+      <Abbreviation>Swa</Abbreviation>
+      <LanguageName>Swahili</LanguageName>
+    </WritingSystem>
+    <WritingSystem id="mgz">
+      <Abbreviation>Mbu</Abbreviation>
+      <LanguageName>Mbugwe</LanguageName>
+    </WritingSystem>
+    <WritingSystem id="mgz-fonipa-x-emic">
+      <Abbreviation>Mbu</Abbreviation>
+      <LanguageName>Mbugwe</LanguageName>
+    </WritingSystem>
+    <WritingSystem id="mgz-fonipa-x-etic">
+      <Abbreviation>Mbu</Abbreviation>
+      <LanguageName>Mbugwe</LanguageName>
+    </WritingSystem>
+    <WritingSystem id="seh">
+      <Abbreviation>Sen</Abbreviation>
+      <LanguageName>Sena</LanguageName>
+    </WritingSystem>
+    <WritingSystem id="seh-fonipa-x-etic">
+      <Abbreviation>Sen</Abbreviation>
+      <LanguageName>Sena</LanguageName>
+    </WritingSystem>
+    <WritingSystem id="am">
+      <Abbreviation>Amh</Abbreviation>
+      <LanguageName>Amharic</LanguageName>
+    </WritingSystem>
+  </WritingSystems>
+</ProjectLexiconSettings>

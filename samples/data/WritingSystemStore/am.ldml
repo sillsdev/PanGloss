@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<ldml>
+  <identity>
+    <version number="" />
+    <generation date="2026-09-16T23:57:05Z" />
+    <language type="am" />
+    <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+      <sil:identity windowsLCID="1031" />
+    </special>
+  </identity>
+  <layout>
+    <orientation>
+      <characterOrder>left-to-right</characterOrder>
+    </orientation>
+  </layout>
+  <collations>
+    <defaultCollation>standard</defaultCollation>
+    <collation type="standard" />
+  </collations>
+  <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+    <sil:external-resources>
+      <sil:font name="Abyssinica SIL" types="default" />
+      <sil:font name="Doulos SIL" types="default" />
+      <sil:font name="Nachlieli CLM" types="default" />
+      <sil:font name="Yu Gothic" types="default" />
+      <sil:font name="Nyala" types="default" />
+      <sil:font name="Tahoma" types="default" />
+      <sil:font name="Impact" types="default" />
+      <sil:font name="Magneto" types="default" />
+      <sil:font name="Times New Roman" types="default" />
+    </sil:external-resources>
+  </special>
+</ldml>

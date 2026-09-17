@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<ldml>
+  <identity>
+    <version number="" />
+    <generation date="2026-09-16T23:56:59Z" />
+    <language type="mgz" />
+    <variant type="fonipa-x-etic" />
+    <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+      <sil:identity variantName="Phonetic" />
+    </special>
+  </identity>
+  <characters>
+    <exemplarCharacters>[a-fh-pr-w\u014B\u0254\u025B\u025F\u0261\u0272{c\u0327}]</exemplarCharacters>
+  </characters>
+  <layout>
+    <orientation>
+      <characterOrder>left-to-right</characterOrder>
+    </orientation>
+  </layout>
+  <collations>
+    <defaultCollation>standard</defaultCollation>
+    <collation type="standard">
+      <cr><![CDATA[&[before 1] [first regular] < a < b < c < d < e < ɛ < f < ɡ < h < i < ɟ < k < l < m < n < ŋ < ɲ < nʲ < o < ɔ < p < r < s < ç < t < u < v < w < j]]></cr>
+      <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+        <sil:simple><![CDATA[a
+b
+c
+d
+e
+ɛ
+f
+ɡ
+h
+i
+ɟ
+k
+l
+m
+n
+ŋ
+ɲ
+nʲ
+o
+ɔ
+p
+r
+s
+ç
+t
+u
+v
+w
+j]]></sil:simple>
+      </special>
+    </collation>
+  </collations>
+  <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+    <sil:external-resources>
+      <sil:font name="Charis SIL" types="default" />
+    </sil:external-resources>
+  </special>
+</ldml>

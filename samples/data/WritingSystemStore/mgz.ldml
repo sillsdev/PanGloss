@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<ldml>
+  <identity>
+    <version number="" />
+    <generation date="2026-09-16T23:56:59Z" />
+    <language type="mgz" />
+  </identity>
+  <characters>
+    <exemplarCharacters>[ABD-PR-WYabd-pr-wy\u0190\u0254\u025B\u02BC\u02C6\uA789{CH}{a\u0303}{a\u0304}{a\u0308}{ch}{e\u0301}{e\u0303}{e\u0304}{e\u0308}{i\u0303}{i\u0304}{i\u0308}{o\u0303}{o\u0304}{o\u0308}{u\u0303}{u\u0304}{u\u0308}{\u0254\u0303}{\u0254\u0304}{\u0254\u0308}{\u025B\u0301}{\u025B\u0303}{\u025B\u0304}{\u025B\u0308}]</exemplarCharacters>
+  </characters>
+  <layout>
+    <orientation>
+      <characterOrder>left-to-right</characterOrder>
+    </orientation>
+  </layout>
+  <collations>
+    <defaultCollation>standard</defaultCollation>
+    <collation type="standard">
+      <cr><![CDATA[&[before 1] [first regular] < A << a < B << b < Ch << ch < D << d < E << e < Ɛ << ɛ < F << f < G << ɡ < H << h < I << i < J << j < K << k < L << l < M << m < N << n < Nɡʼ << nɡʼ < Ny << ny < Nʼy << nʼy < O << o < Ɔ << ɔ < P << p < R << r < S << s < Sh << sh < T << t < U << u < V << v < W << w < Y << y]]></cr>
+      <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+        <sil:simple><![CDATA[A a
+B b
+Ch ch
+D d
+E e
+Ɛ ɛ
+F f
+G ɡ
+H h
+I i
+J j
+K k
+L l
+M m
+N n
+Nɡʼ nɡʼ
+Ny ny
+Nʼy nʼy
+O o
+Ɔ ɔ
+P p
+R r
+S s
+Sh sh
+T t
+U u
+V v
+W w
+Y y]]></sil:simple>
+      </special>
+    </collation>
+  </collations>
+  <special xmlns:sil="urn://www.sil.org/ldml/0.1">
+    <sil:external-resources>
+      <sil:font name="Andika" types="default" />
+      <sil:font name="Andika New Basic" types="default" />
+    </sil:external-resources>
+  </special>
+</ldml>

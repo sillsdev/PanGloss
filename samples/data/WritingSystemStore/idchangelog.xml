@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WritingSystemChangeLog
+	Version="1">
+	<Changes>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T22:34:43Z">
+			<Id>en</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T22:34:43Z">
+			<Id>pt</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T22:34:43Z">
+			<Id>awe</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T23:56:56Z">
+			<Id>id</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T23:56:59Z">
+			<Id>swh</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T23:56:59Z">
+			<Id>mgz</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T23:56:59Z">
+			<Id>mgz-fonipa-x-emic</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T23:56:59Z">
+			<Id>mgz-fonipa-x-etic</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T23:57:02Z">
+			<Id>seh</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T23:57:02Z">
+			<Id>seh-fonipa-x-etic</Id>
+		</Add>
+		<Add
+			Producer="GenerateHCConfig"
+			ProducerVersion="Version 9.3.11 (apparent build date: 08-Sep-2026)"
+			TimeStamp="2026-09-16T23:57:05Z">
+			<Id>am</Id>
+		</Add>
+	</Changes>
+</WritingSystemChangeLog>
