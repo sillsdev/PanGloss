@@ -1,0 +1,17 @@
+   Compiling pg-foma v0.1.0 (C:\Users\johnm\Documents\repos\PanGloss\.claude\worktrees\morphology-red-gates\rust\crates\pg-foma)
+error[E0308]: mismatched types
+   --> crates\pg-foma\src\structural_allomorph.rs:367:80
+    |
+367 |     members.iter().all(|id| table_ref.iter().any(|(candidate, _)| candidate == id))
+    |                                                                   ---------    ^^ expected `CharDefId`, found `&CharDefId`
+    |                                                                   |
+    |                                                                   expected because this is `CharDefId`
+    |
+help: consider dereferencing the borrow
+    |
+367 |     members.iter().all(|id| table_ref.iter().any(|(candidate, _)| candidate == *id))
+    |                                                                                +
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `pg-foma` (lib) due to 1 previous error
+error: command `'C:\Users\johnm\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin\cargo.exe' test --no-run --message-format json-render-diagnostics --package pg-foma --test templated_morphology_classifier_gate --profile pg-test-opt` exited with code 101

@@ -1,0 +1,29 @@
+
+### impl-comment-too-long (10)
+  rust\crates\pg-foma\src\emit.rs:3748: 3 lines, no claim: // Named-envelope attempts use only the selected snapshot.  The measurement-only flat and
+  rust\crates\pg-foma\src\strategy_coverage.rs:318: 3 lines, no claim: // The closed classifier admits only five bounded structural recipes; every other
+  rust\crates\pg-foma\src\structural_allomorph.rs:136: 3 lines, no claim: // Literal-only output is the ordinary path.  It is admitted only when every output action is
+  rust\crates\pg-foma\src\structural_allomorph.rs:146: 2 lines, no claim: // Every Copy must be a valid, unique, in-order Input reference.  Classify malformed topology
+  rust\crates\pg-foma\src\structural_allomorph.rs:179: 3 lines, no claim: // Modification is admitted only for exactly C(0)..C(n-2), followed by one final
+  rust\crates\pg-foma\src\structural_allomorph.rs:233: 2 lines, no claim: // Whole-root wrappers are marker-free and preserve all parts.  Parse the complete action
+  rust\crates\pg-foma\src\structural_allomorph.rs:244: 2 lines, no claim: // Interior insertion preserves all parts and places one or more literal runs strictly
+  rust\crates\pg-foma\src\structural_allomorph.rs:261: 2 lines, no claim: // Initial fixed-atom replacement: one fixed CharDef is replaced by finite text, while the
+  rust\crates\pg-foma\src\structural_allomorph.rs:284: 2 lines, no claim: // Adjacent bounded drops: exactly two input parts and one edge part omitted.  Literal output
+  rust\crates\pg-foma\src\structural_allomorph.rs:369: 3 lines, no claim: /// Translate source-table char-defs into active-table representation variants.  Shape IDs are
+
+  plan-reference               0
+  step-marker                  0
+  wiring-status                0
+  date-in-comment              0
+  history-prose                0
+  impl-comment-too-long       10
+  unanchored-exception         0
+  cross-reference-claim        0
+  docs-link-broken             0
+  dead-citation                0
+  api-docstrings-long       1139  (informational, not gated)
+  reference-backed           313  (2-line: summary + checked reference)
+    SAFETY:                   10  (claimed exception)
+
+[comment-hygiene] 10 violation(s). Every one must go -- there is no accepted count.
+[comment-hygiene] rules: .claude/skills/code-comments/SKILL.md   offenders: -List

@@ -1,0 +1,27 @@
+[build-env] C:\cargo-targets's drive has 5.3GB free (< 50GB reserve) -- using HDD cache root instead
+----- pg preflight -----
+mode: test  profile: pg-test-opt
+worktree: C:/Users/johnm/Documents/repos/PanGloss/.claude/worktrees/morphology-red-gates  (slug: morphology-red-gates)
+HEAD: df5ef67bbb8f21056f5fbb76b21d7b227344b291  dirty files: 9
+base check (unverified): no recorded base (worktree predates metadata, or metadata unreadable) -- unverified
+target dir: G:\cargo-build-cache\morphology-red-gates
+free space: 591.4GB free (>= 5GB reserve)
+free memory: 38.1GB available (>= 8GB reserve) of 63.7GB total
+commit charge: 38.3GB of 67.7GB limit (57% used, 29.4GB uncommitted) -- procgov's --maxjobmem and event-2004 both measure THIS, not available physical
+build slots in use:
+  slot 0: pid 46540 (build in morphology-red-gates) -- alive since 12:02:56
+  slot 1: pid 20136 (build in morphology-red-gates) -- alive since 12:04:39
+sccache: healthy -- responding, hit rate 50.00 %, cache 13 GiB / 59 GiB
+conformance submodule (already-present): machine/conformance/constructs.txt present -- submodule already initialized (no git invoked)
+build slot limit: 2 (machine-wide convention -- see Enter-BuildSlot)
+cargo jobs: 7 per build (20 logical - 6 reserved for SSH/remote-desktop daemons, split across 2 slot(s))
+test threads: 6 concurrent test processes (default would be 20) -- memory-bound (cpu budget would allow 7), 2.5GB/process assumed
+build priority: BelowNormal (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)
+-------------------------
+[pg] comment hygiene: clean (12.3s).
+[pg] rustfmt: already formatted.
+[pg] conformance scope: all
+[build-env] waiting for a build slot (2 concurrent across all worktrees)...
+[build-env]   slot 0: pid 46540 (build in morphology-red-gates) -- alive since 12:02:56
+[pg] cargo nextest run --test-threads 6 --cargo-profile pg-test-opt -p pg-foma --test strategy_aware_capability_gate  (target-dir: G:\cargo-build-cache\morphology-red-gates, runner: nextest)
+[pg] job object: 19GB committed memory, 70% CPU (kernel-enforced across cargo and every process it spawns)

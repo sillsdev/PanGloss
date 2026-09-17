@@ -1,0 +1,42 @@
+[build-env] C:\cargo-targets's drive has 5.3GB free (< 50GB reserve) -- using HDD cache root instead
+----- pg preflight -----
+mode: test  profile: pg-test-opt
+worktree: C:/Users/johnm/Documents/repos/PanGloss/.claude/worktrees/morphology-red-gates  (slug: morphology-red-gates)
+HEAD: 59eec1f2cd32d48d69eab3c3ab0a72d5c0fc47c8  dirty files: 5
+base check (unverified): no recorded base (worktree predates metadata, or metadata unreadable) -- unverified
+target dir: G:\cargo-build-cache\morphology-red-gates
+free space: 591.5GB free (>= 5GB reserve)
+free memory: 38.7GB available (>= 8GB reserve) of 63.7GB total
+commit charge: 37.2GB of 67.7GB limit (55% used, 30.5GB uncommitted) -- procgov's --maxjobmem and event-2004 both measure THIS, not available physical
+build slots in use:
+  slot 0: pid 24528 (build in morphology-red-gates) -- alive since 11:42:04
+sccache: healthy -- responding
+conformance submodule (already-present): machine/conformance/constructs.txt present -- submodule already initialized (no git invoked)
+build slot limit: 2 (machine-wide convention -- see Enter-BuildSlot)
+cargo jobs: 7 per build (20 logical - 6 reserved for SSH/remote-desktop daemons, split across 2 slot(s))
+test threads: 6 concurrent test processes (default would be 20) -- memory-bound (cpu budget would allow 7), 2.5GB/process assumed
+build priority: BelowNormal (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)
+-------------------------
+[pg] comment hygiene: violations present -- warning here, fatal in CI (9.4s).
+    plan-reference               0
+    step-marker                  0
+    wiring-status                0
+    date-in-comment              0
+    history-prose                0
+    impl-comment-too-long       10
+    unanchored-exception         0
+    cross-reference-claim        0
+    docs-link-broken             0
+    dead-citation                0
+    api-docstrings-long       1139  (informational, not gated)
+    reference-backed           313  (2-line: summary + checked reference)
+      SAFETY:                   10  (claimed exception)
+  
+  [comment-hygiene] 10 violation(s). Every one must go -- there is no accepted count.
+  [comment-hygiene] rules: .claude/skills/code-comments/SKILL.md   offenders: -List
+[pg] rustfmt: already formatted.
+[pg] conformance scope: all
+[build-env] waiting for a build slot (2 concurrent across all worktrees)...
+[build-env]   slot 0: pid 24528 (build in morphology-red-gates) -- alive since 11:42:04
+[pg] cargo nextest run --test-threads 6 --cargo-profile pg-test-opt -p pg-foma --test strategy_aware_capability_gate  (target-dir: G:\cargo-build-cache\morphology-red-gates, runner: nextest)
+[pg] job object: 19GB committed memory, 70% CPU (kernel-enforced across cargo and every process it spawns)

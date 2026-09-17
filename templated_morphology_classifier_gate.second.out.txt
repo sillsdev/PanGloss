@@ -1,0 +1,19 @@
+[build-env] C:\cargo-targets's drive has 5.3GB free (< 50GB reserve) -- using HDD cache root instead
+----- pg preflight -----
+mode: test  profile: pg-test-opt
+worktree: C:/Users/johnm/Documents/repos/PanGloss/.claude/worktrees/morphology-red-gates  (slug: morphology-red-gates)
+HEAD: 874fd706b1897f59f99c41e90a9e2d142f91aff4  dirty files: 10
+base check (unverified): no recorded base (worktree predates metadata, or metadata unreadable) -- unverified
+target dir: G:\cargo-build-cache\morphology-red-gates
+free space: 591.4GB free (>= 5GB reserve)
+free memory: 38.5GB available (>= 8GB reserve) of 63.7GB total
+commit charge: 37.2GB of 67.7GB limit (55% used, 30.5GB uncommitted) -- procgov's --maxjobmem and event-2004 both measure THIS, not available physical
+build slots in use:
+  slot 0: pid 46540 (build in morphology-red-gates) -- NOT ALIVE -- stale ledger entry; the kernel hands this slot to the next waiter
+sccache: healthy -- responding, hit rate 50.00 %, cache 13 GiB / 59 GiB
+conformance submodule (already-present): machine/conformance/constructs.txt present -- submodule already initialized (no git invoked)
+build slot limit: 2 (machine-wide convention -- see Enter-BuildSlot)
+cargo jobs: 7 per build (20 logical - 6 reserved for SSH/remote-desktop daemons, split across 2 slot(s))
+test threads: 6 concurrent test processes (default would be 20) -- memory-bound (cpu budget would allow 7), 2.5GB/process assumed
+build priority: BelowNormal (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)
+-------------------------

@@ -1,0 +1,14 @@
+   Compiling pg-foma v0.1.0 (C:\Users\johnm\Documents\repos\PanGloss\.claude\worktrees\morphology-red-gates\rust\crates\pg-foma)
+    Finished `pg-test-opt` profile [optimized + debuginfo] target(s) in 23.54s
+────────────
+ Nextest run ID 27f64ea8-7764-4689-8a99-37c7779a2e23 with nextest profile: default
+    Starting 7 tests across 1 binary
+        PASS [   0.008s] (1/7) pg-foma::templated_morphology_classifier_gate malformed_copy_references_are_stable_fail_closed_results_without_panics
+        PASS [   0.017s] (2/7) pg-foma::templated_morphology_classifier_gate closed_classifier_default_denies_every_unlisted_action_or_shape
+        PASS [   0.021s] (3/7) pg-foma::templated_morphology_classifier_gate closed_classifier_accepts_the_five_listed_families_and_ordinary_literals
+        PASS [   0.047s] (4/7) pg-foma::templated_morphology_classifier_gate quantified_and_multi_node_terminal_parts_cannot_be_treated_as_one_segment
+        PASS [   0.050s] (5/7) pg-foma::templated_morphology_classifier_gate classifier_has_no_role_based_fallback_for_nonliteral_ordinary_actions
+        PASS [   0.053s] (6/7) pg-foma::templated_morphology_classifier_gate bounded_drop_atoms_are_resolved_in_the_owning_source_table
+        PASS [   0.049s] (7/7) pg-foma::templated_morphology_classifier_gate replacement_and_modify_atoms_exist_in_the_owning_source_table
+────────────
+     Summary [   0.059s] 7 tests run: 7 passed, 0 skipped
