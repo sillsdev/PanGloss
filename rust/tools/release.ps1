@@ -76,7 +76,13 @@ if ($dirty) {
     $dirty | ForEach-Object { Write-Host "    $_" }
     exit 30
 }
-Write-Gate 'tree' 'clean'
+# pg.ps1 APPLIES rustfmt before every compile, so an unformatted tree would be rewritten mid-release and every later gate would rebuild from changed sources.
+$fmtHunks = @(& cargo fmt --all --manifest-path $cargoToml -- --check 2>&1 | Where-Object { $_ -match '^Diff in ' }).Count
+if ($fmtHunks -gt 0) {
+    Write-Gate 'tree' "REFUSED -- $fmtHunks rustfmt hunk(s) not yet applied; run pg.ps1 -Mode check, commit the reflow, then release"
+    exit 30
+}
+Write-Gate 'tree' 'clean (and rustfmt-clean)'
 
 # --- gate 2: hygiene ------------------------------------------------------------------------
 if ($SkipGate -contains 'hygiene') { Write-Gate 'hygiene' 'SKIPPED (recorded)' }
