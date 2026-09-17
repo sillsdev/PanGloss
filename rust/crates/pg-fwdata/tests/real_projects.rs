@@ -1,8 +1,24 @@
 //! Self-skipping conformance tests against real FieldWorks sample projects (Sena 3, Amharic), located via `PANGLOSS_FW_PROJECTS_DIR` or a sibling checkout, since the corpus is not guaranteed present in CI or a fresh clone.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use pg_snapshot::PartOfSpeech;
+use sha2::{Digest, Sha256};
+
+/// The shipped sample projects, by SHA-256; `Sena 3` has two byte-different but content-identical distributions.
+const PRISTINE_SHA256: &[(&str, &[&str])] = &[
+    (
+        "Sena 3",
+        &[
+            "c4a6f7013a1d2a5faff674f01e2b3930b24f64d0302f127bea2fc7a2186dfd0b",
+            "0b146395a1f14ed036bb3d2c4b4aff9c7da459b307a617f5a950478db1897987",
+        ],
+    ),
+    (
+        "Amharic",
+        &["e3d20f654dff93c87a61d35024bff03db063b3dc2d7cab97cb95d618784834bb"],
+    ),
+];
 
 /// Locates a FieldWorks project's `.fwdata` file, or `None` if the checkout isn't present (so tests can self-skip rather than fail).
 fn project_fwdata(project_dir_name: &str) -> Option<PathBuf> {
@@ -14,7 +30,31 @@ fn project_fwdata(project_dir_name: &str) -> Option<PathBuf> {
     let path = base
         .join(project_dir_name)
         .join(format!("{project_dir_name}.fwdata"));
-    path.exists().then_some(path)
+    if !path.exists() {
+        return None;
+    }
+    assert_pristine(project_dir_name, &path);
+    Some(path)
+}
+
+/// A DistFiles project is a mutable dev file; counts pinned below are only meaningful against the shipped sample, so a locally edited copy fails here by name rather than moving the pins.
+fn assert_pristine(project_dir_name: &str, path: &Path) {
+    let bytes = std::fs::read(path).expect("project file must be readable");
+    let actual = format!("{:x}", Sha256::digest(&bytes));
+    let known = PRISTINE_SHA256
+        .iter()
+        .find(|(name, _)| *name == project_dir_name)
+        .map(|(_, hashes)| *hashes)
+        .unwrap_or(&[]);
+    assert!(
+        known.contains(&actual.as_str()),
+        "{project_dir_name}: {} has sha256 {actual}, which is not the shipped sample project ({}). \
+         The pinned counts describe the shipped sample; this copy has local edits. Point \
+         PANGLOSS_FW_PROJECTS_DIR at a pristine copy (a FieldWorks installer build's \
+         objects\\FieldWorks\\Projects, or a fresh checkout's DistFiles\\Projects).",
+        path.display(),
+        known.join(", ")
+    );
 }
 
 fn count_pos_tree(pos: &[PartOfSpeech]) -> usize {
@@ -38,10 +78,9 @@ fn sena3_imports_with_expected_counts() {
     // Counts anchored to `<rt class=`, not bare `class="X"`, since `<AdditionalFields>` also holds `<CustomField class="LexEntry">` elements that would otherwise double-count.
     assert_eq!(snap.lexicon.entries.len(), 1462, "LexEntry count");
     assert_eq!(snap.phonology.phonemes.len(), 44, "PhPhoneme count");
-    // 37 -> 40 re-pinned: the external FieldWorks project itself gained three POS entries; every other pinned count was unchanged.
     assert_eq!(
         count_pos_tree(&snap.morphology.parts_of_speech),
-        40,
+        37,
         "PartOfSpeech count"
     );
     assert_eq!(
