@@ -103,6 +103,12 @@ a fast-forward, the rebase did not happen against the current tip; redo it. Neve
 rebase turns out to involve real conflicts rather than staleness, prefer re-running the change fresh
 against `main`.
 
+When `pg.ps1` prints `rustfmt: applied`, commit that reflow with your change. Never revert it:
+reverting leaves `main` unformatted, so every later build in every worktree redoes the same
+reflow, and a build that follows a revert recompiles everything. *Scar: one release run rebuilt all
+~105 test targets twice for this reason, 50 minutes instead of 11.* `release.ps1` refuses an
+unformatted tree before it starts.
+
 ## Where to look
 
 **Skills** (load by task, not by subsystem):
