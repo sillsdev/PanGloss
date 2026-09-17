@@ -33,32 +33,29 @@ the broadening trigger with a recall proof — in that order of certainty.
 
 - `pangloss fst-health` gains a mode that emits the raw `CompileProfile` (per-stage wall,
   lexc lines, entry counts by mechanism) as JSON — measurement infrastructure, no semantics.
-- A measured comparison of `TunedSurfaceProbed` vs `TemplatedUnderlyingTokens` on the
-  cascade-family shape (synthetic fixture at comparable scale + local real-grammar numbers
-  recorded in the PR only): compile wall, recall vs oracle, proposer candidate volume.
-- If (and only if) the measurement supports it: backend-selection/optimizer wiring so
-  cascade-family grammars route to the templated backend, per the existing witnessed-strategy
-  machinery. Gated on the existing recall/conformance gates — a faster backend that loses recall
-  is not a result.
-- Narrow `probe_would_refuse`'s broad-mode so one empty-LHS epenthesis rule does not force the
-  grammar-wide structural sweep — REQUIRES a recall-preservation proof (fire-count + deterministic
-  counter delta per the repo's optimization evidence rules), since the predicate is a documented
-  conservative over-approximation. If no sound narrowing exists, document why and drop the task.
-
+- A measured comparison of `TunedSurfaceProbed` vs `TemplatedUnderlyingTokens` on the local
+  cascade-family grammar records compile wall and recall/candidate-set differences. The measured
+  recall loss closes routing as DO NOT ROUTE; a synthetic scale fixture is deferred until a future
+  change has a routing hypothesis to test.
+- Backend-selection wiring remains unchanged because the measured templated backend loses recall;
+  a faster backend that loses recall is not a result.
+- The `probe_would_refuse` narrowing investigation closes negative: no sound local predicate
+  survived the measured recall and C1-C5 containment evidence, so production behavior remains
+  unchanged and the design records the proof obligation for any future attempt.
 ## Non-goals / Dependencies
 
 - Merges AFTER `cover-circumfix-cross-product-and-infix-drop` (that change owns the
   `is_structural_rule` region; this one owns `probe_would_refuse` + `fst_health.rs`; adjacent
   emit.rs regions are serialized per STAGING).
-- Does not change enumeration-budget defaults; the just-over-budget regression pin stays.
+- Does not change enumeration-budget defaults; ownership-aware emission now keeps the motivating grammar within the existing default.
 - The templated backend's own `CircumfixOutputAction` known-gap
   (`strategy_coverage.rs:318-325`) is out of scope here; routing decisions must respect it via
   the capability gate exactly as today (grammar-wide gate semantics unchanged).
 
 ## Impact
 
-- Claims: observation (stage attribution, measured), support (profile visibility), certification
-  only through existing gates. All real-grammar numbers stay local; committed evidence is
-  synthetic-fixture-based.
-- Files: `pg-cli/src/fst_health.rs`, `pg-foma/src/emit.rs` (`probe_would_refuse` region only),
-  backend-selection/optimizer call sites, one new synthetic scale fixture.
+- Claims: observation (stage attribution and backend comparison), support (profile visibility), and
+  certification only through existing gates. Private real-grammar data stays local; the decision
+  record retains aggregate measurements only.
+- Files: `pg-cli/src/fst_health.rs` plus this decision record. No backend selector or
+  `probe_would_refuse` production edit is made.

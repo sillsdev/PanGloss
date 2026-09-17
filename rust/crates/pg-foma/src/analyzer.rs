@@ -750,6 +750,51 @@ mod budget_tests {
         }
     }
 
+    /// Loads the real Mbugwe grammar if present on disk; gitignored, so copy it from the main checkout's `samples/data/` if missing.
+    fn load_mbugwe() -> Option<Grammar> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../samples/data/mbugwe.fwdata");
+        if !path.exists() {
+            return None;
+        }
+        let (snapshot, _report) = pg_fwdata::import_file(&path)
+            .unwrap_or_else(|e| panic!("import {}: {e}", path.display()));
+        let (g, _warnings) = pg_grammar::compile_project(&snapshot)
+            .unwrap_or_else(|e| panic!("compile mbugwe project: {e}"));
+        Some(g)
+    }
+
+    /// Pins the ownership-aware emitter's reduction below `DEFAULT_ENTRY_BUDGET` on a real grammar.
+    #[test]
+    fn mbugwe_stays_within_the_default_entry_budget() {
+        let Some(g) = load_mbugwe() else {
+            eprintln!("skipping: samples/data/mbugwe.fwdata not present on disk");
+            return;
+        };
+        let default_cap = crate::morphotactics::DEFAULT_ENTRY_BUDGET;
+        let default_probe_cap = crate::morphotactics::DEFAULT_PROBE_BUDGET;
+        let budget = EnumerationBudget::with_caps(default_cap, default_probe_cap);
+
+        let proposer = FomaProposer::new_with_budget(&g, &budget, &ComposeBudget::unbounded())
+            .unwrap_or_else(|e| {
+                panic!("Mbugwe must compile within the default entry budget ({default_cap}): {e}")
+            });
+        let counts = &proposer.report.counts;
+        let composite_entries = counts
+            .composite_interdigitation_entries
+            .saturating_add(counts.composite_fusion_entries)
+            .saturating_add(counts.composite_structural_entries);
+        eprintln!(
+            "mbugwe composite entries={composite_entries} (interdigitation={}, fusion={}, structural={}) entry_limit={default_cap} probe_limit={default_probe_cap}",
+            counts.composite_interdigitation_entries,
+            counts.composite_fusion_entries,
+            counts.composite_structural_entries,
+        );
+        assert!(
+            composite_entries <= default_cap,
+            "successful compilation reported {composite_entries} composite entries against cap {default_cap}"
+        );
+    }
     /// Sanity check the other direction: on a tiny grammar with no composite mechanism at all, an unbounded budget must never trip.
     #[test]
     fn tiny_grammar_never_trips_unbounded_budget() {

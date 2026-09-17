@@ -19,9 +19,9 @@ distinct, previously-uncensused gaps:
    reads this `Role::Infix` (an interior `InsertSegments` strictly between two `Copy` actions, no
    leading/trailing insert) rather than misclassifying it as `CircumfixPrefix` -- unlike census
    C1-C3, which were all about `classify_affix` misclassifying a genuinely-circumfix shape.
-   `crate::emit::is_structural_rule`'s `_ => false` catch-all excludes `Role::Infix`
-   unconditionally, regardless of whether the allomorph drops LHS material, so this rule never
-   reaches `build_structural_composites`.
+   The drop-aware `crate::emit::is_structural_rule` arm admits this `Role::Infix` shape, so
+   `mrInfixDrop` is owned by `build_structural_composites`; the preexpand handoff removes it from
+   `crate::preexpand`'s own candidate set. Non-dropping `Infix` remains on the preexpand path.
 
 ## What it pins
 
@@ -33,12 +33,11 @@ distinct, previously-uncensused gaps:
 - `bumat` (`mrInfixDrop`): the oracle/confirm side (`pg_parse::Morpher`) finds this analysis. The
   companion FST-reachability test,
   `rust/crates/pg-foma/tests/circumfix_cross_product_and_infix_drop_candidate_selection.rs`, shows
-  this surface IS reachable in the compiled net today -- but via `crate::preexpand`, not via
-  `build_structural_composites`. See "Findings for unit 3" below: this is NOT the red
-  undergeneration witness the design sketch predicted, and that is itself the load-bearing result
-  of this fixture. This `words.yaml` entry alone does not exercise the FST path at all, matching
-  this repo's own documented limit for `assert_matches_oracle` (it only ever checks the
-  oracle/confirm side).
+  this surface IS reachable in the compiled net today via `build_structural_composites`. The same
+  test pins the ownership handoff: `mrInfixDrop` is in the structural candidate set and absent
+  from `crate::preexpand`'s own candidates. This `words.yaml` entry alone does not exercise the
+  FST path, matching this repo's own documented limit for `assert_matches_oracle` (it only ever
+  checks the oracle/confirm side).
 - `pidatan`: a structurally-invalid negative control (does not begin with either `mrCross`
   prefix), pinning that the grammar rejects an unrelated form rather than over-admitting.
 
@@ -87,28 +86,17 @@ tuning.
 
 ## Findings for unit 3
 
-The design sketch predicted the companion FST-reachability test's `bumat` assertion would be
-RED today (an undergeneration witness) and should be `#[ignore]`d until `is_structural_rule`
-gains a `Role::Infix` arm. Measured against the real engine, for THIS minimal construction it is
-GREEN: `bumat` is fully reachable in `emit::emit`'s compiled net, `report.uncovered` is empty, and
-`composite_candidate_rules` shows `mrInfixDrop` classified `Role::Infix` and present in
-`crate::preexpand`'s own candidate set (never in the structural set). So `crate::preexpand`
-already resynthesizes this exact LHS-drop shape correctly today -- the same finding census C3's
-own "important correction" made for a different shape (an interior-insert allomorph that also
-happens to circumfix), generalized here to a genuinely-`Infix`, non-circumfix allomorph.
+The design sketch predicted the companion FST-reachability test's `bumat` assertion would be RED
+until `is_structural_rule` gained a `Role::Infix` arm. The current implementation closes that
+ownership gap: the drop-aware arm admits `mrInfixDrop`, `build_structural_composites` owns it, and
+the preexpand handoff excludes it from `crate::preexpand`'s candidate set. The companion test pins
+both facts and confirms `bumat` is reachable in `emit::emit`'s compiled net with no uncovered
+analysis.
 
-This is exactly the fork design D1's own task 3.1 (verification probe) anticipates: "if [preexpand
-already covers it]: switch this unit to the predicate-ground-truth fix... tasks 3.2/3.3 are then
-N/A." The companion test file's `mr_infix_drop_word_reachable_via_preexpand_today` (not
-`#[ignore]`d, since it is not red) and `mr_cross_is_the_only_structural_candidate_today`
-(confirming `mrInfixDrop` is absent from the structural set specifically) together are the
-evidence unit 3's task 3.1 needs: the recall path exists via `crate::preexpand`; what
-`is_structural_rule`'s missing arm actually costs is the CAPABILITY PREDICATE's ground truth
-(`CircumfixStructuralCompositePredicate` reads `is_structural_rule`, not preexpand coverage, so it
-can still `Refuse` a grammar this fixture's own reachability test proves is fine) -- not, for this
-shape, an actual FST-emission recall gap. Whether the real motivating grammar's more complex
-"mrule 166" case behaves identically is unverified here; this fixture only establishes the
-mechanism, not that every Infix-with-drop shape is covered.
+This is the predicate/ownership result anticipated by design D1's verification probe, not a
+claim that every possible Infix-with-drop shape is covered. The fixture establishes the mechanism
+for this shape; the motivating real grammar's more complex "mrule 166" case remains the separate
+local verification item in the OpenSpec tasks.
 
 ## Oracle discipline
 

@@ -1,0 +1,38 @@
+----- pg preflight -----
+mode: test  profile: pg-test-opt
+worktree: C:/Users/johnm/Documents/repos/PanGloss/.claude/worktrees/circumfix-cross-product  (slug: circumfix-cross-product)
+HEAD: 180d6f42ebd521e2156d238fd66037be0b9c55da  dirty files: 34
+base check (checked): recorded base (f49d12ae4f20c5eaa8aa20c787729a3c38f36c98) is an ancestor of HEAD (180d6f42ebd521e2156d238fd66037be0b9c55da)
+target dir: C:\cargo-targets\circumfix-cross-product
+free space: 64.9GB free (>= 5GB reserve)
+free memory: 40.3GB available (>= 8GB reserve) of 63.7GB total
+commit charge: 29.2GB of 67.7GB limit (43% used, 38.5GB uncommitted) -- procgov's --maxjobmem and event-2004 both measure THIS, not available physical
+sccache: healthy -- responding
+conformance submodule (already-present): machine/conformance/constructs.txt present -- submodule already initialized (no git invoked)
+build slot limit: 2 (machine-wide convention -- see Enter-BuildSlot)
+cargo jobs: 7 per build (20 logical - 6 reserved for SSH/remote-desktop daemons, split across 2 slot(s))
+test threads: 6 concurrent test processes (default would be 20) -- memory-bound (cpu budget would allow 7), 2.5GB/process assumed
+build priority: BelowNormal (inherited by rustc/link.exe -- keeps interactive daemons ahead of compiler work)
+-------------------------
+[pg] comment hygiene: violations present -- warning here, fatal in CI (9.3s).
+    plan-reference               0
+    step-marker                  0
+    wiring-status                0
+    date-in-comment              0
+    history-prose                0
+    impl-comment-too-long        1
+    unanchored-exception         0
+    cross-reference-claim        0
+    docs-link-broken             0
+    dead-citation                0
+    api-docstrings-long       1062  (informational, not gated)
+    reference-backed           310  (2-line: summary + checked reference)
+      SAFETY:                   10  (claimed exception)
+  
+  [comment-hygiene] 1 violation(s). Every one must go -- there is no accepted count.
+  [comment-hygiene] rules: .claude/skills/code-comments/SKILL.md   offenders: -List
+[pg] rustfmt: already formatted.
+[pg] conformance scope: all
+[build-env] waiting for a build slot (2 concurrent across all worktrees)...
+[pg] cargo nextest run --test-threads 6 --cargo-profile pg-test-opt -p pg-foma --test faithfulness_coverage_gate report_faithfulness_coverage  (target-dir: C:\cargo-targets\circumfix-cross-product, runner: nextest)
+[pg] job object: 19GB committed memory, 70% CPU (kernel-enforced across cargo and every process it spawns)

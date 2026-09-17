@@ -516,7 +516,8 @@ pub struct CircumfixOutputActionDetail {
     ///
     /// `false` means NO allomorph of this rule is `CircumfixPrefix`, none carries an
     /// `OutputAction::Modify`/`InsertContext`, and allomorph 0's role (per
-    /// `crate::emit::classify_affix`) is `Role::Reduplication`/`Role::CircumfixSuffix` — since
+    /// `crate::emit::classify_affix`) is `Role::Reduplication`/`Role::CircumfixSuffix` without
+    /// a concrete-`InsertSegments` structural route (which is handled separately). Since
     /// census C4, `None`/`Prefix`/`Suffix`/`Infix` all route through `is_structural_rule`'s
     /// drop-aware arm, and that arm scans EVERY allomorph of the rule
     /// (`.any(rhs_drops_lhs_material)`, not only allomorph 0), so it is covered whenever THIS
@@ -531,17 +532,12 @@ pub struct CircumfixOutputActionDetail {
     pub structural_composite_attempted: bool,
 }
 
-/// `ObservationDetail::Reduplication`'s payload: the one structural fact
-/// `ReduplicationPeelSupportedPredicate` needs about an `AffixAllomorphDef` whose RHS truly
-/// reduplicates (`rhs_has_true_reduplication`'s own trigger) — whether the OWNING rule is one
-/// `crate::peel::ReduplicationPeeler::new`'s own `is_reduplication_rule` would ever classify at
-/// all. That function's own doc names a real, faithfully-preserved C# quirk: **only** an
-/// `AffixProcessRule` is ever checked for reduplication classification — a `RealizationalRule`
-/// carrying the identical true-redup RHS shape is never peel-eligible, "even if one of its
-/// allomorphs would classify as `Role::Reduplication`". This detail is the SAME fact, computed
-/// independently here (this module has no dependency edge onto `crate::peel`'s private
-/// `is_reduplication_rule`, only re-derives the SAME "owning rule is `MorphRuleDef::AffixProcess`"
-/// test over the SAME frozen `model.rs` shape crate::peel itself matches on).
+/// `ObservationDetail::Reduplication`'s payload: the structural facts
+/// `ReduplicationPeelSupportedPredicate` needs about a truly reduplicating allomorph. The
+/// `AffixProcessRule`/`RealizationalRule` distinction records peel eligibility, while
+/// `structural_composite_attempted` records whether the owning rule has the concrete-InsertSegments
+/// structural route. A `RealizationalRule` is therefore not peel-eligible, but it may still be
+/// proposed structurally when that route applies.
 #[derive(Debug, Clone, Copy)]
 pub struct ReduplicationDetail {
     pub rule: MRuleId,
@@ -552,6 +548,8 @@ pub struct ReduplicationDetail {
     /// (a documented, intentional C#-faithful non-support, not a bug to fix — see this struct's
     /// own doc and `crate::peel::is_reduplication_rule`'s doc for the citation).
     pub peel_eligible_rule_kind: bool,
+    /// Whether the production predicate routes the owning rule structurally.
+    pub structural_composite_attempted: bool,
 }
 
 /// `ObservationDetail::Compounding`'s payload: the one structural fact
@@ -1123,6 +1121,7 @@ fn characterize_allomorph(
         // Re-derives `ReduplicationPeeler::is_reduplication_rule`'s own peel-eligibility test.
         let peel_eligible_rule_kind =
             matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_));
+        let structural_composite_attempted = crate::emit::is_structural_rule(g, rule);
         observations.push(CharacteristicObservation::new(
             CharacteristicKind::Reduplication,
             ModelLocation::AffixAllomorph {
@@ -1133,6 +1132,7 @@ fn characterize_allomorph(
                 rule,
                 allomorph_index,
                 peel_eligible_rule_kind,
+                structural_composite_attempted,
             }),
         ));
     }
@@ -2450,34 +2450,25 @@ impl CapabilityPredicate for CircumfixStructuralCompositePredicate {
 
 // ---- Reduplication: the config-predicate `cover-template-truncation-reduplication` registers ----
 
-/// The capability predicate for `Reduplication`: a truly reduplicating `AffixAllomorphDef` is
-/// faithfully PROPOSABLE via `crate::peel::ReduplicationPeeler` -- deliberately NOT via FST
-/// compilation at all (retaining the established division between compiled template morphology
-/// and peeled reduplication); the FST proposer + this peel together over-generate candidates for
-/// `crate::confirm`'s own restricted reparse to prune, the standard confirm-only-by-default shape
-/// every other `ConfigPredicate` characteristic in this registry already uses.
+/// The capability predicate for `Reduplication`: a truly reduplicating allomorph is covered by
+/// the established `crate::peel::ReduplicationPeeler` route when its owning rule is an
+/// `AffixProcessRule`, or by `crate::emit::build_structural_composites` when the rule has the
+/// concrete-`InsertSegments` structural shape. Both routes produce candidates for
+/// `crate::confirm`'s restricted reparse; the predicate remains confirm-only by default.
 ///
 /// # Disposition
 /// - **Not observed at all** (no allomorph truly reduplicates anywhere in the grammar): vacuously
 ///   `Admit` — nothing for this predicate to say (mirrors every other `*Predicate` in this
 ///   registry's own "not applicable here" convention).
-/// - **Every observed occurrence is peel-eligible** (`peel_eligible_rule_kind == true` for every
-///   `ReduplicationDetail` — i.e. every true-reduplicating allomorph belongs to an
-///   `AffixProcessRule`, never a `RealizationalRule`): `PredicateVerdict::ConfirmOnly` — the peel
-///   construction is a proven safe, faithful proposer for the SUPPORTED case
-///   (`tests/f6_reduplication_peel_chain_depth.rs`'s own containment fixture proves oracle-exact
-///   CONTAINMENT against `pg_parse::Morpher` for a real, previously-zero-coverage full-stem
-///   reduplication construct — `machine/conformance/languages/
-///   suffixing-extension-slot-ordering`'s `mrRedup`, "kimbiakimbia"), but no PROVEN
-///   no-false-negative admission-filter argument exists — confirm-only-by-default, the same
-///   landing spot every other `ConfigPredicate` characteristic in this registry already uses.
-/// - **At least one observed occurrence is NOT peel-eligible** (a true-reduplicating allomorph
-///   belonging to a `RealizationalRule`): `PredicateVerdict::Refuse` — `crate::peel::
-///   ReduplicationPeeler::new`'s own `is_reduplication_rule` never classifies it (a real,
-///   faithfully-preserved C# quirk, that function's own doc), so the peel never proposes it at
-///   all; a grammar depending on it must be refused rather than silently missing recall,
-///   overridable via the capability override.
-///
+/// - **Every observed occurrence has a route** (`peel_eligible_rule_kind` or
+///   `structural_composite_attempted` is true): `PredicateVerdict::ConfirmOnly`. The peel fixture
+///   (`tests/f6_reduplication_peel_chain_depth.rs`) proves oracle-exact containment for the
+///   established peel case; structural containment is covered by the composite fixtures and
+///   the Mbugwe regression. No proven no-false-negative admission filter exists.
+/// - **At least one observed occurrence has neither route**: `PredicateVerdict::Refuse`. This
+///   includes a `RealizationalRule` shape that is not peel-eligible and has no admitted structural
+///   route; it must be refused rather than silently missing recall, overridable via the capability
+///   override.
 /// # Interaction with `peel_eligible_rule_kind` (checked, deliberately left unchanged)
 /// `peel_eligible_rule_kind` (`characterize_allomorph`'s own computation site,
 /// `matches!(g.mrules[rule.0 as usize], MorphRuleDef::AffixProcess(_))`) is a RULE-KIND check only —
@@ -2555,18 +2546,14 @@ impl CapabilityPredicate for ReduplicationPeelSupportedPredicate {
         let mut any_observed = false;
         for detail in profile.reduplication_details() {
             any_observed = true;
-            if !detail.peel_eligible_rule_kind {
+            if !detail.peel_eligible_rule_kind && !detail.structural_composite_attempted {
                 return PredicateVerdict::Refuse(CapabilityDiagnostic {
                     predicate: self.id(),
                     construct: format!(
-                        "mrule {} allomorph #{} (true reduplication on a RealizationalRule)",
+                        "mrule {} allomorph #{} (true reduplication with neither peel nor structural routing)",
                         detail.rule.0, detail.allomorph_index
                     ),
-                    witness: "crate::peel::ReduplicationPeeler::new's own is_reduplication_rule \
-                              only ever classifies an AffixProcessRule -- a RealizationalRule \
-                              allomorph carrying the identical true-reduplicating RHS shape is \
-                              never peel-eligible (a real, faithfully-preserved C# quirk), so the \
-                              peel never proposes it at all"
+                    witness: "the owning rule is neither peel-eligible nor admitted by the faithful structural-composite route"
                         .to_string(),
                 });
             }

@@ -108,6 +108,26 @@
         "pg-foma --test p6_templated_morphotactics_gate",
         "pg-foma --test compose_recall_aweti_gate"
       ]
+    },
+    {
+      "logical_name": "mbugwe",
+      "purpose": "Bantu agglutinating verb morphology imported straight from a FieldWorks project. This fifth corpus pins the ownership-aware emitter's ability to stay within the default composite-entry budget and exercises the widest measured HC-oracle/foma latency gap in this manifest.",
+      "files": [
+        { "path": "mbugwe.fwdata", "role": "grammar-fwdata", "required": true },
+        {
+          "path": "mbugwe-words.txt",
+          "role": "corpus",
+          "required": true,
+          "word_list": {
+            "line_ending": "CRLF",
+            "skip_leading_lines": 0,
+            "notes": "No header. Derived from the project's own 30 interlinear texts (StTxtPara Contents runs in the mgz vernacular writing system, whitespace-tokenized): 2120 tokens, 1638 unique types in first-appearance order. The texts carry no sentence punctuation at all, so tokenization is whitespace-only and needs no stripping pass. Every line is alphabet-valid -- 0 batch SKIPPED rows on both engines -- but only because the pipeline NFD-normalizes both sides: 262 types carry precomposed vowels (o-macron, o-diaeresis, a-macron, a-diaeresis, e-tilde and friends) that the project's phoneme inventory holds only as combining marks, and those marks are themselves stored against a literal U+25CC dotted-circle placeholder that pg-fwdata strips on import. A tokenizer or word list built without both of those steps would report ~16% of this corpus as shape-invalid. Word-initial U+02C6 (modifier circumflex) is a real phoneme here, not markup. This corpus is SLOW under the default HC-oracle engine -- a large minority of words exceed a multi-second per-word budget -- so always pass --word-timeout-ms when sampling it; the foma path is orders of magnitude faster and compiles within the default enumeration budget."
+          }
+        }
+      ],
+      "requiring_tests": [
+        "pg-foma (lib) budget_tests::mbugwe_stays_within_the_default_entry_budget"
+      ]
     }
   ]
 }

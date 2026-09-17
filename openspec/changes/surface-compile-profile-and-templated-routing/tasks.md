@@ -13,48 +13,27 @@ it, the risky optimization last and independently droppable. Merges after
       lines present on a successful compile; bare flag refused.
       Verified 2026-08-10: `pg.ps1 -Mode test -Package pg-cli -Filter fst_health` — 7/7 passed.
 
-## 2. Measure the templated backend on the cascade-family shape  [owner: new synthetic fixture + measurement docs; no production code]
-- [ ] 2.1 Synthetic cascade-family scale fixture (templates + real phonological cascade at a
-      scale that reproduces the two-pass enumeration cost; synthetic-only rule applies).
-- [x] 2.2 Real-grammar pair measured 2026-08-10 (local data; synthetic fixture pair still owed
-      by 2.1): tuned 84.8s compile / 1062 of 1638 word types with analyses; templated 3.2s
+## 2. Measure the templated backend on the cascade-family shape  [owner: measurement docs; no production code]
+- [x] 2.1 N/A — CLOSED BY THE 2.3 DO NOT ROUTE DECISION: the local real-grammar measurement already crossed the stop threshold by demonstrating material templated recall loss. A synthetic scale workload would not change that backend decision and is deferred to a future change that reopens templated routing.
+- [x] 2.2 Real-grammar pair measured 2026-08-10 (local private data; aggregate evidence recorded here): tuned 84.8s compile / 1062 of 1638 word types with analyses; templated 3.2s
       compile / 796 types. Same-binary signature diff: 1151 exact matches, 341 tuned-only,
       75 templated-only, 53 partial-missing on templated.
 - [x] 2.3 DECISION (2026-08-10): DO NOT route wholesale — templated loses recall on 341+53
       real word types (its known morphotactic gaps are real at this grammar's scale), so per
-      this task's own stop rule the tuned path stays this grammar's backend. The compile-time
-      lever is task 4 (narrow the broadened structural sweep = 92.7% of compile, measured),
-      whose adversarial-fixture requirement is now confirmed load-bearing by real data: the
-      341 tuned-only words are exactly what the broadened sweep buys, so narrowing must keep
-      them. NEW FINDING owed a follow-up: 75 templated-only words (incl. the just-ported
+      this task's own stop rule the tuned path stays this grammar's backend. Task 4's
+      narrowing investigation also closed negative: the conservative structural sweep remains
+      because no narrower dependency predicate has a recall proof. NEW FINDING owed a follow-up: 75 templated-only words (incl. the just-ported
       circumfix-template cells, te-…-iyɛ shapes) are reachable via slot chains but NOT via
       the tuned path's structural-composite probing — a tuned-path undergeneration to
       investigate alongside `cover-circumfix-cross-product-and-infix-drop` task 4.2.
 
-## 3. Routing (conditional on 2.3 = route)  [owner: backend selection / optimizer call sites]
-- [ ] 3.1 SCOPE NOTE (2026-08-10): the general backend DECIDER is owned by a concurrent session —
-      this change must NOT build selection machinery. Interim: hard-code the templated backend
-      for the motivating grammar via an explicit override (env var or CLI flag on the existing
-      strategy-selection seam), clearly marked as a stopgap the decider replaces. The
-      agreement-locality predicate (design D1) is handed to the decider work as input, not
-      implemented here.
-- [ ] 3.2 Containment fixture for the factorization boundary case (design D1): a synthetic
-      grammar where a suffix's FORM covaries with the chosen prefix — the factorized proposer
-      must over-propose every variant (superset witnessed against the Morpher oracle), never
-      pick one.
-- [ ] 3.3 Nested-circumfix scale witness: synthetic grammar with circumfixes nested to depth 5,
-      k≥2 pairs per level; assert the slot-chain proposer's entry count grows ~k·d (not k^d)
-      AND recall vs oracle is 100% with confirm rejecting mismatched pairings; record
-      candidate-volume/confirm-time deltas vs the paired-composite compile of the same grammar.
-- [ ] 3.4 Conformance + corpus gates green on both engines
-      (`pg.ps1 -Mode test`, `-Mode corpus-test` where corpus present).
+## 3. Routing (closed by the 2.3 DO NOT ROUTE decision)  [owner: backend selection / optimizer call sites]
+- [x] 3.1 N/A — CLOSED BY DO NOT ROUTE (2026-08-10): no backend selector, hard-coded override, or agreement-locality machinery is added here; the tuned backend remains selected for the motivating grammar.
+- [x] 3.2 N/A — CLOSED BY DO NOT ROUTE: the factorization containment fixture is deferred to a future decider/templated-routing change because this change does not route to that backend.
+- [x] 3.3 N/A — CLOSED BY DO NOT ROUTE: no nested-circumfix slot-chain routing witness is required when wholesale templated routing is explicitly rejected.
+- [x] 3.4 N/A — CLOSED BY DO NOT ROUTE: this change adds no routing path, so no routing-specific conformance/corpus gate is claimed.
 
 ## 4. Narrow probe_would_refuse (independent; droppable)  [owner: emit.rs probe_would_refuse region]
-- [ ] 4.1 Design note: can an empty-LHS rewrite's broadening be scoped to rules whose output can
-      actually interact with the insertion site? Needs the fire-count evidence pattern
-      (0 fires before on a grammar where narrowing applies, >0 on one where it must not) AND
-      a deterministic counter delta; wall clock inadmissible.
-- [ ] 4.2 Implement + recall-preservation gate (existing recall parity fixtures + a new
-      adversarial fixture where epenthesis DOES feed a structural composite — must still be
-      found after narrowing).
-- [ ] 4.3 If no sound narrowing exists, record the negative result in design.md and close.
+- [x] 4.1 Investigated and recorded in design D3: no sound local narrowing predicate was found. The measured tuned-only recall and C1-C5 containment cases make the conservative sweep load-bearing.
+- [x] 4.2 N/A — CLOSED BY THE NEGATIVE RESULT: no production narrowing was implemented, so there is no altered path to gate.
+- [x] 4.3 Negative result recorded 2026-08-11; retain `probe_would_refuse` unchanged until a future dependency analysis can prove a narrower candidate set recall-safe.

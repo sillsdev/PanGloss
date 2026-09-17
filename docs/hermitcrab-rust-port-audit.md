@@ -41,6 +41,7 @@ evolves into its broader FST-hybrid scope.
 |---|---|---|
 | Stratum (`Linear`/`Unordered` rule order) | Ported | |
 | `AffixProcessRule`: prefix/suffix/circumfix/infix | Ported | |
+| FieldWorks/LCM circumfix cross-product lowering | **Closed** (2026-08-11) | `pg-grammar` now emits the prefix × suffix × environment cross-product with FieldWorks-compatible RHS/environment parity; distinct from FST structural-composite containment cases C1-C5 in `pg-foma`/`emit.rs`. |
 | `AffixProcessRule`: reduplication (`ReduplicationHint`) | Ported | tested against the real Indonesian corpus (`indonesian_redup_gate.rs`) |
 | `AffixProcessRule`: subtraction/truncation | Ported | |
 | `RealizationalAffixProcessRule` | Ported | |

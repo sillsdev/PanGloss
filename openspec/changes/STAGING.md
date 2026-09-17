@@ -458,7 +458,40 @@ These assume shippable packs and trail the compilation spine:
   conformance fixture + a construct-driven target; the honest 32/104 floor and non-comparable
   68/104 history are preserved as provenance, not as actual-language data.
 
+### Serialized merge order for the circumfix/profile follow-ons (2026-08-11)
+
+`cover-circumfix-cross-product-and-infix-drop` merges first. It owns the semantic Infix-with-drop structural-candidate and preexpand-handoff work at the `rust/crates/pg-foma/src/emit.rs` `is_structural_rule`/candidate-selection boundary. After that tip is integrated, `surface-compile-profile-and-templated-routing` may merge; any later `emit.rs` work in its `probe_would_refuse` region is serialized after the cover change and must rebase onto it. The surface change currently closes backend routing as N/A by the DO NOT ROUTE decision, so it must not add a competing selector or override.
+
 ## Merge hotspots
+
+### Serialized planner/health reintegration order (2026-08-13)
+
+The audited `codex/profiler-health` branch is retained as committed source material at `45abaffc`,
+but its worktree has been removed and the branch must not be merged wholesale. Its older health-owned
+backend selection predates the Machine-obligation planner boundary.
+
+Implementation order is strict:
+
+1. integrate the accepted circumfix/filter tip and pin/import Machine atomic, within-rule
+   configuration, cross-rule interaction, and schedule obligation IDs;
+2. make one deep `PlanningOutcome`/`StrategyChoice` interface replace the current public selection
+   orchestration, keeping enumeration, capability, backend materialization, fallback, and cost as
+   planner internals;
+3. port `pg-evidence` from `c29ff254^..a85c0009`;
+4. adapt preflight and health evaluation to consume planner and cost evidence, removing
+   health-owned `best_case_across_backends` authority;
+5. port deterministic HC profiling with proposal/filter/confirmation attribution and explicit
+   censoring/completeness;
+6. adapt HealthReport v2 and `fst-health` to the selected runtime pipeline;
+7. port acknowledgements after evidence/report identities freeze;
+8. port attention last, preserving evidence joins but not backend choice or semantic repair advice.
+
+The executable queue and source-commit ledger are in
+`docs/superpowers/plans/2026-08-13-planner-owned-health-reintegration.md`; the concise live checklist
+is `recipe-scoped-fst-health/tasks.md`.
+
+`CandidateFilter` remains the runtime stage `proposer -> CandidateFilter -> HC`, never a
+`PlanNodeKind::Gate`. Unknown or high cost may carry a caveat but cannot create a semantic `Refuse`.
 
 - `replace.rs` / `gate.rs`: one semantic owner at a time.
 - `emit.rs`: one owner at a time across profiling and semantic compiler work.

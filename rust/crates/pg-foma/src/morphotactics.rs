@@ -63,6 +63,9 @@ use pg_featstruct::{is_unifiable, FeatureStruct, FsId, Interner};
 use pg_grammar::model::{Grammar, MRuleId, MorphRuleDef, OutputAction, PartRef, SlotDef};
 use rustc_hash::FxHashMap;
 
+/// Mbugwe-backed bound on structural composite rules beyond a root.
+pub(crate) const STRUCTURAL_COMPOSITE_MAX_EXTRA_RULES: usize = 5;
+
 /// The flat/pruned escape hatch (plan doc "Wiring": "an internal parameter... NOT a runtime branch
 /// tests can't control"). Threaded explicitly from every caller -- `crate::emit::emit_with_precision`
 /// resolves this from `HC_PREEXPAND_FLAT` exactly once (via `explore_mode_from_env`) and passes it
@@ -137,7 +140,7 @@ impl<'a> ProbeBudget<'a> {
 // Default-on, non-panicking enumeration budget that fails fast on an Aweti-scale blow-up.
 // See docs/research/pg-foma-morphotactics-design-notes.md for the two-measure rationale and calibration.
 pub(crate) const DEFAULT_ENTRY_BUDGET: usize = 200_000;
-pub(crate) const DEFAULT_PROBE_BUDGET: usize = 3_000_000;
+pub(crate) const DEFAULT_PROBE_BUDGET: usize = 10_000_000;
 
 pub(crate) fn entry_budget_from_env() -> usize {
     std::env::var("HC_ENUM_ENTRY_BUDGET")
@@ -288,8 +291,8 @@ impl EnumerationBudget {
 /// versus a `u32`, cheap to justify since the whole point of a subset-construction state is to stay
 /// small and `Clone`-cheap across a deep recursion. A `Vec` (not e.g. a `SmallVec`) is used
 /// deliberately: this crate has no existing `smallvec` dependency, `mid` is empty or a handful of
-/// entries for every grammar this pruning targets (a chain is bounded by `MAX_EXTRA_RULES`/
-/// `STRUCT_MAX_EXTRA_RULES` = 3), and adding a new dependency for that shape is not worth it.
+/// entries for every grammar this pruning targets (composite chains are bounded at five rules),
+/// and adding a new dependency for that shape is not worth it.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ChainState {
     pub free: Option<u8>,

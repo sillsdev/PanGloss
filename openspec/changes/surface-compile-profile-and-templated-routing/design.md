@@ -82,3 +82,13 @@ requirements per the repo's optimization rules: a fire-count witness both ways (
 narrowing prunes the sweep; an adversarial grammar where epenthesis genuinely feeds a structural
 composite and MUST still be swept) plus a deterministic counter delta (pairs-probed). If no sound
 narrowing exists, record the negative result and drop the task.
+
+**Negative result (2026-08-11): retain the conservative broadening.** The real-grammar
+comparison rejected the templated path because it missed 341 complete word types and partially
+missed 53 more, while the tuned structural sweep supplied those candidates. The C1-C5 containment
+fixtures also demonstrate that phonology can feed structural composites across several role
+shapes. No local empty-LHS/output-interaction predicate was found that excludes work while proving
+those paths unreachable; adding one without a dependency proof would trade measured compile time
+for silent undergeneration. Therefore this change makes no `probe_would_refuse` production edit.
+A future optimization needs a new dependency analysis plus the fire-count/adversarial evidence
+specified above.

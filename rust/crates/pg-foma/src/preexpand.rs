@@ -401,7 +401,8 @@ fn render_all_variants(table: &CharDefTable, segs: &[ProbeSeg]) -> Vec<String> {
     variants
 }
 
-/// Bound on total composite chain length beyond the root; why 3, and the Amharic case that set it: docs/research/pg-foma-preexpand-design-notes.md.
+/// Ordinary pre-expansion stays at the Amharic-backed depth documented in
+/// docs/research/pg-foma-preexpand-design-notes.md.
 const MAX_EXTRA_RULES: usize = 3;
 
 /// One in-progress composite chain step's context, threaded through `extend`'s recursion.

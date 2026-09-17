@@ -186,6 +186,9 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::time::Instant;
 
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
+
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 use foma::utf8::is_combining;
@@ -1928,8 +1931,8 @@ fn build_slot_chain(
 
 // Structural composites replay `pg_rules::morph::synthesize` for rules `crate::preexpand` cannot represent (truncation, and probe-refused rules), reusing its `Composites`/`CompositeExit` wiring.
 
-/// Bound on a structural composite chain's length beyond the root, same rationale as `crate::preexpand::MAX_EXTRA_RULES`.
-const STRUCT_MAX_EXTRA_RULES: usize = 3;
+/// Structural-chain bound required by the five-rule Mbugwe containment regression.
+const STRUCT_MAX_EXTRA_RULES: usize = crate::morphotactics::STRUCTURAL_COMPOSITE_MAX_EXTRA_RULES;
 
 /// True if some LHS part of `a` is never copied into the RHS, i.e. the rule drops root material.
 fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
@@ -1945,6 +1948,74 @@ fn rhs_drops_lhs_material(a: &AffixAllomorphDef) -> bool {
         })
         .collect();
     (0..a.lhs.len() as u16).any(|i| !copied.contains(&i))
+}
+
+/// True for an authored, nonempty insertion that a surface-copy peel cannot invert.
+fn has_concrete_insert_segments(rhs: &[OutputAction]) -> bool {
+    rhs.iter().any(|action| {
+        matches!(
+            action,
+            OutputAction::InsertSegments { shape, .. } if !shape.text.is_empty()
+        )
+    })
+}
+
+/// Tests whether the selected allomorph, rather than merely its rule, anchors the depth-four/five tail.
+
+fn selected_allomorph_is_structural(g: &Grammar, allomorph: AllomorphId) -> bool {
+    let Some(AllomorphOwner::Affix(mid, index)) = g.allomorph_owners.get(allomorph.0 as usize)
+    else {
+        return false;
+    };
+    let Some(allo) = allomorphs_of(g, *mid).get(*index as usize) else {
+        return false;
+    };
+    if let MorphRuleDef::AffixProcess(def) = &g.mrules[mid.0 as usize] {
+        if !g.fs_interner.get(def.out_syn_fs).is_empty()
+            && allomorphs_of(g, *mid)
+                .iter()
+                .all(|a| classify_affix(&a.rhs) == Role::None)
+        {
+            return true;
+        }
+    }
+    let role = classify_affix(&allo.rhs);
+    role == Role::CircumfixPrefix
+        || has_unemittable_action(&allo.rhs)
+        || (role == Role::Reduplication && has_concrete_insert_segments(&allo.rhs))
+        || (rhs_drops_lhs_material(allo)
+            && matches!(role, Role::None | Role::Prefix | Role::Suffix | Role::Infix))
+}
+
+/// Detects a newly synthesized structural allomorph without counting inherited morph records.
+
+fn result_has_structural_anchor(
+    g: &Grammar,
+    base_word: &Word,
+    synthesized: &Word,
+    rule: MRuleId,
+    rule_morpheme: MorphemeId,
+) -> bool {
+    let selected: Vec<AllomorphId> = synthesized
+        .morphs
+        .iter()
+        .filter(|record| {
+            record.morpheme == rule_morpheme
+                && !base_word
+                    .morphs
+                    .iter()
+                    .any(|base| base.allomorph == record.allomorph)
+        })
+        .map(|record| record.allomorph)
+        .collect();
+    if selected.is_empty() {
+        // Zero-surface results lack a new record, so rule-level anchoring preserves recall.
+
+        return is_structural_rule(g, rule);
+    }
+    selected
+        .into_iter()
+        .any(|allomorph| selected_allomorph_is_structural(g, allomorph))
 }
 
 /// True if any allomorph of `mid` classifies `Role::CircumfixPrefix`, unlike `rule_role` (allomorph 0 only).
@@ -1986,6 +2057,9 @@ pub(crate) fn is_structural_rule(g: &Grammar, mid: MRuleId) -> bool {
         || allomorphs_of(g, mid)
             .iter()
             .any(|a| has_unemittable_action(&a.rhs))
+        || allomorphs_of(g, mid).iter().any(|a| {
+            classify_affix(&a.rhs) == Role::Reduplication && has_concrete_insert_segments(&a.rhs)
+        })
     {
         return true;
     }
@@ -2205,7 +2279,8 @@ struct StructAcc {
     covered_rules: BTreeSet<u32>,
 }
 
-/// Extends `base_word` with every remaining candidate rule, recursing up to `STRUCT_MAX_EXTRA_RULES`; mirrors `crate::preexpand::extend` but always emits, since every candidate here is one the ordinary path cannot represent at all.
+/// Extends ordinary chains through depth three and structurally anchored chains through depth five.
+
 #[allow(clippy::too_many_arguments)]
 fn struct_extend(
     ctx: &StructCtx,
@@ -2213,6 +2288,7 @@ fn struct_extend(
     chain: &[(MorphemeId, String)],
     rule_chain: &[MRuleId],
     depth: usize,
+    anchored: bool,
     width: usize,
     state: &ChainState,
     acc: &mut StructAcc,
@@ -2226,6 +2302,11 @@ fn struct_extend(
     }
     let base_fs = base_word.syn_fs.clone();
     for &mid in ctx.rules {
+        // The fifth rule must be a possible anchor when the preceding chain is unanchored.
+
+        if depth + 1 == STRUCT_MAX_EXTRA_RULES && !anchored && !is_structural_rule(ctx.g, mid) {
+            continue;
+        }
         let rule = &ctx.g.mrules[mid.0 as usize];
         let (req, rule_morpheme) = match rule {
             MorphRuleDef::AffixProcess(def) => (def.required_syn_fs, def.morpheme),
@@ -2256,57 +2337,53 @@ fn struct_extend(
         next_rule_chain.push(mid);
 
         for w in pg_rules::morph::synthesize(ctx.g, base_word, rule) {
+            let next_anchored =
+                anchored || result_has_structural_anchor(ctx.g, base_word, &w, mid, rule_morpheme);
             let mut next_chain = chain.to_vec();
             next_chain.push((rule_morpheme, tags::morph_tag_lexc(rule_morpheme, width)));
-            let Some(tag_lexc) = struct_morph_order_tags(&w, &next_chain) else {
-                struct_extend(
-                    ctx,
-                    &w,
-                    &next_chain,
-                    &next_rule_chain,
-                    depth + 1,
-                    width,
-                    &next_state,
-                    acc,
-                );
-                continue;
-            };
 
-            let surfaces: Vec<String> =
-                match probe_surface(ctx.g, ctx.root_table, &w.shape, ctx.cache) {
-                    Some(s) => vec![s],
-                    None => {
-                        // Probe refused: fall back to real generation for the whole chain so far, which can return more than one surface when the LHS match is genuinely ambiguous.
-                        let others: Vec<GenMorpheme> = next_rule_chain
-                            .iter()
-                            .map(|&m| GenMorpheme::Rule(m))
-                            .collect();
-                        ctx.morpher
-                            .generate_words(ctx.root_entry, &others, FeatureStruct::EMPTY)
-                            .iter()
-                            .flat_map(|s| with_boundary_insertions(s, ctx.boundary_reps))
-                            .collect()
+            // Traverse but do not emit unanchored depth four, allowing the fifth rule to anchor.
+
+            if next_anchored || depth < 3 {
+                if let Some(tag_lexc) = struct_morph_order_tags(&w, &next_chain) {
+                    let surfaces: Vec<String> =
+                        match probe_surface(ctx.g, ctx.root_table, &w.shape, ctx.cache) {
+                            Some(s) => vec![s],
+                            None => {
+                                // Reverse for `generate_words`'s last-first analysis trail.
+                                let others: Vec<GenMorpheme> = next_rule_chain
+                                    .iter()
+                                    .rev()
+                                    .map(|&m| GenMorpheme::Rule(m))
+                                    .collect();
+                                ctx.morpher
+                                    .generate_words(ctx.root_entry, &others, FeatureStruct::EMPTY)
+                                    .iter()
+                                    .flat_map(|s| with_boundary_insertions(s, ctx.boundary_reps))
+                                    .collect()
+                            }
+                        };
+
+                    for s in &surfaces {
+                        if s.is_empty() {
+                            continue;
+                        }
+                        acc.covered_rules.insert(mid.0);
+                        if acc.seen.insert((tag_lexc.clone(), s.clone())) {
+                            acc.recs.push(crate::preexpand::CompositeRec {
+                                morpheme: next_chain[0].0,
+                                chain_morphemes: next_chain
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, (m, _))| (i == 0, *m))
+                                    .collect(),
+                                tag_lexc: tag_lexc.clone(),
+                                variants: vec![s.clone()],
+                            });
+                            // Same enumeration-budget measure `crate::preexpand::extend`'s entries feed.
+                            ctx.enum_budget.add_entries(1);
+                        }
                     }
-                };
-
-            for s in &surfaces {
-                if s.is_empty() {
-                    continue;
-                }
-                acc.covered_rules.insert(mid.0);
-                if acc.seen.insert((tag_lexc.clone(), s.clone())) {
-                    acc.recs.push(crate::preexpand::CompositeRec {
-                        morpheme: next_chain[0].0,
-                        chain_morphemes: next_chain
-                            .iter()
-                            .enumerate()
-                            .map(|(i, (m, _))| (i == 0, *m))
-                            .collect(),
-                        tag_lexc: tag_lexc.clone(),
-                        variants: vec![s.clone()],
-                    });
-                    // Same enumeration-budget measure `crate::preexpand::extend`'s entries feed.
-                    ctx.enum_budget.add_entries(1);
                 }
             }
 
@@ -2316,6 +2393,7 @@ fn struct_extend(
                 &next_chain,
                 &next_rule_chain,
                 depth + 1,
+                next_anchored,
                 width,
                 &next_state,
                 acc,
@@ -2323,7 +2401,6 @@ fn struct_extend(
         }
     }
 }
-
 /// Builds every structural composite for `g`; a no-op when `rules` is empty. Also returns every rule id that produced an entry, so `emit` can drop its now-stale `uncovered` items.
 #[allow(clippy::too_many_arguments)]
 fn build_structural_composites(
@@ -2340,56 +2417,104 @@ fn build_structural_composites(
     if rules.is_empty() {
         return (Vec::new(), BTreeSet::new());
     }
+    // Every stratum shares one surface table in the reference grammars, so computing this once is safe.
+    let bnd_reps = boundary_reps(surface_table(g));
+    // Unique root tags make per-entry key spaces disjoint, so local entry budgets remain exact.
+    let work: Vec<LexEntryId> = g
+        .strata
+        .iter()
+        .flat_map(|sd| sd.entries.iter().copied())
+        .collect();
+    let process = |&entry_id: &LexEntryId| -> StructAcc {
+        let mut acc = StructAcc {
+            recs: Vec::new(),
+            seen: rustc_hash::FxHashSet::default(),
+            covered_rules: BTreeSet::new(),
+        };
+        if enum_budget.is_tripped() {
+            return acc;
+        }
+        let entry = &g.entries[entry_id.0 as usize];
+        let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
+        let root_table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
+        let entry_fs = g.fs_interner.get(entry.syn_fs);
+        let ctx = StructCtx {
+            g,
+            root_table,
+            root_entry: entry_id,
+            rules,
+            cache,
+            morpher,
+            boundary_reps: &bnd_reps,
+            mt,
+            mode,
+            probe_budget,
+            enum_budget,
+        };
+
+        for allo in &entry.allomorphs {
+            if allo.is_pattern {
+                continue;
+            }
+            let Ok(shape) =
+                pg_rules::shape_feat::segment_with_features(g, root_table, &allo.shape.text)
+            else {
+                continue;
+            };
+            let mut word = Word::new(shape, root_stratum);
+            word.syn_fs = entry_fs.clone();
+            word.mpr = entry.mpr;
+            word.root_allomorph = Some(allo.id);
+            word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
+
+            let root_tag = tags::root_tag_lexc(entry.morpheme, width);
+            let chain0 = vec![(entry.morpheme, root_tag)];
+            let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
+            struct_extend(
+                &ctx,
+                &word,
+                &chain0,
+                &[],
+                0,
+                false,
+                width,
+                &seed_state,
+                &mut acc,
+            );
+        }
+        acc
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let per_entry: Vec<StructAcc> = {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .stack_size(PROBE_STACK_BYTES)
+            .build()
+            .expect("build structural-composite rayon pool");
+        pool.install(|| work.par_iter().map(process).collect())
+    };
+    #[cfg(target_arch = "wasm32")]
+    let per_entry: Vec<StructAcc> = work.iter().map(process).collect();
+    // Ordered merge restores grammar-wide dedup and the original lexical-entry order.
     let mut acc = StructAcc {
         recs: Vec::new(),
         seen: rustc_hash::FxHashSet::default(),
         covered_rules: BTreeSet::new(),
     };
-    // Every stratum shares one surface table in the reference grammars, so computing this once is safe.
-    let bnd_reps = boundary_reps(surface_table(g));
-
-    for sd in &g.strata {
-        for &entry_id in &sd.entries {
-            let entry = &g.entries[entry_id.0 as usize];
-            let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
-            let root_table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
-            let entry_fs = g.fs_interner.get(entry.syn_fs);
-
-            for allo in &entry.allomorphs {
-                if allo.is_pattern {
-                    continue;
-                }
-                let Ok(shape) =
-                    pg_rules::shape_feat::segment_with_features(g, root_table, &allo.shape.text)
-                else {
-                    continue;
-                };
-                let mut word = Word::new(shape, root_stratum);
-                word.syn_fs = entry_fs.clone();
-                word.mpr = entry.mpr;
-                word.root_allomorph = Some(allo.id);
-                word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
-
-                let root_tag = tags::root_tag_lexc(entry.morpheme, width);
-                let chain0 = vec![(entry.morpheme, root_tag)];
-                let ctx = StructCtx {
-                    g,
-                    root_table,
-                    root_entry: entry_id,
-                    rules,
-                    cache,
-                    morpher,
-                    boundary_reps: &bnd_reps,
-                    mt,
-                    mode,
-                    probe_budget,
-                    enum_budget,
-                };
-                // Seeded the same way `crate::preexpand::process_root_work` seeds pruning.
-                let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
-                struct_extend(&ctx, &word, &chain0, &[], 0, width, &seed_state, &mut acc);
+    for local in per_entry {
+        for rec in local.recs {
+            let tag = rec.tag_lexc.clone();
+            let variants: Vec<String> = rec
+                .variants
+                .into_iter()
+                .filter(|surface| acc.seen.insert((tag.clone(), surface.clone())))
+                .collect();
+            if !variants.is_empty() {
+                acc.recs
+                    .push(crate::preexpand::CompositeRec { variants, ..rec });
             }
         }
+        acc.covered_rules.extend(local.covered_rules);
     }
     (acc.recs, acc.covered_rules)
 }

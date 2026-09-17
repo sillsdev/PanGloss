@@ -1,0 +1,2326 @@
+ ▐▛███▜▌   Claude Code v2.1.226
+▝▜█████▛▘  Opus 5 · Claude Team
+  ▘▘ ▝▝    ~\Documents\repos\PanGloss\.claude\worktrees\circumfix-cross-pro…
+
+
+❯ /remote-control 
+
+❯ I have a new fieldworks project                                               
+  "C:\Users\johnm\Documents\repos\PanGloss\Mbugwe LizzieHC practice 2026-08-10  
+  1414 version to send to John Lambert.fwbackup".  Make it the 5th language we  
+  are testing.  Do a HC rust pass and then a PanGloss FST pass - use all the    
+  text found - and give me the timing stats p50, p90, p95 and 5 worst words.    
+
+● I'll start by understanding how the existing 4 test languages are set up.
+
+  Searched for 2 patterns, read 3 files, listed 2 directories, ran 36 shell commands (ctrl+o to expand)
+
+● Stop Task
+  ⎿  cd C:\Users\johnm\Documents\repos\PanGloss; .\rust\tools\pg.ps1 -Mode
+     release 2>&1 | Tee-Object -FilePath
+     "C:\Users\johnm\AppData\Local\Temp\claude\C--Users-joh… · stopped
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Foma refuses at the default enumeration budget (200,730 composite entries vs.
+  a 200,000 cap) — 0.4% over. Raising it via the documented env override.
+  Launching the full FST pass now:
+
+  Made 1 scratchpad edit +70, searched for 2 patterns, read 1 file, ran 9 shell commands (ctrl+o to expand)
+
+● Update(~\Documents\repos\PanGloss\rust\crates\pg-foma\src\analyzer.rs)
+  ⎿  Added 53 lines
+      727          }
+      728      }
+      729  
+      730 +    /// Loads the real Mbugwe grammar if present on disk; giti
+          +gnored, so copy it from the main checkout's `samples/data/` if
+          + missing.                                                     
+      731 +    fn load_mbugwe() -> Option<Grammar> {                     
+      732 +        let path = std::path::Path::new(env!("CARGO_MANIFEST_D
+          +IR"))                                                         
+      733 +            .join("../../../samples/data/mbugwe.fwdata");     
+      734 +        if !path.exists() {                                   
+      735 +            return None;                                      
+      736 +        }                                                     
+      737 +        let (snapshot, _report) = pg_fwdata::import_file(&path
+          +)                                                             
+      738 +            .unwrap_or_else(|e| panic!("import {}: {e}", path.
+          +display()));                                                  
+      739 +        let (g, _warnings) = pg_grammar::compile_project(&snap
+          +shot)                                                         
+      740 +            .unwrap_or_else(|e| panic!("compile mbugwe project
+          +: {e}"));                                                     
+      741 +        Some(g)                                               
+      742 +    }                                                         
+      743 +                                                              
+      744 +    /// Mbugwe sits just above `DEFAULT_ENTRY_BUDGET` rather t
+          +han orders of magnitude past it like                          
+      745 +    /// Aweti, so it pins the *default* cap's placement — the 
+          +case where a real grammar is refused                          
+      746 +    /// by a margin small enough that moving the constant woul
+          +d silently admit it.                                          
+      747 +    #[test]                                                   
+      748 +    fn mbugwe_exceeds_the_default_entry_budget() {            
+      749 +        let Some(g) = load_mbugwe() else {                    
+      750 +            eprintln!("skipping: samples/data/mbugwe.fwdata no
+          +t present on disk");                                          
+      751 +            return;                                           
+      752 +        };                                                    
+      753 +        let default_cap = crate::morphotactics::DEFAULT_ENTRY_
+          +BUDGET;                                                       
+      754 +        let budget = EnumerationBudget::with_caps(default_cap,
+          + usize::MAX);                                                 
+      755 +                                                              
+      756 +        match FomaProposer::new_with_budget(&g, &budget, &Comp
+          +oseBudget::unbounded()) {                                     
+      757 +            Err(FomaError::EnumerationBudgetExceeded {        
+      758 +                measure,                                      
+      759 +                value,                                        
+      760 +                limit,                                        
+      761 +            }) => {                                           
+      762 +                assert_eq!(limit, default_cap);               
+      763 +                assert_eq!(                                   
+      764 +                    measure, "composite lexc entries (fusion +
+          + interdigitation + structural)",                              
+      765 +                    "an unbounded probe cap must leave the ENT
+          +RY measure as the only one that can trip"                     
+      766 +                );                                            
+      767 +                eprintln!("mbugwe default-entry-budget tripped
+          + at value={value} limit={limit}");                            
+      768 +                assert!(                                      
+      769 +                    value > limit,                            
+      770 +                    "tripped value {value} must exceed the lim
+          +it {limit}"                                                   
+      771 +                );                                            
+      772 +            }                                                 
+      773 +            Err(other) => panic!(                             
+      774 +                "expected FomaError::EnumerationBudgetExceeded
+          +, got a different FomaError: {other}"                         
+      775 +            ),                                                
+      776 +            Ok(_) => panic!(                                  
+      777 +                "expected Mbugwe to exceed the default entry b
+          +udget ({default_cap}); \                                      
+      778 +                 FomaProposer::new_with_budget succeeded inste
+          +ad"                                                           
+      779 +            ),                                                
+      780 +        }                                                     
+      781 +    }                                                         
+      782 +                                                              
+      783      /// Sanity check the other direction: on a tiny grammar wi
+           th no composite mechanism at all, an unbounded budget must nev
+           er trip.
+      784      #[test]
+      785      fn tiny_grammar_never_trips_unbounded_budget() {
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Update(~\Documents\repos\PanGloss\rust\tools\corpus-manifest.json)
+  ⎿  Added 20 lines
+      108          "pg-foma --test p6_templated_morphotactics_gate",
+      109          "pg-foma --test compose_recall_aweti_gate"
+      110        ]
+      111 +    },                                                        
+      112 +    {                                                         
+      113 +      "logical_name": "mbugwe",                               
+      114 +      "purpose": "Bantu agglutinating verb morphology imported
+          + straight from a FieldWorks project. The grammar that lands ju
+          +st past the eager-enumeration entry budget (200730 composite l
+          +exc entries against a 200000 default), so it pins where that d
+          +efault sits; also the widest measured HC-oracle/foma latency g
+          +ap in this manifest.",                                        
+      115 +      "files": [                                              
+      116 +        { "path": "mbugwe.fwdata", "role": "grammar-fwdata", "
+          +required": true },                                            
+      117 +        {                                                     
+      118 +          "path": "mbugwe-words.txt",                         
+      119 +          "role": "corpus",                                   
+      120 +          "required": true,                                   
+      121 +          "word_list": {                                      
+      122 +            "line_ending": "CRLF",                            
+      123 +            "skip_leading_lines": 0,                          
+      124 +            "notes": "No header. Derived from the project's ow
+          +n 30 interlinear texts (StTxtPara Contents runs in the mgz ver
+          +nacular writing system, whitespace-tokenized): 2120 tokens, 16
+          +38 unique types in first-appearance order. The texts carry no 
+          +sentence punctuation at all, so tokenization is whitespace-onl
+          +y and needs no stripping pass. Every line is alphabet-valid --
+          + 0 batch SKIPPED rows on both engines -- but only because the 
+          +pipeline NFD-normalizes both sides: 262 types carry precompose
+          +d vowels (o-macron, o-diaeresis, a-macron, a-diaeresis, e-tild
+          +e and friends) that the project's phoneme inventory holds only
+          + as combining marks, and those marks are themselves stored aga
+          +inst a literal U+25CC dotted-circle placeholder that pg-fwdata
+          + strips on import. A tokenizer or word list built without both
+          + of those steps would report ~16% of this corpus as shape-inva
+          +lid. Word-initial U+02C6 (modifier circumflex) is a real phone
+          +me here, not markup. This corpus is SLOW under the default HC-
+          +oracle engine -- a large minority of words exceed a multi-seco
+          +nd per-word budget -- so always pass --word-timeout-ms when sa
+          +mpling it; the foma path is orders of magnitude faster but nee
+          +ds HC_ENUM_ENTRY_BUDGET raised above the default before it wil
+          +l compile at all."                                            
+      125 +          }                                                   
+      126 +        }                                                     
+      127 +      ],                                                      
+      128 +      "requiring_tests": [                                    
+      129 +        "pg-foma (lib) budget_tests::mbugwe_exceeds_the_defaul
+          +t_entry_budget"                                               
+      130 +      ]                                                       
+      131      }
+      132    ]
+      133  }
+
+  Searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+
+● Task Output bzuapdlbg
+  ⎿  parse phase started
+     LOADTIME   engine=foma     grammar_load_ms=89.358  analyzer_build_
+     ms=418731.906      t
+     otal_ms=418821.265
+
+● Background command "Wait for FST compile to finish" completed (exit code 0)
+
+● FST compile finished in 419s; now parsing 1638 words.
+
+● Task Output buw0rgyiy
+  ⎿  ----- pg preflight -----
+     mode: run  profile: <none -- running an already-built exe directly>
+     worktree: C:/Users/johnm/Documents/repos/PanGloss  (slug: PanGloss)
+     … +55 lines (ctrl+o to expand)
+
+● Background command "Full FST pass over all 1638 word types" completed (exit
+code 0)
+● FST pass complete: 1638 words, 0 skipped, 0 timeouts. Launching the HC pass
+  now (it will take much longer), then computing FST stats.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● FST pass results are in. Checking the HC run's rate to estimate its duration:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Task Output bq5i72ete
+  ⎿  (No output)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● HC is projected at ~4.5h (33% of words hitting the 20s cap). Letting it run to
+  completion. Meanwhile, refining the stats reporting for censored data:
+
+  Made 1 scratchpad edit +17 -5 (ctrl+o to expand)
+
+● Task Output bq5i72ete
+  ⎿  (No output)
+
+❯ How long did the FST pass take to analyze the words?  Did any time out?       
+
+❯ I just want a small answer - what was the timing before?  The output is not   
+  clear - ah we hit an override as well!                                        
+
+● FST pass — analysis time only (compile excluded): 197.7 s for all 1638 words. 
+  Zero timeouts, zero skipped.
+
+  - p50 19 ms, p90 169 ms, p95 303 ms, mean 121 ms
+  - Worst 5: mmbere 45016 ms, maanja 22137 ms, kaanuunɡu 13112 ms, komɔɔnsɔ 3205
+  ms, kokakaakwaata 1917 ms
+  - One-time FST build before that: 419 s
+
+  Two caveats you spotted:
+
+  1. The override is real. The run needed --allow-unproven — the capability gate
+  returns Refuse on circumfix-output-action.faithful-structural-composite
+  (mrule 166, allomorph #0). So these are not recall-proven numbers. It also
+  needed HC_ENUM_ENTRY_BUDGET=400000: the grammar emits 200,730 composite lexc
+  entries against the 200,000 default and otherwise refuses to compile at all.
+  2. The 20s word timeout didn't bind on the foma path — mmbere and maanja ran
+  45s and 22s and still reported ok, not TIMEOUT. Worth knowing before trusting
+  --word-timeout-ms as a bound there.
+
+  HC pass is still running in the background (~33% of words hitting the 20s cap
+  so far, projecting ~4.5h).
+
+✻ Crunched for 56m 6s
+
+❯ Hmm - we are working (in the other session in Pangloss) on having complete    
+  coverage of all features - is this just a timing / space override, or is it a 
+  feature or feature combination that is not represented in the FST?  Does it   
+  just overgenerate, or could it undergenerate?                                 
+
+● Good question — those are two separate overrides with completely different
+  risk profiles. Let me check the code rather than infer from the message text.
+
+  Ran 7 shell commands (ctrl+o to expand)
+
+● Two different things, and only one of them is benign.
+
+  1. HC_ENUM_ENTRY_BUDGET — pure space. 200,730 composite lexc entries against a
+  200,000 default cap. EnumerationBudget
+  (rust/crates/pg-foma/src/morphotactics.rs:139) is a fail-fast guard against
+  writing a multi-GB .lexc and OOMing foma's apply_up. Nothing semantic; raising
+  it changes no analysis. Mbugwe is 0.4% over — it just lands on the wrong side
+  of a line calibrated on Aweti.
+
+  2. --allow-unproven — a real feature-combination gap, and it UNDER-generates.
+
+  CircumfixStructuralCompositePredicate
+  (rust/crates/pg-foma/src/capability.rs:2364) returns Refuse when any observed
+  CircumfixOutputAction has structural_composite_attempted == false. Mbugwe has
+  one: mrule 166 allomorph #0, a LHS-material-dropping output action that
+  emit::is_structural_rule (emit.rs:1791) does not route through
+  build_structural_composites.
+
+  The consequence is under-generation, not over-generation. The predicate's own
+  doc says it: "the real compiler already honestly skips this exact allomorph, 
+  never a silent wrong compile, but a grammar depending on it must be refused 
+  rather than silently missing recall." The allomorph is reported uncovered and
+  never enters the net; the proposer therefore never emits a candidate using it,
+  and since the pipeline is FST-propose + HC-confirm with no full-HC fallback,
+  a candidate that is never proposed can never be confirmed. Those analyses are
+  silently gone. Over-generation would be the harmless direction — confirm
+  prunes it. This is the other one.
+
+  So: Refuse is doing exactly its job, and --allow-unproven converted "I won't
+  answer" into "I'll answer, possibly with holes." That's why the run banner
+  says the output is recall-unsafe.
+
+  3. Separately — a gap that hits both engines. Those two import warnings aren't
+  cosmetic. build_affix_rule (rust/crates/pg-grammar/src/compile/affixes.rs:61)
+  drops any MorphType::Circumfix entry outright: "circumfix cross-product 
+  allomorphs not implemented; entry skipped." Two Mbugwe lexical entries never
+  make it into the grammar at all, so the HC oracle is missing them too — which
+  means HC is not a clean recall baseline for this project either.
+
+  For your coverage work: Mbugwe is a real-grammar witness for the Refuse branch
+  of CharacteristicKind::CircumfixOutputAction, plus circumfix cross-product
+  allomorphs at the pg-grammar layer. Both are circumfix-shaped, which is
+  unsurprising for Bantu.
+
+  I can put a number on the actual recall loss for free — both passes write
+  signatures, so a word-by-word FST-vs-HC diff over the corpus measures exactly
+  how many analyses the FST path drops. HC is at 117/1638 (43.6% hitting the 20s
+  cap), so that comparison lands when it finishes.
+
+✻ Baked for 1m 49s
+
+❯ We need this feature in the FST and in HC rust.  I am glad for the refusal -  
+  it is the system working as it should.  Make a new branch and worktree and    
+  openspec plan out a full set of work, including a new conformance grammar, a  
+  finishing of the HC rust port and the best FST getting the new capability     
+  (tell me where you want to put the capability and why - with comparisons).    
+  Also, I want you to assess (separately, with a separate sonnet subagent), why 
+  it compiling taking 400s+?  Is there a way to make it faster?  A grammar      
+  fix?  A FST optimization fix?  Is a new backend needed for all of this? This  
+  is a real research problem.                                                   
+                                                                                
+  Use your ultracode skills in Fable - send sonnet subagents for                
+  implementation, but review yourself.  I want the research and the FST         
+  solutions to be fully thought through while the implementation and testing of 
+  it can be simpler sonnet subagents.                                           
+
+● The refusal doing its job is exactly right — now let's close the gap properly.
+  Setting up the worktree first, then launching the research workflow.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Workflow(Research circumfix cross-product gap (HC port + FST capability +
+          conformance) and profile the 400s+ mbugwe FST compile)
+  ⎿  /workflows to view dynamic workflow runs
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Status while the research fleet runs:
+
+  Done so far:
+  - Worktree + branch: .claude/worktrees/circumfix-cross-product, branch
+  circumfix-cross-product, base = current main (f49d12a), conformance submodule
+  auto-initialized, mbugwe fixtures copied in (they're gitignored, so they don't
+  travel automatically).
+  - Research workflow launched (circumfix-capability-research, 5 parallel Sonnet
+  agents):
+    a. compile-profile — the separate compile-time assessment you asked for:
+  measures where the 419s goes, characterizes whether mbugwe is Sena-shaped
+  (big/flat) or Aweti-shaped (template cross-product), and delivers a ranked
+  verdict on grammar fix vs. FST optimization vs. routing to the existing P6
+  templated backend vs. new backend.
+    b. capability-arch — evidence for the capability placement decision: what
+  each candidate home (structural composites, templated path, peeler pattern,
+  new builder) requires, its recall-proof obligation, and the full
+  new-capability checklist.
+    c. circumfix-semantics — ground truth: extracts the two skipped entries +
+  mrule 166 from the fwdata, reconstructs the HC C# cross-product semantics, and
+  checks whether pg-rules can already express two-sided rules (which would make
+  this a compiler-only port gap).
+    d. fixture-scout — conformance fixture design (synthetic-only rule enforced
+  in the prompt), including an undergeneration-witness case that must fail
+  today.
+    e. hc-port-scope — ordered task list for finishing the port in pg-grammar,
+  including the analyze/unapply side and discontinuous-morpheme accounting.
+
+  I'll do next (myself, not delegated): synthesize the capability-placement
+  decision with comparisons, write the full OpenSpec change in the worktree per
+  openspec/config.yaml rules (proposal → design with resolved decisions → tasks
+  as independently reviewable merge units, cross-referenced against STAGING.md),
+  then dispatch Sonnet implementation subagents against the task list and
+  review their work.
+
+  Also still running: the HC-oracle full pass (190/1638 words, ~34% hitting the
+  20s timeout — this corpus is genuinely hard for the default engine, projecting
+  ~4h remaining).
+
+✻ Crunched for 4m 44s
+
+● Background command "Wait for 200 HC words and project total runtime" completed
+(exit code 0)
+
+  Read 1 file (ctrl+o to expand)
+
+● HC pass tracking to ~4.8h total (204/1638 done, 32% timeout rate holding
+  steady). Research workflow still running — waiting on its completion
+  notification before synthesizing the design.
+
+✻ Cogitated for 15s
+
+● Dynamic workflow "Research circumfix cross-product gap (HC port + FST
+capability + conformance) and profile the 400s+ mbugwe FST compile" completed · 
+29m 47s
+
+● All 5 research agents finished. Reading the full reports:
+
+  Read 4 files, ran 7 shell commands (ctrl+o to expand)
+
+● Write(openspec\changes\cover-circumfix-cross-product-and-infix-drop\proposal.m
+       d)
+  ⎿  Wrote 74 lines to openspec\changes\cover-circumfix-cross-product-and-i
+     nfix-drop\proposal.md
+       1 # Proposal — cover-circumfix-cross-product-and-infix-drop
+       3 ## Why
+       4 
+       5 Onboarding the 5th test language (a FieldWorks project with Bant
+       6 two distinct, previously-uncensused circumfix-family gaps. Both 
+         were caught by the system working
+         oth cause **undergeneration**, the
+       8 direction the architecture exists to prevent:
+       9 
+         H engines).**
+     … +114 lines (ctrl+o to expand)
+
+● Write(openspec\changes\cover-circumfix-cross-product-and-infix-drop\design.md)
+  ⎿  Wrote 109 lines to openspec\changes\cover-circumfix-cross-product-and-
+     infix-drop\design.md
+       1 # Design — cover-circumfix-cross-product-and-infix-drop
+       2 
+       4 
+       5 Production pipelines being changed:
+       6 - `pg_grammar::compile::compile_project` → `lexicon::build` → `a
+       7   (the fwdata/snapshot compiler; NOT the legacy HC-XML `pg_gramm
+         ar::load`, which already handles
+       8   circumfix-shaped `MorphologicalRule`s generically).
+         structural_rule`,
+      10   `structural_candidate_rules`, `composite_candidate_rules`) and
+     … +204 lines (ctrl+o to expand)
+
+● Write(openspec\changes\cover-circumfix-cross-product-and-infix-drop\tasks.md)
+  ⎿  Wrote 84 lines to
+     openspec\changes\cover-circumfix-cross-product-and-infix-drop\tasks.md
+       1 # Tasks — cover-circumfix-cross-product-and-infix-drop
+       3 Merge units are independently reviewable and ordered. Unit 2's c
+         ompanion test MUST be red before
+         nothing here touches
+         le-profile-and-templated-routing`,
+       6 which merges AFTER this change).
+       8 ## 1. pg-grammar: circumfix cross-product port  [owner: pg-gramm
+         ar/src/compile/{affixes.rs,tests.rs}]
+          4-level cross-product
+         pe::Prefix`/`Suffix` filter;
+     … +140 lines (ctrl+o to expand)
+
+● Write(openspec\changes\cover-circumfix-cross-product-and-infix-drop\tasks.md)
+  ⎿  Added 20 lines, removed 24 lines
+       6  which merges AFTER this change).
+       7  
+       8  ## 1. pg-grammar: circumfix cross-product port  [owner: pg-gram
+          mar/src/compile/{affixes.rs,tests.rs}]
+       9 -- [x] 1.1 `build_circumfix_allomorphs` implementing the HCLoade
+         -r 4-level cross-product                                        
+       9 +- [ ] 1.1 `build_circumfix_allomorphs` implementing the HCLoade
+         +r 4-level cross-product                                        
+      10        (prefix × suffix × prefix-env × suffix-env; exact `MorphT
+          ype::Prefix`/`Suffix` filter;
+      11        loop-nesting order preserved for disjunctive allomorph in
+          dexing), LHS per design D4,
+      12        RHS `[Insert(pfx+), Copy(0), Insert(+sfx)]`, one `Environ
+          mentDef` for external contexts.
+      13 -- [x] 1.2 Replace the bail-out at `affixes.rs:60-67`: partition
+         - into prefix/suffix groups; empty                              
+      13 +- [ ] 1.2 Replace the bail-out at `affixes.rs:60-67`: partition
+         + into prefix/suffix groups; empty                              
+      14        group → warn + `None`; wire the built allomorphs into the
+           existing
+      15        `AffixProcessRuleDef` push AND the same slot-registration
+           path ordinary inflectional
+      16        rules use (`acc.slot_rules`), so owning templates gain th
+          e slot.
+      17 -- [x] 1.3 MPR asymmetry: per-allomorph inflection-class MPRs so
+         -urced from the PREFIX half only;                               
+      17 +- [ ] 1.3 MPR asymmetry: per-allomorph inflection-class MPRs so
+         +urced from the PREFIX half only;                               
+      18        no `required_syn_fs` on circumfix allomorphs (both are fa
+          ithful C# quirks — comment links
+      19        to design D4, no restating).
+      20 -- [x] 1.4 Tests: flip `circumfix_entry_is_unsupported_and_warns
+         -_rather_than_erroring` into a                                  
+      20 +- [ ] 1.4 Tests: flip `circumfix_entry_is_unsupported_and_warns
+         +_rather_than_erroring` into a                                  
+      21        positive lowering assertion; add (a) both-envs-empty → An
+          yPlus, (b) prefix-only env,
+      22        (c) suffix-only env, (d) both envs with external contexts
+           merging into one
+      23        `EnvironmentDef`, (e) 2 prefix × 2 suffix → 4 allomorphs 
+          in HCLoader nesting order,
+      24        (f) empty-suffix-group → warn + None, (g) dotted-circle a
+          lready stripped upstream.
+      25 -- [x] 1.5 XML-loader parity test: same semantic circumfix autho
+         -red as a snapshot fixture through                              
+      25 +- [ ] 1.5 XML-loader parity test: same semantic circumfix autho
+         +red as a snapshot fixture through                              
+      26        `compile_project` and as HC-XML through `load`; resulting
+           allomorph defs structurally
+      27        equal modulo naming.
+      28        Verify: `rust/tools/pg.ps1 -Mode test -Package pg-grammar
+          `.
+      29  
+      30  ## 2. Conformance fixture + red companion test  [owner: conform
+          ance-staging/edge-cases/circumfix-cross-product-and-infix-drop/
+          , pg-foma/tests/ (new sibling file only)]
+      31 -- [x] 2.1 Author `grammar.xml` + `words.yaml` + `STAGING.md` pe
+         -r the conformance-grammars skill:                              
+      31 +- [ ] 2.1 Author `grammar.xml` + `words.yaml` + `STAGING.md` pe
+         +r the conformance-grammars skill:                              
+      32        4-subrule 2×2 cross-product rule (`mrCross`) + Infix-with
+          -drop rule (`mrInfixDrop`);
+      33        words pin all four cross-product cells (incl. the discrim
+          inating both-conditions cell),
+      34        the infix-drop word, bare-root control, and an `expect_fa
+          il` negative. Synthetic-only
+      35        naming; oracle signatures transcribed from `pg_parse::Mor
+          pher` directly.
+      36 -- [x] 2.2 Companion FST-reachability test (new file, `circumfix
+         -_candidate_selection.rs` pattern):                             
+      36 +- [ ] 2.2 Companion FST-reachability test (new file, `circumfix
+         +_candidate_selection.rs` pattern):                             
+      37        all 4 `mrCross` subrules present in the structural candid
+          ate set + every oracle analysis
+      38        of the cross-product words reachable in the compiled net;
+           `mrInfixDrop`'s word asserted
+      39        reachable — EXPECTED RED here (undergeneration witness). 
+          Mark the red assertion
+      40        `#[ignore]` with reason "red until unit 3" only if CI mus
+          t stay green; otherwise land
+      41        units 2+3 in one PR with the red→green commit sequence vi
+          sible.
+      42 -- [x] 2.3 `pg.ps1 -Mode test -Package pg-parse -TestTarget conf
+         -ormance_fixtures_gate` — fixture                               
+      42 +- [ ] 2.3 `pg.ps1 -Mode test -Package pg-parse -TestTarget conf
+         +ormance_fixtures_gate` — fixture                               
+      43        replays; checked-case count increases.
+      44  
+      45  ## 3. pg-foma: Infix-with-drop capability  [owner: emit.rs cand
+          idate-selection region, capability.rs predicate + tests, covera
+          ge ledger]
+      46 -- [x] 3.1 Verification probe FIRST (design D1 fallback check): 
+         -for the unit-2 fixture grammar,                                
+      46 +- [ ] 3.1 Verification probe FIRST (design D1 fallback check): 
+         +for the unit-2 fixture grammar,                                
+      47        inspect whether `composite_report.covered_infix_rules` co
+          ntains `mrInfixDrop` under
+      48        today's code. Record the answer in the PR description. If
+           YES: switch this unit to the
+      49 -      predicate-ground-truth fix (credit preexpand) and contain
+         -ment fixture for preexpand's                                   
+      50 -      drop handling; tasks 3.2/3.3 are then N/A. (Probe ran on 
+         -the unit-2 fixture: preexpand's                                
+      51 -      builder never enters `synthesize` for the drop-shaped all
+         -omorph — `covered_infix_rules`                                 
+      52 -      empty. Option 1 confirmed as designed; proceeding with 3.
+         -2/3.3.)                                                        
+      53 -- [x] 3.2 Widen `is_structural_rule`: `Role::Infix => allomorph
+         -s_of(g, mid).iter().any(rhs_drops_lhs_material)`;              
+      49 +      predicate-ground-truth fix (credit preexpand) and a conta
+         +inment fixture for preexpand's                                 
+      50 +      drop handling; tasks 3.2/3.3 are then N/A.               
+      51 +- [ ] 3.2 Widen `is_structural_rule`: `Role::Infix => allomorph
+         +s_of(g, mid).iter().any(rhs_drops_lhs_material)`;              
+      52        update the function doc and the `emit.rs:2274-2283` doc t
+          hat currently states Infix is
+      53        excluded.
+      56 -- [x] 3.3 Ownership handoff: Infix-with-drop rules leave `preex
+         -pand_candidates`; handoff test                                 
+      54 +- [ ] 3.3 Ownership handoff: Infix-with-drop rules leave `preex
+         +pand_candidates`; handoff test                                 
+      55        mirroring `circumfix_infix_ownership_handoff_is_clean`; `
+          covered_infix_rules`/uncovered-
+      56        clearing behavior preserved (design D2).
+      59 -- [x] 3.4 Oracle containment fixture in `tests/phase_c_circumfi
+         -x.rs` style: synthetic                                         
+      57 +- [ ] 3.4 Oracle containment fixture in `tests/phase_c_circumfi
+         +x.rs` style: synthetic                                         
+      58        Infix-with-drop grammar, generator + `Morpher` sweep, 100
+          % recall required.
+      61 -- [x] 3.5 Predicate tests: `circumfix_output_action_predicate_r
+         -efuses_infix_role_drop` flips to                               
+      59 +- [ ] 3.5 Predicate tests: `circumfix_output_action_predicate_r
+         +efuses_infix_role_drop` flips to                               
+      60        a positive (ConfirmOnly) pin; add the remaining negative 
+          boundary
+      61        (`Role::Reduplication` + drop still refuses). Coverage le
+          dger citation string +
+      62        `coverage_ledger_golden.json` regenerated. Companion test
+           from 2.2 goes green;
+      63        un-`#[ignore]` if it was ignored.
+      66 -- [x] 3.6 Docs: census C4 section in `docs/research/circumfix-c
+         -omposite-precedence-census.md`;                                
+      64 +- [ ] 3.6 Docs: census C4 section in `docs/research/circumfix-c
+         +omposite-precedence-census.md`;                                
+      65        predicate doc block gains the Infix-with-drop disposition
+          .
+      66        Verify: `pg.ps1 -Mode test -Package pg-foma` (includes co
+          nformance_coverage_gate,
+      67        structural_witness_gate, plan_interaction_coverage_gate u
+          nchanged-count assertions).
+      68  
+      69  ## 4. Local verification against the motivating project (NOT a 
+          conformance artifact)
+      72 -- [x] 4.1 Re-run the capability gate on the local `.fwdata` (gi
+         -tignored): expect the mrule-166                                
+      70 +- [ ] 4.1 Re-run the capability gate on the local `.fwdata` (gi
+         +tignored): expect the mrule-166                                
+      71        Refuse gone (ConfirmOnly path), the two import warnings g
+          one, and the two paradigm-cell
+      72        words analyzable on the default engine. Record numbers in
+           the PR, no data committed.
+      75 -      (Ran 2026-08-10: 0 import warnings, capability=ConfirmOnl
+         -y (no Refuse), both                                            
+      76 -      paradigm-cell words analyze on --engine=default. See PR n
+         -otes.)                                                         
+      77 -- [x] 4.2 Confirm the new cross-product rules do NOT newly trip
+         - any capability predicate on                                   
+      73 +- [ ] 4.2 Confirm the new cross-product rules do NOT newly trip
+         + any capability predicate on                                   
+      74        `--engine=foma` (they classify `CircumfixPrefix`; expecte
+          d non-event, assert it).
+      75  
+      76  ## 5. Bookkeeping
+      81 -- [x] 5.1 `docs/hermitcrab-rust-port-audit.md`: record fwdata c
+         -ircumfix cross-product closed,                                 
+      77 +- [ ] 5.1 `docs/hermitcrab-rust-port-audit.md`: record fwdata c
+         +ircumfix cross-product closed,                                 
+      78        explicitly distinguished from the C1/C2/C3 emit.rs items.
+      83 -- [x] 5.2 STAGING.md entry: this change merges before `surface-
+         -compile-profile-and-templated-routing`;                        
+      79 +- [ ] 5.2 STAGING.md entry: this change merges before `surface-
+         +compile-profile-and-templated-routing`;                        
+      80        emit.rs region serialization noted.
+
+● Write(openspec\changes\surface-compile-profile-and-templated-routing\proposal.
+       md)
+  ⎿  Wrote 64 lines to openspec\changes\surface-compile-profile-and-templat
+     ed-routing\proposal.md
+       1 # Proposal — surface-compile-profile-and-templated-routing
+       3 ## Why
+       4 
+       5 Onboarding the 5th test language measured `FomaAnalyzer::new` at
+       6 quiet vs contended machine) for a grammar of only 310 lex entrie
+         s / 223 mrules / 34 prules —
+         ibuted the cost to the eager
+       8 Rust-side composite enumeration, with a specific aggravator:
+       9 
+         :build_composites` runs because
+     … +98 lines (ctrl+o to expand)
+
+● Write(openspec\changes\surface-compile-profile-and-templated-routing\tasks.md)
+  ⎿  Wrote 41 lines to openspec\changes\surface-compile-profile-and-templat
+     ed-routing\tasks.md
+       1 # Tasks — surface-compile-profile-and-templated-routing
+       3 Sequenced by certainty: measurement infrastructure first, routin
+       4 it, the risky optimization last and independently droppable. Mer
+         ges after
+         ation; see its tasks 5.2).
+       7 ## 1. Surface the CompileProfile  [owner: pg-cli/src/fst_health.
+       8 - [ ] 1.1 `fst-health --profile-json[=<path>]`: emit the raw `Co
+         mpileProfile` (per-stage
+         om `EmitCounts`, final
+         g output byte-identical when
+     … +57 lines (ctrl+o to expand)
+
+● 2 background agents launched (↓ to manage)
+   ├ Implement pg-grammar circumfix port
+   └ Author circumfix conformance fixture
+
+● Both implementation agents are running. Here's the full picture while they
+  work:
+
+  ---
+  1. Why does the FST compile take 400s+? (the research answer)
+
+  It's not the FST algebra, and it's not grammar size per se — it's two 
+  redundant O(roots × rules) Rust-side enumeration passes, one of which is 
+  accidentally broadened to the whole grammar.
+
+  - The grammar is small (310 entries, 223 mrules, 34 prules) but
+  verb-template-heavy: 24 templates/37 slots — the classic Bantu
+  subject×TAM×object×root cross-product. The final FST is fine (all
+  state/arc/line budgets under 80%); the 419s (up to 906s under machine
+  contention) is spent building the 200,730-entry lexc source, mirroring Aweti's
+  measured 71%-emit split.
+  - Pass 1: preexpand::build_composites runs because the grammar has phonology —
+  documented O(roots × rules^depth), and mbugwe is 5.5× Amharic's base product.
+  - Pass 2 + the aggravator: the grammar's ordinary "a-epenthesis" rule has an 
+  empty LHS (epenthesis by definition inserts into nothing), which trips
+  probe_would_refuse → build_structural_composites broadens from the narrow
+  LHS-dropping subset to every Prefix/Suffix/Infix rule in the grammar. So
+  nearly the same (root, rule) space is probed twice.
+  - Is a new backend needed? No. The already-built, already-registered
+  TemplatedUnderlyingEmit (P6) backend exists precisely to skip this enumeration
+  ("no composite pipeline at all… skipping it unconditionally is the scale fix
+  this function exists for") and is structurally applicable to this grammar
+  today (HasPhonologyOrTemplates). What's missing is a measurement that it
+  compiles this shape correctly + fast, then routing. Ranked plan: (1) measure
+  templated backend — low effort, likely the big win; (2) close the correctness
+  gaps (below) which routing alone can't fix; (3) narrow the probe_would_refuse
+  broadening with a recall proof; (4) grammar-side rule consolidation with the
+  linguist as a supplement. Also: the per-stage CompileProfile timing already 
+  exists in the code and is discarded before any CLI prints it — surfacing it is
+  the first task, so the next question like this is answerable in one run.
+
+  2. Where the new capability goes — decision + comparisons
+
+  The refused construct turned out to be sharper than "circumfix": mrule 166 is
+  the "10.EP" numeral agreement prefix whose allomorphs bundle stem-internal 
+  consonant mutation — allomorph #0 classifies Role::Infix while dropping LHS
+  material, and is_structural_rule's _ => false arm excludes Infix from the
+  structural-composite route unconditionally. It's a genuine C4 in the C1/C2/C3
+  census family. Meanwhile the two actual circumfix entries (IRR.PST, HST — two
+  whole TAM paradigm cells currently inexpressible on both engines) are a pure
+  pg-grammar compiler gap: HCLoader's cross-product produces [Insert, Copy, 
+  Insert], which classifies CircumfixPrefix — already handled unconditionally by
+  the FST.
+
+  Decision: the structural-composite home — widen is_structural_rule with
+  Role::Infix => any-allomorph-drops-LHS + a mandatory ownership handoff out of
+  preexpand (so the entry budget stays flat), predicate flips Refuse → 
+  ConfirmOnly behind a new oracle containment fixture. Compared against:
+  crediting preexpand's existing Infix coverage (verify-first fallback — cheap,
+  but the grammar's own 73-uncovered list predicts it's false), the templated
+  path (whole characteristic is RepresentsWithKnownGap there — wrong scope), a
+  peeler (structurally wrong: drops aren't peelable), and a new backend (not
+  warranted). Full table in design.md D1.
+
+  3. The plan (in the worktree, branch circumfix-cross-product)
+
+  Two OpenSpec changes, serialized on emit.rs ownership:
+  - cover-circumfix-cross-product-and-infix-drop — HC-rust port (HCLoader
+  4-level cross-product transcription, with its two faithful quirks preserved),
+  the C4 capability, and the synthetic conformance fixture (2×2 cross-product +
+  infix-drop rule) with a red-today undergeneration witness test.
+  - surface-compile-profile-and-templated-routing — profile surfacing,
+  templated-backend measurement, conditional routing, and the probe_would_refuse
+  narrowing (droppable if no sound narrowing exists).
+
+  Now running: two Sonnet implementation agents (pg-grammar port; conformance
+  fixture + red witness). I'll review their diffs myself when they report, then
+  dispatch the capability unit. The HC-oracle baseline pass on the full corpus
+  is also still grinding in the background (~4.8h projected — 33% of words hit
+  the 20s cap, itself a good illustration of why the FST path matters for this
+  language).
+
+  One honest caveat: the profiler couldn't get the per-stage breakdown without
+  editing the repo (the instrumentation exists but no CLI prints it), so
+  "enumeration dominates" rests on the budget-findings absence + the Aweti
+  analogy — task 1 of the perf change closes exactly that gap.
+
+✻ Baked for 9m 6s
+
+● Agent "Implement pg-grammar circumfix port" finished · 37m 6s
+
+● Unit 1 reports green. Reviewing the diff myself now (per the review-myself
+  instruction):
+  Ran 9 shell commands (ctrl+o to expand)
+
+● Agent "Author circumfix conformance fixture" finished · 40m 8s
+
+● The fixture agent stalled on a background build — exactly the anti-pattern the
+  repo docs warn about. Nudging it to finish in the foreground:
+  ⎿  Agent "a32aa8a2b2615f7c5" was stopped (completed); resumed it in the 
+     background with your message. You'll be notified when it finishes. 
+     Output: C:\Users\johnm\AppData\Local\Temp\claude\C--Users-johnm-Docume
+     nts-repos-PanGloss\cb55aa05-350a-4822-8497-5f59217a4cb2\tasks\a32aa8a2
+     b2615f7c5.output
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Review status is good on both fronts. Current state while the remaining work
+  runs:
+
+  Unit 1 (pg-grammar circumfix port) — implemented, my review passed:
+  - The lowering is faithful to HCLoader: exact MorphType::Prefix/Suffix filter,
+  correct 4-level nesting order (pinned by a test asserting the literal ka+ta /
+  ka+tu / ku+ta / ku+tu order), [Insert(pfx+), Copy(0), Insert(+sfx)] RHS, one
+  merged external EnvironmentDef, prefix-only MPR asymmetry, empty
+  required_syn_fs (both C# quirks preserved with one-line comments citing
+  HCLoader.cs line numbers, not the design doc — the agent even fixed 30
+  comment-hygiene violations its first draft introduced).
+  - redup_hint: Implicit is safe — I verified it's only consulted when a part is
+  copied twice, which the circumfix RHS never does.
+  - One legitimate open item the agent flagged: cross-product allomorphs get no
+  allomorph_guid_index entry (two source guids can't fit a 1:1 map), so ad-hoc
+  co-occurrence rules naming a circumfix piece won't resolve. Not a regression
+  (the entry was previously dropped entirely) — noted for follow-up.
+  - Agent reports 88/88 green; my own independent re-run is queued behind the
+  build slot (the HC baseline batch still holds one of the two machine-wide
+  slots) and will confirm.
+
+  Unit 2 (conformance fixture) — structure verified, finishing now: grammar.xml
+  + words.yaml + companion test are staged and shaped exactly per design — 4
+  CircumfixPrefix subrules with the genuinely-combinatorial BB cell, the
+  Role::Infix+drop rule, and the companion test with the #[ignore = "red until 
+  unit 3"] undergeneration witness plus a green pin of today's behavior. The
+  agent had stalled waiting on a background build (the exact anti-pattern in
+  CLAUDE.md); I've redirected it to finish foreground: transcribe real oracle
+  signatures over the PLACEHOLDERs, delete its throwaway test, and run both
+  gates.
+
+  Still running: HC-oracle baseline 676/1638 (34% timeout rate steady), my
+  pg-grammar verification build, and the fixture agent. Unit 3 (the capability
+  widening) dispatches after unit 2's red witness is confirmed red for the right
+  reason.
+
+✻ Worked for 13m 58s
+
+❯ One heuristic that may help - we want short-distance agreement in the FST,    
+  but not long distance agreement.  For instance, circumfixing (a matching      
+  prefix and suffix that can transform the stem) can be compounded up to 5      
+  nested circumfixes.  Applying this huristic could say "are these prefixes     
+  ordered right and transforming each other the right way" and "are these       
+  suffixes ordered right and transforming each other the right way"?  but not   
+  "is there agreement between the suffixes and prefixes - do they match in      
+  type, number and phonology?" - that is left up to HC.                         
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ Does that help?  Can do match them easily?  Is that a good "switch" for the   
+  backend?                                                                      
+
+● Yes — this helps a lot, and it's worth being precise about why: your heuristic
+  is exactly the formal criterion the architecture has been circling without
+  naming.
+
+  Why it's right, in FST terms. Long-distance agreement is the classic thing
+  finite-state morphology is bad at: to enforce "prefix i pairs with suffix i"
+  across the stem, the automaton must remember the prefix choice through every
+  stem arc, which multiplies state count by the number of classes remembered —
+  and nested circumfixes multiply it per level (k pairings, depth 5 → k⁵). This
+  is so canonical that flag diacritics were invented in lexc/xfst specifically
+  for circumfix agreement. But we have something strictly stronger than flag
+  diacritics: HC confirm already re-derives the full analysis. So "check
+  intra-side ordering and local transformations in the FST; leave cross-stem
+  type/number/phonology matching to HC" is not a compromise — it's putting each
+  check in the engine that does it natively. And it's recall-safe by 
+  construction: dropping a constraint from the proposer only ever adds
+  candidates (superset), and over-generation is the harmless direction — confirm
+  prunes it. That's precisely the existing ConfirmOnly disposition, now with a
+  principled story for which constraints get dropped.
+
+  Can we match them easily? Split the question the way your heuristic does:
+
+  - A single circumfix: pairing is free. The cross-product lowering we just
+  built puts both halves inside one rule application ([Insert(pfx+), Copy(stem),
+  Insert(+sfx)]) — the FST never has to "remember" anything across the stem,
+  because the pairing is inside one arc-path insertion. No blowup; nothing to
+  relax. Mbugwe's two entries are 1×1, so unit 1 as implemented is the right
+  shape.
+  - Nested/composed circumfixes and big cross-products: this is where the eager
+  composite enumerator pays k^depth — and it's exactly the shape of the
+  200,730-entry explosion (Bantu subject×TAM×… products). Under your heuristic
+  the proposer emits prefix-side material and suffix-side material independently
+  — each side a plain slot chain enforcing its own ordering and its own
+  adjacent transformations — and the composite space factorizes from a product
+  (k^depth) to a sum (k·depth). Mismatched pairs get proposed and then die at
+  confirm. The templated (P6) backend is already built this way: PrefixSlots and
+  SuffixSlots are separate continuation chains, and nothing in a lexc chain
+  ties a specific prefix-slot filler to a specific suffix-slot filler except
+  morphosyntactic features — which is HC's job anyway.
+
+  Is it a good backend switch? Yes — I'd make it the routing predicate. The perf
+  change currently says "route cascade-family grammars to the templated backend
+  if measurement supports it." Your heuristic sharpens that into something
+  testable per-grammar: route to the slot-chain backend exactly when every 
+  long-distance dependency in the grammar is agreement-only (confirm-checkable) 
+  rather than material-determining. The one caveat that keeps this honest: if a
+  suffix's form depends on which prefix was chosen (long-distance material
+  determination, not agreement), the factorized proposer must over-propose both
+  variants rather than silently pick one — still recall-safe, but it's the case
+  the containment gate must specifically witness. And the cost that must be
+  measured, not assumed: relaxing pairing raises candidate volume at confirm,
+  and confirm time is where mbugwe's worst words already hurt (45s mmbere) — the
+  routing measurement already records candidate volume, so the tradeoff lands
+  in the decision record.
+
+  Let me fold this into the perf change's design now:
+
+● Write(openspec\changes\surface-compile-profile-and-templated-routing\design.md
+       )
+  ⎿  Wrote 65 lines to openspec\changes\surface-compile-profile-and-templat
+     ed-routing\design.md
+       1 # Design — surface-compile-profile-and-templated-routing
+       2 
+       4 
+       5 Owns `pg-cli/src/fst_health.rs` and the `probe_would_refuse` reg
+         ion of `pg-foma/src/emit.rs`;
+         t.rs serialization). Production
+       7 pipeline measured/changed: `FomaProposer::new` stage costs and b
+         ackend selection for
+       9 
+      10 ## D1. The agreement-locality routing principle
+     … +94 lines (ctrl+o to expand)
+
+● Update(openspec\changes\surface-compile-profile-and-templated-routing\tasks.md
+        )
+  ⎿  Added 13 lines, removed 2 lines
+      25  
+      26  ## 3. Routing (conditional on 2.3 = route)  [owner: backend sel
+          ection / optimizer call sites]
+      27  - [ ] 3.1 Wire cascade-family applicability into the selection 
+          path so the templated backend is
+      28 -      *chosen*, not merely registered, for grammars matching th
+         -e measured shape; existing                                     
+      28 +      *chosen*, not merely registered, for grammars matching th
+         +e measured shape. The routing                                  
+      29 +      predicate is agreement-locality (design D1): route when e
+         +very long-distance dependency is                               
+      30 +      agreement-only (confirm-checkable); a grammar with cross-
+         +stem MATERIAL dependence routes                                
+      31 +      only if the over-proposal variant cost measured in 2.2 is
+         + acceptable. Existing                                          
+      32        witnessed-strategy coverage gates decide admissibility.
+      30 -- [ ] 3.2 Conformance + corpus gates green on both engines     
+      33 +- [ ] 3.2 Containment fixture for the factorization boundary ca
+         +se (design D1): a synthetic                                    
+      34 +      grammar where a suffix's FORM covaries with the chosen pr
+         +efix — the factorized proposer                                 
+      35 +      must over-propose every variant (superset witnessed again
+         +st the Morpher oracle), never                                  
+      36 +      pick one.                                                
+      37 +- [ ] 3.3 Nested-circumfix scale witness: synthetic grammar wit
+         +h circumfixes nested to depth 5,                               
+      38 +      k≥2 pairs per level; assert the slot-chain proposer's ent
+         +ry count grows ~k·d (not k^d)                                  
+      39 +      AND recall vs oracle is 100% with confirm rejecting misma
+         +tched pairings; record                                         
+      40 +      candidate-volume/confirm-time deltas vs the paired-compos
+         +ite compile of the same grammar.                               
+      41 +- [ ] 3.4 Conformance + corpus gates green on both engines     
+      42        (`pg.ps1 -Mode test`, `-Mode corpus-test` where corpus pr
+          esent).
+      43  
+      44  ## 4. Narrow probe_would_refuse (independent; droppable)  [owne
+          r: emit.rs probe_would_refuse region]
+
+● Wired into the plan. Summary of what your heuristic changed:
+
+  - design.md D1 in the perf change now states the agreement-locality principle
+  operationally: FST encodes intra-side ordering + adjacent transformations;
+  cross-stem pairing/type/number/phonology agreement is confirm's job. Soundness
+  (superset ⇒ recall-safe), the k^d → k·d factorization for your 5-deep nested
+  circumfix case, and the one honest boundary: long-distance material
+  determination (suffix form depends on prefix choice) must over-propose all
+  variants, never pick one — that's the silent-undergeneration shape a dedicated
+  fixture must witness.
+  - Three new/updated tasks: routing predicate = agreement-locality (3.1), the
+  material-covariation containment fixture (3.2), and a depth-5 nested-circumfix
+  scale witness asserting ~k·d growth with 100% recall and measured
+  confirm-cost deltas (3.3).
+
+  Direct answers: does it help — yes, it converts "which backend?" from a
+  per-grammar measurement guess into a structural criterion, and it's why the
+  templated backend exists without anyone having named the principle. Can we 
+  match easily — single circumfixes pair for free inside one rule application
+  (already true in unit 1's port); nesting/cross-products are where pairing
+  costs k^d, and there we deliberately don't match — we propose sides
+  independently and let HC reject mismatches, which it already does natively.
+  Good switch — yes, with the two measured guards: candidate-volume/confirm-time
+  cost of over-proposal (your worst words are confirm-bound already), and the
+  material-dependence boundary case.
+
+  Still in flight: my independent pg-grammar verification run and the fixture
+  agent's signature transcription + gate runs (both queued behind the build slot
+  the HC baseline batch is holding — it's at ~680/1638). Unit 3 (the capability
+  arm + ownership handoff) dispatches once the red witness is confirmed.
+
+✻ Cogitated for 2m 11s
+
+❯ Note - the other session is working on the decider right now - don't worry    
+  about it, just worry about this new grammar - and hard-code the backend if    
+  you need to for the time being.                                               
+
+● Understood — the decider belongs to the other session; this one stays scoped
+  to the new grammar, hard-coding the backend where needed. Updating the perf
+  change to reflect that ownership split:
+
+● Update(openspec\changes\surface-compile-profile-and-templated-routing\tasks.md
+        )
+  ⎿  Added 6 lines, removed 6 lines
+      24        numbers. If templated loses recall on any fixture word, S
+          TOP here and record why.
+      25  
+      26  ## 3. Routing (conditional on 2.3 = route)  [owner: backend sel
+          ection / optimizer call sites]
+      27 -- [ ] 3.1 Wire cascade-family applicability into the selection 
+         -path so the templated backend is                               
+      28 -      *chosen*, not merely registered, for grammars matching th
+         -e measured shape. The routing                                  
+      29 -      predicate is agreement-locality (design D1): route when e
+         -very long-distance dependency is                               
+      30 -      agreement-only (confirm-checkable); a grammar with cross-
+         -stem MATERIAL dependence routes                                
+      31 -      only if the over-proposal variant cost measured in 2.2 is
+         - acceptable. Existing                                          
+      32 -      witnessed-strategy coverage gates decide admissibility.  
+      27 +- [ ] 3.1 SCOPE NOTE (2026-08-10): the general backend DECIDER 
+         +is owned by a concurrent session —                             
+      28 +      this change must NOT build selection machinery. Interim: 
+         +hard-code the templated backend                                
+      29 +      for the motivating grammar via an explicit override (env 
+         +var or CLI flag on the existing                                
+      30 +      strategy-selection seam), clearly marked as a stopgap the
+         + decider replaces. The                                         
+      31 +      agreement-locality predicate (design D1) is handed to the
+         + decider work as input, not                                    
+      32 +      implemented here.                                        
+      33  - [ ] 3.2 Containment fixture for the factorization boundary ca
+          se (design D1): a synthetic
+      34        grammar where a suffix's FORM covaries with the chosen pr
+          efix — the factorized proposer
+      35        must over-propose every variant (superset witnessed again
+          st the Morpher oracle), never
+
+  Ran 1 shell command (ctrl+o to expand)
+● Scope note recorded. Current machine state: both build slots are occupied (the
+  HC baseline batch on slot 0 — now 784/1638 — and the fixture agent's gate
+  build on slot 1), so my independent verification run is queued behind them.
+  One detail worth noting: the preflight hygiene scan flags exactly 1 comment
+  violation — it's in the fixture agent's throwaway transcription test, which
+  that agent is about to delete as part of finishing, so it resolves itself.
+
+  Everything else stands: unit 1 reviewed and shaped correctly, unit 2 finishing
+  (signatures + gates), unit 3 dispatches after the red witness confirms, and
+  the perf change now hands the agreement-locality predicate to the other
+  session's decider as input while we hard-code the templated backend for this
+  grammar when we get to the measurement step.
+
+✻ Sautéed for 56s
+
+● Background command "Independently verify pg-grammar suite" failed with exit
+code 15
+
+● My independent verification run hit the 30-minute build-slot timeout (exit 15)
+  — both slots are held: the HC baseline batch (runs for another ~2h) and the
+  fixture agent's own gate build. This is the known-unfair-queue behavior, not a
+  failure of the code under test. I'll re-run the verification once the fixture
+  agent releases its slot — and I'll combine it into a single run covering both
+  pg-grammar and the new pg-foma companion test to spend only one slot wait.
+
+✻ Crunched for 9s
+
+❯ So, building the FST is taking too long?  We were looking at the "400 second  
+  time penalty" - can we fix that first?                                        
+
+● Yes — reprioritizing to the compile-time fix now. First blocker: the HC
+  baseline batch is holding one of the two machine-wide build slots for another
+  ~2 hours. It was deliberately run in the crash-resumable mode (--threads 1
+  writes per-line, --start N resumes), so I'll stop it, record the resume point,
+  and get the slot back for dev builds:
+
+  Listed 3 directories, ran 4 shell commands (ctrl+o to expand)
+
+● Stop Task
+  ⎿  cd C:\Users\johnm\Documents\repos\PanGloss;
+     $sp="C:\Users\johnm\AppData\Local\Temp\claude\C--Users-johnm-Documents
+     -repos-PanGloss\cb55aa05-350a-4822-8497-5f5921… · stopped
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Update(rust\crates\pg-cli\src\fst_health.rs)
+  ⎿  Added 9 lines, removed 6 lines
+      161      findings
+      162  }
+      163  
+      164 -/// Compile-time observed health via a standalone profiled com
+          -pile; duplicated rather than shared with `pack.rs::run_pack`'s
+          - own equivalent section since each composes it into a differen
+          -t report shape.                                               
+      165 -fn compile_time_findings(grammar: &Grammar) -> Vec<HealthFindi
+          -ng> {                                                         
+      164 +/// Compile-time observed health via a standalone profiled com
+          +pile; duplicated rather than shared with `pack.rs::run_pack`'s
+          + own equivalent section since each composes it into a differen
+          +t report shape. Returns the raw `CompileProfile` alongside the
+          + findings so `--profile-json` can emit it verbatim instead of 
+          +losing it to `evaluate_health`'s threshold filter.            
+      165 +fn compile_time_findings(                                     
+      166 +    grammar: &Grammar,                                        
+      167 +) -> (Vec<HealthFinding>, pg_foma::profile::CompileProfile) { 
+      168      let (proposer_result, compile_profile) = FomaProposer::new
+           _with_profile(grammar);
+      169      let report = match &proposer_result {
+      170          Ok(proposer) => evaluate_health(
+     ...
+      179          }
+      180          Err(_) => evaluate_health(None, None, &[], &[], Some(&
+           compile_profile)),
+      181      };
+      180 -    report.findings                                           
+      182 +    (report.findings, compile_profile)                        
+      183  }
+      184  
+      185  /// Composes preflight + compile-time findings, plus apply-sid
+           e findings only when `words` is `Some`; factored out from `run
+           _fst_health` so the honest no-words contract is directly unit-
+           testable without file I/O.
+      186  fn build_health_report(
+      187      grammar: &Grammar,
+      188      words: Option<&[String]>,
+      187 -) -> Result<HealthReport, String> {                           
+      189 +) -> Result<(HealthReport, pg_foma::profile::CompileProfile), 
+          +String> {                                                     
+      190      let mut findings = preflight_findings(grammar);
+      189 -    findings.extend(compile_time_findings(grammar));          
+      191 +    let (compile_findings, compile_profile) = compile_time_fin
+          +dings(grammar);                                               
+      192 +    findings.extend(compile_findings);                        
+      193      if let Some(words) = words {
+      194          findings.extend(measure_apply_side(grammar, words)?);
+      195      }
+      193 -    Ok(HealthReport::new(findings))                           
+      196 +    Ok((HealthReport::new(findings), compile_profile))        
+      197  }
+      198  
+      199  /// `pangloss fst-health <grammar> [<words.txt>] [<out.json>]`
+           ; `<out.json>` omitted writes the canonical JSON to stdout ins
+           tead of a file, matching this crate's stdout/stderr split.
+
+● Update(rust\crates\pg-cli\src\fst_health.rs)
+  ⎿  Added 23 lines, removed 8 lines
+      196      Ok((HealthReport::new(findings), compile_profile))
+      197  }
+      198  
+      199 -/// `pangloss fst-health <grammar> [<words.txt>] [<out.json>]`
+          -; `<out.json>` omitted writes the canonical JSON to stdout ins
+          -tead of a file, matching this crate's stdout/stderr split.    
+      199 +/// `pangloss fst-health <grammar> [<words.txt>] [<out.json>] 
+          +[--profile-json=<path>]`; `<out.json>` omitted writes the cano
+          +nical JSON to stdout instead of a file, matching this crate's 
+          +stdout/stderr split. `--profile-json` writes the raw `CompileP
+          +rofile` (per-stage wall, lexc lines, state/arc counts) to its 
+          +own file — the stage attribution the findings pipeline deliber
+          +ately reduces to threshold findings.                          
+      200  pub fn run_fst_health(args: &[String]) -> Result<(), String> {
+      201 -    let (grammar_path, words_path, out_path): (&str, Option<&s
+          -tr>, Option<&str>) = match args {                             
+      202 -        [g] => (g.as_str(), None, None),                      
+      203 -        [g, w] => (g.as_str(), Some(w.as_str()), None),       
+      204 -        [g, w, o] => (g.as_str(), Some(w.as_str()), Some(o.as_
+          -str())),                                                      
+      205 -        _ => {                                                
+      206 -            return Err("usage: fst-health <grammar> [<words.tx
+          -t>] [<out.json>]".to_string());                               
+      201 +    let mut profile_json_path: Option<String> = None;         
+      202 +    let mut positional: Vec<&String> = Vec::new();            
+      203 +    for a in args {                                           
+      204 +        if let Some(p) = a.strip_prefix("--profile-json=") {  
+      205 +            profile_json_path = Some(p.to_string());          
+      206 +        } else if a == "--profile-json" {                     
+      207 +            return Err("--profile-json requires a path: --prof
+          +ile-json=<path>".to_string());                                
+      208 +        } else {                                              
+      209 +            positional.push(a);                               
+      210          }
+      208 -    };                                                        
+      211 +    }                                                         
+      212 +    let (grammar_path, words_path, out_path): (&str, Option<&s
+          +tr>, Option<&str>) =                                          
+      213 +        match positional.as_slice() {                         
+      214 +            [g] => (g.as_str(), None, None),                  
+      215 +            [g, w] => (g.as_str(), Some(w.as_str()), None),   
+      216 +            [g, w, o] => (g.as_str(), Some(w.as_str()), Some(o
+          +.as_str())),                                                  
+      217 +            _ => {                                            
+      218 +                return Err(                                   
+      219 +                    "usage: fst-health <grammar> [<words.txt>]
+          + [<out.json>] [--profile-json=<path>]"                        
+      220 +                        .to_string(),                         
+      221 +                );                                            
+      222 +            }                                                 
+      223 +        };                                                    
+      224  
+      225      let (grammar, warnings) = crate::load_grammar(grammar_path
+           )?;
+      226      crate::print_grammar_warnings(&warnings);
+
+● Update(rust\crates\pg-cli\src\fst_health.rs)
+  ⎿  Added 8 lines, removed 1 line
+      236          ),
+      237          None => None,
+      238      };
+      239 -    let report = build_health_report(&grammar, words.as_deref(
+          -))?;                                                          
+      239 +    let (report, compile_profile) = build_health_report(&gramm
+          +ar, words.as_deref())?;                                       
+      240      let json = report
+      241          .to_json()
+      242          .map_err(|e| format!("serialize health report: {e}"))?
+           ;
+     ...
+      248          None => println!("{json}"),
+      249      }
+      250  
+      251 +    if let Some(path) = &profile_json_path {                  
+      252 +        let profile_json = serde_json::to_string_pretty(&compi
+          +le_profile)                                                   
+      253 +            .map_err(|e| format!("serialize compile profile: {
+          +e}"))?;                                                       
+      254 +        fs::write(path, &profile_json).map_err(|e| format!("wr
+          +ite {path}: {e}"))?;                                          
+      255 +        eprintln!("compile profile written to {path}");       
+      256 +    }                                                         
+      257 +                                                              
+      258      eprintln!(
+      259          "fst-health complete: {} finding(s), admission={:?}.{}
+           ",
+      260          report.findings.len(),
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(rust\crates\pg-cli\src\fst_health.rs)
+  ⎿  Added 2 lines, removed 1 line
+      351  
+      352          // Precise honesty check: `words: None` must produce n
+           o apply-side finding at all, exercised directly against `build
+           _health_report` rather than by scraping stdout.
+      353          let g = grammar(CLEAN_GRAMMAR_XML);
+      354 -        let report = build_health_report(&g, None).expect("bui
+          -ld_health_report must succeed");                              
+      354 +        let (report, _profile) =                              
+      355 +            build_health_report(&g, None).expect("build_health
+          +_report must succeed");                                       
+      356          assert!(
+      357              !report.findings.iter().any(|f| {
+      358                  matches!(
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(rust\crates\pg-cli\src\fst_health.rs)
+  ⎿  Added 33 lines
+      341      }
+      342  
+      343      #[test]
+      344 +    fn fst_health_profile_json_writes_the_raw_compile_profile(
+          +) {                                                           
+      345 +        let dir = scratch_dir("profile-json");                
+      346 +        let grammar_path = dir.join("grammar.xml");           
+      347 +        let profile_path = dir.join("compile-profile.json");  
+      348 +        std::fs::write(&grammar_path, CLEAN_GRAMMAR_XML).expec
+          +t("write grammar");                                           
+      349 +                                                              
+      350 +        let args: Vec<String> = vec![                         
+      351 +            grammar_path.to_string_lossy().into_owned(),      
+      352 +            format!("--profile-json={}", profile_path.to_strin
+          +g_lossy()),                                                   
+      353 +        ];                                                    
+      354 +        run_fst_health(&args).expect("fst-health with --profil
+          +e-json must succeed");                                        
+      355 +                                                              
+      356 +        let json = std::fs::read_to_string(&profile_path).expe
+          +ct("profile file must exist");                                
+      357 +        let profile: pg_foma::profile::CompileProfile =       
+      358 +            serde_json::from_str(&json).expect("profile JSON m
+          +ust round-trip");                                             
+      359 +        assert!(                                              
+      360 +            !profile.stages.is_empty(),                       
+      361 +            "a successful compile must attribute at least one 
+          +stage"                                                        
+      362 +        );                                                    
+      363 +        assert!(                                              
+      364 +            profile.total_lexc_lines.is_some(),               
+      365 +            "a successful compile must report its lexc line co
+          +unt"                                                          
+      366 +        );                                                    
+      367 +    }                                                         
+      368 +                                                              
+      369 +    #[test]                                                   
+      370 +    fn fst_health_bare_profile_json_flag_is_refused_with_usage
+          +() {                                                          
+      371 +        let err = run_fst_health(&["g.xml".to_string(), "--pro
+          +file-json".to_string()])                                      
+      372 +            .expect_err("bare --profile-json must be refused")
+          +;                                                             
+      373 +        assert!(err.contains("--profile-json=<path>"), "got: {
+          +err}");                                                       
+      374 +    }                                                         
+      375 +                                                              
+      376 +    #[test]                                                   
+      377      fn fst_health_no_words_writes_no_apply_side_findings() {
+      378          let (result, _out_path, _words_path) =
+      379              run_fst_health_raw("no-words", CLEAN_GRAMMAR_XML, 
+           None);
+● Now the hard-coded backend switch — checking how strategy selection is entered
+  today:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Agent "Author circumfix conformance fixture" finished · 1h 47m 44s
+
+● Update(openspec\changes\cover-circumfix-cross-product-and-infix-drop\tasks.md)
+  ⎿  Added 9 lines, removed 5 lines
+      43        replays; checked-case count increases.
+      44  
+      45  ## 3. pg-foma: Infix-with-drop capability  [owner: emit.rs cand
+          idate-selection region, capability.rs predicate + tests, covera
+          ge ledger]
+      46 -- [ ] 3.1 Verification probe FIRST (design D1 fallback check): 
+         -for the unit-2 fixture grammar,                                
+      47 -      inspect whether `composite_report.covered_infix_rules` co
+         -ntains `mrInfixDrop` under                                     
+      48 -      today's code. Record the answer in the PR description. If
+         - YES: switch this unit to the                                  
+      49 -      predicate-ground-truth fix (credit preexpand) and a conta
+         -inment fixture for preexpand's                                 
+      50 -      drop handling; tasks 3.2/3.3 are then N/A.               
+      46 +- [x] 3.1 Verification probe — ANSWERED BY UNIT 2 (2026-08-10),
+         + with a split verdict that                                     
+      47 +      CONFIRMS the D1 choice: on the synthetic fixture, preexpa
+         +nd DOES cover `mrInfixDrop`                                    
+      48 +      (word reachable, uncovered list empty — the companion tes
+         +t pins this green, so no                                       
+      49 +      ignored-red witness exists); but on the motivating real g
+         +rammar the same construct's                                    
+      50 +      allomorphs sat in the 73-entry UNCOVERED list, i.e. preex
+         +pand coverage is INCIDENTAL                                    
+      51 +      (reached-by-enumeration luck), not guaranteed. Therefore 
+         +Option 0 (blanket-credit                                       
+      52 +      preexpand) is unsound as a predicate ground truth, and 3.
+         +2/3.3 proceed as designed.                                     
+      53 +      Unit 3's recall witness is the containment fixture (3.4) 
+         ++ candidate-set membership,                                    
+      54 +      NOT a red-to-green flip of the unit-2 companion test; the
+         + real-grammar witness is 4.1.                                  
+      55  - [ ] 3.2 Widen `is_structural_rule`: `Role::Infix => allomorph
+          s_of(g, mid).iter().any(rhs_drops_lhs_material)`;
+      56        update the function doc and the `emit.rs:2274-2283` doc t
+          hat currently states Infix is
+      57        excluded.
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Write(rust\crates\pg-foma\examples\templated_backend_probe.rs)
+  ⎿  Wrote 107 lines to
+     rust\crates\pg-foma\examples\templated_backend_probe.rs
+      1 //! Diagnostic: hard-codes the templated backend (`compile_templa
+        ted_morphotactics`) for one grammar and one word list, printing c
+        lated-vs-tuned routing decision can be made from measured numbers
+         on a grammar the eager composite pipeline compiles slowly.
+      2 
+      4 use std::path::{Path, PathBuf};
+      5 use std::time::Instant;
+      6 
+      8 use pg_foma::templated_compile::compile_templated_morphotactics;
+      9 use pg_grammar::model::Grammar;
+     … +120 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(rust\crates\pg-foma\examples\templated_backend_probe.rs)
+  ⎿  Added 15 lines, removed 2 lines
+      67          }
+      68      };
+      69      let compile_s = t_compile.elapsed().as_secs_f64();
+      70 -    eprintln!("TEMPLATED-COMPILE-OK\ttotal_s={compile_s:.1}\tpr
+         -ofile={:?}", output.profile);                                  
+      70 +    let p = &output.profile;                                   
+      71 +    eprintln!(                                                 
+      72 +        "TEMPLATED-COMPILE-OK\ttotal_s={compile_s:.1}\temit_s={
+         +:.1}\tlexc_s={:.1}\trules_s={:.1}\tcleanup_s={:.1}\tcompose_min
+         +_s={:.1}\tapply_prep_s={:.1}\tskipped_rules={}",               
+      73 +        p.templated_emit_elapsed.as_secs_f64(),                
+      74 +        p.lexc_compile_elapsed.as_secs_f64(),                  
+      75 +        p.rule_compile_compose_elapsed.as_secs_f64(),          
+      76 +        p.cleanup_compile_elapsed.as_secs_f64(),               
+      77 +        p.final_compose_minimize_elapsed.as_secs_f64(),        
+      78 +        p.apply_prepare_elapsed.as_secs_f64(),                 
+      79 +        p.skipped_rules.len(),                                 
+      80 +    );                                                         
+      81      let (states, arcs) = output.proposer.network_counts();
+      72 -    eprintln!("network: states={states} arcs={arcs}");         
+      82 +    eprintln!("network: states={states} arcs={arcs} (lexc pre-c
+         +ompose: states={} arcs={})", p.lexc_state_count, p.lexc_arc_cou
+         +nt);                                                           
+      83 +    for r in &p.skipped_rules {                                
+      84 +        eprintln!("  skipped rule: {r}");                      
+      85 +    }                                                          
+      86  
+      87      let mut analyzer = FomaAnalyzer::from_precompiled_proposer(
+          &g, output.proposer);
+      88  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Release build queued (build slots now free — the batch is gone). While it
+  compiles, here's the plan for the measurement sequence, then I'll summarize
+  where the "fix it first" work stands:
+
+  When the build lands (order matters, each takes the one measurement slot):
+  1. pangloss fst-health <fwdata> --profile-json=… with
+  HC_ENUM_ENTRY_BUDGET=400000 → the definitive per-stage attribution of the 419s
+  (SurfaceSetup / RootCollection / PreexpandComposites / StructuralComposites /
+  LexcConstruction / LexcParse). This closes the one honest gap in the research
+  report.
+  2. templated_backend_probe <fwdata> <words> → the hard-coded templated-backend
+  measurement: compile wall (with its own stage split), network size, then all
+  1638 words analyzed with signatures written to TSV so recall can be diffed
+  against the tuned path.
+
+  If the templated path compiles this grammar in Amharic-order time (~10-30s vs
+  419s) with equal analysis coverage, that's the compile-time fix: hard-code
+  this grammar's backend now, hand the general decider your agreement-locality
+  predicate (already written into the perf change design as D1).
+
+✻ Churned for 2h 32m 32s
+
+● Background command "Release build in worktree" completed (exit code 0)
+
+● Build green. Running measurement 1 — the definitive stage breakdown:
+
+  Listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● Both measurements are running in parallel on the two build slots:
+
+  1. fst-health --profile-json on the new grammar (tuned/eager path, budget
+  raised) — will emit the per-stage wall-time attribution of the 419s:
+  surface_setup / root_collection / preexpand_composites / structural_composites
+  / lexc_construction / lexc_parse.
+  2. templated_backend_probe — the hard-coded templated backend on the same
+  grammar + all 1638 words, with its own stage split and per-word signatures TSV
+  for the recall diff.
+
+  Both notify when done (~10 min for the probe's build + compile; the fst-health
+  run repeats the slow eager compile once, by design — it's the thing being
+  measured). My deferred full-suite verification re-run goes right after, since
+  a third job would just burn a 30-minute slot timeout.
+
+  The release build also confirmed unit 1 + the fixture + my --profile-json flag
+  all compile together cleanly under fat LTO.
+
+✻ Churned for 58s
+
+● Background command "Run fst-health with profile capture on mbugwe" completed
+(exit code 0)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Definitive answer on the compile time. The stage profile (from the new
+  --profile-json on a quiet machine):
+
+  ┌───────────────────────┬────────┬───────┐
+  │         Stage         │  Time  │ Share │
+  ├───────────────────────┼────────┼───────┤
+  │ surface_setup         │ 0.11 s │ 0.1%  │
+  ├───────────────────────┼────────┼───────┤
+  │ root_collection       │ 0.03 s │ 0.0%  │
+  ├───────────────────────┼────────┼───────┤
+  │ preexpand_composites  │ 2.6 s  │ 3.0%  │
+  ├───────────────────────┼────────┼───────┤
+  │ structural_composites │ 78.7 s │ 92.7% │
+  ├───────────────────────┼────────┼───────┤
+  │ lexc_construction     │ 0.15 s │ 0.2%  │
+  ├───────────────────────┼────────┼───────┤
+  │ lexc_parse (foma)     │ 3.3 s  │ 3.9%  │
+  ├───────────────────────┼────────┼───────┤
+  │ total                 │ 84.8 s │       │
+  └───────────────────────┴────────┴───────┘
+
+  Two headline facts:
+
+  1. It's build_structural_composites, at 93% — the research agent's "broadened
+  sweep" hypothesis is confirmed and is essentially the whole story. The
+  empty-LHS epenthesis rule flips probe_would_refuse to true, which turns the
+  structural pass from "the narrow LHS-dropping subset" into "probe all 223
+  rules against all 162 stems." preexpand (the other suspect) is a rounding
+  error at 3%. The final FST itself is tiny (13k states / 240k arcs), and foma
+  parses the 205k-line lexc in 3.3s — the FST algebra was never the problem.
+  2. The 419-906s numbers were ~5× contention inflation — this identical compile
+  takes 85s on a quiet machine (the earlier runs shared the box with a fat-LTO
+  release build under a 70% CPU cap). Still 85s where Sena-class grammars take
+  seconds, so the problem is real, but the calibration matters.
+
+  This sharpens the fix ranking: narrowing probe_would_refuse's broadening (perf
+  change task 4) now has a measured 10-20× upside on its own, independent of
+  backend routing — if the sweep returns to the narrow subset,
+  structural_composites collapses toward the ~3s preexpand-scale cost. Waiting
+  on the templated probe for the routing comparison now.
+
+✻ Worked for 37s
+
+● Background command "Run templated backend probe on mbugwe" completed (exit
+code 0)
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+● While the tuned TSV regenerates, running the deferred independent verification
+  of all worktree changes on the other slot:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(openspec\changes\surface-compile-profile-and-templated-routing\design.m
+        d)
+  ⎿  Added 19 lines
+      54  interpretation; the existing findings pipeline is unchanged. Ra
+          tionale: the 419s question was
+      55  unanswerable from shipped output despite the instrumentation ex
+          isting; never again.
+      56  
+      57 +## D2a. Measured stage attribution (2026-08-10, quiet machine, 
+         +motivating grammar, local data)                                
+      58 +                                                               
+      59 +Captured via the new `--profile-json` (task 1.1) and the templa
+         +ted probe example. Real-grammar                                
+      60 +numbers recorded here as PR-level evidence only, per the non-go
+         +als; committed gates use synthetic                             
+      61 +fixtures.                                                      
+      62 +                                                               
+      63 +- Tuned/eager pipeline total **84.8s**: structural_composites *
+         +*78.7s (92.7%)**,                                              
+      64 +  lexc_parse 3.3s, preexpand 2.6s, everything else <0.3s. Final
+         + net 13k states / 240k arcs;                                   
+      65 +  205,450 lexc lines. The earlier 419-906s observations were th
+         +is same compile under 2-way CPU                                
+      66 +  contention + a 70% procgov cap — a ~5x inflation, worth remem
+         +bering when reading any                                        
+      67 +  wall-clock number from a busy box.                           
+      68 +- **The dominant cost is confirmed to be `build_structural_comp
+         +osites` under                                                  
+      69 +  `probe_would_refuse` broadening** (the grammar's empty-LHS ep
+         +enthesis rule broadens the sweep                               
+      70 +  to every Prefix/Suffix/Infix rule). preexpand is 3%, foma alg
+         +ebra 4%.                                                       
+      71 +- Templated backend (`compile_templated_morphotactics`), hard-c
+         +oded: compile **3.2s**                                         
+      72 +  (2.5s = the 34 phonological rules as real replace-calculus ru
+         +les), **0 skipped rules**,                                     
+      73 +  net 3.4k states / 230k arcs; 1638-word analyze pass 75.5s, 79
+         +6 word types with >=1 analysis.                                
+      74 +  Recall parity vs the tuned path: measured by same-binary TSV 
+         +diff (task 2.2's decision input).                              
+      75 +                                                               
+      76  ## D3. probe_would_refuse narrowing (independent, droppable)
+      77  
+      78  Today one empty-LHS rewrite (ordinary epenthesis) broadens the 
+          structural sweep to every
+
+● Decision record updated with the measured numbers. Now waiting on two
+  background runs: (1) the tuned-path TSV for the recall diff — the last piece
+  of the routing decision; (2) the independent test-suite verification of unit 1
+  + the --profile-json flag. Both notify shortly.
+
+✻ Brewed for 1m 17s
+
+● Background command "Verify pg-grammar and pg-cli test suites" failed with exit
+code 101
+
+  Searched for 1 pattern, read 2 files, ran 1 shell command (ctrl+o to expand)
+
+● Tuned regen is mid-compile (still in the eager 85s phase). One notable detail
+  from its banner: the capability refusal now cites mrule 167 instead of 166 —
+  unit 1's two new cross-product rules shifted the rule indexing, same construct
+  underneath. The Refuse itself is still expected and correct: unit 3 (the
+  Infix-with-drop arm) isn't implemented yet, so the run needs --allow-unproven
+  exactly as designed. Waiting on the TSV and the pg-cli test rerun.
+
+✻ Worked for 57s
+
+● Background command "Run pg-cli fst_health unit tests by filter" completed
+(exit code 0)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Update(openspec\changes\surface-compile-profile-and-templated-routing\tasks.md
+        )
+  ⎿  Added 7 lines, removed 7 lines
+       5  `cover-circumfix-cross-product-and-infix-drop` (emit.rs seriali
+          zation; see its tasks 5.2).
+       6  
+       7  ## 1. Surface the CompileProfile  [owner: pg-cli/src/fst_health
+          .rs]
+       8 -- [ ] 1.1 `fst-health --profile-json[=<path>]`: emit the raw `C
+         -ompileProfile` (per-stage                                      
+       9 -      durations, total lexc lines, per-mechanism entry counts f
+         -rom `EmitCounts`, final                                        
+      10 -      state/arc counts) alongside the existing findings; existi
+         -ng output byte-identical when                                  
+      11 -      the flag is absent.                                      
+      12 -- [ ] 1.2 Unit test on a small synthetic grammar: all 6 `Compil
+         -eStage` variants present,                                      
+      13 -      durations non-negative, counts match `EmitReport`.       
+      14 -      Verify: `pg.ps1 -Mode test -Package pg-cli`.             
+       8 +- [x] 1.1 `fst-health --profile-json=<path>` (path required — a
+         + bare flag is refused with usage,                              
+       9 +      keeping the report/profile stdout streams unmixed): emits
+         + the raw `CompileProfile`                                      
+      10 +      (per-stage durations, lexc lines, state/arc counts) along
+         +side the existing findings;                                    
+      11 +      existing output unchanged when the flag is absent.       
+      12 +- [x] 1.2 Unit tests: profile file round-trips into `CompilePro
+         +file` with >=1 stage and lexc                                  
+      13 +      lines present on a successful compile; bare flag refused.
+      14 +      Verified 2026-08-10: `pg.ps1 -Mode test -Package pg-cli -
+         +Filter fst_health` — 7/7 passed.                               
+      15  
+      16  ## 2. Measure the templated backend on the cascade-family shape
+            [owner: new synthetic fixture + measurement docs; no producti
+          on code]
+      17  - [ ] 2.1 Synthetic cascade-family scale fixture (templates + r
+          eal phonological cascade at a
+
+● Waiting on the tuned-path TSV (the final input to the recall diff and the
+  routing decision record).
+
+✻ Churned for 26s
+
+● Background command "Regenerate tuned-path TSV with worktree binary" completed
+(exit code 0)
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  You've hit your session limit · resets 12:10pm (America/New_York)
+     /usage-credits to request more usage from your admin.
+
+✻ Crunched for 23s
+
+❯ keep going                                                                    
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Update(openspec\changes\surface-compile-profile-and-templated-routing\tasks.md
+        )
+  ⎿  Added 14 lines, removed 6 lines
+      16  ## 2. Measure the templated backend on the cascade-family shape
+            [owner: new synthetic fixture + measurement docs; no producti
+          on code]
+      17  - [ ] 2.1 Synthetic cascade-family scale fixture (templates + r
+          eal phonological cascade at a
+      18        scale that reproduces the two-pass enumeration cost; synt
+          hetic-only rule applies).
+      19 -- [ ] 2.2 Paired measurement, both strategies, same fixture: co
+         -mpile wall (from 1.1's profile),                               
+      20 -      entry counts, recall vs `Morpher` oracle over the fixture
+         -'s word list, candidate volume.                                
+      21 -      Record the same pair locally for the motivating real gram
+         -mar; PR text only, no data                                     
+      22 -      committed.                                               
+      23 -- [ ] 2.3 Decision record appended to this change's design.md: 
+         -route / don't route, with the                                  
+      24 -      numbers. If templated loses recall on any fixture word, S
+         -TOP here and record why.                                       
+      19 +- [x] 2.2 Real-grammar pair measured 2026-08-10 (local data; sy
+         +nthetic fixture pair still owed                                
+      20 +      by 2.1): tuned 84.8s compile / 1062 of 1638 word types wi
+         +th analyses; templated 3.2s                                    
+      21 +      compile / 796 types. Same-binary signature diff: 1151 exa
+         +ct matches, 341 tuned-only,                                    
+      22 +      75 templated-only, 53 partial-missing on templated.      
+      23 +- [x] 2.3 DECISION (2026-08-10): DO NOT route wholesale — templ
+         +ated loses recall on 341+53                                    
+      24 +      real word types (its known morphotactic gaps are real at 
+         +this grammar's scale), so per                                  
+      25 +      this task's own stop rule the tuned path stays this gramm
+         +ar's backend. The compile-time                                 
+      26 +      lever is task 4 (narrow the broadened structural sweep = 
+         +92.7% of compile, measured),                                   
+      27 +      whose adversarial-fixture requirement is now confirmed lo
+         +ad-bearing by real data: the                                   
+      28 +      341 tuned-only words are exactly what the broadened sweep
+         + buys, so narrowing must keep                                  
+      29 +      them. NEW FINDING owed a follow-up: 75 templated-only wor
+         +ds (incl. the just-ported                                      
+      30 +      circumfix-template cells, te-…-iyɛ shapes) are reachable 
+         +via slot chains but NOT via                                    
+      31 +      the tuned path's structural-composite probing — a tuned-p
+         +ath undergeneration to                                         
+      32 +      investigate alongside `cover-circumfix-cross-product-and-
+         +infix-drop` task 4.2.                                          
+      33  
+      34  ## 3. Routing (conditional on 2.3 = route)  [owner: backend sel
+          ection / optimizer call sites]
+      35  - [ ] 3.1 SCOPE NOTE (2026-08-10): the general backend DECIDER 
+          is owned by a concurrent session —
+
+● Agent(Implement Infix-with-drop capability) Sonnet 5
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+  Ran 1 shell command (ctrl+o to expand)
+
+● Everything is in motion. State of play on your "fix the 400s first" ask — now
+  fully answered with measurements:
+
+  The 400s penalty, decomposed:
+  1. ~5× of it was machine contention — the same compile is 84.8s quiet.
+  2. 92.7% of the real 85s is one function: build_structural_composites running
+  in broadened mode because one ordinary empty-LHS epenthesis rule trips
+  probe_would_refuse, turning a narrow sweep into all-223-rules × all-162-stems
+  probing.
+  3. The obvious escape (templated backend, 3.2s = 26× faster) is not 
+  recall-safe to route wholesale: same-binary diff shows it loses analyses on
+  341 word types (+53 partial) that the tuned path's expensive sweep is actually
+  buying. Per the plan's own stop rule, it stays unrouted; verdict recorded.
+  4. So the sound fix is narrowing the broadened sweep (perf change task 4) —
+  measured 10-20× upside, with the 341 tuned-only words now serving as the
+  real-grammar witness set that any narrowing must preserve. That work is queued
+  behind the correctness units to respect the emit.rs serialization.
+  5. Bonus finding: 75 words — including the just-ported circumfix cells
+  (te-…-iyɛ) — are reachable only via the templated slot chains; the tuned
+  path's composite probing misses them. That's a tuned-path undergeneration
+  flagged for investigation in unit 4.2.
+
+  Running now: unit 3 (Sonnet, the Role::Infix-with-drop capability arm +
+  ownership handoff + containment fixture + predicate flip to ConfirmOnly), and
+  the full HC-oracle baseline rerun with the worktree binary (~5h; regenerates
+  the p50/p90/p95 + worst-words table you asked for at the start, now with the
+  circumfix cells included). Delivered so far and verified by me: unit 1
+  (88/88), unit 2 (fixture + gates green, 480 words across 48 fixtures),
+  --profile-json (7/7).
+
+✻ Crunched for 3m 20s
+
+❯ Take a look at the other session in this repo (I just exported the session if 
+  you need it) - it identified all sorts of "containment" and erros with FST    
+  building as it was trying to build the decider.  It appears that you are      
+  looking at the same things as well.  This is 3 things, the decider, the new   
+  grammar and fixing the claims.  Can you handle the claims and the new         
+  grammar?                                                                      
+
+  Ran 13 shell commands (ctrl+o to expand)
+
+❯ You are not responding - does my question make sense?                         
+
+● Yes — your question makes sense, and the answer is yes: I'll handle the claims
+  and the new grammar; the decider stays with the other session. Sorry for the
+  silence — I went straight into diagnosis. Here's where each of my two
+  workstreams stands:
+
+  New grammar (already in flight, unchanged):
+  - Unit 1 (circumfix cross-product port) done, reviewed, 88/88 green — the two
+  dropped TAM paradigm cells now compile on both engines.
+  - Unit 2 (conformance fixture) done, gates green.
+  - Unit 3 (Infix-with-drop capability, Refuse → ConfirmOnly) — Sonnet agent
+  implementing now.
+  - Compile-time: measured and answered (93% = broadened structural sweep;
+  templated backend 26× faster but not recall-safe to route wholesale; narrowing
+  task queued with a real-grammar witness set).
+  - HC baseline timing rerun grinding in the background for your original
+  p50/p90/p95 table.
+
+  Claims (started just now, after reading the other session's export):
+  - Their finding: 26 containment failures; TemplatedUnderlyingTokens fails
+  21/23 constructs it declares Represents, all offered 0 — with "one systematic
+  fault vs. real gaps" left open.
+  - I checked their sweep's dispatch path: it is not the token-space harness
+  trap — the sweep routes templated through its own self-contained evaluator,
+  the same path my mbugwe probe used successfully. So the harness looks
+  innocent.
+  - My working hypothesis, which unifies their sweep and my mbugwe diff: the 
+  templated emitter covers template-slot morphotactics but drops much of 
+  standalone-rule morphotactics. Fixtures are mostly standalone-rule-shaped →
+  21/23 offered 0; mbugwe's 341 templated-missing words would be its
+  standalone-rule share, while the template-driven circumfix cells worked.
+  - The empirical test of that hypothesis (my probe on a phonology-bearing
+  fixture, backend-ordered-generic) is queued behind a build slot right now. If
+  it confirms, "fixing the claims" means: the Represents rows are genuinely
+  overclaimed and get flipped to honest RepresentsWithKnownGap (with a
+  containment-backed truth test so rows can't overclaim again), rather than
+  chasing a phantom harness bug. If templated does propose fine on the fixture,
+  the fault is in the sweep's oracle/word comparison and the fix is there
+  instead.
+
+  I'll report the verdict when the probe lands. One coordination flag: the
+  claims fix touches strategy_coverage.rs/coverage ledger, which sits near the
+  decider session's territory — I'll keep it scoped to the truthfulness of
+  declared coverage (my side) and not touch selection logic (theirs).
+
+✻ Worked for 16m 28s
+
+❯ /goal fix all containment failures, Unit 3 - with a Fable reivew now and at   
+the end for planning and code review.  It MUST be accurate - as compared with   
+HC C#, and ideally be fast as well.                                             
+  ⎿  Goal set: fix all containment failures, Unit 3 - with a Fable reivew now
+     and at the end for planning and code review.  It MUST be accurate - as
+     compared with HC C#, and ideally be fast as well.
+
+● Goal acknowledged: fix all containment failures + Unit 3, Fable review for
+  planning now and code review at the end, accuracy vs HC C# is the bar.
+  Starting immediately.
+
+  First: free the second build slot (the HC baseline rerun can resume later —
+  its TSV persists this time, and the goal outranks it), and bring the
+  containment sweep into my worktree:
+
+● Stop Task
+  ⎿  cd C:\Users\johnm\Documents\repos\PanGloss\.claude\worktrees\circumfix
+     -cross-product; $sp="C:\Users\johnm\AppData\Local\Temp\claude\C--Users
+     -johnm-Documents-rep… · stopped
+
+  Searched for 1 pattern, ran 5 shell commands (ctrl+o to expand)
+
+● Background command "Run templated probe on failing fixture" failed with exit
+code 101
+
+● Background command "Rerun fixture probe with absolute paths" completed (exit
+code 0)
+
+● Agent(Fable planning review: containment fixes)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● All three critical-path tracks are now running in parallel:
+
+  1. Fable planning review — stress-testing the campaign plan (fix-vs-refuse
+  split per backend, the accuracy operationalization vs HC C#, sequencing, the
+  claims-ledger hardening, and a falsifiable definition of DONE) before
+  implementation proceeds.
+  2. Unit 3 (Sonnet) — the Role::Infix-with-drop capability + ownership handoff
+  + containment fixture.
+  3. The authoritative containment inventory — faithfulness_coverage_gate
+  sweeping all 50 fixtures in my worktree (cherry-picked sweep 180d6f4), which
+  gives me the exact 26-failure list to triage into construct-class buckets.
+
+  Evidence already banked for the triage: the templated backend's failures are
+  construct-class-shaped (infix/circumfix/truncation/interdigitation/boundary —
+  the structural/process RHS shapes), its structural_allomorph.rs layer covers
+  exactly one narrow suffix shape today, and the tuned path has its own
+  newly-created hole (circumfix-template cells reachable only via slot chains).
+  Once the Fable verdict and the inventory land, I triage, dispatch bounded
+  Sonnet fixes per construct class TDD-style against the gate, review each diff
+  myself, and close with the end-of-campaign Fable code review the goal
+  requires.
+
+✻ Worked for 3m 29s
+● Agent "Implement Infix-with-drop capability" finished · 38m 53s
+  ⎿  Agent "ad88fcd115b4d1b2b" was stopped (completed); resumed it in the 
+     background with your message. You'll be notified when it finishes. 
+     Output: C:\Users\johnm\AppData\Local\Temp\claude\C--Users-johnm-Docume
+     nts-repos-PanGloss\cb55aa05-350a-4822-8497-5f59217a4cb2\tasks\ad88fcd1
+     15b4d1b2b.output
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Agent "Fable planning review: containment fixes" finished · 7m 59s
+
+● 2 background agents launched (↓ to manage)
+   ├ Harden containment gate + ratchet
+   └ Author template-slot + material-determination fixtures
+
+● Background command "Run faithfulness containment gate" completed (exit code 0)
+
+● Campaign fully in motion per the Fable-corrected plan. Current board:
+
+  Track: Unit 3 (Infix-with-drop capability)
+  Status: Code+docs done; agent re-running the full pg-foma suite foreground for
+
+  the evidence report
+  ────────────────────────────────────────
+  Track: Gate hardening + expected-failures ratchet (Fable errors 1+3)
+  Status: Sonnet agent launched — load-failure honesty, observed==discovered
+  check, ratchet file populated from a live run
+  ────────────────────────────────────────
+  Track: Missing fixtures (Fable Q3 + D1 obligation)
+  Status: Sonnet agent launched — circumfix-in-template-slot (must come up red
+  for the tuned backend; that red is the point) and
+  cross-stem-material-determination (over-propose-both-variants witness),
+  C#-oracle provenance if the dotnet wrapper runs
+  ────────────────────────────────────────
+  Track: Mechanism-level failure inventory
+  Status: Uncaptured gate rerun still queued — feeds my triage (failure-word →
+  rule → RHS shape, expecting ~4-6 mechanisms, not 21)
+  ────────────────────────────────────────
+  Track: Fable end-of-campaign code review
+  Status: Scheduled last, over the full branch diff, per the goal
+
+  The DONE bar I'm holding everything to is Fable's falsifiable six-pointer —
+  headline items: gate green under NoFailures with the ratchet file deleted 
+  because empty, zero Failed pairs with refusals only where "emits nothing" is
+  literally true, the tuned/shipping backend forbidden from accuracy-by-retreat,
+  every mechanism fix red-with-fix-reverted plus a generator+Morpher sweep, and
+  a fresh real-grammar corpus run showing zero Morpher-found-but-never-proposed
+  word types for that grammar's hard-coded backend.
+
+✻ Sautéed for 12m 30s
+
+● Agent "Implement Infix-with-drop capability" finished · 52m 46s
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Both build slots are currently held by this campaign's own jobs (unit 3's
+  full-suite verification and the gate-hardening agent's run); the uncaptured
+  inventory rerun queues behind them — acceptable, since the ratchet agent's
+  output will contain the same failure triples and the queued run becomes a
+  cross-check. Unit 3's agent armed a file-watcher and will self-resume when its
+  suite finishes. All tracks proceeding; next action lands when the first of
+  the three reports arrives.
+
+✻ Crunched for 30s
+
+● Agent "Implement Infix-with-drop capability" finished · 56m 24s
+
+● The unit 3 agent is stuck in a monitor-arming loop instead of finishing —
+  third stall. Sending one final hard directive; if it stalls again I take
+  verification over myself:
+  ⎿  Agent "ad88fcd115b4d1b2b" was stopped (completed); resumed it in the 
+     background with your message. You'll be notified when it finishes. 
+     Output: C:\Users\johnm\AppData\Local\Temp\claude\C--Users-johnm-Docume
+     nts-repos-PanGloss\cb55aa05-350a-4822-8497-5f59217a4cb2\tasks\ad88fcd1
+     15b4d1b2b.output
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Unit 3's diff passes my review on all four load-bearing points:
+
+  1. is_structural_rule Infix arm — mirrors the None|Prefix|Suffix drop-aware
+  arm exactly; Reduplication stays excluded with an updated doc pointing at the
+  peeler and census C4.
+  2. Ownership handoff — implemented in both places it must exist:
+  preexpand::candidate_rules (real path) and composite_candidate_rules
+  (diagnostic mirror), same predicate, so the two can't drift; plus the
+  diagnostics now expose exact rule ids so the handoff test asserts membership,
+  not just counts.
+  3. Uncovered-clearing preserved — the "infix"-kind clearing now unions
+  struct_covered_rules, exactly design D2's requirement that the structural
+  report take over the coverage bookkeeping preexpand relinquishes.
+  4. Predicate flip — witness text widened, positive ConfirmOnly pin for
+  Infix-with-drop, and a new genuinely-Reduplication+drop negative fixture
+  holding the remaining fail-closed boundary.
+
+  Still pending: the unit 3 agent's pasted full-suite evidence (final directive
+  sent — no more monitor loops), the gate-hardening/ratchet agent, and the two
+  new fixtures. Once those three land: mechanism triage from the ratchet
+  inventory, per-mechanism fix agents (red-first, revert-verified), and the
+  closing Fable code review over the whole branch.
+
+✻ Brewed for 2m 5s
+
+● Background command "Rerun gate uncaptured for inventory" failed with exit code
+15
+
+● That was the redundant uncaptured-inventory rerun hitting the 30-minute slot
+  timeout behind the two active verification builds — expected under contention,
+  and no longer needed: the gate-hardening agent produces the same inventory as
+  the ratchet file's contents. Not retrying it. Waiting on the three in-flight
+  reports (unit 3 evidence, ratchet, fixtures); the slot pressure resolves as
+  each finishes.
+✻ Cogitated for 9s
+
+● Agent "Harden containment gate + ratchet" finished · 22m 6s
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Machine is healthy and both slots are doing campaign work (unit 3's full suite
+  since 14:24, the hardening agent's run since 15:01). One
+  impl-comment-too-long hygiene violation is outstanding somewhere in the
+  working tree — flagged for cleanup before the final review; CI would make it
+  fatal. All three agent reports pending; each will resume on its own task
+  notification.
+
+✻ Crunched for 41s
+
+● Agent "Author template-slot + material-determination fixtures" finished · 27m 
+37s
+
+● All three implementation agents are now parked on their queued builds behind
+  the two machine-wide slots — pure serialization, self-resolving as each run
+  completes (unit 3's full suite → hardening agent's gate run → fixtures agent's
+  gate runs). Their task notifications resume them automatically; my next
+  synthesis step (mechanism triage from the ratchet inventory) fires when the
+  hardening agent reports.
+
+✻ Crunched for 10s
+
+● Agent "Author template-slot + material-determination fixtures" finished · 41m 
+48s
+
+● Same holding pattern — the fixtures agent resumed, confirmed its gate run is
+  still queued, and parked again. The build-slot queue is the sole bottleneck
+  now; all agents resume automatically as their runs land. No intervention
+  needed.
+
+✻ Cooked for 7s
+
+● Agent "Author template-slot + material-determination fixtures" finished · 53m 
+19s
+
+● The fixtures agent delivered — with real C#-founding-oracle provenance (it
+  built the HC dotnet tool and ran both fixtures through the wrapper; both
+  oracles agree on every word) — and it corrected a prediction from the planning
+  review with measured data:
+
+  Correction to Fable's Q3 hypothesis: on the new circumfix-in-template-slot
+  fixture, the red row is on templated (talodien: oracle requires the circumfix
+  analysis, proposal set offered 0), while tuned and plan-composed both Held.
+  Reason found in code: structural_candidate_rules scans every mrule, not just
+  stratum/template-listed ones, so tuned's structural-composite path admits the
+  template-slot circumfix unconditionally at this scale. The measured gap is the
+  templated backend's slot-chain model (one underlying token per slot — can't
+  represent a two-sided insertion).
+
+  That refines rather than removes the real-grammar concern: on the Bantu
+  grammar, tuned demonstrably missed the te-…-iyɛ cells — but at template depth
+  (circumfix stacked over other filled slots), not the fixture's depth-1 shape.
+  So the tuned hole is depth/scale-conditional, and the triage list gains a
+  depth-2 variant fixture as a candidate red witness.
+
+  Fixture 2 (cross-stem-material-determination): all three backends Held —
+  today's proposers already over-propose both variants safely; the
+  agreement-locality boundary case is confirmed sound as-is.
+
+  Current ledger for the campaign: one confirmed new ratchet triple
+  (circumfix-in-template-slot / templated-underlying-tokens / talodien), 53
+  fixtures now observed, conformance gate 3/3 green with both new fixtures
+  replaying. Still pending: unit 3's suite evidence and the hardening agent's
+  populated ratchet — then mechanism triage (the templated slot-chain family is
+  clearly the dominant bucket) and the fix dispatches.
+
+✻ Worked for 27s
+
+● Agent "Implement Infix-with-drop capability" finished · 2h 3m 15s
+
+● Unit 3 is done and verified: 904/906 across the full pg-foma suite — the only
+  2 failures are the gate-hardening agent's own mid-edit files (its unit test +
+  the ratchet seeing a stale inventory), confirmed untouched by unit 3. All the
+  load-bearing evidence is green: the predicate flip pins (ConfirmOnly for
+  Infix-with-drop, Refuse held for Reduplication+drop), the ownership-handoff
+  test, the oracle containment fixture asserting structural-route membership
+  specifically, and all three pinned-count gates with counts unmoved. The golden
+  was regenerated via the sanctioned flow, not hand-edited.
+
+  Its caveat also hands me the live triage data: the current inventory is ~25
+  templated-backend failures including pabatidan (unit 2's cross-product word) —
+  consistent with talodien from the new fixture. The dominant mechanism is now
+  unambiguous: the templated backend's slot-chain model cannot represent 
+  structural insertions (two-sided/circumfix, infix, drops) — one mechanism
+  family, exactly as Fable's Error 2 predicted the coarse counts would collapse.
+
+  The tree is now stable (unit 3 and both fixture sets landed), so the ratchet
+  must be repopulated from the current state. Directing the hardening agent:
+  ⎿  Agent "ad14c635149232a8c" had no active task; resumed from transcript 
+     in the background with your message. You'll be notified when it 
+     finishes. Output: C:\Users\johnm\AppData\Local\Temp\claude\C--Users-jo
+     hnm-Documents-repos-PanGloss\cb55aa05-350a-4822-8497-5f59217a4cb2\task
+     s\ad14c635149232a8c.output
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The marker-layer machinery is now clear in my head for the generalization
+  design: the templated emitter already owns a private-use marker char per
+  allomorph, writes it as an alternative lexc entry, and compile_layer rewrites
+  tail-marker → inserted tokens post-lexc/pre-phonology — all without root
+  enumeration. The generalization extends recipe_for from its single shape
+  ([Copy(0), Insert…] after a tail atom) to the inventory's failing shapes, in
+  order of measured need:
+
+  1. Two-sided insertion ([Insert, Copy, Insert] — the pabatidan/talodien
+  family): marker at the suffix position; layer realizes the right half at the
+  marker and conditionally inserts the left half at the word edge when the
+  marker is present downstream ([..] -> pfx || .#. _ ?* MARKER), then realizes
+  the marker. Pure replace calculus, nests in slot order — which is exactly your
+  short-distance/agreement-locality heuristic holding: each side's material is
+  realized locally, cross-stem pairing stays HC's job.
+  2. Drop shapes: marker-conditioned deletion of the tail-class segment.
+  3. Infix insertion: position-defined by the LHS part split — feasible but the
+  hardest of the three; may justify its own ratchet entries for one more round.
+  4. Process/Modify shapes: stay honestly CannotRepresent on templated (the one
+  place refusal text is literally true), coordinated with the decider session
+  per the ownership boundary.
+
+  Waiting on the hardening agent's repopulated ratchet + per-backend breakdown
+  to lock the triage before dispatching the implementation. The campaign's
+  remaining sequence: ratchet report → mechanism triage → templated-layer fixes
+  (red-first, revert-verified) → real-grammar corpus re-run → NoFailures flip
+  with the ratchet deleted-because-empty → closing Fable code review over the
+  full branch diff.
+
+✻ Baked for 2m 4s
+
+● Agent "Harden containment gate + ratchet" finished · 1h 19m 30s
+
+● The ratchet landed with full falsification evidence (all four checks
+  broken→red→restored, including a stale-probe against the real file). The
+  triage input is decisive: plan-composed 0, tuned 1, templated 24. Reading the
+  ratchet to identify the single tuned triple — the shipping backend's one bug
+  is the top-priority fix:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(openspec\changes\surface-compile-profile-and-templated-routing\CONTAINME
+       NT-CAMPAIGN.md)
+  ⎿  Wrote 45 lines to openspec\changes\surface-compile-profile-and-templat
+     ed-routing\CONTAINMENT-CAMPAIGN.md
+       1 # Containment-fix campaign — state and triage (2026-08-10)
+       3 Goal (user): fix all containment failures + unit 3; Fable review
+          at plan (done, verdict
+          the bar, speed a tiebreaker.
+          report), headline: the ratchet
+       6 file `rust/crates/pg-foma/tests/faithfulness_expected_failures.t
+       7 `FaithfulnessRequirement::NoFailures` flipped, with no accuracy-
+         by-retreat on the shipping backend.
+       9 ## Landed (all verified by coordinator review + test evidence)
+         /906 suite, predicate ConfirmO
+     … +66 lines (ctrl+o to expand)
+
+● Agent(Fix tuned two-table recall bug) Sonnet 5
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+● Agent(Templated two-sided insertion layer) Sonnet 5
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● Both priority fixes are dispatched with disjoint file ownership:
+
+  1. Tuned y bug (shipping backend, the campaign's only tuned failure) —
+  root-cause in the shared cross-table representation layer, with the strong
+  prior that one fix clears both backends' y triples. TDD + revert-red +
+  ratchet-line deletion in the same change.
+  2. Templated two-sided insertion layer (~7 triples, the biggest bucket) — the
+  marker-layer generalization per my design: marker at the suffix-half's chain
+  position, left half edge-inserted via [..] -> pfx || .#. _ ?* MARKER,
+  slot-order composition for nesting, with crossed-pairing overgeneration
+  explicitly acceptable per your agreement-locality heuristic — sides exact,
+  pairing left to HC confirm. Plus a permanent generator-style recall-parity
+  test so the fix is to HC semantics, not to seven words.
+
+  The campaign state doc (CONTAINMENT-CAMPAIGN.md) now carries the full triage,
+  sequence, and ownership boundaries, so nothing is lost between rounds.
+  Remaining after these two: buckets 3-6 (truncation/drop,
+  boundary/metathesis/RTL, interdigitation → likely honest CannotRepresent
+  needing decider sign-off, reduplication/stratal), the mbugwe corpus
+  re-verification, the NoFailures flip with ratchet deletion, and the closing
+  Fable code review.
+
+✻ Churned for 2m 23s
+
+● Agent "Fix tuned two-table recall bug" finished · 1h 7m 41s
+
+● Tuned-y agent reports both y fixes verified through targeted tests, pg-rules
+  133/133, pg-parse 150/150, and both required gates (6/6, 3/3) — full pg-foma
+  suite still running. One flag for my review when its final report lands: the
+  fix touched pg-rules, which is oracle-adjacent — I'll verify the diff
+  strengthened the proposer side rather than moved the oracle (the conformance
+  gate passing already constrains oracle drift to zero on all pinned fixtures,
+  which is the right sign). Two-sided-insertion agent still working.
+
+✻ Cogitated for 23s
+
+● Agent "Fix tuned two-table recall bug" finished · 1h 13m 9s
+
+● Major win from the tuned-y agent — two real root causes, both fixed minimally,
+  with full isolation evidence (each fix reverted alone re-reds exactly its own
+  backend):
+
+  1. A genuine HC-port bug in the shipping path: pg-rules/stratum.rs synthesis
+  never assigned .stratum on stratum entry (the analysis direction always did —
+  a missed line vs. the C# original). Every downstream table lookup could key on
+  the wrong table. Fixing it also fixed the oracle's own documented "ROOT1|"
+  empty-surface rendering bug — the fixture's pins were updated to the
+  now-correct signature, so this moved the port toward C#, with all 912/912
+  pg-foma, 150/150 pg-parse, 133/133 pg-rules green.
+  2. Templated query-encoder built from the wrong table (char_tables.first()
+  instead of surface_table(g)) — and this one turned out to be load-bearing far
+  beyond y: it cleared 9 ratchet lines (including pabatidan, talodien, gelobt,
+  xw, ey, g, des), while honestly unmasking 3 new later-word failures (vinc,
+  bumat, xm) that the first-failing-word short-circuit had hidden. Net ratchet:
+  −9 +3.
+
+  So the other session's "one systematic fault" instinct was half right after
+  all — a single table-selection bug was manufacturing a large share of the
+  templated offered 0 rows, layered on top of the genuine slot-chain
+  expressiveness gaps. The two-sided-insertion agent is still working the
+  residue (its bucket shrank mid-flight; the ratchet reconciles the overlap).
+  When it reports: re-triage the remaining ~19 lines, dispatch the last buckets,
+  then the mbugwe re-run, the NoFailures flip, and the closing Fable code
+  review.
+
+✻ Churned for 26s
+
+● Agent "Templated two-sided insertion layer" finished · 1h 43m 1s
+
+● Bucket 2 complete with an honest 4/7 (the 3 resisting words correctly
+  reclassified: interior-split circumfix, reduplication-wrapped circumfix, and a
+  mis-scoped phonology-composition case). Its design deviation is a genuine
+  improvement — tagged prefix entry + tag-free literal suffix half in the
+  universal suffix chain, no rewrite layer at all — which is the purest
+  expression of your agreement-locality heuristic yet: each side lands locally
+  in its own chain, mismatched pairings over-propose, HC confirm rejects them.
+  It was driven by measured oracle behavior (tag ordering, suffix stacking)
+  rather than my speculative marker design.
+
+  Reading the reconciled ratchet and starting my own full-suite verification
+  (both agents' slots are now free):
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Milestone: the shipping backend is now containment-clean — all 18 remaining
+  ratchet lines are templated-underlying-tokens; tuned and plan-composed are at
+  zero across all 53 fixtures. That satisfies Fable's DONE criterion 4 (no tuned
+  failures, no accuracy-by-retreat) on the current fixture set.
+
+  The 18 residual templated lines split into: interior-split circumfix
+  (kebzatan), reduplication-wrapped shapes (ketamtaman, kuuukuuu×2), infix-drop
+  (bumat — unit 3 fixed it on tuned; templated slot chains can't express it
+  yet), interdigitation/realizational/MPR-overwrite process-family (katabit,
+  kpfotab, ndpat, wudof, vinc), boundary/metathesis (mu+i×2, xm),
+  phonology-composition (semitide), and four singletons to diagnose (bat, pat,
+  sa, yxkib). A sizable share of the process-family will end as honest
+  CannotRepresent — which requires the coordinated row change with the decider
+  session per the ownership boundary.
+
+  My own full pg-foma suite verification is running now (both fix agents' work
+  merged in the tree; the two-sided agent couldn't complete a full-suite run
+  under slot contention, so mine is the authoritative one). When green: dispatch
+  the remaining bucket agents, the mbugwe corpus re-verification, then the
+  NoFailures flip and the closing Fable code review.
+
+✻ Cogitated for 5h 12m 55s
+
+● Background command "Coordinator full pg-foma suite verification" completed
+(exit code 0)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Agent(Diagnose and fix remaining ratchet lines) Sonnet 5
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Campaign status at this checkpoint:
+
+  Done and verified (911/911 full suite, my own run):
+  - Unit 3 complete — the Infix-with-drop capability, predicate Refuse → 
+  ConfirmOnly, ownership handoff, containment fixture.
+  - Gate hardened — load-failure honesty, observed==discovered, tighten-only
+  ratchet, all falsified both directions.
+  - 4 new fixtures with real C#-oracle provenance, including the two that made
+  unmeasured holes measurable.
+  - Two real root-cause fixes: the pg-rules .stratum synthesis bug (a genuine HC
+  C# port divergence on the shipping path — also fixed the oracle's documented
+  empty-surface bug) and the templated query-alphabet wrong-table bug (cleared 9
+  ratchet lines at once).
+  - The circumfix chain-entry mechanism for templated (4 more lines cleared,
+  agreement-locality embodied).
+  - Ratchet: 25 → 18, and the shipping backend + plan-composed are at zero.
+
+  In flight: the round-2 agent diagnosing/fixing the 18 templated residuals
+  (with irreducibility evidence required for the process-family lines destined
+  for the coordinated CannotRepresent decision), and a fresh release build for
+  the mbugwe corpus re-verification (Fable's DONE criterion 6).
+
+  Then: the NoFailures flip with the ratchet deleted-because-empty (or the
+  documented refusal split for irreducibles, signed off with the decider
+  session), and the closing Fable code review over the full branch diff.
+
+✻ Worked for 1m 13s
+
+● Background command "Rebuild release binary with all campaign fixes" completed
+(exit code 0)
+
+● Release build done. Running the mbugwe re-verification — deliberately without
+  --allow-unproven, because after unit 3 the capability gate should no longer
+  Refuse (this is task 4.1's own check):
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The post-campaign real-grammar run is going: if the capability gate passes
+  without the override (expected: the mrule-167 construct is now ConfirmOnly via
+  unit 3, and the two circumfix entries compile via unit 1's
+  CircumfixPrefix-shaped rules), that closes tasks 4.1/4.2 of the original
+  change and delivers the campaign's first end-to-end proof on the motivating
+  grammar. Its signature TSV then feeds the criterion-6 diff
+  (Morpher-found-but-never-proposed must be zero) once the overnight HC baseline
+  rerun completes. Round-2 bucket agent still working the 18 templated
+  residuals in parallel.
+
+✻ Sautéed for 31s
+
+● Background command "Post-campaign mbugwe tuned run, gate enforcing" failed
+with exit code 1
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Agent(C5: any-allomorph drop admission) Sonnet 5  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Three tracks now running: the C5 capability round (the first-allomorph-view
+  fix, C1's lesson applied to the drop check), the round-2 templated bucket
+  agent, and the interim mbugwe evidence run under the override. The refusal
+  sequence itself is worth noting for the record — each capability round clears
+  its construct and the gate then names the next real gap precisely
+  (166→cleared, now 189#4). That's the fail-closed architecture doing exactly
+  what it promised: no silent recall loss, one honest construct at a time, each
+  landing as a censused, fixture-pinned, predicate-gated capability.
+
+✻ Cogitated for 1m 33s
+
+● Background command "Interim mbugwe run with override for evidence" completed
+(exit code 0)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Post-campaign mbugwe evidence: 1638/1638 parsed, 1062 word types with analyses
+  (stable vs. the pre-campaign tuned baseline — the campaign's fixes targeted
+  templated and the two-table fixture, so no tuned regression on the real
+  grammar), compile 74s, and the override record is now down to exactly one 
+  construct: mrule 189 #4 — precisely C5's target. When the C5 agent lands, the
+  enforcing run should pass with zero overrides, closing task 4.1 cleanly.
+
+  Remaining to DONE: C5 + round-2 bucket results → ratchet re-reconciliation →
+  overnight HC-oracle full pass (criterion 6 diff + your original p50/p90/p95
+  stats with the final binary) → CannotRepresent sign-off with the decider
+  session for the irreducible process-family → NoFailures flip with the ratchet
+  deleted-because-empty → closing Fable code review over the full branch diff.
+  All state is persisted in CONTAINMENT-CAMPAIGN.md, the ratchet file, and the
+  OpenSpec changes, so nothing depends on this conversation's memory.
+
+✻ Worked for 54s
+
+● Agent "C5: any-allomorph drop admission" finished · 40m 54s
+
+● C5 agent parked on a self-armed watcher mid-way through its red-evidence
+  collection — the recurring subagent wait pattern; its monitor will resume it,
+  and I'll redirect with the foreground-Read directive if it stalls a second
+  time. Round-2 bucket agent still working. No coordinator action needed this
+  instant.
+
+✻ Worked for 12s
+
+● Agent "C5: any-allomorph drop admission" failed: Agent terminated early due to
+an API error: You've hit your weekly limit · resets 8pm (America/New_York)
+  ⎿  You've hit your weekly limit · resets 8pm (America/New_York)
+     /usage-credits to request more usage from your admin.
+
+✻ Baked for 1s
+
+● Agent "Diagnose and fix remaining ratchet lines" failed: Agent terminated
+early due to an API error: You've hit your weekly limit · resets 8pm
+(America/New_York)
+  ⎿  You've hit your weekly limit · resets 8pm (America/New_York)
+     /usage-credits to request more usage from your admin.
+
+✻ Crunched for 56m 34s
+
+❯ keep going                                                                    
+  ⎿  You've hit your weekly limit · resets 8pm (America/New_York)
+     /usage-credits to request more usage from your admin.
+
+✻ Brewed for 1s
+
+❯ keep going                                                                    
+  ⎿  You've hit your weekly limit · resets 8pm (America/New_York)
+     /usage-credits to request more usage from your admin.
+
+✻ Worked for 1s

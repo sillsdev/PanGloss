@@ -66,12 +66,12 @@ reopening the blow-up. A grammar that genuinely needs more than 4 co-occurring a
 composite would show up as its own recall-gate miss, at which point this constant is the thing to
 revisit, not something to silently raise speculatively.
 
-`MAX_EXTRA_RULES` (3) bounds total composite chain length beyond the root. `3` is the longest chain
-a real recall gate demanded (Amharic "ሌባዎቹ": root + one clean-concatenation step + two steps that
-each fuse with the previous one's output) — the clean first step is why `extend` recurses through
-non-dirty steps too, not just dirty ones. A grammar that genuinely needs a fourth stacked fusion
-would show up as a recall-gate miss with an otherwise-empty class, the same "measure before
-raising" discipline as above.
+The two composite routes have evidence-specific bounds. Ordinary `preexpand::extend` remains at
+depth 3, established by the Amharic recall gate (`"ሌባዎቹ"`: root + one clean-concatenation
+step + two fusing steps); its clean first step is why recursion includes non-dirty intermediates.
+Structural emission uses `STRUCTURAL_COMPOSITE_MAX_EXTRA_RULES` (5), required by the Mbugwe
+containment regression. Raising either bound requires a recall miss in that route; the shared
+entry/probe budgets remain the independent fail-fast limits.
 
 ## Recursing once per synthesized word, and the clean-stripped redundancy baseline
 
