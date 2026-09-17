@@ -28,15 +28,28 @@ pub struct ParsedParseResponse {
 #[derive(Debug)]
 pub enum ReadError {
     Malformed(serde_json::Error),
-    UnsupportedSchemaVersion { found: u64 },
-    WrongMode { found: String },
+    UnsupportedSchemaVersion {
+        found: u64,
+    },
+    WrongMode {
+        found: String,
+    },
     /// A morph entry named no `msaGuid` — the one field this crate's identity model cannot do
     /// without (`crate::model::AnalysisSignature` docs).
-    MissingMsaGuid { word: String, analysis_index: usize, morph_index: usize },
+    MissingMsaGuid {
+        word: String,
+        analysis_index: usize,
+        morph_index: usize,
+    },
     /// `msaGuid` was present but not guid-shaped (a bare hvo, or an unresolved
     /// `"lexEntryHvo.refIndex.msaHvo"` DbRef leaking through) — never trusted as an identity, even
     /// though a caller reading only for absence (`MissingMsaGuid`) would miss it.
-    MalformedMsaGuid { word: String, analysis_index: usize, morph_index: usize, value: String },
+    MalformedMsaGuid {
+        word: String,
+        analysis_index: usize,
+        morph_index: usize,
+        value: String,
+    },
 }
 
 impl fmt::Display for ReadError {
@@ -52,12 +65,21 @@ impl fmt::Display for ReadError {
                 f,
                 "expected a '{EXPECTED_MODE}' response, found mode '{found}'"
             ),
-            ReadError::MissingMsaGuid { word, analysis_index, morph_index } => write!(
+            ReadError::MissingMsaGuid {
+                word,
+                analysis_index,
+                morph_index,
+            } => write!(
                 f,
                 "word '{word}', analysis #{analysis_index}, morph #{morph_index}: no msaGuid \
                  (this reader has no display-text fallback for morpheme identity)"
             ),
-            ReadError::MalformedMsaGuid { word, analysis_index, morph_index, value } => write!(
+            ReadError::MalformedMsaGuid {
+                word,
+                analysis_index,
+                morph_index,
+                value,
+            } => write!(
                 f,
                 "word '{word}', analysis #{analysis_index}, morph #{morph_index}: msaGuid \
                  '{value}' is not guid-shaped (expected a guid or 'guid#guid')"
@@ -82,7 +104,8 @@ struct RawResponse {
     mode: String,
     database: String,
     #[serde(rename = "engineVersion")]
-    #[allow(dead_code)] // Not consumed by this crate's model; kept so an unrecognized-key check still validates the rest of a real response.
+    #[allow(dead_code)]
+    // Not consumed by this crate's model; kept so an unrecognized-key check still validates the rest of a real response.
     engine_version: Option<String>,
     #[allow(dead_code)]
     parameters: serde_json::Value,
@@ -113,14 +136,16 @@ struct RawAnalysis {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawMorph {
-    #[allow(dead_code)] // Unread here, but must stay a modeled field: deny_unknown_fields would otherwise refuse every real morph object that carries it.
+    #[allow(dead_code)]
+    // Unread here, but must stay a modeled field: deny_unknown_fields would otherwise refuse every real morph object that carries it.
     form: Option<String>,
     #[serde(rename = "msaGuid")]
     msa_guid: Option<String>,
     #[serde(rename = "morphnameOrGloss")]
     morphname_or_gloss: Option<String>,
     #[serde(rename = "type")]
-    #[allow(dead_code)] // Unread here, but must stay a modeled field: deny_unknown_fields would otherwise refuse every real morph object that carries it.
+    #[allow(dead_code)]
+    // Unread here, but must stay a modeled field: deny_unknown_fields would otherwise refuse every real morph object that carries it.
     kind: Option<String>,
 }
 
@@ -137,14 +162,19 @@ fn is_guid_shaped_msa_id(value: &str) -> bool {
                 }
             })
     }
-    is_guid(value) || value.split_once('#').is_some_and(|(a, b)| is_guid(a) && is_guid(b))
+    is_guid(value)
+        || value
+            .split_once('#')
+            .is_some_and(|(a, b)| is_guid(a) && is_guid(b))
 }
 
 /// Parse one `parse --out <response.json>` document.
 pub fn read_parse_response(json_text: &str) -> Result<ParsedParseResponse, ReadError> {
     let raw: RawResponse = serde_json::from_str(json_text)?;
     if raw.schema_version != SUPPORTED_SCHEMA_VERSION {
-        return Err(ReadError::UnsupportedSchemaVersion { found: raw.schema_version });
+        return Err(ReadError::UnsupportedSchemaVersion {
+            found: raw.schema_version,
+        });
     }
     if raw.mode != EXPECTED_MODE {
         return Err(ReadError::WrongMode { found: raw.mode });
@@ -155,7 +185,10 @@ pub fn read_parse_response(json_text: &str) -> Result<ParsedParseResponse, ReadE
         let result = read_word(&raw_word)?;
         words.push((raw_word.word, result));
     }
-    Ok(ParsedParseResponse { database: raw.database, words })
+    Ok(ParsedParseResponse {
+        database: raw.database,
+        words,
+    })
 }
 
 fn read_word(raw_word: &RawWord) -> Result<XampleResult, ReadError> {
@@ -164,8 +197,14 @@ fn read_word(raw_word: &RawWord) -> Result<XampleResult, ReadError> {
         let signature = read_analysis(&raw_word.word, analysis_index, raw_analysis)?;
         *analyses.entry(signature).or_insert(0) += 1;
     }
-    let reached_max_analyses = raw_word.reached_max_analyses.then_some(raw_word.analyses.len());
-    Ok(XampleResult { analyses, reached_max_analyses, engine_error: raw_word.engine_error.clone() })
+    let reached_max_analyses = raw_word
+        .reached_max_analyses
+        .then_some(raw_word.analyses.len());
+    Ok(XampleResult {
+        analyses,
+        reached_max_analyses,
+        engine_error: raw_word.engine_error.clone(),
+    })
 }
 
 fn read_analysis(
@@ -176,11 +215,14 @@ fn read_analysis(
     let mut morphemes = Vec::with_capacity(raw.morphemes.len());
     let mut msa_ids = Vec::with_capacity(raw.morphemes.len());
     for (morph_index, morph) in raw.morphemes.iter().enumerate() {
-        let msa_guid = morph.msa_guid.clone().ok_or_else(|| ReadError::MissingMsaGuid {
-            word: word.to_string(),
-            analysis_index,
-            morph_index,
-        })?;
+        let msa_guid = morph
+            .msa_guid
+            .clone()
+            .ok_or_else(|| ReadError::MissingMsaGuid {
+                word: word.to_string(),
+                analysis_index,
+                morph_index,
+            })?;
         if !is_guid_shaped_msa_id(&msa_guid) {
             return Err(ReadError::MalformedMsaGuid {
                 word: word.to_string(),
@@ -229,7 +271,10 @@ mod tests {
         assert_eq!(k.engine_error, None);
         let (signature, count) = k.analyses.iter().next().unwrap();
         assert_eq!(*count, 1);
-        assert_eq!(signature.msa_ids, vec!["d71a9c35-5dd1-4659-997a-b3ad043e06f2".to_string()]);
+        assert_eq!(
+            signature.msa_ids,
+            vec!["d71a9c35-5dd1-4659-997a-b3ad043e06f2".to_string()]
+        );
         assert_eq!(signature.morphemes, vec!["K".to_string()]);
         assert_eq!(signature.surface_nfd, "k");
     }
@@ -238,7 +283,11 @@ mod tests {
     fn many_analyses_word_keeps_every_distinct_signature() {
         let parsed = read_parse_response(SIMPLE).expect("captured fixture must parse");
         let xk = word_result(&parsed, "xk");
-        assert_eq!(xk.analyses.len(), 12, "12 distinct prefix choices, none deduplicated");
+        assert_eq!(
+            xk.analyses.len(),
+            12,
+            "12 distinct prefix choices, none deduplicated"
+        );
         assert_eq!(xk.analyses.values().sum::<usize>(), 12);
         assert!(xk.analyses.values().all(|&count| count == 1));
     }
@@ -258,8 +307,14 @@ mod tests {
         let parsed = read_parse_response(SIMPLE).expect("captured fixture must parse");
         let bad = word_result(&parsed, "xk k");
         assert!(bad.analyses.is_empty());
-        let err = bad.engine_error.as_deref().expect("real captured engine error");
-        assert!(err.contains("multiple root elements"), "unexpected error text: {err}");
+        let err = bad
+            .engine_error
+            .as_deref()
+            .expect("real captured engine error");
+        assert!(
+            err.contains("multiple root elements"),
+            "unexpected error text: {err}"
+        );
     }
 
     #[test]
@@ -267,7 +322,11 @@ mod tests {
         let parsed = read_parse_response(DUPLICATE).expect("synthetic fixture must parse");
         let word = word_result(&parsed, "dup");
         assert_eq!(word.analyses.len(), 1, "one distinct signature");
-        assert_eq!(word.analyses.values().sum::<usize>(), 2, "reported twice by the engine");
+        assert_eq!(
+            word.analyses.values().sum::<usize>(),
+            2,
+            "reported twice by the engine"
+        );
     }
 
     #[test]
@@ -283,7 +342,10 @@ mod tests {
     fn unsupported_schema_version_is_refused() {
         let text = SIMPLE.replacen("\"schemaVersion\": 1", "\"schemaVersion\": 2", 1);
         let err = read_parse_response(&text).expect_err("schemaVersion 2 must be refused");
-        assert!(matches!(err, ReadError::UnsupportedSchemaVersion { found: 2 }));
+        assert!(matches!(
+            err,
+            ReadError::UnsupportedSchemaVersion { found: 2 }
+        ));
     }
 
     #[test]
@@ -299,7 +361,8 @@ mod tests {
         let mut object = value.as_object().unwrap().clone();
         object.remove("database");
         let text = serde_json::to_string(&object).unwrap();
-        let err = read_parse_response(&text).expect_err("a response missing 'database' must be refused");
+        let err =
+            read_parse_response(&text).expect_err("a response missing 'database' must be refused");
         assert!(matches!(err, ReadError::Malformed(_)));
     }
 
@@ -307,9 +370,13 @@ mod tests {
     fn unrecognized_key_is_refused() {
         let value: serde_json::Value = serde_json::from_str(SIMPLE).unwrap();
         let mut object = value.as_object().unwrap().clone();
-        object.insert("somethingNewAndUnknown".to_string(), serde_json::json!(true));
+        object.insert(
+            "somethingNewAndUnknown".to_string(),
+            serde_json::json!(true),
+        );
         let text = serde_json::to_string(&object).unwrap();
-        let err = read_parse_response(&text).expect_err("an unrecognized top-level key must be refused");
+        let err =
+            read_parse_response(&text).expect_err("an unrecognized top-level key must be refused");
         assert!(matches!(err, ReadError::Malformed(_)));
     }
 

@@ -192,7 +192,15 @@ fn walk_pos_infl_classes(
 ) -> Result<(), GrammarError> {
     for pos in items {
         for ic in &pos.inflection_classes {
-            add_infl_class(ic, mpr_names, mpr_features, bit, children, members, recorder)?;
+            add_infl_class(
+                ic,
+                mpr_names,
+                mpr_features,
+                bit,
+                children,
+                members,
+                recorder,
+            )?;
         }
         walk_pos_infl_classes(
             &pos.children,

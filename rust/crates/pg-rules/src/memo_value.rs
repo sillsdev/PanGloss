@@ -336,7 +336,10 @@ mod tests {
         let child = pop_frame(109);
         let parent = pop_frame(112);
         assert_eq!(child.inclusive, 5);
-        assert_eq!(parent.inclusive, 12, "parent inclusive = its own full raw tick delta");
+        assert_eq!(
+            parent.inclusive, 12,
+            "parent inclusive = its own full raw tick delta"
+        );
         assert_eq!(
             parent.exclusive, 7,
             "parent exclusive = inclusive(12) - child inclusive(5) = 7, not equal to inclusive"
@@ -361,7 +364,10 @@ mod tests {
         let middle = pop_frame(5);
         let grandparent = pop_frame(6);
         assert_eq!(leaf.descendant_count, 0);
-        assert_eq!(middle.descendant_count, 1, "middle has exactly the leaf beneath it");
+        assert_eq!(
+            middle.descendant_count, 1,
+            "middle has exactly the leaf beneath it"
+        );
         assert_eq!(
             grandparent.descendant_count, 2,
             "grandparent must see both the middle child and the leaf beneath it, not just 1"

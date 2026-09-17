@@ -4,7 +4,9 @@ use hashbrown::HashMap;
 
 use pg_snapshot::morphology::{AdhocProhibition, PartOfSpeech};
 use pg_snapshot::phonology::{NaturalClass, PhonologicalRule};
-use pg_snapshot::{ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot};
+use pg_snapshot::{
+    ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot,
+};
 
 /// Which owner an [`InventoryKey`] was published as representing, at the moment that owner pushed
 /// it -- the identity a later reachability/reference compaction pass names when it drops that
@@ -77,10 +79,9 @@ pub(crate) fn finalize(
     removed_natural_classes: Vec<u32>,
 ) {
     for id in removed_mrules {
-        let keys = lineage
-            .mrules
-            .get(&id)
-            .unwrap_or_else(|| panic!("mrule {id} removed by reachability compaction but published no lineage"));
+        let keys = lineage.mrules.get(&id).unwrap_or_else(|| {
+            panic!("mrule {id} removed by reachability compaction but published no lineage")
+        });
         for key in keys.clone() {
             recorder.revoke_represented(
                 key,
@@ -320,7 +321,10 @@ fn seed_infl_classes(
     items: &[pg_snapshot::morphology::InflectionClass],
 ) {
     for ic in items {
-        recorder.authored(InventoryKey::object(InventoryKind::InflectionClass, ic.guid.clone()));
+        recorder.authored(InventoryKey::object(
+            InventoryKind::InflectionClass,
+            ic.guid.clone(),
+        ));
         seed_infl_classes(recorder, &ic.children);
     }
 }

@@ -76,7 +76,11 @@ pub fn xample_result_from_hc_outcome(
     } else {
         None
     };
-    Ok(XampleResult { analyses, reached_max_analyses, engine_error })
+    Ok(XampleResult {
+        analyses,
+        reached_max_analyses,
+        engine_error,
+    })
 }
 
 fn signature_from_word_analysis(
@@ -91,7 +95,11 @@ fn signature_from_word_analysis(
     for key in identity.morphemes {
         msa_ids.push(key.ok_or(HcNormalizationError::UnexpectedGuessedSlot)?);
     }
-    let morphemes = analysis.morpheme_ids.iter().map(|&ordinal| gloss_of(grammar, ordinal)).collect();
+    let morphemes = analysis
+        .morpheme_ids
+        .iter()
+        .map(|&ordinal| gloss_of(grammar, ordinal))
+        .collect();
     Ok(AnalysisSignature {
         morphemes,
         msa_ids,
@@ -187,11 +195,17 @@ mod tests {
         let m = Morpher::new(&g, usize::MAX);
         let outcome = m.parse_word("xk");
         let result = xample_result_from_hc_outcome(&outcome, &g, "xk").expect("xk must normalize");
-        assert_eq!(result.analyses.len(), 2, "P1-fired and P2-fired are distinct analyses");
+        assert_eq!(
+            result.analyses.len(),
+            2,
+            "P1-fired and P2-fired are distinct analyses"
+        );
         assert_eq!(result.analyses.values().sum::<usize>(), 2);
         let msa_id_sets: Vec<&Vec<String>> = result.analyses.keys().map(|s| &s.msa_ids).collect();
-        assert!(msa_id_sets.contains(&&vec!["eK".to_string(), "mrP1".to_string()])
-            || msa_id_sets.contains(&&vec!["mrP1".to_string(), "eK".to_string()]));
+        assert!(
+            msa_id_sets.contains(&&vec!["eK".to_string(), "mrP1".to_string()])
+                || msa_id_sets.contains(&&vec!["mrP1".to_string(), "eK".to_string()])
+        );
     }
 
     #[test]
@@ -215,7 +229,11 @@ mod tests {
         let result = xample_result_from_hc_outcome(&outcome, &g, "q")
             .expect("q must normalize (empty, not an error state HC lacks a flag for)");
         if outcome.invalid_shape {
-            assert!(result.engine_error.as_deref().unwrap_or_default().contains("invalid shape"));
+            assert!(result
+                .engine_error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("invalid shape"));
         }
         assert!(result.analyses.is_empty());
     }

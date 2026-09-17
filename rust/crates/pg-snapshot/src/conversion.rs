@@ -241,7 +241,10 @@ impl SelectionRecorder {
 
     pub fn finish(self) -> (ConversionInventory, Vec<ConversionIssue>) {
         let result = self.check_invariants();
-        debug_assert!(result.is_ok(), "selection recorder invariant violated: {result:?}");
+        debug_assert!(
+            result.is_ok(),
+            "selection recorder invariant violated: {result:?}"
+        );
         (self.inventory, self.issues)
     }
 }
@@ -372,7 +375,9 @@ pub enum ProvenanceError {
     )]
     VersionZeroRequiresUnknownStatus { found: SourceInventoryStatus },
     /// Schema version 1 always resolves a real status; `Unknown` at that version is impossible.
-    #[error("schema version 1 conversion-provenance must not carry SourceInventoryStatus::Unknown")]
+    #[error(
+        "schema version 1 conversion-provenance must not carry SourceInventoryStatus::Unknown"
+    )]
     VersionOneForbidsUnknownStatus,
 }
 
@@ -719,13 +724,23 @@ mod tests {
 
         let inventory = ConversionInventory {
             authored: [clean.clone()].into_iter().collect(),
-            considered: [clean.clone(), omit_a.clone(), omit_b.clone()].into_iter().collect(),
-            selected: [clean.clone(), omit_a.clone(), omit_b.clone()].into_iter().collect(),
-            represented: [clean.clone(), unclassified_a.clone(), unclassified_b.clone()]
+            considered: [clean.clone(), omit_a.clone(), omit_b.clone()]
                 .into_iter()
                 .collect(),
+            selected: [clean.clone(), omit_a.clone(), omit_b.clone()]
+                .into_iter()
+                .collect(),
+            represented: [
+                clean.clone(),
+                unclassified_a.clone(),
+                unclassified_b.clone(),
+            ]
+            .into_iter()
+            .collect(),
             rejected: BTreeSet::new(),
-            synthesized: [synth_only_a.clone(), synth_only_b.clone()].into_iter().collect(),
+            synthesized: [synth_only_a.clone(), synth_only_b.clone()]
+                .into_iter()
+                .collect(),
         };
 
         let delta = InventoryDelta::from_stage(inventory.clone(), Vec::new());
@@ -736,11 +751,15 @@ mod tests {
         );
         assert_eq!(
             delta.unclassified,
-            [unclassified_a.clone(), unclassified_b.clone()].into_iter().collect()
+            [unclassified_a.clone(), unclassified_b.clone()]
+                .into_iter()
+                .collect()
         );
         assert_eq!(
             delta.synthesized_only,
-            [synth_only_a.clone(), synth_only_b.clone()].into_iter().collect()
+            [synth_only_a.clone(), synth_only_b.clone()]
+                .into_iter()
+                .collect()
         );
         assert!(!delta.silently_omitted.contains(&clean));
         assert!(!delta.unclassified.contains(&clean));

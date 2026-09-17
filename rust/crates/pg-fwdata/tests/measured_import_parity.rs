@@ -38,15 +38,21 @@ fn assert_parity(path: &Path) {
         "{}: warning count must match",
         path.display()
     );
-    for (a, b) in report_plain.warnings.iter().zip(report_measured.warnings.iter()) {
+    for (a, b) in report_plain
+        .warnings
+        .iter()
+        .zip(report_measured.warnings.iter())
+    {
         assert_eq!(
-            a, b,
+            a,
+            b,
             "{}: warnings must be byte-identical element by element",
             path.display()
         );
     }
     assert_eq!(
-        report_plain.provenance, report_measured.provenance,
+        report_plain.provenance,
+        report_measured.provenance,
         "{}: provenance must match",
         path.display()
     );

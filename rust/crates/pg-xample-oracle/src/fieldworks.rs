@@ -40,13 +40,21 @@ pub fn machine_dir() -> PathBuf {
 
 /// `<machine_dir>/conformance/edge-cases/deep-optional-affix-nesting/fieldworks`.
 pub fn witness_dir(machine_dir: &Path) -> PathBuf {
-    machine_dir.join("conformance").join(WITNESS_CATEGORY).join(WITNESS_NAME).join("fieldworks")
+    machine_dir
+        .join("conformance")
+        .join(WITNESS_CATEGORY)
+        .join(WITNESS_NAME)
+        .join("fieldworks")
 }
 
 /// `<machine_dir>/conformance/edge-cases/deep-optional-affix-nesting/grammar.xml` -- the checked-in
 /// HC-native fixture this witness project must never semantically diverge from.
 pub fn witness_grammar_xml(machine_dir: &Path) -> PathBuf {
-    machine_dir.join("conformance").join(WITNESS_CATEGORY).join(WITNESS_NAME).join("grammar.xml")
+    machine_dir
+        .join("conformance")
+        .join(WITNESS_CATEGORY)
+        .join(WITNESS_NAME)
+        .join("grammar.xml")
 }
 
 /// This crate's own root, two levels up from `rust/crates/pg-xample-oracle`.
@@ -66,12 +74,15 @@ pub fn locate_projector_exe() -> Result<PathBuf, FieldworksError> {
         }
         return Err(FieldworksError::ExeNotFound {
             checked: path,
-            build_hint: format!(
-                "{PROJECTOR_EXE_ENV} is set but does not name an existing file"
-            ),
+            build_hint: format!("{PROJECTOR_EXE_ENV} is set but does not name an existing file"),
         });
     }
-    let default_path = repo_root().join("tools").join("xample-projector").join("bin").join("Debug").join("XampleProjector.exe");
+    let default_path = repo_root()
+        .join("tools")
+        .join("xample-projector")
+        .join("bin")
+        .join("Debug")
+        .join("XampleProjector.exe");
     if default_path.is_file() {
         return Ok(default_path);
     }
@@ -83,24 +94,53 @@ pub fn locate_projector_exe() -> Result<PathBuf, FieldworksError> {
 
 #[derive(Debug)]
 pub enum FieldworksError {
-    ExeNotFound { checked: PathBuf, build_hint: String },
-    Spawn { exe: PathBuf, source: std::io::Error },
-    NonZeroExit { command: String, exit_code: Option<i32>, stdout: String, stderr: String },
-    Io { path: PathBuf, source: std::io::Error },
-    Json { path: PathBuf, source: serde_json::Error },
+    ExeNotFound {
+        checked: PathBuf,
+        build_hint: String,
+    },
+    Spawn {
+        exe: PathBuf,
+        source: std::io::Error,
+    },
+    NonZeroExit {
+        command: String,
+        exit_code: Option<i32>,
+        stdout: String,
+        stderr: String,
+    },
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    Json {
+        path: PathBuf,
+        source: serde_json::Error,
+    },
     ParseResponse(ReadError),
 }
 
 impl std::fmt::Display for FieldworksError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FieldworksError::ExeNotFound { checked, build_hint } => {
-                write!(f, "no XampleProjector.exe at {} -- {build_hint}", checked.display())
+            FieldworksError::ExeNotFound {
+                checked,
+                build_hint,
+            } => {
+                write!(
+                    f,
+                    "no XampleProjector.exe at {} -- {build_hint}",
+                    checked.display()
+                )
             }
             FieldworksError::Spawn { exe, source } => {
                 write!(f, "failed to run {}: {source}", exe.display())
             }
-            FieldworksError::NonZeroExit { command, exit_code, stdout, stderr } => write!(
+            FieldworksError::NonZeroExit {
+                command,
+                exit_code,
+                stdout,
+                stderr,
+            } => write!(
                 f,
                 "'{command}' exited {exit_code:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
             ),
@@ -116,13 +156,19 @@ impl std::fmt::Display for FieldworksError {
 impl std::error::Error for FieldworksError {}
 
 fn path_str(p: &Path) -> &str {
-    p.to_str().unwrap_or_else(|| panic!("path is not valid UTF-8: {}", p.display()))
+    p.to_str()
+        .unwrap_or_else(|| panic!("path is not valid UTF-8: {}", p.display()))
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, FieldworksError> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|source| FieldworksError::Io { path: path.to_path_buf(), source })?;
-    serde_json::from_str(&text).map_err(|source| FieldworksError::Json { path: path.to_path_buf(), source })
+    let text = std::fs::read_to_string(path).map_err(|source| FieldworksError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    serde_json::from_str(&text).map_err(|source| FieldworksError::Json {
+        path: path.to_path_buf(),
+        source,
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -165,7 +211,10 @@ pub struct ProjectResponse {
 
 impl ProjectResponse {
     pub fn generated_sha256(&self, relative_path: &str) -> Option<&str> {
-        self.generated.iter().find(|g| g.path == relative_path).map(|g| g.sha256.as_str())
+        self.generated
+            .iter()
+            .find(|g| g.path == relative_path)
+            .map(|g| g.sha256.as_str())
     }
 }
 
@@ -218,7 +267,9 @@ pub struct Projector {
 
 impl Projector {
     pub fn locate() -> Result<Self, FieldworksError> {
-        Ok(Self { exe_path: locate_projector_exe()? })
+        Ok(Self {
+            exe_path: locate_projector_exe()?,
+        })
     }
 
     pub fn exe_path(&self) -> &Path {
@@ -229,7 +280,10 @@ impl Projector {
         Command::new(&self.exe_path)
             .args(args)
             .output()
-            .map_err(|source| FieldworksError::Spawn { exe: self.exe_path.clone(), source })
+            .map_err(|source| FieldworksError::Spawn {
+                exe: self.exe_path.clone(),
+                source,
+            })
     }
 
     fn run_ok(&self, args: &[&str], label: &str) -> Result<(), FieldworksError> {
@@ -252,10 +306,20 @@ impl Projector {
         out_dir: &Path,
         database: &str,
     ) -> Result<ProjectResponse, FieldworksError> {
-        std::fs::create_dir_all(out_dir)
-            .map_err(|source| FieldworksError::Io { path: out_dir.to_path_buf(), source })?;
+        std::fs::create_dir_all(out_dir).map_err(|source| FieldworksError::Io {
+            path: out_dir.to_path_buf(),
+            source,
+        })?;
         self.run_ok(
-            &["project", "--project", path_str(project_fwdata), "--out-dir", path_str(out_dir), "--database", database],
+            &[
+                "project",
+                "--project",
+                path_str(project_fwdata),
+                "--out-dir",
+                path_str(out_dir),
+                "--database",
+                database,
+            ],
             "project",
         )?;
         read_json(&out_dir.join("response.json"))
@@ -269,15 +333,30 @@ impl Projector {
         request: &serde_json::Value,
         out_dir: &Path,
     ) -> Result<MutateResponse, FieldworksError> {
-        std::fs::create_dir_all(out_dir)
-            .map_err(|source| FieldworksError::Io { path: out_dir.to_path_buf(), source })?;
+        std::fs::create_dir_all(out_dir).map_err(|source| FieldworksError::Io {
+            path: out_dir.to_path_buf(),
+            source,
+        })?;
         let request_path = out_dir.join("mutation-request.json");
-        let request_text = serde_json::to_string_pretty(request)
-            .map_err(|source| FieldworksError::Json { path: request_path.clone(), source })?;
-        std::fs::write(&request_path, request_text)
-            .map_err(|source| FieldworksError::Io { path: request_path.clone(), source })?;
+        let request_text =
+            serde_json::to_string_pretty(request).map_err(|source| FieldworksError::Json {
+                path: request_path.clone(),
+                source,
+            })?;
+        std::fs::write(&request_path, request_text).map_err(|source| FieldworksError::Io {
+            path: request_path.clone(),
+            source,
+        })?;
         self.run_ok(
-            &["mutate", "--project", path_str(project_fwdata), "--request", path_str(&request_path), "--out-dir", path_str(out_dir)],
+            &[
+                "mutate",
+                "--project",
+                path_str(project_fwdata),
+                "--request",
+                path_str(&request_path),
+                "--out-dir",
+                path_str(out_dir),
+            ],
             "mutate",
         )?;
         read_json(&out_dir.join("mutation-response.json"))
@@ -296,27 +375,39 @@ impl Projector {
         max_analyses: u32,
     ) -> Result<ParsedParseResponse, FieldworksError> {
         if let Some(parent) = out_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|source| FieldworksError::Io { path: parent.to_path_buf(), source })?;
+            std::fs::create_dir_all(parent).map_err(|source| FieldworksError::Io {
+                path: parent.to_path_buf(),
+                source,
+            })?;
         }
         let words_path = out_path.with_extension("words.txt");
-        std::fs::write(&words_path, words.join("\n"))
-            .map_err(|source| FieldworksError::Io { path: words_path.clone(), source })?;
+        std::fs::write(&words_path, words.join("\n")).map_err(|source| FieldworksError::Io {
+            path: words_path.clone(),
+            source,
+        })?;
         let max_analyses_text = max_analyses.to_string();
         self.run_ok(
             &[
                 "parse",
-                "--project", path_str(project_fwdata),
-                "--project-dir", path_str(project_dir),
-                "--database", database,
-                "--words", path_str(&words_path),
-                "--out", path_str(out_path),
-                "--max-analyses", &max_analyses_text,
+                "--project",
+                path_str(project_fwdata),
+                "--project-dir",
+                path_str(project_dir),
+                "--database",
+                database,
+                "--words",
+                path_str(&words_path),
+                "--out",
+                path_str(out_path),
+                "--max-analyses",
+                &max_analyses_text,
             ],
             "parse",
         )?;
-        let text = std::fs::read_to_string(out_path)
-            .map_err(|source| FieldworksError::Io { path: out_path.to_path_buf(), source })?;
+        let text = std::fs::read_to_string(out_path).map_err(|source| FieldworksError::Io {
+            path: out_path.to_path_buf(),
+            source,
+        })?;
         read_parse_response(&text).map_err(FieldworksError::ParseResponse)
     }
 }
@@ -379,12 +470,20 @@ impl HvoCanonicalizer {
     }
 
     // Replaces every match's hvo capture group with its canonical index in `map`, leaving the rest of the match and all surrounding text untouched.
-    fn canonicalize_one(re: &Regex, group: usize, text: &str, map: &mut HashMap<String, usize>, next_id: &mut usize) -> String {
+    fn canonicalize_one(
+        re: &Regex,
+        group: usize,
+        text: &str,
+        map: &mut HashMap<String, usize>,
+        next_id: &mut usize,
+    ) -> String {
         let mut out = String::with_capacity(text.len());
         let mut last = 0;
         for caps in re.captures_iter(text) {
             let whole = caps.get(0).expect("group 0 always matches");
-            let hvo = caps.get(group).expect("hvo group always present when the pattern matches");
+            let hvo = caps
+                .get(group)
+                .expect("hvo group always present when the pattern matches");
             out.push_str(&text[last..whole.start()]);
             out.push_str(&text[whole.start()..hvo.start()]);
             let canon = *map.entry(hvo.as_str().to_string()).or_insert_with(|| {
@@ -501,7 +600,11 @@ pub fn xample_files_equivalent_ignoring_hvo_renumbering(
                 .find(|(_, (a, b))| a != b)
                 .map(|(i, (a, b))| format!("first differing line {}: {a:?} vs {b:?}", i + 1))
                 .unwrap_or_else(|| {
-                    format!("line count differs: base={} clone={}", base_canon.len(), clone_canon.len())
+                    format!(
+                        "line count differs: base={} clone={}",
+                        base_canon.len(),
+                        clone_canon.len()
+                    )
                 });
             mismatches.push(FileComparisonMismatch {
                 file_name,
@@ -525,7 +628,9 @@ mod tests {
         let dir = witness_dir(Path::new(r"C:\Users\johnm\Documents\repos\machine"));
         assert_eq!(
             dir,
-            Path::new(r"C:\Users\johnm\Documents\repos\machine\conformance\edge-cases\deep-optional-affix-nesting\fieldworks")
+            Path::new(
+                r"C:\Users\johnm\Documents\repos\machine\conformance\edge-cases\deep-optional-affix-nesting\fieldworks"
+            )
         );
     }
 
@@ -539,7 +644,10 @@ mod tests {
 
     #[test]
     fn identical_files_compare_equal_without_any_canonicalization() {
-        let dir = std::env::temp_dir().join(format!("pg-xample-oracle-cmp-identical-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pg-xample-oracle-cmp-identical-{}",
+            std::process::id()
+        ));
         let base = dir.join("base");
         let clone = dir.join("clone");
         std::fs::create_dir_all(&base).unwrap();
@@ -566,15 +674,26 @@ mod tests {
 
     #[test]
     fn hvo_renumbered_files_compare_equal_after_canonicalization() {
-        let dir = std::env::temp_dir().join(format!("pg-xample-oracle-cmp-hvocanon-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pg-xample-oracle-cmp-hvocanon-{}",
+            std::process::id()
+        ));
         let base = dir.join("base");
         let clone = dir.join("clone");
         std::fs::create_dir_all(&base).unwrap();
         std::fs::create_dir_all(&clone).unwrap();
         write_matching_triplet(&base, &clone, "MPBase");
         // RootPOS106 -> RootPOS94 after a deletion shifts every later hvo; the surrounding text is unchanged.
-        std::fs::write(base.join("MPBasegram.txt"), "rule { rootCat:106 template 5}\nRootPOS106\n\\wc 106\n(106_2)\n").unwrap();
-        std::fs::write(clone.join("MPBasegram.txt"), "rule { rootCat:94 template 5}\nRootPOS94\n\\wc 94\n(94_2)\n").unwrap();
+        std::fs::write(
+            base.join("MPBasegram.txt"),
+            "rule { rootCat:106 template 5}\nRootPOS106\n\\wc 106\n(106_2)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            clone.join("MPBasegram.txt"),
+            "rule { rootCat:94 template 5}\nRootPOS94\n\\wc 94\n(94_2)\n",
+        )
+        .unwrap();
         xample_files_equivalent_ignoring_hvo_renumbering(&base, &clone, "MPBase")
             .expect("a file differing only by a consistent hvo renumbering must compare equal after canonicalization");
         std::fs::remove_dir_all(&dir).ok();
@@ -583,7 +702,10 @@ mod tests {
     #[test]
     fn a_corrupted_cap_is_still_caught_after_canonicalization() {
         // Falsification: an over-broad raw-\d+ blind would also erase this real \maxp regression.
-        let dir = std::env::temp_dir().join(format!("pg-xample-oracle-cmp-corrupt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pg-xample-oracle-cmp-corrupt-{}",
+            std::process::id()
+        ));
         let base = dir.join("base");
         let clone = dir.join("clone");
         std::fs::create_dir_all(&base).unwrap();
@@ -593,43 +715,79 @@ mod tests {
         std::fs::write(clone.join("MPBaseadctl.txt"), "\\maxp 3\nRootPOS94\n").unwrap();
         let mismatches = xample_files_equivalent_ignoring_hvo_renumbering(&base, &clone, "MPBase")
             .expect_err("a corrupted \\maxp cap must not be canonicalized away");
-        assert_eq!(mismatches.len(), 1, "only adctl.txt should differ: {mismatches:?}");
+        assert_eq!(
+            mismatches.len(),
+            1,
+            "only adctl.txt should differ: {mismatches:?}"
+        );
         assert_eq!(mismatches[0].file_name, "MPBaseadctl.txt");
     }
 
     // A wrong-category assignment, not a renumbering: RootPOS/rootCat still resolve to index 0, the corrupted \wc value is a brand-new one.
     #[test]
     fn wc_field_corruption_is_caught() {
-        let dir = std::env::temp_dir().join(format!("pg-xample-oracle-cmp-wc-corrupt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pg-xample-oracle-cmp-wc-corrupt-{}",
+            std::process::id()
+        ));
         let base = dir.join("base");
         let clone = dir.join("clone");
         std::fs::create_dir_all(&base).unwrap();
         std::fs::create_dir_all(&clone).unwrap();
         write_matching_triplet(&base, &clone, "MPBase");
-        std::fs::write(base.join("MPBasegram.txt"), "rule { rootCat:106 template 5}\nRootPOS106\n\\wc 106\n").unwrap();
+        std::fs::write(
+            base.join("MPBasegram.txt"),
+            "rule { rootCat:106 template 5}\nRootPOS106\n\\wc 106\n",
+        )
+        .unwrap();
         // rootCat/RootPOS correctly renumbered to 94; \wc wrongly set to an unrelated 999.
-        std::fs::write(clone.join("MPBasegram.txt"), "rule { rootCat:94 template 5}\nRootPOS94\n\\wc 999\n").unwrap();
+        std::fs::write(
+            clone.join("MPBasegram.txt"),
+            "rule { rootCat:94 template 5}\nRootPOS94\n\\wc 999\n",
+        )
+        .unwrap();
         let mismatches = xample_files_equivalent_ignoring_hvo_renumbering(&base, &clone, "MPBase")
-            .expect_err("a \\wc value inconsistent with the rest of the file's renumbering must be caught");
-        assert_eq!(mismatches.len(), 1, "only gram.txt should differ: {mismatches:?}");
+            .expect_err(
+                "a \\wc value inconsistent with the rest of the file's renumbering must be caught",
+            );
+        assert_eq!(
+            mismatches.len(),
+            1,
+            "only gram.txt should differ: {mismatches:?}"
+        );
         assert_eq!(mismatches[0].file_name, "MPBasegram.txt");
     }
 
     // A mis-wired reference at the same slot index, not a renumbering.
     #[test]
     fn paren_slot_corruption_is_caught() {
-        let dir = std::env::temp_dir().join(format!("pg-xample-oracle-cmp-paren-corrupt-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pg-xample-oracle-cmp-paren-corrupt-{}",
+            std::process::id()
+        ));
         let base = dir.join("base");
         let clone = dir.join("clone");
         std::fs::create_dir_all(&base).unwrap();
         std::fs::create_dir_all(&clone).unwrap();
         write_matching_triplet(&base, &clone, "MPBase");
-        std::fs::write(base.join("MPBasegram.txt"), "rule { rootCat:106 template 5}\nRootPOS106\n(106_2)\n").unwrap();
+        std::fs::write(
+            base.join("MPBasegram.txt"),
+            "rule { rootCat:106 template 5}\nRootPOS106\n(106_2)\n",
+        )
+        .unwrap();
         // rootCat/RootPOS correctly renumbered to 94; the parenthesized slot reference wrongly set to an unrelated 999.
-        std::fs::write(clone.join("MPBasegram.txt"), "rule { rootCat:94 template 5}\nRootPOS94\n(999_2)\n").unwrap();
+        std::fs::write(
+            clone.join("MPBasegram.txt"),
+            "rule { rootCat:94 template 5}\nRootPOS94\n(999_2)\n",
+        )
+        .unwrap();
         let mismatches = xample_files_equivalent_ignoring_hvo_renumbering(&base, &clone, "MPBase")
             .expect_err("a (hvo_slotIndex) reference inconsistent with the rest of the file's renumbering must be caught");
-        assert_eq!(mismatches.len(), 1, "only gram.txt should differ: {mismatches:?}");
+        assert_eq!(
+            mismatches.len(),
+            1,
+            "only gram.txt should differ: {mismatches:?}"
+        );
         assert_eq!(mismatches[0].file_name, "MPBasegram.txt");
     }
 
@@ -638,16 +796,25 @@ mod tests {
     fn hvo_identifier_prefixes_match_build_ps1_verbatim() {
         let ps1_path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../tools/xample-projector/build.ps1");
-        let text = std::fs::read_to_string(&ps1_path).unwrap_or_else(|e| panic!("read {}: {e}", ps1_path.display()));
+        let text = std::fs::read_to_string(&ps1_path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", ps1_path.display()));
         let block_re = Regex::new(r"(?s)\$script:HvoIdentifierPrefixes\s*=\s*@\((.*?)\)").unwrap();
         let block = block_re
             .captures(&text)
-            .unwrap_or_else(|| panic!("{}: no longer defines $script:HvoIdentifierPrefixes", ps1_path.display()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: no longer defines $script:HvoIdentifierPrefixes",
+                    ps1_path.display()
+                )
+            })
             .get(1)
             .unwrap()
             .as_str();
         let item_re = Regex::new(r"'([^']+)'").unwrap();
-        let extracted: Vec<&str> = item_re.captures_iter(block).map(|c| c.get(1).unwrap().as_str()).collect();
+        let extracted: Vec<&str> = item_re
+            .captures_iter(block)
+            .map(|c| c.get(1).unwrap().as_str())
+            .collect();
         assert_eq!(
             extracted, HVO_IDENTIFIER_PREFIXES,
             "this crate's HVO_IDENTIFIER_PREFIXES has drifted from build.ps1's own $script:HvoIdentifierPrefixes"
@@ -656,7 +823,10 @@ mod tests {
 
     #[test]
     fn missing_file_is_reported_not_silently_ignored() {
-        let dir = std::env::temp_dir().join(format!("pg-xample-oracle-cmp-missing-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pg-xample-oracle-cmp-missing-{}",
+            std::process::id()
+        ));
         let base = dir.join("base");
         let clone = dir.join("clone");
         std::fs::create_dir_all(&base).unwrap();

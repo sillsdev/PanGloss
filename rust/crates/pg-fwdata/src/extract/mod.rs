@@ -105,7 +105,11 @@ impl<'a> Ctx<'a> {
     }
 
     /// Records `key` rejected with no new warning, for a failure a caller has already warned about through another path (e.g. `Ctx::require` or `parser_params`'s own issues).
-    pub(crate) fn record_rejected(&mut self, key: InventoryKey, issue: pg_snapshot::ConversionIssue) {
+    pub(crate) fn record_rejected(
+        &mut self,
+        key: InventoryKey,
+        issue: pg_snapshot::ConversionIssue,
+    ) {
         self.recorder.rejected(key, issue);
     }
 

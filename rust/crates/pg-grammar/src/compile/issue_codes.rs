@@ -4,12 +4,14 @@ pub(crate) const PHONEME_NO_REPRESENTATION: &str = "grammar.phoneme.no-represent
 pub(crate) const PHONEME_NFD_COLLISION: &str = "grammar.phoneme.nfd-collision";
 pub(crate) const BOUNDARY_NFD_COLLISION: &str = "grammar.boundary.nfd-collision";
 pub(crate) const BOUNDARY_NO_REPRESENTATION: &str = "grammar.boundary.no-representation";
-pub(crate) const BOUNDARY_MORPH_MARKER_UNRESOLVED: &str = "grammar.boundary.morph-marker-unresolved";
+pub(crate) const BOUNDARY_MORPH_MARKER_UNRESOLVED: &str =
+    "grammar.boundary.morph-marker-unresolved";
 
 pub(crate) const NATCLASS_SEGMENTS_MEMBER_UNRESOLVED: &str =
     "grammar.natclass.segments-member-unresolved";
 
-pub(crate) const PHON_COMPLEX_FEATURE_UNSUPPORTED: &str = "grammar.feature.phon-complex-unsupported";
+pub(crate) const PHON_COMPLEX_FEATURE_UNSUPPORTED: &str =
+    "grammar.feature.phon-complex-unsupported";
 pub(crate) const STEM_NAME_BUILD_FAILED: &str = "grammar.stem-name.build-failed";
 pub(crate) const STEM_NAME_EMPTY_REGIONS: &str = "grammar.stem-name.empty-regions";
 
@@ -21,14 +23,16 @@ pub(crate) const COMPOUND_SIDE_EXCEPTION_FEATURE_UNRESOLVED: &str =
 pub(crate) const MSA_BUILD_FAILED: &str = "grammar.msa.build-failed";
 pub(crate) const MSA_NO_ALLOMORPHS: &str = "grammar.msa.no-allomorphs";
 pub(crate) const MSA_NO_RULE_FORM_ALLOMORPHS: &str = "grammar.msa.no-rule-form-allomorphs";
-pub(crate) const MSA_EXCEPTION_FEATURE_UNRESOLVED: &str = "grammar.msa.exception-feature-unresolved";
+pub(crate) const MSA_EXCEPTION_FEATURE_UNRESOLVED: &str =
+    "grammar.msa.exception-feature-unresolved";
 pub(crate) const MSA_INFLECTION_CLASS_UNRESOLVED: &str = "grammar.msa.inflection-class-unresolved";
 pub(crate) const MSA_STEM_NAME_UNRESOLVED: &str = "grammar.msa.stem-name-unresolved";
 pub(crate) const MSA_LEX_ENTRY_INFL_TYPE_UNRESOLVED: &str =
     "grammar.msa.lex-entry-infl-type-unresolved";
 pub(crate) const VARIANT_COMPONENT_UNRESOLVED: &str = "grammar.variant.component-unresolved";
 pub(crate) const ALLOMORPH_UNSEGMENTABLE: &str = "grammar.allomorph.unsegmentable";
-pub(crate) const ALLOMORPH_MORPH_TYPE_UNSUPPORTED: &str = "grammar.allomorph.morph-type-unsupported";
+pub(crate) const ALLOMORPH_MORPH_TYPE_UNSUPPORTED: &str =
+    "grammar.allomorph.morph-type-unsupported";
 pub(crate) const ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM: &str =
     "grammar.allomorph.morph-type-unsupported-as-rule-form";
 pub(crate) const ALLOMORPH_NOT_RULE_FORM: &str = "grammar.allomorph.not-a-rule-form";
@@ -60,7 +64,6 @@ pub(crate) const STRATA_CUSTOM_UNSUPPORTED: &str = "grammar.strata.custom-unsupp
 pub(crate) const ADHOC_PROHIBITION_UNRESOLVED: &str = "grammar.adhoc-prohibition.unresolved";
 
 pub(crate) const MRULE_UNREACHABLE_COMPACTED: &str = "grammar.mrule.unreachable-compacted";
-pub(crate) const COOCCURRENCE_TARGET_UNREACHABLE: &str =
-    "grammar.cooccurrence.target-unreachable";
+pub(crate) const COOCCURRENCE_TARGET_UNREACHABLE: &str = "grammar.cooccurrence.target-unreachable";
 pub(crate) const NATURAL_CLASS_UNREFERENCED_COMPACTED: &str =
     "grammar.natclass.unreferenced-compacted";

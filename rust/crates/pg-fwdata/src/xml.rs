@@ -59,7 +59,9 @@ impl RawGraph {
         let mut unhandled_class_occurrences = BTreeMap::new();
         let mut hasher = Sha256::new();
         for header in &self.headers {
-            *class_occurrences.entry(header.class.clone()).or_insert(0u64) += 1;
+            *class_occurrences
+                .entry(header.class.clone())
+                .or_insert(0u64) += 1;
             if !class_allowed(&header.class) {
                 *unhandled_class_occurrences
                     .entry(header.class.clone())
@@ -413,8 +415,14 @@ mod tests {
         assert_eq!(census.total_occurrences, 3);
         assert_eq!(census.class_occurrences.get("LangProject"), Some(&1));
         assert_eq!(census.class_occurrences.get("ZzUnknown"), Some(&2));
-        assert_eq!(census.unhandled_class_occurrences.get("ZzUnknown"), Some(&2));
-        assert!(census.unhandled_class_occurrences.get("LangProject").is_none());
+        assert_eq!(
+            census.unhandled_class_occurrences.get("ZzUnknown"),
+            Some(&2)
+        );
+        assert!(census
+            .unhandled_class_occurrences
+            .get("LangProject")
+            .is_none());
         assert_eq!(census.ordered_header_sha256.len(), 64);
         assert!(census
             .ordered_header_sha256
@@ -427,7 +435,10 @@ mod tests {
         let xml = br#"<?xml version="1.0"?><languageproject><rt class="LangProject" guid="00000000-0000-0000-0000-000000000001"/></languageproject>"#;
         let a = parse_fwdata_reader(std::io::Cursor::new(&xml[..])).unwrap();
         let b = parse_fwdata_reader(std::io::Cursor::new(&xml[..])).unwrap();
-        assert_eq!(a.census().ordered_header_sha256, b.census().ordered_header_sha256);
+        assert_eq!(
+            a.census().ordered_header_sha256,
+            b.census().ordered_header_sha256
+        );
     }
 
     #[test]
@@ -536,6 +547,9 @@ mod tests {
 </languageproject>"#;
         let graph = parse_fwdata_reader(std::io::Cursor::new(&xml[..])).unwrap();
         assert!(graph.issues.is_empty());
-        assert_eq!(graph.census().unhandled_class_occurrences.get("ZzUnknown"), Some(&1));
+        assert_eq!(
+            graph.census().unhandled_class_occurrences.get("ZzUnknown"),
+            Some(&1)
+        );
     }
 }

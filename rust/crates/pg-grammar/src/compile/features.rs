@@ -183,7 +183,11 @@ pub(crate) fn build_syn_features(
         kind: SynFeatureKind::Complex,
     });
 
-    load_feature_system_into(&snapshot.feature_systems.morphosyntactic, &mut features, recorder)?;
+    load_feature_system_into(
+        &snapshot.feature_systems.morphosyntactic,
+        &mut features,
+        recorder,
+    )?;
 
     Ok((
         SynFeatureSystem {
@@ -249,7 +253,11 @@ fn push_closed(
     Ok(())
 }
 
-fn push_complex(cf: &ComplexFeature, features: &mut Vec<SynFeature>, recorder: &mut SelectionRecorder) {
+fn push_complex(
+    cf: &ComplexFeature,
+    features: &mut Vec<SynFeature>,
+    recorder: &mut SelectionRecorder,
+) {
     let key = InventoryKey::object(InventoryKind::FeatureDefinition, cf.guid.clone());
     recorder.considered(key.clone());
     features.push(SynFeature {

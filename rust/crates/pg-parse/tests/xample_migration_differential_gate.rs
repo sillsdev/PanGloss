@@ -32,7 +32,8 @@ fn sha256_hex(path: &Path) -> String {
 
 // Copies the witness into a fresh dir; opening a project in place can leave session artifacts beside it.
 fn copy_witness_project(witness_dir: &Path, dest_dir: &Path) -> PathBuf {
-    std::fs::create_dir_all(dest_dir).unwrap_or_else(|e| panic!("create {}: {e}", dest_dir.display()));
+    std::fs::create_dir_all(dest_dir)
+        .unwrap_or_else(|e| panic!("create {}: {e}", dest_dir.display()));
     let dest_fwdata = dest_dir.join("project.fwdata");
     std::fs::copy(witness_dir.join("project.fwdata"), &dest_fwdata)
         .unwrap_or_else(|e| panic!("copy project.fwdata: {e}"));
@@ -64,19 +65,26 @@ fn hc_results_by_word(grammar: &Grammar, words: &[&str]) -> BTreeMap<String, Xam
         .iter()
         .map(|&word| {
             let outcome = morpher.parse_word(word);
-            let result = xample_result_from_hc_outcome(&outcome, grammar, word).unwrap_or_else(|e| {
-                if matches!(e, HcNormalizationError::GuessedAnalysesNotComparable) {
-                    XampleResult { analyses: BTreeMap::new(), reached_max_analyses: None, engine_error: Some(e.to_string()) }
-                } else {
-                    panic!("word {word:?}: {e}")
-                }
-            });
+            let result =
+                xample_result_from_hc_outcome(&outcome, grammar, word).unwrap_or_else(|e| {
+                    if matches!(e, HcNormalizationError::GuessedAnalysesNotComparable) {
+                        XampleResult {
+                            analyses: BTreeMap::new(),
+                            reached_max_analyses: None,
+                            engine_error: Some(e.to_string()),
+                        }
+                    } else {
+                        panic!("word {word:?}: {e}")
+                    }
+                });
             (word.to_string(), result)
         })
         .collect()
 }
 
-fn xample_results_by_word(parsed: &pg_xample_oracle::ParsedParseResponse) -> BTreeMap<String, XampleResult> {
+fn xample_results_by_word(
+    parsed: &pg_xample_oracle::ParsedParseResponse,
+) -> BTreeMap<String, XampleResult> {
     parsed.words.iter().cloned().collect()
 }
 
@@ -90,7 +98,9 @@ fn validate_usable_results(
     for word in words {
         match results.get(*word) {
             None => missing.push(*word),
-            Some(result) if result.engine_error.is_some() || result.reached_max_analyses.is_some() => {
+            Some(result)
+                if result.engine_error.is_some() || result.reached_max_analyses.is_some() =>
+            {
                 unusable.push((*word, &result.engine_error, &result.reached_max_analyses));
             }
             Some(_) => {}
@@ -100,13 +110,22 @@ fn validate_usable_results(
         return Err(format!("{label}: missing accepted words: {missing:?}"));
     }
     if !unusable.is_empty() {
-        return Err(format!("{label}: accepted words are unusable: {unusable:?}"));
+        return Err(format!(
+            "{label}: accepted words are unusable: {unusable:?}"
+        ));
     }
     Ok(())
 }
 
 // compared increments only when both sides are usable (no engine_error, not capped); an unusable side contributes nothing.
-fn accumulate(word: &str, xample: &XampleResult, hc: &XampleResult, compared: &mut usize, xample_only: &mut usize, hc_only: &mut usize) {
+fn accumulate(
+    word: &str,
+    xample: &XampleResult,
+    hc: &XampleResult,
+    compared: &mut usize,
+    xample_only: &mut usize,
+    hc_only: &mut usize,
+) {
     let usable = xample.engine_error.is_none()
         && xample.reached_max_analyses.is_none()
         && hc.engine_error.is_none()
@@ -162,7 +181,11 @@ fn assert_substrate_report_matches_manifest(clone_output: &CompileOutput, expect
 }
 
 // Compares only entries both mark deterministic:true; this fixture's own GAFAWS OUT file legitimately varies run to run.
-fn assert_deterministic_generated_files_match(label: &str, first: &ProjectResponse, second: &ProjectResponse) {
+fn assert_deterministic_generated_files_match(
+    label: &str,
+    first: &ProjectResponse,
+    second: &ProjectResponse,
+) {
     for entry in &first.generated {
         if !entry.deterministic {
             continue;
@@ -171,7 +194,12 @@ fn assert_deterministic_generated_files_match(label: &str, first: &ProjectRespon
             .generated
             .iter()
             .find(|g| g.path == entry.path)
-            .unwrap_or_else(|| panic!("{label}: second run has no generated entry for {}", entry.path));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{label}: second run has no generated entry for {}",
+                    entry.path
+                )
+            });
         assert!(
             other.deterministic,
             "{label}: {} was deterministic on the first run but not the second",
@@ -193,10 +221,22 @@ fn captured_project_response_parses_with_source_and_generated_digests() {
         serde_json::from_str(CAPTURED).expect("checked-in captured 'project' response must parse");
     assert_eq!(response.schema_version, 1);
     assert_eq!(response.mode, "project");
-    assert_eq!(response.source_sha256.len(), 64, "source digest must be a 64-hex sha256");
-    assert!(!response.generated.is_empty(), "a project response names at least one generated file");
+    assert_eq!(
+        response.source_sha256.len(),
+        64,
+        "source digest must be a 64-hex sha256"
+    );
+    assert!(
+        !response.generated.is_empty(),
+        "a project response names at least one generated file"
+    );
     for g in &response.generated {
-        assert_eq!(g.sha256.len(), 64, "{}: generated-file digest must be a 64-hex sha256", g.path);
+        assert_eq!(
+            g.sha256.len(),
+            64,
+            "{}: generated-file digest must be a 64-hex sha256",
+            g.path
+        );
     }
     assert!(
         response.generated_sha256("Sena3.hc.xml").is_some(),
@@ -240,20 +280,26 @@ fn xample_migration_differential_gate() {
 
     let manifest_text = std::fs::read_to_string(&manifest_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", manifest_path.display()));
-    let manifest: PhonologyMutations =
-        fixture::parse_manifest(&manifest_text).unwrap_or_else(|e| panic!("{}: {e}", manifest_path.display()));
+    let manifest: PhonologyMutations = fixture::parse_manifest(&manifest_text)
+        .unwrap_or_else(|e| panic!("{}: {e}", manifest_path.display()));
     fixture::verify_base_sha256(&manifest, &witness_fwdata).unwrap_or_else(|e| panic!("{e}"));
     let case = manifest
         .case(MUTATION_CASE_ID)
         .unwrap_or_else(|| panic!("{}: no case {MUTATION_CASE_ID:?}", manifest_path.display()));
 
-    let temp_root = std::env::temp_dir().join(format!("pg-parse-xample-migration-gate-{}", std::process::id()));
+    let temp_root = std::env::temp_dir().join(format!(
+        "pg-parse-xample-migration-gate-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&temp_root).unwrap();
 
     // --- baseline ---
     let base_fwdata = copy_witness_project(&witness_dir, &temp_root.join("base"));
     let base_sha256_before = sha256_hex(&base_fwdata);
-    assert_eq!(base_sha256_before, manifest.base_sha256, "the working copy must start identical to the verified witness");
+    assert_eq!(
+        base_sha256_before, manifest.base_sha256,
+        "the working copy must start identical to the verified witness"
+    );
 
     let base_projected = temp_root.join("base-projected");
     let base_project_response = projector
@@ -263,15 +309,25 @@ fn xample_migration_differential_gate() {
 
     let words: Vec<String> = ACCEPTED_WORDS.iter().map(|s| s.to_string()).collect();
     let base_parse = projector
-        .parse(&base_fwdata, &base_projected, "MPBase", &words, &temp_root.join("base-parse.json"), 2000)
+        .parse(
+            &base_fwdata,
+            &base_projected,
+            "MPBase",
+            &words,
+            &temp_root.join("base-parse.json"),
+            2000,
+        )
         .unwrap_or_else(|e| panic!("baseline 'parse' failed: {e}"));
     let base_xample = xample_results_by_word(&base_parse);
-    validate_usable_results("baseline XAMPLE", &base_xample, ACCEPTED_WORDS).unwrap_or_else(|e| panic!("{e}"));
+    validate_usable_results("baseline XAMPLE", &base_xample, ACCEPTED_WORDS)
+        .unwrap_or_else(|e| panic!("{e}"));
 
-    let base_output = import_and_compile(&base_fwdata)
-        .unwrap_or_else(|e| panic!("baseline import+compile must succeed (this project is the source of truth): {e}"));
+    let base_output = import_and_compile(&base_fwdata).unwrap_or_else(|e| {
+        panic!("baseline import+compile must succeed (this project is the source of truth): {e}")
+    });
     let base_hc = hc_results_by_word(&base_output.grammar, ACCEPTED_WORDS);
-    validate_usable_results("baseline HC", &base_hc, ACCEPTED_WORDS).unwrap_or_else(|e| panic!("{e}"));
+    validate_usable_results("baseline HC", &base_hc, ACCEPTED_WORDS)
+        .unwrap_or_else(|e| panic!("{e}"));
 
     let mut compared_baseline = 0usize;
     let mut xample_only_baseline = 0usize;
@@ -294,17 +350,32 @@ fn xample_migration_differential_gate() {
     let mutate_response: MutateResponse = projector
         .mutate(&base_fwdata, &request, &mutate_out)
         .unwrap_or_else(|e| panic!("'{MUTATION_CASE_ID}' mutate failed: {e}"));
-    assert!(mutate_response.reopened, "mutate response must prove reopened == true");
-    assert_eq!(mutate_response.deleted_count as usize, case.operations.len().max(mutate_response.removed.len()));
-    let mut removed_reps: Vec<String> =
-        mutate_response.removed.iter().flat_map(|r| r.representations.iter().cloned()).collect();
+    assert!(
+        mutate_response.reopened,
+        "mutate response must prove reopened == true"
+    );
+    assert_eq!(
+        mutate_response.deleted_count as usize,
+        case.operations.len().max(mutate_response.removed.len())
+    );
+    let mut removed_reps: Vec<String> = mutate_response
+        .removed
+        .iter()
+        .flat_map(|r| r.representations.iter().cloned())
+        .collect();
     removed_reps.sort();
     let mut expected_segments = case.expect.inferred_segments.clone();
     expected_segments.sort();
-    assert_eq!(removed_reps, expected_segments, "removed[] representations must equal the manifest's inferred_segments");
+    assert_eq!(
+        removed_reps, expected_segments,
+        "removed[] representations must equal the manifest's inferred_segments"
+    );
 
     let base_sha256_after_mutate = sha256_hex(&base_fwdata);
-    assert_eq!(base_sha256_after_mutate, base_sha256_before, "mutate must never modify its source project");
+    assert_eq!(
+        base_sha256_after_mutate, base_sha256_before,
+        "mutate must never modify its source project"
+    );
 
     let clone_fwdata = mutate_out.join(&mutate_response.materialized_project_path);
     let clone_projected = temp_root.join("clone-projected");
@@ -313,16 +384,31 @@ fn xample_migration_differential_gate() {
         .unwrap_or_else(|e| panic!("mutated-clone 'project' failed: {e}"));
 
     // xample_projection: byte-identical, or hvo-blind-equivalent -- see that function's own doc.
-    fieldworks::xample_files_equivalent_ignoring_hvo_renumbering(&base_projected, &clone_projected, "MPBase")
-        .unwrap_or_else(|mismatches| {
-            panic!(
-                "'{MUTATION_CASE_ID}': xample_projection is not same_as_base: {}",
-                mismatches.iter().map(|m| m.to_string()).collect::<Vec<_>>().join("; ")
-            )
-        });
+    fieldworks::xample_files_equivalent_ignoring_hvo_renumbering(
+        &base_projected,
+        &clone_projected,
+        "MPBase",
+    )
+    .unwrap_or_else(|mismatches| {
+        panic!(
+            "'{MUTATION_CASE_ID}': xample_projection is not same_as_base: {}",
+            mismatches
+                .iter()
+                .map(|m| m.to_string())
+                .collect::<Vec<_>>()
+                .join("; ")
+        )
+    });
 
     let clone_parse = projector
-        .parse(&clone_fwdata, &clone_projected, "MPBase", &words, &temp_root.join("clone-parse.json"), 2000)
+        .parse(
+            &clone_fwdata,
+            &clone_projected,
+            "MPBase",
+            &words,
+            &temp_root.join("clone-parse.json"),
+            2000,
+        )
         .unwrap_or_else(|e| panic!("mutated-clone 'parse' failed: {e}"));
     let clone_xample = xample_results_by_word(&clone_parse);
 
@@ -348,7 +434,10 @@ fn xample_migration_differential_gate() {
     validate_usable_results("mutated-clone HC", &clone_hc, ACCEPTED_WORDS)
         .unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(case.expect.hc_analyses, fixture::ExpectRelation::SameAsBase);
-    assert_eq!(clone_hc, base_hc, "'{MUTATION_CASE_ID}': hc_analyses must be same_as_base");
+    assert_eq!(
+        clone_hc, base_hc,
+        "'{MUTATION_CASE_ID}': hc_analyses must be same_as_base"
+    );
     for word in ACCEPTED_WORDS {
         accumulate(
             word,
@@ -359,7 +448,11 @@ fn xample_migration_differential_gate() {
             &mut hc_only_mutation,
         );
     }
-    assert_eq!(compared_mutation, ACCEPTED_WORDS.len(), "all accepted mutated words must be compared");
+    assert_eq!(
+        compared_mutation,
+        ACCEPTED_WORDS.len(),
+        "all accepted mutated words must be compared"
+    );
     assert_substrate_report_matches_manifest(&clone_output, &case.expect.inferred_segments);
 
     // --- twice-run determinism: repeat the SAME case from the SAME base copy ---
@@ -367,12 +460,21 @@ fn xample_migration_differential_gate() {
     let mutate_response_2: MutateResponse = projector
         .mutate(&base_fwdata, &request, &mutate_out_2)
         .unwrap_or_else(|e| panic!("second '{MUTATION_CASE_ID}' mutate failed: {e}"));
-    assert_eq!(mutate_response_2.deleted_count, mutate_response.deleted_count, "deletedCount must be deterministic");
+    assert_eq!(
+        mutate_response_2.deleted_count, mutate_response.deleted_count,
+        "deletedCount must be deterministic"
+    );
     assert_eq!(mutate_response_2.reopened, mutate_response.reopened);
-    let mut removed_reps_2: Vec<String> =
-        mutate_response_2.removed.iter().flat_map(|r| r.representations.iter().cloned()).collect();
+    let mut removed_reps_2: Vec<String> = mutate_response_2
+        .removed
+        .iter()
+        .flat_map(|r| r.representations.iter().cloned())
+        .collect();
     removed_reps_2.sort();
-    assert_eq!(removed_reps_2, removed_reps, "removed[] must be deterministic across two runs of the same case");
+    assert_eq!(
+        removed_reps_2, removed_reps,
+        "removed[] must be deterministic across two runs of the same case"
+    );
     // Not asserted: raw .fwdata bytes (materializedSha256) may legitimately differ run to run (FieldWorks persistence metadata); the generated XAMPLE files below are the real determinism check.
     println!(
         "mutate ledger determinism: materializedSha256 run1={} run2={}",
@@ -384,7 +486,11 @@ fn xample_migration_differential_gate() {
     let clone_project_response_2 = projector
         .project(&clone_fwdata_2, &clone_projected_2, "MPBase")
         .unwrap_or_else(|e| panic!("second mutated-clone 'project' failed: {e}"));
-    assert_deterministic_generated_files_match(MUTATION_CASE_ID, &clone_project_response, &clone_project_response_2);
+    assert_deterministic_generated_files_match(
+        MUTATION_CASE_ID,
+        &clone_project_response,
+        &clone_project_response_2,
+    );
 
     // --- before/after source-hash on the CANONICAL (checked-in) witness, not just the working copy ---
     let canonical_sha256_after = sha256_hex(&witness_fwdata);
@@ -400,8 +506,16 @@ fn xample_migration_differential_gate() {
     println!("compared_baseline={compared_baseline} XAMPLE_ONLY_baseline={xample_only_baseline} HC_ONLY_baseline={hc_only_baseline}");
     println!("compared_mutation={compared_mutation} XAMPLE_ONLY_mutation={xample_only_mutation} HC_ONLY_mutation={hc_only_mutation}");
     println!("compared_total={compared} XAMPLE_ONLY_total={xample_only} HC_ONLY_total={hc_only}");
-    assert_eq!(compared_baseline, ACCEPTED_WORDS.len(), "all accepted baseline words must be compared");
-    assert_eq!(compared, ACCEPTED_WORDS.len() * 2, "all accepted words must be compared in both phases");
+    assert_eq!(
+        compared_baseline,
+        ACCEPTED_WORDS.len(),
+        "all accepted baseline words must be compared"
+    );
+    assert_eq!(
+        compared,
+        ACCEPTED_WORDS.len() * 2,
+        "all accepted words must be compared in both phases"
+    );
     assert!(
         xample_only <= XAMPLE_ONLY_RATCHET,
         "XAMPLE_ONLY_total={xample_only} exceeds the ratchet ({XAMPLE_ONLY_RATCHET}) -- a new divergence, or the ratchet needs a fresh measurement"
@@ -418,7 +532,11 @@ fn xample_migration_differential_gate() {
     std::fs::remove_dir_all(&temp_root).ok();
 }
 
-fn result_of(sigs: &[(&str, usize)], engine_error: Option<&str>, reached_max_analyses: Option<usize>) -> XampleResult {
+fn result_of(
+    sigs: &[(&str, usize)],
+    engine_error: Option<&str>,
+    reached_max_analyses: Option<usize>,
+) -> XampleResult {
     let mut analyses = BTreeMap::new();
     for (msa, count) in sigs {
         let signature = pg_xample_oracle::model::AnalysisSignature {
@@ -429,7 +547,11 @@ fn result_of(sigs: &[(&str, usize)], engine_error: Option<&str>, reached_max_ana
         };
         analyses.insert(signature, *count);
     }
-    XampleResult { analyses, reached_max_analyses, engine_error: engine_error.map(str::to_string) }
+    XampleResult {
+        analyses,
+        reached_max_analyses,
+        engine_error: engine_error.map(str::to_string),
+    }
 }
 
 // Falsifies accumulate's usability gate: an errored side must not increment compared or fabricate a divergence.
@@ -438,8 +560,19 @@ fn accumulate_does_not_count_an_errored_result() {
     let xample = result_of(&[("m1", 1)], None, None);
     let hc = result_of(&[], Some("invalid shape"), None);
     let (mut compared, mut xample_only, mut hc_only) = (0, 0, 0);
-    accumulate("w", &xample, &hc, &mut compared, &mut xample_only, &mut hc_only);
-    assert_eq!((compared, xample_only, hc_only), (0, 0, 0), "an errored side must not be counted");
+    accumulate(
+        "w",
+        &xample,
+        &hc,
+        &mut compared,
+        &mut xample_only,
+        &mut hc_only,
+    );
+    assert_eq!(
+        (compared, xample_only, hc_only),
+        (0, 0, 0),
+        "an errored side must not be counted"
+    );
 }
 
 // Same gate, the capped side.
@@ -448,8 +581,19 @@ fn accumulate_does_not_count_a_capped_result() {
     let xample = result_of(&[("m1", 1)], None, Some(1));
     let hc = result_of(&[("m1", 1)], None, None);
     let (mut compared, mut xample_only, mut hc_only) = (0, 0, 0);
-    accumulate("w", &xample, &hc, &mut compared, &mut xample_only, &mut hc_only);
-    assert_eq!((compared, xample_only, hc_only), (0, 0, 0), "a capped side must not be counted");
+    accumulate(
+        "w",
+        &xample,
+        &hc,
+        &mut compared,
+        &mut xample_only,
+        &mut hc_only,
+    );
+    assert_eq!(
+        (compared, xample_only, hc_only),
+        (0, 0, 0),
+        "a capped side must not be counted"
+    );
 }
 
 // Falsifies the ratchet itself: a real divergence must make XAMPLE_ONLY/HC_ONLY nonzero.
@@ -458,8 +602,18 @@ fn accumulate_counts_a_real_divergence_in_both_directions() {
     let xample = result_of(&[("m1", 1), ("m2", 1)], None, None);
     let hc = result_of(&[("m1", 1), ("m3", 1)], None, None);
     let (mut compared, mut xample_only, mut hc_only) = (0, 0, 0);
-    accumulate("w", &xample, &hc, &mut compared, &mut xample_only, &mut hc_only);
-    assert_eq!(compared, 1, "both sides were usable, so this word counts once");
+    accumulate(
+        "w",
+        &xample,
+        &hc,
+        &mut compared,
+        &mut xample_only,
+        &mut hc_only,
+    );
+    assert_eq!(
+        compared, 1,
+        "both sides were usable, so this word counts once"
+    );
     assert_eq!(xample_only, 1, "m2 is XAMPLE-only");
     assert_eq!(hc_only, 1, "m3 is HC-only");
     assert!(

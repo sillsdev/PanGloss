@@ -1312,9 +1312,7 @@ mod tests {
     //! Covers both `--threads` writer paths per the task brief -- the sequential (`STARTED` +
     //! per-line flush) and rayon-parallel (buffered, no `STARTED`) modes have genuinely different
     //! code paths in `run_batch` and each needed its own bug fixed above.
-    use super::{
-        load_grammar, run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP,
-    };
+    use super::{load_grammar, run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP};
     use std::fs;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -1465,8 +1463,7 @@ mod tests {
         let target = dir.join("fixture-with-k.fwdata");
         let xml = fs::read_to_string(source).expect("read fwdata fixture");
         // Remove the unrelated dangling environment so this fixture isolates source-GUID projection.
-        let dangling_env =
-            "<objsur guid=\"00000000-0000-0000-0000-0000000000ff\" t=\"r\" />\r\n";
+        let dangling_env = "<objsur guid=\"00000000-0000-0000-0000-0000000000ff\" t=\"r\" />\r\n";
         assert!(
             xml.contains(dangling_env),
             "fixture dangling-environment shape changed"

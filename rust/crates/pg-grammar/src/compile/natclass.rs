@@ -123,7 +123,12 @@ pub(crate) fn build(
     recorder.considered(any_key.clone());
     recorder.selected(any_key.clone());
     let any_id = NatClassId(defs.len() as u32);
-    inventory::represent_via(recorder, lineage, LineageTarget::NaturalClass(any_id.0), any_key);
+    inventory::represent_via(
+        recorder,
+        lineage,
+        LineageTarget::NaturalClass(any_id.0),
+        any_key,
+    );
     defs.push(NaturalClass {
         xml_id: "__any__".to_string(),
         name: Some("Any".to_string()),

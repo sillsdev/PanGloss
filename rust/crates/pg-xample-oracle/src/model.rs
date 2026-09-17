@@ -172,13 +172,28 @@ mod tests {
     #[test]
     fn signatures_differing_only_in_display_morphemes_are_equal_and_merge_counts() {
         let a = sig(&["P1", "K"], &["guid-p1", "guid-k"], "xk");
-        let b = sig(&["different-label", "other-label"], &["guid-p1", "guid-k"], "xk");
-        assert_eq!(a, b, "morphemes must never participate in AnalysisSignature identity");
+        let b = sig(
+            &["different-label", "other-label"],
+            &["guid-p1", "guid-k"],
+            "xk",
+        );
+        assert_eq!(
+            a, b,
+            "morphemes must never participate in AnalysisSignature identity"
+        );
         let mut analyses = BTreeMap::new();
         *analyses.entry(a).or_insert(0) += 1;
         *analyses.entry(b).or_insert(0) += 1;
-        assert_eq!(analyses.len(), 1, "the two arrivals must collapse into one multiset entry");
-        assert_eq!(*analyses.values().next().unwrap(), 2, "and their counts must sum");
+        assert_eq!(
+            analyses.len(),
+            1,
+            "the two arrivals must collapse into one multiset entry"
+        );
+        assert_eq!(
+            *analyses.values().next().unwrap(),
+            2,
+            "and their counts must sum"
+        );
     }
 
     #[test]
@@ -188,12 +203,23 @@ mod tests {
         xample_side.category_id = None;
         let mut hc_side = sig(&["K"], &["guid-k"], "k");
         hc_side.category_id = Some("pos-guid".to_string());
-        assert_eq!(xample_side, hc_side, "category_id must never participate in AnalysisSignature identity");
+        assert_eq!(
+            xample_side, hc_side,
+            "category_id must never participate in AnalysisSignature identity"
+        );
         let mut analyses = BTreeMap::new();
         *analyses.entry(xample_side).or_insert(0) += 1;
         *analyses.entry(hc_side).or_insert(0) += 1;
-        assert_eq!(analyses.len(), 1, "the two arrivals must collapse into one multiset entry");
-        assert_eq!(*analyses.values().next().unwrap(), 2, "and their counts must sum");
+        assert_eq!(
+            analyses.len(),
+            1,
+            "the two arrivals must collapse into one multiset entry"
+        );
+        assert_eq!(
+            *analyses.values().next().unwrap(),
+            2,
+            "and their counts must sum"
+        );
     }
 
     #[test]

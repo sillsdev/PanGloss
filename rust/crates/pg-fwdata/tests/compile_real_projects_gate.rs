@@ -42,12 +42,22 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
         out.issues.len(),
     );
     for seg in &out.substrate.inferred_segments {
-        eprintln!("  inferred segment: {:?} ({:?})", seg.representation, seg.evidence);
+        eprintln!(
+            "  inferred segment: {:?} ({:?})",
+            seg.representation, seg.evidence
+        );
     }
     for boundary in &out.substrate.inferred_boundaries {
-        eprintln!("  inferred boundary: {:?} ({:?})", boundary.representation, boundary.evidence);
+        eprintln!(
+            "  inferred boundary: {:?} ({:?})",
+            boundary.representation, boundary.evidence
+        );
     }
-    for issue in out.issues.iter().filter(|i| i.code == "substrate.classification-ambiguous") {
+    for issue in out
+        .issues
+        .iter()
+        .filter(|i| i.code == "substrate.classification-ambiguous")
+    {
         eprintln!("  ambiguous: {}", issue.message);
     }
 
@@ -80,7 +90,9 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
 /// Matches `ambiguous_issue`'s literal `{ch:?} at position` fragment -- a plain substring search over the whole message is vacuous, since the fixed template text always itself contains a `:` and `{ch:?}`'s own Debug-escaping quotes.
 fn unexpected_ambiguous_char(message: &str) -> bool {
     const KNOWN_CHARS: [char; 5] = ['-', '\'', ':', '_', '^'];
-    !KNOWN_CHARS.iter().any(|c| message.contains(&format!("{c:?} at position")))
+    !KNOWN_CHARS
+        .iter()
+        .any(|c| message.contains(&format!("{c:?} at position")))
 }
 
 #[cfg(test)]

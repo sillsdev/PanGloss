@@ -4,8 +4,8 @@ use pg_snapshot::lexicon::{Allomorph, LexEntry, Msa, RuleMapping};
 use pg_snapshot::morphology::MorphType;
 use pg_snapshot::phonology::PhonContext;
 use pg_snapshot::{
-    ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, SourceRef,
-    Snapshot,
+    ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot,
+    SourceRef,
 };
 
 use crate::model::{
@@ -58,7 +58,10 @@ pub(crate) fn build_affix_rule(
     let mut rule_form_allos: Vec<&Allomorph> = Vec::new();
     for &allo in allos {
         if is_valid_rule_form(allo, ctx, warnings) {
-            ctx.selected(InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()));
+            ctx.selected(InventoryKey::object(
+                InventoryKind::Allomorph,
+                allo.guid.clone(),
+            ));
             rule_form_allos.push(allo);
         }
     }

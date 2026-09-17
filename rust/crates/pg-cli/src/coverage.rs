@@ -3,7 +3,9 @@
 use std::collections::HashSet;
 use std::fs;
 
-use pg_conformance_fixtures::{discover_scoped, producibility_census, ConformanceScope, ProducibilityCensus};
+use pg_conformance_fixtures::{
+    discover_scoped, producibility_census, ConformanceScope, ProducibilityCensus,
+};
 use pg_foma::capability::{default_registry, CharacteristicKind, Disposition};
 use pg_foma::conformance_coverage::CoverageStatus;
 use pg_foma::coverage_ledger::{build_ledger, CoverageLedger};

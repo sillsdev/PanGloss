@@ -47,33 +47,93 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
     } = b;
 
     assert_eq!(name_a, name_b, "name");
-    assert_eq!(format!("{:?}", syn_features_a), format!("{:?}", syn_features_b), "syn_features");
+    assert_eq!(
+        format!("{:?}", syn_features_a),
+        format!("{:?}", syn_features_b),
+        "syn_features"
+    );
     assert_eq!(mpr_names_a, mpr_names_b, "mpr_names");
-    assert_eq!(format!("{:?}", mpr_features_a), format!("{:?}", mpr_features_b), "mpr_features");
-    assert_eq!(format!("{:?}", mpr_groups_a), format!("{:?}", mpr_groups_b), "mpr_groups");
-    assert_eq!(format!("{:?}", stem_names_a), format!("{:?}", stem_names_b), "stem_names");
-    assert_eq!(format!("{:?}", families_a), format!("{:?}", families_b), "families");
+    assert_eq!(
+        format!("{:?}", mpr_features_a),
+        format!("{:?}", mpr_features_b),
+        "mpr_features"
+    );
+    assert_eq!(
+        format!("{:?}", mpr_groups_a),
+        format!("{:?}", mpr_groups_b),
+        "mpr_groups"
+    );
+    assert_eq!(
+        format!("{:?}", stem_names_a),
+        format!("{:?}", stem_names_b),
+        "stem_names"
+    );
+    assert_eq!(
+        format!("{:?}", families_a),
+        format!("{:?}", families_b),
+        "families"
+    );
     assert_eq!(
         format!("{:?}", natural_classes_a),
         format!("{:?}", natural_classes_b),
         "natural_classes"
     );
-    assert_eq!(format!("{:?}", morphemes_a), format!("{:?}", morphemes_b), "morphemes");
+    assert_eq!(
+        format!("{:?}", morphemes_a),
+        format!("{:?}", morphemes_b),
+        "morphemes"
+    );
     assert_eq!(allomorph_owners_a, allomorph_owners_b, "allomorph_owners");
-    assert_eq!(allomorph_sources_a, allomorph_sources_b, "allomorph_sources");
-    assert_eq!(format!("{:?}", prules_a), format!("{:?}", prules_b), "prules");
-    assert_eq!(format!("{:?}", mrules_a), format!("{:?}", mrules_b), "mrules");
-    assert_eq!(format!("{:?}", templates_a), format!("{:?}", templates_b), "templates");
-    assert_eq!(format!("{:?}", entries_a), format!("{:?}", entries_b), "entries");
-    assert_eq!(format!("{:?}", strata_a), format!("{:?}", strata_b), "strata");
+    assert_eq!(
+        allomorph_sources_a, allomorph_sources_b,
+        "allomorph_sources"
+    );
+    assert_eq!(
+        format!("{:?}", prules_a),
+        format!("{:?}", prules_b),
+        "prules"
+    );
+    assert_eq!(
+        format!("{:?}", mrules_a),
+        format!("{:?}", mrules_b),
+        "mrules"
+    );
+    assert_eq!(
+        format!("{:?}", templates_a),
+        format!("{:?}", templates_b),
+        "templates"
+    );
+    assert_eq!(
+        format!("{:?}", entries_a),
+        format!("{:?}", entries_b),
+        "entries"
+    );
+    assert_eq!(
+        format!("{:?}", strata_a),
+        format!("{:?}", strata_b),
+        "strata"
+    );
 
-    assert_eq!(phon_features_a.len(), phon_features_b.len(), "phon_features.len");
+    assert_eq!(
+        phon_features_a.len(),
+        phon_features_b.len(),
+        "phon_features.len"
+    );
     for i in 0..phon_features_a.len() {
         let flat = crate::featsys::FlatIndex(i as u32);
-        assert_eq!(phon_features_a.feature_xml_id(flat), phon_features_b.feature_xml_id(flat));
-        assert_eq!(phon_features_a.feature_name(flat), phon_features_b.feature_name(flat));
+        assert_eq!(
+            phon_features_a.feature_xml_id(flat),
+            phon_features_b.feature_xml_id(flat)
+        );
+        assert_eq!(
+            phon_features_a.feature_name(flat),
+            phon_features_b.feature_name(flat)
+        );
         assert_eq!(phon_features_a.mask(flat), phon_features_b.mask(flat));
-        assert_eq!(phon_features_a.default_bits(flat), phon_features_b.default_bits(flat));
+        assert_eq!(
+            phon_features_a.default_bits(flat),
+            phon_features_b.default_bits(flat)
+        );
         let sym_count = phon_features_a.symbol_count(flat);
         assert_eq!(sym_count, phon_features_b.symbol_count(flat));
         for idx in 0..sym_count as u32 {

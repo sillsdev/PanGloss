@@ -61,13 +61,13 @@ use crate::model::*;
 use crate::GrammarError;
 
 use pg_snapshot::{
-    ConversionIssue, InventoryDelta, InventoryKey, IssueClass, SelectionRecorder,
-    SourceInventoryStatus, Snapshot,
+    ConversionIssue, InventoryDelta, InventoryKey, IssueClass, SelectionRecorder, Snapshot,
+    SourceInventoryStatus,
 };
 
 use inventory::{Lineage, LineageTarget};
-use issues::{ConversionError, SubstrateReport};
 pub use issues::CompileOutput;
+use issues::{ConversionError, SubstrateReport};
 pub use options::{CompileOptions, ResolvedSubstratePolicy, SemanticLossPolicy, SubstratePolicy};
 
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
@@ -78,7 +78,11 @@ pub use options::{CompileOptions, ResolvedSubstratePolicy, SemanticLossPolicy, S
 /// [`compile_project_with`], which this is a thin, source-compatible wrapper over.
 pub fn compile_project(snapshot: &Snapshot) -> Result<(Grammar, Vec<String>), GrammarError> {
     let out = compile_project_with(snapshot, CompileOptions::default())?;
-    let messages = out.issues.iter().map(|issue| issue.message.clone()).collect();
+    let messages = out
+        .issues
+        .iter()
+        .map(|issue| issue.message.clone())
+        .collect();
     Ok((out.grammar, messages))
 }
 
@@ -98,7 +102,11 @@ pub fn compile_project_measured(
         panic!("compile_project_measured: selection recorder invariant violated: {violation}");
     }
     let (inventory, issues) = recorder.finish();
-    Ok((grammar, warnings, pg_snapshot::InventoryDelta::from_stage(inventory, issues)))
+    Ok((
+        grammar,
+        warnings,
+        pg_snapshot::InventoryDelta::from_stage(inventory, issues),
+    ))
 }
 
 /// Compiles under an explicit [`CompileOptions`], returning every conversion issue (import-stage,
@@ -162,7 +170,10 @@ pub fn compile_project_with(
     let refuses = options.semantic_loss == SemanticLossPolicy::Refuse
         && issues.iter().any(|issue| issue.fatal);
     if refuses {
-        return Err(GrammarError::Conversion(ConversionError { issues, substrate }));
+        return Err(GrammarError::Conversion(ConversionError {
+            issues,
+            substrate,
+        }));
     }
 
     Ok(CompileOutput {
@@ -182,8 +193,16 @@ pub fn compile_project_with(
 pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
     substrate_policy: SubstratePolicy,
-) -> Result<(Grammar, Vec<String>, SelectionRecorder, SubstrateReport, Vec<ConversionIssue>), GrammarError>
-{
+) -> Result<
+    (
+        Grammar,
+        Vec<String>,
+        SelectionRecorder,
+        SubstrateReport,
+        Vec<ConversionIssue>,
+    ),
+    GrammarError,
+> {
     let mut warnings: Vec<String> = Vec::new();
     let mut recorder = SelectionRecorder::default();
     let mut lineage = Lineage::default();
@@ -207,7 +226,10 @@ pub(crate) fn compile_project_recording(
     let raw = chardef::build_raw(snapshot, &phon_features, &mut warnings, &mut recorder)?;
     let resolved_substrate = substrate_policy.resolve(
         snapshot.morphology.parser_parameters.active_parser,
-        snapshot.morphology.parser_parameters.accept_unspecified_graphemes,
+        snapshot
+            .morphology
+            .parser_parameters
+            .accept_unspecified_graphemes,
     );
     let authored_boundary_reps: hashbrown::HashSet<String> = snapshot
         .phonology
@@ -468,11 +490,16 @@ pub(crate) fn compile_project_recording(
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.
     let (removed_mrules, removed_allomorph_cooccurrence) =
         reachability::compact_mrules(&mut grammar, &mut warnings);
-    resolve_pending_cooccurrence_refusals(&mut recorder, pending_cooccurrence_refusals, &removed_mrules);
+    resolve_pending_cooccurrence_refusals(
+        &mut recorder,
+        pending_cooccurrence_refusals,
+        &removed_mrules,
+    );
     let removed_cooccurrence = reachability::trim_unreachable_morpheme_coocurrence(&mut grammar);
 
     // `pg-fwdata` extracts every declared natural class unconditionally, so compact to only those actually referenced now that every other compile step has had its chance to resolve one (see `natclass::compact_to_referenced`'s own doc).
-    let removed_natclasses = natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
+    let removed_natclasses =
+        natclass::compact_to_referenced(&mut grammar, any_nc, natclass_last_unnamed);
 
     // Revokes exactly what the four finalizers above report they dropped, via the lineage every owner published at push time -- see `inventory::finalize`'s own doc.
     inventory::finalize(
@@ -486,11 +513,22 @@ pub(crate) fn compile_project_recording(
 
     grammar.final_template_prune_facts()?;
 
-    Ok((grammar, warnings, recorder, substrate_report, substrate_issues))
+    Ok((
+        grammar,
+        warnings,
+        recorder,
+        substrate_report,
+        substrate_issues,
+    ))
 }
 
 /// Ad-hoc co-occurrence rules resolved against the now-complete `acc.allomorph_guid_index`/`acc.msa_guid_index` registries; a dangling reference is a warning, never a hard failure.
-fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc, warnings: &mut Vec<String>) {
+fn strata_assign_co_occurrence(
+    snapshot: &Snapshot,
+    ctx: &Ctx,
+    acc: &mut Acc,
+    warnings: &mut Vec<String>,
+) {
     use pg_snapshot::morphology::AdhocProhibition;
     use pg_snapshot::morphology::Adjacency as SnapAdjacency;
     use pg_snapshot::InventoryKind::{AllomorphCoOccurrence, MorphemeCoOccurrence};
@@ -837,7 +875,14 @@ impl Ctx<'_> {
         class: IssueClass,
         msg: impl Into<String>,
     ) {
-        inventory::reject(&mut self.recorder.borrow_mut(), warnings, key, code, class, msg);
+        inventory::reject(
+            &mut self.recorder.borrow_mut(),
+            warnings,
+            key,
+            code,
+            class,
+            msg,
+        );
     }
 
     /// As [`Ctx::reject`], but fatal -- for a construct attached to something already active, where dropping it would change what the grammar accepts. Unlike [`Ctx::reject`], never touches the legacy `warnings` channel: it carries its own real code into `compile_project_with`'s top-level result already.
@@ -874,7 +919,13 @@ impl Ctx<'_> {
     ) {
         self.pending_cooccurrence_refusals
             .borrow_mut()
-            .push(PendingCooccurrenceRefusal { key, code, class, message, mrule });
+            .push(PendingCooccurrenceRefusal {
+                key,
+                code,
+                class,
+                message,
+                mrule,
+            });
     }
 
     /// As [`Ctx::reject`], but pushes no warning, for a site that was already silent about dropping it.
