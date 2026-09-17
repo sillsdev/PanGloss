@@ -49,8 +49,7 @@ $changelog = Join-Path $repoRoot 'CHANGELOG.md'
 
 function Write-Gate([string]$name, [string]$state) { Write-Host ("[release] gate {0,-8} {1}" -f $name, $state) }
 
-# Runs one pg.ps1 mode and judges it by effect: exit 27 (the wrapper's wedged-governor code, payload
-# already finished) passes only when the transcript itself proves the payload succeeded.
+# Judges a pg.ps1 mode by effect: exit 27 (wedged governor, payload already finished) passes only when the transcript proves the payload succeeded.
 function Invoke-GatedPg([string[]]$PgArgs, [string]$SuccessPattern) {
     $transcript = & (Join-Path $toolRoot 'pg.ps1') @PgArgs 2>&1 | ForEach-Object { Write-Host $_; "$_" }
     $exit = $LASTEXITCODE

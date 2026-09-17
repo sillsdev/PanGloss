@@ -49,7 +49,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
             // 64 -> 65 (exact-inverse analysis fold), 65 -> 66 (seven staged fixtures rewritten into the FieldWorks shape).
-            oracle_exact: 66,
+            oracle_exact: 71, // 66 -> 71: four upstream fixtures pinning 006/014/016
             compiles_but_misses: 1,
             refused: 1,
             unmeasurable: 0,
@@ -58,11 +58,11 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TemplatedUnderlyingTokens,
         Bucket {
-            // 45 -> 46: same recovery as TunedSurfaceProbed above, from the exact-inverse analysis fold.
-            oracle_exact: 46,
-            compiles_but_misses: 1,
+            // 45 -> 46 (exact-inverse fold), 46 -> 47 with 1 -> 3 misses and 21 -> 23 refusals (four upstream fixtures pinning 006/014/016; the self-feeding fixture now declines instead of panicking).
+            oracle_exact: 47,
+            compiles_but_misses: 3,
             // 20 -> 21: circumfix-conditioned-halves now carries HCLoader's edge-constrained stem Lhs, which this selector refuses.
-            refused: 21,
+            refused: 23,
             unmeasurable: 0,
         },
     ),
@@ -71,8 +71,9 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
         Bucket {
             // 32 -> 33 (exact-inverse fold), 33 -> 34 (seven staged fixtures rewritten into the FieldWorks shape).
             oracle_exact: 34,
-            compiles_but_misses: 0,
-            refused: 31,
+            // 0 -> 1, 31 -> 35: four upstream fixtures pinning 006/014/016; plan-composed refuses three and compiles-but-misses discontinuous-morph-environment.
+            compiles_but_misses: 1,
+            refused: 35,
             unmeasurable: 3,
         },
     ),

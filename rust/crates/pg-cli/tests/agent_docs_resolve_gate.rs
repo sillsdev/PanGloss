@@ -55,8 +55,12 @@ const REPO_ROOTS: &[&str] = &[
     "openspec/",
 ];
 
+/// Absent by design in a fresh worktree: the submodule is sparse to `machine/conformance/` and `samples/` is gitignored corpus data (docs/design/conformance-submodule.md).
+const ABSENT_BY_DESIGN: &[&str] = &["machine/src", "samples/"];
+
 fn checkable(token: &str) -> bool {
     REPO_ROOTS.iter().any(|r| token.starts_with(r))
+        && !ABSENT_BY_DESIGN.iter().any(|r| token.starts_with(r))
         && !token.contains(':')
         && !token.contains('*')
         && !token.contains('<')

@@ -855,18 +855,16 @@ pub(crate) fn synthesize_with_mpr_cached(
                 &sc.syn_left,
                 &sc.syn_right,
             ),
-            (Kind::Epenthesis, mode) => {
-                syn_epenthesis(
-                    g,
-                    table,
-                    sr,
-                    &mut ms,
-                    &sc.syn_left,
-                    &sc.syn_right,
-                    mode,
-                    dir_of(rule),
-                )
-            }
+            (Kind::Epenthesis, mode) => syn_epenthesis(
+                g,
+                table,
+                sr,
+                &mut ms,
+                &sc.syn_left,
+                &sc.syn_right,
+                mode,
+                dir_of(rule),
+            ),
         };
         applied |= did;
     }
@@ -1101,18 +1099,16 @@ pub fn synthesize_with_mpr_cached_traced(
                 &sc.syn_left,
                 &sc.syn_right,
             ),
-            (Kind::Epenthesis, mode) => {
-                syn_epenthesis(
-                    g,
-                    table,
-                    sr,
-                    &mut ms,
-                    &sc.syn_left,
-                    &sc.syn_right,
-                    mode,
-                    dir_of(rule),
-                )
-            }
+            (Kind::Epenthesis, mode) => syn_epenthesis(
+                g,
+                table,
+                sr,
+                &mut ms,
+                &sc.syn_left,
+                &sc.syn_right,
+                mode,
+                dir_of(rule),
+            ),
         };
         applied |= did;
         outcomes.push(if did {
@@ -2326,8 +2322,10 @@ fn syn_epenthesis(
                 .iter()
                 .enumerate()
                 .filter_map(|(node, n)| {
-                    if !matches!(n.kind, NodeKind::Segment | NodeKind::LeftAnchor | NodeKind::RightAnchor)
-                    {
+                    if !matches!(
+                        n.kind,
+                        NodeKind::Segment | NodeKind::LeftAnchor | NodeKind::RightAnchor
+                    ) {
                         return None;
                     }
                     match (dir, cursor) {
@@ -2360,9 +2358,9 @@ fn syn_epenthesis(
             let Some(site_node) = site_node else {
                 break;
             };
-            // WHY: EpenthesisSynthesisRewriteSubruleSpec.cs adds after target, dirties Iterative RHS, and caps Shape.Count at 256.
+            // C# throws InfiniteLoopException at Shape.Count == 256 and the word gets no parse; the runaway shape left here can match no real surface, so this declines the same way without unwinding a caller.
             if ms.nodes.len().saturating_add(iterative_rhs_nodes.len()) > 256 {
-                panic!("An epenthesis rewrite rule is stuck in an infinite loop.");
+                return applied;
             }
             let mut inserted = iterative_rhs_nodes.clone();
             for node in &mut inserted {

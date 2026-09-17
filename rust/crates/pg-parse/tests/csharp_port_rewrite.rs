@@ -433,10 +433,9 @@ fn epenthesis_rules_iterative_cascade_finding() {
     assert_morphs_eq(&m9.parse_word("butubu"), &["25"]);
 }
 
-/// Pins C#'s right-to-left Iterative epenthesis self-feed and its 256-node safety cap.
+/// Pins C#'s right-to-left Iterative epenthesis self-feed (cs: `Throws.TypeOf<InfiniteLoopException>()`): the word gets no parse here rather than a crash, and a collect-all engine wrongly parses it.
 #[test]
-#[should_panic(expected = "stuck in an infinite loop")]
-fn epenthesis_rules_iterative_rtl_self_feeds_until_cap() {
+fn epenthesis_rules_iterative_rtl_self_feed_declines_the_word() {
     let g = build_grammar(
         r#"<PhonologicalRule id="pr4" multipleApplicationOrder="rightToLeftIterative"><Name>rule4</Name>
              <PhonologicalSubrules><PhonologicalSubrule>
@@ -450,8 +449,7 @@ fn epenthesis_rules_iterative_rtl_self_feeds_until_cap() {
         "",
     );
     let m = Morpher::new(&g, usize::MAX);
-    let outcome = m.parse_word("ipʰit");
-    assert_morphs_eq(&outcome, &["1"]);
+    assert_empty(&m.parse_word("ipʰit"));
 }
 
 /// Ports `RewriteRuleTests.DeletionRules` (cs:1345-1559) reconfigurations 5-7 (the two-rules negative case); reconfigurations 1-4 are `deletion_rules_multi_position_reinsertion`.

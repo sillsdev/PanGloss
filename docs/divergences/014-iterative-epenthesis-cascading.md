@@ -22,7 +22,7 @@ feature-rule LHS had been dropped, and restoring that `<PhoneticInput>` makes
 The real divergence is the Iterative engine loop. C# finds one target on the live shape, inserts RHS
 nodes immediately after it, keeps freshly inserted nodes eligible because an empty LHS has no Clean
 filter, and resumes at the first inserted node without revisiting an advanced-past position. Rust
-now mirrors that cursor and retains the C# `Shape.Count == 256` runaway guard. The Simultaneous
+now mirrors that cursor; at the C# `Shape.Count == 256` runaway cap it stops inserting and the word gets no parse, the same outcome as the oracle's `InfiniteLoopException` without unwinding a caller. The Simultaneous
 branch remains collect-all-then-apply against one unmutated snapshot.
 
 **Precise rule each side follows:** C# applies one match, then re-scans the mutated shape for the
