@@ -245,13 +245,35 @@ exit `$code
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $p = Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', $childPath) -PassThru -NoNewWindow
-    $finished = $p.WaitForExit(60000)
+    # 180s, not 60s: measured on this machine, procgov ALONE (no wrapper at all) takes 14-119s to return
+    # after this same 4s payload exits, so a 60s bound was testing procgov's mood. It read as green only
+    # while the reaper crashed the child early; once the reaper ran, the real timing showed through.
+    $finished = $p.WaitForExit(180000)
     $sw.Stop()
 
     Assert-True $finished 'the wrapper must still return once the payload genuinely exits'
     # Exit 27 AFTER >=4s is procgov itself wedging post-completion (a real, intermittent machine condition the detector exists for), so the pinned property is "never killed BEFORE the payload finished": a false positive returns 27 at ~1.2s.
     Assert-True (($p.ExitCode -eq 0) -or ($sw.Elapsed.TotalSeconds -ge 4)) `
         "the payload must never be killed mid-run: exit $($p.ExitCode) after $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
+}
+
+Test-Case 'the linger reaper resolves its helpers under `& script.ps1` -- the call shape every agent and release.ps1 use' {
+    # A .GetNewClosure() closure is bound to a fresh dynamic module, whose command lookup reaches the
+    # module and then GLOBAL -- never the script scope a dot-source puts these functions in. Under
+    # `pwsh -File` the top-level scope answered anyway, which is why the tests above could not see it;
+    # this one reproduces the nested `&` shape, where it died on "Get-ProcGovJobMembers is not recognized".
+    $childScript = @"
+. '$($script:CommonPath -replace "'", "''")'
+Import-PanGlossPlatformAdapter | Out-Null
+`$reaper = New-JobLingerReaper
+`$reaped = @(& `$reaper @() 'PanGloss-no-such-job-probe')
+Write-Output "REAPER-RAN:`$(`$reaped.Count)"
+"@
+    $childPath = Join-Path $script:WedgeProbeDir 'reaper-scope-child.ps1'
+    Set-Content -Path $childPath -Value $childScript -Encoding UTF8
+    $out = & $childPath *>&1
+    $text = ($out | ForEach-Object { "$_" }) -join "`n"
+    Assert-True ($text -match 'REAPER-RAN:0') "the reaper must run and find nothing, not fail to resolve: $text"
 }
 
 Write-TestSummary

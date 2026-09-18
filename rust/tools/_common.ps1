@@ -481,6 +481,24 @@ function Get-ProcGovJobMembers {
     return $members
 }
 
+function New-JobLingerReaper {
+    <#
+      .DESCRIPTION
+      The scriptblock Wait-ManagedProcessTree runs whenever the tree reads idle: reap whatever is
+      still holding procgov's job open. It takes the job name as an ARGUMENT and is deliberately not
+      a `.GetNewClosure()` closure that captures it.
+
+      A closure is bound to a fresh dynamic module, and command lookup inside a module reaches the
+      module's own scope and then the GLOBAL scope -- never the script scope that a dot-source puts
+      these functions in. Under `pwsh -File pg.ps1` the script scope happens to answer, so the
+      closure resolved; under `& pg.ps1` from an existing session (how every agent, and
+      release.ps1's gate, invokes it) it did not, and every managed build died on
+      "The term 'Get-ProcGovJobMembers' is not recognized". Pinned by
+      rust/tools/tests/managed-process-wait.tests.ps1.
+    #>
+    return { param($Snapshot, $JobName) Remove-LingeringJobHelpers -Members @(Get-ProcGovJobMembers -JobName $JobName -Snapshot $Snapshot) }
+}
+
 function Remove-LingeringJobHelpers {
     <#
       .DESCRIPTION
@@ -1282,7 +1300,9 @@ function Wait-ManagedProcessTree {
         [scriptblock]$SleepAction = { param($Seconds) Start-Sleep -Seconds $Seconds },
         [scriptblock]$NowProvider = { Get-Date },
         # Given the snapshot once the tree reads idle; returns the rows it reaped. procgov waits for its job to EMPTY, so a lingering helper (Remove-LingeringJobHelpers) is the one thing between "cargo returned" and "the wrapper returns".
-        [scriptblock]$LingerReaper = $null
+        [scriptblock]$LingerReaper = $null,
+        # Passed to $LingerReaper as its second argument, rather than captured in it. See New-JobLingerReaper.
+        [string]$LingerJobName = ''
     )
     $idleSince = $null
     while (-not $Process.HasExited) {
@@ -1290,7 +1310,12 @@ function Wait-ManagedProcessTree {
         $now = & $NowProvider
         if (Test-ManagedProcessTreeIdle -RootPid $Process.Id -Snapshot $snapshot -ExtraLiveNames $ExtraLiveNames) {
             if ($LingerReaper) {
-                foreach ($r in @(& $LingerReaper $snapshot)) {
+                # Named refusal, then rethrow: a reaper that cannot run is why a finished build sits here until the idle bound, and it must not read as "nothing to reap".
+                try { $reaped = @(& $LingerReaper $snapshot $LingerJobName) } catch {
+                    Write-Host "[pg] REFUSING to continue: the lingering-helper reaper could not run for job '$LingerJobName' -- $($_.Exception.Message)" -ForegroundColor Red
+                    throw
+                }
+                foreach ($r in $reaped) {
                     Write-Host "[pg] reaped $($r.Name) (pid $($r.ProcessId)): it outlived the build inside the job and was holding the wrapper open." -ForegroundColor Yellow
                 }
             }
@@ -1385,11 +1410,8 @@ function Invoke-ProcessInJobObject {
             if ($payloadName -and -not [System.IO.Path]::GetExtension($payloadName)) { $payloadName = "$payloadName.exe" }
             $WaitExtraLiveNames = @($payloadName)
         }
-        $reaper = $null
-        if ($jobName) {
-            $reaper = { param($Snapshot) Remove-LingeringJobHelpers -Members @(Get-ProcGovJobMembers -JobName $jobName -Snapshot $Snapshot) }.GetNewClosure()
-        }
-        $wait = Wait-ManagedProcessTree -Process $psi -PollSeconds $WaitPollSeconds -MaxIdleMinutes $WaitMaxIdleMinutes -ExtraLiveNames $WaitExtraLiveNames -LingerReaper $reaper
+        $reaper = if ($jobName) { New-JobLingerReaper } else { $null }
+        $wait = Wait-ManagedProcessTree -Process $psi -PollSeconds $WaitPollSeconds -MaxIdleMinutes $WaitMaxIdleMinutes -ExtraLiveNames $WaitExtraLiveNames -LingerReaper $reaper -LingerJobName $jobName
         if ($wait.Wedged) {
             $liveNames = @($script:LiveBuildActivityNames) + @($WaitExtraLiveNames)
             Write-Host "[pg] REFUSING to wait any longer: pid $($psi.Id) ($launchExe) is alive but its process tree has matched none of {$($liveNames -join ', ')} for ${WaitMaxIdleMinutes}+ minute(s) (idle since $($wait.IdleSince))." -ForegroundColor Red
