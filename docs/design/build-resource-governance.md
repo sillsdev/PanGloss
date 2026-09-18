@@ -94,6 +94,36 @@ a 10-minute kill on a hung test; read it before adding a knob here). So a capped
   / [#9735](https://github.com/rust-lang/cargo/issues/9735) describe this exact workspace shape
   (OOM linking many binaries). No cargo plugin solves it. Don't re-invent this locally.
 
+  **Never touch procgov's own process while it is setting the job up (2026-09-17).** The wrapper used
+  to set `PriorityClass` on the process it had just started. That made sense when the process was
+  cargo; once it became procgov it governed nothing — `--priority` is a *job limit* that already
+  reaches the payload and every descendant, and procgov is **not** a member of the job it creates
+  (measured: `IsProcessInJob` says false for procgov's own pid throughout a governed run). What the
+  call did do was land a `SetPriorityClass` inside procgov's job-setup window, and procgov 4.1.26190.22
+  then failed with `ERROR_INVALID_PARAMETER` out of `AssignIOCompletionPort`: **5 of 8** launches broke
+  with the call, **0 of 8** without it and **0 of 8** when only `HasExited` was read. A broken launch
+  either exits 255 or hangs having never started the payload — the second shape reaches the caller as
+  an ordinary idle-tree wedge (exit 27) with not one line of cargo output, which is how it went
+  undiagnosed for a while.
+
+  **The printed limit table is a request, not an enforcement.** procgov prints its table *before* it
+  creates the job, so `Wait-JobObjectTakesHold` now asks the kernel
+  (`JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.ActiveProcesses`) whether anything is actually inside the
+  named job, and exit code **29** refuses the run rather than letting it proceed uncapped. That query
+  returns `-1` for "could not look", never `0`, because an unopenable job and an empty one are
+  different facts. A governed check sampled mid-build shows the job holding `cargo.exe`, `cargo.exe`,
+  `sccache.exe`, `build-script-build.exe`, `cl.exe`, all at `BelowNormal` — the job limit, with no
+  per-process priority call anywhere.
+
+  **Reaper helpers may not be captured in a closure.** `Wait-ManagedProcessTree`'s lingering-helper
+  reaper was built with `.GetNewClosure()`, which binds a scriptblock to a fresh dynamic module whose
+  command lookup reaches the module and then the *global* scope — never the script scope a
+  dot-source puts `_common.ps1`'s functions in. Under `pwsh -File pg.ps1` the top-level scope answered;
+  under `& pg.ps1` from an existing session, which is how agents and `release.ps1` invoke it, every
+  managed build died on `The term 'Get-ProcGovJobMembers' is not recognized`. `New-JobLingerReaper`
+  passes the job name as an argument instead, and the reaper's failures are now named and rethrown
+  rather than surfacing as an opaque error at the call site.
+
   **Measured 2026-07-30 — read this before blaming the build for the next exhaustion.** A full
   `-Mode test` build (711 samples, 313 processes) peaked at **1.08GB** for the largest single rustc
   and **4.03GB across the entire fan-out**, never dropping below 50.4GB free. A forced fat-LTO
