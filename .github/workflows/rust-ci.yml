@@ -86,11 +86,11 @@ jobs:
       # otherwise resurrect that known failure in CI; skip it here so this step reports on NEW
       # regressions only, not a standing, already-documented one.
       #
-      # `--skip sena_cold_vs_warm_and_memo_effect`: `perf_cold_warm_probe.rs`'s own module doc
-      # explains why — "TEMPORARY INVESTIGATION INSTRUMENTATION... not a correctness gate", and its
-      # `--memo=on` leg has no wall-clock cap at all (unlike its `--memo=off` leg's deliberate 20s
-      # watchdog), observed to run past 5 minutes on these pathological Sena words. Not worth the
-      # CI-hang risk for a test that was never meant to be a gate.
+      # `--skip sena_cold_vs_warm`: `perf_cold_warm_probe.rs`'s own module doc explains why —
+      # diagnostic instrumentation, not a correctness gate — and it has no wall-clock cap at all,
+      # observed to run past 5 minutes on these pathological Sena words. Not worth the CI-hang risk
+      # for a test that was never meant to be a gate. (It was `sena_cold_vs_warm_and_memo_effect`
+      # until the memo arm went away with the memo itself.)
       #
       # NOTE both `--skip`s are name-based and will NOT self-clear: if `epenthesis_rules` is ever
       # fixed and un-ignored, or `perf_cold_warm_probe.rs` is ever given a wall-clock cap, this line
@@ -103,7 +103,7 @@ jobs:
       # corpus/fixture-gated test added WITHOUT a self-skip guard, which would panic (not skip) here
       # and turn CI red, versus the deliberately clean self-skips this policy requires everywhere
       # else in the workspace.
-      - run: cargo test --workspace --release -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm_and_memo_effect
+      - run: cargo test --workspace --release -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm
 
   linux-containment:
     name: Linux containment (required)

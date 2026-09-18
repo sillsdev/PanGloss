@@ -3,6 +3,44 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.3.1
+
+One change, measured: the analysis memoization layer is gone. It stopped paying for itself when the
+port of upstream #494 + #493 removed the redundant work it existed to cache, and on a step-capped
+pathological grammar it had become a net cost.
+
+### Analysis memoization removed
+
+- **The `pg-memo` crate is deleted**, along with the scope threaded through `pg-rules`/`pg-parse`
+  (the `analyze_stratum` entry points lose the `_scoped` infix with the parameter),
+  `Morpher::with_memo`, `--memo=on|off`, the `HC_MEMO_*` knobs, `AnalysisPolicy::memo`,
+  `Word::replay_onto`, and the memo columns of `HC_WORD_STATS`.
+- **The evidence, not an assertion.** Bisected on the memo's own value (`t_memo_off / t_memo_on`,
+  paired and interleaved in one binary, 300 Sena words, uncapped): 1.471x before the #494/#493 port,
+  1.001x after. A step probe over the same boundary: the memo avoided 772,784 steps before and
+  65,542 after, a 91.5% reduction in the work gap a cache exists to close. On Aweti (44 words,
+  200k step cap) the memo was a net cost -- 21,262 ms / 362.7 MB peak with it against
+  9,683 ms / 43.4 MB without, each step about 3x dearer work-for-work.
+- **The cost, which is not zero.** The memo saved steps, so under a step cap it is what let some
+  words finish at all: 8 of the 44 Aweti words completed only with it on. They now hit the cap and
+  return a partial result, and no flag brings them back.
+- **`AnalysisStateKey` and `MorphHistoryKey` survive** in `pg-rules/src/analysis_state_key.rs`:
+  `AnalyzerConfig::merge_equivalent` (C# `Morpher.MergeEquivalentAnalyses`) keys its fold on them,
+  which is semantics rather than caching. No longer crossing a crate boundary, `status` and `state`
+  are typed as `MorphStatus` and `FinalTemplateState` instead of opaque `u8`s.
+- **Three gates were deleted rather than adjusted** -- `pg-rules/tests/memo_gate.rs`,
+  `pg-parse/tests/memo_parity_gate.rs` and `pg-foma/tests/memo_corpus_gate.rs` existed only to
+  compare memo-on against memo-off, and with one execution strategy left they can assert nothing but
+  a tautology. The three `csharp_port_morpher.rs` cases that had been re-pointed at a memo A/B now
+  compare two independent `Morpher`s over one grammar, which is what the C# `MorpherTests`
+  originals assert. `rust/tools/memo-measure.ps1` is deleted for the same reason: its only job was
+  driving a flag that no longer exists.
+- **Ledger and upstream.** New divergence entry
+  [045](docs/divergences/045-memoization-removed.md) supersedes 031 and 032 and moots 023 and 025;
+  024 survives, since `state_key` saturation now serves the merge fold alone. Proposed upstream as
+  [sillsdev/machine#509](https://github.com/sillsdev/machine/issues/509); no correctness bug is
+  claimed against C#. The five measurement write-ups are preserved under `docs/research/`.
+
 ## 0.3.0
 
 The release theme is the FieldWorks project as the input that matters: what PanGloss compiles from

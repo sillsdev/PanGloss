@@ -235,10 +235,10 @@ pub struct Word {
     /// Per-rule **unapplication** count multiset (C# `Word._mrulesUnapplied` /
     /// `Word.UnappliedRuleCounts`, Word.cs:376-406) — how many times each morphological rule has been
     /// unapplied on this word. Incremented alongside every `mrule_apps.push`. Its sole consumer is
-    /// `pg_memo::AnalysisStateKey`, which needs an
+    /// `AnalysisStateKey`, which needs an
     /// order-independent view of the trail; it is **not** part of `WordKey` (C# `ValueEquals`
     /// ignores it), so adding it does not perturb dedup. A `BTreeMap` for the same canonical-order
-    /// reason the key uses one. Unmodified by `Word::replay_onto` — see that method.
+    /// reason the key uses one.
     pub unapplied_rule_counts: BTreeMap<MRuleId, u32>,
     pub flags: WordFlags,
     /// C# `Word.Source` (Word.cs:86,491-533): the word this one was derived from at a **stratum
@@ -266,7 +266,7 @@ pub struct Word {
     /// added).
     /// C# `Word.Alternatives` (Word.cs:485-489): the analysis candidates folded into this word by
     /// `MergeEquivalentAnalyses` (AnalysisStratumRule.cs:161-171 — a candidate reaching an equal
-    /// `pg_memo::AnalysisStateKey`, or an equal `WordKey` differing only in syntactic FS, does not
+    /// `AnalysisStateKey`, or an equal `WordKey` differing only in syntactic FS, does not
     /// enter the output set; instead `canonicalWord.Alternatives.Add(mruleOutWord)`). They differ
     /// from the canonical in rule/non-head history and (widened into the canonical via
     /// `pg_featstruct::union` on the fold — see `crate::stratum`'s merge) syntactic FS, and are
@@ -276,7 +276,7 @@ pub struct Word {
     /// (the stratum merge) ever populate it.
     ///
     /// `Rc` (not owned `Word`, and not `Arc`): the canonical this field lives on is cloned heavily
-    /// once merged (the memo store at `stratum.rs:1135-1155`/`:1311-1318`, `replay_onto`, dedup),
+    /// once merged (the stratum fold and dedup),
     /// and each clone used to deep-copy this whole subtree even though the payload is immutable
     /// from the moment the fold attaches it — the same rationale as `Word::source`. Plain `Rc`
     /// suffices: `Word` is already `!Send` via `source`, and `pg-parse/src/batch.rs` parallelizes
@@ -288,15 +288,15 @@ pub struct Word {
     /// `crate::trace::TraceHandle` value alongside the word instead of a mutated field the sink
     /// owns). `None` when tracing is off (the overwhelming common case — adds one `Option<u32>`-sized
     /// field, no allocation) or on any `Word` never touched by a traced call. Threaded through every
-    /// existing clone point (the derived `Clone`, `Word::clone_without_alternatives`,
-    /// `Word::replay_onto`) exactly as C#'s `CurrentTrace` rides along `Word.Clone()` (Word.cs:110)
+    /// existing clone point (the derived `Clone`, `Word::clone_without_alternatives`)
+    /// exactly as C#'s `CurrentTrace` rides along `Word.Clone()` (Word.cs:110)
     /// — **not** part of `WordKey` (C# `ValueEquals`/`FreezeImpl` never reads `CurrentTrace` either).
     pub trace: Option<crate::trace::TraceHandle>,
 }
 
 /// Canonical dedup key for `Word`, retaining the source-bearing morph trail as well as the engine
-/// state. The cascades and the stratum orchestrator dedup on this key; `pg_memo::AnalysisStateKey`
-/// remains the separate rule-state memo key.
+/// state. The cascades and the stratum orchestrator dedup on this key; `AnalysisStateKey`
+/// remains the separate rule-state identity the merge fold uses.
 ///
 /// The state fields follow C# `Word.ValueEquals` (Word.cs:537-545), while `morphs` is retained so
 /// two candidates with the same rendered shape but different selected source allomorphs, MSA,
@@ -454,7 +454,7 @@ impl Word {
     /// this word — a faithful port of C# `Word.ExpandAlternatives` (Word.cs:491-533).
     ///
     /// The per-stratum merge (`AnalysisStratumRule.Apply`) keeps only one word per
-    /// `pg_memo::AnalysisStateKey` (or `WordKey`-fallback match) flowing into deeper strata,
+    /// `AnalysisStateKey` (or `WordKey`-fallback match) flowing into deeper strata,
     /// stashing the folded repeats in `Word::alternatives` and every word's stratum-input in
     /// `Word::source`. This walks that `source` spine: it expands the
     /// source first, and — whenever the source itself expanded to two or more words (i.e. a merge

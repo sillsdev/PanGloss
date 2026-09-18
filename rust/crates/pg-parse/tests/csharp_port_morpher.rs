@@ -60,10 +60,7 @@ fn analyze_word_can_analyze_linear_returns_correct_analysis() {
     assert_morphs_eq(&m.parse_word("sagd"), &["32 PAST"]);
 }
 
-/// Ports `MorpherTests.AnalyzeWord_ConcurrentRepeatedParsing_IsDeterministic`: two independent
-/// `Morpher`s over the same grammar must return the same analysis set for each word. Checked
-/// once per word rather than under threads, since a divergence here would be a data-flow
-/// difference (iteration order, interning), not a race.
+/// Ports `MorpherTests.AnalyzeWord_ConcurrentRepeatedParsing_IsDeterministic`: two independent `Morpher`s over one grammar must return the same analysis set for each word.
 #[test]
 fn analyze_word_concurrent_repeated_parsing_is_deterministic() {
     let mrules = r#"
@@ -96,9 +93,7 @@ fn analyze_word_concurrent_repeated_parsing_is_deterministic() {
     }
 }
 
-/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithCompounding`: a compounding
-/// rule commutes with a PAST-tense prefix, so the cascade reaches an equal state via different
-/// arrival orders -- the case where an order-dependent fold would diverge between runs.
+/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithCompounding`: a compounding rule commutes with a PAST-tense prefix, so the cascade reaches an equal state via different arrival orders.
 #[test]
 fn parse_word_single_threaded_matches_parallel_with_compounding() {
     let mrules = r#"
@@ -142,9 +137,7 @@ fn parse_word_single_threaded_matches_parallel_with_compounding() {
     }
 }
 
-/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithAffixTemplate`: two
-/// commuting prefixes plus an optional-slot template suffix reach the same state via different
-/// trail orders, exercising the template battery's own dedup.
+/// Ports `MorpherTests.ParseWord_SingleThreaded_MatchesParallel_WithAffixTemplate`: two commuting prefixes plus an optional-slot template suffix reach the same state via different trail orders.
 #[test]
 fn parse_word_single_threaded_matches_parallel_with_affix_template() {
     let mrules = r#"

@@ -48,8 +48,7 @@ pub struct AnalysisStateKey {
 }
 
 impl AnalysisStateKey {
-    /// Build a key from a word's already-extracted components; `stratum.rs`'s `state_key` is the
-    /// only caller and supplies `rule_counts` saturated at each rule's `max_apps`.
+    /// Build a key from a word's already-extracted components, with `rule_counts` saturated at each rule's `max_apps`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         shape: Shape,

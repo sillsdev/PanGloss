@@ -802,10 +802,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         self.rule_filter.is_none_or(|f| f(r))
     }
 
-    /// The order-independent state key for `w` (`AnalyzerConfig::merge_equivalent`'s fold key),
-    /// with each rule's count saturated at its `max_apps` -- the only reader compares
-    /// `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate,
-    /// `AnalysisStateKey.cs:14-34` -- deliberate divergence).
+    /// The order-independent state key for `w` (`AnalyzerConfig::merge_equivalent`'s fold key), with each rule's count saturated at its `max_apps` -- the only reader compares `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate, `AnalysisStateKey.cs:14-34` -- deliberate divergence).
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
         let morph_history = w
             .morphs

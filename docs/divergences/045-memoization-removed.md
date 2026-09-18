@@ -79,8 +79,8 @@ than adjusted**: with one execution strategy left they can only assert a tautolo
 independent `Morpher`s over one grammar, which is what the C# `MorpherTests` originals assert.
 
 ## Upstream
-Reported as a new Machine issue proposing the same removal for C#, with the bisect and the 8-word
-cost stated. Related: [#485](https://github.com/sillsdev/machine/issues/485) (the performance
+Reported as [#509](https://github.com/sillsdev/machine/issues/509), proposing the same removal for
+C#, with the bisect and the 8-word cost stated. Related: [#485](https://github.com/sillsdev/machine/issues/485) (the performance
 investigation this grew out of), [#456](https://github.com/sillsdev/machine/pull/456) (the memo
 itself), [#494](https://github.com/sillsdev/machine/pull/494) and
 [#493](https://github.com/sillsdev/machine/pull/493) (the changes that absorbed its gains).

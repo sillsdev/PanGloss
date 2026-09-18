@@ -1,4 +1,4 @@
-//! Diagnostic instrumentation, not a correctness gate: calls `Morpher::parse_word` on the same pathological word several times in one process to test for lazy/deferred per-parse compilation cost (cold vs warm). The memo-on/memo-off arm this probe also carried went away with the memo itself (`docs/divergences/040-memoization-removed.md`).
+//! Diagnostic instrumentation, not a correctness gate: calls `Morpher::parse_word` on the same pathological word several times in one process to test for lazy/deferred per-parse compilation cost (cold vs warm). The memo-on/memo-off arm this probe also carried went away with the memo itself (`docs/divergences/045-memoization-removed.md`).
 
 use std::path::PathBuf;
 use std::time::Instant;
