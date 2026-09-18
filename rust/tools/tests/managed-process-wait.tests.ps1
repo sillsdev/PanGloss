@@ -257,6 +257,53 @@ exit `$code
         "the payload must never be killed mid-run: exit $($p.ExitCode) after $([math]::Round($sw.Elapsed.TotalSeconds,1))s"
 }
 
+# --- The job object's hold: procgov's printed limit table is a request, the kernel's count is the enforcement ---
+
+Test-Case 'Get-NamedJobActiveProcessCount answers -1 (could not look), never 0 (empty), for a job nobody created' {
+    Assert-Equal -1 (Get-NamedJobActiveProcessCount -JobName "PanGloss-no-such-job-$([guid]::NewGuid().ToString('N'))") `
+        '"I could not open the job" must never be reported as "the job is empty"'
+}
+
+Test-Case 'Wait-JobObjectTakesHold reports Held as soon as the kernel counts a process in the job' {
+    $proc = [PSCustomObject]@{ HasExited = $false; Id = 1 }
+    $script:counts = @(0, 0, 3)
+    $script:i = 0
+    $r = Wait-JobObjectTakesHold -Process $proc -JobName 'X' -TimeoutSeconds 30 `
+        -CountProvider { param($Name) $script:counts[[Math]::Min($script:i++, 2)] } `
+        -SleepAction { param($Milliseconds) } -NowProvider { Get-Date }
+    Assert-True $r.Held
+    Assert-Equal 'members' $r.Reason
+    Assert-Equal 3 $r.ActiveProcesses
+}
+
+Test-Case 'a wrapper that finished before the window closed counts as held -- its own exit code is what speaks then' {
+    $proc = [PSCustomObject]@{ HasExited = $true; Id = 1 }
+    $r = Wait-JobObjectTakesHold -Process $proc -JobName 'X' -CountProvider { param($Name) 0 } -SleepAction { param($Milliseconds) }
+    Assert-True $r.Held
+    Assert-Equal 'wrapper-exited' $r.Reason
+}
+
+Test-Case 'an empty job past the window is NOT held -- the ceiling was printed and never applied' {
+    $proc = [PSCustomObject]@{ HasExited = $false; Id = 1 }
+    $script:simNow = $now
+    $r = Wait-JobObjectTakesHold -Process $proc -JobName 'X' -TimeoutSeconds 5 `
+        -CountProvider { param($Name) 0 } -SleepAction { param($Milliseconds) $script:simNow = $script:simNow.AddSeconds(1) } `
+        -NowProvider { $script:simNow }
+    Assert-False $r.Held
+    Assert-Equal 'timeout' $r.Reason
+}
+
+Test-Case 'a job that cannot be queried (-1) is not mistaken for a held one' {
+    $proc = [PSCustomObject]@{ HasExited = $false; Id = 1 }
+    $script:simNow = $now
+    $r = Wait-JobObjectTakesHold -Process $proc -JobName 'X' -TimeoutSeconds 3 `
+        -CountProvider { param($Name) -1 } -SleepAction { param($Milliseconds) $script:simNow = $script:simNow.AddSeconds(1) } `
+        -NowProvider { $script:simNow }
+    Assert-False $r.Held '-1 means "could not look", and a control that could not look has not acted'
+}
+
+# --- Real-launch falsification of the two defects that blocked every managed build on this machine ---
+
 Test-Case 'the linger reaper resolves its helpers under `& script.ps1` -- the call shape every agent and release.ps1 use' {
     # A .GetNewClosure() closure is bound to a fresh dynamic module, whose command lookup reaches the
     # module and then GLOBAL -- never the script scope a dot-source puts these functions in. Under
@@ -274,6 +321,38 @@ Write-Output "REAPER-RAN:`$(`$reaped.Count)"
     $out = & $childPath *>&1
     $text = ($out | ForEach-Object { "$_" }) -join "`n"
     Assert-True ($text -match 'REAPER-RAN:0') "the reaper must run and find nothing, not fail to resolve: $text"
+}
+
+Test-Case 'every governed launch in a row actually starts its payload inside the job -- no launch is lost to procgov job-setup failure' {
+    # Setting the wrapper's own PriorityClass right after Start-Process broke procgov's job setup
+    # (ERROR_INVALID_PARAMETER out of AssignIOCompletionPort) in 5 of 8 measured launches: procgov then
+    # either exited 255 or hung having never started the payload. Six consecutive clean launches is a
+    # ~0.3% coincidence at that rate, and the repeat count is what makes this a gate rather than a die roll.
+    if (-not (Get-ProcGovPath)) { throw 'procgov is not installed: this gate cannot run, and a skip would read as a pass' }
+    $childScript = @"
+. '$($script:CommonPath -replace "'", "''")'
+Import-PanGlossPlatformAdapter | Out-Null
+foreach (`$i in 1..6) {
+    # Captured to a file, not the pipeline: the payload writes to the inherited console, which never reaches this script's output stream.
+    `$cap = Join-Path '$($script:WedgeProbeDir -replace "'", "''")' "launch-`$i.out"
+    # A payload that outlives the hold window on purpose: one short enough to finish first would leave an empty job and prove nothing.
+    `$code = Invoke-ProcessInJobObject -Exe 'pwsh' -CmdArgs @('-NoProfile', '-Command', "Write-Output 'LAUNCH-OK-`$i'; Start-Sleep -Seconds 2") ``
+        -WorkingDirectory '$($script:WedgeProbeDir -replace "'", "''")' -CaptureStdoutPath `$cap -Priority BelowNormal ``
+        -JobMemoryGB 2 -CpuRatePercent 25 -WaitPollSeconds 1 -WaitMaxIdleMinutes 3 -Subject 'launch-test'
+    Write-Output (Get-Content `$cap -Raw -ErrorAction SilentlyContinue)
+    Write-Output "LAUNCH-`$i-EXIT:`$code"
+}
+"@
+    $childPath = Join-Path $script:WedgeProbeDir 'launch-hold-child.ps1'
+    Set-Content -Path $childPath -Value $childScript -Encoding UTF8
+    $out = & $childPath *>&1
+    $text = ($out | ForEach-Object { "$_" }) -join "`n"
+    Assert-False ($text -match 'Win32Exception \(87\)') "procgov failed to create its job object: $text"
+    foreach ($i in 1..6) {
+        Assert-True ($text -match "LAUNCH-OK-$i") "launch $i never started its payload: $text"
+        Assert-True ($text -match "LAUNCH-$i-EXIT:0") "launch $i did not return 0: $text"
+    }
+    Assert-True ($text -match 'the ceiling is applied, not just requested') 'each launch must prove the job held a process, not just print procgov''s limit table'
 }
 
 Write-TestSummary

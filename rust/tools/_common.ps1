@@ -420,8 +420,9 @@ function Get-JobCpuRatePercent {
 function Ensure-ProcGovNative {
     <#
       .DESCRIPTION
-      JIT-defines the P/Invoke surface Terminate-ProcGovJob and Get-ProcGovJobMembers need
-      (OpenJobObject/TerminateJobObject/IsProcessInJob/OpenProcess/CloseHandle). Split out so a
+      JIT-defines the P/Invoke surface Terminate-ProcGovJob, Get-ProcGovJobMembers and
+      Get-NamedJobActiveProcessCount need (OpenJobObject/TerminateJobObject/IsProcessInJob/
+      OpenProcess/QueryInformationJobObject/CloseHandle). Split out so a
       caller that never hits the kill path never pays Add-Type's cost, and so the type is defined at
       most once per process.
     #>
@@ -439,6 +440,8 @@ namespace PanGlossProcGov {
         public static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern bool QueryInformationJobObject(IntPtr job, int infoClass, IntPtr info, int len, IntPtr returned);
         [DllImport("kernel32.dll", SetLastError = true)]
         public static extern bool CloseHandle(IntPtr handle);
     }
@@ -479,6 +482,67 @@ function Get-ProcGovJobMembers {
         [void][PanGlossProcGov.Native]::CloseHandle($job)
     }
     return $members
+}
+
+function Get-NamedJobActiveProcessCount {
+    <#
+      .DESCRIPTION
+      How many processes the KERNEL currently counts inside procgov's named job -- the only evidence
+      that the ceilings procgov printed are actually being enforced on anything. Reads
+      JOBOBJECT_BASIC_ACCOUNTING_INFORMATION's ActiveProcesses field (offset 40 of 48).
+
+      Returns -1, never 0, when the job cannot be opened or queried: "I could not look" and "the job
+      is empty" are different facts and only one of them is a reason to refuse.
+    #>
+    param([Parameter(Mandatory)][string]$JobName)
+    Ensure-ProcGovNative
+    $job = [PanGlossProcGov.Native]::OpenJobObject([uint32]0x0004, $false, $JobName)
+    if ($job -eq [IntPtr]::Zero) { return -1 }
+    $buf = [System.Runtime.InteropServices.Marshal]::AllocHGlobal(48)
+    try {
+        # 1 = JobObjectBasicAccountingInformation
+        if (-not [PanGlossProcGov.Native]::QueryInformationJobObject($job, 1, $buf, 48, [IntPtr]::Zero)) { return -1 }
+        return [System.Runtime.InteropServices.Marshal]::ReadInt32($buf, 40)
+    } finally {
+        [System.Runtime.InteropServices.Marshal]::FreeHGlobal($buf)
+        [void][PanGlossProcGov.Native]::CloseHandle($job)
+    }
+}
+
+function Wait-JobObjectTakesHold {
+    <#
+      .DESCRIPTION
+      Bounded proof that the wrapper's job object actually took hold of something, run right after
+      launch. procgov prints its limit table BEFORE it creates the job, so that table is a request,
+      not an enforcement; a procgov that then fails to create the job (observed: an
+      ERROR_INVALID_PARAMETER out of SetInformationJobObject/AssociateCompletionPort) either exits
+      255 or hangs having never started the payload at all, and the second shape reads downstream as
+      an ordinary idle-tree wedge.
+
+      Held is true as soon as the kernel counts a process in the job, and also when the wrapper has
+      already exited -- a payload short enough to finish inside the window leaves an empty job, and
+      its own exit code is the thing that speaks then. $CountProvider/$SleepAction/$NowProvider are
+      injection seams for the tests; production never overrides them.
+    #>
+    param(
+        [Parameter(Mandatory)]$Process,
+        [Parameter(Mandatory)][string]$JobName,
+        [double]$TimeoutSeconds = 30,
+        [int]$PollMilliseconds = 250,
+        [scriptblock]$CountProvider = { param($Name) Get-NamedJobActiveProcessCount -JobName $Name },
+        [scriptblock]$SleepAction = { param($Milliseconds) Start-Sleep -Milliseconds $Milliseconds },
+        [scriptblock]$NowProvider = { Get-Date }
+    )
+    $start = & $NowProvider
+    while ($true) {
+        $count = [int](& $CountProvider $JobName)
+        if ($count -gt 0) { return [PSCustomObject]@{ Held = $true; Reason = 'members'; ActiveProcesses = $count } }
+        if ($Process.HasExited) { return [PSCustomObject]@{ Held = $true; Reason = 'wrapper-exited'; ActiveProcesses = $count } }
+        if (((& $NowProvider) - $start).TotalSeconds -ge $TimeoutSeconds) {
+            return [PSCustomObject]@{ Held = $false; Reason = 'timeout'; ActiveProcesses = $count }
+        }
+        & $SleepAction $PollMilliseconds
+    }
 }
 
 function New-JobLingerReaper {
@@ -1394,12 +1458,30 @@ function Invoke-ProcessInJobObject {
     # Start-Process so we hold a real PID to reap: only `taskkill /T` reliably kills rustc/link.exe descendants on Windows.
     $psi = Start-Process @psiArgs
 
-    # Set on the PARENT, not each descendant: Windows propagates BelowNormal to children for free, keeping
-    # interactive daemons (sshd, Chrome Remote Desktop) ahead of the whole fan-out. docs/research/build-resource-governance.md
-    try {
-        if (-not $psi.HasExited) { $psi.PriorityClass = $Priority }
-    } catch {
-        Write-Host "[pg] note: could not set $Priority priority on $Exe (pid $($psi.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
+    if ($jobName) {
+        # Nothing sets procgov's own priority class: --priority is a job limit that already governs the
+        # payload and its descendants, procgov is not in that job, and SetPriorityClass landing inside
+        # procgov's job-setup window broke it in 5 of 8 measured launches (0 of 8 without).
+        $hold = Wait-JobObjectTakesHold -Process $psi -JobName $jobName
+        if (-not $hold.Held) {
+            Write-Host "[pg] REFUSING to run uncapped: procgov (pid $($psi.Id)) never put anything inside job object '$jobName'." -ForegroundColor Red
+            Write-Host '[pg]   The limit table procgov prints is a REQUEST; the kernel counted no process in the job, so nothing is enforced.' -ForegroundColor Red
+            Write-Host "[pg] exit $script:ExitCodeJobObjectNeverHeld means exactly this: the ceiling could not be applied, so the $Subject was not started." -ForegroundColor Red
+            & taskkill /T /F /PID $psi.Id 2>$null | Out-Null
+            [void](Terminate-ProcGovJob -JobName $jobName)
+            exit $script:ExitCodeJobObjectNeverHeld
+        }
+        if ($hold.Reason -eq 'members') {
+            Write-Host "[pg] job object '$jobName' holds $($hold.ActiveProcesses) process(es) -- the ceiling is applied, not just requested." -ForegroundColor DarkGray
+        }
+    } else {
+        # Without procgov, $psi IS the payload, and Windows propagates BelowNormal to its children for free.
+        # docs/research/build-resource-governance.md
+        try {
+            if (-not $psi.HasExited) { $psi.PriorityClass = $Priority }
+        } catch {
+            Write-Host "[pg] note: could not set $Priority priority on $Exe (pid $($psi.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
+        }
     }
 
     # Bounded, tree-liveness-aware wait -- see Wait-ManagedProcessTree's own doc for the wedge this replaced.
@@ -1752,6 +1834,8 @@ $script:ExitCodeOracleDivergence = 26
 $script:ExitCodeManagedProcessWedged = 27
 # -Mode release compiled but produced nothing exportable: the deliverable exists only in a reclaimable cache, so the build is not a pass.
 $script:ExitCodeReleaseArtifactNotExported = 28
+# Wait-JobObjectTakesHold found nothing inside the job procgov was told to create: the ceiling was printed but never applied.
+$script:ExitCodeJobObjectNeverHeld = 29
 
 function Get-FilterZeroMatchHint {
     <#
