@@ -45,3 +45,16 @@
 /dist/
 # Session transcript dumps that land wherever the shell happened to be. Never repository content.
 **/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*-this-session-is-being-continued-*.txt
+
+# Local scratch and sample sidecars: never part of a release, and the clean-tree gate
+# must not be blocked by them. The sample .fwdata files above are already ignored; these
+# are the FieldWorks sidecars that travel beside them.
+# Nothing under samples/ is tracked: it is local sample data, including real language
+# project material that must never be committed. sena-hc-july.xml slipped the older
+# per-extension patterns above, which is exactly why this one is a directory rule.
+/samples/
+/.tmp/
+/.tmp-hc-out.txt
+/.superpowers/
+/.audit-target/
+/.vscode/

@@ -3,6 +3,30 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.3.2
+
+Documentation only: no engine, API or behaviour change. Cut so that a consumer pinning to a release
+tag can link to these documents, which is the point of them existing.
+
+### docs/formats/, written for outside readers
+
+- **New directory, new audience.** `docs/research/`, `docs/history/` and `docs/divergences/` are
+  written for the people porting HermitCrab. `docs/formats/` is written for someone who has never
+  seen this project -- a linguist, or a chat model reading a Motif Handoff -- and says so in its own
+  README.
+- **`grammar-format.md` and `hc-mechanics.md` move here from Motif.** A format's explanation lived
+  in a different repository from the code producing it, so the two were free to drift. They are not
+  new documents; they are the same ones, now next to what writes them.
+- **`trace-format.md` is new.** `parse --trace` has never had a reader-facing description. It
+  catalogues all 21 trace-node types and all 23 failure reasons in plain language, with a worked
+  example captured from a real run rather than reconstructed from the renderer. It also states the
+  two things a caller most needs and cannot otherwise learn: a traced parse runs unmerged and so
+  explores more than an ordinary one, and `parse` has no step cap of its own, so whatever runs a
+  trace is responsible for bounding it.
+- **A stale count, corrected in passing.** `pg-rules/src/trace.rs`'s own module comment says the port
+  carries 19 trace types. The enum has 21, and `FailureReason` has 23. The new document uses the
+  enum, not the comment.
+
 ## 0.3.1
 
 One change, measured: the analysis memoization layer is gone. It stopped paying for itself when the
