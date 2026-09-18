@@ -245,9 +245,7 @@ exit `$code
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $p = Start-Process -FilePath pwsh -ArgumentList @('-NoProfile', '-File', $childPath) -PassThru -NoNewWindow
-    # 180s, not 60s: measured on this machine, procgov ALONE (no wrapper at all) takes 14-119s to return
-    # after this same 4s payload exits, so a 60s bound was testing procgov's mood. It read as green only
-    # while the reaper crashed the child early; once the reaper ran, the real timing showed through.
+    # 180s, not 60s: procgov ALONE, no wrapper, takes 14-119s to return after this same 4s payload exits.
     $finished = $p.WaitForExit(180000)
     $sw.Stop()
 
@@ -305,10 +303,7 @@ Test-Case 'a job that cannot be queried (-1) is not mistaken for a held one' {
 # --- Real-launch falsification of the two defects that blocked every managed build on this machine ---
 
 Test-Case 'the linger reaper resolves its helpers under `& script.ps1` -- the call shape every agent and release.ps1 use' {
-    # A .GetNewClosure() closure is bound to a fresh dynamic module, whose command lookup reaches the
-    # module and then GLOBAL -- never the script scope a dot-source puts these functions in. Under
-    # `pwsh -File` the top-level scope answered anyway, which is why the tests above could not see it;
-    # this one reproduces the nested `&` shape, where it died on "Get-ProcGovJobMembers is not recognized".
+    # The nested `&` shape specifically: under `pwsh -File` a closure resolves its helpers anyway.
     $childScript = @"
 . '$($script:CommonPath -replace "'", "''")'
 Import-PanGlossPlatformAdapter | Out-Null
@@ -324,10 +319,8 @@ Write-Output "REAPER-RAN:`$(`$reaped.Count)"
 }
 
 Test-Case 'every governed launch in a row actually starts its payload inside the job -- no launch is lost to procgov job-setup failure' {
-    # Setting the wrapper's own PriorityClass right after Start-Process broke procgov's job setup
-    # (ERROR_INVALID_PARAMETER out of AssignIOCompletionPort) in 5 of 8 measured launches: procgov then
-    # either exited 255 or hung having never started the payload. Six consecutive clean launches is a
-    # ~0.3% coincidence at that rate, and the repeat count is what makes this a gate rather than a die roll.
+    # Six in a row, not one: the defect this pins broke 5 of 8 launches, so a single clean launch is a
+    # 3-in-8 coincidence and six is ~0.3%. See docs/design/build-resource-governance.md.
     if (-not (Get-ProcGovPath)) { throw 'procgov is not installed: this gate cannot run, and a skip would read as a pass' }
     $childScript = @"
 . '$($script:CommonPath -replace "'", "''")'

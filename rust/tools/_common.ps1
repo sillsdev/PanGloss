@@ -1459,9 +1459,7 @@ function Invoke-ProcessInJobObject {
     $psi = Start-Process @psiArgs
 
     if ($jobName) {
-        # Nothing sets procgov's own priority class: --priority is a job limit that already governs the
-        # payload and its descendants, procgov is not in that job, and SetPriorityClass landing inside
-        # procgov's job-setup window broke it in 5 of 8 measured launches (0 of 8 without).
+        # Never set procgov's own priority class: it is not in the job it creates, and the call broke that job's setup in 5 of 8 measured launches.
         $hold = Wait-JobObjectTakesHold -Process $psi -JobName $jobName
         if (-not $hold.Held) {
             Write-Host "[pg] REFUSING to run uncapped: procgov (pid $($psi.Id)) never put anything inside job object '$jobName'." -ForegroundColor Red
