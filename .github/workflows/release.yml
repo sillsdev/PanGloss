@@ -1,0 +1,196 @@
+name: Release
+
+# The ONLY way a PanGloss version is tagged. `rust/tools/release.ps1` refuses to tag outside this
+# workflow; run it locally with -DryRun as a preflight, not as a release.
+#
+# Why here rather than a workstation: a release cut locally is reproducible only from the machine
+# that cut it. One run of release.ps1 was refused because six roots of unrelated local scratch made
+# the tree dirty, and another because a FieldWorks checkout on that one machine had drifted -- both
+# facts about a laptop, neither about PanGloss.
+#
+# What actually gates a release is the conformance suite: `machine/conformance`, engine-agnostic and
+# all-synthetic, diffed against committed ground truth. That is the contract PanGloss is held to.
+# The real-language corpora (Sena, Amharic, Aweti, Indonesian) are deliberately absent here -- they
+# are gitignored local files, used for speed work and to harvest issues that then become conformance
+# fixtures. They are the sampling tool, not the contract, and their absence is not a gap in this gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, x.y.z (CHANGELOG.md must already have its section)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Everything that can refuse a release. `release` needs this job, so a red gate never reaches a tag.
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # machine/conformance/ lives in the `machine` submodule. Non-recursive, matching
+          # rust-ci.yml and conformance-ci.yml: `machine` carries no nested submodules.
+          submodules: true
+
+      - name: Refuse a version that is not x.y.z
+        run: |
+          case "${{ inputs.version }}" in
+            [0-9]*.[0-9]*.[0-9]*) echo "version ${{ inputs.version }}" ;;
+            *) echo "::error::version must be x.y.z, got '${{ inputs.version }}'"; exit 1 ;;
+          esac
+
+      # Authored, never generated. Checked before anything expensive runs, so a missing section
+      # costs seconds rather than a full suite.
+      - name: Refuse a version CHANGELOG.md has no section for
+        run: |
+          if ! grep -qE "^## ${{ inputs.version }}\$" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## ${{ inputs.version }}' section. Release notes are authored, not generated."
+            exit 1
+          fi
+
+      - name: Refuse a tag that already exists
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::tag v${{ inputs.version }} already exists on origin"
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: fmt --check
+        working-directory: rust
+        run: cargo fmt --all -- --check
+
+      - name: clippy
+        working-directory: rust
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Zero tolerance by design; the script holds no baseline and accepts no count.
+      - name: comment hygiene
+        shell: pwsh
+        run: ./rust/tools/comment-hygiene.ps1
+
+      # The only enforcement of broken_intra_doc_links = "deny".
+      - name: rustdoc
+        working-directory: rust
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps
+
+      - name: test suite
+        working-directory: rust
+        run: cargo test --workspace
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          # The conformance driver (SIL.Machine.Morphology.HermitCrab.Conformance) targets net10.0.
+          dotnet-version: |
+            10.0.x
+
+      # THE contract gate. Exit 2 is a harness error, not a verdict, and still fails: this workflow
+      # checks out the submodule and builds pangloss itself, so exit 2 here means the CI environment
+      # is wrong, which must never be waved through on the path to a tag.
+      - name: conformance suite (the contract)
+        run: |
+          set +e
+          bash rust/tools/run-conformance.sh
+          exit_code=$?
+          set -e
+          if [ "$exit_code" = 2 ]; then
+            echo "::error::run-conformance.sh exited 2 -- a harness-level error, not a conformance verdict. Fix the environment; do not re-run to get a different answer."
+          fi
+          exit "$exit_code"
+
+  release:
+    name: stamp, tag and publish
+    needs: gates
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          # The stamp commit is pushed from here, so fetch enough history to fast-forward main.
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      # Same substitution release.ps1 performs: [workspace.package] version is the single source and
+      # every crate inherits it. Cargo.lock records each workspace crate's version, so it is
+      # regenerated here or the tagged tree will not build with --locked.
+      - name: Stamp the workspace version
+        shell: pwsh
+        run: |
+          $toml = 'rust/Cargo.toml'
+          $text = Get-Content $toml -Raw
+          $stamped = $text -replace '(?m)^(version\s*=\s*)"[^"]+"', ('$1"' + '${{ inputs.version }}' + '"')
+          if ($stamped -eq $text) { Write-Host '::error::version substitution changed nothing in rust/Cargo.toml'; exit 1 }
+          Set-Content -Path $toml -Value $stamped -NoNewline
+      - name: Regenerate Cargo.lock
+        working-directory: rust
+        run: cargo check --workspace --locked --offline || cargo update --workspace
+
+      - name: Build the release artifact
+        working-directory: rust
+        run: cargo build --release -p pg-cli --locked
+
+      - name: Export the artifact with its checksum
+        shell: pwsh
+        run: |
+          $dist = "dist/v${{ inputs.version }}"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          $exe = 'rust/target/release/pangloss.exe'
+          if (-not (Test-Path $exe)) { Write-Host '::error::release build produced no pangloss.exe'; exit 1 }
+          Copy-Item $exe $dist
+          $hash = (Get-FileHash (Join-Path $dist 'pangloss.exe') -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path (Join-Path $dist 'pangloss.exe.sha256') -Value $hash -NoNewline
+          Write-Host "artifact: $dist/pangloss.exe  sha256 $hash"
+
+      # The tag annotation says what was checked, so a tag can never imply coverage it did not have.
+      - name: Commit the stamp and tag
+        shell: bash
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          NOTE="Gated by: fmt, clippy, comment hygiene, rustdoc, cargo test --workspace, and the machine/conformance suite.
+          Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files and are not part of any release gate."
+          git add rust/Cargo.toml rust/Cargo.lock
+          git commit -m "release: v${{ inputs.version }}"
+          git tag -a "v${{ inputs.version }}" -m "PanGloss v${{ inputs.version }}
+
+          $NOTE"
+          git push origin HEAD:main
+          git push origin "v${{ inputs.version }}"
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            "dist/v${{ inputs.version }}/pangloss.exe" \
+            "dist/v${{ inputs.version }}/pangloss.exe.sha256" \
+            --title "PanGloss v${{ inputs.version }}" \
+            --notes-file <(awk '/^## ${{ inputs.version }}$/{f=1;next} /^## /{f=0} f' CHANGELOG.md)

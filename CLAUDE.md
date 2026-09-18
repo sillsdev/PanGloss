@@ -96,6 +96,22 @@ touching a `developer-tools`-gated flag must be verified twice: rerun with
 Never run `git submodule update` by hand; `pg.ps1` initializes `machine/conformance` sparsely on its
 own.
 
+## Releases are cut by CI, never from a workstation
+
+`.github/workflows/release.yml` (Actions -> Release -> Run workflow, with the version) is the only
+thing that tags a version. `rust/tools/release.ps1` refuses outside CI and exits 37; run it with
+`-DryRun` to check a tree before dispatching, which is what it is for now.
+
+**The contract gate is `machine/conformance`** -- engine-agnostic, all-synthetic, diffed against
+committed ground truth, and available to CI through the submodule. The real-language corpora (Sena,
+Amharic, Aweti, Indonesian) are gitignored local files: they exist for speed work and for harvesting
+issues that then become conformance fixtures. They are the sampling tool, not the contract, and
+their absence from a release gate is deliberate rather than a gap.
+
+*Scar: a release was refused because six roots of unrelated local scratch made one laptop's tree
+dirty, and a second attempt because a FieldWorks checkout had drifted on that same laptop. Both were
+facts about a machine, neither about PanGloss. A release nobody else can reproduce is not a release.*
+
 ## Merging into main
 
 Keep history linear. Rebase the branch onto current `main`, then `git merge --ff-only`. If it is not

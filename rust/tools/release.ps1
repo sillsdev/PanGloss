@@ -21,8 +21,11 @@
        release notes are authored, not generated)
     8. commit the stamp, tag v<version> (annotated), and build the optimized artifact via
        pg.ps1 -Mode release
-    9. print the artifact paths and the exact push command -- IT NEVER PUSHES; publishing a tag is
-       the one step that should stay a deliberate human act.
+    9. print the artifact paths and the exact push command -- IT NEVER PUSHES.
+
+  THIS SCRIPT NO LONGER TAGS FROM A WORKSTATION. Steps 6-9 run only inside GitHub Actions; locally
+  it refuses unless -DryRun. The release surface is .github/workflows/release.yml, whose contract
+  gate is the machine/conformance suite.
 
   Examples:
     rust\tools\release.ps1 -Version 0.2.0 -DryRun    # run every gate, mutate nothing
@@ -30,7 +33,8 @@
     rust\tools\release.ps1 -Version 0.2.0 -SkipGate test  # emergency only; recorded in the tag message
 
   Exit codes: 30 dirty-tree, 31 hygiene, 32 doc, 33 test, 34 oracle, 35 version/changelog,
-  36 tag-exists, 0 success. Distinct codes so automation can tell WHICH gate refused.
+  36 tag-exists, 37 run-locally-without-DryRun, 0 success. Distinct codes so automation can tell
+  WHICH gate refused.
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
@@ -67,6 +71,19 @@ function Invoke-GatedPg([hashtable]$PgArgs, [string]$SuccessPattern) {
         }
     }
     return $exit
+}
+
+# --- gate 0: this is not the release surface -------------------------------------------------
+# Tagging happens in .github/workflows/release.yml and nowhere else. A release cut from a
+# workstation is reproducible only from that workstation: one run here was refused by the clean-tree
+# gate over six roots of unrelated local scratch, and another by a FieldWorks checkout that had
+# drifted on that one machine -- facts about a laptop, not about PanGloss. -DryRun still runs every
+# gate and mutates nothing, which is what this script is for now.
+if (-not $DryRun -and $env:GITHUB_ACTIONS -ne 'true') {
+    Write-Gate 'surface' 'REFUSED -- releases are cut by CI, not locally.'
+    Write-Host '    Run the Release workflow (Actions -> Release -> Run workflow) with the version to tag.'
+    Write-Host '    To check a tree before dispatching it, re-run this script with -DryRun.'
+    exit 37
 }
 
 # --- gate 1: clean tree ---------------------------------------------------------------------
