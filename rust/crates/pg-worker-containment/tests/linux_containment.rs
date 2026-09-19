@@ -227,7 +227,11 @@ fn canonical_hierarchy_path(value: &OsStr) -> Option<String> {
     Some(value.to_string())
 }
 
+/// The configured root, owned, read behind the lock so a test's synthetic root cannot be returned.
 fn configured_delegated_root() -> Option<String> {
+    let _lock = ENVIRONMENT_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     canonical_hierarchy_path(std::env::var_os("PANGLOSS_CGROUP_DELEGATED_ROOT")?.as_os_str())
 }
 
