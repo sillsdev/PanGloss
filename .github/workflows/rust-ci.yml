@@ -72,7 +72,14 @@ jobs:
       #
       # `--no-fail-fast`, matching pg.ps1's own default: without it the first failing target ends the
       # run, and the count that reaches the log is a fraction of what was actually checked.
-      - run: cargo test --workspace --no-fail-fast
+      #
+      # `--profile pg-test-opt` is what `pg.ps1 -Mode test` runs, and it is not a convenience: this
+      # suite is unusable unoptimized. Measured on this runner, `envelope_agrees_with_compiler_gate`
+      # alone took 1026s of a debug run that was still inside pg-foma after 45 minutes, against 372s
+      # for the whole 2613-test suite optimized. The release gate allows 45 minutes for everything.
+      # The profile inherits `release`, so `debug_assertions` is off here exactly as it is in the
+      # mode this repo calls authoritative.
+      - run: cargo test --workspace --profile pg-test-opt --no-fail-fast
       # Full sweep, release profile, including every `#[ignore]`d test (matches the timings the
       # ignore reasons themselves cite — several corpus gates run 30s-3min in release). Every
       # test gated on `samples/data/*`, a real FieldWorks project checkout (pg-cli's
@@ -111,7 +118,9 @@ jobs:
       # corpus/fixture-gated test added WITHOUT a self-skip guard, which would panic (not skip) here
       # and turn CI red, versus the deliberately clean self-skips this policy requires everywhere
       # else in the workspace.
-      - run: cargo test --workspace --release --no-fail-fast -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm
+      # Shares the step above's profile rather than building the whole workspace a second time under
+      # fat LTO; `pg-test-opt` is optimized, so the timings the ignore reasons cite still hold.
+      - run: cargo test --workspace --profile pg-test-opt --no-fail-fast -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm
 
   linux-containment:
     name: Linux containment (required)
@@ -149,7 +158,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+      # Same profile as the `test` job, for the same reason: unoptimized, this suite does not finish.
+      - run: cargo llvm-cov --workspace --profile pg-test-opt --no-fail-fast --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v4
         with:
           files: rust/lcov.info

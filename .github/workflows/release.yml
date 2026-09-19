@@ -97,10 +97,12 @@ jobs:
         run: cargo doc --workspace --no-deps
 
       # --no-fail-fast, as pg.ps1 does: a gate that stops at the first failing target reports a
-      # fraction of what it checked, and the fraction reads like the whole.
+      # fraction of what it checked, and the fraction reads like the whole. `--profile pg-test-opt`
+      # is the profile `pg.ps1 -Mode test` calls authoritative, and the only one this suite finishes
+      # in: unoptimized it was still inside pg-foma after 45 minutes, which is this job's whole budget.
       - name: test suite
         working-directory: rust
-        run: cargo test --workspace --no-fail-fast
+        run: cargo test --workspace --profile pg-test-opt --no-fail-fast
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
