@@ -345,8 +345,8 @@ foreach ($f in $files) {
             # Rust only: $fnNames is a Rust symbol table, and a script was never written against it.
             foreach ($m in $(if ($isRust) { [regex]::Matches($text, $citationPhrase) } else { @() })) { $cited.Add($m.Groups[1].Value) }
             foreach ($m in $(if ($isRust) { [regex]::Matches($text, $citationPath) } else { @() })) {
-                # Only judge a citation whose file is one of ours; see $citationPath's own note.
-                $base = [System.IO.Path]::GetFileName(($m.Groups[1].Value -replace '/', '\'))
+                # Only ours, per $citationPath's own note; split rather than GetFileName, which is separator-aware per platform and so verified here while going dead on Linux.
+                $base = ($m.Groups[1].Value -split '[\\/]')[-1]
                 if ($rsBasenames.Contains($base)) { $cited.Add($m.Groups[2].Value) }
             }
             foreach ($name in $cited) {
