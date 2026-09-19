@@ -1,6 +1,6 @@
 //! Turning today's proposer output into the witness the filter contract reads.
 //!
-//! The existing proposer returns a bare [`Candidate`]: a morpheme sequence and a root position,
+//! The existing proposer returns a bare `Candidate`: a morpheme sequence and a root position,
 //! and nothing else. Everything else the contract's trace model can carry — role, allomorph set,
 //! slot, stratum, surface span, local events — it simply does not establish, so every one of those
 //! is [`TraceFact::Deferred`] here.

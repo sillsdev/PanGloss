@@ -28,6 +28,8 @@ pub struct Envelope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvelopeControl {
     Inherent,
+    // Constructed only by the card data the workbench module publishes.
+    #[allow(dead_code)]
     SwitchControlled {
         switch_id: &'static str,
         default: &'static str,

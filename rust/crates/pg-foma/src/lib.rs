@@ -102,6 +102,8 @@ workbench_module! {
 }
 workbench_module! {
     pub mod backend_cards {
+        // The workbench module is gated out of an ordinary build, which leaves this re-export unused.
+        #[allow(unused_imports)]
         pub use super::backend_cards_data::{
             catalog, checked_in_relative_path, render_markdown, BackendCard, BigO, Envelope,
             EnvelopeControl, CARD_SCHEMA_VERSION,

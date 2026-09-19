@@ -3390,7 +3390,7 @@ impl GrammarWideCheck for RuleCascadeUncompilableCheck {
     }
 }
 
-/// [`templated_shape_floor`], published for `TemplatedUnderlyingTokens` as an ordinary registered
+/// `templated_shape_floor`, published for `TemplatedUnderlyingTokens` as an ordinary registered
 /// check rather than `with_strategy_coverage`'s own hardcoded strategy match.
 pub struct TemplatedShapeFloorCheck;
 

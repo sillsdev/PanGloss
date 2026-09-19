@@ -1,7 +1,7 @@
 //! The immutable grammar-derived facts the structural passes decide against.
 //!
 //! Built once per grammar and self-contained afterwards: it copies what it needs out of the
-//! grammar and out of [`MorphotacticIndex`](crate::morphotactics::MorphotacticIndex) at build
+//! grammar and out of `MorphotacticIndex` at build
 //! time and borrows neither. That is what lets one index be shared by every pass, cached beside a
 //! compiled grammar, and eventually serialized — none of which a structure holding a reference
 //! into a `Grammar` can do.

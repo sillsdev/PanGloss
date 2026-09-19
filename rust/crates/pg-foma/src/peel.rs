@@ -217,7 +217,7 @@ impl ReduplicationPeeler {
     ///
     /// `budget` is threaded through to `Self::propose_for_residual`'s
     /// `crate::compose_budget::ComposeBudget::check_chain_depth` call (module doc's "Big-O"
-    /// section) — `Err(`[`crate::compose_budget::ComposeError::ChainDepthExceeded`]`)` means a
+    /// section) — `Err(ComposeError::ChainDepthExceeded)` means a
     /// genuinely deep nested-reduplication chain exceeded `budget`'s configured
     /// `chain_depth_cap` field; the caller gets a typed, honest
     /// refusal for this word rather than this module silently doing an unbounded amount of work.

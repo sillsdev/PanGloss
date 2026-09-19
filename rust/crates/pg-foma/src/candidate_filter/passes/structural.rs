@@ -5,7 +5,7 @@
 //! own pin resolution has already turned away, so a rejection here removes a candidate whose
 //! confirmation bucket would have come back empty anyway — pinned by
 //! `a_designated_root_owned_by_a_rule_has_a_verified_proof`. Transitions read the site tables of
-//! [`MorphotacticIndex`](crate::morphotactics::MorphotacticIndex), the same authority the composite
+//! `MorphotacticIndex`, the same authority the composite
 //! builders prune against, rather than a second reading of the grammar's templates — pinned by
 //! `a_slot_that_does_not_list_the_rule_has_a_verified_proof`.
 //!

@@ -733,6 +733,8 @@ switch ($Mode) {
     'doc' {
         # The only thing here running rustdoc; see this repo's own CLAUDE.md for why each flag below is required.
         $cargoArgs += @('doc', '--no-deps', '--document-private-items', '--keep-going')
+        # Without this the mode printed rustdoc warnings and exited 0, so the release gate refused what every local run had called clean.
+        if (-not $env:RUSTDOCFLAGS) { $env:RUSTDOCFLAGS = '-D warnings' }
     }
     'test' {
         if ($useNextest) {

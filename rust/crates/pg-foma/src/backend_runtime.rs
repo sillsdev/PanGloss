@@ -1190,7 +1190,7 @@ pub struct RuntimeEvaluation {
     /// resource breach, an excluded corpus, a per-word apply-budget refusal) -- see that
     /// constructor's own doc for why "nothing compared" must never read as a clean zero.
     pub divergence: IdentityDivergence,
-    /// [`crate::production_admission::assess_completed_fst`]'s verdict on THIS candidate,
+    /// `production_admission::assess_completed_fst`'s verdict on THIS candidate,
     /// orthogonal to `certification`: `certification` answers accuracy/parity against the oracle,
     /// this answers publishability of the compiled artifact, and neither stands in for the other
     /// -- a candidate can be accurate but unpublishable (a partial-bearing grammar), or compile
