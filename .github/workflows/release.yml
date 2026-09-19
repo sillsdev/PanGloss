@@ -201,8 +201,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          # A real file, not a process substitution: this job's bash is Git Bash while `gh` is a native
+          # Windows binary, which cannot open the /proc/<pid>/fd path `<(...)` hands it.
+          awk '/^## ${{ inputs.version }}$/{f=1;next} /^## /{f=0} f' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::release notes for ${{ inputs.version }} came out empty"
+            exit 1
+          fi
           gh release create "v${{ inputs.version }}" \
             "dist/v${{ inputs.version }}/pangloss.exe" \
             "dist/v${{ inputs.version }}/pangloss.exe.sha256" \
             --title "PanGloss v${{ inputs.version }}" \
-            --notes-file <(awk '/^## ${{ inputs.version }}$/{f=1;next} /^## /{f=0} f' CHANGELOG.md)
+            --notes-file release-notes.md
