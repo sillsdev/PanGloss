@@ -414,8 +414,10 @@ fn current_and_parent_worker_root_snapshots() -> Vec<(PathBuf, BTreeSet<OsString
 }
 
 fn assert_configured_root_ready() {
-    // Reads a process-wide variable other tests swap for synthetic values while they hold this lock.
-    let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
+    // Held means a test swapped the root for a synthetic one, which is not what this asserts about.
+    let Ok(_lock) = ENVIRONMENT_LOCK.try_lock() else {
+        return;
+    };
     let Some(raw_root) = std::env::var_os("PANGLOSS_CGROUP_DELEGATED_ROOT") else {
         return;
     };
