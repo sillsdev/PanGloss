@@ -749,11 +749,9 @@ where
 {
     let mut total = 0;
     let mut any = false;
-    for value in values {
-        if let Some(value) = value {
-            any = true;
-            total += value;
-        }
+    for value in values.into_iter().flatten() {
+        any = true;
+        total += value;
     }
     any.then_some(total)
 }
@@ -1808,6 +1806,13 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+fn self_time_value(kind: &str, value: i64) -> Option<i64> {
+    let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
+        panic!("kind string from the cache must be a known ObjectKind: {kind}")
+    });
+    pg_rules::stats::self_time_supported(stats_kind_to_rules_kind(stats_kind)).then_some(value)
 }
 
 #[cfg(test)]
@@ -3298,11 +3303,4 @@ mod tests {
         let err = run_stats(&args).expect_err("mixed-grammar cache reads must be hard errors");
         assert!(err.contains("grammar"), "{err}");
     }
-}
-
-fn self_time_value(kind: &str, value: i64) -> Option<i64> {
-    let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
-        panic!("kind string from the cache must be a known ObjectKind: {kind}")
-    });
-    pg_rules::stats::self_time_supported(stats_kind_to_rules_kind(stats_kind)).then_some(value)
 }

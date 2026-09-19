@@ -104,6 +104,8 @@ fn read_progress_rows(path: &Path) -> Vec<CandidateProgressRow> {
     let Ok(file) = File::open(path) else {
         return Vec::new();
     };
+    // Best-effort resume: skip one unreadable line rather than drop every row after it.
+    #[allow(clippy::lines_filter_map_ok)]
     BufReader::new(file)
         .lines()
         .filter_map(Result::ok)
@@ -296,7 +298,7 @@ impl CandidateEvaluator for Evaluator<'_> {
         // Reads `RuntimeEvaluation`'s own comparison rather than re-deriving it here.
         let production_blocks_publication = e.production_blocks_publication();
         self.append_progress(
-            &c,
+            c,
             &e.certification,
             e.score,
             realized_strategy,
@@ -778,7 +780,6 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
                 .filter(|e| e.evidence.certification.selectable())
                 .count() as u64,
             budget_pruned: outcome.search.unexplored,
-            ..Default::default()
         },
         search: SearchAccounting {
             generated: outcome.search.generated,

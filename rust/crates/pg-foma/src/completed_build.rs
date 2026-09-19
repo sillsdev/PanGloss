@@ -208,7 +208,7 @@ impl CompletedBackendBuild {
         &self.payload_bytes
     }
 
-    pub(crate) fn into_wire(&self) -> CompletedBackendBuildWire {
+    pub(crate) fn to_wire(&self) -> CompletedBackendBuildWire {
         let proof = match &self.evidence.completion_proof {
             CompletionProof::TunedClosure {
                 terminal,
@@ -241,7 +241,7 @@ impl CompletedBackendBuild {
     }
 
     pub(crate) fn into_wire_and_payload(self) -> (CompletedBackendBuildWire, Vec<u8>) {
-        let wire = self.into_wire();
+        let wire = self.to_wire();
         (wire, self.payload_bytes)
     }
 }

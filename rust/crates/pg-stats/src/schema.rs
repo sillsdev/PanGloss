@@ -83,6 +83,30 @@ pub(crate) fn latest_run_signature(conn: &Connection) -> Result<Option<(i64, Str
     .map_err(Into::into)
 }
 
+/// The `cache_identity` row as stored: cache id, schema version, grammar hash, engine.
+pub(crate) type CacheIdentity = (i64, i64, String, Option<String>);
+
+/// The durable singleton identity, or `None` for a legacy/pre-schema-6 cache.
+pub(crate) fn cache_identity(conn: &Connection) -> Result<Option<CacheIdentity>, StatsError> {
+    let table_exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'cache_identity'",
+        [],
+        |row| row.get(0),
+    )?;
+    if table_exists == 0 {
+        return Ok(None);
+    }
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT cache_id, schema_version, grammar_hash, engine
+         FROM cache_identity WHERE cache_id = 1",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,27 +211,4 @@ mod tests {
             .unwrap();
         assert_eq!(coverage_tables, 0);
     }
-}
-
-/// The durable singleton identity, or `None` for a legacy/pre-schema-6 cache.
-pub(crate) fn cache_identity(
-    conn: &Connection,
-) -> Result<Option<(i64, i64, String, Option<String>)>, StatsError> {
-    let table_exists: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'cache_identity'",
-        [],
-        |row| row.get(0),
-    )?;
-    if table_exists == 0 {
-        return Ok(None);
-    }
-    use rusqlite::OptionalExtension;
-    conn.query_row(
-        "SELECT cache_id, schema_version, grammar_hash, engine
-         FROM cache_identity WHERE cache_id = 1",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    )
-    .optional()
-    .map_err(Into::into)
 }

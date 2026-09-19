@@ -587,22 +587,23 @@ mod tests {
             root_index: 0,
             category: Some("posB".into()),
         };
-        let mut set = OccurrenceIdentities::default();
         // Built directly, not projected: the property under test is a property of the SET, not of projection.
-        set.entries = vec![
-            IdentityEvidence {
-                identity: one,
-                duplicate_paths: 1,
-                guessed: false,
-                supplied_root: false,
-            },
-            IdentityEvidence {
-                identity: two,
-                duplicate_paths: 1,
-                guessed: false,
-                supplied_root: false,
-            },
-        ];
+        let set = OccurrenceIdentities {
+            entries: vec![
+                IdentityEvidence {
+                    identity: one,
+                    duplicate_paths: 1,
+                    guessed: false,
+                    supplied_root: false,
+                },
+                IdentityEvidence {
+                    identity: two,
+                    duplicate_paths: 1,
+                    guessed: false,
+                    supplied_root: false,
+                },
+            ],
+        };
         assert_eq!(set.admission_key_collisions(), 1);
 
         // A set whose members differ in a component of the key itself has no collision.

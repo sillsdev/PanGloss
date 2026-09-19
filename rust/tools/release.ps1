@@ -73,12 +73,7 @@ function Invoke-GatedPg([hashtable]$PgArgs, [string]$SuccessPattern) {
     return $exit
 }
 
-# --- gate 0: this is not the release surface -------------------------------------------------
-# Tagging happens in .github/workflows/release.yml and nowhere else. A release cut from a
-# workstation is reproducible only from that workstation: one run here was refused by the clean-tree
-# gate over six roots of unrelated local scratch, and another by a FieldWorks checkout that had
-# drifted on that one machine -- facts about a laptop, not about PanGloss. -DryRun still runs every
-# gate and mutates nothing, which is what this script is for now.
+# --- gate 0: not the release surface; tagging is .github/workflows/release.yml's alone ---------
 if (-not $DryRun -and $env:GITHUB_ACTIONS -ne 'true') {
     Write-Gate 'surface' 'REFUSED -- releases are cut by CI, not locally.'
     Write-Host '    Run the Release workflow (Actions -> Release -> Run workflow) with the version to tag.'

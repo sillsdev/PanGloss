@@ -191,10 +191,10 @@ fn word(g: &Grammar, text: &str, stratum: StratumId) -> Word {
     Word::new(shape_with_lanes(g, text), stratum)
 }
 
-fn morph_rule_row<'a>(
-    rows: &'a [pg_rules::stats::StatsRow],
+fn morph_rule_row(
+    rows: &[pg_rules::stats::StatsRow],
     rid: MRuleId,
-) -> Option<&'a pg_rules::stats::StatsRow> {
+) -> Option<&pg_rules::stats::StatsRow> {
     rows.iter()
         .find(|r| r.kind == ObjectKind::MorphRule && r.object_index == rid.0)
 }

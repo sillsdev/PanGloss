@@ -50,7 +50,7 @@ fn compile(g: &Grammar, precision: PrecisionConfig) -> (Fsm, EmitResult) {
              tier {:?}) -- first 2000 chars of source:\n{}",
             result.report.uncovered.len(),
             result.report.tier,
-            &result.lexc_source.chars().take(2000).collect::<String>()
+            result.lexc_source.chars().take(2000).collect::<String>()
         )
     });
     (net, result)

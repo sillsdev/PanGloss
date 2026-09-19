@@ -1041,9 +1041,7 @@ pub fn compile_rewrite_rule_subset(
         return None;
     }
     // Resolved once per rule, never an implicit table-zero default; `None` is treated like an unsupported construct, reported `skipped` by callers.
-    let Some(table) = owning_table(g, rule) else {
-        return None;
-    };
+    let table = owning_table(g, rule)?;
     // `owning_table_id` shares `owning_table`'s own stratum lookup, so it is guaranteed `Some` here too.
     let table_id = owning_table_id(g, rule)
         .expect("owning_table_id shares owning_table's own lookup, which just resolved Some");
@@ -1061,26 +1059,14 @@ pub fn compile_rewrite_rule_subset(
         let mut next_occurrence = 0usize;
         // `crate::capability::rtl_reversal_construction_attempted` must pass this same scope value, or the capability predicate and this compiler could silently diverge on which rules are admitted.
         let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
-        let Some(lhs_slots) = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)
-        else {
-            return None;
-        };
-        let Some(rhs_slots) = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)
-        else {
-            return None;
-        };
+        let lhs_slots = pattern_slots(g, table, &rule.lhs, &mut next_occurrence, scope)?;
+        let rhs_slots = pattern_slots(g, table, &subrule.rhs, &mut next_occurrence, scope)?;
         let left_slots = match &subrule.left_env {
-            Some(p) => match pattern_slots(g, table, p, &mut next_occurrence, scope) {
-                Some(s) => s,
-                None => return None,
-            },
+            Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope)?,
             None => Vec::new(),
         };
         let right_slots = match &subrule.right_env {
-            Some(p) => match pattern_slots(g, table, p, &mut next_occurrence, scope) {
-                Some(s) => s,
-                None => return None,
-            },
+            Some(p) => pattern_slots(g, table, p, &mut next_occurrence, scope)?,
             None => Vec::new(),
         };
 
@@ -1514,9 +1500,7 @@ pub(crate) fn compile_metathesis_rule(
     alphabet: &SegAlphabet,
     rule: &MetathesisRuleDef,
 ) -> Option<Fsm> {
-    let Some(table) = owning_table_for_metathesis(g, rule) else {
-        return None;
-    };
+    let table = owning_table_for_metathesis(g, rule)?;
     // Shares `owning_table_for_metathesis`'s own stratum lookup, so this is guaranteed `Some` here too.
     let table_id = owning_table_id_for_metathesis(g, rule)
         .expect("owning_table_id_for_metathesis shares owning_table_for_metathesis's own lookup, which just resolved Some");
@@ -1524,9 +1508,7 @@ pub(crate) fn compile_metathesis_rule(
     let mut next_occurrence = 0usize;
     // Must stay in lockstep with `capability::metathesis_swap_construction_attempted`'s own scope, or the two could admit different rule sets.
     let scope = crate::lower::PatternLowerScope::RewriteRuleCompile;
-    let Some(slots) = pattern_slots(g, table, &rule.pattern, &mut next_occurrence, scope) else {
-        return None;
-    };
+    let slots = pattern_slots(g, table, &rule.pattern, &mut next_occurrence, scope)?;
     let left_idx = rule.left_switch as usize;
     let right_idx = rule.right_switch as usize;
     if left_idx == right_idx || left_idx >= slots.len() || right_idx >= slots.len() {
@@ -1534,7 +1516,7 @@ pub(crate) fn compile_metathesis_rule(
         return None;
     }
 
-    let Some(plain_net) = compile_metathesis_swap_net(
+    let plain_net = compile_metathesis_swap_net(
         opts,
         alphabet,
         &slots,
@@ -1544,9 +1526,7 @@ pub(crate) fn compile_metathesis_rule(
         table,
         table_id,
         &alias_map,
-    ) else {
-        return None;
-    };
+    )?;
 
     match rule.dir {
         Dir::LeftToRight => Some(plain_net),

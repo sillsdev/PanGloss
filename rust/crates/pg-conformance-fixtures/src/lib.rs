@@ -133,7 +133,7 @@ pub fn parse_oracle_provenance_marker(words_yaml_text: &str) -> Option<OraclePro
         let Some(rest) = line.trim_start().strip_prefix("# oracle-provenance:") else {
             continue;
         };
-        return match rest.trim().split_whitespace().next()? {
+        return match rest.split_whitespace().next()? {
             "founding-oracle" => Some(OracleProvenance::FoundingOracle),
             "rust-only" => Some(OracleProvenance::RustOnly),
             "forward-synthesis" => Some(OracleProvenance::ForwardSynthesis),

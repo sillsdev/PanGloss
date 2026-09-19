@@ -462,8 +462,10 @@ mod tests {
 
     #[test]
     fn parser_parameters_round_trips_through_json_and_old_json_still_loads() {
-        let mut p = ParserParameters::default();
-        p.active_parser = ActiveParser::Hc;
+        let mut p = ParserParameters {
+            active_parser: ActiveParser::Hc,
+            ..Default::default()
+        };
         p.xample.max_prefixes = Some(3);
         let json = serde_json::to_string(&p).unwrap();
         let back: ParserParameters = serde_json::from_str(&json).unwrap();

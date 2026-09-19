@@ -196,13 +196,10 @@ impl SegmentQueryEncoder {
                 position += representation.len();
                 continue;
             }
-            let Some(representation) = self
+            let representation = self
                 .boundary_representations
                 .iter()
-                .find(|representation| normalized[position..].starts_with(representation))
-            else {
-                return None;
-            };
+                .find(|representation| normalized[position..].starts_with(representation))?;
             position += representation.len();
         }
         Some(encoded)

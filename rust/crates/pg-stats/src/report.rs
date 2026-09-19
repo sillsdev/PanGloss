@@ -68,20 +68,15 @@ pub fn kind_has_any_recorded_object(conn: &Connection, kind: &str) -> Result<boo
 /// Which column an object-shaped report orders by. Measured self time is the default because it
 /// is the direct over-application question; the others answer the next most common hand-derived
 /// question directly, without an analyst dividing two columns themselves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortKey {
+    #[default]
     SelfTimeNs,
     NoRoot,
     /// `outputs / attempts` — how many results one attempt amplifies into.
     Amp,
     Uses,
     Attempts,
-}
-
-impl Default for SortKey {
-    fn default() -> Self {
-        SortKey::SelfTimeNs
-    }
 }
 
 fn sort_key_code(sort: SortKey) -> i64 {

@@ -40,6 +40,11 @@ jobs:
   test:
     name: build + test
     runs-on: ubuntu-latest
+    # Fixture discovery refuses an unclaimed run rather than guess which fixtures a green run covered,
+    # so this job claims what `pg.ps1 -Mode test` claims: both roots, the submodule being checked out
+    # below. Claiming it here rather than defaulting in the library keeps the claim readable in the log.
+    env:
+      PANGLOSS_CONFORMANCE_SCOPE: all
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,7 +69,10 @@ jobs:
       # docs/natural-glosses-plan.md purge policy) is unconditionally `#[ignore]`d regardless of
       # its own speed (see e.g. pg-foma/tests/f1_sena_gate.rs's module doc for the policy this
       # follows), so this step needs no corpus data checked out at all.
-      - run: cargo test --workspace
+      #
+      # `--no-fail-fast`, matching pg.ps1's own default: without it the first failing target ends the
+      # run, and the count that reaches the log is a fraction of what was actually checked.
+      - run: cargo test --workspace --no-fail-fast
       # Full sweep, release profile, including every `#[ignore]`d test (matches the timings the
       # ignore reasons themselves cite — several corpus gates run 30s-3min in release). Every
       # test gated on `samples/data/*`, a real FieldWorks project checkout (pg-cli's
@@ -103,7 +111,7 @@ jobs:
       # corpus/fixture-gated test added WITHOUT a self-skip guard, which would panic (not skip) here
       # and turn CI red, versus the deliberately clean self-skips this policy requires everywhere
       # else in the workspace.
-      - run: cargo test --workspace --release -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm
+      - run: cargo test --workspace --release --no-fail-fast -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm
 
   linux-containment:
     name: Linux containment (required)
@@ -124,6 +132,9 @@ jobs:
   coverage:
     name: coverage (codecov)
     runs-on: ubuntu-latest
+    # Same claim as the `test` job: this step runs the same default suite, so it needs the same scope.
+    env:
+      PANGLOSS_CONFORMANCE_SCOPE: all
     steps:
       - uses: actions/checkout@v4
         with:

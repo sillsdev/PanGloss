@@ -549,6 +549,7 @@ impl ReachRow {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compute_reach(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -802,7 +803,7 @@ fn ms(elapsed: Duration) -> f64 {
     elapsed.as_secs_f64() * 1000.0
 }
 
-fn describe(label: &str, steps: &mut Vec<usize>) -> String {
+fn describe(label: &str, steps: &mut [usize]) -> String {
     steps.sort_unstable();
     format!(
         "{label:<10} n={:<6} median={:<9} p90={:<9} max={}",
@@ -883,7 +884,7 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
     );
     println!();
     println!(
-        "{:<24} {:>6} {:>7} {:>7} {:>9} {:>12} {:>12} {:>9} {:>10} {:>7} {:>9} {:>10} {:>10} {:>10} {}",
+        "{:<24} {:>6} {:>7} {:>7} {:>9} {:>12} {:>12} {:>9} {:>10} {:>7} {:>9} {:>10} {:>10} {:>10} status",
         "word",
         "cands",
         "empty",
@@ -898,7 +899,6 @@ fn run_census(corpus: &Corpus, word_count: usize, word_timeout: Duration) {
         "step_aft",
         "ms_aft",
         "ms_warm",
-        "status"
     );
 
     let mut measured = 0usize;

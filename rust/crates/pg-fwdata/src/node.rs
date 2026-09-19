@@ -240,14 +240,19 @@ pub fn parse_full_document(xml: &str) -> Result<Node, DocumentError> {
                         "document must have exactly one root element",
                     ));
                 }
-                return Ok(stack
+                return stack
                     .pop()
-                    .ok_or_else(|| document_error("parser stack is empty"))?);
+                    .ok_or_else(|| document_error("parser stack is empty"));
             }
             Event::Comment(_) | Event::Decl(_) | Event::PI(_) => {}
             Event::DocType(_) => return Err(document_error("DOCTYPE is not supported")),
         }
     }
+}
+
+/// Strips the FieldWorks placeholder dotted-circle (U+25CC), used to mark a diacritic-only grapheme's "base" position.
+pub fn strip_dotted_circles(s: &str) -> String {
+    s.chars().filter(|&c| c != '\u{25CC}').collect()
 }
 
 #[cfg(test)]
@@ -292,9 +297,4 @@ mod tests {
     fn malformed_comments_are_rejected() {
         assert!(parse_full_document("<a><!-- invalid -- comment --></a>").is_err());
     }
-}
-
-/// Strips the FieldWorks placeholder dotted-circle (U+25CC), used to mark a diacritic-only grapheme's "base" position.
-pub fn strip_dotted_circles(s: &str) -> String {
-    s.chars().filter(|&c| c != '\u{25CC}').collect()
 }

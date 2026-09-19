@@ -384,6 +384,8 @@ pub(crate) fn analyze_with_root_filter_stats(
 // Traced analysis: thin event-emitting shells around the untraced matchers, reimplementing no logic; for `Compounding`, the `Pattern` reason also covers "matched but `resolve_non_head_roots` found no lexicon entry", the closest existing bucket.
 
 /// `analyze_cached`'s traced sibling, sharing this section's fast-path and reason-mapping contract.
+// Bundling these would hide that the list is its untraced sibling's, plus a sink and a parent handle.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze_cached_traced(
     g: &Grammar,
     mrid: MRuleId,

@@ -244,6 +244,8 @@ fn captured_project_response_parses_with_source_and_generated_digests() {
     );
 }
 
+// The ratchets are tunable bounds that are 0 today; `<=` stays so raising one needs no code change.
+#[allow(clippy::absurd_extreme_comparisons)]
 #[test]
 fn xample_migration_differential_gate() {
     let machine_dir = fieldworks::machine_dir();

@@ -184,6 +184,15 @@ pub fn compile_project_with(
     })
 }
 
+/// What [`compile_project_recording`] yields: the grammar, its warnings, and the three recording seams.
+pub(crate) type CompiledProject = (
+    Grammar,
+    Vec<String>,
+    SelectionRecorder,
+    SubstrateReport,
+    Vec<ConversionIssue>,
+);
+
 /// As [`compile_project`], but also returns the [`SelectionRecorder`], [`SubstrateReport`], and
 /// substrate-only issues -- the seams a later slice's measured API and [`compile_project_with`]
 /// read. Recording happens before
@@ -193,16 +202,7 @@ pub fn compile_project_with(
 pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
     substrate_policy: SubstratePolicy,
-) -> Result<
-    (
-        Grammar,
-        Vec<String>,
-        SelectionRecorder,
-        SubstrateReport,
-        Vec<ConversionIssue>,
-    ),
-    GrammarError,
-> {
+) -> Result<CompiledProject, GrammarError> {
     let mut warnings: Vec<String> = Vec::new();
     let mut recorder = SelectionRecorder::default();
     let mut lineage = Lineage::default();

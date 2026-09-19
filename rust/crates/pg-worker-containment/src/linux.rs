@@ -15,7 +15,6 @@ use std::time::{Duration, Instant};
 
 const CLONE_PIDFD: u64 = 0x0000_1000;
 const CLONE_INTO_CGROUP: u64 = 1u64 << 33;
-const O_PATH: c_int = 0o10000000;
 const O_NOFOLLOW: c_int = 0o00400000;
 const AT_REMOVEDIR: c_int = 0x200;
 const PR_SET_PDEATHSIG: c_int = 1;
@@ -50,8 +49,11 @@ struct MemoryEvents {
 
 struct ExecSpec {
     candidates: Vec<CString>,
+    // Backing allocations for the raw pointers in `argv`/`envp`; dropping them would dangle at execve.
+    #[allow(dead_code)]
     argv_storage: Vec<CString>,
     argv: Vec<*const c_char>,
+    #[allow(dead_code)]
     env_storage: Vec<CString>,
     envp: Vec<*const c_char>,
     cwd: Option<OwnedFd>,
@@ -408,7 +410,7 @@ impl ContainedWorkerProcess {
 
     fn cleanup(&mut self, deadline: Instant) -> Result<(), ContainmentError> {
         let report = {
-            let mut context = CleanupContext {
+            let context = CleanupContext {
                 parent: self.parent_cgroup.as_raw_fd(),
                 child: self.cgroup.as_raw_fd(),
                 name: &self.cgroup_name,
@@ -535,7 +537,7 @@ impl SpawnGuard {
         let Some(cgroup) = self.cgroup.as_ref() else {
             return Ok(());
         };
-        let result = if let Some(process_id) = self.process_id {
+        if let Some(process_id) = self.process_id {
             let report = CleanupContext {
                 parent: cgroup.parent.as_raw_fd(),
                 child: cgroup.child.as_raw_fd(),
@@ -559,8 +561,7 @@ impl SpawnGuard {
                 self.cgroup.take();
             }
             result
-        };
-        result
+        }
     }
 }
 
@@ -629,7 +630,7 @@ impl CleanupContext<'_> {
                 removed: true,
             };
         }
-        if self.process_id.is_some() {
+        if let Some(process_id) = self.process_id {
             if let Err(error) = write_at(self.child, "cgroup.kill", b"1") {
                 failures.push(error.to_string());
             }
@@ -637,11 +638,11 @@ impl CleanupContext<'_> {
                 failures.push(error.to_string());
             }
             if self.direct_exit.is_none() {
-                match reap_process(self.process_id.expect("process id is present"), deadline) {
+                match reap_process(process_id, deadline) {
                     Ok(status) => match decode_wait_status(status) {
                         Ok(termination) => {
                             self.direct_exit = Some(DirectChildExit {
-                                process_id: self.process_id.expect("process id is present") as u32,
+                                process_id: process_id as u32,
                                 termination,
                             });
                         }

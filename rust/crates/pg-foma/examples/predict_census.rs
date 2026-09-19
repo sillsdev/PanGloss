@@ -18,6 +18,9 @@ use pg_parse::Morpher;
 // --- fixtures ------------------------------------------------------------------------------
 
 /// `(name, grammar file, wordlist file)`; ordering rationale: docs/research/predict-census-design-notes.md.
+/// One candidate surface: its form, its score, and every morpheme path that produced it.
+type ScoredSurface = (String, f64, Vec<Vec<(bool, MorphemeId)>>);
+
 const GRAMMARS: &[(&str, &str, &str)] = &[
     ("sena", "sena-hc.xml", "sena-words.txt"),
     ("indonesian", "indonesian-hc.xml", "indonesian-words.txt"),
@@ -397,7 +400,7 @@ fn complete(
                 let remaining = &typed[f.matched..];
                 if o.is_empty() {
                     f.matched
-                } else if let Some(_) = remaining.strip_prefix(o) {
+                } else if remaining.strip_prefix(o).is_some() {
                     f.matched + o.len()
                 } else if o.starts_with(remaining) {
                     // Prefix ends mid-symbol: the whole symbol is consumed and the prefix counts as fully matched.
@@ -474,7 +477,7 @@ fn rank(
     model: &StemModel,
     lambda: f64,
     total_stem_probability: bool,
-) -> Vec<(String, f64, Vec<Vec<(bool, MorphemeId)>>)> {
+) -> Vec<ScoredSurface> {
     // Dedupes on the same candidate key production `propose_budgeted` uses; see docs/research/predict-census-design-notes.md.
     let mut by_surface: HashMap<String, Vec<Vec<(bool, MorphemeId)>>> = HashMap::new();
     let mut seen_cand: HashSet<(String, Vec<u32>, i32)> = HashSet::new();
@@ -487,7 +490,7 @@ fn rank(
             by_surface.entry(c.surface).or_default().push(c.morphemes);
         }
     }
-    let mut scored: Vec<(String, f64, Vec<Vec<(bool, MorphemeId)>>)> = by_surface
+    let mut scored: Vec<ScoredSurface> = by_surface
         .into_iter()
         .map(|(surface, paths)| {
             let terms: Vec<f64> = paths
@@ -537,7 +540,7 @@ fn descend(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
     morpher: &Morpher,
-    ranked: &[(String, f64, Vec<Vec<(bool, MorphemeId)>>)],
+    ranked: &[ScoredSurface],
     top_n: usize,
     max_confirms: usize,
     max_paths_per_surface: usize,
@@ -715,7 +718,7 @@ fn run_grammar(name: &str, gfile: &str, wfile: &str, cfg: &Cfg) {
         .lines()
         .map(str::trim)
         .filter(|w| !w.is_empty())
-        .map(|w| pg_grammar::nfd::nfd(w))
+        .map(pg_grammar::nfd::nfd)
         .collect();
     println!(
         "grammar loaded in {:.1}s; {} wordforms",

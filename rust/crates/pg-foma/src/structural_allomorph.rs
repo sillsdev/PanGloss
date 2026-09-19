@@ -26,7 +26,7 @@ const PUA_A_BASE: u32 = 0xF0000;
 const PUA_A_LAST: u32 = 0xFFFFD;
 const PUA_B_BASE: u32 = 0x100000;
 const PUA_B_LAST: u32 = 0x10FFFD;
-const MARKER_PAIRS_PER_RANGE: u64 = ((PUA_A_LAST - PUA_A_BASE + 1) / 2) as u64;
+const MARKER_PAIRS_PER_RANGE: u64 = (PUA_A_LAST - PUA_A_BASE).div_ceil(2) as u64;
 const TERMINAL_MARKER_A_BASE: u32 = 0xFFFFE;
 const TERMINAL_MARKER_B_BASE: u32 = 0x10FFFE;
 
@@ -2647,12 +2647,15 @@ fn translated_shape_variants(
     Some(variants)
 }
 
+/// The rendered segments before and after the copied input, or `None` when nothing wraps it.
+type WrapperRuns = Option<(Vec<String>, Vec<String>)>;
+
 fn wrapper_runs(
     g: &Grammar,
     actions: &[OutputAction],
     active_table: TableId,
     parts: usize,
-) -> Result<Option<(Vec<String>, Vec<String>)>, &'static str> {
+) -> Result<WrapperRuns, &'static str> {
     let first_copy = actions
         .iter()
         .position(|action| matches!(action, OutputAction::Copy(PartRef::Input(_))));
@@ -4317,7 +4320,7 @@ mod leading_insert_drop_tests {
         pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar must load")
     }
 
-    fn affix_process<'a>(g: &'a Grammar, index: usize) -> &'a AffixAllomorphDef {
+    fn affix_process(g: &Grammar, index: usize) -> &AffixAllomorphDef {
         match &g.mrules[index] {
             MorphRuleDef::AffixProcess(def) => &def.allomorphs[0],
             other => panic!("mrule[{index}] must be affix-process, got {other:?}"),

@@ -214,7 +214,7 @@ fn a_removed_proposal_is_reported_as_the_exact_lost_analysis() {
         .expect("just found above")
         .to_vec();
 
-    let plans = vec![LoweredCandidate {
+    let plans = [LoweredCandidate {
         label: "accuracy-negative-control",
         plan: baseline_plan(&grammar),
         // Whole-grammar emission isolates missing-analysis accuracy from the marker capability gate.

@@ -1142,6 +1142,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     }
 
     /// Port of `AnalysisStratumRule.Apply`.
+    // map_entry: saving one hash here would restructure the dedup block this port mirrors statement for statement.
+    #[allow(clippy::map_entry)]
     fn analyze(&self, mut input: Word) -> StratumAnalysis {
         // A stratum starts with a clean interleaving state.
         input.flags.final_template_state = crate::word::FinalTemplateState::None;

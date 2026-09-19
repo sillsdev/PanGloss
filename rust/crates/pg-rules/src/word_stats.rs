@@ -21,10 +21,10 @@ thread_local! {
 
     static LIVE_PEAK_TOTAL: Cell<u64> = const { Cell::new(0) };
     static LIVE_PEAK_COUNT: Cell<u64> = const { Cell::new(0) };
-    static LIVE_PEAK_BREAKDOWN: RefCell<WordByteBreakdown> = RefCell::new(WordByteBreakdown {
+    static LIVE_PEAK_BREAKDOWN: RefCell<WordByteBreakdown> = const { RefCell::new(WordByteBreakdown {
         base: 0, shape: 0, syn_fs: 0, real_fs: 0, morphs: 0, mrule_apps: 0, obligatory: 0,
         unapplied_rule_counts: 0, root_runtime_id: 0, non_heads: 0, alternatives: 0,
-    });
+    }) };
     static MAX_SINGLE_WORD_BYTES: Cell<u64> = const { Cell::new(0) };
     // Per-stratum-pass samples (not deduplicated) for the p50/p90/max distribution below.
     static ALT_LENS: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
@@ -130,7 +130,7 @@ mod tests {
         let v = [1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10];
         let (p50, p90, max) = percentiles(&v);
         assert_eq!(max, 10);
-        assert!(p50 >= 5 && p50 <= 6);
+        assert!((5..=6).contains(&p50));
         assert!(p90 >= 9);
     }
 }

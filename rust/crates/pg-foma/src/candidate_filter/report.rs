@@ -23,6 +23,8 @@ use crate::tags::Candidate;
 /// `Rejected` is the only outcome that ends a witness, and it carries the whole proof rather than
 /// a summary of it: the proof is both the explanation a reader gets and the material an offline
 /// re-derivation starts from.
+// The proof IS the payload here; boxing it would hide the size of what a rejection carries.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PassOutcome {
     Kept,

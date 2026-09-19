@@ -118,17 +118,12 @@ pub struct Provenance {
 /// Recorded registry evidence that a family is a plan rewrite whose relation is already
 /// represented by the compositional topology. This is policy metadata, not a runtime tie
 /// detector: the optimizer can exclude the family before materializing or evaluating a candidate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum FamilySearchPolicy {
+    #[default]
     AlwaysSearch,
     SkipOnCompositionalTopology,
-}
-
-impl Default for FamilySearchPolicy {
-    fn default() -> Self {
-        Self::AlwaysSearch
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

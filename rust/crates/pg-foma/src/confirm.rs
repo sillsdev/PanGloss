@@ -542,7 +542,7 @@ fn confirm_batch_impl(
         }
     }
     // Chunk order follows a hash map's iteration, so a report keyed on it would not be reproducible.
-    if let Some(costs) = costs.as_deref_mut() {
+    if let Some(costs) = costs {
         costs.sort_by(|left, right| left.members.cmp(&right.members));
     }
     buckets

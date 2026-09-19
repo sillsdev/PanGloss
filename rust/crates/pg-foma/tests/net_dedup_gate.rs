@@ -72,8 +72,11 @@ fn verdicts(
         .collect()
 }
 
+/// `Score::key`'s tuple, as `BackendOptimizationReport` ranks on it.
+type WinnerKey = (u64, u64, u64, u64, String);
+
 /// The winner, chosen exactly as `BackendOptimizationReport` chooses it: only a `selectable()` candidate may win, ranked by `Score::key`.
-fn winner(evaluations: &[RuntimeEvaluation]) -> Option<(usize, (u64, u64, u64, u64, String))> {
+fn winner(evaluations: &[RuntimeEvaluation]) -> Option<(usize, WinnerKey)> {
     evaluations
         .iter()
         .enumerate()

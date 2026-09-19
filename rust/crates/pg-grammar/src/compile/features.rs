@@ -65,10 +65,7 @@ impl PosTable {
         loop {
             match self.default_infl_class_of.get(&cur) {
                 Some(Some(dic)) => return Some(dic.clone()),
-                _ => match self.parent_of.get(&cur) {
-                    Some(p) => cur = p.clone(),
-                    None => return None,
-                },
+                _ => cur = self.parent_of.get(&cur)?.clone(),
             }
         }
     }

@@ -1758,6 +1758,8 @@ fn atomic_carrier_refusal(
     }
 }
 
+// result_large_err: the `Err` IS the full `EmitResult` refusal the caller returns verbatim.
+#[allow(clippy::result_large_err)]
 fn atomic_template_carriers(
     g: &Grammar,
     alphabet: &SegAlphabet<'_>,
@@ -1939,6 +1941,7 @@ fn atomic_template_carriers(
     Ok(carriers)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_atomic_projection_alternative(
     out: &mut String,
     g: &Grammar,
@@ -2018,6 +2021,7 @@ fn atomic_category_allowed(
         || is_unifiable(g.fs_interner.get(category), g.fs_interner.get(required))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_atomic_choice_prefix(
     out: &mut String,
     g: &Grammar,
@@ -2058,6 +2062,7 @@ fn emit_atomic_choice_prefix(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_atomic_choice_suffix(
     out: &mut String,
     g: &Grammar,
@@ -2128,7 +2133,7 @@ fn build_atomic_prefix_chain(
     }
     let Some(mixed_position) = slots
         .iter()
-        .position(|slot| slot_index_matches(g, *slot, mixed_slot_index, carrier.template_index))
+        .position(|slot| slot_index_matches(g, slot, mixed_slot_index, carrier.template_index))
     else {
         write_lexicon_header(out, &entry_name);
         write_bare(out, exit, counts);
@@ -2768,7 +2773,7 @@ fn compound_chain_depth_and_budget_check(
              recursion is this deep, or fall back to another engine for this grammar. Never silently \
              truncated: an honest refusal, not a partial/unsound network."
         );
-        return Err(EmitResult {
+        Err(EmitResult {
             lexc_source: String::new(),
             report: EmitReport {
                 uncovered: uncovered.to_vec(),
@@ -2782,7 +2787,7 @@ fn compound_chain_depth_and_budget_check(
                 closure_refusal: None,
                 closure_evidence: None,
             },
-        });
+        })
     }
 }
 
@@ -6241,9 +6246,8 @@ pub fn emit_underlying_templated(
             let suffix_slots: Vec<&SlotDef> = suffix_slots
                 .into_iter()
                 .filter(|slot| {
-                    mixed_slot.map_or(true, |(slot_index, _)| {
-                        !slot_index_matches(g, *slot, slot_index, ti)
-                    })
+                    mixed_slot
+                        .is_none_or(|(slot_index, _)| !slot_index_matches(g, slot, slot_index, ti))
                 })
                 .collect();
             if suffix_slots.is_empty() {
@@ -6390,7 +6394,7 @@ pub fn emit_underlying_templated(
                     .slots
                     .iter()
                     .filter(|slot| {
-                        slot_index_matches(g, *slot, mixed_slot_index, ti)
+                        slot_index_matches(g, slot, mixed_slot_index, ti)
                             || prefix_slots
                                 .iter()
                                 .any(|prefix| std::ptr::eq(*prefix, *slot))
@@ -6417,7 +6421,7 @@ pub fn emit_underlying_templated(
 
                 let ordinary_suffix_slots: Vec<&SlotDef> = suffix_slots
                     .into_iter()
-                    .filter(|slot| !slot_index_matches(g, *slot, mixed_slot_index, ti))
+                    .filter(|slot| !slot_index_matches(g, slot, mixed_slot_index, ti))
                     .collect();
                 let before_slots: Vec<&SlotDef> = ordinary_suffix_slots
                     .iter()
