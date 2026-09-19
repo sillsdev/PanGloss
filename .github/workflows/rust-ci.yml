@@ -52,7 +52,7 @@ jobs:
           # engine-agnostic conformance fixtures under `machine/conformance/` — several fast unit
           # tests (e.g. pg-foma's `precision::tests`/`emit::structural_and_pattern_tests` modules)
           # load these directly and are NOT `#[ignore]`d, so they need the submodule present to
-          # pass rather than panic on a missing file. Init it here so both test steps below are
+          # pass rather than panic on a missing file. Init it here so the test step below is
           # green. Non-recursive: `machine` itself carries no nested `.gitmodules` (verified by
           # inspecting a local checkout), so `true` fetches everything we consume
           # (`machine/conformance/`) without the extra cost/risk of recursing into any of
@@ -78,60 +78,19 @@ jobs:
       # `--profile pg-test-opt` is what `pg.ps1 -Mode test` runs, and it is not a convenience: this
       # suite is unusable unoptimized. Measured on this runner, `envelope_agrees_with_compiler_gate`
       # alone took 1026s of a debug run that was still inside pg-foma after 45 minutes, against 372s
-      # for the whole 2613-test suite optimized. The release gate allows 45 minutes for everything.
+      # for the whole 2613-test suite optimized, which is the budget the release gate is set against.
       # The profile inherits `release`, so `debug_assertions` is off here exactly as it is in the
       # mode this repo calls authoritative.
       - run: cargo test --workspace --profile pg-test-opt --no-fail-fast
-      # Full sweep, release profile, including every `#[ignore]`d test (matches the timings the
-      # ignore reasons themselves cite — several corpus gates run 30s-3min in release). Every
-      # test gated on `samples/data/*`, a real FieldWorks project checkout (pg-cli's
-      # `fwdata_*_gate.rs`), or `rust/conformance/` (not yet pulled in as a submodule — the
-      # pg-parse `*_conformance.rs`/`loader_n*_gate.rs`/`*_gate.rs` files predating this change)
-      # self-skips gracefully here with a printed reason, since none of those are present in this
-      # CI environment — this step's real coverage gain over the step above is exercising the
-      # WSL/c-foma-oracle `pk2` battery (which itself self-skips when `wsl` is absent, true on this
-      # Ubuntu runner) and any non-corpus `#[ignore]`d test at full release timing. The gitignored
-      # corpus gates (Sena/Indonesian/Amharic/Aweti `*-hc.xml`/`*.fwdata`) remain uncovered by CI by
-      # design; they are exercised locally via `cargo test --workspace --release -- --include-ignored`
-      # with `samples/data/` populated (see docs/history/rust-conversion.md §8's "corpora stay
-      # untracked local files" rule).
+      # There is deliberately no `--include-ignored` sweep here. Every `#[ignore]` in this workspace
+      # marks a test whose input CI does not have -- a gitignored real-language corpus, a FieldWorks
+      # project, a `wsl` oracle -- and `pg_conformance_fixtures::corpus::require` fails hard rather
+      # than skipping when an explicitly requested corpus is absent, on purpose, so that a run over
+      # nothing can never read as a pass. Asking for those tests in the one environment the ignores
+      # exist to exclude just converts that honest refusal into permanent red. They run where the
+      # data is, through `pg.ps1 -Mode corpus-test`, which declares what it covered.
       #
-      # `--skip epenthesis_rules`: the ONE `#[ignore]`d test in the whole workspace that is ignored
-      # for a reason unrelated to timing or missing fixtures — `csharp_port_rewrite.rs`'s own
-      # `#[ignore]` message documents a real, confirmed, pre-existing `syn_epenthesis` bug (not
-      # introduced or touched by this change) that genuinely fails today. `--include-ignored` would
-      # otherwise resurrect that known failure in CI; skip it here so this step reports on NEW
-      # regressions only, not a standing, already-documented one.
-      #
-      # `--skip sena_cold_vs_warm`: `perf_cold_warm_probe.rs`'s own module doc explains why —
-      # diagnostic instrumentation, not a correctness gate — and it has no wall-clock cap at all,
-      # observed to run past 5 minutes on these pathological Sena words. Not worth the CI-hang risk
-      # for a test that was never meant to be a gate. (It was `sena_cold_vs_warm_and_memo_effect`
-      # until the memo arm went away with the memo itself.)
-      #
-      # NOTE both `--skip`s are name-based and will NOT self-clear: if `epenthesis_rules` is ever
-      # fixed and un-ignored, or `perf_cold_warm_probe.rs` is ever given a wall-clock cap, this line
-      # keeps skipping it anyway until someone notices and edits this list by hand.
-      #
-      # Also note: this step's real value in the CI environment (no samples/data, no FieldWorks
-      # checkout, no wsl, no rust/conformance submodule) is mostly as a guard-rail, not broad
-      # exercise of the gated corpora — most of what it runs here is the non-ignored set rebuilt in
-      # release plus a lot of tests self-skipping as designed. What it actually catches: a future
-      # corpus/fixture-gated test added WITHOUT a self-skip guard, which would panic (not skip) here
-      # and turn CI red, versus the deliberately clean self-skips this policy requires everywhere
-      # else in the workspace.
-      # Shares the step above's profile rather than building the whole workspace a second time under
-      # fat LTO; `pg-test-opt` is optimized, so the timings the ignore reasons cite still hold.
-      #
-      # `real_corpus_refusal_baseline_gate` and `xample_migration_differential_gate` join that list
-      # for the third reason: each is `#[ignore]`d against an input CI structurally cannot have (a
-      # gitignored real-language corpus; a FieldWorks project plus a built projector), and each fails
-      # loudly rather than self-skipping when it is absent -- deliberately, so that a run over nothing
-      # can never read as a pass. Skipping them BY NAME here keeps that refusal intact where the data
-      # does exist (`pg.ps1 -Mode corpus-test`) while stating in the open which two gates this
-      # environment does not cover, rather than setting PANGLOSS_ALLOW_NO_FIELDWORKS=1 and having
-      # them report success over an empty check.
-      - run: cargo test --workspace --profile pg-test-opt --no-fail-fast -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm --skip real_corpus_refusal_baseline_gate --skip xample_migration_differential_gate
+      # The step this replaces also existed to run the suite optimized; the step above now does that.
 
   linux-containment:
     name: Linux containment (required)

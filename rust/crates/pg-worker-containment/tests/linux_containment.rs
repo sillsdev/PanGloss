@@ -16,6 +16,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static ENVIRONMENT_LOCK: Mutex<()> = Mutex::new(());
 
+// Distinct from the environment: this one test replaces the process stdin, not a variable.
+static STDIN_LOCK: Mutex<()> = Mutex::new(());
+
 fn child_executable() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_containment_test_child"))
 }
@@ -411,6 +414,8 @@ fn current_and_parent_worker_root_snapshots() -> Vec<(PathBuf, BTreeSet<OsString
 }
 
 fn assert_configured_root_ready() {
+    // Reads a process-wide variable other tests swap for synthetic values while they hold this lock.
+    let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
     let Some(raw_root) = std::env::var_os("PANGLOSS_CGROUP_DELEGATED_ROOT") else {
         return;
     };
@@ -746,7 +751,7 @@ fn stdin_stdout_and_stderr_remain_connected_to_the_contained_child() {
 
 #[test]
 fn contained_stdio_works_when_supervisor_stdin_is_closed() {
-    let _lock = ENVIRONMENT_LOCK.lock().expect("environment lock");
+    let _lock = STDIN_LOCK.lock().expect("stdin lock");
     let _stdin = ClosedStdinGuard::close();
     let args = [OsString::from("stdio")];
     let Some(mut process) = spawn_or_skip(&args, &LaunchOptions::default(), 256 << 20) else {
