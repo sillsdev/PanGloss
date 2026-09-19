@@ -625,12 +625,14 @@ mod tests {
 
     #[test]
     fn witness_dir_matches_the_verified_path() {
-        let dir = witness_dir(Path::new(r"C:\Users\johnm\Documents\repos\machine"));
+        // Composed, not spelled: a literal pinned this to one machine's drive letter and separators.
+        let base = Path::new("machine");
         assert_eq!(
-            dir,
-            Path::new(
-                r"C:\Users\johnm\Documents\repos\machine\conformance\edge-cases\deep-optional-affix-nesting\fieldworks"
-            )
+            witness_dir(base),
+            base.join("conformance")
+                .join("edge-cases")
+                .join("deep-optional-affix-nesting")
+                .join("fieldworks")
         );
     }
 

@@ -1528,7 +1528,9 @@ mod tests {
 
     #[test]
     fn wait_status_parser_rejects_non_terminal_status() {
-        assert!(decode_wait_status(0x37).is_err());
+        // 0x7f is WIFSTOPPED, the actual non-terminal encoding; 0x37 is a signalled exit, which decodes fine.
+        assert!(decode_wait_status(0x7f).is_err());
+        assert!(decode_wait_status(0x37).is_ok());
     }
 
     #[test]

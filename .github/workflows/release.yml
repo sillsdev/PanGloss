@@ -33,7 +33,10 @@ jobs:
   gates:
     name: gates
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A cold-cache optimized build of the workspace and its ~105 test targets measured just over an
+    # hour on this runner. 45 minutes would have failed a release on the clock rather than on a gate,
+    # which is the one way this job must never fail.
+    timeout-minutes: 120
     # Fixture discovery refuses an unclaimed run rather than guess what a green run covered. A release
     # gate above all others must say what it checked, so it claims both roots, as `pg.ps1 -Mode test` does.
     env:

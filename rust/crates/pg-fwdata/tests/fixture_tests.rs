@@ -9,7 +9,7 @@ fn fixture_path() -> PathBuf {
 }
 
 fn fixture_variant(dir: &Path, old: &str, new: &str) -> PathBuf {
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     assert!(
         source.contains(old),
         "fixture variant replacement must match"
@@ -21,7 +21,7 @@ fn fixture_variant(dir: &Path, old: &str, new: &str) -> PathBuf {
 }
 
 fn parser_parameters_variant(dir: &Path, replacement: &str) -> PathBuf {
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let opening = "<ParserParameters>";
     let closing = "</ParserParameters>";
     let start = source
@@ -40,7 +40,7 @@ fn parser_parameters_variant(dir: &Path, replacement: &str) -> PathBuf {
 }
 
 fn omitted_parser_parameters_variant(dir: &Path) -> PathBuf {
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let opening = "<ParserParameters>";
     let closing = "</ParserParameters>";
     let start = source
@@ -474,7 +474,7 @@ fn fixture_conversion_provenance_reports_its_two_known_issues() {
 #[test]
 fn duplicating_an_allowed_class_guid_yields_one_fatal_issue_and_the_first_content_wins() {
     let dir = tempfile::tempdir().unwrap();
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
     assert!(
         source.contains(needle),
@@ -532,7 +532,7 @@ fn duplicating_an_allowed_class_guid_yields_one_fatal_issue_and_the_first_conten
 #[test]
 fn unknown_class_record_is_census_only_and_raises_no_issue() {
     let dir = tempfile::tempdir().unwrap();
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let injected = r#"<rt class="ZzUnknown" guid="00000000-0000-0000-0000-0000000000zz">
 </rt>
 "#;
@@ -562,7 +562,7 @@ fn unknown_class_record_is_census_only_and_raises_no_issue() {
 #[test]
 fn missing_guid_on_an_allowed_class_is_a_fatal_issue_and_drops_the_record() {
     let dir = tempfile::tempdir().unwrap();
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
     assert!(
         source.contains(needle),
@@ -595,7 +595,7 @@ fn missing_guid_on_an_allowed_class_is_a_fatal_issue_and_drops_the_record() {
 #[test]
 fn unknown_class_duplicate_before_an_allowed_class_keeps_the_recognized_record() {
     let dir = tempfile::tempdir().unwrap();
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let needle = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000050">"#;
     assert!(
         source.contains(needle),
@@ -708,9 +708,14 @@ fn every_represented_allomorphs_environment_attachment_is_represented_or_rejecte
     }
 }
 
-/// The fixture is CRLF; a multi-line needle must go through this rather than an embedded `\n`, which stays LF regardless of this source file's own line endings.
+/// A multi-line needle goes through this rather than an embedded `\n`, which stays LF regardless of this source file's own line endings.
 fn crlf(s: &str) -> String {
-    s.replace('\n', "\r\n")
+    s.replace("\r\n", "\n").replace('\n', "\r\n")
+}
+
+/// The fixture is LF in the index and CRLF in a Windows working tree; normalize it as every needle is.
+fn fixture_source() -> String {
+    crlf(&std::fs::read_to_string(fixture_path()).unwrap())
 }
 
 /// Drops the "-s" allomorph's dangling `PhoneEnv` reference (`00000000-0000-0000-0000-0000000000ff`), leaving only its real environment -- the base fixture's one fatal issue removed.
@@ -736,7 +741,7 @@ fn repair_dangling_environment(source: &str) -> String {
 #[test]
 fn fixture_without_the_dangling_environment_imports_complete() {
     let dir = tempfile::tempdir().unwrap();
-    let repaired = repair_dangling_environment(&std::fs::read_to_string(fixture_path()).unwrap());
+    let repaired = repair_dangling_environment(&fixture_source());
     let path = dir.path().join("variant.fwdata");
     std::fs::write(&path, repaired).unwrap();
 
@@ -763,7 +768,7 @@ fn fixture_without_the_dangling_environment_imports_complete() {
 #[test]
 fn disabling_the_affix_template_makes_the_inflectional_prohibition_stale_but_nonfatal() {
     let dir = tempfile::tempdir().unwrap();
-    let source = repair_dangling_environment(&std::fs::read_to_string(fixture_path()).unwrap());
+    let source = repair_dangling_environment(&fixture_source());
     let disabled_needle = crlf(
         r#"<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
 <Disabled val="False" />"#,
@@ -854,7 +859,7 @@ fn a_second_phoneme_set_is_considered_but_not_selected() {
     use pg_snapshot::{InventoryKey, InventoryKind};
 
     let dir = tempfile::tempdir().unwrap();
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let needle = crlf(
         r#"<PhonemeSets>
 <objsur guid="00000000-0000-0000-0000-00000000000f" t="o" />
@@ -917,7 +922,7 @@ fn a_second_phoneme_set_is_considered_but_not_selected() {
 }
 
 fn affix_template_with_dangling_slot_variant(dir: &Path, disabled: &str) -> PathBuf {
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let needle = crlf(
         r#"<rt class="MoInflAffixTemplate" guid="00000000-0000-0000-0000-00000000000e" ownerguid="00000000-0000-0000-0000-00000000000c">
 <Disabled val="False" />
@@ -1020,7 +1025,7 @@ fn a_disabled_templates_dangling_slot_is_nonfatal() {
 }
 
 fn compound_rule_with_dangling_left_msa_variant(dir: &Path, disabled: &str) -> PathBuf {
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let compound_rule = crlf(&format!(
         r#"<rt class="MoEndoCompound" guid="00000000-0000-0000-0000-000000000080" ownerguid="00000000-0000-0000-0000-000000000003">
 <Disabled val="{disabled}" />
@@ -1109,7 +1114,7 @@ fn a_dangling_closed_feature_value_is_fatal() {
     use pg_snapshot::{InventoryKey, InventoryKind};
 
     let dir = tempfile::tempdir().unwrap();
-    let source = std::fs::read_to_string(fixture_path()).unwrap();
+    let source = fixture_source();
     let needle = crlf(
         r#"<Values>
 <objsur guid="00000000-0000-0000-0000-000000000008" t="o" />

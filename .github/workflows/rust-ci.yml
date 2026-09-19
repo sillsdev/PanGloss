@@ -62,7 +62,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - run: cargo build --workspace --all-targets
+      # Same profile as the test steps, so this warms their artifacts instead of building a debug copy
+      # nothing below reuses; the dev profile is already compiled by the clippy job.
+      - run: cargo build --workspace --all-targets --profile pg-test-opt
       # Default (fast, <~60s local) suite: in-crate unit tests, fixture-free integration tests,
       # and the machine/conformance-driven tests (submodule checked out above). Every test that
       # loads real-language corpus data from `samples/data/*` (gitignored, never committed —
@@ -120,7 +122,16 @@ jobs:
       # else in the workspace.
       # Shares the step above's profile rather than building the whole workspace a second time under
       # fat LTO; `pg-test-opt` is optimized, so the timings the ignore reasons cite still hold.
-      - run: cargo test --workspace --profile pg-test-opt --no-fail-fast -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm
+      #
+      # `real_corpus_refusal_baseline_gate` and `xample_migration_differential_gate` join that list
+      # for the third reason: each is `#[ignore]`d against an input CI structurally cannot have (a
+      # gitignored real-language corpus; a FieldWorks project plus a built projector), and each fails
+      # loudly rather than self-skipping when it is absent -- deliberately, so that a run over nothing
+      # can never read as a pass. Skipping them BY NAME here keeps that refusal intact where the data
+      # does exist (`pg.ps1 -Mode corpus-test`) while stating in the open which two gates this
+      # environment does not cover, rather than setting PANGLOSS_ALLOW_NO_FIELDWORKS=1 and having
+      # them report success over an empty check.
+      - run: cargo test --workspace --profile pg-test-opt --no-fail-fast -- --include-ignored --skip epenthesis_rules --skip sena_cold_vs_warm --skip real_corpus_refusal_baseline_gate --skip xample_migration_differential_gate
 
   linux-containment:
     name: Linux containment (required)
