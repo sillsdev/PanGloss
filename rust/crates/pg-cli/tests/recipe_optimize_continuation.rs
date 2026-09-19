@@ -271,6 +271,8 @@ fn a_candidate_abandoned_by_a_resource_bound_is_banked_with_its_own_verdict() {
             "cost is not a disagreement, so it must not present as one: {breach}"
         );
 
+        // `index` addresses two row sets and names the candidate in the message, not one slice's cursor.
+        #[allow(clippy::needless_range_loop)]
         for index in 0..target {
             assert_eq!(
                 bounded_rows[index]["certification"], baseline.rows[index]["certification"],

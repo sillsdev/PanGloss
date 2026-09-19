@@ -64,6 +64,8 @@ fn checkable(token: &str) -> bool {
         && !token.contains(':')
         && !token.contains('*')
         && !token.contains('<')
+        // An ellipsis, not a path: Win32 strips trailing dots, so checking one passes here and fails on Linux.
+        && !token.contains("..")
 }
 
 #[test]

@@ -15,6 +15,9 @@ use pg_foma::backend_runtime::{
 use pg_foma::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 
+/// One run's analyses, as (word, analyses) in corpus order.
+type WordAnalyses = Vec<(String, Vec<pg_parse::WordAnalysis>)>;
+
 const FIXTURE: &str = "template-category-sharing";
 const MAX_PROPOSAL_RATIO: u64 = 2;
 const REQUIRED_STRATEGIES: [EmissionStrategy; 3] = [
@@ -248,11 +251,8 @@ fn pinned_three_pipeline_equivalence_observes_final_candidates_and_preserves_cac
     );
     assert_eq!(ordinary_cache.oracle_calls(), observed_cache.oracle_calls());
 
-    let mut oracle: Option<Vec<(String, Vec<pg_parse::WordAnalysis>)>> = None;
-    let mut actual_by_strategy: Vec<(
-        EmissionStrategy,
-        Vec<(String, Vec<pg_parse::WordAnalysis>)>,
-    )> = Vec::new();
+    let mut oracle: Option<WordAnalyses> = None;
+    let mut actual_by_strategy: Vec<(EmissionStrategy, WordAnalyses)> = Vec::new();
     for ((plan, ordinary), observation) in plans.iter().zip(&ordinary).zip(&observed) {
         assert_eq!(observation.requested_strategy, plan.strategy());
         assert_eq!(observation.evaluation.certification, ordinary.certification);

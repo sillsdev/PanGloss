@@ -147,15 +147,11 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
         );
         return None;
     }
-    let Some(kind) = tracked_kind(&rec.class) else {
-        return None;
-    };
+    let kind = tracked_kind(&rec.class)?;
     let key = InventoryKey::object(kind, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
-    let Some(morph_type) = resolve_morph_type(ctx, rec, &key, label) else {
-        return None;
-    };
+    let morph_type = resolve_morph_type(ctx, rec, &key, label)?;
     let is_abstract = rec.node.val_bool("IsAbstract").unwrap_or(false);
     let forms = rec.node.ws_forms("Form");
     let environments = rec.node.objsur_list("PhoneEnv");

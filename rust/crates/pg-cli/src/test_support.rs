@@ -108,43 +108,6 @@ pub(crate) fn assert_canonical_lf_text_eq(actual: &str, expected: &str) {
     }
 }
 
-/// Synthetic: true reduplication on a `RealizationalRule`, which the peel cannot propose, so the gated backend declines it while the emitter still compiles a network.
-pub(crate) const BACKEND_REFUSED_GRAMMAR_XML: &str = r#"<HermitCrabInput><Language><Name>BackendRefusedFixture</Name>
-  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-  <CharacterDefinitionTable id="t1"><Name>Main</Name>
-    <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-  </CharacterDefinitionTable>
-  <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
-  <Strata>
-    <Stratum characterDefinitionTable="t1" morphologicalRules="rrRedup">
-      <Name>S</Name>
-      <MorphologicalRuleDefinitions>
-        <RealizationalRule id="rrRedup">
-          <Name>redup</Name>
-          <MorphologicalSubrules>
-            <MorphologicalSubrule id="subRedup">
-              <MorphologicalInput>
-                <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-              </MorphologicalInput>
-              <MorphologicalOutput redupMorphType="suffix">
-                <CopyFromInput index="qA" />
-                <CopyFromInput index="qA" />
-              </MorphologicalOutput>
-            </MorphologicalSubrule>
-          </MorphologicalSubrules>
-          <MorphemeId>RED</MorphemeId>
-        </RealizationalRule>
-      </MorphologicalRuleDefinitions>
-      <LexicalEntries>
-        <LexicalEntry id="e1">
-          <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-          <MorphemeId>A</MorphemeId>
-        </LexicalEntry>
-      </LexicalEntries>
-    </Stratum>
-  </Strata>
-</Language></HermitCrabInput>"#;
-
 #[cfg(test)]
 mod tests {
     use std::any::Any;

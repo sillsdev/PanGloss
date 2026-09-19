@@ -69,6 +69,8 @@ impl<T> NonEmpty<T> {
         &self.head
     }
 
+    // No `is_empty`: this type holds a head by construction, so one could only ever return false.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         1 + self.tail.len()
     }

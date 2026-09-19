@@ -330,6 +330,54 @@ Committed_AS:   2048 kB
         Assert-False $absent.Ok 'without a cgroup2 mount the host is not proven bounded'
     }
 
+    # The production call site passes no text at all, so every test above it exercises a path pg.ps1 never takes.
+    Test-Case 'Linux cgroup preflight reads /proc itself when no membership text is injected' {
+        Assert-LinuxAdapterReady
+        $readerFn = (Get-Command Read-LinuxPlatformText -CommandType Function).ScriptBlock
+        try {
+            Set-Item Function:\global:Read-LinuxPlatformText -Value {
+                param([Parameter(Mandatory)][string]$Path)
+                switch ($Path) {
+                    '/proc/self/cgroup' { return "0::/delegated/supervisor/worker`n" }
+                    '/proc/self/mountinfo' { return $mountInfo }
+                    default { throw "unexpected platform read: $Path" }
+                }
+            }.GetNewClosure()
+            $r = Get-LinuxHostCgroupPreflight -ReadFile (New-Reader -Files $validCgroupFiles)
+            Assert-True $r.Ok $r.Detail
+            Assert-Equal ([long]4194304) $r.EffectiveMemoryCapBytes `
+                'the uninjected production path must reach the same cap as the injected one'
+        } finally {
+            Set-Item Function:\global:Read-LinuxPlatformText -Value $readerFn
+        }
+    }
+
+    Test-Case 'Linux platform text reads name the file when it comes back empty' {
+        Assert-LinuxAdapterReady
+        $empty = Join-Path $fixtureRoot 'empty-proc-file'
+        [System.IO.File]::WriteAllText($empty, '')
+        $message = ''
+        try { Read-LinuxPlatformText -Path $empty } catch { $message = $_.Exception.Message }
+        Assert-True ($message -like "*$empty*" -and $message -like '*empty*') `
+            "an empty read must name the file and the condition, not fail downstream parameter binding: $message"
+    }
+
+    Test-Case 'Linux cgroup preflight accepts a root-mounted hierarchy whose root cgroup has no memory.max' {
+        Assert-LinuxAdapterReady
+        # What an Actions runner actually presents: one cgroup2 mount rooted at '/', and a finite cap on the service unit.
+        $rootMount = '36 29 0:32 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime - cgroup2 cgroup rw'
+        $files = @{
+            '/sys/fs/cgroup/system.slice/memory.max' = "max`n"
+            '/sys/fs/cgroup/system.slice/unit.service/memory.max' = "6442450944`n"
+            '/sys/fs/cgroup/system.slice/unit.service/supervisor/memory.max' = "max`n"
+        }
+        $r = Get-LinuxHostCgroupPreflight -SelfCgroupText "0::/system.slice/unit.service/supervisor`n" `
+            -MountInfoText $rootMount -ReadFile (New-Reader -Files $files)
+        Assert-True $r.Ok $r.Detail
+        Assert-Equal ([long]6442450944) $r.EffectiveMemoryCapBytes `
+            'the finite unit cap must bound the run even though the root cgroup exposes no memory.max'
+    }
+
     # --- Linux build slot: exclusive FileStreams at injected paths through the shared seam. ---
 
     Test-Case 'Linux build slots honor MaxConcurrent and release owned files through the shared seam' {

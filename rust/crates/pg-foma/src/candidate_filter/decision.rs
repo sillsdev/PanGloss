@@ -429,6 +429,8 @@ impl fmt::Display for ProofVerificationError {
 impl std::error::Error for ProofVerificationError {}
 
 /// The one thing a pass returns about one witness.
+// The proof IS the payload here; boxing it would hide the size of what a rejection carries.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PassDecision {
     Keep,

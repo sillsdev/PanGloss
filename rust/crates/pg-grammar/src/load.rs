@@ -1809,18 +1809,19 @@ fn load_morph_rhs(
 }
 
 fn source_morph_placement(rhs: &[OutputAction]) -> SourceMorphPlacement {
-    rhs.iter()
-        .enumerate()
-        .any(|(index, action)| {
-            index > 0
-                && index + 1 < rhs.len()
-                && matches!(
-                    action,
-                    OutputAction::InsertSegments { .. } | OutputAction::InsertContext(_)
-                )
-        })
-        .then_some(SourceMorphPlacement::InsertBeforeLast)
-        .unwrap_or(SourceMorphPlacement::Append)
+    let inserts_medially = rhs.iter().enumerate().any(|(index, action)| {
+        index > 0
+            && index + 1 < rhs.len()
+            && matches!(
+                action,
+                OutputAction::InsertSegments { .. } | OutputAction::InsertContext(_)
+            )
+    });
+    if inserts_medially {
+        SourceMorphPlacement::InsertBeforeLast
+    } else {
+        SourceMorphPlacement::Append
+    }
 }
 
 fn try_load_compounding_rule(

@@ -1471,6 +1471,8 @@ pub fn analyze_traced(
 
 /// The cache-aware sibling of `analyze_traced`, called by the analysis stratum driver's prule
 /// sweep. An untracing sink short-circuits straight back to `analyze_cached`.
+// Bundling these would hide that the list is its untraced sibling's, plus a sink and a parent handle.
+#[allow(clippy::too_many_arguments)]
 pub fn analyze_cached_traced(
     g: &Grammar,
     pid: PRuleId,
@@ -2285,6 +2287,8 @@ fn ana_narrow_general(
 // Epenthesis (LHS empty).
 
 /// WHY: Simultaneous remains snapshot-based because only Iterative insertions feed later sites.
+// The environment FSTs, mode and direction are each read independently here; a bundle would only rename them.
+#[allow(clippy::too_many_arguments)]
 fn syn_epenthesis(
     g: &Grammar,
     table: &CharDefTable,

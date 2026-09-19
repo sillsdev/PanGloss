@@ -1,9 +1,6 @@
 //! Stateless grammatical classification and the optional in-process answer guide.
 
-use crate::{
-    AddRequest, CanonicalFeature, CanonicalFeatureValue, ClassCatalog, SignatureId,
-    StructuredError, SuppliedEntry, SuppliedLexiconRuntime,
-};
+use crate::{CanonicalFeature, CanonicalFeatureValue, ClassCatalog, SignatureId, StructuredError};
 use pg_grammar::model::{Grammar, MRuleId, MorphRuleDef};
 use pg_parse::{Morpher, SynthesisBudget};
 use serde::{Deserialize, Serialize};

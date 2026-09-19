@@ -634,10 +634,7 @@ pub fn build_controllable(
         }
     }
 
-    let final_net = match final_net {
-        Some(net) => Some(fsm_minimize(opts, net)),
-        None => None,
-    };
+    let final_net = final_net.map(|net| fsm_minimize(opts, net));
 
     Ok(GatedCompileResult {
         net: final_net,

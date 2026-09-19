@@ -79,11 +79,7 @@ pub(crate) fn compact_mrules(
     let mut old_to_new_allo: StdHashMap<u32, u32> = StdHashMap::with_capacity(old_owners.len());
     let mut new_owners = Vec::with_capacity(old_owners.len());
     let mut new_sources = Vec::with_capacity(old_sources.len());
-    for (old_id, (owner, source)) in old_owners
-        .into_iter()
-        .zip(old_sources.into_iter())
-        .enumerate()
-    {
+    for (old_id, (owner, source)) in old_owners.into_iter().zip(old_sources).enumerate() {
         let kept = match owner {
             AllomorphOwner::Root(le, k) => Some(AllomorphOwner::Root(le, k)),
             AllomorphOwner::Affix(mr, k) => old_to_new_mrule

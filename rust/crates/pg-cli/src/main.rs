@@ -1274,8 +1274,8 @@ mod tests {
         let dir = scratch_dir("analyses-fwdata-source-guids");
         let target = dir.join("fixture-with-k.fwdata");
         let xml = fs::read_to_string(source).expect("read fwdata fixture");
-        // Remove the unrelated dangling environment so this fixture isolates source-GUID projection.
-        let dangling_env = "<objsur guid=\"00000000-0000-0000-0000-0000000000ff\" t=\"r\" />\r\n";
+        // The element only, never its line break: the fixture is LF in the index, CRLF in a Windows tree.
+        let dangling_env = "<objsur guid=\"00000000-0000-0000-0000-0000000000ff\" t=\"r\" />";
         assert!(
             xml.contains(dangling_env),
             "fixture dangling-environment shape changed"

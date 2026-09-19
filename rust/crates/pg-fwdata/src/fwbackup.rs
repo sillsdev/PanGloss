@@ -9,8 +9,11 @@ use pg_snapshot::{InventoryDelta, Snapshot};
 
 use crate::{extract, xml, ImportError, ImportReport};
 
+/// The embedded `.fwdata` graph, the archive member's stem, and each exemplar LDML as (name, text).
+type BackupContents = (xml::RawGraph, String, Vec<(String, String)>);
+
 /// Reads the embedded `.fwdata` graph plus exemplar LDML, shared by `import_fwbackup`/`import_fwbackup_measured`.
-fn read_backup(path: &Path) -> Result<(xml::RawGraph, String, Vec<(String, String)>), ImportError> {
+fn read_backup(path: &Path) -> Result<BackupContents, ImportError> {
     let file = std::fs::File::open(path).map_err(ImportError::Io)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| ImportError::Backup(format!("{}: {e}", path.display())))?;

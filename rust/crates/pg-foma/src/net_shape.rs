@@ -517,6 +517,8 @@ fn census(n: usize, adjacency: &Adjacency, keep: impl Fn(&Arc) -> bool) -> Cycle
 
     // Self-loops, over the SAME kept arc set.
     let mut singleton_with_self_loop = vec![false; component_sizes.len()];
+    // `s` is a state id read three ways here — arc source, arc target and component index — not one slice's cursor.
+    #[allow(clippy::needless_range_loop)]
     for s in 0..n {
         let mut has = false;
         for arc in adjacency.arcs(s) {

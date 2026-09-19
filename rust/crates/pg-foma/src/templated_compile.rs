@@ -40,6 +40,8 @@ pub struct TemplatedCompileOutput {
     pub profile: TemplatedCompileProfile,
 }
 
+// Unsupported carries a whole EmitReport; boxing it would hide what a refusal actually reports.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum TemplatedCompileError {
     MissingCharacterTable,
@@ -79,6 +81,8 @@ impl fmt::Display for TemplatedCompileError {
 impl std::error::Error for TemplatedCompileError {}
 
 /// Compiles `g` through the manual pipeline: templated underlying lexc, stratum-ordered rules, boundary cleanup, compose, minimize.
+// result_large_err: the `Err` carries the refusal's own EmitReport, which is the point of returning it.
+#[allow(clippy::result_large_err)]
 pub fn compile_templated_morphotactics(
     g: &Grammar,
 ) -> Result<TemplatedCompileOutput, TemplatedCompileError> {

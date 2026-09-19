@@ -32,7 +32,7 @@ Do not "correct" them — remove them.
 
 | Forbidden | Why | Instead |
 |---|---|---|
-| Plan / spec / task references — `openspec/changes/...`, `tasks.md §4`, `design.md D3`, `Step 1 of N`, `Phase B`, `P6`, `task 7.13` | A pointer into memory you do not own. Plans get archived, renumbered, superseded; the comment survives and misleads | State the constraint itself. If the reason is genuinely external, cite a **stable** source (a paper, an RFC, a standard), never a project artifact |
+| Plan / spec / task references — `openspec/changes/<change-id>`, `tasks.md §4`, `design.md D3`, `Step 1 of N`, `Phase B`, `P6`, `task 7.13` | A pointer into memory you do not own. Plans get archived, renumbered, superseded; the comment survives and misleads | State the constraint itself. If the reason is genuinely external, cite a **stable** source (a paper, an RFC, a standard), never a project artifact |
 | Wiring/reachability status — "purely additive", "not wired into X yet", "reachable from no path", "a later change will…" | True the day it is written, false the day the next change lands, and nothing checks it. This is the single largest doc-rot source in this repo | Say what the module OWNS. Reachability is a fact about the call graph — let the reader grep, or let a test assert it |
 | Dates — "measured 2026-07-30", "corrected 2026-08-04", "as of today" | Git has the date and is never wrong about it | Nothing. If a measurement matters, put the number in a test or an evidence doc |
 | History / changelog narrative — "this used to read…", "previously we…", "renamed from…", "corrected in place" | Describes code that no longer exists. Readers cannot tell the live claim from the dead one | Nothing. `git log -p` and `git blame` answer this better |

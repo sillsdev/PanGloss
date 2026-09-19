@@ -36,7 +36,9 @@ mod templated_probe;
 mod worst_words;
 
 /// One (name, entry point) pair per former standalone example, dispatched by name below.
-const SUBCOMMANDS: &[(&str, fn(&[String]))] = &[
+type Subcommand = (&'static str, fn(&[String]));
+
+const SUBCOMMANDS: &[Subcommand] = &[
     (
         "adjudicate_templated_backend",
         adjudicate_templated_backend::main,

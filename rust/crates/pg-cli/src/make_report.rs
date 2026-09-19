@@ -827,24 +827,12 @@ pub fn run_make_report(args: &[String]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU32, Ordering};
 
     // The `&Grammar` front ends, used only by the golden-render test below; the live command drives the `_with_semantics` forms off its one shared owner.
     use crate::readiness_verdict::certify;
     use pg_foma::plan_diagram::build_plan_document;
     // Test-only: hoisting these to the module head made the production build warn on every compile.
     use crate::readiness_verdict::{CoverageAssessment, LatencyMeasurement};
-
-    fn scratch_dir(tag: &str) -> std::path::PathBuf {
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "pangloss-cli-make-report-test-{tag}-{}-{n}",
-            std::process::id()
-        ));
-        fs::create_dir_all(&dir).expect("create scratch dir");
-        dir
-    }
 
     /// An ordinary `Admit`-verdict grammar: one bare root, no MPR groups, no `Compounding`.
     const ADMIT_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>

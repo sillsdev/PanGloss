@@ -212,10 +212,8 @@ fn main() {
     fn head_only_key(g: &pg_grammar::model::Grammar, fs: &pg_featstruct::FeatureStruct) -> String {
         // Approximates a "POS + selected feature subset" rung as POS + head only; see docs/research/predict-census-design-notes.md.
         let mut parts = Vec::new();
-        if let Some(pos_val) = fs.get(g.syn_features.pos) {
-            if let FeatureValue::Symbolic(bits) = pos_val {
-                parts.push(format!("pos={:x}", bits.raw()));
-            }
+        if let Some(FeatureValue::Symbolic(bits)) = fs.get(g.syn_features.pos) {
+            parts.push(format!("pos={:x}", bits.raw()));
         }
         if let Some(head_id) = g.syn_features.head {
             if let Some(head_val) = fs.get(head_id) {

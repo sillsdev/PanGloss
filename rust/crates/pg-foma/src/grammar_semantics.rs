@@ -100,8 +100,8 @@ pub struct SemanticEntryGroup {
 ///
 /// # Why those two are lazy and the rest are not
 /// `derive` has to be cheap enough that every consumer can afford to call it -- an owner nobody can
-/// afford to build gets bypassed, and then it owns nothing. The eager facts are all O(rules + strata
-/// + entries) scans over already-loaded vectors. The two lazy ones are not:
+/// afford to build gets bypassed, and then it owns nothing. The eager facts are all O(rules +
+/// strata + entries) scans over already-loaded vectors. The two lazy ones are not:
 /// `crate::gate::partition_entries` is O(entries x gated subrules) and evaluates the engine's own
 /// `pg_rules::rewrite::subrule_applicable` predicate for each pair, and
 /// `crate::capability::characterize` builds real `foma` networks for `Simultaneous`-mode subrules.

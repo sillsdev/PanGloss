@@ -410,7 +410,7 @@ fn compile_selected_from_request(
     selected: &SelectedCompileRequest,
     limits: &ExecutionLimits,
 ) -> WorkerChildOutput {
-    let outcome = (|| {
+    (|| {
         let strategy = match strategy_from_worker_route(&selected.route) {
             Ok(strategy) => strategy,
             Err(detail) => {
@@ -469,8 +469,7 @@ fn compile_selected_from_request(
         };
         let (wire, payload_bytes) = completed.into_wire_and_payload();
         finish_selected_payload(wire, payload_bytes, limits.max_serialized_fst_bytes())
-    })();
-    outcome
+    })()
 }
 
 /// The worker CHILD's entry point: reads exactly one `CompileWorkerRequest` frame from `input`, compiles it,

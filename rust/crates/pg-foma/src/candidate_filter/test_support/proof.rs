@@ -479,10 +479,10 @@ fn check_events(
     }
 }
 
-fn established_allomorphs<'a>(
-    unit: &'a TraceUnit,
+fn established_allomorphs(
+    unit: &TraceUnit,
     unit_index: usize,
-) -> Result<&'a NonEmpty<AllomorphId>, ProofVerificationError> {
+) -> Result<&NonEmpty<AllomorphId>, ProofVerificationError> {
     established(&unit.allomorphs, unit_index, TraceFactKind::Allomorphs)
 }
 
@@ -521,11 +521,11 @@ fn check_pairs_exhausted(
 }
 
 /// A deferred fact is the absence of a claim, so nothing may be proved from it.
-fn established<'a, T>(
-    fact: &'a TraceFact<T>,
+fn established<T>(
+    fact: &TraceFact<T>,
     unit_index: usize,
     kind: TraceFactKind,
-) -> Result<&'a T, ProofVerificationError> {
+) -> Result<&T, ProofVerificationError> {
     fact.known()
         .ok_or(ProofVerificationError::FactNotEstablished {
             unit_index,

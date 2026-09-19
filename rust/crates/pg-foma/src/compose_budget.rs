@@ -34,8 +34,8 @@ use std::fmt;
 /// schema-level `None` default means "no cap configured yet," never "unlimited by
 /// request."
 ///
-/// Ceiling schema version 1 -- bump only via a reviewed commit, the same "evidence + proposed diff
-/// + human-reviewed commit" discipline every calibrated default in this module uses. Chosen
+/// Ceiling schema version 1 -- bump only via a reviewed commit, the same "evidence + proposed
+/// diff + human-reviewed commit" discipline every calibrated default in this module uses. Chosen
 /// deliberately high relative to any plausible calibrated default: the motivating case
 /// is Aweti's real 24-level derivation chain, so a ceiling many orders of
 /// magnitude above 24 leaves enormous headroom below this emergency boundary for whatever default

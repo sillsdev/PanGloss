@@ -309,6 +309,7 @@ impl CandidateFilter {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn filter_into_seeded<I, R, T>(
         &self,
         mode: FilterMode,
@@ -415,6 +416,7 @@ impl CandidateFilter {
         retained.accept(candidate);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn evaluate_candidate<T: FilterTraceSink>(
         &self,
         mode: FilterMode,

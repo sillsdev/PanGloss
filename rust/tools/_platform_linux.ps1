@@ -39,7 +39,10 @@ function global:ConvertTo-LinuxCanonicalPath {
 
 function global:Read-LinuxPlatformText {
     param([Parameter(Mandatory)][string]$Path)
-    return [System.IO.File]::ReadAllText($Path)
+    $text = [System.IO.File]::ReadAllText($Path)
+    # An empty read is a control that cannot act: name the file here rather than let a downstream mandatory-parameter binding fail.
+    if ([string]::IsNullOrEmpty($text)) { throw "$Path read as empty, so this host exposes none of the state it is read for" }
+    return $text
 }
 
 function global:Convert-LinuxKiBToBytes {
@@ -165,8 +168,9 @@ function global:Get-LinuxHostCgroupPreflight {
     )
     try {
         if ($null -eq $ReadFile) { $ReadFile = { param([string]$Path) Read-LinuxPlatformText -Path $Path } }
-        if ($null -eq $SelfCgroupText) { $SelfCgroupText = Read-LinuxPlatformText -Path '/proc/self/cgroup' }
-        if ($null -eq $MountInfoText) { $MountInfoText = Read-LinuxPlatformText -Path '/proc/self/mountinfo' }
+        # [string]$X = $null binds as '', never $null, so a -eq $null guard here would never read /proc at all.
+        if ([string]::IsNullOrEmpty($SelfCgroupText)) { $SelfCgroupText = Read-LinuxPlatformText -Path '/proc/self/cgroup' }
+        if ([string]::IsNullOrEmpty($MountInfoText)) { $MountInfoText = Read-LinuxPlatformText -Path '/proc/self/mountinfo' }
         $membership = Read-LinuxUnifiedMembership -Text $SelfCgroupText
         $mounts = @(Get-LinuxCgroupMounts -Text $MountInfoText)
         $covering = @($mounts | Where-Object { Test-LinuxPathContains -Ancestor $_.Root -Path $membership })
@@ -179,10 +183,13 @@ function global:Get-LinuxHostCgroupPreflight {
         $caps = @()
         $current = $membership
         while ($true) {
+            # Linux virtual paths, not host filesystem paths: Join-Path would emit '\\' under Windows PowerShell.
             $mappedPath = Join-LinuxMappedCgroupPath -MountPoint $selected[0].MountPoint -MountRoot $selected[0].Root -CgroupPath $current
-            # Linux virtual paths, not host filesystem paths: Join-Path would emit '\\' when the fixture suite runs under Windows PowerShell.
-            $cap = Read-LinuxCgroupMemoryCap -Path ($mappedPath.TrimEnd('/') + '/memory.max') -ReadFile $ReadFile
-            if ($null -ne $cap) { $caps += $cap }
+            # The cgroup-v2 root cgroup is exempt from resource control and exposes no memory.max at all.
+            if ($current -ne '/') {
+                $cap = Read-LinuxCgroupMemoryCap -Path ($mappedPath.TrimEnd('/') + '/memory.max') -ReadFile $ReadFile
+                if ($null -ne $cap) { $caps += $cap }
+            }
             if ($current -eq $selected[0].Root) { break }
             $slash = $current.LastIndexOf('/')
             $current = if ($slash -le 0) { '/' } else { $current.Substring(0, $slash) }

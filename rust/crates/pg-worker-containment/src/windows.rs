@@ -106,7 +106,7 @@ impl ContainedWorkerProcess {
         if attribute_size == 0 {
             return Err(win32_unavailable("sizing process attribute list"));
         }
-        let words = (attribute_size + size_of::<usize>() - 1) / size_of::<usize>();
+        let words = attribute_size.div_ceil(size_of::<usize>());
         let mut attribute_storage = vec![0usize; words];
         startup.lpAttributeList = attribute_storage.as_mut_ptr().cast();
         // SAFETY: `attribute_storage` is live, sufficiently sized, and aligned for the opaque
@@ -576,8 +576,10 @@ fn create_configured_job(
             return Err(win32_unavailable("configuring worker job limits"));
         }
     }
-    let mut notification = JOBOBJECT_NOTIFICATION_LIMIT_INFORMATION_2::default();
-    notification.LimitFlags = JOB_OBJECT_LIMIT_JOB_MEMORY;
+    let mut notification = JOBOBJECT_NOTIFICATION_LIMIT_INFORMATION_2 {
+        LimitFlags: JOB_OBJECT_LIMIT_JOB_MEMORY,
+        ..Default::default()
+    };
     // Reserve bounded headroom because a commit rejected at the hard ceiling cannot notify first.
     notification.Anonymous1.JobMemoryLimit = notification_limit(memory_limit) as u64;
     // SAFETY: notification is initialized for the selected information class and remains live
@@ -763,7 +765,7 @@ fn command_line(executable: &Path, args: &[OsString]) -> Result<Vec<u16>, Contai
 
 fn quote_windows_arg(value: &OsStr) -> Result<Vec<u16>, ContainmentError> {
     let units: Vec<u16> = value.encode_wide().collect();
-    if units.iter().any(|&unit| unit == 0) {
+    if units.contains(&0) {
         return Err(ContainmentError::Failed {
             detail: "worker argument contains an embedded NUL".to_string(),
         });

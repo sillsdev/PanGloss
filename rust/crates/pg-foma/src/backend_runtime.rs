@@ -1426,7 +1426,7 @@ fn measure_and_certify_inner<const OBSERVE: bool>(
     let words = observed_proposals.map(|proposals| {
         expected
             .iter()
-            .zip(actual.into_iter())
+            .zip(actual)
             .zip(proposals)
             .map(|(((word, expected), (_, actual)), proposals)| {
                 // Re-projected here (opt-in observed path only) rather than threaded out of certify_corpus, keeping the certification path free of an evidence out-parameter; `.ok()` is correct since a projection failing here failed there too, and the certification already carries the typed fault.
@@ -1685,6 +1685,8 @@ pub fn evaluate_plans_observed_with_cache(
 }
 
 /// One `crate::backend::PlanComposed` candidate, realized into an owned, apply-ready proposer.
+// Boxing the ready variant would put an owned proposer behind a pointer on the hot realize path.
+#[allow(clippy::large_enum_variant)]
 enum RealizedPlanComposed {
     Ready {
         proposer: FomaProposer,
@@ -2195,6 +2197,8 @@ pub(crate) fn realize_controllable_plan_proposer(
 }
 
 /// Proposes over the eligible corpus and checks containment; no confirmation engine is reachable from here, deliberately.
+// Two strategies, a grammar, a proposer and three budgets: each is read independently, so a bundle would only rename them.
+#[allow(clippy::too_many_arguments)]
 fn assess_one(
     requested_strategy: EmissionStrategy,
     realized_strategy: EmissionStrategy,
@@ -2215,7 +2219,7 @@ fn assess_one(
             peeler,
             peel_budget,
             word,
-            &apply_budget,
+            apply_budget,
         );
         let (proposals, _peel_used, peel_chain_depth_error, diagnostics, proposal_calls) =
             match proposed {

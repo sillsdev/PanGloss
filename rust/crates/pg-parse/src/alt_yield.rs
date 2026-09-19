@@ -24,7 +24,7 @@ thread_local! {
     static CANONICAL_ALT_TOTAL: Cell<u64> = const { Cell::new(0) };
     static CANONICAL_ALT_MAX: Cell<u64> = const { Cell::new(0) };
     static EXPANDED_TOTAL: Cell<u64> = const { Cell::new(0) };
-    static IDENTITIES: RefCell<BTreeSet<AnalysisIdentity>> = RefCell::new(BTreeSet::new());
+    static IDENTITIES: RefCell<BTreeSet<AnalysisIdentity>> = const { RefCell::new(BTreeSet::new()) };
 }
 
 /// Cached `HC_ALT_YIELD` read (one env lookup per thread), mirroring `pg_rules::word_stats::enabled`.

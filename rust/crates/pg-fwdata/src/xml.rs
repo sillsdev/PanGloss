@@ -419,10 +419,9 @@ mod tests {
             census.unhandled_class_occurrences.get("ZzUnknown"),
             Some(&2)
         );
-        assert!(census
+        assert!(!census
             .unhandled_class_occurrences
-            .get("LangProject")
-            .is_none());
+            .contains_key("LangProject"));
         assert_eq!(census.ordered_header_sha256.len(), 64);
         assert!(census
             .ordered_header_sha256

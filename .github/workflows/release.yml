@@ -33,7 +33,14 @@ jobs:
   gates:
     name: gates
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # A cold-cache optimized build of the workspace and its ~105 test targets measured just over an
+    # hour on this runner. 45 minutes would have failed a release on the clock rather than on a gate,
+    # which is the one way this job must never fail.
+    timeout-minutes: 120
+    # Fixture discovery refuses an unclaimed run rather than guess what a green run covered. A release
+    # gate above all others must say what it checked, so it claims both roots, as `pg.ps1 -Mode test` does.
+    env:
+      PANGLOSS_CONFORMANCE_SCOPE: all
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,9 +99,13 @@ jobs:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --no-deps
 
+      # --no-fail-fast, as pg.ps1 does: a gate that stops at the first failing target reports a
+      # fraction of what it checked, and the fraction reads like the whole. `--profile pg-test-opt`
+      # is the profile `pg.ps1 -Mode test` calls authoritative, and the only one this suite finishes
+      # in: unoptimized it was still inside pg-foma after 45 minutes, which is this job's whole budget.
       - name: test suite
         working-directory: rust
-        run: cargo test --workspace
+        run: cargo test --workspace --profile pg-test-opt --no-fail-fast
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5

@@ -220,7 +220,7 @@ fn occurrences_for(
         .collect()
 }
 
-fn node_of<'g>(graph: &'g MechanismGraph, kind: MechanismKind) -> Option<&'g MechanismNode> {
+fn node_of(graph: &MechanismGraph, kind: MechanismKind) -> Option<&MechanismNode> {
     graph.nodes.iter().find(|node| node.kind() == kind)
 }
 

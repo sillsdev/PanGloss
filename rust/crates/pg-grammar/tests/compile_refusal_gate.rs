@@ -139,6 +139,8 @@ fn compile_project_refusal_differential_gate() {
 const REAL_CORPUS_BASELINE: &[(&str, bool)] = &[("Sena 3", true), ("Amharic", true)];
 
 /// Turns a real-corpus compile regression into a hard failure instead of a `--nocapture`-only line someone has to happen to read; a control that cannot act (no real corpus present) must say so, not pass quietly.
+// Ignored because the corpora it names are gitignored local files, as every other corpus gate here is.
+#[ignore = "needs a real corpus: run through `pg.ps1 -Mode corpus-test`, which declares one"]
 #[test]
 fn real_corpus_refusal_baseline_gate() {
     let mut found_any = false;
