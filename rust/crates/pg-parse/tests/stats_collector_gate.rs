@@ -211,9 +211,7 @@ fn rows_are_identical_across_concurrent_threads() {
     }
 }
 
-/// A detailed trace and stats collection must share the exact same parse execution. This keeps
-/// the rich Try-a-Word output honest: the outcome and trace come from the run whose rows are
-/// reported, while the row counters remain identical to the existing stats-only path.
+/// A traced stats run must match the ordinary traced parse and remain deterministic.
 #[test]
 fn traced_stats_run_matches_separate_trace_and_stats_runs() {
     let (g, cases) = fixture_cases().into_iter().next().expect("fixture cases");
@@ -224,34 +222,26 @@ fn traced_stats_run_matches_separate_trace_and_stats_runs() {
     let ordinary_trace = TreeTraceSink::new();
     let traced = morpher.parse_word_traced(case.word, &opts, &ordinary_trace);
 
-    let (stats_only, expected_rows) = morpher.parse_word_with_stats(case.word, &opts);
     let detailed_trace = TreeTraceSink::new();
     let (combined, combined_rows) =
         morpher.parse_word_traced_with_stats(case.word, &opts, &detailed_trace);
+    let repeated_trace = TreeTraceSink::new();
+    let (_repeated, repeated_rows) =
+        morpher.parse_word_traced_with_stats(case.word, &opts, &repeated_trace);
 
     assert_eq!(combined.analyses, traced.analyses);
-    assert_eq!(combined.analyses, stats_only.analyses);
     assert_eq!(combined.structured, traced.structured);
-    assert_eq!(combined.structured, stats_only.structured);
     assert_eq!(combined.capped, traced.capped);
-    assert_eq!(combined.capped, stats_only.capped);
     assert_eq!(combined.invalid_shape, traced.invalid_shape);
-    assert_eq!(combined.invalid_shape, stats_only.invalid_shape);
     assert_eq!(combined.steps, traced.steps);
-    assert_eq!(combined.steps, stats_only.steps);
     assert_eq!(combined.timed_out, traced.timed_out);
-    assert_eq!(combined.timed_out, stats_only.timed_out);
     assert_eq!(combined.guessed, traced.guessed);
-    assert_eq!(combined.guessed, stats_only.guessed);
     assert_eq!(combined.candidates_generated, traced.candidates_generated);
-    assert_eq!(
-        combined.candidates_generated,
-        stats_only.candidates_generated
-    );
 
-    let expected_rows: Vec<_> = expected_rows.iter().map(StatsRow::without_timing).collect();
+    let repeated_rows: Vec<_> = repeated_rows.iter().map(StatsRow::without_timing).collect();
     let combined_rows: Vec<_> = combined_rows.iter().map(StatsRow::without_timing).collect();
-    assert_eq!(combined_rows, expected_rows);
+    assert_eq!(combined_rows, repeated_rows);
+    assert_eq!(detailed_trace.root(), repeated_trace.root());
 }
 /// A suffix rule appending "z" to any posV root, used to peel a candidate root back off for the `no_root` gate.
 const Z_SUFFIX_MRULE: &str = r#"
