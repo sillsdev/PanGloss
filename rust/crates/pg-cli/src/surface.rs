@@ -228,6 +228,11 @@ const PARSE_FLAGS: &[FlagSpec] = &[
         summary: "text|json (default text)",
     },
     FlagSpec {
+        name: "--trace-details",
+        takes_value: false,
+        summary: "emit the opt-in Try-a-Word-style JSON envelope (requires JSON tracing)",
+    },
+    FlagSpec {
         name: "--gloss",
         takes_value: false,
         summary: "print a Leipzig gloss line per analysis",

@@ -106,6 +106,7 @@ mod plan_diagram;
 pub mod readiness_policy;
 pub mod readiness_verdict;
 mod recipe_optimize;
+mod rich_trace;
 mod stats_cmd;
 mod surface;
 mod trace_render;
@@ -308,7 +309,7 @@ fn print_usage_and_fail() -> ExitCode {
         "pangloss {} — HermitCrab Rust engine CLI\n\
          usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
          usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
@@ -418,6 +419,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut trace_dest: Option<Option<String>> = None; // None = --trace not given; Some(None) = stdout; Some(Some(path)) = file
     let mut trace_format = "text".to_string();
+    let mut trace_details = false;
     let mut gloss = false;
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
@@ -437,6 +439,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--trace-format=") => {
                 trace_format = s["--trace-format=".len()..].to_string();
             }
+            "--trace-details" => trace_details = true,
             "--gloss" => gloss = true,
             "--natural-gloss" => {
                 let v = it.next().ok_or("--natural-gloss requires a value")?;
@@ -464,6 +467,12 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             "invalid --trace-format: {trace_format} (expected text|json)"
         ));
     }
+    rich_trace::validate_details(
+        trace_dest.is_some(),
+        &trace_format,
+        trace_details,
+        gloss || natural_gloss.is_some(),
+    )?;
     if let Some(v) = &natural_gloss {
         if v != "eng" {
             return Err(format!(
@@ -472,7 +481,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]".into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
@@ -496,6 +505,26 @@ fn run_parse(args: &[String]) -> Result<(), String> {
 
     if let Some(dest) = trace_dest {
         let sink = pg_rules::trace::TreeTraceSink::new();
+        if trace_details {
+            let started = Instant::now();
+            let (outcome, rows) = morpher.parse_word_traced_with_stats(word, &opts, &sink);
+            let rendered = rich_trace::render(
+                &grammar,
+                &sink,
+                sink.root(),
+                word,
+                &outcome,
+                &rows,
+                started.elapsed(),
+            )?;
+            match dest {
+                None => print!("{rendered}"),
+                Some(path) => {
+                    fs::write(&path, rendered).map_err(|e| format!("write {path}: {e}"))?
+                }
+            }
+            return Ok(());
+        }
         let outcome = morpher.parse_word_traced(word, &opts, &sink);
         println!("{}\t{}", word, outcome.signature());
         print_guessed_line(guess, outcome.guessed);
