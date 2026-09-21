@@ -6,7 +6,7 @@ use pg_conformance_fixtures::discover;
 use pg_parse::morpher::ParseOptions;
 use pg_parse::Morpher;
 use pg_rules::stats::{Direction, ObjectKind, StatsRow};
-use pg_rules::trace::TreeTraceSink;
+use pg_rules::trace::{TraceHandle, TreeTraceSink};
 
 /// One fixture-provided word to replay, paired with the grammar it belongs to.
 struct Case {
@@ -211,6 +211,32 @@ fn rows_are_identical_across_concurrent_threads() {
     }
 }
 
+fn assert_same_trace(
+    left: &TreeTraceSink,
+    left_handle: TraceHandle,
+    right: &TreeTraceSink,
+    right_handle: TraceHandle,
+) {
+    let left_node = left.node(left_handle);
+    let right_node = right.node(right_handle);
+    assert_eq!(left_node.type_, right_node.type_);
+    assert_eq!(left_node.source, right_node.source);
+    assert_eq!(left_node.subrule_index, right_node.subrule_index);
+    assert_eq!(left_node.failure_reason, right_node.failure_reason);
+    assert_eq!(
+        format!("{:?}", left_node.input),
+        format!("{:?}", right_node.input)
+    );
+    assert_eq!(
+        format!("{:?}", left_node.output),
+        format!("{:?}", right_node.output)
+    );
+    assert_eq!(left_node.children.len(), right_node.children.len());
+    for (left_child, right_child) in left_node.children.into_iter().zip(right_node.children) {
+        assert_same_trace(left, left_child, right, right_child);
+    }
+}
+
 /// A traced stats run must match the ordinary traced parse and remain deterministic.
 #[test]
 fn traced_stats_run_matches_separate_trace_and_stats_runs() {
@@ -241,7 +267,18 @@ fn traced_stats_run_matches_separate_trace_and_stats_runs() {
     let repeated_rows: Vec<_> = repeated_rows.iter().map(StatsRow::without_timing).collect();
     let combined_rows: Vec<_> = combined_rows.iter().map(StatsRow::without_timing).collect();
     assert_eq!(combined_rows, repeated_rows);
-    assert_eq!(detailed_trace.root(), repeated_trace.root());
+    assert_same_trace(
+        &ordinary_trace,
+        ordinary_trace.root().expect("ordinary trace root"),
+        &detailed_trace,
+        detailed_trace.root().expect("detailed trace root"),
+    );
+    assert_same_trace(
+        &detailed_trace,
+        detailed_trace.root().expect("detailed trace root"),
+        &repeated_trace,
+        repeated_trace.root().expect("repeated trace root"),
+    );
 }
 /// A suffix rule appending "z" to any posV root, used to peel a candidate root back off for the `no_root` gate.
 const Z_SUFFIX_MRULE: &str = r#"

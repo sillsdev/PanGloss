@@ -15,6 +15,19 @@ project file. With no `=<file>`, `--trace` prints the result line first, then th
 standard output. `--trace=<path>` writes the trace JSON to that file instead and prints only the
 result line.
 
+## Opt-in details envelope
+
+For a single JSON document containing the trace plus the parse result and existing timing counters, add `--trace-details`:
+
+```text
+pangloss parse <grammar> <word> --trace --trace-format=json --trace-details
+```
+
+This flag is valid only for JSON tracing on `parse`. With `--trace` alone it writes the document to standard output; with `--trace=<path>` it writes the document to that file. `--gloss` and `--natural-gloss` cannot be combined with it because they produce text output.
+
+The `pangloss.trace-details.v1` object contains `word`, `search`, `result`, `categories`, and `trace`. `search` reports completion flags, parser steps, and overall `elapsedNs`. `result` reports the signature, whether guessing supplied the result, and successful analyses. `categories` groups the existing stats counters by parser object kind. `selfElapsedNs` is numeric only for categories instrumented by the existing stats collector; otherwise it is `null` and `timingAvailable` is `false`. `trace` is exactly the compact tree described below, embedded as an object, or `null` when invalid input prevents creation of a trace root.
+
+The detailed mode runs the same unmerged traced search described below. It adds no per-node timers or inferred failure details. Omitting `--trace-details` keeps the existing output and execution path.
 `--trace-format` also accepts `text`, an indented, one-line-per-step rendering of exactly the same
 tree, meant for a person reading a terminal rather than a program or a model reading JSON. Nothing
 in the tree differs between the two — `text` and `json` are two renderings of the same underlying
