@@ -275,6 +275,20 @@ impl<'g> Morpher<'g> {
         self.parse_word_core(word, opts, trace)
     }
 
+    /// The single-word diagnostic entry point used by rich trace output. It runs the existing
+    /// trace sink and stats collector in the same unmerged parse, so the tree, counters, and
+    /// timings all describe one search rather than two independent replays.
+    pub fn parse_word_traced_with_stats(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        trace: &dyn TraceSink,
+    ) -> (ParseOutcome, Vec<pg_rules::stats::StatsRow>) {
+        let stats = pg_rules::stats::StatsCollector::new(self.g);
+        let outcome = self.parse_word_core_selected(word, opts, trace, None, None, Some(&stats));
+        (outcome, stats.rows())
+    }
+
     /// The restricted-analysis entry point: C#'s `LexEntrySelector`/`RuleSelector`, taken as
     /// per-call parameters rather than mutable instance state, so it is thread-safe by
     /// construction. `None` for either reproduces `Self::parse_word_opts`.
