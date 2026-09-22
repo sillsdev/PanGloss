@@ -33,6 +33,7 @@
 //! change out of scope for this port.
 
 use crate::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
+use crate::grammar_health_presentation::{morph_rule_link, prepare_report, subject_link};
 use crate::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef, OutputAction, TableId};
 use crate::stats_identity;
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
@@ -429,9 +430,10 @@ pub fn check_grammar_health(
     fieldworks_project: Option<&str>,
 ) -> Vec<GrammarHealthCheckFinding> {
     let mut findings = Vec::new();
-    check_duplicate_feature_bundles(grammar, fieldworks_project, &mut findings);
-    check_undeclared_segments(grammar, fieldworks_project, &mut findings);
-    check_partial_morphemes(grammar, fieldworks_project, &mut findings);
+    check_duplicate_feature_bundles(grammar, &mut findings);
+    check_undeclared_segments(grammar, &mut findings);
+    check_partial_morphemes(grammar, &mut findings);
+    prepare_report(&mut findings, fieldworks_project);
     validate_findings(&findings).expect("grammar-health emitted an incomplete finding");
     findings
 }
@@ -441,7 +443,6 @@ pub fn check_grammar_health(
 /// Distinct-bundle segments only; skipped for a zero-feature grammar, where every bundle is the same empty struct by construction.
 fn check_duplicate_feature_bundles(
     grammar: &Grammar,
-    fieldworks_project: Option<&str>,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) {
     if grammar.phon_features.is_empty() {
@@ -474,11 +475,11 @@ fn check_duplicate_feature_bundles(
                 .iter()
                 .map(|(_, cd)| first_representation(cd))
                 .collect();
-            let mut subjects = vec![table_subject(fieldworks_project, table_id, table)];
+            let mut subjects = vec![table_subject(table_id, table)];
             subjects.extend(
                 group
                     .iter()
-                    .map(|(id, cd)| char_def_subject(fieldworks_project, table_id, *id, cd, table)),
+                    .map(|(id, cd)| char_def_subject(table_id, *id, cd, table)),
             );
             findings.push(GrammarHealthCheckFinding {
                 severity: GrammarHealthSeverity::Warning,
@@ -520,95 +521,33 @@ fn table_display_name(table: &CharDefTable) -> &str {
         .unwrap_or("unnamed character-definition table")
 }
 
-fn canonical_guid(source_id: &str) -> Option<String> {
-    let bytes = source_id.as_bytes();
-    if bytes.len() != 36
-        || ![8, 13, 18, 23].iter().all(|&index| bytes[index] == b'-')
-        || bytes.iter().enumerate().any(|(index, byte)| {
-            if [8, 13, 18, 23].contains(&index) {
-                *byte != b'-'
-            } else {
-                !byte.is_ascii_hexdigit()
-            }
-        })
-    {
-        return None;
-    }
-    Some(source_id.to_ascii_lowercase())
-}
-
-fn encode_query(value: &str) -> String {
-    value
-        .as_bytes()
-        .iter()
-        .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' => {
-                (*byte as char).to_string()
-            }
-            b' ' => "+".to_string(),
-            byte => format!("%{byte:02X}"),
-        })
-        .collect()
-}
-
-fn fieldworks_link(source_id: &str, tool: &str, fieldworks_project: Option<&str>) -> FieldWorksLink {
-    let guid = canonical_guid(source_id);
-    let project = fieldworks_project.map(str::trim).filter(|project| !project.is_empty());
-    let (url, url_unavailable) = match (project, guid.as_deref()) {
-        (None, _) => (None, Some("no FieldWorks project name supplied".to_string())),
-        (Some(_), None) => (None, Some("source item has no FieldWorks GUID".to_string())),
-        (Some(project), Some(guid)) => (
-            Some({
-                let query = format!("database={project}&tool={tool}&guid={guid}&tag=");
-                format!("silfw://localhost/link?{}", encode_query(&query))
-            }),
-            None,
-        ),
-    };
-    FieldWorksLink {
-        guid,
-        tool: tool.to_string(),
-        url,
-        url_unavailable,
-    }
-}
-
 fn make_subject(
     kind: GrammarHealthSubjectKind,
     title: String,
     subtitle: Option<String>,
     internal_id: String,
-    source_id: &str,
-    tool: &str,
-    fieldworks_project: Option<&str>,
+    fieldworks: FieldWorksLink,
 ) -> GrammarHealthSubject {
     GrammarHealthSubject {
         kind,
         title,
         subtitle,
         internal_id,
-        fieldworks: fieldworks_link(source_id, tool, fieldworks_project),
+        fieldworks,
     }
 }
 
-fn table_subject(
-    fieldworks_project: Option<&str>,
-    id: TableId,
-    table: &CharDefTable,
-) -> GrammarHealthSubject {
+fn table_subject(id: TableId, table: &CharDefTable) -> GrammarHealthSubject {
     make_subject(
         GrammarHealthSubjectKind::Table,
         table_display_name(table).to_string(),
         None,
         format!("table#{}:{}", id.0, table.xml_id()),
-        table.xml_id(),
-        "phonologicalFeaturesAdvancedEdit",
-        fieldworks_project,
+        subject_link(GrammarHealthSubjectKind::Table, table.xml_id()),
     )
 }
 
 fn char_def_subject(
-    fieldworks_project: Option<&str>,
     table_id: TableId,
     id: CharDefId,
     cd: &CharDef,
@@ -619,26 +558,18 @@ fn char_def_subject(
         first_representation(cd).to_string(),
         Some(format!("in {}", table_display_name(table))),
         format!("table#{}:char_def#{}:{}", table_id.0, id.0, cd.xml_id()),
-        cd.xml_id(),
-        "phonemeEdit",
-        fieldworks_project,
+        subject_link(GrammarHealthSubjectKind::CharDef, cd.xml_id()),
     )
 }
 
-fn lex_entry_subject(
-    fieldworks_project: Option<&str>,
-    grammar: &Grammar,
-    id: LexEntryId,
-) -> GrammarHealthSubject {
+fn lex_entry_subject(grammar: &Grammar, id: LexEntryId) -> GrammarHealthSubject {
     let entry = &grammar.entries[id.0 as usize];
     make_subject(
         GrammarHealthSubjectKind::LexEntry,
-        stats_identity::lex_entry_display_name(grammar, id),
+        stats_identity::lex_entry_identity(grammar, id).label,
         None,
         format!("lex_entry#{}:{}", id.0, entry.authored_id),
-        &entry.authored_id,
-        "lexiconEdit",
-        fieldworks_project,
+        subject_link(GrammarHealthSubjectKind::LexEntry, &entry.authored_id),
     )
 }
 
@@ -670,25 +601,19 @@ fn morph_rule_source_id(grammar: &Grammar, id: MRuleId) -> String {
     }
 }
 
-fn morph_rule_subject(
-    fieldworks_project: Option<&str>,
-    grammar: &Grammar,
-    id: MRuleId,
-) -> GrammarHealthSubject {
+fn morph_rule_subject(grammar: &Grammar, id: MRuleId) -> GrammarHealthSubject {
     let source_id = morph_rule_source_id(grammar, id);
-    let (kind, tool) = match &grammar.mrules[id.0 as usize] {
-        MorphRuleDef::Compounding(_) => ("compounding rule", "compoundRuleAdvancedEdit"),
-        MorphRuleDef::AffixProcess(_) => ("affix-process rule", "lexiconEdit"),
-        MorphRuleDef::Realizational(_) => ("realizational rule", "lexiconEdit"),
+    let kind = match &grammar.mrules[id.0 as usize] {
+        MorphRuleDef::Compounding(_) => "compounding rule",
+        MorphRuleDef::AffixProcess(_) => "affix-process rule",
+        MorphRuleDef::Realizational(_) => "realizational rule",
     };
     make_subject(
         GrammarHealthSubjectKind::MorphRule,
-        stats_identity::morph_rule_display_name(grammar, id),
+        stats_identity::morph_rule_identity(grammar, id).label,
         Some(kind.to_string()),
         format!("morph_rule#{}:{}", id.0, source_id),
-        &source_id,
-        tool,
-        fieldworks_project,
+        morph_rule_link(grammar, id, &source_id),
     )
 }
 
@@ -698,7 +623,6 @@ fn morph_rule_subject(
 /// mrules -- matches C#'s own scope, so a template-slot-only rule is outside this check too.
 fn check_undeclared_segments(
     grammar: &Grammar,
-    fieldworks_project: Option<&str>,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) {
     for stratum in &grammar.strata {
@@ -709,15 +633,14 @@ fn check_undeclared_segments(
             let Some(entry) = grammar.entries.get(entry_id.0 as usize) else {
                 continue;
             };
-            let name = stats_identity::lex_entry_display_name(grammar, entry_id);
+            let name = stats_identity::lex_entry_identity(grammar, entry_id).label;
             for allomorph in &entry.allomorphs {
                 check_segments_declared(
                     table,
                     stratum.table,
                     &allomorph.shape.shape,
                     &format!("Lexical entry '{name}' allomorph '{}'", allomorph.shape.text),
-                    fieldworks_project,
-                    lex_entry_subject(fieldworks_project, grammar, entry_id),
+                    lex_entry_subject(grammar, entry_id),
                     findings,
                 );
             }
@@ -727,8 +650,8 @@ fn check_undeclared_segments(
             let Some(rule) = grammar.mrules.get(rule_id.0 as usize) else {
                 continue;
             };
-            let name = stats_identity::morph_rule_display_name(grammar, rule_id);
-            let subject = morph_rule_subject(fieldworks_project, grammar, rule_id);
+            let name = stats_identity::morph_rule_identity(grammar, rule_id).label;
+            let subject = morph_rule_subject(grammar, rule_id);
             match rule {
                 MorphRuleDef::AffixProcess(def) => {
                     for allomorph in &def.allomorphs {
@@ -738,7 +661,6 @@ fn check_undeclared_segments(
                                 action,
                                 "Morphological rule",
                                 &name,
-                                fieldworks_project,
                                 subject.clone(),
                                 findings,
                             );
@@ -753,7 +675,6 @@ fn check_undeclared_segments(
                                 action,
                                 "Compounding rule",
                                 &name,
-                                fieldworks_project,
                                 subject.clone(),
                                 findings,
                             );
@@ -771,7 +692,6 @@ fn check_insert_segments(
     action: &OutputAction,
     kind_label: &str,
     rule_name: &str,
-    fieldworks_project: Option<&str>,
     owner_subject: GrammarHealthSubject,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) {
@@ -790,7 +710,6 @@ fn check_insert_segments(
         *table_id,
         &shape.shape,
         &format!("{kind_label} '{rule_name}' inserted segments '{}'", shape.text),
-        fieldworks_project,
         owner_subject,
         findings,
     );
@@ -803,7 +722,6 @@ fn check_segments_declared(
     table_id: TableId,
     shape: &Shape,
     where_desc: &str,
-    fieldworks_project: Option<&str>,
     owner_subject: GrammarHealthSubject,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) {
@@ -825,7 +743,7 @@ fn check_segments_declared(
                 table_display_name(table)
             ),
             subjects: vec![
-                table_subject(fieldworks_project, table_id, table),
+                table_subject(table_id, table),
                 owner_subject.clone(),
             ],
         });
@@ -838,7 +756,6 @@ fn check_segments_declared(
 /// regardless of slot references, so one pass already dedups without a seen-set.
 fn check_partial_morphemes(
     grammar: &Grammar,
-    fieldworks_project: Option<&str>,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) {
     for (i, entry) in grammar.entries.iter().enumerate() {
@@ -846,11 +763,11 @@ fn check_partial_morphemes(
             continue;
         }
         let id = LexEntryId(i as u32);
-        let name = stats_identity::lex_entry_display_name(grammar, id);
+        let name = stats_identity::lex_entry_identity(grammar, id).label;
         findings.push(partial_finding(
             "Lexical entry",
             &name,
-            lex_entry_subject(fieldworks_project, grammar, id),
+            lex_entry_subject(grammar, id),
         ));
     }
     for (i, rule) in grammar.mrules.iter().enumerate() {
@@ -861,11 +778,11 @@ fn check_partial_morphemes(
             continue;
         }
         let id = MRuleId(i as u32);
-        let name = stats_identity::morph_rule_display_name(grammar, id);
+        let name = stats_identity::morph_rule_identity(grammar, id).label;
         findings.push(partial_finding(
             "Morphological rule",
             &name,
-            morph_rule_subject(fieldworks_project, grammar, id),
+            morph_rule_subject(grammar, id),
         ));
     }
 }
@@ -1496,7 +1413,7 @@ mod tests {
                     let rest = rest.trim();
                     !rest.is_empty() && rest.chars().all(|character| character.is_ascii_digit())
                 })
-        }) || canonical_guid(title).is_some()
+        }) || crate::grammar_health_presentation::canonical_guid(title).is_some()
     }
 
     fn assert_no_blank_or_internal_subjects(findings: &[GrammarHealthCheckFinding]) {
@@ -1680,7 +1597,7 @@ mod tests {
 
         let json = render_json(&with_project).expect("structured findings serialize");
         assert!(json.contains("\"schema_version\": 1"));
-        assert!(json.contains("\"group_name\": \"Grammatical info with no forms\""));
+        assert!(json.contains("\"group_name\": \"Partial morpheme analysis\""));
         assert!(json.contains("silfw://localhost/link?database%3DFieldWorks+Demo%26tool%3DlexiconEdit"));
         assert!(json.contains("\"internal_id\""));
 

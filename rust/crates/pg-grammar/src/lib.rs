@@ -17,6 +17,7 @@ pub mod chardef;
 pub mod compile;
 pub mod featsys;
 pub mod grammar_health;
+pub(crate) mod grammar_health_presentation;
 pub mod lint;
 pub mod load;
 pub mod model;
