@@ -72,4 +72,10 @@ Test-Case 'an executable with another source stamp is never published' {
     }
 }
 
+Test-Case 'a locked bootstrap capture cannot overturn a successful build' {
+    $pgText = Get-Content -Raw (Join-Path $PSScriptRoot '../pg.ps1')
+    Assert-True ($pgText -match 'Remove-Item -LiteralPath \$capturePath -Force -ErrorAction SilentlyContinue') `
+        'temporary capture cleanup must tolerate the Start-Process redirect-handle race'
+}
+
 Write-TestSummary

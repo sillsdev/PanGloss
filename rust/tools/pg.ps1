@@ -932,7 +932,7 @@ try {
             Write-Host "[pg] hygiene checker not published: $_" -ForegroundColor Red
             $code = 2
         } finally {
-            if (Test-Path -LiteralPath $capturePath) { Remove-Item -LiteralPath $capturePath -Force }
+            if (Test-Path -LiteralPath $capturePath) { Remove-Item -LiteralPath $capturePath -Force -ErrorAction SilentlyContinue }
         }
     } elseif ($Mode -eq 'corpus-test') {
         $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
