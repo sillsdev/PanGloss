@@ -86,6 +86,26 @@ Test-Case 'a process that stays busy and then exits normally is never declared w
     Assert-Equal 0 $r.ExitCode
 }
 
+Test-Case 'the production wait wakes as soon as the managed process exits instead of sleeping the whole poll interval' {
+    $fake = [PSCustomObject]@{ HasExited = $false; Id = 1; ExitCode = 0 }
+    $busy = @((New-FakeProc -Pid_ 1 -Name 'procgov.exe' -ParentPid 0 -Created $now), (New-FakeProc -Pid_ 2 -Name 'cargo.exe' -ParentPid 1 -Created $now))
+    $script:waitCalls = 0
+    $script:waitMilliseconds = $null
+    $waitAction = {
+        param($ManagedProcess, $Milliseconds)
+        $script:waitCalls++
+        $script:waitMilliseconds = $Milliseconds
+        $ManagedProcess.HasExited = $true
+        return $true
+    }
+    $r = Wait-ManagedProcessTree -Process $fake -PollSeconds 10 -MaxIdleMinutes 3 `
+        -SnapshotProvider { $busy } -WaitAction $waitAction -NowProvider { Get-Date }
+    Assert-Equal 1 $script:waitCalls 'one exit-aware wait replaces an unconditional ten-second sleep'
+    Assert-Equal 10000 $script:waitMilliseconds 'the exit-aware wait retains the configured ten-second liveness cadence'
+    Assert-False $r.Wedged
+    Assert-Equal 0 $r.ExitCode
+}
+
 Test-Case 'a tree that goes idle and STAYS idle past MaxIdleMinutes is declared wedged, never exiting on its own' {
     $fake = [PSCustomObject]@{ HasExited = $false; Id = 1; ExitCode = $null }
     $idle = @((New-FakeProc -Pid_ 1 -Name 'procgov.exe' -ParentPid 0 -Created $now))

@@ -1349,7 +1349,7 @@ function Wait-ManagedProcessTree {
       Returns Wedged=$true rather than killing anything itself -- the caller already owns $Process's
       cleanup (Invoke-ProcessInJobObject's existing `finally`) and must not gain a second copy of it.
 
-      $SnapshotProvider/$SleepAction/$NowProvider are injection seams so the polling loop is testable
+      $SnapshotProvider/$SleepAction/$WaitAction/$NowProvider are injection seams so the polling loop is testable
       against synthetic ticks with no real process, no real sleep, and no real clock -- see
       rust/tools/tests/managed-process-wait.tests.ps1 -- never something production overrides.
     #>
@@ -1361,12 +1361,14 @@ function Wait-ManagedProcessTree {
         # Names beyond $script:LiveBuildActivityNames that count as real work in THIS tree -- the launched payload itself, for `-Mode run`.
         [string[]]$ExtraLiveNames = @(),
         [scriptblock]$SnapshotProvider = { Get-ProcessSnapshot },
-        [scriptblock]$SleepAction = { param($Seconds) Start-Sleep -Seconds $Seconds },
+        # Wait on the process so its exit ends polling immediately.
+        [scriptblock]$SleepAction = $null,
         [scriptblock]$NowProvider = { Get-Date },
         # Given the snapshot once the tree reads idle; returns the rows it reaped. procgov waits for its job to EMPTY, so a lingering helper (Remove-LingeringJobHelpers) is the one thing between "cargo returned" and "the wrapper returns".
         [scriptblock]$LingerReaper = $null,
         # Passed to $LingerReaper as its second argument, rather than captured in it. See New-JobLingerReaper.
-        [string]$LingerJobName = ''
+        [string]$LingerJobName = '',
+        [scriptblock]$WaitAction = { param($ManagedProcess, $Milliseconds) $ManagedProcess.WaitForExit($Milliseconds) }
     )
     $idleSince = $null
     while (-not $Process.HasExited) {
@@ -1390,7 +1392,11 @@ function Wait-ManagedProcessTree {
         } else {
             $idleSince = $null
         }
-        & $SleepAction $PollSeconds
+        if ($SleepAction) {
+            & $SleepAction $PollSeconds
+        } else {
+            [void](& $WaitAction $Process ($PollSeconds * 1000))
+        }
     }
     return [PSCustomObject]@{ Wedged = $false; IdleSince = $null; ExitCode = $Process.ExitCode }
 }

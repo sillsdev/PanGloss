@@ -71,6 +71,18 @@ unconditionally sleeps after inspecting the process tree. This can delay observi
 completion. Compare Cargo time with wrapper wall time before changing this safety
 mechanism; preserve liveness checks and lingering-helper cleanup.
 
+The follow-up experiment confirmed this hypothesis. With the same governed `pwsh`
+payload sleeping for one second and a ten-second liveness interval, the original path
+took 10.912 seconds while an exit-aware timed wait took 1.669 seconds, saving 9.243
+seconds (84.7%) in this deliberately worst-phase probe. The replacement still wakes
+at the configured interval when the process remains alive, so tree snapshots, idle-wedge
+detection, helper reaping, job containment, and their thresholds are unchanged. The
+25-test managed-process suite, including real procgov falsification, passes.
+A subsequent warm representative pg-foma target still took 13.062 seconds (hygiene
+2.7 seconds, Cargo 0.13 seconds, four tests passing). Pre-Cargo variability therefore
+prevents attributing an end-to-end saving from that single run; the causal claim is
+limited to the controlled wait-seam experiment above.
+
 `pg.ps1` checks workspace-wide formatting even for narrow package checks. Test/build
 also run comment hygiene; broad builds additionally run the backend card generator.
 These phases belong in end-to-end measurements, not compiler/linker time.
@@ -136,10 +148,10 @@ This has not yet been applied or claimed as a measured speedup.
    select an integration executable with `-Mode test -Package -TestTarget`.
    `-Filter` only selects executed tests. Keep full-suite validation as its own
    explicit gate. Existing `-Mode build` means fat-LTO release, not a cheap compile.
-2. **Remove repeated wrapper work.** Measure unchanged runs before and after an
-   exit-aware timed wait; retain ten-second liveness inspections when work remains,
-   stale-tree detection, helper cleanup, and kernel caps. Native full-tree hygiene
-   is now implemented. Separately measure workspace rustfmt on narrow builds and
+2. **Remove repeated wrapper work.** The exit-aware timed wait is implemented while
+   retaining ten-second liveness inspections when work remains, stale-tree detection,
+   helper cleanup, and kernel caps. Native full-tree hygiene is also implemented.
+   Separately measure workspace rustfmt on narrow builds and
    repeated hygiene gates in release orchestration. Any future result reuse must
    invalidate on all scan inputs, including deleted linked documents.
 3. **Prune unused dependency features.** Experiment with sysinfo's system and
