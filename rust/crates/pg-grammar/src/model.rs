@@ -1178,11 +1178,14 @@ impl FinalTemplatePruneFacts {
     }
 }
 
-/// Every partial lexical entry and partial affix-process rule the grammar declares, by authored identity.
+/// Every partial lexical entry and partial affix-process rule the grammar declares, retaining
+/// stable tooling ids and separate FieldWorks-facing display names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PartialMorphemeFacts {
     partial_entry_ids: Vec<String>,
     partial_rule_ids: Vec<String>,
+    partial_entry_names: Vec<String>,
+    partial_rule_names: Vec<String>,
 }
 
 impl PartialMorphemeFacts {
@@ -1206,6 +1209,13 @@ impl PartialMorphemeFacts {
         self.partial_entry_ids
             .iter()
             .chain(&self.partial_rule_ids)
+            .map(String::as_str)
+    }
+
+    pub fn display_names(&self) -> impl Iterator<Item = &str> {
+        self.partial_entry_names
+            .iter()
+            .chain(&self.partial_rule_names)
             .map(String::as_str)
     }
 
@@ -1262,19 +1272,39 @@ impl Grammar {
     /// The one validated inventory of partial morphemes; every FST production-admission decision reads this.
     pub fn partial_morpheme_facts(&self) -> Result<PartialMorphemeFacts, crate::GrammarError> {
         self.validated_rule_owner_strata()?;
-        let partial_entry_ids = self
+        let partial_entries = self
             .entries
             .iter()
-            .filter(|e| e.partial)
-            .map(|e| e.authored_id.clone())
-            .collect();
-        let partial_rule_ids = self
+            .enumerate()
+            .filter(|(_, entry)| entry.partial)
+            .map(|(id, entry)| (LexEntryId(id as u32), entry.authored_id.clone()))
+            .collect::<Vec<_>>();
+        let partial_rules = self
             .partial_affix_process_rules()
-            .map(|(_, morpheme)| self.morphemes[morpheme.0 as usize].xml_key.clone())
-            .collect();
+            .map(|(id, morpheme)| {
+                (
+                    MRuleId(id as u32),
+                    self.morphemes[morpheme.0 as usize].xml_key.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
         Ok(PartialMorphemeFacts {
-            partial_entry_ids,
-            partial_rule_ids,
+            partial_entry_names: partial_entries
+                .iter()
+                .map(|(id, _)| crate::stats_identity::lex_entry_display_name(self, *id))
+                .collect(),
+            partial_rule_names: partial_rules
+                .iter()
+                .map(|(id, _)| crate::stats_identity::morph_rule_display_name(self, *id))
+                .collect(),
+            partial_entry_ids: partial_entries
+                .into_iter()
+                .map(|(_, authored_id)| authored_id)
+                .collect(),
+            partial_rule_ids: partial_rules
+                .into_iter()
+                .map(|(_, authored_id)| authored_id)
+                .collect(),
         })
     }
 

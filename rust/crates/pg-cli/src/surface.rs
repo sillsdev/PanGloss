@@ -290,7 +290,18 @@ const INVESTIGATE_FLAGS: &[FlagSpec] = &[
 
 const FST_HEALTH_FLAGS: &[FlagSpec] = &[];
 
-const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[];
+const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--fw-project",
+        takes_value: true,
+        summary: "FieldWorks project/database name used for deep links.",
+    },
+    FlagSpec {
+        name: "--log-guids",
+        takes_value: false,
+        summary: "append each item's FieldWorks GUID to its human-readable log title.",
+    },
+];
 
 const COVERAGE_FLAGS: &[FlagSpec] = &[
     FlagSpec {

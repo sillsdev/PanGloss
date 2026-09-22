@@ -115,7 +115,7 @@ fn partial_morpheme_finding(facts: &PartialMorphemeFacts) -> HealthFinding {
 
 /// Counts by kind plus a bounded sample, so the diagnostic names morphemes without growing with the lexicon.
 fn partial_morpheme_explanation(facts: &PartialMorphemeFacts) -> String {
-    let sample: Vec<&str> = facts.authored_ids().take(SAMPLED_AUTHORED_IDS).collect();
+    let sample: Vec<&str> = facts.display_names().take(SAMPLED_AUTHORED_IDS).collect();
     let elided = facts.total_count().saturating_sub(sample.len());
     let mut explanation = format!(
         "This grammar declares {} partial morpheme(s) ({} lexical entry/entries, {} affix-process \

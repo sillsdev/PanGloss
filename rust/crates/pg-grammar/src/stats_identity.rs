@@ -93,11 +93,78 @@ fn morpheme_xml_key(grammar: &Grammar, morpheme: MorphemeId) -> Option<String> {
         .filter(|k| !k.is_empty())
 }
 
+fn nonempty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn human_title(primary: Option<&str>, secondary: Option<&str>, fallback: &str) -> String {
+    let primary = nonempty(primary);
+    let secondary = nonempty(secondary).filter(|value| Some(*value) != primary);
+    match (primary, secondary) {
+        (Some(primary), Some(secondary)) => format!("{primary} - {secondary}"),
+        (Some(primary), None) => primary.to_string(),
+        (None, Some(secondary)) => secondary.to_string(),
+        (None, None) => fallback.to_string(),
+    }
+}
+
 fn morph_rule_name(def: &MorphRuleDef) -> Option<&str> {
     match def {
         MorphRuleDef::Compounding(c) => c.name.as_deref(),
         MorphRuleDef::AffixProcess(a) => a.name.as_deref(),
         MorphRuleDef::Realizational(r) => r.name.as_deref(),
+    }
+}
+
+fn morph_rule_morpheme_and_name(def: &MorphRuleDef) -> (Option<MorphemeId>, Option<&str>) {
+    match def {
+        MorphRuleDef::Compounding(def) => (None, nonempty(def.name.as_deref())),
+        MorphRuleDef::AffixProcess(def) => (Some(def.morpheme), nonempty(def.name.as_deref())),
+        MorphRuleDef::Realizational(def) => (Some(def.morpheme), nonempty(def.name.as_deref())),
+    }
+}
+
+fn morpheme_title(
+    grammar: &Grammar,
+    morpheme: MorphemeId,
+    primary: Option<&str>,
+    fallback: &str,
+) -> String {
+    let info = grammar.morphemes.get(morpheme.0 as usize);
+    human_title(
+        primary,
+        info.and_then(|info| {
+            nonempty(info.gloss.as_deref()).or_else(|| nonempty(info.morph_id.as_deref()))
+        }),
+        fallback,
+    )
+}
+
+/// Resolve the user-facing title for a lexical entry. The first allomorph's citation form is
+/// the primary FieldWorks name; a distinct gloss is retained as context. Authored IDs are never
+/// used as the title because they are tooling identities, not names an author recognizes.
+pub fn lex_entry_display_name(grammar: &Grammar, id: LexEntryId) -> String {
+    let entry = &grammar.entries[id.0 as usize];
+    let info = grammar.morphemes.get(entry.morpheme.0 as usize);
+    let citation = entry
+        .allomorphs
+        .iter()
+        .map(|allomorph| allomorph.shape.text.trim())
+        .find(|text| !text.is_empty());
+    let lexeme = info.and_then(|info| nonempty(info.morph_id.as_deref()));
+    let gloss = info.and_then(|info| nonempty(info.gloss.as_deref()));
+    let primary = citation.or(lexeme);
+    human_title(primary, gloss.or(lexeme), "unnamed lexical entry")
+}
+
+/// Resolve the user-facing title for a morphological rule. An authored rule/affix name is the
+/// primary FieldWorks name, with a distinct gloss as context; XML keys remain secondary data.
+pub fn morph_rule_display_name(grammar: &Grammar, id: MRuleId) -> String {
+    let def = &grammar.mrules[id.0 as usize];
+    let (morpheme, name) = morph_rule_morpheme_and_name(def);
+    match morpheme {
+        Some(morpheme) => morpheme_title(grammar, morpheme, name, "unnamed morphological rule"),
+        None => human_title(name, None, "unnamed morphological rule"),
     }
 }
 
@@ -122,10 +189,7 @@ fn morph_rule_key_and_quality(grammar: &Grammar, id: MRuleId) -> (String, Identi
 /// Resolve a morphological rule's stable identity.
 pub fn morph_rule_identity(grammar: &Grammar, id: MRuleId) -> ObjectIdentity {
     let (key, quality) = morph_rule_key_and_quality(grammar, id);
-    let def = &grammar.mrules[id.0 as usize];
-    let label = morph_rule_name(def)
-        .map(str::to_string)
-        .unwrap_or_else(|| key.clone());
+    let label = morph_rule_display_name(grammar, id);
     ObjectIdentity {
         key,
         kind: ObjectKind::MorphRule,
@@ -152,23 +216,22 @@ pub fn phon_rule_identity(grammar: &Grammar, id: PRuleId) -> ObjectIdentity {
         (xml_id.to_string(), IdentityQuality::Authored)
     };
     ObjectIdentity {
-        label: name.map(str::to_string).unwrap_or_else(|| key.clone()),
+        label: name
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| "unnamed phonological rule".to_string()),
         key,
         kind: ObjectKind::PhonRule,
         quality,
     }
 }
 
-/// Resolve a lexical entry's stable identity. The label prefers the entry's morpheme's gloss
-/// (what a human recognizes in FLEx) and falls back to the authored id when no gloss is reachable.
+/// Resolve a lexical entry's stable identity. The key is tooling data; the label is the
+/// FieldWorks-facing citation/gloss title from lex_entry_display_name.
 pub fn lex_entry_identity(grammar: &Grammar, id: LexEntryId) -> ObjectIdentity {
     let entry = &grammar.entries[id.0 as usize];
-    let label = grammar
-        .morphemes
-        .get(entry.morpheme.0 as usize)
-        .and_then(|m| m.gloss.clone())
-        .filter(|g| !g.is_empty())
-        .unwrap_or_else(|| entry.authored_id.clone());
+    let label = lex_entry_display_name(grammar, id);
     ObjectIdentity {
         key: entry.authored_id.clone(),
         kind: ObjectKind::LexEntry,

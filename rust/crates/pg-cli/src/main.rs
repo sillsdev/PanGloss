@@ -58,8 +58,8 @@
 //!
 //! ## `grammar-health` (see `grammar_health.rs`'s own doc for the full contract)
 //! `grammar-health <grammar> [<out.json>]` runs the ported `hc-*` HermitCrab grammar-authoring
-//! checks (`pg_grammar::grammar_health::check_grammar_health`) and prints/writes the findings as a
-//! JSON array. A separate report from `fst-health`: this one asks whether the grammar is
+//! checks (`pg_grammar::grammar_health::check_grammar_health`) and prints/writes a versioned JSON
+//! report. A separate report from `fst-health`: this one asks whether the grammar is
 //! well-formed for its author, not whether a compiled FST is production-ready. Always exits 0.
 //!
 //! Every other subcommand that takes a grammar path (`parse`, `batch`, `generate`)
@@ -315,7 +315,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
          usage: pangloss investigate <report.json> --case <caseId> [--report <path>]\n\
          usage: pangloss fst-health <grammar> [<out.json>]\n\
-         usage: pangloss grammar-health <grammar> [<out.json>]\n\
+         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]\n\
          usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
          usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
          usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{}\n\

@@ -1,49 +1,41 @@
 //! Rendering a `TreeTraceSink` for `pangloss parse --trace`: an indented, diffable text tree and a nested-object JSON tree. Lives here, not in `pg-parse`/`pg-rules`, since both need `Grammar` to resolve names and render a `Word`'s shape as text -- display-only, grammar-aware work `pg-cli` already does elsewhere.
 
-use pg_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
+use pg_grammar::model::{Grammar, MRuleId, PRuleId};
+use pg_grammar::stats_identity::{morph_rule_display_name, phon_rule_identity};
 use pg_rules::trace::{TraceHandle, TraceNode, TraceSource, TreeTraceSink};
 use pg_rules::word::Word;
 
-/// A morphological rule's display name (`<Name>`), falling back to a numeric id for a hand-built test grammar that never named it.
-fn mrule_name(g: &Grammar, id: pg_grammar::model::MRuleId) -> String {
-    let idx = id.0 as usize;
-    let Some(rule) = g.mrules.get(idx) else {
-        return format!("mrule#{idx}");
-    };
-    let name = match rule {
-        MorphRuleDef::AffixProcess(d) => d.name.as_deref(),
-        MorphRuleDef::Realizational(d) => d.name.as_deref(),
-        MorphRuleDef::Compounding(d) => d.name.as_deref(),
-    };
-    name.map(str::to_string)
-        .unwrap_or_else(|| format!("mrule#{idx}"))
+fn mrule_name(g: &Grammar, id: MRuleId) -> String {
+    if g.mrules.get(id.0 as usize).is_none() {
+        return "unnamed morphological rule".to_string();
+    }
+    morph_rule_display_name(g, id)
 }
 
-fn prule_name(g: &Grammar, id: pg_grammar::model::PRuleId) -> String {
-    let idx = id.0 as usize;
-    let Some(rule) = g.prules.get(idx) else {
-        return format!("prule#{idx}");
-    };
-    let name = match rule {
-        PhonRuleDef::Rewrite(d) => d.name.as_deref(),
-        PhonRuleDef::Metathesis(d) => d.name.as_deref(),
-    };
-    name.map(str::to_string)
-        .unwrap_or_else(|| format!("prule#{idx}"))
+fn prule_name(g: &Grammar, id: PRuleId) -> String {
+    if g.prules.get(id.0 as usize).is_none() {
+        return "unnamed phonological rule".to_string();
+    }
+    phon_rule_identity(g, id).label
 }
-
 fn stratum_name(g: &Grammar, id: pg_grammar::model::StratumId) -> String {
     g.strata
         .get(id.0 as usize)
-        .and_then(|s| s.name.clone())
-        .unwrap_or_else(|| format!("stratum#{}", id.0))
+        .and_then(|s| s.name.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "unnamed stratum".to_string())
 }
 
 fn template_name(g: &Grammar, id: pg_grammar::model::TemplateId) -> String {
     g.templates
         .get(id.0 as usize)
-        .and_then(|t| t.name.clone())
-        .unwrap_or_else(|| format!("template#{}", id.0))
+        .and_then(|t| t.name.as_deref())
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "unnamed template".to_string())
 }
 
 /// Renders a `Word`'s shape using its own `stratum`'s character table, so a mid-derivation word is rendered in the stratum that produced it, never forced through the surface one.
