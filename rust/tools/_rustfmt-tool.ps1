@@ -132,7 +132,7 @@ function Invoke-RustFmtCached {
     if ((Test-Path -LiteralPath $baselineMarker -PathType Leaf) -and @($ChangedPaths).Count) {
         $canNarrow = $true
         foreach ($path in @($ChangedPaths)) {
-            if (-not $path.EndsWith('.rs', [StringComparison]::OrdinalIgnoreCase)) { $canNarrow = $false; break }
+            if (-not $path -or -not $path.EndsWith('.rs', [StringComparison]::OrdinalIgnoreCase)) { $canNarrow = $false; break }
             $package = Get-RustFmtPackageForPath -RepoRoot $RepoRoot -RustRoot $RustRoot -RelativePath $path
             if (-not $package) { $canNarrow = $false; break }
             $packages += $package

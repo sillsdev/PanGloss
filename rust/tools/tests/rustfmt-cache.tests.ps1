@@ -138,4 +138,17 @@ Test-Case 'a changed manifest falls back to the full workspace formatter' {
     Assert-Equal 0 $script:packages.Count 'manifest changes must use --all because workspace/package ownership may have changed'
 }
 
+Test-Case 'a null changed-path entry falls back to the full workspace formatter' {
+    . $script:HelperPath
+    $fixture = New-RustFmtFixture
+    $script:packages = @('not-run')
+    $check = { param($Manifest, $Packages) $script:packages = @($Packages); [PSCustomObject]@{ ExitCode = 0; Output = @() } }
+    [void](Invoke-RustFmtCached -RepoRoot $fixture.Repo -RustRoot $fixture.Rust -ToolIdentity 'rustfmt-test-v1' -Head 'abc' -ChangedPaths @() -CheckAction $check)
+    $fingerprint = Get-RustFmtInputFingerprint -RepoRoot $fixture.Repo -RustRoot $fixture.Rust -ToolIdentity 'rustfmt-test-v1'
+    Remove-Item -LiteralPath (Get-RustFmtMarkerPath -RepoRoot $fixture.Repo -Kind 'clean' -Key $fingerprint)
+    function Get-RustFmtChangedPaths { [PSCustomObject]@{ Success = $true; Paths = ,$null } }
+    [void](Invoke-RustFmtCached -RepoRoot $fixture.Repo -RustRoot $fixture.Rust -ToolIdentity 'rustfmt-test-v1' -Head 'abc' -CheckAction $check)
+    Assert-Equal 0 $script:packages.Count 'an absent git path must not be dereferenced or narrow formatting'
+}
+
 Write-TestSummary
