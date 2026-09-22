@@ -292,13 +292,110 @@ pub fn validate_findings(findings: &[GrammarHealthCheckFinding]) -> serde_json::
 /// subjects: [{ kind, title, subtitle, internal_id, fieldworks: { guid, tool, url,
 /// url_unavailable } }] }] }. 	itle is the human identity; internal_id is secondary
 /// tooling data, and group_name is a stable linguist-facing grouping label.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrammarHealthJsonReport {
     pub schema_version: u32,
     pub findings: Vec<GrammarHealthCheckFinding>,
 }
 
 pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 1;
+
+fn validate_report(
+    schema_version: u32,
+    findings: &[GrammarHealthCheckFinding],
+) -> serde_json::Result<()> {
+    if schema_version != GRAMMAR_HEALTH_SCHEMA_VERSION {
+        return Err(<serde_json::Error as serde::de::Error>::custom(format!(
+            "unsupported grammar-health schema version {schema_version}; expected {GRAMMAR_HEALTH_SCHEMA_VERSION}"
+        )));
+    }
+    validate_findings(findings)
+}
+
+impl GrammarHealthJsonReport {
+    /// Encode the canonical versioned grammar-health report.
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Decode the canonical versioned grammar-health report.
+    pub fn from_json(json: &str) -> serde_json::Result<Self> {
+        let value: serde_json::Value = serde_json::from_str(json)?;
+        if !value.is_object() {
+            return Err(<serde_json::Error as serde::de::Error>::custom(
+                "grammar-health report must be an object with schema_version and findings; bare findings arrays are unsupported",
+            ));
+        }
+        serde_json::from_value(value)
+    }
+}
+
+impl serde::Serialize for GrammarHealthJsonReport {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        validate_report(self.schema_version, &self.findings).map_err(|error| {
+            <S::Error as serde::ser::Error>::custom(error.to_string())
+        })?;
+
+        #[derive(serde::Serialize)]
+        struct Wire<'a> {
+            schema_version: u32,
+            findings: &'a [GrammarHealthCheckFinding],
+        }
+
+        Wire {
+            schema_version: self.schema_version,
+            findings: &self.findings,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for GrammarHealthJsonReport {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
+        let Some(object) = value.as_object() else {
+            return Err(<D::Error as serde::de::Error>::custom(
+                "grammar-health report must be an object with schema_version and findings; bare findings arrays are unsupported",
+            ));
+        };
+        let Some(schema_value) = object.get("schema_version") else {
+            return Err(<D::Error as serde::de::Error>::custom(
+                "grammar-health report is missing schema_version",
+            ));
+        };
+        let Some(schema_version) = schema_value.as_u64() else {
+            return Err(<D::Error as serde::de::Error>::custom(
+                "grammar-health schema_version must be an unsigned integer",
+            ));
+        };
+        let schema_version = u32::try_from(schema_version).map_err(|_| {
+            <D::Error as serde::de::Error>::custom(
+                "grammar-health schema_version is outside the supported unsigned range",
+            )
+        })?;
+        let Some(findings_value) = object.get("findings") else {
+            return Err(<D::Error as serde::de::Error>::custom(
+                "grammar-health report is missing findings",
+            ));
+        };
+        let findings = serde_json::from_value::<Vec<GrammarHealthCheckFinding>>(
+            findings_value.clone(),
+        )
+        .map_err(|error| <D::Error as serde::de::Error>::custom(error.to_string()))?;
+        validate_report(schema_version, &findings)
+            .map_err(|error| <D::Error as serde::de::Error>::custom(error.to_string()))?;
+        Ok(Self {
+            schema_version,
+            findings,
+        })
+    }
+}
 
 /// Render complete findings as one nonblank plain-text line per finding.
 ///
@@ -318,10 +415,11 @@ pub fn render_log(
 /// Render the full Motif-facing JSON shape, including FieldWorks links and explicit link reasons.
 pub fn render_json(findings: &[GrammarHealthCheckFinding]) -> Result<String, serde_json::Error> {
     validate_findings(findings)?;
-    serde_json::to_string_pretty(&GrammarHealthJsonReport {
+    GrammarHealthJsonReport {
         schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
         findings: findings.to_vec(),
-    })
+    }
+    .to_json()
 }
 
 /// Runs every registered check against grammar. `fieldworks_project` is caller-supplied because
@@ -1466,6 +1564,58 @@ mod tests {
         assert_eq!(render_log(&[], false).expect("empty log renders"), "");
         let json = render_json(&[]).expect("empty report serializes");
         assert!(json.contains("\"findings\": []"));
+    }
+
+    #[test]
+    fn direct_report_decode_rejects_an_unsupported_schema_version() {
+        let json = serde_json::json!({
+            "schema_version": 99,
+            "findings": [],
+        });
+        let error = serde_json::from_value::<GrammarHealthJsonReport>(json)
+            .expect_err("unsupported schema versions must be rejected");
+        assert!(error.to_string().contains("schema version 99"));
+        assert!(error.to_string().contains("expected 1"));
+    }
+
+    #[test]
+    fn direct_report_decode_rejects_both_fieldworks_link_states() {
+        let grammar = grammar(FIELDWORKS_GUID_PARTIAL_XML);
+        let finding = check_grammar_health(&grammar, None)
+            .into_iter()
+            .next()
+            .expect("fixture has a finding");
+        let report = GrammarHealthJsonReport {
+            schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
+            findings: vec![finding],
+        };
+        let mut json = serde_json::to_value(&report).expect("report serializes");
+        json["findings"][0]["subjects"][0]["fieldworks"]["url"] =
+            serde_json::Value::String("silfw://invalid".to_string());
+        let error = serde_json::from_value::<GrammarHealthJsonReport>(json)
+            .expect_err("both link states must be rejected");
+        assert!(error.to_string().contains("fieldworks"));
+        assert!(error.to_string().contains("either url or url_unavailable"));
+    }
+
+    #[test]
+    fn canonical_decoder_rejects_the_previous_bare_array_shape() {
+        let error = GrammarHealthJsonReport::from_json("[]")
+            .expect_err("bare findings arrays are not the versioned report");
+        assert!(error.to_string().contains("bare findings arrays"));
+    }
+
+    #[test]
+    fn canonical_report_round_trips_without_changing_consumer_values() {
+        let findings = check_grammar_health(&grammar(FIELDWORKS_GUID_PARTIAL_XML), None);
+        let original = GrammarHealthJsonReport {
+            schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
+            findings,
+        };
+        let json = original.to_json().expect("canonical report serializes");
+        let decoded =
+            GrammarHealthJsonReport::from_json(&json).expect("canonical report deserializes");
+        assert_eq!(decoded, original);
     }
 
     #[test]
