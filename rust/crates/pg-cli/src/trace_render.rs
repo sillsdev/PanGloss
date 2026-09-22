@@ -124,8 +124,7 @@ pub fn render_json(g: &Grammar, sink: &TreeTraceSink, root: TraceHandle) -> Stri
     out
 }
 
-fn render_json_node(g: &Grammar, sink: &TreeTraceSink, h: TraceHandle, out: &mut String) {
-    let n: TraceNode = sink.node(h);
+fn render_json_node_fields(g: &Grammar, n: &TraceNode, out: &mut String) {
     out.push('{');
     out.push_str(&format!("\"type\":\"{:?}\"", n.type_));
     if let Some(label) = source_label(g, n.source) {
@@ -151,6 +150,11 @@ fn render_json_node(g: &Grammar, sink: &TreeTraceSink, h: TraceHandle, out: &mut
             json_escape(&render_word_shape(g, w))
         ));
     }
+}
+
+fn render_json_node(g: &Grammar, sink: &TreeTraceSink, h: TraceHandle, out: &mut String) {
+    let n: TraceNode = sink.node(h);
+    render_json_node_fields(g, &n, out);
     out.push_str(",\"children\":[");
     for (i, &c) in n.children.iter().enumerate() {
         if i > 0 {
@@ -159,6 +163,14 @@ fn render_json_node(g: &Grammar, sink: &TreeTraceSink, h: TraceHandle, out: &mut
         render_json_node(g, sink, c, out);
     }
     out.push_str("]}");
+}
+
+pub fn render_json_node_shallow(g: &Grammar, sink: &TreeTraceSink, h: TraceHandle) -> String {
+    let n: TraceNode = sink.node(h);
+    let mut out = String::new();
+    render_json_node_fields(g, &n, &mut out);
+    out.push_str(",\"children\":[]}");
+    out
 }
 
 #[cfg(test)]

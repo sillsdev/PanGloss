@@ -371,7 +371,10 @@ fn run_import(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
+fn load_grammar_impl(
+    path: &str,
+    capture_metadata: bool,
+) -> Result<(Grammar, Vec<String>, Option<rich_trace::TraceMetadata>), String> {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -381,33 +384,64 @@ pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String>
             let json = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
             let snapshot = pg_snapshot::Snapshot::from_json(&json)
                 .map_err(|e| format!("parse snapshot {path}: {e}"))?;
+            let metadata = capture_metadata
+                .then(|| rich_trace::metadata_from_snapshot(&snapshot, "snapshot"));
             let (grammar, warnings) = pg_grammar::compile_project(&snapshot)
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
-            Ok((grammar, warnings))
+            Ok((grammar, warnings, metadata))
         }
         _ if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") => {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
-            // report.warnings/snapshot.validate() are typed pg_snapshot::Warning; compile_project's are plain String, so flatten to prose here, the one place the two meet.
             let mut warnings: Vec<String> =
                 report.warnings.into_iter().map(|w| w.to_string()).collect();
             warnings.extend(snapshot.validate().into_iter().map(|w| w.to_string()));
+            let metadata = capture_metadata
+                .then(|| rich_trace::metadata_from_snapshot(&snapshot, "fwdata"));
             let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
             warnings.extend(compile_warnings);
-            Ok((grammar, warnings))
+            Ok((grammar, warnings, metadata))
         }
         _ => {
-            let xml = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+            let (xml, hash) = if capture_metadata {
+                let bytes = fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+                use sha2::{Digest, Sha256};
+                let mut hasher = Sha256::new();
+                hasher.update(&bytes);
+                let hash = hasher
+                    .finalize()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                let xml = String::from_utf8(bytes).map_err(|e| format!("read {path}: {e}"))?;
+                (xml, Some(hash))
+            } else {
+                (
+                    fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?,
+                    None,
+                )
+            };
             let grammar = pg_grammar::load(&xml).map_err(|e| format!("load {path}: {e:?}"))?;
-            Ok((grammar, Vec::new()))
+            let metadata = hash.map(|hash| rich_trace::metadata_from_xml(&grammar, hash));
+            Ok((grammar, Vec::new(), metadata))
         }
     }
 }
 
-/// Print `load_grammar`'s warnings to stderr, one per line, prefixed so they're easy to grep out
-/// of a noisy log -- never to stdout (batch's TSV rows and parse's parity line are both
-/// parity-sensitive; see the module doc).
+pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
+    let (grammar, warnings, _) = load_grammar_impl(path, false)?;
+    Ok((grammar, warnings))
+}
+
+pub(crate) fn load_grammar_with_trace_metadata(
+    path: &str,
+) -> Result<(Grammar, Vec<String>, rich_trace::TraceMetadata), String> {
+    let (grammar, warnings, metadata) = load_grammar_impl(path, true)?;
+    let metadata = metadata.ok_or_else(|| "rich trace metadata was not captured".to_string())?;
+    Ok((grammar, warnings, metadata))
+}
+/// Print grammar warnings to stderr so parser stdout remains machine-readable.
 pub(crate) fn print_grammar_warnings(warnings: &[String]) {
     for w in warnings {
         eprintln!("warning: {w}");
@@ -484,7 +518,12 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]".into());
     };
 
-    let (grammar, warnings) = load_grammar(grammar_path)?;
+    let (grammar, warnings, trace_metadata) = if trace_details {
+        load_grammar_with_trace_metadata(grammar_path)?
+    } else {
+        let (grammar, warnings) = load_grammar(grammar_path)?;
+        (grammar, warnings, rich_trace::TraceMetadata::default())
+    };
     print_grammar_warnings(&warnings);
     // --natural-gloss=eng setup built once up front, since neither the embedded table nor the sidecar map depends on the word being parsed.
     let natural: Option<(pg_realize::TableRealizer, pg_realize::RealizeMap)> = match &natural_gloss
@@ -504,7 +543,11 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
 
     if let Some(dest) = trace_dest {
-        let sink = pg_rules::trace::TreeTraceSink::new();
+        let sink = if trace_details {
+            pg_rules::trace::TreeTraceSink::with_failure_context()
+        } else {
+            pg_rules::trace::TreeTraceSink::new()
+        };
         if trace_details {
             let started = Instant::now();
             let (outcome, rows) = morpher.parse_word_traced_with_stats(word, &opts, &sink);
@@ -516,6 +559,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
                 &outcome,
                 &rows,
                 started.elapsed(),
+                &trace_metadata,
             )?;
             match dest {
                 None => print!("{rendered}"),

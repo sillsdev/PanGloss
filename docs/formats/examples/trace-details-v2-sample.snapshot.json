@@ -1,0 +1,275 @@
+{
+  "format": "pangloss-project",
+  "version": 1,
+  "project": {
+    "name": "Test",
+    "vernacularWritingSystems": [
+      "sen"
+    ],
+    "analysisWritingSystems": [
+      "en"
+    ]
+  },
+  "featureSystems": {
+    "phonological": {
+      "closedFeatures": [],
+      "complexFeatures": []
+    },
+    "morphosyntactic": {
+      "closedFeatures": [],
+      "complexFeatures": []
+    }
+  },
+  "phonology": {
+    "phonemes": [
+      {
+        "guid": "ph-k",
+        "name": "k",
+        "representations": [
+          {
+            "ws": "sen",
+            "form": "k"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "ph-t",
+        "name": "t",
+        "representations": [
+          {
+            "ws": "sen",
+            "form": "t"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "ph-m",
+        "name": "m",
+        "representations": [
+          {
+            "ws": "sen",
+            "form": "m"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "ph-s",
+        "name": "s",
+        "representations": [
+          {
+            "ws": "sen",
+            "form": "s"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "ph-a",
+        "name": "a",
+        "representations": [
+          {
+            "ws": "sen",
+            "form": "a"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "ph-i",
+        "name": "i",
+        "representations": [
+          {
+            "ws": "sen",
+            "form": "i"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      },
+      {
+        "guid": "ph-u",
+        "name": "u",
+        "representations": [
+          {
+            "ws": "sen",
+            "form": "u"
+          }
+        ],
+        "features": null,
+        "basicIpaSymbol": null
+      }
+    ],
+    "boundaryMarkers": [
+      {
+        "guid": "bd-plus",
+        "name": "+",
+        "representations": [
+          {
+            "ws": "sen",
+            "form": "+"
+          }
+        ]
+      }
+    ],
+    "naturalClasses": [],
+    "environments": [],
+    "rules": [],
+    "featureConstraints": []
+  },
+  "morphology": {
+    "partsOfSpeech": [
+      {
+        "guid": "00000000-0000-0000-0000-000000000101",
+        "name": "Noun",
+        "abbreviation": "n",
+        "affixSlots": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000102",
+            "name": "Pl",
+            "optional": false
+          }
+        ],
+        "affixTemplates": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000103",
+            "name": "NounTemplate",
+            "disabled": false,
+            "suffixSlots": [
+              "00000000-0000-0000-0000-000000000102"
+            ],
+            "isFinal": true
+          }
+        ]
+      }
+    ],
+    "compoundRules": [],
+    "adhocProhibitions": [],
+    "exceptionFeatures": [],
+    "lexEntryInflTypes": [],
+    "parserParameters": {
+      "notOnClitics": true,
+      "acceptUnspecifiedGraphemes": false,
+      "noDefaultCompounding": false,
+      "activeParser": "xAmple",
+      "xample": {}
+    }
+  },
+  "lexicon": {
+    "entries": [
+      {
+        "guid": "00000000-0000-0000-0000-000000000104",
+        "citationForm": [
+          {
+            "ws": "sen",
+            "form": "kuma"
+          }
+        ],
+        "lexemeMorphType": "stem",
+        "allomorphs": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000106",
+            "morphType": "stem",
+            "isAbstract": false,
+            "forms": [
+              {
+                "ws": "sen",
+                "form": "kuma"
+              }
+            ]
+          }
+        ],
+        "msas": [
+          {
+            "kind": "stem",
+            "guid": "00000000-0000-0000-0000-000000000105",
+            "part_of_speech": "00000000-0000-0000-0000-000000000101"
+          }
+        ],
+        "senses": [
+          {
+            "guid": "00000000-0000-0000-0000-000000000107",
+            "gloss": [
+              {
+                "ws": "en",
+                "form": "dog"
+              }
+            ],
+            "msa": "00000000-0000-0000-0000-000000000105"
+          }
+        ]
+      },
+      {
+        "guid": "00000000-0000-0000-0000-000000000108",
+        "citationForm": [
+          {
+            "ws": "sen",
+            "form": "-ta"
+          }
+        ],
+        "lexemeMorphType": "suffix",
+        "allomorphs": [
+          {
+            "guid": "00000000-0000-0000-0000-00000000010a",
+            "morphType": "suffix",
+            "isAbstract": false,
+            "forms": [
+              {
+                "ws": "sen",
+                "form": "ta"
+              }
+            ]
+          }
+        ],
+        "msas": [
+          {
+            "kind": "inflectional",
+            "guid": "00000000-0000-0000-0000-000000000109",
+            "part_of_speech": "00000000-0000-0000-0000-000000000101",
+            "slots": [
+              "00000000-0000-0000-0000-000000000102"
+            ]
+          }
+        ],
+        "senses": [
+          {
+            "guid": "00000000-0000-0000-0000-00000000010b",
+            "gloss": [
+              {
+                "ws": "en",
+                "form": "PL"
+              }
+            ],
+            "msa": "00000000-0000-0000-0000-000000000109"
+          }
+        ]
+      }
+    ]
+  },
+  "conversionProvenance": {
+    "schemaVersion": 1,
+    "sourceInventoryStatus": "synthetic",
+    "sourceCensus": {
+      "totalOccurrences": 0,
+      "classOccurrences": {},
+      "unhandledClassOccurrences": {},
+      "orderedHeaderSha256": ""
+    },
+    "graphToSnapshot": {
+      "authored": [],
+      "considered": [],
+      "selected": [],
+      "represented": [],
+      "rejected": [],
+      "synthesized": []
+    },
+    "importIssues": []
+  }
+}

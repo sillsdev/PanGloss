@@ -411,3 +411,55 @@ fn real_indonesian_word_exercises_surface_form_mismatch() {
         "expected at least one Failed(SurfaceFormMismatch) node for \"memaca\"; got {reasons:?}"
     );
 }
+
+#[test]
+fn rich_failure_context_preserves_parse_results_and_exact_surface_inputs() {
+    let extra_lexicon = r#"
+      <LexicalEntry id="eSm" partOfSpeech="posV">
+        <Allomorphs>
+          <Allomorph id="aSm1"><PhoneticShape>bu</PhoneticShape></Allomorph>
+          <Allomorph id="aSm2"><PhoneticShape>bo</PhoneticShape></Allomorph>
+        </Allomorphs>
+        <MorphemeId>SM</MorphemeId>
+      </LexicalEntry>
+    "#;
+    let g = csharp_port_common::build_grammar_w5("", "", "", "", "", extra_lexicon);
+    let m = Morpher::new(&g, usize::MAX);
+    let plain = TreeTraceSink::new();
+    let rich = TreeTraceSink::with_failure_context();
+    let before = m.parse_word_traced("bu", &ParseOptions::default(), &plain);
+    let after = m.parse_word_traced("bu", &ParseOptions::default(), &rich);
+    assert!(!after.analyses.is_empty());
+    assert_eq!(before.analyses, after.analyses);
+    assert_eq!(before.steps, after.steps);
+    assert_eq!(plain.len(), rich.len());
+    let mut failures = Vec::new();
+    find_all_by_type(&rich, rich.root().unwrap(), TraceType::Failed, &mut failures);
+    let contexts: Vec<_> = failures.into_iter().map(|h| rich.node(h))
+        .filter(|node| node.failure_reason == Some(FailureReason::SurfaceFormMismatch))
+        .map(|node| node.failure_context.expect("mismatch owner must capture its operands"))
+        .collect();
+    assert!(!contexts.is_empty());
+    assert!(contexts.iter().all(|context| context.required.as_deref() == Some("bu")));
+    assert!(contexts.iter().any(|context| context.actual.as_deref() == Some("bo")));
+    let mut plain_failures = Vec::new();
+    find_all_by_type(&plain, plain.root().unwrap(), TraceType::Failed, &mut plain_failures);
+    assert!(plain_failures.into_iter().all(|h| plain.node(h).failure_context.is_none()));
+}
+
+#[test]
+fn rich_obligatory_feature_failure_retains_gate_inputs() {
+    let g = obligatory_feature_never_satisfied_grammar();
+    let m = Morpher::new(&g, usize::MAX);
+    let sink = TreeTraceSink::with_failure_context();
+    let outcome = m.parse_word_traced("sagz", &ParseOptions::default(), &sink);
+    assert!(outcome.analyses.is_empty());
+    let mut failures = Vec::new();
+    find_all_by_type(&sink, sink.root().unwrap(), TraceType::Failed, &mut failures);
+    let contexts: Vec<_> = failures.into_iter().map(|h| sink.node(h))
+        .filter(|node| node.failure_reason == Some(FailureReason::ObligatorySyntacticFeatures))
+        .map(|node| node.failure_context.expect("feature rejection must retain the failed obligation"))
+        .collect();
+    assert!(!contexts.is_empty());
+    assert!(contexts.iter().all(|context| context.required.is_some() && context.actual.is_some()));
+}

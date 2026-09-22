@@ -21,12 +21,10 @@
 //! always snapshots via `Word::clone()` (a whole owned `Word`, not a hand-trimmed lighter struct) —
 //! simpler than threading a separate `WordSnapshot` type through every call site, and costs nothing
 //! on the no-op path (the clone only happens inside `TreeTraceSink`'s methods, never inside
-//! `NoopSink`'s, and call sites must check `is_tracing()` before calling either). The sketch's
-//! `FailureObj` (C#'s `object failureObj` parameter — a free-form extra failure detail, e.g. which
-//! specific co-occurrence rule rejected) is dropped entirely: no call site in this landing needs it
-//! to answer "why", and adding a type for it now would be speculative. Both simplifications are
-//! flagged here rather than silently decided.
-
+//! `NoopSink`'s, and call sites must check `is_tracing()` before calling either).
+//! The original port omitted C#'s free-form `failureObj`. Rich diagnostics now opt in to
+//! `FailureContext`: rejection owners capture their actual operands after the gate fires.
+//! Ordinary tracing retains its existing snapshots without formatting this extra evidence.
 use std::cell::{Cell, RefCell};
 
 use pg_grammar::model::{MRuleId, PRuleId, StratumId, TemplateId};
@@ -129,6 +127,15 @@ pub enum FailureReason {
     MaxApplicationCount,
 }
 
+/// Evidence captured by the rejection owner, without re-evaluating a predicate.
+/// Values are display representations of the actual gate inputs, not new parser decisions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FailureContext {
+    pub required: Option<String>,
+    pub actual: Option<String>,
+    pub environment: Option<String>,
+}
+
 /// One node in the trace tree (C# `Trace`, `Trace.cs`). `input`/`output` are owned snapshots (see
 /// this module's doc for the simplification vs. the design sketch's `WordSnapshot`), not live
 /// references — matching §1.2's clone-discipline finding.
@@ -142,6 +149,7 @@ pub struct TraceNode {
     pub input: Option<Word>,
     pub output: Option<Word>,
     pub failure_reason: Option<FailureReason>,
+    pub failure_context: Option<FailureContext>,
     pub children: Vec<TraceHandle>,
 }
 
@@ -154,6 +162,7 @@ impl TraceNode {
             input: None,
             output: None,
             failure_reason: None,
+            failure_context: None,
             children: Vec::new(),
         }
     }
@@ -179,6 +188,14 @@ impl TraceNode {
 pub trait TraceSink {
     /// Mirrors C# `ITraceManager.IsTracing`.
     fn is_tracing(&self) -> bool;
+
+    /// Rich diagnostic evidence is separately opt-in; ordinary tracing does not format it.
+    fn captures_failure_context(&self) -> bool { false }
+
+    /// Called only after the owner has emitted the exact failed event.
+    fn set_failure_context(&self, _event: TraceHandle, _context: FailureContext) {
+        panic!("this trace sink cannot capture failure context");
+    }
 
     /// Mint the root node for one `parse_word` call (`AnalyzeWord`). Returns the handle later events
     /// thread through as `parent`.
@@ -548,6 +565,7 @@ impl TraceSink for NoopSink {
 pub struct TreeTraceSink {
     nodes: RefCell<Vec<TraceNode>>,
     root: Cell<Option<TraceHandle>>,
+    capture_failure_context: bool,
 }
 
 impl Default for TreeTraceSink {
@@ -557,10 +575,15 @@ impl Default for TreeTraceSink {
 }
 
 impl TreeTraceSink {
+    /// Retain owner-provided rejection evidence for an explicit rich diagnostic request.
+    pub fn with_failure_context() -> Self {
+        Self { capture_failure_context: true, ..Self::new() }
+    }
     pub fn new() -> Self {
         TreeTraceSink {
             nodes: RefCell::new(Vec::new()),
             root: Cell::new(None),
+            capture_failure_context: false,
         }
     }
 
@@ -614,6 +637,15 @@ impl TreeTraceSink {
 }
 
 impl TraceSink for TreeTraceSink {
+    fn captures_failure_context(&self) -> bool { self.capture_failure_context }
+
+    fn set_failure_context(&self, event: TraceHandle, context: FailureContext) {
+        assert!(self.capture_failure_context, "failure context capture was not enabled");
+        let mut nodes = self.nodes.borrow_mut();
+        let node = &mut nodes[event.0 as usize];
+        assert!(node.failure_reason.is_some(), "failure context requires a failed event");
+        node.failure_context = Some(context);
+    }
     #[inline(always)]
     fn is_tracing(&self) -> bool {
         true
@@ -1034,6 +1066,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn failure_context_is_opt_in_and_attached_to_exact_event() {
+        let plain = TreeTraceSink::new();
+        assert!(!plain.captures_failure_context());
+        let sink = TreeTraceSink::with_failure_context();
+        assert!(sink.captures_failure_context());
+        let word = w();
+        let root = sink.analyze_word(&word);
+        let failed = sink.failed(root, &word, FailureReason::SurfaceFormMismatch);
+        let succeeded = sink.successful(root, &word);
+        sink.set_failure_context(failed, FailureContext {
+            required: Some("cats".into()),
+            actual: Some("cat".into()),
+            environment: None,
+        });
+        assert_eq!(sink.node(failed).failure_context.unwrap().required.as_deref(), Some("cats"));
+        assert!(sink.node(succeeded).failure_context.is_none());
+        assert!(sink.node(root).failure_context.is_none());
+    }
     #[test]
     fn failed_and_successful_carry_reason_and_word() {
         let sink = TreeTraceSink::new();

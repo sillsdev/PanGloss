@@ -12,6 +12,7 @@ assuming you have this repository open or know its internal vocabulary.
   that grammar, and the ways a grammar author's intent can go wrong without an error message.
 - [`trace-format.md`](trace-format.md) — the JSON `pangloss parse --trace` writes: the full,
   unmerged derivation tree behind one word's parse or failure.
+- [`trace-details-v2.md`](trace-details-v2.md) — the opt-in one-word diagnostic envelope: recorded analyses, morph metadata, rejection context, provenance, and aggregate timing.
 
 This is **not** the same audience, and not the same material, as `../research/`, `../history/`,
 and `../divergences/`. Those three are written for people porting or maintaining HermitCrab itself
