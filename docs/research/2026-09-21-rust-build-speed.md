@@ -87,6 +87,28 @@ limited to the controlled wait-seam experiment above.
 also run comment hygiene; broad builds additionally run the backend card generator.
 These phases belong in end-to-end measurements, not compiler/linker time.
 
+The rustfmt follow-up measured 549 Rust files and 247,036 lines; no generated or foreign
+Rust tree was found that justified an ignore rule. Directly parallelizing arbitrary files
+was rejected because rustfmt can traverse out-of-line modules, and direct invocation does
+not inherit each Cargo package's edition and style edition. The local managed path instead
+establishes one full-workspace clean baseline per commit/tool identity, keys clean results
+by the contents of all Rust sources, manifests, formatter/Cargo configs and toolchain files,
+and formats only the owning Cargo packages when subsequent changes are exclusively `.rs`
+files. Unknown ownership, changed manifests/config/toolchains, Git-query failure, or an absent
+baseline falls back to the full workspace. Formatter failures and concurrent input changes
+publish no clean result. Release and both CI workflows retain `cargo fmt --all -- --check`.
+
+The unchanged managed `pg-comment-hygiene` check originally took 4.955 seconds. Five warm
+cache-hit repeats had a 2.326-second median (2.205–2.687 seconds), with Cargo itself at
+0.06–0.07 seconds. A deliberately misformatted source file was repaired through its one
+owning package and the final hardened managed check completed in 3.293 seconds (rendered as
+3.29 seconds); the normalized Git blob was identical to HEAD afterward. The final hardened
+first full baseline-publication run took 5.148 seconds (rendered as 5.148 seconds), so this
+optimization targets repeated local feedback, not first use or authoritative CI.
+
+Primary behavior references: [cargo-fmt package/all strategy](https://github.com/rust-lang/rustfmt/blob/main/src/cargo-fmt/main.rs)
+and [rustfmt invocation, module traversal, editions and check semantics](https://github.com/rust-lang/rustfmt).
+
 ## Reviewed baseline observations
 
 The first Cargo HTML report recorded `pg-foma` all-target checking in 57.8 seconds,
@@ -151,8 +173,9 @@ This has not yet been applied or claimed as a measured speedup.
 2. **Remove repeated wrapper work.** The exit-aware timed wait is implemented while
    retaining ten-second liveness inspections when work remains, stale-tree detection,
    helper cleanup, and kernel caps. Native full-tree hygiene is also implemented.
-   Separately measure workspace rustfmt on narrow builds and
-   repeated hygiene gates in release orchestration. Any future result reuse must
+   Workspace rustfmt now uses an exact-content clean cache plus changed-package formatting
+   after a proven full baseline. Separately measure repeated hygiene gates in release
+   orchestration. Any future result reuse must
    invalidate on all scan inputs, including deleted linked documents.
 3. **Prune unused dependency features.** Experiment with sysinfo's system and
    multithread features only. Verify actual process observations, both native

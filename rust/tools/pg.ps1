@@ -527,15 +527,38 @@ function Invoke-RustFmt {
     #>
     param([Parameter(Mandatory)][string]$RustRoot)
     if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { return }
-    $before = & cargo fmt --all --manifest-path (Join-Path $RustRoot 'Cargo.toml') -- --check 2>&1
-    $hunks = @($before | Where-Object { $_ -match '^Diff in ' }).Count
-    if ($hunks -eq 0) { Write-Host '[pg] rustfmt: already formatted.' -ForegroundColor Green; return }
-    & cargo fmt --all --manifest-path (Join-Path $RustRoot 'Cargo.toml') 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[pg] rustfmt: applied ($hunks hunk(s) reformatted -- they are in your working tree now)." -ForegroundColor Yellow
-    } else {
-        # A parse error is the usual cause and will fail the build a moment later with a better message.
-        Write-Host '[pg] rustfmt: could not run (syntax error?) -- continuing to the build for a real diagnostic.' -ForegroundColor Yellow
+    . (Join-Path $PSScriptRoot '_rustfmt-tool.ps1')
+    $repo = (Resolve-Path (Join-Path $RustRoot '..')).Path
+    $fmtVersion = @(& cargo fmt --version 2>&1)
+    $fmtExit = $LASTEXITCODE
+    $cargoVersion = @(& cargo --version 2>&1)
+    if ($fmtExit -ne 0 -or $LASTEXITCODE -ne 0) {
+        Write-Host '[pg] rustfmt: could not identify cargo/rustfmt -- continuing to the build for a real diagnostic.' -ForegroundColor Yellow
+        return
+    }
+    $head = @(& git -C $repo rev-parse HEAD 2>$null | Select-Object -First 1)
+    if ($LASTEXITCODE -ne 0 -or -not $head) { $head = "unresolved-$([guid]::NewGuid().ToString('N'))" }
+    $result = Invoke-RustFmtCached -RepoRoot $repo -RustRoot $RustRoot `
+        -ToolIdentity "$($fmtVersion -join ' ')|$($cargoVersion -join ' ')" -Head "$head"
+    switch ($result.Status) {
+        'Cached' { Write-Host '[pg] rustfmt: cached clean.' -ForegroundColor Green }
+        'Clean' {
+            $scope = if (@($result.Packages).Count) { "$(@($result.Packages).Count) changed package(s)" } else { 'workspace' }
+            Write-Host "[pg] rustfmt: already formatted ($scope)." -ForegroundColor Green
+        }
+        'Applied' {
+            $scope = if (@($result.Packages).Count) { "$(@($result.Packages).Count) changed package(s)" } else { 'workspace' }
+            Write-Host "[pg] rustfmt: applied ($($result.Hunks) hunk(s), $scope -- changes are in your working tree now)." -ForegroundColor Yellow
+        }
+        'ChangedDuringCheck' {
+            Write-Host '[pg] rustfmt: inputs changed during formatting/check; result was not cached.' -ForegroundColor Yellow
+            $result.Output | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+        }
+        default {
+            # A parse error is the usual cause and will fail the build a moment later with a better message.
+            Write-Host '[pg] rustfmt: could not run (syntax error?) -- continuing to the build for a real diagnostic.' -ForegroundColor Yellow
+            $result.Output | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+        }
     }
 }
 
