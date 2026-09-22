@@ -222,17 +222,180 @@ function Get-CommitChargeGB {
     try {
         $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
         if ($os -and $null -ne $os.TotalVirtualMemorySize -and $null -ne $os.FreeVirtualMemory) {
-            $limit = [math]::Round(([double]$os.TotalVirtualMemorySize) * 1KB / 1GB, 1)
-            $free = [math]::Round(([double]$os.FreeVirtualMemory) * 1KB / 1GB, 1)
+            $limitExact = ([double]$os.TotalVirtualMemorySize) * 1KB / 1GB
+            $freeExact = ([double]$os.FreeVirtualMemory) * 1KB / 1GB
+            $committedExact = $limitExact - $freeExact
+            $limit = [math]::Round($limitExact, 1)
+            $free = [math]::Round($freeExact, 1)
             return [PSCustomObject]@{
                 LimitGB     = $limit
                 FreeGB      = $free
-                CommittedGB = [math]::Round(($limit - $free), 1)
-                PercentUsed = if ($limit -gt 0) { [int][math]::Round((($limit - $free) / $limit) * 100) } else { $null }
+                FreeGBExact = $freeExact
+                CommittedGB = [math]::Round($committedExact, 1)
+                PercentUsed = if ($limitExact -gt 0) { [int][math]::Round(($committedExact / $limitExact) * 100) } else { $null }
             }
         }
     } catch {}
     return $null
+}
+
+function Test-CommitReserve {
+    <#
+      .DESCRIPTION
+      Pure commit-headroom admission check. The process job's actual commit cap and the interactive
+      reserve must both fit in current commit headroom; a null cap or invalid requirement refuses,
+      while an unknown measurement follows the caller's explicit FailClosed policy.
+    #>
+    param(
+        [Nullable[double]]$AvailableGB,
+        [Nullable[double]]$JobCapGB,
+        [Nullable[double]]$ReserveGB,
+        [double[]]$ConcurrentCapsGB = @(),
+        [int]$ConcurrentCount = 0,
+        [switch]$FailClosed
+    )
+    $measurementKnown = $null -ne $AvailableGB
+    $capKnown = $null -ne $JobCapGB
+    $reserveKnown = $null -ne $ReserveGB
+    $concurrentCaps = @($ConcurrentCapsGB)
+    $validConcurrentCaps = $ConcurrentCount -ge 0 -and -not ($ConcurrentCount -gt 0 -and $concurrentCaps.Count -gt 0)
+    foreach ($concurrentCap in $concurrentCaps) {
+        if ($concurrentCap -le 0 -or [double]::IsNaN($concurrentCap) -or [double]::IsInfinity($concurrentCap)) {
+            $validConcurrentCaps = $false
+            break
+        }
+    }
+    $valid = $capKnown -and $reserveKnown -and $JobCapGB -gt 0 -and $ReserveGB -ge 0 `
+        -and -not [double]::IsNaN($JobCapGB) -and -not [double]::IsInfinity($JobCapGB) `
+        -and -not [double]::IsNaN($ReserveGB) -and -not [double]::IsInfinity($ReserveGB) `
+        -and $validConcurrentCaps
+    $required = $null
+    if ($valid) {
+        $required = [double]$JobCapGB + [double]$ReserveGB
+        foreach ($concurrentCap in $concurrentCaps) { $required += [double]$concurrentCap }
+        $required += $ConcurrentCount * [double]$JobCapGB
+    }
+
+    if (-not $valid) {
+        return [PSCustomObject]@{
+            Ok = $false; MeasurementKnown = $measurementKnown; AvailableGB = $AvailableGB
+            JobCapGB = $JobCapGB; ReserveGB = $ReserveGB; RequiredGB = $required
+            ConcurrentCapsGB = $concurrentCaps; ConcurrentCount = $ConcurrentCount
+            Detail = 'commit admission cannot determine a positive job cap and non-negative reserve'
+        }
+    }
+    $requiredDisplay = '{0:0.###}' -f $required
+    $jobCapDisplay = '{0:0.###}' -f [double]$JobCapGB
+    $reserveDisplay = '{0:0.###}' -f [double]$ReserveGB
+    $peerReservationDisplay = '{0:0.###}' -f ($required - [double]$JobCapGB - [double]$ReserveGB)
+    $peerSlotCount = $concurrentCaps.Count + $ConcurrentCount
+    $peerDetail = if ($peerSlotCount -gt 0) { ", plus ${peerReservationDisplay}GB for $peerSlotCount occupied peer slot(s)" } else { '' }
+    if (-not $measurementKnown) {
+        return [PSCustomObject]@{
+            Ok = (-not $FailClosed); MeasurementKnown = $false; AvailableGB = $null
+            JobCapGB = $JobCapGB; ReserveGB = $ReserveGB; RequiredGB = $required
+            ConcurrentCapsGB = $concurrentCaps; ConcurrentCount = $ConcurrentCount
+            Detail = if ($FailClosed) {
+                "commit headroom is unknown (need ${requiredDisplay}GB: ${jobCapDisplay}GB job cap + ${reserveDisplay}GB reserve$peerDetail) -- refusing to launch"
+            } else { 'commit headroom is unknown; caller policy permits the launch' }
+        }
+    }
+
+    $ok = $AvailableGB -ge $required
+    $availableDisplay = '{0:0.###}' -f [double]$AvailableGB
+    return [PSCustomObject]@{
+        Ok = $ok; MeasurementKnown = $true; AvailableGB = $AvailableGB
+        JobCapGB = $JobCapGB; ReserveGB = $ReserveGB; RequiredGB = $required
+        ConcurrentCapsGB = $concurrentCaps; ConcurrentCount = $ConcurrentCount
+        Detail = if ($ok) {
+            "${availableDisplay}GB commit headroom (>= ${requiredDisplay}GB required: ${jobCapDisplay}GB job cap + ${reserveDisplay}GB reserve$peerDetail)"
+        } else {
+            "${availableDisplay}GB commit headroom (< ${requiredDisplay}GB required: ${jobCapDisplay}GB job cap + ${reserveDisplay}GB reserve$peerDetail) -- refusing to launch"
+        }
+    }
+}
+
+function Invoke-CommitGatedAction {
+    <#
+      .DESCRIPTION
+      The effect seam for the commit gate: refuse without invoking the action, or invoke it exactly
+      once after admission. pg.ps1 uses this around rustfmt, then rechecks after its slot wait.
+    #>
+    param(
+        [Nullable[double]]$AvailableGB,
+        [Nullable[double]]$JobCapGB,
+        [Nullable[double]]$ReserveGB,
+        [double[]]$ConcurrentCapsGB = @(),
+        [int]$ConcurrentCount = 0,
+        [switch]$FailClosed,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+    $decision = Test-CommitReserve -AvailableGB $AvailableGB -JobCapGB $JobCapGB `
+        -ReserveGB $ReserveGB -ConcurrentCapsGB $ConcurrentCapsGB -ConcurrentCount $ConcurrentCount -FailClosed:$FailClosed
+    if (-not $decision.Ok) {
+        $decision | Add-Member -NotePropertyName ActionInvoked -NotePropertyValue $false
+        return $decision
+    }
+    & $Action | Out-Null
+    $decision | Add-Member -NotePropertyName ActionInvoked -NotePropertyValue $true
+    return $decision
+}
+
+function Invoke-PostSlotCommitGatedAction {
+    <# .DESCRIPTION Apply the authoritative post-slot commit check; refusal returns the held slot before any launch callback. #>
+    param(
+        [Nullable[double]]$AvailableGB,
+        [Nullable[double]]$JobCapGB,
+        [Nullable[double]]$ReserveGB,
+        [double[]]$ConcurrentCapsGB = @(),
+        [int]$ConcurrentCount = 0,
+        [switch]$FailClosed,
+        [Parameter(Mandatory)]$Slot,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+    $decision = Test-CommitReserve -AvailableGB $AvailableGB -JobCapGB $JobCapGB `
+        -ReserveGB $ReserveGB -ConcurrentCapsGB $ConcurrentCapsGB -ConcurrentCount $ConcurrentCount -FailClosed:$FailClosed
+    if (-not $decision.Ok) {
+        Exit-ResourceSlot -Slot $Slot
+        $decision | Add-Member -NotePropertyName SlotReleased -NotePropertyValue $true
+        $decision | Add-Member -NotePropertyName ActionInvoked -NotePropertyValue $false
+        return $decision
+    }
+    & $Action | Out-Null
+    $decision | Add-Member -NotePropertyName SlotReleased -NotePropertyValue $false
+    $decision | Add-Member -NotePropertyName ActionInvoked -NotePropertyValue $true
+    return $decision
+}
+
+function Get-PgLaunchMemoryCapGB {
+    <#
+      .DESCRIPTION
+      Select the exact committed-memory cap pg.ps1 will give its launcher. Keep run overrides,
+      light-run caps, Heavy runs, and ordinary Cargo builds on their existing policy owners.
+      Non-launch modes return Launches=$false so an unknown cap cannot be confused with a skipped
+      mode by the fail-closed commit gate.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Mode,
+        [int]$MaxConcurrent = 2,
+        [int]$RunMemoryGB = 0,
+        [switch]$Heavy,
+        [switch]$ResolveJobCap
+    )
+    if ($Mode -notin @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc', 'run')) {
+        return [PSCustomObject]@{ Launches = $false; JobCapGB = $null; Detail = 'mode does not launch a managed process' }
+    }
+    $cap = $null
+    if ($ResolveJobCap) {
+        $cap = if ($Mode -eq 'run') {
+            if ($RunMemoryGB -gt 0) { $RunMemoryGB }
+            elseif ($Heavy) { Get-JobMemoryCapGB -MaxConcurrent $MaxConcurrent }
+            else { Get-RunJobMemoryCapGB }
+        } else {
+            Get-JobMemoryCapGB -MaxConcurrent $MaxConcurrent
+        }
+    }
+    return [PSCustomObject]@{ Launches = $true; JobCapGB = $cap; Detail = "$Mode launcher cap" }
 }
 
 function Get-TotalMemoryGB {
@@ -1034,6 +1197,7 @@ $script:BuildSlotMutexPrefix = 'Global\PanGlossBuildSlot'
 # A SECOND, independent pool -- deliberately not just more build slots; builds and runs bind on different resources.
 # docs/research/build-resource-governance.md
 $script:RunSlotMutexPrefix = 'Global\PanGlossRunSlot'
+$script:MaxResourceSlotWidth = 64
 $script:DefaultRunSlots = if ($env:PANGLOSS_RUN_SLOTS) { [int]$env:PANGLOSS_RUN_SLOTS } else { 4 }
 # One core per run slot: the light-run shape (`pangloss parse`, `batch --threads 1`) is single-threaded.
 $script:RunThreadsPerSlot = if ($env:PANGLOSS_RUN_THREADS_PER_SLOT) { [int]$env:PANGLOSS_RUN_THREADS_PER_SLOT } else { 1 }
@@ -1047,6 +1211,53 @@ function Get-SlotMutexPrefix {
     param([ValidateSet('build', 'run')][string]$Pool = 'build')
     if ($Pool -eq 'run') { return $script:RunSlotMutexPrefix }
     return $script:BuildSlotMutexPrefix
+}
+
+function Get-ResourceSlotContract {
+    <# One supported width defines both the highest acquireable index and the commit-census range. #>
+    param([ValidateSet('build', 'run')][string]$Pool = 'build', [int]$RequestedWidth = 1)
+    if ($RequestedWidth -lt 1 -or $RequestedWidth -gt $script:MaxResourceSlotWidth) {
+        throw "resource slot width $RequestedWidth is outside the supported range 1..$($script:MaxResourceSlotWidth) for the $Pool pool"
+    }
+    return [PSCustomObject]@{
+        Pool = $Pool
+        Prefix = Get-SlotMutexPrefix -Pool $Pool
+        RequestedWidth = $RequestedWidth
+        CensusWidth = $script:MaxResourceSlotWidth
+    }
+}
+
+function Get-ResourcePeerCommitCaps {
+    <#
+      For kernel-proven occupied peers, use the largest ordinary cap the same-pool policy can assign.
+      Build slots may come from any supported width, so the default upper bound is the width-one cap;
+      light-run slots share their flat run cap. A selected explicit cap can raise this launch's peer
+      reservation, but cannot reveal a different explicit override in an already-running peer.
+    #>
+    param(
+        [ValidateSet('build', 'run')][string]$Pool = 'build',
+        [int]$ConcurrentCount = 0,
+        [Nullable[double]]$CurrentJobCapGB,
+        [Nullable[double]]$TotalGB
+    )
+    if ($ConcurrentCount -lt 0) {
+        return [PSCustomObject]@{ Ok = $false; CapsGB = @(); PeerCapGB = $null; Detail = 'peer count cannot be negative' }
+    }
+    if ($ConcurrentCount -eq 0) {
+        return [PSCustomObject]@{ Ok = $true; CapsGB = [double[]]@(); PeerCapGB = $null; Detail = 'no occupied peer slots' }
+    }
+    $policyCap = if ($Pool -eq 'build') {
+        if ($PSBoundParameters.ContainsKey('TotalGB')) { Get-JobMemoryCapGB -MaxConcurrent 1 -TotalGB $TotalGB }
+        else { Get-JobMemoryCapGB -MaxConcurrent 1 }
+    } else { Get-RunJobMemoryCapGB }
+    if ($null -eq $policyCap -or $policyCap -le 0) {
+        return [PSCustomObject]@{ Ok = $false; CapsGB = @(); PeerCapGB = $null; Detail = "the $Pool pool's maximum ordinary peer cap is unknown" }
+    }
+    $peerCap = [double]$policyCap
+    if ($null -ne $CurrentJobCapGB -and $CurrentJobCapGB -gt $peerCap) { $peerCap = [double]$CurrentJobCapGB }
+    $caps = [double[]]::new($ConcurrentCount)
+    for ($i = 0; $i -lt $ConcurrentCount; $i++) { $caps[$i] = $peerCap }
+    return [PSCustomObject]@{ Ok = $true; CapsGB = $caps; PeerCapGB = $peerCap; Detail = "$ConcurrentCount peer slot(s) reserved at up to ${peerCap}GB each" }
 }
 
 function New-BuildSlotMutex {
@@ -1073,8 +1284,8 @@ function Enter-ResourceSlot {
         [int]$MaxConcurrent = 2,
         [int]$TimeoutSeconds = 0
     )
-    if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
-    $prefix = Get-SlotMutexPrefix -Pool $Pool
+    $contract = Get-ResourceSlotContract -Pool $Pool -RequestedWidth $MaxConcurrent
+    $prefix = $contract.Prefix
 
     $mutexes = @()
     for ($i = 0; $i -lt $MaxConcurrent; $i++) {
@@ -1106,7 +1317,10 @@ function Enter-ResourceSlot {
         return $null
     }
 
-    $slot = [PSCustomObject]@{ Mutexes = $mutexes; Index = $index; Pool = $Pool }
+    $slot = [PSCustomObject]@{
+        Mutexes = $mutexes; Index = $index; Pool = $Pool
+        CensusWidth = $contract.CensusWidth; Prefix = $contract.Prefix
+    }
     try { Write-SlotHolder -Pool $Pool -Slot $index } catch {}
     return $slot
 }
@@ -1138,6 +1352,89 @@ function Exit-ResourceSlot {
         $Slot.Release() | Out-Null
         $Slot.Dispose()
     } catch {}
+}
+
+function Get-OccupiedResourceSlotCount {
+    <#
+      .DESCRIPTION
+      Count current-pool occupancy from the kernel mutexes, never the diagnostic holder ledger.
+      The caller's mutex is known held from the slot token; probing it recursively would falsely
+      report it free, so count its Index directly and probe only peers. Abandoned mutexes are
+      recovered by WaitOne and immediately released; any other probe/release failure is explicit
+      and fail-closed for the resource admission that requested this census.
+    #>
+    param([Parameter(Mandatory)]$Slot)
+    if ($null -eq $Slot.Mutexes -or $null -eq $Slot.Index -or $Slot.Index -lt 0 -or $Slot.Index -ge $Slot.Mutexes.Count) {
+        return [PSCustomObject]@{ Ok = $false; OccupiedCount = $null; ConcurrentCount = $null; Detail = 'slot token does not identify an owned kernel mutex' }
+    }
+
+    try {
+        $contract = Get-ResourceSlotContract -Pool $Slot.Pool -RequestedWidth $Slot.Mutexes.Count
+    } catch {
+        return [PSCustomObject]@{ Ok = $false; OccupiedCount = $null; ConcurrentCount = $null; Detail = "resource slot census contract is invalid: $($_.Exception.Message)" }
+    }
+    $prefix = if ($Slot.Prefix) { $Slot.Prefix } else { $contract.Prefix }
+    $occupied = 1
+    $temporaryMutexes = @()
+    try {
+        for ($i = 0; $i -lt $contract.CensusWidth; $i++) {
+            if ($i -eq $Slot.Index) { continue }
+            if ($i -lt $Slot.Mutexes.Count) {
+                $mutex = $Slot.Mutexes[$i]
+            } else {
+                try {
+                    $mutex = New-BuildSlotMutex -Name "$prefix$i"
+                    $temporaryMutexes += $mutex
+                } catch {
+                    return [PSCustomObject]@{
+                        Ok = $false; OccupiedCount = $null; ConcurrentCount = $null
+                        Detail = "kernel slot occupancy handle creation failed for $($Slot.Pool) slot $i`: $($_.Exception.Message)"
+                    }
+                }
+            }
+            $acquired = $false
+            try {
+                $acquired = $mutex.WaitOne(0)
+            } catch {
+                $probeError = $_.Exception
+                while ($null -ne $probeError.InnerException -and -not ($probeError -is [System.Threading.AbandonedMutexException])) {
+                    $probeError = $probeError.InnerException
+                }
+                if ($probeError -is [System.Threading.AbandonedMutexException]) {
+                    # WaitOne transferred the abandoned mutex to us; it is now free for accounting only
+                    # after this thread gives that ownership back.
+                    $acquired = $true
+                } else {
+                    return [PSCustomObject]@{
+                        Ok = $false; OccupiedCount = $null; ConcurrentCount = $null
+                        Detail = "kernel slot occupancy probe failed for $($Slot.Pool) slot $i`: $($probeError.Message)"
+                    }
+                }
+            }
+
+            if ($acquired) {
+                try {
+                    $mutex.ReleaseMutex()
+                } catch {
+                    $releaseError = $_.Exception
+                    while ($null -ne $releaseError.InnerException) { $releaseError = $releaseError.InnerException }
+                    return [PSCustomObject]@{
+                        Ok = $false; OccupiedCount = $null; ConcurrentCount = $null
+                        Detail = "kernel slot probe could not release free/abandoned $($Slot.Pool) slot $i`: $($releaseError.Message)"
+                    }
+                }
+            } else {
+                $occupied++
+            }
+        }
+
+        return [PSCustomObject]@{
+            Ok = $true; OccupiedCount = $occupied; ConcurrentCount = ($occupied - 1)
+            Detail = "$occupied occupied $($Slot.Pool) slot(s), including this launch"
+        }
+    } finally {
+        foreach ($mutex in $temporaryMutexes) { $mutex.Dispose() }
+    }
 }
 
 function Exit-BuildSlot {
@@ -1538,10 +1835,12 @@ function Invoke-CargoWithReaper {
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
         # Only sizes the job object's memory ceiling; the build-slot mutex is what actually bounds concurrency.
         [int]$JobMaxConcurrent = 2,
+        # When supplied, this is the same cap already admitted by pg.ps1's commit-headroom gate.
+        [Nullable[int]]$JobMemoryGB,
         # This invocation's own width, so its CPU ceiling is its share rather than the whole machine's; 0 keeps the pre-split behavior.
         [int]$Threads = 0
     )
-    $jobMemGB = Get-JobMemoryCapGB -MaxConcurrent $JobMaxConcurrent
+    $jobMemGB = if ($PSBoundParameters.ContainsKey('JobMemoryGB')) { $JobMemoryGB } else { Get-JobMemoryCapGB -MaxConcurrent $JobMaxConcurrent }
     $cpuRate = if ($Threads -gt 0) { Get-JobCpuRatePercent -Threads $Threads } else { Get-JobCpuRatePercent }
     return Invoke-ProcessInJobObject -Exe $Exe -CmdArgs $CmdArgs -WorkingDirectory $WorkingDirectory `
         -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority -JobMemoryGB $jobMemGB -CpuRatePercent $cpuRate -Subject 'build'

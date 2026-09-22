@@ -364,8 +364,28 @@ if ($NoSccache) {
     $MaxConcurrent = 1
 }
 
+# Validate the effective pool widths before any formatter, hygiene checker, or managed child can run.
+# MaxConcurrentRuns=0 means "use the configured default"; negative values are never a default.
+if ($MaxConcurrent -lt 1 -or $MaxConcurrent -gt $script:MaxResourceSlotWidth) {
+    Write-Host "[pg] -MaxConcurrent must be in 1..$($script:MaxResourceSlotWidth); got $MaxConcurrent." -ForegroundColor Red
+    exit 2
+}
+if ($MaxConcurrentRuns -lt 0 -or $MaxConcurrentRuns -gt $script:MaxResourceSlotWidth) {
+    Write-Host "[pg] -MaxConcurrentRuns must be 0 (configured default) or in 1..$($script:MaxResourceSlotWidth); got $MaxConcurrentRuns." -ForegroundColor Red
+    exit 2
+}
+
+# Resolve this once so the commit-headroom gate and procgov receive the exact same Windows cap.
+# Linux launch admission uses the finite host-cgroup proof above; global commit charge is not its cap.
+$launchCapSelection = Get-PgLaunchMemoryCapGB -Mode $Mode -MaxConcurrent $MaxConcurrent `
+    -RunMemoryGB $RunMemoryGB -Heavy:$Heavy -ResolveJobCap:$IsWindows
+
 # Resolved once, here, because the run pool's width narrows the BUILD job budget below as well as bounding runs.
 $runSlots = if ($MaxConcurrentRuns -gt 0) { $MaxConcurrentRuns } else { $script:DefaultRunSlots }
+if ($runSlots -lt 1 -or $runSlots -gt $script:MaxResourceSlotWidth) {
+    Write-Host "[pg] configured run-slot width must be in 1..$($script:MaxResourceSlotWidth); got $runSlots." -ForegroundColor Red
+    exit 2
+}
 
 # Computed AFTER -NoSccache (which can lower MaxConcurrent) since the job budget is per-slot, and narrowed by
 # available memory as well as cores. docs/research/build-resource-governance.md
@@ -411,6 +431,7 @@ function Invoke-BackendCardRegeneration {
         [bool]$ReleaseBuild,
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$BuildPriority,
         [int]$BuildMaxConcurrent,
+        [Nullable[int]]$BuildJobMemoryGB,
         $HostCgroupProof = $null
     )
     $generatorArgs = @('run', '-p', 'pg-foma', '--example', 'regenerate_backend_cards')
@@ -420,6 +441,7 @@ function Invoke-BackendCardRegeneration {
         Exe = 'cargo'; CmdArgs = $generatorArgs; WorkingDirectory = $RustRoot
         Priority = $BuildPriority; JobMaxConcurrent = $BuildMaxConcurrent
     }
+    if ($IsWindows) { $invokeArgs['JobMemoryGB'] = $BuildJobMemoryGB }
     if ($null -ne $HostCgroupProof) { $invokeArgs['HostCgroupProof'] = $HostCgroupProof }
     $generatorCode = Invoke-CargoWithReaper @invokeArgs
     if ($generatorCode -ne 0) {
@@ -627,13 +649,37 @@ if (-not $memCheck.Ok -and $Mode -notin @('gc', 'doctor')) {
     exit $script:ExitCodeLowMemory
 }
 
+# Before formatting, hygiene, or slot admission, prove the actual procgov cap plus the interactive reserve fit in
+# Windows commit headroom. Linux already proves and enforces a finite cgroup cap above; its global
+# /proc/meminfo commit counter is not interchangeable with that scoped limit.
+if ($IsWindows -and $launchCapSelection.Launches) {
+    $commitSnapshot = Get-CommitChargeGB
+    $availableCommitGB = if ($null -ne $commitSnapshot) { $commitSnapshot.FreeGBExact } else { $null }
+    $formatAction = {
+        if ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc')) {
+            Invoke-RustFmt -RustRoot $rustRoot
+        }
+    }.GetNewClosure()
+    $commitGate = Invoke-CommitGatedAction -AvailableGB $availableCommitGB `
+        -JobCapGB $launchCapSelection.JobCapGB -ReserveGB (Get-InteractiveReserveGB) `
+        -FailClosed -Action $formatAction
+    if (-not $commitGate.Ok) {
+        Write-Host "[pg] $($commitGate.Detail) (commit-limit measurement is required on Windows)." -ForegroundColor Red
+        Write-Host '[pg] nothing was formatted or launched. Wait for existing commit usage to fall, or investigate the largest commit consumers with pg.ps1 -Mode doctor.' -ForegroundColor Yellow
+        exit $script:ExitCodeLowMemory
+    }
+    Write-Host "[pg] $($commitGate.Detail)." -ForegroundColor DarkGray
+} elseif ($launchCapSelection.Launches -and $Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc')) {
+    Invoke-RustFmt -RustRoot $rustRoot
+}
+
 # Not in doctor: it reports this in its own findings section further up, so an unguarded call would scan twice there.
+# This stays after the Windows commit gate because the native checker is a process launch and a stale
+# checker may bootstrap a nested managed build.
 if ($HygieneBootstrap) {
     Write-Host '[pg] hygiene preflight omitted only while compiling the checker itself.'
 } elseif ($Mode -notin @('doctor', 'check', 'quick')) { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
 
-# Only for modes that actually compile: `gc`/`run` must not rewrite source, and `doctor` is read-only.
-if ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc')) { Invoke-RustFmt -RustRoot $rustRoot }
 if ($HygieneBootstrap) {
     . (Join-Path $PSScriptRoot '_comment-hygiene-tool.ps1')
     $hygieneFingerprint = Get-HygieneInputFingerprint -RepoRoot $repoRoot
@@ -870,6 +916,37 @@ if (-not $memCheckNow.Ok) {
     exit $script:ExitCodeLowMemory
 }
 
+# A slot may have taken minutes to open. On Windows, re-read commit headroom while holding it,
+# before any Cargo or direct executable launch; release the slot on refusal.
+if ($IsWindows -and $launchCapSelection.Launches) {
+    $commitSnapshotNow = Get-CommitChargeGB
+    $availableCommitNowGB = if ($null -ne $commitSnapshotNow) { $commitSnapshotNow.FreeGBExact } else { $null }
+    $slotOccupancyNow = Get-OccupiedResourceSlotCount -Slot $sem
+    if (-not $slotOccupancyNow.Ok) {
+        Exit-ResourceSlot -Slot $sem
+        Write-Host "[pg] could not prove current $slotPool mutex occupancy: $($slotOccupancyNow.Detail) -- refusing to launch." -ForegroundColor Red
+        Write-Host '[pg] nothing was launched. Retry when the slot state can be measured.' -ForegroundColor Yellow
+        exit $script:ExitCodeLowMemory
+    }
+    $peerCommitCaps = Get-ResourcePeerCommitCaps -Pool $slotPool `
+        -ConcurrentCount $slotOccupancyNow.ConcurrentCount -CurrentJobCapGB $launchCapSelection.JobCapGB
+    if (-not $peerCommitCaps.Ok) {
+        Exit-ResourceSlot -Slot $sem
+        Write-Host "[pg] could not determine a conservative $slotPool peer commit reservation: $($peerCommitCaps.Detail) -- refusing to launch." -ForegroundColor Red
+        Write-Host '[pg] nothing was launched. Retry when the slot state and cap policy can be measured.' -ForegroundColor Yellow
+        exit $script:ExitCodeLowMemory
+    }
+    $commitCheckNow = Invoke-PostSlotCommitGatedAction -AvailableGB $availableCommitNowGB `
+        -JobCapGB $launchCapSelection.JobCapGB -ReserveGB (Get-InteractiveReserveGB) `
+        -ConcurrentCapsGB $peerCommitCaps.CapsGB -FailClosed `
+        -Slot $sem -Action { }
+    if (-not $commitCheckNow.Ok) {
+        Write-Host "[pg] commit headroom fell below the launch requirement while waiting for a $slotPool slot: $($commitCheckNow.Detail)." -ForegroundColor Red
+        Write-Host '[pg] nothing was launched. Re-run when the existing process that consumed commit has finished.' -ForegroundColor Yellow
+        exit $script:ExitCodeLowMemory
+    }
+}
+
 if ($usedSccache) {
     $sccacheServer = Confirm-SccacheServerOutsideJob
     if ($sccacheServer) {
@@ -884,9 +961,7 @@ $hygienePreviousStamp = $env:PANGLOSS_HYGIENE_BUILD_FINGERPRINT
 try {
     if ($Mode -eq 'run') {
         # A light run gets a small FLAT cap; -Heavy takes the build-sized machine-proportional one. See this script's own header.
-        $runMemGB = if ($RunMemoryGB -gt 0) { $RunMemoryGB }
-        elseif ($Heavy) { Get-JobMemoryCapGB -MaxConcurrent $MaxConcurrent }
-        else { Get-RunJobMemoryCapGB }
+        $runMemGB = $launchCapSelection.JobCapGB
         $runCpuRate = if ($Heavy) { Get-JobCpuRatePercent -Threads $Jobs } else { Get-JobCpuRatePercent -Threads $script:RunThreadsPerSlot }
         Write-Host "[pg] run ($($runPlan.Label)): $($runPlan.LaunchExe) $($runPlan.LaunchArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }))" -ForegroundColor Cyan
         $invokeArgs = @{
@@ -914,7 +989,11 @@ try {
             $invokeArgs = @{
                 Exe = 'cargo'; CmdArgs = @($cargoArgs) + @('--locked', '--message-format=json-render-diagnostics')
                 WorkingDirectory = $rustRoot; CaptureStdoutPath = $capturePath
-                Priority = $Priority; JobMaxConcurrent = $MaxConcurrent; Threads = [Math]::Max($Jobs, $TestThreads)
+                Priority = $Priority; JobMaxConcurrent = $MaxConcurrent
+            }
+            if ($IsWindows) {
+                $invokeArgs['JobMemoryGB'] = $launchCapSelection.JobCapGB
+                $invokeArgs['Threads'] = [Math]::Max($Jobs, $TestThreads)
             }
             if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
             $code = Invoke-CargoWithReaper @invokeArgs
@@ -940,7 +1019,11 @@ try {
         $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) "pg-corpus-test-$PID.log"
         $invokeArgs = @{
             Exe = 'cargo'; CmdArgs = $cargoArgs; WorkingDirectory = $rustRoot; CaptureStdoutPath = $capturePath
-            Priority = $Priority; JobMaxConcurrent = $MaxConcurrent; Threads = [Math]::Max($Jobs, $TestThreads)
+            Priority = $Priority; JobMaxConcurrent = $MaxConcurrent
+        }
+        if ($IsWindows) {
+            $invokeArgs['JobMemoryGB'] = $launchCapSelection.JobCapGB
+            $invokeArgs['Threads'] = [Math]::Max($Jobs, $TestThreads)
         }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-CargoWithReaper @invokeArgs
@@ -963,14 +1046,19 @@ try {
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $invokeArgs = @{
             Exe = 'cargo'; CmdArgs = $cargoArgs; WorkingDirectory = $rustRoot
-            Priority = $Priority; JobMaxConcurrent = $MaxConcurrent; Threads = [Math]::Max($Jobs, $TestThreads)
+            Priority = $Priority; JobMaxConcurrent = $MaxConcurrent
+        }
+        if ($IsWindows) {
+            $invokeArgs['JobMemoryGB'] = $launchCapSelection.JobCapGB
+            $invokeArgs['Threads'] = [Math]::Max($Jobs, $TestThreads)
         }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-CargoWithReaper @invokeArgs
         if ($code -eq 0 -and (Test-BackendCardRegenerationScope -BuildMode $Mode -BuildPackage $Package)) {
             $releaseBuild = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile))
             $code = Invoke-BackendCardRegeneration -RustRoot $rustRoot -ReleaseBuild:$releaseBuild `
-                -BuildPriority $Priority -BuildMaxConcurrent $MaxConcurrent -HostCgroupProof $linuxHostProof
+                -BuildPriority $Priority -BuildMaxConcurrent $MaxConcurrent `
+                -BuildJobMemoryGB $launchCapSelection.JobCapGB -HostCgroupProof $linuxHostProof
         }
     }
 } finally {

@@ -63,6 +63,36 @@ Resource-Exhaustion-Detector's event 2004 reports committed memory per process, 
 `--maxjobmem` caps committed bytes. Reporting only available *physical* memory while enforcing on
 *commit* is how "there is plenty of memory" and "allocation failed" can both be true at once.
 
+On Windows, every managed launch checks commit headroom before rustfmt and before taking a
+build/run slot, then checks again after the slot opens. The decision uses the unrounded
+`Get-CommitChargeGB.FreeGBExact` value; `FreeGB` remains rounded for reports. The pre-format check
+requires the exact procgov cap selected for this launch plus the interactive reserve. After acquiring
+a slot, pg probes the pool's kernel mutexes (not the diagnostic holder ledger) over the fixed
+supported census width of 64, independent of the caller's requested width. Acquisition waits only on
+the requested first N slots and rejects widths outside 1..64; the wider census lets a width-one caller
+see a width-two peer on slot 1. It requires the selected cap for this process plus one conservative
+cap for every other kernel-occupied slot. Build peers use the largest ordinary derived build cap
+(`Get-JobMemoryCapGB -MaxConcurrent 1`), so a narrow peer is not undercounted when the current
+invocation has a smaller width-two cap. Light-run peers use the ordinary flat `Get-RunJobMemoryCapGB`
+cap. The selected cap for the current launch raises the peer bound if it is larger, and the final
+requirement adds the interactive reserve. This closes the mixed-width same-pool race in either
+acquisition order, in addition to the two-default-build case.
+
+The count remains deliberately same-pool only: light runs and builds occupy separate mutex pools.
+Also, an already-running peer with a heterogeneous explicit per-launch cap cannot be reconstructed
+from kernel mutex ownership alone; the current selected cap can raise the conservative peer bound,
+but this is not an authoritative reservation record for a different peer override. Thus the check
+handles ordinary width-dependent build caps and standard light-run caps, but is not a whole-machine
+cross-pool or arbitrary-override reservation proof. `Get-PgLaunchMemoryCapGB` delegates cap selection
+to the existing owners: Cargo builds and `-Heavy` runs use `Get-JobMemoryCapGB`, a light `run` uses
+`Get-RunJobMemoryCapGB`, and an explicit `-RunMemoryGB` is honored for that run. The selected cap is
+passed through to procgov so the value admitted is the value enforced. An unqueryable Windows commit
+reading or unresolvable cap refuses with the low-memory exit code before formatting or launch.
+
+Linux keeps its scoped resource contract: pg requires a finite host cgroup proof before managed
+launch and carries that proof through the process seam. Its global `/proc/meminfo` commit counter is
+not used as a substitute for the current cgroup's configured cap.
+
 ## Per-job memory allowances
 
 Three different weights, because the phases are not comparable:
@@ -121,9 +151,11 @@ maintained here:
   spike can hide in; a job object enforces a commit limit at *allocation time*, so an over-limit
   process fails its own allocation instead of the whole machine going unreachable.
 - A machine-wide memory reservation ledger existed to stop several waiting builds from all seeing
-  "memory is free" and starting together; with a hard per-build job-object cap plus the build-slot
-  mutex's fixed concurrency, the machine-wide worst case is bounded by construction, so the race
-  stops mattering and the ledger's bookkeeping is unnecessary.
+  "memory is free" and starting together. A post-slot commit check now sums conservative same-pool
+  caps using kernel mutex ownership, including mixed-width build peers up to the shared 64-slot
+  contract, so a width-one census cannot miss slot one. Cross-pool and heterogeneous explicit
+  per-launch peer-cap reservations remain a known limit; the diagnostic holder ledger is never
+  treated as kernel occupancy truth.
 - `-j`-based CPU limiting cannot bound rustc's total thread count: `-j` caps codegen workers
   *within* one rustc instance, not threads across instances
   ([rust-lang/rust#81957](https://github.com/rust-lang/rust/issues/81957)). `--cpurate` is a

@@ -224,6 +224,24 @@ Committed_AS:   2048 kB
             'the validated proof must be passed through the preflight/report seam'
     }
 
+    Test-Case 'pg never splats Windows-only JobMemoryGB into the Linux Cargo adapter' {
+        $pgText = Get-Content -LiteralPath (Join-Path $toolRoot 'pg.ps1') -Raw
+        $adapterText = Get-Content -LiteralPath (Join-Path $toolRoot '_platform_linux.ps1') -Raw
+        $adapterCargo = [regex]::Match($adapterText, '(?s)function global:Invoke-CargoWithReaper\s*\{(?<body>.*?)(?=\r?\n\})')
+        Assert-True $adapterCargo.Success 'the Linux adapter Cargo function must be present'
+        Assert-False $adapterCargo.Groups['body'].Value.Contains('JobMemoryGB') `
+            'Linux adapter must not acquire a Windows job-object-only parameter'
+
+        $conditionalWindowsArguments = [regex]::Matches($pgText, 'if \(\$IsWindows\) \{\s*\$invokeArgs\[''JobMemoryGB''\] = \$launchCapSelection\.JobCapGB\s*\$invokeArgs\[''Threads''\] = \[Math\]::Max\(\$Jobs, \$TestThreads\)\s*\}').Count
+        Assert-Equal 3 $conditionalWindowsArguments 'hygiene, corpus, and ordinary Cargo paths must add both Windows-only arguments conditionally'
+        Assert-True $pgText.Contains("if (`$IsWindows) { `$invokeArgs['JobMemoryGB'] = `$BuildJobMemoryGB }") `
+            'backend regeneration must also add its cap only on Windows'
+        Assert-False $pgText.Contains('JobMemoryGB = $launchCapSelection.JobCapGB') `
+            'Cargo splats must not unconditionally include the platform-specific cap'
+        Assert-Equal 3 ([regex]::Matches($pgText, '\[''Threads''\] = \[Math\]::Max\(\$Jobs, \$TestThreads\)').Count) `
+            'each compilation Cargo callsite must keep its thread argument within the Windows-only block'
+    }
+
     Test-Case 'Linux process seam is the actual Invoke-ProcessInJobObject path and preflights before launch' {
         Assert-LinuxAdapterReady
         $calls = [System.Collections.Generic.List[object]]::new()
