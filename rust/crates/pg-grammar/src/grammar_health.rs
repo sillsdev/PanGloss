@@ -92,9 +92,9 @@ impl GrammarHealthCode {
     /// Stable plain-language sidebar/log grouping label. Keep these short and linguist-facing.
     pub const fn group_name(self) -> &'static str {
         match self {
-            Self::UndeclaredSegment => "Reference to a missing object",
-            Self::DuplicateFeatureBundle => "Form cannot split into letters",
-            Self::PartialMorpheme => "Grammatical info with no forms",
+            Self::UndeclaredSegment => "Missing segment definition",
+            Self::DuplicateFeatureBundle => "Duplicate segment features",
+            Self::PartialMorpheme => "Partial morpheme analysis",
         }
     }
 }
@@ -1298,6 +1298,23 @@ mod tests {
             assert_eq!(serde_json::to_string(&code).unwrap(), format!("{wire:?}"));
         }
     }
+
+    #[test]
+    fn group_names_describe_their_codes() {
+        assert_eq!(
+            GrammarHealthCode::UndeclaredSegment.group_name(),
+            "Missing segment definition"
+        );
+        assert_eq!(
+            GrammarHealthCode::DuplicateFeatureBundle.group_name(),
+            "Duplicate segment features"
+        );
+        assert_eq!(
+            GrammarHealthCode::PartialMorpheme.group_name(),
+            "Partial morpheme analysis"
+        );
+    }
+
     const FIELDWORKS_GUID_PARTIAL_XML: &str = r#"<HermitCrabInput><Language>
 <Name>FieldWorks Demo</Name>
 <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
