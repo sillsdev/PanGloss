@@ -277,7 +277,8 @@ impl<'g> Morpher<'g> {
 
     /// The single-word diagnostic entry point used by rich trace output. It runs the existing
     /// trace sink and stats collector in the same unmerged parse, so the tree, counters, and
-    /// timings all describe one search rather than two independent replays.
+    /// timings all describe one search rather than two independent replays. Pinned by
+    /// `traced_stats_run_matches_separate_trace_and_stats_runs`.
     pub fn parse_word_traced_with_stats(
         &self,
         word: &str,

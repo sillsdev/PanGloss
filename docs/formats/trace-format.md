@@ -34,11 +34,8 @@ in the tree differs between the two — `text` and `json` are two renderings of 
 trace.
 
 Tracing exists only on `parse`, one word per invocation. `batch` — the many-words-at-once command
-— cannot trace, and `parse --trace` carries no cap of its own on how many steps it may take: check
-`pangloss parse` with no arguments, or its usage line, and you will not find a `--step-cap` flag
-there the way `batch` has one. Whatever is running a trace is responsible for bounding it from the
-outside.
-
+— cannot trace. `parse --trace` has no configurable `--step-cap` flag; it uses PanGloss's finite
+default step cap and reports whether that cap fired in the details envelope.
 ## A traced parse is not the same search as an ordinary one
 
 **Read this before drawing any conclusion from step counts or timing in a trace.** An ordinary

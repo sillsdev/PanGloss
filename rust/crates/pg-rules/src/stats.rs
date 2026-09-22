@@ -125,6 +125,26 @@ impl StatsRow {
     }
 }
 
+/// Sum one object kind using the same per-object counter projection as stats reports.
+/// `not_applied` is invocation-level on `ALLOMORPH_NONE`; its allomorph rows are a separate
+/// breakdown and must not inflate the category total.
+pub fn summarize_kind(rows: &[StatsRow], kind: ObjectKind) -> Counters {
+    let mut total = Counters::default();
+    for row in rows.iter().filter(|row| row.kind == kind) {
+        total.attempts += row.counters.attempts;
+        total.work += row.counters.work;
+        total.outputs += row.counters.outputs;
+        if row.allomorph == ALLOMORPH_NONE {
+            total.not_applied += row.counters.not_applied;
+        }
+        total.no_root += row.counters.no_root;
+        total.surface_mismatch += row.counters.surface_mismatch;
+        total.uses += row.counters.uses;
+        total.self_time_ns += row.counters.self_time_ns;
+    }
+    total
+}
+
 /// One rule-kind's counters, dense across every `(direction, stratum, rule)` triple, always at `ALLOMORPH_NONE`, laid out as two direction-major blocks so decoding a flat index is exact division/modulo.
 struct DenseTable {
     num_strata: usize,

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use pg_grammar::model::Grammar;
 use pg_parse::ParseOutcome;
-use pg_rules::stats::{self, Counters, ObjectKind, StatsRow};
+use pg_rules::stats::{self, ObjectKind, StatsRow};
 use pg_rules::trace::{TraceHandle, TreeTraceSink};
 use serde_json::{json, Value};
 
@@ -38,17 +38,6 @@ fn kind_name(kind: ObjectKind) -> &'static str {
     }
 }
 
-fn add_counters(total: &mut Counters, row: &StatsRow) {
-    total.attempts += row.counters.attempts;
-    total.work += row.counters.work;
-    total.outputs += row.counters.outputs;
-    total.not_applied += row.counters.not_applied;
-    total.no_root += row.counters.no_root;
-    total.surface_mismatch += row.counters.surface_mismatch;
-    total.uses += row.counters.uses;
-    total.self_time_ns += row.counters.self_time_ns;
-}
-
 fn stats_json(rows: &[StatsRow]) -> Value {
     let kinds = [
         ObjectKind::MorphRule,
@@ -59,10 +48,7 @@ fn stats_json(rows: &[StatsRow]) -> Value {
         ObjectKind::Overlay,
     ];
     let categories = kinds.into_iter().map(|kind| {
-        let mut counters = Counters::default();
-        for row in rows.iter().filter(|row| row.kind == kind) {
-            add_counters(&mut counters, row);
-        }
+        let counters = stats::summarize_kind(rows, kind);
         let timing_available = stats::self_time_supported(kind);
         (
             kind_name(kind).to_owned(),
@@ -176,7 +162,20 @@ mod tests {
                 direction: Direction::Synthesis,
                 counters: Counters {
                     attempts: 2,
+                    not_applied: 1,
                     self_time_ns: 11,
+                    ..Counters::default()
+                },
+            },
+            StatsRow {
+                kind: ObjectKind::MorphRule,
+                object_index: 0,
+                stratum: StratumId(0),
+                allomorph: 1,
+                direction: Direction::Synthesis,
+                counters: Counters {
+                    not_applied: 2,
+                    self_time_ns: 7,
                     ..Counters::default()
                 },
             },
@@ -224,7 +223,8 @@ mod tests {
         assert_eq!(value["trace"], tree);
         assert_eq!(value["search"]["completed"], true);
         assert_eq!(value["result"]["signature"], "root+past|sagd");
-        assert_eq!(value["categories"]["morphRule"]["selfElapsedNs"], 11);
+        assert_eq!(value["categories"]["morphRule"]["selfElapsedNs"], 18);
+        assert_eq!(value["categories"]["morphRule"]["notApplied"], 1);
         assert_eq!(value["categories"]["morphRule"]["attempts"], 2);
         assert_eq!(value["categories"]["phonRule"]["attempts"], 3);
         assert_eq!(
