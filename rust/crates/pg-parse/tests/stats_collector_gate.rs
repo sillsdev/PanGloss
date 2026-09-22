@@ -116,6 +116,68 @@ fn synthesis_direction_rows_are_nonzero_for_words_that_parse() {
     );
 }
 
+/// Try-a-word's rich collector must time the same phonological-rule and root-index work
+/// whose counters it already records. Replaying the real fixtures makes the assertion
+/// insensitive to any one sub-microsecond clock reading while still proving both phon
+/// owner loops and the trie-search boundary actually fire.
+#[test]
+fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
+    let mut phon_analysis_ns = 0u64;
+    let mut phon_synthesis_ns = 0u64;
+    let mut root_index_ns = 0u64;
+    let mut phon_work = 0u64;
+    let mut root_work = 0u64;
+
+    for _ in 0..8 {
+        for (g, cases) in fixture_cases() {
+            let morpher = Morpher::new(&g, usize::MAX);
+            for case in &cases {
+                let trace = TreeTraceSink::new();
+                let (_outcome, rows) = morpher.parse_word_traced_with_stats(
+                    case.word,
+                    &ParseOptions::default(),
+                    &trace,
+                );
+                for row in rows {
+                    match (row.kind, row.direction) {
+                        (ObjectKind::PhonRule, Direction::Analysis) => {
+                            phon_analysis_ns += row.counters.self_time_ns;
+                            phon_work += row.counters.work;
+                        }
+                        (ObjectKind::PhonRule, Direction::Synthesis) => {
+                            phon_synthesis_ns += row.counters.self_time_ns;
+                            phon_work += row.counters.work;
+                        }
+                        (ObjectKind::RootIndex, Direction::Analysis) => {
+                            root_index_ns += row.counters.self_time_ns;
+                            root_work += row.counters.work;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        phon_work > 0,
+        "fixture must exercise recorded phonological work"
+    );
+    assert!(
+        root_work > 0,
+        "fixture must exercise recorded root-index work"
+    );
+    assert!(
+        phon_analysis_ns > 0,
+        "phonological analysis work must be timed"
+    );
+    assert!(
+        phon_synthesis_ns > 0,
+        "phonological synthesis work must be timed"
+    );
+    assert!(root_index_ns > 0, "root-index lookup work must be timed");
+}
+
 /// Stats-off and stats-on parses must produce byte-identical outcomes, never merely similar ones.
 #[test]
 fn stats_collection_does_not_change_the_parse_outcome() {

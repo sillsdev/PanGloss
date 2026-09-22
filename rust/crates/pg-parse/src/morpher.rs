@@ -200,15 +200,31 @@ impl<'g> Morpher<'g> {
         morpher
     }
 
-    fn search_roots(&self, stratum: StratumId, shape: &pg_shape::Shape) -> Vec<ResolvedRoot> {
+    fn search_roots(
+        &self,
+        stratum: StratumId,
+        shape: &pg_shape::Shape,
+        stats: Option<&pg_rules::stats::StatsCollector>,
+    ) -> Vec<ResolvedRoot> {
         let mut roots = Vec::new();
-        for (allo, entry) in self.root_index.search(self.g, stratum, shape) {
-            let authored_id = &self.g.entries[entry.0 as usize].authored_id;
-            if !self
-                .overlay
-                .is_some_and(|overlay| overlay.suppresses(authored_id))
-            {
-                roots.push(ResolvedRoot::Grammar(allo, entry));
+        {
+            let _root_index_time = stats.map(|stats| {
+                stats.time_enter(
+                    pg_rules::stats::ObjectKind::RootIndex,
+                    stratum,
+                    0,
+                    pg_rules::stats::ALLOMORPH_NONE,
+                    pg_rules::stats::Direction::Analysis,
+                )
+            });
+            for (allo, entry) in self.root_index.search(self.g, stratum, shape) {
+                let authored_id = &self.g.entries[entry.0 as usize].authored_id;
+                if !self
+                    .overlay
+                    .is_some_and(|overlay| overlay.suppresses(authored_id))
+                {
+                    roots.push(ResolvedRoot::Grammar(allo, entry));
+                }
             }
         }
         if let Some(overlay) = self.overlay {
@@ -400,7 +416,7 @@ impl<'g> Morpher<'g> {
         let budget = pg_rules::stratum::StepBudget::new(self.cap).with_timeout(self.word_timeout);
         // Closure lives here because `pg-parse` owns `RootAllomorphIndex` and `pg-rules` cannot depend on `pg-parse`.
         let filter: NonHeadRootFilter =
-            &|st: StratumId, shape: &pg_shape::Shape| self.search_roots(st, shape);
+            &|st: StratumId, shape: &pg_shape::Shape| self.search_roots(st, shape, None);
         let mut input_set: HashMap<WordKey, Word> = HashMap::default();
         input_set.insert(input.dedup_key(), input);
         let mut results: HashMap<WordKey, Word> = HashMap::default();
@@ -590,7 +606,7 @@ impl<'g> Morpher<'g> {
         if let Some(stats) = stats {
             stats.record_root_index_attempt(aw.stratum, aw.shape.len() as u64);
         }
-        let matched = self.search_roots(aw.stratum, &aw.shape);
+        let matched = self.search_roots(aw.stratum, &aw.shape, stats);
         // Distinct entries in first-seen order; `lex_entry_filter` runs before the dedup, mirroring C#'s `.Where().Distinct()` order.
         let mut entries: Vec<LexEntryId> = Vec::new();
         for root in &matched {

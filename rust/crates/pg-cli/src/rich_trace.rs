@@ -668,6 +668,7 @@ mod tests {
             StatsRow { kind: ObjectKind::MorphRule, object_index: 0, stratum: StratumId(0), allomorph: 1, direction: Direction::Synthesis, counters: Counters { not_applied: 2, self_time_ns: 7, ..Counters::default() } },
             StatsRow { kind: ObjectKind::Overlay, object_index: 0, stratum: StratumId(0), allomorph: 0, direction: Direction::Analysis, counters: Counters { attempts: 1, self_time_ns: 99, ..Counters::default() } },
             StatsRow { kind: ObjectKind::PhonRule, object_index: 0, stratum: StratumId(0), allomorph: 0, direction: Direction::Analysis, counters: Counters { attempts: 3, self_time_ns: 77, ..Counters::default() } },
+            StatsRow { kind: ObjectKind::RootIndex, object_index: 0, stratum: StratumId(0), allomorph: 0, direction: Direction::Analysis, counters: Counters { attempts: 4, self_time_ns: 23, ..Counters::default() } },
         ];
         let tree = json!({ "type": "WordAnalysis", "children": [{"type": "Successful", "children": []}] });
         let value: serde_json::Value = serde_json::from_str(&render_envelope_v2(tree.clone(), "sagd", &outcome, &rows, Duration::from_nanos(7), &TraceMetadata::default()).expect("rich envelope serializes")).expect("rich envelope is JSON");
@@ -679,8 +680,10 @@ mod tests {
         assert_eq!(value["categories"]["morphRule"]["notApplied"], 1);
         assert_eq!(value["categories"]["morphRule"]["attempts"], 2);
         assert_eq!(value["categories"]["phonRule"]["attempts"], 3);
-        assert_eq!(value["categories"]["phonRule"]["selfElapsedNs"], serde_json::Value::Null);
-        assert_eq!(value["categories"]["phonRule"]["timingAvailable"], false);
+        assert_eq!(value["categories"]["phonRule"]["selfElapsedNs"], 77);
+        assert_eq!(value["categories"]["phonRule"]["timingAvailable"], true);
+        assert_eq!(value["categories"]["rootIndex"]["selfElapsedNs"], 23);
+        assert_eq!(value["categories"]["rootIndex"]["timingAvailable"], true);
         assert_eq!(value["categories"]["overlay"]["selfElapsedNs"], serde_json::Value::Null);
         assert_eq!(value["categories"]["overlay"]["timingAvailable"], false);
     }

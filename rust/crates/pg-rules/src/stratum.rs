@@ -1172,6 +1172,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 id: pid,
                 direction: crate::stats::Direction::Analysis,
             });
+            let _phon_time = self.stats.map(|stats| {
+                stats.time_enter(
+                    crate::stats::ObjectKind::PhonRule,
+                    self.stratum_id,
+                    pid.0,
+                    crate::stats::ALLOMORPH_NONE,
+                    crate::stats::Direction::Analysis,
+                )
+            });
             let result = match &self.g.prules[pid.0 as usize] {
                 pg_grammar::model::PhonRuleDef::Rewrite(r) => match self.cache {
                     Some(cache) => rewrite::analyze_cached_traced(
@@ -1887,6 +1896,15 @@ pub fn synthesize_stratum_traced_with_policy(
             if budget.synthesis_over_budget() {
                 break;
             }
+            let _phon_time = stats.map(|stats| {
+                stats.time_enter(
+                    crate::stats::ObjectKind::PhonRule,
+                    stratum,
+                    pid.0,
+                    crate::stats::ALLOMORPH_NONE,
+                    crate::stats::Direction::Synthesis,
+                )
+            });
             let result = match &g.prules[pid.0 as usize] {
                 pg_grammar::model::PhonRuleDef::Rewrite(r) => {
                     rewrite::synthesize_with_mpr_cached_traced(

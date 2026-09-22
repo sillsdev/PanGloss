@@ -53,7 +53,10 @@ pub enum ObjectKind {
 /// Keep this beside the collector's kind definition so report adapters cannot turn an unwired
 /// counter's numeric default into a claim of measured time.
 pub fn self_time_supported(kind: ObjectKind) -> bool {
-    matches!(kind, ObjectKind::MorphRule | ObjectKind::LexEntry)
+    matches!(
+        kind,
+        ObjectKind::MorphRule | ObjectKind::PhonRule | ObjectKind::LexEntry | ObjectKind::RootIndex
+    )
 }
 
 /// The seven counters for one `(object, stratum, allomorph)` row.
@@ -826,9 +829,9 @@ mod tests {
     fn self_time_support_matches_every_instrumented_kind() {
         let support = [
             (ObjectKind::MorphRule, true),
-            (ObjectKind::PhonRule, false),
+            (ObjectKind::PhonRule, true),
             (ObjectKind::LexEntry, true),
-            (ObjectKind::RootIndex, false),
+            (ObjectKind::RootIndex, true),
             (ObjectKind::Guesser, false),
             (ObjectKind::Overlay, false),
         ];
