@@ -28,4 +28,38 @@ Test-Case 'agent build loop classifies pre-launch helper failure separately from
         'the one permitted recovery retry must name the sandbox override agents need'
 }
 
+Test-Case 'agent build loop requires elevated read-only diagnosis after the retry fails' {
+    $guide = Get-Content -Raw -LiteralPath $guidePath
+    Assert-True ($guide -match [regex]::Escape('pwsh -NoProfile -File rust/tools/sandbox-refresh-diagnostic.ps1')) `
+        'the guide must name the sandbox refresh diagnostic command'
+    Assert-True ($guide -match '(?is)retry.{0,160}require_escalated.{0,240}diagnos') `
+        'a failed elevated retry must lead to elevated diagnosis'
+    Assert-True ($guide -match '(?is)diagnostic itself.{0,100}require_escalated') `
+        'the diagnostic command must also run with require_escalated'
+}
+
+Test-Case 'agent build loop requires exact-target recoverable quarantine and effect verification' {
+    $guide = Get-Content -Raw -LiteralPath $guidePath
+    Assert-True ($guide -match '(?is)exact (?:generated )?target.{0,600}Move-Item') `
+        'the guide must require verifying the exact target before a manual move'
+    Assert-True ($guide -match '(?is)Move-Item.{0,200}(?:outside|out of) the runtime tree') `
+        'the guide must move one entry outside the runtime tree'
+    Assert-True ($guide -match '(?is)normal sandboxed command.{0,160}apply_patch') `
+        'the guide must verify both the sandboxed command and apply_patch effects'
+    Assert-True ($guide -match '(?is)do not delete') `
+        'the quarantine must remain recoverable'
+    Assert-True ($guide -match '(?is)source.{0,120}quarantine parent chain.{0,120}reparse point') `
+        'the guide must require checking both filesystem chains for redirection'
+    Assert-True ($guide -match '(?is)recheck.{0,120}immediately before moving') `
+        'the guide must reduce the manual move TOCTOU window explicitly'
+}
+
+Test-Case 'sandbox refresh diagnostic only reads logs and never moves or deletes targets' {
+    $diagnosticPath = Join-Path $repoRoot 'rust\tools\sandbox-refresh-diagnostic.ps1'
+    Assert-True (Test-Path -LiteralPath $diagnosticPath -PathType Leaf) 'sandbox refresh diagnostic must exist'
+    $diagnostic = Get-Content -Raw -LiteralPath $diagnosticPath
+    Assert-False ($diagnostic -match '(?im)^\s*(?:Move-Item|Remove-Item|New-Item)\b') `
+        'the diagnostic must not contain a top-level filesystem mutation command'
+}
+
 Write-TestSummary

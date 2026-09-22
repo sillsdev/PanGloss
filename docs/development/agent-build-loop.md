@@ -26,8 +26,28 @@ functions and environment from earlier files. A combined-host failure is not a s
 `helper_unknown_error: setup refresh had errors` occurs before PowerShell starts. It is a workspace
 launcher failure, not a Cargo, test, or repository failure. Retry the exact command once with the
 execution tool's `require_escalated` sandbox permission. Give delegated agents that recovery in
-their task. If the escalated retry also fails, report the launcher as blocked; do not change
-repository code, start another build, or count the event against a code hypothesis.
+their task. If the escalated retry also fails, run the diagnostic itself with the execution tool's
+`require_escalated` permission. This read-only diagnosis needs access to the sandbox logs:
+
+```powershell
+pwsh -NoProfile -File rust/tools/sandbox-refresh-diagnostic.ps1
+```
+
+The diagnostic selects the newest `sandbox*.log` under `.codex/.sandbox` and reports the latest
+direct runtime read/execute validation path, its character count, and a classification. Pass
+`-CodexRoot <path>` or `-LogPath <path>` to inspect a fixture or a specific log. It only reads log
+data and never moves or deletes files.
+
+If the result identifies a long generated CUA Node pnpm cache path, verify the exact target exists,
+is one hash-named cache entry, and has the same ACL as its parent; also confirm the entry is idle and
+that neither the source nor quarantine parent chain contains a reparse point. Recheck those facts
+immediately before moving the entry, because the diagnostic cannot prevent a later filesystem change.
+Create a quarantine directory under `.codex/tmp`, then use the reported `Move-Item` command yourself
+to move only that one directory outside the runtime tree. Keep it for recovery and do not delete it
+or any parent directory. After the move, verify that a normal sandboxed command and an
+`apply_patch` operation both work. If either still fails, move the quarantined directory back to
+its original path and report the launcher failure with the diagnostic output. Do not start another
+build or change a code hypothesis before resolving the pre-launch failure.
 
 When a command returns a running session or times out after launch, inspect its Cargo, rustc,
 procgov, and slot descendants before retrying. A timeout never authorizes a duplicate build.
