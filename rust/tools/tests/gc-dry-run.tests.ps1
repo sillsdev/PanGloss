@@ -12,6 +12,15 @@
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_common.ps1"
 
+$script:FakeCimProcessRows = @()
+$script:LastCimFilter = ''
+function Get-CimInstance {
+    param([string]$ClassName, [string]$Filter)
+    $script:LastCimFilter = $Filter
+    $names = @([regex]::Matches($Filter, "Name='([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+    return @($script:FakeCimProcessRows | Where-Object { $_.Name -in $names })
+}
+
 $root = New-TestTempDir -Prefix 'pg-gc-root'
 
 function New-FakeTarget {
@@ -103,6 +112,31 @@ Test-Case 'the sccache daemon is not a busy process, so it can never block -Appl
     Assert-False ($names -contains 'sccache.exe') 'sccache is a shared daemon, never evidence of a live build'
 }
 
+Test-Case 'gc queries exactly the shared compiler and linker names' {
+    $script:FakeCimProcessRows = @(
+        [PSCustomObject]@{ Name = 'rustc.exe' },
+        [PSCustomObject]@{ Name = 'cargo.exe' },
+        [PSCustomObject]@{ Name = 'link.exe' },
+        [PSCustomObject]@{ Name = 'lld-link.exe' },
+        [PSCustomObject]@{ Name = 'rust-lld.exe' },
+        [PSCustomObject]@{ Name = 'cc1.exe' },
+        [PSCustomObject]@{ Name = 'cc1plus.exe' },
+        [PSCustomObject]@{ Name = 'sccache.exe' },
+        [PSCustomObject]@{ Name = 'cargo-nextest.exe' },
+        [PSCustomObject]@{ Name = 'pangloss.exe' }
+    )
+    $expectedNames = @('rustc.exe', 'cargo.exe', 'link.exe', 'lld-link.exe', 'rust-lld.exe')
+    $expectedFilter = @($expectedNames | ForEach-Object { "Name='$_'" }) -join ' or '
+
+    try {
+        $names = @(Get-LiveBuildProcesses | ForEach-Object { $_.Name })
+        Assert-Equal ($expectedNames -join ',') ($names -join ',')
+        Assert-Equal $expectedFilter $script:LastCimFilter 'the WQL query must be derived from the exact gc process set'
+    } finally {
+        $script:FakeCimProcessRows = @()
+    }
+}
+
 Test-Case 'a live build elsewhere does not block an unrelated disposable directory' {
     # Abstaining machine-wide reclaimed nothing here; the busy claim is per-directory now.
     $probe = Join-Path $root 'effect-probe'
@@ -128,6 +162,36 @@ Test-Case 'a live build naming THIS directory does block it' {
     Assert-Equal 0 $r.Deleted.Count
     Assert-True (Test-Path $probe) 'a directory a live build names must survive'
     Assert-True ($r.SkipReason -match 'command line') "skip reason must say why: $($r.SkipReason)"
+}
+
+Test-Case 'link.exe and both LLD linkers restrict gc to their named target directory' {
+    foreach ($n in 'link.exe', 'lld-link.exe', 'rust-lld.exe') {
+        $busyDir = New-FakeTarget -Root $root -Name "busy-$($n.Replace('.', '-'))" -Marker $null
+        $unrelatedDir = New-FakeTarget -Root $root -Name "free-$($n.Replace('.', '-'))" -Marker $null
+        $process = [PSCustomObject]@{
+            Name = $n
+            CommandLine = "$n --target-dir $busyDir"
+        }
+        $script:FakeCimProcessRows = @($process)
+
+        try {
+            $busy = @(Get-LiveBuildProcesses)
+            Assert-Equal 1 $busy.Count "$n must be returned by the live-build process query"
+            Assert-Equal $n $busy[0].Name
+
+            $classification = @(
+                [PSCustomObject]@{ Path = $busyDir; Class = 'disposable'; SizeGB = 0 },
+                [PSCustomObject]@{ Path = $unrelatedDir; Class = 'disposable'; SizeGB = 0 }
+            )
+            $r = Invoke-TargetGc -Classification $classification -Apply:$true -BusyProcesses $busy -Roots @($root)
+            Assert-Equal 1 $r.Deleted.Count "$n should protect its target directory and still allow unrelated cleanup"
+            Assert-Contains $r.Deleted $unrelatedDir
+            Assert-True (Test-Path $busyDir) "$n's target directory must survive"
+            Assert-False (Test-Path $unrelatedDir) 'an unrelated disposable target directory should still be removed'
+        } finally {
+            $script:FakeCimProcessRows = @()
+        }
+    }
 }
 
 Test-Case 'a recently written directory blocks itself, since CARGO_TARGET_DIR names no path on a command line' {

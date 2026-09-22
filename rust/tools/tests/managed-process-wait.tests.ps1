@@ -39,6 +39,25 @@ Test-Case 'a root with a live-build-activity descendant is NOT idle' {
     Assert-False (Test-ManagedProcessTreeIdle -RootPid 1 -Snapshot @($root, $child))
 }
 
+Test-Case 'live activity names contain the exact compiler, linker, and existing helper set' {
+    $expected = 'rustc.exe,cargo.exe,link.exe,lld-link.exe,rust-lld.exe,cc1.exe,cc1plus.exe,sccache.exe,cargo-nextest.exe,pangloss.exe'
+    Assert-Equal $expected ($script:LiveBuildActivityNames -join ',')
+}
+
+foreach ($linkerName in 'link.exe', 'lld-link.exe', 'rust-lld.exe') {
+    Test-Case "$linkerName keeps its build tree active and its slot non-stale" {
+        $root = New-FakeProc -Pid_ 10 -Name 'procgov.exe' -ParentPid 0 -Created $now.AddMinutes(-30)
+        $linker = New-FakeProc -Pid_ 11 -Name $linkerName -ParentPid 10 -Created $now.AddMinutes(-29)
+        $snapshot = @($root, $linker)
+        $holder = [PSCustomObject]@{ Pid = 10; Alive = $true }
+
+        Assert-False (Test-ManagedProcessTreeIdle -RootPid 10 -Snapshot $snapshot) `
+            "$linkerName is real build activity and must keep its process tree non-idle"
+        Assert-False (Test-BuildSlotHolderStale -Holder $holder -Snapshot $snapshot -MinAgeMinutes 20 -Now $now) `
+            "$linkerName must prevent its live build-slot holder from being declared stale"
+    }
+}
+
 Test-Case 'a root with NO live-build-activity anywhere in its tree IS idle' {
     $root = New-FakeProc -Pid_ 1 -Name 'procgov.exe' -ParentPid 0 -Created $now.AddMinutes(-10)
     Assert-True (Test-ManagedProcessTreeIdle -RootPid 1 -Snapshot @($root))

@@ -1219,8 +1219,14 @@ function Get-SlotHolders {
     return @($out | Sort-Object Slot)
 }
 
+# Shared Rust compiler/linker names; the policy-specific sets below compose these without widening each other's scope.
+$script:RustBuildCoreProcessNames = @('rustc.exe', 'cargo.exe')
+$script:RustBuildLinkerProcessNames = @('link.exe', 'lld-link.exe', 'rust-lld.exe')
+$script:RustBuildProcessNames = @($script:RustBuildCoreProcessNames) + @($script:RustBuildLinkerProcessNames)
 # Signs of real work under a build-slot holder; procgov.exe is deliberately excluded -- an idle wrapper IS the stuck shape this checks for.
-$script:LiveBuildActivityNames = @('rustc.exe', 'cargo.exe', 'link.exe', 'cc1.exe', 'cc1plus.exe', 'sccache.exe', 'cargo-nextest.exe', 'pangloss.exe')
+$script:LiveBuildActivityNames = @($script:RustBuildProcessNames) + @('cc1.exe', 'cc1plus.exe', 'sccache.exe', 'cargo-nextest.exe', 'pangloss.exe')
+$script:OrphanedCargoProcessNames = @($script:RustBuildProcessNames) + @('cc1.exe')
+$script:GcBusyBuildProcessNames = @($script:RustBuildProcessNames)
 
 function Get-ProcessDescendants {
     <#
@@ -1607,7 +1613,7 @@ function Remove-OrphanedCargoProcesses {
     # Machine-wide sweep: liveness is decided by Test-ParentAlive, never by name/age/CPU, so another worktree's
     # healthy build stays untouchable. docs/research/build-resource-governance.md
     if (-not $Snapshot) { $Snapshot = Get-ProcessSnapshot }
-    $procs = $Snapshot | Where-Object { $_.Name -in @('rustc.exe', 'cargo.exe', 'link.exe', 'cc1.exe') }
+    $procs = $Snapshot | Where-Object { $_.Name -in $script:OrphanedCargoProcessNames }
     foreach ($p in $procs) {
         if (-not (Test-ParentAlive -Proc $p -Snapshot $Snapshot)) {
             if ($WhatIfOnly) {
@@ -1745,9 +1751,10 @@ function Remove-OrphanedScanProcesses {
 function Get-LiveBuildProcesses {
     <#
       .DESCRIPTION
-      gc's process check before it deletes anything: cargo/rustc/link currently running, orphaned or
-      not -- broader than Remove-OrphanedCargoProcesses on purpose, since a live, healthy build in
-      another worktree is exactly what gc must not race against.
+      gc's process check before it deletes anything: the names in $script:GcBusyBuildProcessNames,
+      whether orphaned or not. Remove-OrphanedCargoProcesses uses the same compiler/linker names
+      plus cc1.exe, but only selects dead-parent processes; a live build in another worktree is
+      exactly what gc must not race against. Pinned by rust/tools/tests/orphan-reaping.tests.ps1.
 
       sccache is deliberately NOT in this list, and used to be. It is a long-lived shared DAEMON,
       not a build: this script starts it, keeps it alive, and reports it healthy in every preflight
@@ -1757,7 +1764,8 @@ function Get-LiveBuildProcesses {
       A reclaimer that can never reclaim is the same defect as a gate that never gates. sccache also
       writes only its own cache directory, never a managed target dir, so it cannot be raced with.
     #>
-    Get-CimInstance Win32_Process -Filter "Name='rustc.exe' or Name='cargo.exe' or Name='link.exe'"
+    $filter = @($script:GcBusyBuildProcessNames | ForEach-Object { "Name='$_'" }) -join ' or '
+    Get-CimInstance Win32_Process -Filter $filter
 }
 
 function Get-BusyTargetPaths {

@@ -23,6 +23,11 @@ function New-FakeProc {
     }
 }
 
+$script:KilledProcessIds = @()
+function taskkill {
+    $script:KilledProcessIds += [int]$args[-1]
+}
+
 # A live shell, and a scan that is genuinely its child.
 $liveShell = New-FakeProc -Pid_ 100 -Name 'pwsh.exe'  -ParentPid 1  -Created $now.AddMinutes(-30)
 $childScan = New-FakeProc -Pid_ 101 -Name 'find.exe'  -ParentPid 100 -Created $now.AddMinutes(-10)
@@ -45,6 +50,29 @@ Test-Case 'a scan whose parent is absent from the snapshot IS an orphan' {
 Test-Case 'PID reuse: a "parent" created after its child is not the parent' {
     # Without this rule the recycled PID reads as a live parent and the orphan is skipped forever.
     Assert-False (Test-ParentAlive -Proc $recycled -Snapshot $snapshot)
+}
+
+Test-Case 'orphan cleanup safely selects its exact compiler/linker set and preserves other process families' {
+    $expectedNames = 'rustc.exe,cargo.exe,link.exe,lld-link.exe,rust-lld.exe,cc1.exe'
+    Assert-Equal $expectedNames ($script:OrphanedCargoProcessNames -join ',')
+
+    $liveParent = New-FakeProc -Pid_ 500 -Name 'pwsh.exe' -ParentPid 1 -Created $now.AddMinutes(-30)
+    $link = New-FakeProc -Pid_ 501 -Name 'link.exe' -ParentPid 999 -Created $now.AddMinutes(-29)
+    $lldLink = New-FakeProc -Pid_ 502 -Name 'lld-link.exe' -ParentPid 999 -Created $now.AddMinutes(-29)
+    $rustLld = New-FakeProc -Pid_ 503 -Name 'rust-lld.exe' -ParentPid 999 -Created $now.AddMinutes(-29)
+    $liveLld = New-FakeProc -Pid_ 504 -Name 'lld-link.exe' -ParentPid 500 -Created $now.AddMinutes(-28)
+    $cc1 = New-FakeProc -Pid_ 505 -Name 'cc1.exe' -ParentPid 999 -Created $now.AddMinutes(-29)
+    $cc1plus = New-FakeProc -Pid_ 506 -Name 'cc1plus.exe' -ParentPid 999 -Created $now.AddMinutes(-29)
+    $script:KilledProcessIds = @()
+
+    Remove-OrphanedCargoProcesses -WhatIfOnly:$false -Snapshot @($liveParent, $link, $lldLink, $rustLld, $liveLld, $cc1, $cc1plus)
+
+    Assert-Equal 4 $script:KilledProcessIds.Count 'the three dead-parent linker processes and cc1 should be selected for cleanup'
+    foreach ($processIdToCheck in 501, 502, 503, 505) {
+        Assert-Contains $script:KilledProcessIds $processIdToCheck "orphan linker PID $processIdToCheck should be selected"
+    }
+    Assert-False ($script:KilledProcessIds -contains 504) 'an LLD process with a live parent must never be selected'
+    Assert-False ($script:KilledProcessIds -contains 506) 'cc1plus was never part of the orphan-cleanup policy'
 }
 
 Test-Case 'an orphaned scan over both thresholds is reapable' {
