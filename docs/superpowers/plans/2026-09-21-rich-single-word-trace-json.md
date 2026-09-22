@@ -10,8 +10,8 @@
 - [x] Include authoritative completion flags, steps, whole-run elapsed time, signature, guessed state, and successful analyses.
 - [x] Group existing counters and self timing by `ObjectKind`; report unsupported timing as `null` using `self_time_supported`.
 - [x] Leave ordinary parse and ordinary trace execution unchanged.
-- [ ] Document the public format and run primary review plus managed verification.
-- [ ] Commit and fast-forward the reviewed branch to `main` without including unrelated working-tree changes.
+- [x] Document the public format and run primary review plus managed verification.
+- [x] Commit and fast-forward the reviewed branch to `main` without including unrelated working-tree changes.
 
 ## Files
 
