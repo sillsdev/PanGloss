@@ -187,30 +187,69 @@ pub struct GrammarHealthCheckFinding {
 }
 
 impl GrammarHealthCheckFinding {
+    fn validation_message(&self, finding_index: usize) -> Option<String> {
+        let prefix = format!(
+            "grammar-health finding {finding_index} ({})",
+            self.code.wire()
+        );
+        if self.group_name.trim().is_empty() {
+            return Some(format!("{prefix}: missing group_name"));
+        }
+        if self.group_name != self.code.group_name() {
+            return Some(format!(
+                "{prefix}: group_name does not match the code-owned label"
+            ));
+        }
+        if self.message.trim().is_empty() {
+            return Some(format!("{prefix}: missing message"));
+        }
+        if self.subjects.is_empty() {
+            return Some(format!("{prefix}: missing subjects"));
+        }
+        for (subject_index, subject) in self.subjects.iter().enumerate() {
+            let subject_prefix = format!("{prefix} subject {subject_index}");
+            if subject.title.trim().is_empty() {
+                return Some(format!("{subject_prefix}: missing title"));
+            }
+            if subject.internal_id.trim().is_empty() {
+                return Some(format!("{subject_prefix}: missing internal_id"));
+            }
+            if subject.fieldworks.tool.trim().is_empty() {
+                return Some(format!("{subject_prefix}: missing fieldworks.tool"));
+            }
+            match (
+                subject.fieldworks.url.as_deref(),
+                subject.fieldworks.url_unavailable.as_deref(),
+            ) {
+                (Some(url), None) if !url.trim().is_empty() => {}
+                (None, Some(reason)) if !reason.trim().is_empty() => {}
+                (Some(_), Some(_)) => {
+                    return Some(format!(
+                        "{subject_prefix}: fieldworks link must have either url or url_unavailable, not both"
+                    ));
+                }
+                (Some(_), None) => {
+                    return Some(format!(
+                        "{subject_prefix}: fieldworks.url must be nonblank"
+                    ));
+                }
+                (None, Some(_)) => {
+                    return Some(format!(
+                        "{subject_prefix}: fieldworks.url_unavailable must be nonblank"
+                    ));
+                }
+                (None, None) => {
+                    return Some(format!(
+                        "{subject_prefix}: missing fieldworks.url or fieldworks.url_unavailable"
+                    ));
+                }
+            }
+        }
+        None
+    }
+
     pub fn is_complete(&self) -> bool {
-        !self.severity.wire().is_empty()
-            && !self.code.wire().is_empty()
-            && !self.group_name.trim().is_empty()
-            && self.group_name == self.code.group_name()
-            && !self.message.trim().is_empty()
-            && !self.subjects.is_empty()
-            && self.subjects.iter().all(|subject| {
-                !subject.kind.label().is_empty()
-                    && !subject.title.trim().is_empty()
-                    && !subject.internal_id.trim().is_empty()
-                    && !subject.fieldworks.tool.trim().is_empty()
-                    && (subject
-                        .fieldworks
-                        .url
-                        .as_deref()
-                        .is_some_and(|url| !url.trim().is_empty())
-                        || subject
-                            .fieldworks
-                            .url_unavailable
-                            .as_deref()
-                            .is_some_and(|reason| !reason.trim().is_empty()))
-                    && !subject.where_text().trim().is_empty()
-            })
+        self.validation_message(0).is_none()
     }
 
     fn log_line(&self, include_guids: bool) -> String {
@@ -235,6 +274,16 @@ impl GrammarHealthCheckFinding {
     }
 }
 
+/// Validate the complete report input before any presentation adapter runs.
+pub fn validate_findings(findings: &[GrammarHealthCheckFinding]) -> serde_json::Result<()> {
+    for (finding_index, finding) in findings.iter().enumerate() {
+        if let Some(message) = finding.validation_message(finding_index) {
+            return Err(<serde_json::Error as serde::de::Error>::custom(message));
+        }
+    }
+    Ok(())
+}
+
 /// Versioned JSON contract for Motif and other structured consumers. Version 1 is the first
 /// contract containing structured subjects and FieldWorks navigation data; the previous bare array
 /// is intentionally not reused after this shape change.
@@ -254,24 +303,24 @@ pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 1;
 /// Render complete findings as one nonblank plain-text line per finding.
 ///
 /// include_guids is opt-in because the title remains the human identity in the default log.
-pub fn render_log(findings: &[GrammarHealthCheckFinding], include_guids: bool) -> String {
-    findings
+pub fn render_log(
+    findings: &[GrammarHealthCheckFinding],
+    include_guids: bool,
+) -> serde_json::Result<String> {
+    validate_findings(findings)?;
+    Ok(findings
         .iter()
-        .filter(|finding| finding.is_complete())
         .map(|finding| finding.log_line(include_guids))
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n"))
 }
 
 /// Render the full Motif-facing JSON shape, including FieldWorks links and explicit link reasons.
 pub fn render_json(findings: &[GrammarHealthCheckFinding]) -> Result<String, serde_json::Error> {
+    validate_findings(findings)?;
     serde_json::to_string_pretty(&GrammarHealthJsonReport {
         schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
-        findings: findings
-            .iter()
-            .filter(|finding| finding.is_complete())
-            .cloned()
-            .collect(),
+        findings: findings.to_vec(),
     })
 }
 
@@ -285,10 +334,7 @@ pub fn check_grammar_health(
     check_duplicate_feature_bundles(grammar, fieldworks_project, &mut findings);
     check_undeclared_segments(grammar, fieldworks_project, &mut findings);
     check_partial_morphemes(grammar, fieldworks_project, &mut findings);
-    assert!(
-        findings.iter().all(GrammarHealthCheckFinding::is_complete),
-        "grammar-health emitted an incomplete finding"
-    );
+    validate_findings(&findings).expect("grammar-health emitted an incomplete finding");
     findings
 }
 
@@ -1382,7 +1428,7 @@ mod tests {
     }
 
     #[test]
-    fn renderers_drop_incomplete_findings_instead_of_rendering_blank_fields() {
+    fn report_rejects_an_incomplete_finding_instead_of_dropping_it() {
         let incomplete = GrammarHealthCheckFinding {
             severity: GrammarHealthSeverity::Warning,
             code: GrammarHealthCode::PartialMorpheme,
@@ -1390,10 +1436,35 @@ mod tests {
             message: String::new(),
             subjects: Vec::new(),
         };
+        let mut findings = check_grammar_health(&grammar(PARTIAL_LEX_ENTRY_XML), None);
+        findings.push(incomplete);
 
-        assert!(!incomplete.is_complete());
-        assert!(render_log(&[incomplete.clone()], false).is_empty());
-        let json = render_json(&[incomplete]).expect("incomplete findings still serialize");
+        let error = render_json(&findings).expect_err("incomplete findings must fail the report");
+        let error = error.to_string();
+        assert!(error.contains("hc-partial-morpheme"), "{error}");
+        assert!(error.contains("finding 1"), "{error}");
+        assert!(error.contains("message"), "{error}");
+    }
+
+    #[test]
+    fn log_renderer_rejects_the_same_incomplete_finding() {
+        let incomplete = GrammarHealthCheckFinding {
+            severity: GrammarHealthSeverity::Warning,
+            code: GrammarHealthCode::PartialMorpheme,
+            group_name: GrammarHealthCode::PartialMorpheme.group_name().to_string(),
+            message: String::new(),
+            subjects: Vec::new(),
+        };
+        let error =
+            render_log(&[incomplete], false).expect_err("incomplete findings must fail the log");
+        assert!(error.to_string().contains("hc-partial-morpheme"));
+        assert!(error.to_string().contains("message"));
+    }
+
+    #[test]
+    fn an_empty_report_remains_valid() {
+        assert_eq!(render_log(&[], false).expect("empty log renders"), "");
+        let json = render_json(&[]).expect("empty report serializes");
         assert!(json.contains("\"findings\": []"));
     }
 
@@ -1446,14 +1517,14 @@ mod tests {
         assert!(!url.contains("&tool="));
         assert!(!url.contains("&guid="));
 
-        let log = render_log(&with_project, false);
+        let log = render_log(&with_project, false).expect("complete findings render");
         assert_eq!(log.lines().count(), with_project.len());
         assert!(log.lines().all(|line| !line.trim().is_empty()));
         assert!(log.contains("a - walk"));
-        assert!(log.contains("Grammatical info with no forms"));
+        assert!(log.contains("Partial morpheme analysis"));
         assert!(!log.contains("f4e4b416-5a15-41e3-9039-c3cca7093153"));
         assert!(!log.contains("entry0"));
-        let log_with_guids = render_log(&with_project, true);
+        let log_with_guids = render_log(&with_project, true).expect("complete findings render");
         assert!(log_with_guids.contains("a - walk [guid f4e4b416-5a15-41e3-9039-c3cca7093153]"));
         assert!(!log_with_guids.contains("entry0"));
 
@@ -1475,7 +1546,7 @@ mod tests {
         assert!(!no_project_json.contains("silfw://localhost/link?database="));
 
         let no_guid_findings = check_grammar_health(&grammar(TWO_SEGMENTS_SHARE_BUNDLE_XML), Some("FieldWorks Demo"));
-        let no_guid_log = render_log(&no_guid_findings, true);
+        let no_guid_log = render_log(&no_guid_findings, true).expect("complete findings render");
         assert!(no_guid_log.contains("[guid unavailable]"));
         assert!(!no_guid_log.contains("[guid ]"));
     }

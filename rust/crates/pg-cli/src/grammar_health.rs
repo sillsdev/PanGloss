@@ -83,7 +83,8 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
         None => println!("{json}"),
     }
 
-    let log = render_log(&findings, log_guids);
+    let log = render_log(&findings, log_guids)
+        .map_err(|e| format!("render grammar health log: {e}"))?;
     if !log.is_empty() {
         eprintln!("{log}");
     }
