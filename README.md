@@ -128,6 +128,16 @@ Parse one word (the only engine `parse` runs is the default HermitCrab one):
 pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>]
 ```
 
+For one-word diagnostics as a single JSON document, including the trace, result, attempt counters,
+and existing timing statistics:
+
+```
+pangloss parse <grammar> <word> --trace --trace-format=json --trace-details
+```
+
+This mode is explicit and remains one word per invocation. See
+[The trace format](docs/formats/trace-format.md) for the envelope and timing semantics.
+
 Batch a word list to TSV (the only engine `batch` runs is the default HermitCrab one):
 
 ```

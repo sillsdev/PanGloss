@@ -3,6 +3,20 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.3.3
+
+### Single-word trace details as JSON
+
+- **An explicit diagnostic envelope.** `pangloss parse <grammar> <word> --trace
+  --trace-format=json --trace-details` writes one `pangloss.trace-details.v1` JSON document.
+  It carries the compact trace, parse result and analyses, completion and cap state, step count,
+  and the existing attempt and outcome counters grouped by parser category.
+- **Timing reuses the existing stats architecture.** The envelope reports overall search
+  `elapsedNs` and category `selfElapsedNs`. Categories without timing instrumentation say so
+  with `timingAvailable: false` and `selfElapsedNs: null`; no per-node clocks were added.
+- **The mode remains narrow and opt-in.** It accepts one word per invocation, is unavailable on
+  `batch`, and leaves ordinary parse and trace output unchanged when `--trace-details` is absent.
+
 ## 0.3.2
 
 Documentation only: no engine, API or behaviour change. Cut so that a consumer pinning to a release
@@ -21,8 +35,8 @@ tag can link to these documents, which is the point of them existing.
   catalogues all 21 trace-node types and all 23 failure reasons in plain language, with a worked
   example captured from a real run rather than reconstructed from the renderer. It also states the
   two things a caller most needs and cannot otherwise learn: a traced parse runs unmerged and so
-  explores more than an ordinary one, and `parse` has no step cap of its own, so whatever runs a
-  trace is responsible for bounding it.
+  explores more than an ordinary one, and `parse --trace` uses the parser's finite default step cap,
+  reporting whether it fired in the detailed JSON envelope.
 - **A stale count, corrected in passing.** `pg-rules/src/trace.rs`'s own module comment says the port
   carries 19 trace types. The enum has 21, and `FailureReason` has 23. The new document uses the
   enum, not the comment.
