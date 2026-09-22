@@ -39,7 +39,7 @@
     rust\tools\verify-comment-only.ps1 -Range HEAD~3..HEAD
     rust\tools\verify-comment-only.ps1 -Path rust/crates/pg-foma
 
-  Exit 0 clean, 1 on any violation, 2 if git itself failed. An agent running a comment sweep should
+  Exit 0 clean, 1 on any violation, 2 if git or the native classifier failed. An agent running a comment sweep should
   run this after EVERY file and honour the exit code; it is the cheapest possible guard between an
   over-selected `old_string` and a broken build.
 #>
@@ -74,7 +74,7 @@ $oldRef, $newRef = if ($Range -match '^(.+?)\.\.\.?(.+)$') { $Matches[1], $Match
                    elseif ($Staged) { 'HEAD', ':' }
                    else { 'HEAD', '' }
 $maskCache = @{}
-function Get-SideMask {
+function Get-SideClassification {
     param([string]$File, [string]$Ref)
     $key = "$Ref`u{1}$File"
     if ($maskCache.ContainsKey($key)) { return $maskCache[$key] }
@@ -85,7 +85,12 @@ function Get-SideMask {
         $out = & git show $spec 2>$null
         if ($LASTEXITCODE -ne 0) { @() } else { @($out) }
     }
-    $m = Get-CommentLineMask -Lines $lines -Extension ([System.IO.Path]::GetExtension($File))
+    try {
+        $m = Get-CommentLineData -Lines $lines -Extension ([System.IO.Path]::GetExtension($File))
+    } catch {
+        [Console]::Error.WriteLine("verify-comment-only: classifier failed; no verdict: $_")
+        exit 2
+    }
     $maskCache[$key] = $m
     return $m
 }
@@ -102,8 +107,8 @@ foreach ($line in $diff) {
         $p = $Matches[1]
         # A pure deletion of a whole file shows `+++ /dev/null`; keep the `--- a/<path>` name for it.
         if ($p -ne '/dev/null') { $file = $p }
-        $ext = [System.IO.Path]::GetExtension($file)
-        $pattern = $commentLineByExt[$ext]
+        $side = Get-SideClassification -File $file -Ref $(if ($p -eq '/dev/null') { $oldRef } else { $newRef })
+        $pattern = $side.supported
         if (-not $pattern -and -not $unclassified.Contains($file)) { $unclassified.Add($file) }
         if (-not $stats.Contains($file)) { $stats[$file] = [pscustomobject]@{ Added = 0; Removed = 0 } }
         continue
@@ -128,15 +133,20 @@ foreach ($line in $diff) {
 
     if (-not $pattern) { continue }          # not a language we classify; reported separately
     if ($text.Trim() -eq '') { continue }    # blank-line churn is not code
-    $mask = if ($sign -eq '+') { Get-SideMask -File $file -Ref $newRef } else { Get-SideMask -File $file -Ref $oldRef }
+    $classification = if ($sign -eq '+') { Get-SideClassification -File $file -Ref $newRef } else { Get-SideClassification -File $file -Ref $oldRef }
+    $mask = $classification.mask
     if ($no -ge 1 -and $no -le $mask.Count -and $mask[$no - 1]) { continue }
+    if ($no -lt 1 -or $no -gt $classification.code.Count) {
+        [Console]::Error.WriteLine("verify-comment-only: cannot classify changed line ${file}:$no; no verdict.")
+        exit 2
+    }
 
     $candidates.Add([pscustomobject]@{
         File = $file
         Side = if ($sign -eq '+') { 'added' } else { 'REMOVED' }
         Line = $no
         Text = $text.Trim()
-        Code = Get-CodePortion -Text $text -Token $lineCommentTokenByExt[[System.IO.Path]::GetExtension($file)]
+        Code = $classification.code[$no - 1]
     })
 }
 

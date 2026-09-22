@@ -1,0 +1,12 @@
+"""module line one
+module line two
+module line three
+module line four
+"""
+def hook():
+    """function line one
+    function line two
+    function line three
+    function line four
+    """
+    return 1

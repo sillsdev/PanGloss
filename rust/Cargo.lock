@@ -773,6 +773,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pg-comment-hygiene"
+version = "0.3.3"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "pg-conformance-fixtures"
 version = "0.3.3"
 dependencies = [

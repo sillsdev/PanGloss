@@ -1,0 +1,10 @@
+// taskforce is not a task marker
+fn first() {}
+// file-spec.md is a hyphenated filename
+fn second() {}
+// specXmd has no literal dot
+fn third() {}
+// unreachable! is a macro, not a claim
+/// one documentation line
+// one implementation line
+fn value() {}

@@ -90,8 +90,8 @@ jobs:
       # Zero tolerance by design; the script holds no baseline and accepts no count.
       # -List: a gate that refuses a release must name what to fix, or the log says only "4 violations".
       - name: comment hygiene
-        shell: pwsh
-        run: ./rust/tools/comment-hygiene.ps1 -List
+        working-directory: rust
+        run: cargo run --locked -p pg-comment-hygiene -- --repo-root .. --list
 
       # The only enforcement of broken_intra_doc_links = "deny".
       - name: rustdoc

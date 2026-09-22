@@ -1,0 +1,32 @@
+// openspec/changes is a plan pointer
+fn a() {}
+// task 1
+fn b() {}
+// not wired
+fn c() {}
+// 2026-09-21
+fn d() {}
+// used to read another path
+fn e() {}
+// first line of a stale block
+// second line of a stale block
+fn f() {}
+// SAFETY:
+// proof line
+// third line
+// fourth line
+fn g() {}
+// `foo` refuses to run
+fn h() {}
+// see docs/research/missing.md
+fn i() {}
+// pinned by `missing_test`
+fn j() {}
+/// public summary
+/// public detail
+/// public more
+/// public ending
+pub fn public_api() {}
+// summary
+// see https://example.com/reference
+fn k() {}

@@ -1,0 +1,6 @@
+// SAFETY:
+// one
+// ```text
+// two
+// three
+fn f() {}

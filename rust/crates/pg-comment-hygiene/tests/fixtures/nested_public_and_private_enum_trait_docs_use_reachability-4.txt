@@ -1,0 +1,10 @@
+/// one
+/// two
+/// three
+/// four
+pub enum Public { A }
+/// one
+/// two
+/// three
+/// four
+pub trait PublicTrait {}

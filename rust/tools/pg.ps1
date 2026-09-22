@@ -189,6 +189,7 @@ param(
     # `run` only. Without it the child's stdout goes to the inherited console, where an outer PowerShell `*>` captures NOTHING -- two long censuses lost their entire output that way. Live console output is what you give up by passing it.
     [string]$RunCaptureStdout = '',
     [switch]$DebugProfile,
+    [switch]$HygieneBootstrap,
     [switch]$NoNextest,
     # Stop at the first failing test. Off by default -- see the header block.
     [switch]$FailFast,
@@ -228,6 +229,10 @@ Assert-ScriptAndCwdAgreeOnWorktree -ScriptRoot $PSScriptRoot
 # Binder-proof passthrough for callers that cannot use the call operator; appended AFTER $ExtraArgs so an explicit arg still wins.
 if ($env:PANGLOSS_EXTRA_ARGS) {
     $ExtraArgs = @($ExtraArgs) + @(Split-ExtraArgsSpec $env:PANGLOSS_EXTRA_ARGS)
+}
+if ($HygieneBootstrap -and ($Mode -ne 'build' -or $Package -ne 'pg-comment-hygiene' -or -not $DebugProfile -or $ExtraArgs.Count -gt 0 -or $TestTarget -or $Filter -or $Bin -or $Example -or $Exe -or $Scope)) {
+    Write-Host '[pg] -HygieneBootstrap requires exactly -Mode build -Package pg-comment-hygiene -DebugProfile, without Cargo passthrough arguments.' -ForegroundColor Red
+    exit 2
 }
 
 # Refuse an unclaimed scope before ANY work -- no build slot, no cargo, no submodule fetch.
@@ -496,9 +501,12 @@ function Invoke-CommentHygieneReport {
     $secs = [math]::Round($sw.Elapsed.TotalSeconds, 1)
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[pg] comment hygiene: clean (${secs}s)." -ForegroundColor Green
-    } else {
+    } elseif ($LASTEXITCODE -eq 1) {
         # Warning here, fatal in CI: blocking every local build on documentation is how a gate gets switched off.
         Write-Host "[pg] comment hygiene: violations present -- warning here, fatal in CI (${secs}s)." -ForegroundColor Yellow
+        $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+    } else {
+        Write-Host "[pg] comment hygiene CHECKER FAILED (exit $LASTEXITCODE) -- no hygiene verdict (${secs}s)." -ForegroundColor Yellow
         $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
     }
 }
@@ -597,10 +605,16 @@ if (-not $memCheck.Ok -and $Mode -notin @('gc', 'doctor')) {
 }
 
 # Not in doctor: it reports this in its own findings section further up, so an unguarded call would scan twice there.
-if ($Mode -notin @('doctor', 'check', 'quick')) { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
+if ($HygieneBootstrap) {
+    Write-Host '[pg] hygiene preflight omitted only while compiling the checker itself.'
+} elseif ($Mode -notin @('doctor', 'check', 'quick')) { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
 
 # Only for modes that actually compile: `gc`/`run` must not rewrite source, and `doctor` is read-only.
 if ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc')) { Invoke-RustFmt -RustRoot $rustRoot }
+if ($HygieneBootstrap) {
+    . (Join-Path $PSScriptRoot '_comment-hygiene-tool.ps1')
+    $hygieneFingerprint = Get-HygieneInputFingerprint -RepoRoot $repoRoot
+}
 
 if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
     Write-Host '[pg] corpus-test refused BEFORE starting cargo -- required corpus file(s) missing:' -ForegroundColor Red
@@ -843,6 +857,7 @@ if ($usedSccache) {
 }
 
 $code = 1
+$hygienePreviousStamp = $env:PANGLOSS_HYGIENE_BUILD_FINGERPRINT
 try {
     if ($Mode -eq 'run') {
         # A light run gets a small FLAT cap; -Heavy takes the build-sized machine-proportional one. See this script's own header.
@@ -867,6 +882,34 @@ try {
         $code = Invoke-ProcessInJobObject @invokeArgs
         if ($RunCaptureStdout -and (Test-Path $RunCaptureStdout)) {
             Write-Host "[pg] run: captured $((Get-Item $RunCaptureStdout).Length) byte(s) to $RunCaptureStdout" -ForegroundColor Cyan
+        }
+    } elseif ($HygieneBootstrap) {
+        $capturePath = Join-Path $repoRoot ".tmp/hygiene-build-$([guid]::NewGuid().ToString('N')).jsonl"
+        New-Item -ItemType Directory -Force (Split-Path $capturePath) | Out-Null
+        $env:PANGLOSS_HYGIENE_BUILD_FINGERPRINT = $hygieneFingerprint
+        try {
+            $invokeArgs = @{
+                Exe = 'cargo'; CmdArgs = @($cargoArgs) + @('--locked', '--message-format=json-render-diagnostics')
+                WorkingDirectory = $rustRoot; CaptureStdoutPath = $capturePath
+                Priority = $Priority; JobMaxConcurrent = $MaxConcurrent; Threads = [Math]::Max($Jobs, $TestThreads)
+            }
+            if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
+            $code = Invoke-CargoWithReaper @invokeArgs
+            $artifactLines = @(Get-Content -LiteralPath $capturePath)
+            foreach ($line in $artifactLines) {
+                if (-not $line.StartsWith('{')) { continue }
+                $message = $line | ConvertFrom-Json
+                if ($message.reason -eq 'compiler-message' -and $message.message.rendered) { Write-Host $message.message.rendered }
+            }
+            if ($code -eq 0) {
+                $artifact = Get-HygieneArtifactPath -Lines $artifactLines
+                Publish-HygieneTool -RepoRoot $repoRoot -SourcePath $artifact -Fingerprint $hygieneFingerprint
+            }
+        } catch {
+            Write-Host "[pg] hygiene checker not published: $_" -ForegroundColor Red
+            $code = 2
+        } finally {
+            if (Test-Path -LiteralPath $capturePath) { Remove-Item -LiteralPath $capturePath -Force }
         }
     } elseif ($Mode -eq 'corpus-test') {
         $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
@@ -908,6 +951,7 @@ try {
         }
     }
 } finally {
+    if ($HygieneBootstrap) { $env:PANGLOSS_HYGIENE_BUILD_FINGERPRINT = $hygienePreviousStamp }
     Exit-ResourceSlot -Slot $sem
     # Post-run disk check: preflight runs BEFORE cargo and cannot see space consumed during the build itself.
     $freeAfter = if ($targetDir) { Get-FreeSpaceGB $targetDir } else { $null }

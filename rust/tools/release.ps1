@@ -100,7 +100,8 @@ Write-Gate 'tree' 'clean (and rustfmt-clean)'
 if ($SkipGate -contains 'hygiene') { Write-Gate 'hygiene' 'SKIPPED (recorded)' }
 else {
     & (Join-Path $toolRoot 'comment-hygiene.ps1') | Out-Null
-    if ($LASTEXITCODE -ne 0) { Write-Gate 'hygiene' 'REFUSED -- violations present (run comment-hygiene.ps1 -List)'; exit 31 }
+    if ($LASTEXITCODE -eq 1) { Write-Gate 'hygiene' 'REFUSED -- violations present (run comment-hygiene.ps1 -List)'; exit 31 }
+    if ($LASTEXITCODE -ne 0) { Write-Gate 'hygiene' "REFUSED -- checker failed (exit $LASTEXITCODE); no hygiene verdict"; exit 31 }
     Write-Gate 'hygiene' 'clean (0 violations)'
 }
 

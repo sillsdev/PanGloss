@@ -1,0 +1,3 @@
+// pinned by `long_test_name_prefix`
+// pinned by src/other.rs::path_test
+fn long_test_name_prefix_and_suffix() {}

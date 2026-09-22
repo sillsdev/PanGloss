@@ -1,0 +1,6 @@
+// SAFETY:
+// one
+// two
+// three
+// four
+fn f() {}
