@@ -108,6 +108,7 @@ pub fn compile_proposer_unproven(g: &Grammar) -> Result<FomaProposer> {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
     include!("analyzer_compile_tests.rs");
 }
