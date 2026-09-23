@@ -29,105 +29,13 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Everything that can refuse a release. `release` needs this job, so a red gate never reaches a tag.
   gates:
     name: gates
-    runs-on: ubuntu-latest
-    # Before test consolidation, a cold-cache build of the workspace's ~105 test targets took just over an
-    # hour on this runner. 45 minutes would have failed a release on the clock rather than on a gate,
-    # which is the one way this job must never fail.
-    timeout-minutes: 120
-    # Fixture discovery refuses an unclaimed run rather than guess what a green run covered. A release
-    # gate above all others must say what it checked, so it claims both roots, as `pg.ps1 -Mode test` does.
-    env:
-      PANGLOSS_CONFORMANCE_SCOPE: all
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # machine/conformance/ lives in the `machine` submodule. Non-recursive, matching
-          # rust-ci.yml and conformance-ci.yml: `machine` carries no nested submodules.
-          submodules: true
-
-      - name: Refuse a version that is not x.y.z
-        run: |
-          case "${{ inputs.version }}" in
-            [0-9]*.[0-9]*.[0-9]*) echo "version ${{ inputs.version }}" ;;
-            *) echo "::error::version must be x.y.z, got '${{ inputs.version }}'"; exit 1 ;;
-          esac
-
-      # Authored, never generated. Checked before anything expensive runs, so a missing section
-      # costs seconds rather than a full suite.
-      - name: Refuse a version CHANGELOG.md has no section for
-        run: |
-          if ! grep -qE "^## ${{ inputs.version }}\$" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md has no '## ${{ inputs.version }}' section. Release notes are authored, not generated."
-            exit 1
-          fi
-
-      - name: Refuse a tag that already exists
-        run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/v${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "::error::tag v${{ inputs.version }} already exists on origin"
-            exit 1
-          fi
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-
-      - name: fmt --check
-        working-directory: rust
-        run: cargo fmt --all -- --check
-
-      - name: clippy
-        working-directory: rust
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      # Zero tolerance by design; the script holds no baseline and accepts no count.
-      # -List: a gate that refuses a release must name what to fix, or the log says only "4 violations".
-      - name: comment hygiene
-        working-directory: rust
-        run: cargo run --locked -p pg-comment-hygiene -- --repo-root .. --list
-
-      # The only enforcement of broken_intra_doc_links = "deny".
-      - name: rustdoc
-        working-directory: rust
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps
-
-      # --no-fail-fast, as pg.ps1 does: a gate that stops at the first failing target reports a
-      # fraction of what it checked, and the fraction reads like the whole. `--profile pg-test-opt`
-      # is the profile `pg.ps1 -Mode test` calls authoritative, and the only one this suite finishes
-      # in: unoptimized it was still inside pg-foma after 45 minutes, which is this job's whole budget.
-      - name: test suite
-        working-directory: rust
-        run: cargo test --workspace --profile pg-test-opt --no-fail-fast
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          # The conformance driver (SIL.Machine.Morphology.HermitCrab.Conformance) targets net10.0.
-          dotnet-version: |
-            10.0.x
-
-      # THE contract gate. Exit 2 is a harness error, not a verdict, and still fails: this workflow
-      # checks out the submodule and builds pangloss itself, so exit 2 here means the CI environment
-      # is wrong, which must never be waved through on the path to a tag.
-      - name: conformance suite (the contract)
-        run: |
-          set +e
-          bash rust/tools/run-conformance.sh
-          exit_code=$?
-          set -e
-          if [ "$exit_code" = 2 ]; then
-            echo "::error::run-conformance.sh exited 2 -- a harness-level error, not a conformance verdict. Fix the environment; do not re-run to get a different answer."
-          fi
-          exit "$exit_code"
+    uses: ./.github/workflows/rust-gates.yml
+    with:
+      include_release_gates: true
+      version: ${{ inputs.version }}
+      timeout_minutes: 120
 
   release:
     name: stamp, tag and publish

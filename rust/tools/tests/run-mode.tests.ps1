@@ -109,6 +109,16 @@ Test-Case '-Example builds a `cargo run --release --example NAME` command' {
     Assert-True ($r.Label -like '*predict_census*') $r.Label
 }
 
+Test-Case 'a feature-gated example adds the examples feature to cargo run' {
+    $r = Resolve-RunTarget -Example 'lab' -Package 'pg-foma'
+    Assert-Equal 'pg-foma/examples' $r.LaunchArgs[$r.LaunchArgs.IndexOf('--features') + 1]
+}
+
+Test-Case 'the test example remains runnable without the examples feature' {
+    $r = Resolve-RunTarget -Example 'predict_census' -Package 'pg-foma'
+    Assert-False (@($r.LaunchArgs) -contains '--features') 'predict_census is intentionally still a test target'
+}
+
 Test-Case '-Bin builds a `cargo run --release --bin NAME` command' {
     $r = Resolve-RunTarget -Bin 'pangloss'
     Assert-Equal 'cargo' $r.LaunchExe

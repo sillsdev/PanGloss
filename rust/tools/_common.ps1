@@ -379,6 +379,111 @@ function Get-TopMemoryConsumers {
     }
 }
 
+function Get-CargoTestInvocation {
+    param(
+        [ValidateSet('quick', 'test', 'corpus-test', 'conformance-test')][Parameter(Mandatory)][string]$Mode,
+        [Parameter(Mandatory)][bool]$UseNextest,
+        [Parameter(Mandatory)][bool]$DebugProfile,
+        [Parameter(Mandatory)][int]$TestThreads,
+        [string]$Package = '',
+        [string]$TestTarget = '',
+        [string]$Filter = '',
+        [bool]$FailFast = $false,
+        [string]$HarnessModule = '',
+        [string[]]$ExtraArgs = @()
+    )
+
+    $cargoArgs = @()
+    $testProfile = if ($script:TestOptProfile) { $script:TestOptProfile } else { 'pg-test-opt' }
+    switch ($Mode) {
+        'quick' {
+            if ($UseNextest) {
+                $cargoArgs += @('nextest', 'run', '--lib', '--bins', '--test-threads', "$TestThreads")
+                if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $testProfile) }
+            } else {
+                $cargoArgs += @('test', '--lib', '--bins')
+                if (-not $DebugProfile) { $cargoArgs += @('--profile', $testProfile) }
+            }
+        }
+        'test' {
+            if ($UseNextest) {
+                $cargoArgs += @('nextest', 'run', '--test-threads', "$TestThreads")
+                if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $testProfile) }
+            } else {
+                $cargoArgs += 'test'
+                if (-not $DebugProfile) { $cargoArgs += @('--profile', $testProfile) }
+            }
+        }
+        'corpus-test' {
+            if ($UseNextest) {
+                $cargoArgs += @('nextest', 'run', '--run-ignored', 'all', '--test-threads', "$TestThreads")
+                if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $testProfile) }
+            } else {
+                $cargoArgs += 'test'
+                if (-not $DebugProfile) { $cargoArgs += @('--profile', $testProfile) }
+            }
+        }
+        'conformance-test' {
+            if ($UseNextest) {
+                $cargoArgs += @('nextest', 'run', '--test-threads', "$TestThreads")
+                if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $testProfile) }
+            } else {
+                $cargoArgs += 'test'
+                if (-not $DebugProfile) { $cargoArgs += @('--profile', $testProfile) }
+            }
+        }
+    }
+
+    if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
+    if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
+
+    if ($UseNextest) {
+        if ((-not $FailFast) -and ($ExtraArgs -notcontains '--no-fail-fast')) { $cargoArgs += '--no-fail-fast' }
+        if ($HarnessModule) {
+            $expr = "test(/^$HarnessModule`::/)"
+            if ($Filter) { $expr += " & test($Filter)" }
+            $cargoArgs += @('-E', $expr)
+        } elseif ($Filter) {
+            $cargoArgs += $Filter
+        }
+        if (($Mode -eq 'corpus-test') -and ($ExtraArgs -notcontains '--no-capture')) { $cargoArgs += '--no-capture' }
+    } else {
+        $trailing = @()
+        if ($Filter) { $trailing += $Filter } elseif ($HarnessModule) { $trailing += "$HarnessModule`::" }
+        if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) { $trailing += @('--test-threads', "$TestThreads") }
+        if ($Mode -eq 'corpus-test') {
+            $trailing += '--nocapture'
+            $trailing += '--include-ignored'
+        }
+        if ($trailing.Count -gt 0) { $cargoArgs += @('--') + $trailing }
+    }
+    if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
+
+    return [PSCustomObject]@{
+        CargoArgs   = @($cargoArgs)
+        RunnerLabel = if ($UseNextest) { 'nextest' } else { 'cargo test' }
+    }
+}
+
+function Get-GatedExamplePackage {
+    <#
+      .DESCRIPTION
+      The package whose `[[example]]` named -Example requires its `examples` feature, read from the
+      crate manifests so a newly gated example needs no second list; $null when the example is ungated.
+    #>
+    param([Parameter(Mandatory)][string]$Example, [string]$CratesRoot = (Join-Path $PSScriptRoot '..\crates'))
+    foreach ($manifest in Get-ChildItem -Path $CratesRoot -Filter Cargo.toml -Recurse -Depth 1 -ErrorAction SilentlyContinue) {
+        $text = Get-Content -Raw -LiteralPath $manifest.FullName
+        foreach ($table in [regex]::Matches($text, '(?ms)^\[\[example\]\]\s*(?<body>.*?)(?=^\[|\z)')) {
+            $body = $table.Groups['body'].Value
+            if ($body -match "(?m)^name\s*=\s*`"$([regex]::Escape($Example))`"\s*$" -and $body -match '(?m)^required-features\s*=\s*\[[^\]]*"examples"') {
+                $name = [regex]::Match($text, '(?ms)^\[package\]\s*.*?^name\s*=\s*"([^"]+)"').Groups[1].Value
+                if ($name) { return $name }
+            }
+        }
+    }
+    return $null
+}
 function Resolve-RunTarget {
     <#
       .DESCRIPTION
@@ -432,7 +537,11 @@ function Resolve-RunTarget {
     $launchArgs = @('run')
     if (-not $DebugProfile) { $launchArgs += '--release' }
     if ($Package) { $launchArgs += @('-p', $Package) }
-    if ($Example) { $launchArgs += @('--example', $Example) }
+    if ($Example) {
+        $launchArgs += @('--example', $Example)
+        $gatedPackage = Get-GatedExamplePackage -Example $Example
+        if ($gatedPackage) { $launchArgs += @('--features', "$gatedPackage/examples") }
+    }
     if ($Bin) { $launchArgs += @('--bin', $Bin) }
     # cargo's OWN '--' separator: without it, args meant for the binary are parsed by cargo as unrecognized flags.
     if ($passthrough.Count -gt 0) { $launchArgs += @('--') + $passthrough }

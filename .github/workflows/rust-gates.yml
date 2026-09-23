@@ -1,0 +1,145 @@
+name: Rust gates
+
+# The fmt, clippy and test gates shared by Rust CI and Release, so the two cannot drift. Release adds
+# its version preflight and extra gates through `include_release_gates`.
+
+on:
+  workflow_call:
+    inputs:
+      include_release_gates:
+        description: Include release version, documentation, hygiene, and conformance gates.
+        required: false
+        default: false
+        type: boolean
+      version:
+        description: Release version checked by the release gates.
+        required: false
+        default: ''
+        type: string
+      timeout_minutes:
+        description: Maximum time allowed for the test job.
+        required: false
+        default: 360
+        type: number
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Release only. Runs first so a bad version costs seconds, not a full suite.
+  preflight:
+    name: release preflight
+    if: ${{ inputs.include_release_gates }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse a version that is not x.y.z
+        run: |
+          case "${{ inputs.version }}" in
+            [0-9]*.[0-9]*.[0-9]*) echo "version ${{ inputs.version }}" ;;
+            *) echo "::error::version must be x.y.z, got '${{ inputs.version }}'"; exit 1 ;;
+          esac
+      - name: Refuse a version CHANGELOG.md has no section for
+        run: |
+          if ! grep -qE "^## ${{ inputs.version }}\$" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## ${{ inputs.version }}' section. Release notes are authored, not generated."
+            exit 1
+          fi
+      - name: Refuse a tag that already exists
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::tag v${{ inputs.version }} already exists on origin"
+            exit 1
+          fi
+
+  fmt:
+    name: fmt --check
+    needs: preflight
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - working-directory: rust
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: clippy
+    needs: preflight
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      # Examples are behind each crate's `examples` feature so test builds skip them; lint them anyway.
+      - working-directory: rust
+        run: cargo clippy --workspace --all-targets --features pg-foma/examples,pg-cli/examples -- -D warnings
+
+  test:
+    name: build + test
+    needs: preflight
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    # Fixture discovery refuses an unclaimed run; claim both roots, as `pg.ps1 -Mode test` does.
+    env:
+      PANGLOSS_CONFORMANCE_SCOPE: all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - working-directory: rust
+        run: cargo test --workspace --profile pg-test-opt --no-fail-fast
+
+  release-extras:
+    name: release gates (hygiene, rustdoc, conformance)
+    needs: preflight
+    if: ${{ inputs.include_release_gates && !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    env:
+      PANGLOSS_CONFORMANCE_SCOPE: all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: comment hygiene
+        working-directory: rust
+        run: cargo run --locked -p pg-comment-hygiene -- --repo-root .. --list
+      - name: rustdoc
+        working-directory: rust
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            10.0.x
+      - name: conformance suite (the contract)
+        run: |
+          set +e
+          bash rust/tools/run-conformance.sh
+          exit_code=$?
+          set -e
+          if [ "$exit_code" = 2 ]; then
+            echo "::error::run-conformance.sh exited 2 -- a harness-level error, not a conformance verdict. Fix the environment; do not re-run to get a different answer."
+          fi
+          exit "$exit_code"

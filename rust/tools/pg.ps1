@@ -396,7 +396,7 @@ function Invoke-BackendCardRegeneration {
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$BuildPriority,
         $HostCgroupProof = $null
     )
-    $generatorArgs = @('run', '-p', 'pg-foma', '--example', 'regenerate_backend_cards')
+    $generatorArgs = @('run', '-p', 'pg-foma', '--example', 'regenerate_backend_cards', '--features', 'examples')
     if ($ReleaseBuild) { $generatorArgs += '--release' }
     Write-Host "[pg] regenerating backend capability cards ($($generatorArgs -join ' '))" -ForegroundColor Cyan
     $invokeArgs = @{
@@ -727,104 +727,47 @@ if ($Mode -ne 'run') {
 $useNextest = ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
 
 $cargoArgs = @()
-switch ($Mode) {
-    'check' {
-        # --all-targets reaches test and example code; check stops before codegen and linking.
-        $cargoArgs += @('check', '--all-targets')
-        if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
-    }
-    'quick' {
-        # Unit tests only; the integration targets are the link cost and `test` runs them.
-        if ($useNextest) {
-            $cargoArgs += @('nextest', 'run', '--lib', '--bins', '--test-threads', "$TestThreads")
-            if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
-        } else {
-            $cargoArgs += @('test', '--lib', '--bins')
-            if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
+if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
+    # A test file absorbed into a consolidated harness is still addressable by its own stem.
+    $harnessModule = $null
+    if ($TestTarget -and $Package) {
+        $absorbed = Resolve-HarnessTestTarget -TestsDir (Join-Path $rustRoot "crates\$Package\tests") -TestTarget $TestTarget
+        if ($absorbed) {
+            Write-Host "[pg] -TestTarget $TestTarget lives in harness '$($absorbed.Target)'; running only its '$($absorbed.Module)::' tests." -ForegroundColor DarkGray
+            $TestTarget = $absorbed.Target
+            $harnessModule = $absorbed.Module
         }
     }
-    'build' {
-        $cargoArgs += 'build'
-        if (-not $DebugProfile) { $cargoArgs += '--release' }
-    }
-    'release' {
-        $cargoArgs += @('build', '--release')
-    }
-    'doc' {
-        # The only thing here running rustdoc; see this repo's own CLAUDE.md for why each flag below is required.
-        $cargoArgs += @('doc', '--no-deps', '--document-private-items', '--keep-going')
-        # Without this the mode printed rustdoc warnings and exited 0, so the release gate refused what every local run had called clean.
-        if (-not $env:RUSTDOCFLAGS) { $env:RUSTDOCFLAGS = '-D warnings' }
-    }
-    'test' {
-        if ($useNextest) {
-            # nextest's own flag goes BEFORE `--`; libtest's identically-named one goes after -- see $trailing below.
-            $cargoArgs += @('nextest', 'run', '--test-threads', "$TestThreads")
-            if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
-        } else {
-            $cargoArgs += 'test'
-            if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
-        }
-    }
-    'conformance-test' {
-        # Same runner as 'test'; the MANDATORY -Scope claim is what makes it a separate mode.
-        if ($useNextest) {
-            $cargoArgs += @('nextest', 'run', '--test-threads', "$TestThreads")
-            if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
-        } else {
-            $cargoArgs += 'test'
-            if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
-        }
-    }
-    'corpus-test' {
-        # MUST run ignored tests: every corpus-backed suite is #[ignore]d precisely because it needs the private corpus.
-        if ($useNextest) {
-            $cargoArgs += @('nextest', 'run', '--run-ignored', 'all', '--test-threads', "$TestThreads")
-            if (-not $DebugProfile) { $cargoArgs += @('--cargo-profile', $script:TestOptProfile) }
-        } else {
-            $cargoArgs += 'test'
-            if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
-        }
-    }
-}
-if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
-
-# A test file absorbed into a consolidated harness is still addressable by its own stem.
-$harnessModule = $null
-if ($TestTarget -and $Package) {
-    $absorbed = Resolve-HarnessTestTarget -TestsDir (Join-Path $rustRoot "crates\$Package\tests") -TestTarget $TestTarget
-    if ($absorbed) {
-        Write-Host "[pg] -TestTarget $TestTarget lives in harness '$($absorbed.Target)'; running only its '$($absorbed.Module)::' tests." -ForegroundColor DarkGray
-        $TestTarget = $absorbed.Target
-        $harnessModule = $absorbed.Module
-    }
-}
-
-# Before the runner-specific branches: `--test` is a CARGO argument, valid for both runners, and must not land after `--`.
-if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
-
-if ($useNextest) {
-    # Skipped when the caller already passed it; nextest refuses a repeated flag.
-    if ((-not $FailFast) -and ($ExtraArgs -notcontains '--no-fail-fast')) { $cargoArgs += '--no-fail-fast' }
-    if ($harnessModule) {
-        $expr = "test(/^$harnessModule`::/)"
-        if ($Filter) { $expr += " & test($Filter)" }
-        $cargoArgs += @('-E', $expr)
-    } elseif ($Filter) { $cargoArgs += $Filter }
-    # Without this, PANGLOSS_CORPUS_CASES lines from PASSING tests are swallowed and misreport as zero cases.
-    if (($Mode -eq 'corpus-test') -and ($ExtraArgs -notcontains '--no-capture')) { $cargoArgs += '--no-capture' }
+    $testInvocation = Get-CargoTestInvocation -Mode $Mode -UseNextest:$useNextest -DebugProfile:$DebugProfile `
+        -TestThreads $TestThreads -Package $Package -TestTarget $TestTarget -Filter $Filter `
+        -FailFast:$FailFast -HarnessModule $harnessModule -ExtraArgs $ExtraArgs
+    $cargoArgs = @($testInvocation.CargoArgs)
+    $runnerLabel = $testInvocation.RunnerLabel
 } else {
-    $trailing = @()
-    if ($Filter) { $trailing += $Filter } elseif ($harnessModule) { $trailing += "$harnessModule`::" }
-    if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) { $trailing += @('--test-threads', "$TestThreads") }
-    if ($Mode -eq 'corpus-test') {
-        $trailing += '--nocapture'
-        # libtest's spelling of nextest's --run-ignored all: without it, every corpus test (all #[ignore]d) is skipped.
-        $trailing += '--include-ignored'
+    switch ($Mode) {
+        'check' {
+            # --all-targets reaches test and example code; check stops before codegen and linking.
+            $cargoArgs += @('check', '--all-targets')
+            if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
+        }
+        'build' {
+            $cargoArgs += 'build'
+            if (-not $DebugProfile) { $cargoArgs += '--release' }
+        }
+        'release' {
+            $cargoArgs += @('build', '--release')
+        }
+        'doc' {
+            # The only thing here running rustdoc; see this repo's own CLAUDE.md for why each flag below is required.
+            $cargoArgs += @('doc', '--no-deps', '--document-private-items', '--keep-going')
+            # Without this the mode printed rustdoc warnings and exited 0, so the release gate refused what every local run had called clean.
+            if (-not $env:RUSTDOCFLAGS) { $env:RUSTDOCFLAGS = '-D warnings' }
+        }
     }
-    if ($trailing.Count -gt 0) { $cargoArgs += @('--') + $trailing }
+    if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
+    if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
+    if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
 }
-if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
 
 } # end: if ($Mode -ne 'run')
 
@@ -847,6 +790,10 @@ if ($Mode -eq 'run') {
         Write-Host "[pg] $($runPlan.Detail)" -ForegroundColor Red
         exit 2
     }
+}
+
+if ($Mode -ne 'run' -and -not $runnerLabel) {
+    $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
 }
 
 # `run` still takes a slot, but its own pool; -Heavy opts a build-sized probe back into the build pool.
@@ -916,7 +863,6 @@ try {
             if (Test-Path -LiteralPath $capturePath) { Remove-Item -LiteralPath $capturePath -Force -ErrorAction SilentlyContinue }
         }
     } elseif ($Mode -eq 'corpus-test') {
-        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $capturePath = Join-Path ([System.IO.Path]::GetTempPath()) "pg-corpus-test-$PID.log"
         $invokeArgs = @{
@@ -940,7 +886,6 @@ try {
         }
         Write-Host "[pg] corpus-test executed $totalCases corpus case(s) across $($caseLines.Count) label(s)." -ForegroundColor Green
     } else {
-        $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
         Write-Host "[pg] cargo $($cargoArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }), runner: $runnerLabel)" -ForegroundColor Cyan
         $invokeArgs = @{
             Exe = 'cargo'; CmdArgs = $cargoArgs; WorkingDirectory = $rustRoot

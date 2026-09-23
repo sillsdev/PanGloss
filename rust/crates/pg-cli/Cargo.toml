@@ -19,10 +19,16 @@ name = "recipe_optimize_timeout"
 path = "tests/recipe_optimize_timeout.rs"
 
 [features]
+examples = []
 developer-tools = ["pg-foma/developer-tools"]
 # Ground-truth allocator instrumentation for docs/research/word-memory-trace.md; default off, see
 # `src/alloc_trace.rs`.
 alloc-trace = []
+
+[[example]]
+name = "spellcheck_measure"
+path = "examples/spellcheck_measure.rs"
+required-features = ["examples"]
 
 [dependencies]
 pg-parse.workspace = true

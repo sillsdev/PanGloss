@@ -7,6 +7,7 @@ license.workspace = true
 autotests = false
 
 [features]
+examples = []
 developer-tools = []
 test-concurrency-hook = []
 # `candidate_filter::test_support` hands a caller the authority to construct a filter, and a filter
@@ -191,3 +192,23 @@ workspace = true
 name = "predict_census"
 path = "examples/predict_census.rs"
 test = true
+
+[[example]]
+name = "lab"
+path = "examples/lab/main.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "p6_templated_q3_oracle_bounds"
+path = "examples/p6_templated_q3_oracle_bounds.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "propose_parity"
+path = "examples/propose_parity.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "regenerate_backend_cards"
+path = "examples/regenerate_backend_cards.rs"
+required-features = ["examples"]
