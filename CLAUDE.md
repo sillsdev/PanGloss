@@ -78,7 +78,8 @@ Nothing enforces these. They are here because they change what a careful agent d
 ## Managed builds, in one place
 
 `rust/tools/pg.ps1` (or `build.ps1`/`test.ps1`). Reach for `check` first, `test` last: the cost of a
-round trip is compiling and linking ~105 integration targets in pg-foma, not running tests.
+round trip is compiling and linking test binaries (pg-foma alone has 19 integration targets plus
+examples), not running tests.
 
 `-Mode check` type-checks everything including test code. `-Mode quick` adds unit tests.
 `-Mode test` / `-Mode conformance-test` are authoritative — a green `quick` is not a green suite.
