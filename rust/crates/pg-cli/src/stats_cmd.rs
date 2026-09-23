@@ -3030,7 +3030,7 @@ mod tests {
 
     #[test]
     fn untimed_object_kinds_render_self_time_as_unavailable() {
-        for kind in ["phon_rule", "root_index", "guesser", "overlay"] {
+        for kind in ["guesser", "overlay"] {
             let row = pg_stats::PerObjectRow {
                 kind: kind.to_string(),
                 label: kind.to_string(),
@@ -3049,13 +3049,33 @@ mod tests {
     }
 
     #[test]
+    fn timed_object_kinds_render_their_self_time() {
+        for kind in ["morph_rule", "phon_rule", "lex_entry", "root_index"] {
+            let row = pg_stats::PerObjectRow {
+                kind: kind.to_string(),
+                label: kind.to_string(),
+                identity_quality: "synthetic".to_string(),
+                attempts: 1,
+                work: 1,
+                outputs: 0,
+                not_applied: 0,
+                no_root: 0,
+                surface_mismatch: 0,
+                uses: 0,
+                self_time_ns: 7,
+            };
+            assert_eq!(object_row_view(&row).self_time_ns, Some(7), "{kind}");
+        }
+    }
+
+    #[test]
     fn untimed_kind_totals_remain_unavailable_instead_of_becoming_zero() {
         let cache = synthetic_stats_cache(
             "hc",
-            vec![synthetic_fact(pg_stats::ObjectKind::PhonRule, None, 4)],
+            vec![synthetic_fact(pg_stats::ObjectKind::Guesser, None, 4)],
         );
         let filters = Filters {
-            kind: Some("phon_rule".to_string()),
+            kind: Some("guesser".to_string()),
             ..Filters::default()
         };
         let text = render_object(cache.connection(), &filters, OutputFormat::Text).unwrap();
