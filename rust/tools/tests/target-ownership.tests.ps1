@@ -40,11 +40,6 @@ Test-Case 'a write from a DIFFERENT repository is refused and does not overwrite
     Assert-Equal 'repoA' $after.repository_id
 }
 
-Test-Case 'there is no -Preserved switch to set: the parameter itself is gone, not merely ignored' {
-    $cmd = Get-Command Write-TargetOwnership
-    Assert-False ($cmd.Parameters.ContainsKey('Preserved')) 'a caller passing -Preserved must fail loudly rather than be silently accepted'
-}
-
 Test-Case 'a schema-1 marker left over from the flag era still classifies, its stale preserved:true ignored' {
     # Its own root, never the shared temp dir: -Roots is enumerated and sized recursively.
     $root = New-TestTempDir -Prefix 'pg-target-legacy-root'

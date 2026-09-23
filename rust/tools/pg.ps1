@@ -853,6 +853,7 @@ if ($Mode -eq 'run') {
 # docs/research/build-resource-governance.md
 $slotPool = if ($Mode -eq 'run' -and -not $Heavy) { 'run' } else { 'build' }
 $slotLimit = if ($slotPool -eq 'run') { $runSlots } else { $MaxConcurrent }
+$script:CurrentPgMode = $Mode
 $sem = Enter-ResourceSlot -Pool $slotPool -MaxConcurrent $slotLimit -TimeoutSeconds $BuildSlotTimeoutSeconds
 if (-not $sem) {
     Write-Host "[pg] timed out after ${BuildSlotTimeoutSeconds}s waiting for a $slotPool slot (max $slotLimit concurrent across all worktrees) -- another worktree is holding them all." -ForegroundColor Red

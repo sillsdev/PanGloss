@@ -54,7 +54,7 @@ linker, and slot descendants before retrying. A timeout never authorizes a dupli
 
 ## Shared build state
 
-Measure physical-memory and commit headroom, CPU load, and active Cargo trees before a build-heavy
+Measure available physical memory, CPU load, and active Cargo trees before a build-heavy
 handoff. Use `pg.ps1` for all Rust work and let its shared slots govern concurrency.
 
 The sccache daemon is machine-wide. Before a stop, restart, configuration experiment, or cache

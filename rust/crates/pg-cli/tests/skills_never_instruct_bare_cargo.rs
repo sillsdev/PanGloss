@@ -57,7 +57,7 @@ fn offending_lines(text: &str, refused: &[String]) -> Vec<String> {
                 hits.push(t.to_string());
             }
         }
-        // The other half of the same hazard: running a built binary outside the job object.
+        // The other half of the same hazard: running a built binary outside the managed run slot.
         if t.contains("target/release/pangloss") || t.contains("target\\release\\pangloss") {
             hits.push(t.to_string());
         }
@@ -78,7 +78,7 @@ fn no_skill_instructs_a_command_the_hook_refuses() {
     assert!(
         offenders.is_empty(),
         "skill(s) instruct a command `.claude/hooks/block-bare-cargo.py` refuses, or run a built \
-         binary outside `pg.ps1 -Mode run`'s job object. Use the managed entry point instead:\n  {}",
+         binary outside `pg.ps1 -Mode run`'s run slot. Use the managed entry point instead:\n  {}",
         offenders.join("\n  ")
     );
 }

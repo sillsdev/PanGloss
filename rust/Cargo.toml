@@ -132,9 +132,6 @@ pg-pack = { path = "crates/pg-pack" }
 # Windows Job Object process-tree containment. The dependency is target-scoped in the crate so
 # analysis-only and Linux builds do not acquire Windows APIs.
 pg-worker-containment = { path = "crates/pg-worker-containment" }
-# dev
-criterion = "0.5"
-proptest = "1"
 
 # Dev profile: line tables instead of the default full DWARF/PDB. Debug info is the single largest
 # thing a dev build writes -- full info across 20 crates plus their test binaries is gigabytes of
@@ -201,3 +198,13 @@ debug = "line-tables-only"
 # it in every fresh target dir. Tests only use it for the stats cache, so compile it unoptimized here.
 [profile.pg-test-opt.package.libsqlite3-sys]
 opt-level = 0
+
+# pg-foma is the largest crate and the one most often rebuilt after an edit; 64 codegen units spread its
+# codegen across idle cores. Its lib + unit-test rebuild measured 47-52s at 16, 25-27s at 64.
+[profile.pg-test-opt.package.pg-foma]
+codegen-units = 64
+
+# Third-party crates keep no debug info in tests: nobody steps into them, and it trims the PDBs LLD
+# writes for every test executable. Workspace crates keep line tables (above) for backtraces.
+[profile.pg-test-opt.package."*"]
+debug = false

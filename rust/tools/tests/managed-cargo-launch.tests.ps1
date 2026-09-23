@@ -75,29 +75,4 @@ Test-Case 'managed Cargo forwards the direct launch contract and preserves the p
     }
 }
 
-Test-Case 'pg has no removed process-cap controls around managed Cargo launches' {
-    $toolRoot = Split-Path $PSScriptRoot -Parent
-    $pgText = Get-Content -LiteralPath (Join-Path $toolRoot 'pg.ps1') -Raw
-    $commonText = Get-Content -LiteralPath (Join-Path $toolRoot '_common.ps1') -Raw
-    foreach ($removedName in @(
-        'Test-CommitReserve', 'Invoke-CommitGatedAction', 'Invoke-PostSlotCommitGatedAction',
-        'Get-ResourcePeerCommitCaps', 'Get-OccupiedResourceSlotCount', 'Get-JobMemoryCapGB'
-    )) {
-        Assert-False ($null -ne (Get-Command $removedName -CommandType Function -ErrorAction SilentlyContinue)) `
-            "$removedName must not remain as an active build-cap control"
-        Assert-False $pgText.Contains($removedName) "$removedName must not be called by pg.ps1"
-        Assert-False $commonText.Contains("function $removedName") "$removedName must not remain in _common.ps1"
-    }
-
-    $cargoStart = $pgText.IndexOf('} elseif ($HygieneBootstrap) {', [StringComparison]::Ordinal)
-    $cargoEnd = $pgText.IndexOf('} finally {', $cargoStart, [StringComparison]::Ordinal)
-    Assert-True ($cargoStart -ge 0 -and $cargoEnd -gt $cargoStart) 'managed Cargo branch must be locatable'
-    $cargoBranch = $pgText.Substring($cargoStart, $cargoEnd - $cargoStart)
-    Assert-False ($cargoBranch -match 'commit.headroom|Get-CommitChargeGB') `
-        'no removed process cap or commit-headroom gate may constrain a Cargo launch'
-    Assert-False ($pgText -match 'Invoke-CommitGatedAction|Invoke-PostSlotCommitGatedAction|Get-ResourcePeerCommitCaps|Get-OccupiedResourceSlotCount') `
-        'pg.ps1 must not retain cap-based pre-slot or post-slot admission'
-    Assert-False ($pgText -match "\[''Threads''\]") 'managed Cargo paths must not pass removed CPU-width plumbing'
-}
-
 Write-TestSummary

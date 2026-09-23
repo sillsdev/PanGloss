@@ -2,14 +2,14 @@
 
 WHY THIS IS A HOOK AND NOT A SENTENCE IN CLAUDE.md
 
-CLAUDE.md's parallel-agents rule 2 has forbidden polling a self-spawned background job since the
+CLAUDE.md's no-polling rule has forbidden polling a self-spawned background job since the
 six-agent incident. In one session THREE agents did it anyway, and their task prompts quoted the
 rule verbatim. That is not carelessness, it is a rule losing an argument against three things:
 
   * The Bash/PowerShell tool description recommends `run_in_background` for anything long.
-  * CLAUDE.md's OWN rule 7 says a genuinely long command "should BE that background job", which for
-    a full `-Mode test` run is most of the time — so rules 2 and 7 disagree about the commonest case.
-  * Rule 2's remedy, "block in the foreground with a long tool timeout", is arithmetically
+  * CLAUDE.md's OWN long-command rule says a genuinely long command "should BE that background job", which for
+    a full `-Mode test` run is most of the time — so the two rules disagree about the commonest case.
+  * The no-polling rule's remedy, "block in the foreground with a long tool timeout", is arithmetically
     impossible: the tool ceiling is ~600s and a cold full-suite build on this workspace is ~1000s.
 
 An agent following the coherent half of contradictory guidance ends up backgrounding a build, then
@@ -20,7 +20,7 @@ WHAT THIS REFUSES, AND WHAT IT DELIBERATELY DOES NOT
 
 Only a MANAGED build (`pg.ps1` / `build.ps1` / `test.ps1`) launched with `run_in_background: true`.
 Backgrounding is genuinely right for other long work — a full-corpus oracle batch, a `-Mode run`
-probe — and rule 7 is correct about those. The distinguishing property is that a managed build
+probe — and the long-command rule is correct about those. The distinguishing property is that a managed build
 already reports its own result through an exit code and a Summary line the caller must read; a
 backgrounded one hands back a task id instead, and the caller then has nothing to report.
 

@@ -68,7 +68,6 @@ $script:SsdCacheRoot = if ($env:PANGLOSS_SSD_CACHE_ROOT) { $env:PANGLOSS_SSD_CAC
 $script:HddCacheRoot = if ($env:PANGLOSS_CARGO_CACHE_ROOT) { $env:PANGLOSS_CARGO_CACHE_ROOT } else { 'G:\cargo-build-cache' }
 # The guard against refilling the disk-space crisis that motivated moving target-dirs off C: at all.
 $script:MinFreeGBOnSsd = if ($env:PANGLOSS_MIN_FREE_SSD_GB) { [double]$env:PANGLOSS_MIN_FREE_SSD_GB } else { 35 }
-$script:BuildSemaphoreName = 'Global\PanGlossCargoBuild'
 
 function Import-PanGlossPlatformAdapter {
     # Installs the platform-native seam functions (global scope, since a dot-source inside a function would discard them on return); -Platform exists for fixture tests, and load-time dispatch only selects Linux on a real Linux host.
@@ -130,7 +129,7 @@ function Get-SpawnFloorGB {
       failure. The interactive reserve narrows -j (Get-MemoryProcessBudget); it does not refuse
       the build, because a larger floor refused ordinary builds while a local model held RAM.
     #>
-    param([Nullable[double]]$TotalGB = (Get-TotalMemoryGB))
+    param([Nullable[double]]$TotalGB)
     if ($env:PANGLOSS_MIN_FREE_MEM_GB) { return [double]$env:PANGLOSS_MIN_FREE_MEM_GB }
     return [math]::Round($script:MinBuildRoomGB, 1)
 }
@@ -772,7 +771,7 @@ function Enter-ResourceSlot {
 
     $slot = [PSCustomObject]@{
         Mutexes = $mutexes; Index = $index; Pool = $Pool
-        CensusWidth = $contract.CensusWidth; Prefix = $contract.Prefix
+        Prefix = $contract.Prefix
     }
     try { Write-SlotHolder -Pool $Pool -Slot $index } catch {}
     return $slot
@@ -1054,24 +1053,6 @@ function Get-LiveWorktreeSlugs {
         ForEach-Object { Split-Path $_.Groups[1].Value -Leaf }
 }
 
-function Remove-StaleTargetCaches {
-    param([switch]$WhatIfOnly = $true)
-    # Both roots need sweeping: a target-dir can live on either, depending on headroom at build time.
-    foreach ($root in @($script:SsdCacheRoot, $script:HddCacheRoot)) {
-        if (-not (Test-Path $root)) { continue }
-        $live = @(Get-LiveWorktreeSlugs)
-        Get-ChildItem $root -Directory | Where-Object { $_.Name -ne 'sccache' -and $live -notcontains $_.Name } |
-            ForEach-Object {
-                $sizeGB = [math]::Round(((Get-ChildItem $_.FullName -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum) / 1GB, 2)
-                if ($WhatIfOnly) {
-                    Write-Host "[gc] would remove stale cache: $($_.FullName) (${sizeGB}GB) -- worktree no longer exists" -ForegroundColor Yellow
-                } else {
-                    Write-Host "[gc] removing stale cache: $($_.FullName) (${sizeGB}GB)" -ForegroundColor Yellow
-                    Remove-Item -Recurse -Force $_.FullName
-                }
-            }
-    }
-}
 
 function Get-ProcessSnapshot {
     <#

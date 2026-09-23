@@ -33,7 +33,7 @@ jobs:
   gates:
     name: gates
     runs-on: ubuntu-latest
-    # A cold-cache optimized build of the workspace and its ~105 test targets measured just over an
+    # Before test consolidation, a cold-cache build of the workspace's ~105 test targets took just over an
     # hour on this runner. 45 minutes would have failed a release on the clock rather than on a gate,
     # which is the one way this job must never fail.
     timeout-minutes: 120
