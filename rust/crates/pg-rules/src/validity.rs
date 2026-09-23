@@ -58,7 +58,7 @@
 //! rejects both because the environment fails at the *second* piece) and pinned by
 //! `pg-parse/tests/discontinuous_env_gate.rs`.
 
-use pg_grammar::model::{
+use pg_grammar_model::model::{
     AllomorphCoOccurrenceRuleDef, AllomorphId, AllomorphOwner, CoOccurrenceAdjacency,
     EnvironmentDef, Grammar, MorphemeCoOccurrenceRuleDef, MorphemeId, RootAllomorphDef, StemNameId,
     TableId,

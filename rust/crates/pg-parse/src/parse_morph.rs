@@ -4,7 +4,7 @@
 //! from grammar metadata, and circumfix halves must have two independently ordered occurrences.
 
 use crate::WordAnalysis;
-use pg_grammar::model::{Grammar, MorphemeId, SourceMorphPlacement};
+use pg_grammar_model::model::{Grammar, MorphemeId, SourceMorphPlacement};
 use serde::{Deserialize, Serialize};
 
 /// The versioned FieldWorks-compatible morphology projection.
@@ -360,7 +360,7 @@ mod tests {
     use super::*;
     use crate::{AnalysisProvenance, MorphOccurrence};
     use pg_featstruct::FeatureStruct;
-    use pg_grammar::model::{MorphemeInfo, MprSet, SourceMorphPlacement, StratumId};
+    use pg_grammar_model::model::{MorphemeInfo, MprSet, SourceMorphPlacement, StratumId};
 
     fn grammar(
         msa: Option<&str>,
@@ -387,7 +387,7 @@ mod tests {
         });
         grammar.allomorph_sources = forms
             .into_iter()
-            .map(|form_guids| pg_grammar::model::AllomorphSource {
+            .map(|form_guids| pg_grammar_model::model::AllomorphSource {
                 form_guids: form_guids
                     .into_iter()
                     .map(|guid| guid.map(str::to_string))
@@ -441,12 +441,12 @@ mod tests {
         }
         for (allomorph_id, owner) in grammar.allomorph_owners.iter().copied().enumerate() {
             let form_guid = match owner {
-                pg_grammar::model::AllomorphOwner::Root(_, _) => root_form_guid,
-                pg_grammar::model::AllomorphOwner::Affix(rule, index) => {
+                pg_grammar_model::model::AllomorphOwner::Root(_, _) => root_form_guid,
+                pg_grammar_model::model::AllomorphOwner::Affix(rule, index) => {
                     let morpheme = match &grammar.mrules[rule.0 as usize] {
-                        pg_grammar::model::MorphRuleDef::AffixProcess(def) => def.morpheme,
-                        pg_grammar::model::MorphRuleDef::Realizational(def) => def.morpheme,
-                        pg_grammar::model::MorphRuleDef::Compounding(_) => {
+                        pg_grammar_model::model::MorphRuleDef::AffixProcess(def) => def.morpheme,
+                        pg_grammar_model::model::MorphRuleDef::Realizational(def) => def.morpheme,
+                        pg_grammar_model::model::MorphRuleDef::Compounding(_) => {
                             panic!("fixture affix source owner points at a compounding rule")
                         }
                     };

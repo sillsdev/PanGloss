@@ -1,6 +1,8 @@
 //! Regression gate for `Allomorph.IsWordValid`'s sub-gates: environments, bound roots, and per-allomorph required syntactic FS.
 
-use pg_grammar::model::{AllomorphId, EnvironmentDef, Grammar, MorphRuleDef, Pattern, PatternNode};
+use pg_grammar_model::model::{
+    AllomorphId, EnvironmentDef, Grammar, MorphRuleDef, Pattern, PatternNode,
+};
 use pg_rules::validity::{allomorphs_valid, environments_ok};
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
@@ -14,13 +16,13 @@ use common::{ctx, load_probe_grammar, nat_class};
 
 fn probe_shape(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let w = g.phon_features.len() as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
     for (_, kind, cd, _) in seg.interior() {
         let mut lanes = vec![u64::MAX; w as usize];
         for (i, &l) in t
-            .get(pg_grammar::chardef::CharDefId(cd))
+            .get(pg_grammar_model::chardef::CharDefId(cd))
             .feature_lanes()
             .iter()
             .enumerate()
@@ -251,7 +253,7 @@ fn load_gate_grammar() -> Grammar {
 
 fn entry_shape(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let mut b = ShapeBuilder::with_features_capacity(0, seg.len());
     for (_, kind, cd, _) in seg.interior() {
         match kind {
@@ -264,14 +266,14 @@ fn entry_shape(g: &Grammar, text: &str) -> Shape {
 }
 
 /// Find the lexical entry whose first allomorph's authored surface text is `text`.
-fn find_entry<'g>(g: &'g Grammar, text: &str) -> &'g pg_grammar::model::LexEntryDef {
+fn find_entry<'g>(g: &'g Grammar, text: &str) -> &'g pg_grammar_model::model::LexEntryDef {
     g.entries
         .iter()
         .find(|e| e.allomorphs.first().map(|a| a.shape.text.as_str()) == Some(text))
         .unwrap_or_else(|| panic!("no entry with surface {text:?}"))
 }
 
-fn suffix_allomorph(g: &Grammar) -> (AllomorphId, pg_grammar::model::MorphemeId) {
+fn suffix_allomorph(g: &Grammar) -> (AllomorphId, pg_grammar_model::model::MorphemeId) {
     let MorphRuleDef::AffixProcess(def) = &g.mrules[0] else {
         panic!("expected affix rule")
     };
@@ -289,7 +291,10 @@ fn bound_root_alone_is_rejected() {
         "sanity: eBat's allomorph is isBound=\"true\""
     );
 
-    let mut w = Word::new(entry_shape(&g, "bat"), pg_grammar::model::StratumId(0));
+    let mut w = Word::new(
+        entry_shape(&g, "bat"),
+        pg_grammar_model::model::StratumId(0),
+    );
     w.syn_fs = g.fs_interner.get(bat.syn_fs).clone();
     w.morphs = vec![MorphRecord::new(root_allo, bat.morpheme, 0)];
 
@@ -307,7 +312,10 @@ fn bound_root_with_an_affix_is_not_rejected_by_the_bound_gate() {
     let root_allo = bat.allomorphs[0].id;
     let (affix_allo, affix_morpheme) = suffix_allomorph(&g);
 
-    let mut w = Word::new(entry_shape(&g, "batx"), pg_grammar::model::StratumId(0));
+    let mut w = Word::new(
+        entry_shape(&g, "batx"),
+        pg_grammar_model::model::StratumId(0),
+    );
     w.syn_fs = g.fs_interner.get(bat.syn_fs).clone();
     w.morphs = vec![
         MorphRecord::new(root_allo, bat.morpheme, 0),
@@ -327,7 +335,10 @@ fn required_syntactic_fs_gates_on_the_words_accumulated_syn_fs() {
     let (affix_allo, affix_morpheme) = suffix_allomorph(&g);
 
     let cat = find_entry(&g, "cat");
-    let mut w_cat = Word::new(entry_shape(&g, "catx"), pg_grammar::model::StratumId(0));
+    let mut w_cat = Word::new(
+        entry_shape(&g, "catx"),
+        pg_grammar_model::model::StratumId(0),
+    );
     w_cat.syn_fs = g.fs_interner.get(cat.syn_fs).clone();
     w_cat.morphs = vec![
         MorphRecord::new(cat.allomorphs[0].id, cat.morpheme, 0),
@@ -339,7 +350,10 @@ fn required_syntactic_fs_gates_on_the_words_accumulated_syn_fs() {
     );
 
     let dog = find_entry(&g, "dog");
-    let mut w_dog = Word::new(entry_shape(&g, "dogx"), pg_grammar::model::StratumId(0));
+    let mut w_dog = Word::new(
+        entry_shape(&g, "dogx"),
+        pg_grammar_model::model::StratumId(0),
+    );
     w_dog.syn_fs = g.fs_interner.get(dog.syn_fs).clone();
     w_dog.morphs = vec![
         MorphRecord::new(dog.allomorphs[0].id, dog.morpheme, 0),

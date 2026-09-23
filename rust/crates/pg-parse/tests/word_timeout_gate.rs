@@ -7,7 +7,7 @@ use pg_parse::Morpher;
 use std::time::{Duration, Instant};
 
 /// A known-good, cheap-to-build grammar; the deadline in each test below is what forces the timeout, not the grammar's own difficulty.
-fn simple_grammar() -> pg_grammar::model::Grammar {
+fn simple_grammar() -> pg_grammar_model::model::Grammar {
     let mrules = r#"
       <MorphologicalRule id="mrEd" requiredPartsOfSpeech="posV"><Name>ed_suffix</Name><MorphemeId>PAST</MorphemeId>
         <MorphologicalSubrules>

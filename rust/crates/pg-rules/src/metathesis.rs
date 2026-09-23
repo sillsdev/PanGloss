@@ -6,7 +6,7 @@
 //! implementation also calls for).
 //!
 //! ## Model shape (deliberate divergence from an authored-`Group`-kind design)
-//! `pg_grammar::model::MetathesisRuleDef` carries ONE compiled pattern (no separate LHS/RHS split,
+//! `pg_grammar_model::model::MetathesisRuleDef` carries ONE compiled pattern (no separate LHS/RHS split,
 //! no environments — C#'s `IPhonologicalPatternSubruleSpec.LeftEnvironmentMatcher`/
 //! `RightEnvironmentMatcher` are hardcoded `null` for both Analysis/SynthesisMetathesisRuleSpec) plus
 //! two switch positions (`left_switch`/`right_switch`, indices into `pattern.nodes`). An authored
@@ -77,7 +77,7 @@
 //! identity node" reason).
 //!
 //! ## MPR/POS immunity
-//! No subrule-level gating exists at all (see `pg_grammar::model::MetathesisRuleDef`'s doc) — every
+//! No subrule-level gating exists at all (see `pg_grammar_model::model::MetathesisRuleDef`'s doc) — every
 //! `synthesize`/`analyze` call here always considers the rule applicable. Deliberately **not** pinned
 //! by a dedicated test: the DTD's `<MetathesisRule>` has no `requiredMPRFeatures`/`excludedMPRFeatures`/
 //! `requiredPartsOfSpeech` attribute at all, so there is no grammar any test could author that would
@@ -87,8 +87,8 @@
 
 use pg_featstruct::flat_unifiable;
 use pg_fst::{CompileNode, Direction, Fst, Segment, Transduce, ENTIRE_MATCH};
-use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
-use pg_grammar::model::{
+use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
+use pg_grammar_model::model::{
     Grammar, MetathesisRuleDef, PRuleId, Pattern, PatternNode, StratumId, TableId,
 };
 use pg_shape::{NodeKind, Shape};

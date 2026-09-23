@@ -1,6 +1,6 @@
 use pg_featstruct::{flat_unifiable, FeatureStruct};
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{Grammar, MprSet, StratumId, TableId};
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::{Grammar, MprSet, StratumId, TableId};
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::word::{SuppliedAuthorityData, SuppliedRootData};
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
@@ -234,7 +234,7 @@ impl SuppliedRoot {
 fn lanes(
     shape: &Shape,
     i: usize,
-    table: &pg_grammar::chardef::CharDefTable,
+    table: &pg_grammar_model::chardef::CharDefTable,
     width: usize,
 ) -> Vec<u64> {
     if width > 0 && shape.feat_width() as usize == width {

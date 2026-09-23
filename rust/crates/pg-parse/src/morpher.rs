@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use pg_featstruct::{FeatId, FeatureStruct, FeatureValue, FsId};
-use pg_grammar::model::{
+use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, MprSet,
     StratumId,
 };
@@ -32,7 +32,7 @@ use crate::{result_signature, surface, AnalysisProvenance, SuppliedRootOverlay, 
 /// tries (C# `Morpher`, built once, parses many words).
 pub struct Morpher<'g> {
     g: &'g Grammar,
-    final_template_facts: pg_grammar::model::FinalTemplatePruneFacts,
+    final_template_facts: pg_grammar_model::model::FinalTemplatePruneFacts,
     always_enforce_final_templates: bool,
     root_index: RootAllomorphIndex,
     overlay: Option<&'g SuppliedRootOverlay>,
@@ -708,7 +708,7 @@ impl<'g> Morpher<'g> {
         &self,
         w: &mut Word,
         le: LexEntryId,
-        allo: pg_grammar::model::AllomorphId,
+        allo: pg_grammar_model::model::AllomorphId,
         text: &str,
     ) {
         let g = self.g;
@@ -1545,7 +1545,7 @@ mod trace_tests {
     use pg_shape::ShapeBuilder;
 
     /// The smallest grammar `pg_grammar::load` accepts; sufficient since `is_word_valid_traced` doesn't read `Grammar::strata`.
-    fn minimal_grammar() -> pg_grammar::model::Grammar {
+    fn minimal_grammar() -> pg_grammar_model::model::Grammar {
         const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
           <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
           <HeadFeatures />
@@ -1572,7 +1572,7 @@ mod trace_tests {
         let m = Morpher::new(&g, usize::MAX);
         let mut word = w();
         // A leftover unapplied rule never re-confirmed by synthesis (C#'s `mruleAppIndex != -1`).
-        word.mrule_apps = vec![Some(pg_grammar::model::MRuleId(0))];
+        word.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
         word.mrule_app_index = 0;
 
         let sink = TreeTraceSink::new();
@@ -1614,7 +1614,7 @@ mod trace_tests {
         let g = minimal_grammar();
         let m = Morpher::new(&g, usize::MAX);
         let mut word = w();
-        word.mrule_apps = vec![Some(pg_grammar::model::MRuleId(0))];
+        word.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
         word.mrule_app_index = 0;
         assert!(!m.is_word_valid(&word));
     }

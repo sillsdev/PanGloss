@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
+use pg_grammar_model::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::ParseOutcome;
 use std::collections::BTreeSet;
 

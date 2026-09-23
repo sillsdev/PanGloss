@@ -1,6 +1,6 @@
 //! Part 1 — the pattern → FST compile bridge (plan §5.4/§5.5).
 //!
-//! Translates an authored `pg_grammar::model::Pattern` (its `PatternNode` tree) into
+//! Translates an authored `pg_grammar_model::model::Pattern` (its `PatternNode` tree) into
 //! `pg_fst::CompileInput` and compiles it to a frozen `pg_fst::Fst`. This is the seam the
 //! module doc of `pg-fst`'s `compile.rs` describes: pg-fst deliberately does *not* depend on
 //! pg-grammar; **this** module owns the grammar-aware resolution (natural classes, char-def
@@ -28,7 +28,7 @@
 //!   boundary char-defs do **not** have empty feature lanes / match-any semantics — every char-def,
 //!   segment or boundary, carries a full `feat_sys.len()`-wide lane row with its `Type` lane always
 //!   pinned to `Segment`-only or `Boundary`-only bits (plan §13.1 Tier-1 #1,
-//!   `pg_grammar::chardef::CharDef::feature_lanes` doc, `2f238cee`); a boundary constraint here
+//!   `pg_grammar_model::chardef::CharDef::feature_lanes` doc, `2f238cee`); a boundary constraint here
 //!   matches only boundary nodes, exactly like any other pinned lane.
 //! - `PatternNode::Quantifier`: the pg-fst `{min,max}` quantifier over the compiled children.
 //! - `PatternNode::Segments`: a sequence of per-node constraints taken from the pre-segmented
@@ -38,8 +38,8 @@
 //!   therefore lifts to a flag on the returned `CompiledPattern`, not a `CompileNode`.
 
 use pg_fst::{CompileInput, CompileNode, Fst};
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::{
     AnchorSide, Grammar, NatClassId, NaturalClassKind, Pattern, PatternNode, SimpleContext, TableId,
 };
 
@@ -221,7 +221,7 @@ impl<'g> PatternBridge<'g> {
                 // C#'s `NaturalClass` ctor stamps every `FeatureNaturalClass` FS with `Type=Segment`, so this pin keeps a bare natural-class node from spuriously matching a `Boundary` node; `Segments`-kind needs no equivalent pin (its members already carry a genuine `Type`).
                 // See `docs/research/pg-rules-p10-identity-lane-design-notes.md` for the confirmed-real repro and the separate bug it was originally conflated with.
                 lanes[self.grammar.phon_features.type_flat().0 as usize] =
-                    pg_grammar::featsys::TYPE_SEGMENT_BITS;
+                    pg_grammar_model::featsys::TYPE_SEGMENT_BITS;
                 Ok(lanes)
             }
             NaturalClassKind::Segments(segs) => {

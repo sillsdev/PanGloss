@@ -25,7 +25,7 @@
 //! ## The `StrRep` analog
 //! C# matches on `cd.FeatureStruct.IsUnifiable(node.Annotation.FeatureStruct)`, whose feature
 //! structure includes the segment/boundary *type* symbol. Here the type is the node/char-def
-//! `pg_shape::NodeKind` / `pg_grammar::chardef::CharDefKind` (segment nodes match only segment
+//! `pg_shape::NodeKind` / `pg_grammar_model::chardef::CharDefKind` (segment nodes match only segment
 //! char-defs, boundary nodes only boundary char-defs), and the phonological lanes are compared with
 //! `pg_featstruct::flat_unifiable` (a boundary char-def carries no phonological features → empty
 //! constraint → trivially unifiable, exactly as C#'s boundary FS unifies on lanes). Char-defs are
@@ -44,7 +44,7 @@
 //! different (but unifying) char-def.
 
 use pg_featstruct::flat_unifiable;
-use pg_grammar::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
+use pg_grammar_model::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape, NO_CHAR_DEF};
 use unicode_normalization::UnicodeNormalization;
 
@@ -252,7 +252,7 @@ mod tests {
     //! feature-bearing char-def carries no `StrRep`, so two distinct concrete char-defs whose
     //! features unify legitimately cross-match); `char_z` (`voi-`) does not unify with either.
     use super::*;
-    use pg_grammar::chardef::CharDefId;
+    use pg_grammar_model::chardef::CharDefId;
     use pg_shape::ShapeBuilder;
 
     const FEATURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>

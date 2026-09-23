@@ -4,7 +4,7 @@
 mod common;
 
 use pg_fst::{Direction, Segment, Transduce, ENTIRE_MATCH};
-use pg_grammar::model::{Pattern, PatternNode};
+use pg_grammar_model::model::{Pattern, PatternNode};
 use pg_rules::bridge::PatternBridge;
 
 /// Build the FST segment list (segments only) from a shape's interior, with the mapping back to shape node indices.

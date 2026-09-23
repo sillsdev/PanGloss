@@ -56,7 +56,7 @@ const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-fn grammar() -> pg_grammar::model::Grammar {
+fn grammar() -> pg_grammar_model::model::Grammar {
     load(XML).unwrap_or_else(|e| panic!("guesser fixture grammar failed to load: {e}"))
 }
 

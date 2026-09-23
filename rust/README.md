@@ -22,6 +22,7 @@ Language Pack. Build reports and word-assessment reports are separate immutable 
 
 | Crate | Role |
 |---|---|
+| `pg-grammar-model` | Immutable grammar runtime data model, feature tables, and segmentation |
 | `pg-grammar` | HC XML load + lint + compile → immutable `GrammarTables` |
 | `pg-featstruct` | bit-vector feature structures, interner, DAG unifier, variable bindings |
 | `pg-shape` | shapes (struct-of-arrays), annotation spans, builders |

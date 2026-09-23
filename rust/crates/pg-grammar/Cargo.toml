@@ -18,6 +18,7 @@ path = "tests/harnesses/all.rs"
 test-support = []
 
 [dependencies]
+pg-grammar-model.workspace = true
 pg-featstruct.workspace = true
 pg-shape.workspace = true
 pg-snapshot.workspace = true

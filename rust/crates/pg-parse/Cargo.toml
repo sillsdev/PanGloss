@@ -11,7 +11,7 @@ pg-featstruct.workspace = true
 pg-shape.workspace = true
 pg-fst.workspace = true
 pg-rules.workspace = true
-pg-grammar.workspace = true
+pg-grammar-model.workspace = true
 rustc-hash.workspace = true
 unicode-normalization.workspace = true
 bumpalo.workspace = true
@@ -26,6 +26,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+pg-grammar.workspace = true
 pg-conformance-fixtures.workspace = true
 # `tests/xample_migration_differential_gate.rs`.
 pg-xample-oracle.workspace = true

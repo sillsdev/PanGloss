@@ -13,7 +13,7 @@ use hashbrown::HashMap;
 
 use crate::featsys::{FlatIndex, PhonFeatureSystem, TYPE_BOUNDARY_BITS, TYPE_SEGMENT_BITS};
 use crate::nfd::nfd;
-use crate::GrammarError;
+use crate::ModelError;
 use pg_featstruct::flat_unifiable;
 use pg_shape::CdBits;
 
@@ -33,24 +33,26 @@ pub enum CharDefKind {
 
 /// One `FeatureValue feature="..." symbolValues="..."` inside a `SegmentDefinition`
 /// (loader-internal, pre-resolution against the feature system).
+#[doc(hidden)]
 #[derive(Clone)]
-pub(crate) struct RawFeatureValue {
-    pub(crate) feature_xml_id: String,
+pub struct RawFeatureValue {
+    pub feature_xml_id: String,
     /// Space-separated symbol xml ids, already split.
-    pub(crate) symbol_xml_ids: Vec<String>,
+    pub symbol_xml_ids: Vec<String>,
 }
 
 /// One `<SegmentDefinition>`/`<BoundaryDefinition>` as read off the XML (loader-internal).
+#[doc(hidden)]
 #[derive(Clone)]
-pub(crate) struct RawCharDef {
-    pub(crate) xml_id: String,
-    pub(crate) kind: CharDefKind,
+pub struct RawCharDef {
+    pub xml_id: String,
+    pub kind: CharDefKind,
     /// `<Representation>` text, in document order, unescaped but *not yet* NFD-normalized.
-    pub(crate) representations: Vec<String>,
+    pub representations: Vec<String>,
     /// Only populated for segments (`LoadCharacterDefinitionTable` never attaches a
     /// `FeatureStruct` to boundaries — `CharacterDefinitionTable.AddBoundary` always passes
     /// `fs: null`).
-    pub(crate) feature_values: Vec<RawFeatureValue>,
+    pub feature_values: Vec<RawFeatureValue>,
 }
 
 /// A compiled character definition: its representations (original and NFD) and, for segments,
@@ -111,12 +113,13 @@ pub struct CharDefTable {
 }
 
 impl CharDefTable {
-    pub(crate) fn from_raw(
+    #[doc(hidden)]
+    pub fn from_raw(
         xml_id: String,
         name: Option<String>,
         raw_defs: Vec<RawCharDef>,
         feat_sys: &PhonFeatureSystem,
-    ) -> Result<Self, GrammarError> {
+    ) -> Result<Self, ModelError> {
         let mut defs = Vec::with_capacity(raw_defs.len());
         let mut lookup: HashMap<String, CharDefId> = HashMap::with_capacity(raw_defs.len() * 2);
 
@@ -127,7 +130,7 @@ impl CharDefTable {
             // C# CharacterDefinitionTable.Add: collision on any normalized representation is an error, checked before the char def is admitted to the table.
             for norm in &representations_nfd {
                 if lookup.contains_key(norm) {
-                    return Err(GrammarError::DuplicateRepresentation(format!(
+                    return Err(ModelError::DuplicateRepresentation(format!(
                         "table '{xml_id}': representation {norm:?} (from char def '{}') is already \
                          claimed by another character definition",
                         raw.xml_id
@@ -197,7 +200,7 @@ impl CharDefTable {
     fn build_feature_lanes(
         values: &[RawFeatureValue],
         feat_sys: &PhonFeatureSystem,
-    ) -> Result<Vec<u64>, GrammarError> {
+    ) -> Result<Vec<u64>, ModelError> {
         // Default every lane to "uninstantiated" (all symbols allowed), matching C#'s `EnsureFlat` seeding of absent features.
         let mut lanes: Vec<u64> = (0..feat_sys.len())
             .map(|i| feat_sys.mask(FlatIndex(i as u32)))
@@ -205,7 +208,7 @@ impl CharDefTable {
 
         for fv in values {
             let flat = feat_sys.flat_index(&fv.feature_xml_id).ok_or_else(|| {
-                GrammarError::Semantic(format!(
+                ModelError::Semantic(format!(
                     "FeatureValue references unknown feature id '{}'",
                     fv.feature_xml_id
                 ))
@@ -213,7 +216,7 @@ impl CharDefTable {
             let mut bits: u64 = 0;
             for sym_id in &fv.symbol_xml_ids {
                 let idx = feat_sys.symbol_index(flat, sym_id).ok_or_else(|| {
-                    GrammarError::Semantic(format!(
+                    ModelError::Semantic(format!(
                         "FeatureValue references unknown symbol id '{sym_id}' on feature '{}'",
                         fv.feature_xml_id
                     ))
@@ -292,7 +295,7 @@ impl CharDefTable {
 mod tests {
     use super::*;
 
-    fn table_with(defs: Vec<RawCharDef>) -> Result<CharDefTable, GrammarError> {
+    fn table_with(defs: Vec<RawCharDef>) -> Result<CharDefTable, ModelError> {
         let feat_sys = PhonFeatureSystem::from_raw(vec![]).unwrap();
         CharDefTable::from_raw("table1".to_string(), None, defs, &feat_sys)
     }
@@ -328,7 +331,7 @@ mod tests {
     #[test]
     fn duplicate_representation_across_defs_is_an_error() {
         let err = table_with(vec![seg("char1", &["s"]), seg("char2", &["s"])]).unwrap_err();
-        assert!(matches!(err, GrammarError::DuplicateRepresentation(_)));
+        assert!(matches!(err, ModelError::DuplicateRepresentation(_)));
     }
 
     #[test]

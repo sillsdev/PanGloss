@@ -9,7 +9,7 @@
 //!
 //! ## Why the fingerprint is derived from the source rather than from `Grammar`
 //!
-//! The obvious implementation is to walk the compiled `pg_grammar::model::Grammar` and hash every
+//! The obvious implementation is to walk the compiled `pg_grammar_model::model::Grammar` and hash every
 //! analysis-relevant field. It is also the one that fails quietly: `Grammar` has eighteen fields,
 //! several of them deep, and a fingerprint that forgets one is a fingerprint that says "nothing
 //! changed" when something did. Because `semanticDigest` rests entirely on this value (design D3a),

@@ -23,7 +23,7 @@
 //!
 
 use pg_fst::Fst;
-use pg_grammar::model::{
+use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, CompoundingRuleDef, Grammar, MRuleId, MetathesisRuleDef,
     MorphRuleDef, MorphemeId, PRuleId, PhonRuleDef, TableId,
 };
@@ -287,7 +287,7 @@ fn build_allomorph_cache(g: &Grammar, owner: &AllomorphOwner) -> AllomorphCache 
 fn build_env_cache(
     g: &Grammar,
     table: TableId,
-    envs: &[pg_grammar::model::EnvironmentDef],
+    envs: &[pg_grammar_model::model::EnvironmentDef],
 ) -> Vec<(Option<EnvFst>, Option<EnvFst>)> {
     envs.iter()
         .map(|env| {
@@ -305,7 +305,7 @@ fn build_env_cache(
 mod owning_table_tests {
     use super::*;
     use pg_featstruct::FeatureStruct;
-    use pg_grammar::model::MprSet;
+    use pg_grammar_model::model::MprSet;
 
     /// Two tables/strata with deliberately misaligned raw indices: `t0`'s segment "z" and `t1`'s "q" both sit at index 0 but carry opposite feature values, so a wrongly-table-0-resolved `ncQ` can never match a real `t1` "q".
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -429,7 +429,7 @@ mod owning_table_tests {
 
         // The interior node's lanes must match "p"'s (f=+), not "z"'s -- an independent check from the match-at-all proof above, since both happen to share f=+.
         let p_lanes = t1
-            .get(pg_grammar::chardef::CharDefId(1))
+            .get(pg_grammar_model::chardef::CharDefId(1))
             .feature_lanes()
             .to_vec();
         let interior: Vec<usize> = (0..out[0].len())
@@ -542,11 +542,14 @@ mod owning_table_tests {
         let mrid = MRuleId(0);
         let rule = &g.mrules[0];
 
-        let word =
-            morph::seed_from_entry(&g, pg_grammar::model::LexEntryId(0), FeatureStruct::EMPTY);
+        let word = morph::seed_from_entry(
+            &g,
+            pg_grammar_model::model::LexEntryId(0),
+            FeatureStruct::EMPTY,
+        );
         assert_eq!(
             word.stratum,
-            pg_grammar::model::StratumId(1),
+            pg_grammar_model::model::StratumId(1),
             "the root entry must load onto S1 (table t1), not S0"
         );
 
@@ -567,11 +570,11 @@ mod owning_table_tests {
 
         let t1 = &g.char_tables[1];
         let q_lanes = t1
-            .get(pg_grammar::chardef::CharDefId(0))
+            .get(pg_grammar_model::chardef::CharDefId(0))
             .feature_lanes()
             .to_vec();
         let p_lanes = t1
-            .get(pg_grammar::chardef::CharDefId(1))
+            .get(pg_grammar_model::chardef::CharDefId(1))
             .feature_lanes()
             .to_vec();
         assert_eq!(

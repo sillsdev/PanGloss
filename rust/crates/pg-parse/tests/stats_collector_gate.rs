@@ -16,7 +16,7 @@ struct Case {
 }
 
 /// The two fixtures this gate replays, each with its own word list.
-fn fixture_cases() -> Vec<(pg_grammar::model::Grammar, Vec<Case>)> {
+fn fixture_cases() -> Vec<(pg_grammar_model::model::Grammar, Vec<Case>)> {
     let fixtures = discover();
     let austronesian = fixtures
         .iter()
@@ -648,8 +648,8 @@ fn overlay_attempts_and_work_are_nonzero_when_a_supplied_root_matches() {
         lexical_spelling: "b".into(),
         gloss: String::new(),
         syn_fs: pg_featstruct::FeatureStruct::EMPTY,
-        mpr: pg_grammar::model::MprSet::EMPTY,
-        stratum: pg_grammar::model::StratumId(0),
+        mpr: pg_grammar_model::model::MprSet::EMPTY,
+        stratum: pg_grammar_model::model::StratumId(0),
         authority: pg_parse::RootAuthority::Supplied,
     };
     let overlay = pg_parse::SuppliedRootOverlay::build(&g, vec![root]).unwrap();

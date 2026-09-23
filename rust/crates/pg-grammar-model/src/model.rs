@@ -26,6 +26,7 @@
 
 use pg_featstruct::{FsId, SymbolBits};
 use pg_shape::Shape;
+use std::fmt::Write as _;
 
 use crate::chardef::{CharDefId, CharDefTable};
 use crate::featsys::{FlatIndex, PhonFeatureSystem};
@@ -1311,9 +1312,9 @@ fn morpheme_title(
     morpheme: MorphemeId,
     primary: Option<&str>,
     fallback: &str,
-) -> Result<String, crate::GrammarError> {
+) -> Result<String, crate::ModelError> {
     let info = grammar.morphemes.get(morpheme.0 as usize).ok_or_else(|| {
-        crate::GrammarError::Semantic(format!(
+        crate::ModelError::Semantic(format!(
             "morpheme id {} is out of range while naming a subject",
             morpheme.0
         ))
@@ -1326,12 +1327,9 @@ fn morpheme_title(
 }
 
 impl Grammar {
-    pub(crate) fn lex_entry_display_name(
-        &self,
-        id: LexEntryId,
-    ) -> Result<String, crate::GrammarError> {
+    pub fn lex_entry_display_name(&self, id: LexEntryId) -> Result<String, crate::ModelError> {
         let entry = self.entries.get(id.0 as usize).ok_or_else(|| {
-            crate::GrammarError::Semantic(format!("lexical entry id {} is out of range", id.0))
+            crate::ModelError::Semantic(format!("lexical entry id {} is out of range", id.0))
         })?;
         let info = self.morphemes.get(entry.morpheme.0 as usize);
         let citation = entry
@@ -1348,12 +1346,9 @@ impl Grammar {
         )
     }
 
-    pub(crate) fn morph_rule_display_name(
-        &self,
-        id: MRuleId,
-    ) -> Result<String, crate::GrammarError> {
+    pub fn morph_rule_display_name(&self, id: MRuleId) -> Result<String, crate::ModelError> {
         let def = self.mrules.get(id.0 as usize).ok_or_else(|| {
-            crate::GrammarError::Semantic(format!("morphological rule id {} is out of range", id.0))
+            crate::ModelError::Semantic(format!("morphological rule id {} is out of range", id.0))
         })?;
         let name = def.authored_name();
         match def.morpheme() {
@@ -1362,22 +1357,16 @@ impl Grammar {
         }
     }
 
-    pub(crate) fn lex_entry_internal_id(
-        &self,
-        id: LexEntryId,
-    ) -> Result<String, crate::GrammarError> {
+    pub fn lex_entry_internal_id(&self, id: LexEntryId) -> Result<String, crate::ModelError> {
         let entry = self.entries.get(id.0 as usize).ok_or_else(|| {
-            crate::GrammarError::Semantic(format!("lexical entry id {} is out of range", id.0))
+            crate::ModelError::Semantic(format!("lexical entry id {} is out of range", id.0))
         })?;
         Ok(format!("lex_entry#{}:{}", id.0, entry.authored_id))
     }
 
-    pub(crate) fn morph_rule_internal_id(
-        &self,
-        id: MRuleId,
-    ) -> Result<String, crate::GrammarError> {
+    pub fn morph_rule_internal_id(&self, id: MRuleId) -> Result<String, crate::ModelError> {
         let def = self.mrules.get(id.0 as usize).ok_or_else(|| {
-            crate::GrammarError::Semantic(format!("morphological rule id {} is out of range", id.0))
+            crate::ModelError::Semantic(format!("morphological rule id {} is out of range", id.0))
         })?;
         let key = match (def, def.morpheme()) {
             (MorphRuleDef::Compounding(def), _) => def.xml_id.trim(),
@@ -1386,7 +1375,7 @@ impl Grammar {
                 .morphemes
                 .get(morpheme.0 as usize)
                 .ok_or_else(|| {
-                    crate::GrammarError::Semantic(format!(
+                    crate::ModelError::Semantic(format!(
                         "morpheme id {} is out of range while naming morphological rule {}",
                         morpheme.0, id.0
                     ))
@@ -1403,7 +1392,7 @@ impl Grammar {
 }
 
 impl MorphRuleDef {
-    pub(crate) const fn health_kind_label(&self) -> &'static str {
+    pub const fn health_kind_label(&self) -> &'static str {
         match self {
             Self::Compounding(_) => "compounding rule",
             Self::AffixProcess(_) => "affix-process rule",
@@ -1414,20 +1403,20 @@ impl MorphRuleDef {
 
 impl Grammar {
     /// Per-mrule owning stratum; an unknown morpheme or an out-of-range stratum is an error, never a silently skipped rule.
-    fn validated_rule_owner_strata(&self) -> Result<Vec<Option<StratumId>>, crate::GrammarError> {
+    fn validated_rule_owner_strata(&self) -> Result<Vec<Option<StratumId>>, crate::ModelError> {
         let mut rule_owner = vec![None; self.mrules.len()];
         for (id, rule) in self.mrules.iter().enumerate() {
             let Some(morpheme) = rule.morpheme() else {
                 continue;
             };
             let Some(info) = self.morphemes.get(morpheme.0 as usize) else {
-                return Err(crate::GrammarError::Semantic(format!(
+                return Err(crate::ModelError::Semantic(format!(
                     "mrule {id} references unknown morpheme {}",
                     morpheme.0
                 )));
             };
             if info.stratum.0 as usize >= self.strata.len() {
-                return Err(crate::GrammarError::Semantic(format!(
+                return Err(crate::ModelError::Semantic(format!(
                     "mrule {id}'s morpheme {} declares stratum {}, but the grammar has {} strata",
                     morpheme.0,
                     info.stratum.0,
@@ -1450,7 +1439,7 @@ impl Grammar {
     }
 
     /// The one validated inventory of partial morphemes; every FST production-admission decision reads this.
-    pub fn partial_morpheme_facts(&self) -> Result<PartialMorphemeFacts, crate::GrammarError> {
+    pub fn partial_morpheme_facts(&self) -> Result<PartialMorphemeFacts, crate::ModelError> {
         self.validated_rule_owner_strata()?;
         let partial_entries = self
             .entries
@@ -1466,7 +1455,7 @@ impl Grammar {
                     internal_id: self.lex_entry_internal_id(id)?,
                 })
             })
-            .collect::<Result<Vec<_>, crate::GrammarError>>()?;
+            .collect::<Result<Vec<_>, crate::ModelError>>()?;
         let partial_rules = self
             .partial_affix_process_rules()
             .map(|(id, morpheme)| {
@@ -1479,7 +1468,7 @@ impl Grammar {
                     rule_kind: self.mrules[id.0 as usize].health_kind_label(),
                 })
             })
-            .collect::<Result<Vec<_>, crate::GrammarError>>()?;
+            .collect::<Result<Vec<_>, crate::ModelError>>()?;
         Ok(PartialMorphemeFacts {
             partial_entries,
             partial_rules,
@@ -1487,9 +1476,7 @@ impl Grammar {
     }
 
     /// Compute and validate the single grammar-wide source of final-template prune facts.
-    pub fn final_template_prune_facts(
-        &self,
-    ) -> Result<FinalTemplatePruneFacts, crate::GrammarError> {
+    pub fn final_template_prune_facts(&self) -> Result<FinalTemplatePruneFacts, crate::ModelError> {
         let strata_len = self.strata.len();
         let rule_owner = self.validated_rule_owner_strata()?;
 
@@ -1498,7 +1485,7 @@ impl Grammar {
         for (si, sd) in self.strata.iter().enumerate() {
             for &id in &sd.mrules {
                 if id.0 as usize >= self.mrules.len() {
-                    return Err(crate::GrammarError::Semantic(format!(
+                    return Err(crate::ModelError::Semantic(format!(
                         "stratum {si} ordinary mrule id {} is out of range",
                         id.0
                     )));
@@ -1506,7 +1493,7 @@ impl Grammar {
                 ordinary_ids.insert(id);
                 if let Some(owner) = rule_owner[id.0 as usize] {
                     if owner.0 as usize != si {
-                        return Err(crate::GrammarError::Semantic(format!(
+                        return Err(crate::ModelError::Semantic(format!(
                             "ordinary mrule {} uses morpheme-owned stratum {} from stratum {}",
                             id.0, owner.0, si
                         )));
@@ -1518,7 +1505,7 @@ impl Grammar {
         for (si, sd) in self.strata.iter().enumerate() {
             for &tid in &sd.templates {
                 let Some(template) = self.templates.get(tid.0 as usize) else {
-                    return Err(crate::GrammarError::Semantic(format!(
+                    return Err(crate::ModelError::Semantic(format!(
                         "stratum {si} template id {} is out of range",
                         tid.0
                     )));
@@ -1526,7 +1513,7 @@ impl Grammar {
                 for slot in &template.slots {
                     for &id in &slot.rules {
                         if id.0 as usize >= self.mrules.len() {
-                            return Err(crate::GrammarError::Semantic(format!(
+                            return Err(crate::ModelError::Semantic(format!(
                                 "template slot rule id {} is out of range",
                                 id.0
                             )));
@@ -1534,7 +1521,7 @@ impl Grammar {
                         slot_rules_disjoint_from_mrules &= !ordinary_ids.contains(&id);
                         if let Some(owner) = rule_owner[id.0 as usize] {
                             if owner.0 as usize != si {
-                                return Err(crate::GrammarError::Semantic(format!(
+                                return Err(crate::ModelError::Semantic(format!(
                                     "template slot mrule {} uses morpheme-owned stratum {} from stratum {}",
                                     id.0, owner.0, si
                                 )));
@@ -1591,5 +1578,176 @@ impl Grammar {
     #[inline]
     pub fn mpr_feature(&self, id: MprId) -> Option<&MprFeatureDef> {
         self.mpr_features.get(id.0 as usize)
+    }
+}
+
+// Deterministic loader dump.
+
+impl Grammar {
+    /// A normalized, deterministic, human-readable structural inventory of the grammar, for the
+    /// plan §8 layer-1 loader gate (diffed against counts derived independently from the XML).
+    /// Mirrors the style of `pg_grammar::GrammarPhonology::dump_char_defs`; iterates only `Vec`
+    /// order and interner id order (never a `HashMap`), so it is stable across re-loads.
+    pub fn dump_grammar(&self) -> String {
+        let mut out = String::new();
+
+        // Syntactic feature system.
+        let _ = writeln!(
+            out,
+            "syn_features={} pos={} head={:?}",
+            self.syn_features.features.len(),
+            self.syn_features.pos.0,
+            self.syn_features.head.map(|f| f.0)
+        );
+        for (i, f) in self.syn_features.features.iter().enumerate() {
+            let kind = match &f.kind {
+                SynFeatureKind::Symbolic {
+                    symbols,
+                    default_symbol,
+                } => format!(
+                    "Symbolic symbols={} default={default_symbol:?}",
+                    symbols.len()
+                ),
+                SynFeatureKind::Complex => "Complex".to_string(),
+            };
+            let _ = writeln!(out, "  feat[{i}] id={} name={} {kind}", f.xml_id, f.name);
+        }
+
+        // MPR features and groups.
+        let _ = writeln!(out, "mpr_features={}", self.mpr_names.len());
+        for (i, n) in self.mpr_names.iter().enumerate() {
+            let _ = writeln!(out, "  mpr[{i}] {n}");
+        }
+        let _ = writeln!(out, "mpr_groups={}", self.mpr_groups.len());
+        for (i, g) in self.mpr_groups.iter().enumerate() {
+            let _ = writeln!(
+                out,
+                "  group[{i}] name={:?} match={:?} output={:?} members={:#b}",
+                g.name, g.match_type, g.output, g.members.0
+            );
+        }
+
+        // Natural classes.
+        let _ = writeln!(out, "natural_classes={}", self.natural_classes.len());
+        for (i, nc) in self.natural_classes.iter().enumerate() {
+            let kind = match &nc.kind {
+                NaturalClassKind::Feature(v) => format!("Feature lanes={}", v.len()),
+                NaturalClassKind::Segments(v) => format!("Segments segs={}", v.len()),
+            };
+            let _ = writeln!(out, "  nc[{i}] id={} name={:?} {kind}", nc.xml_id, nc.name);
+        }
+
+        // Phonological rules.
+        let _ = writeln!(out, "prules={}", self.prules.len());
+        for (i, p) in self.prules.iter().enumerate() {
+            match p {
+                PhonRuleDef::Rewrite(p) => {
+                    let _ = writeln!(
+                        out,
+                        "  prule[{i}] id={} mode={:?} dir={:?} lhs_nodes={} subrules={}",
+                        p.xml_id,
+                        p.mode,
+                        p.dir,
+                        p.lhs.nodes.len(),
+                        p.subrules.len()
+                    );
+                }
+                PhonRuleDef::Metathesis(p) => {
+                    let _ = writeln!(
+                        out,
+                        "  prule[{i}] id={} Metathesis dir={:?} pattern_nodes={} left_switch={} right_switch={}",
+                        p.xml_id,
+                        p.dir,
+                        p.pattern.nodes.len(),
+                        p.left_switch,
+                        p.right_switch
+                    );
+                }
+            }
+        }
+
+        // Morphological rules.
+        let _ = writeln!(out, "mrules={}", self.mrules.len());
+        for (i, m) in self.mrules.iter().enumerate() {
+            match m {
+                MorphRuleDef::AffixProcess(a) => {
+                    let _ = writeln!(
+                        out,
+                        "  mrule[{i}] AffixProcess morpheme={} allomorphs={}",
+                        a.morpheme.0,
+                        a.allomorphs.len()
+                    );
+                }
+                MorphRuleDef::Compounding(c) => {
+                    let _ = writeln!(
+                        out,
+                        "  mrule[{i}] Compounding id={} subrules={}",
+                        c.xml_id,
+                        c.subrules.len()
+                    );
+                }
+                MorphRuleDef::Realizational(r) => {
+                    let _ = writeln!(
+                        out,
+                        "  mrule[{i}] Realizational morpheme={} allomorphs={}",
+                        r.morpheme.0,
+                        r.allomorphs.len()
+                    );
+                }
+            }
+        }
+
+        // Affix templates.
+        let _ = writeln!(out, "templates={}", self.templates.len());
+        for (i, t) in self.templates.iter().enumerate() {
+            let _ = writeln!(
+                out,
+                "  template[{i}] name={:?} final={} slots={}",
+                t.name,
+                t.is_final,
+                t.slots.len()
+            );
+            for (j, s) in t.slots.iter().enumerate() {
+                let _ = writeln!(
+                    out,
+                    "    slot[{j}] name={:?} optional={} rules={}",
+                    s.name,
+                    s.optional,
+                    s.rules.len()
+                );
+            }
+        }
+
+        // Lexicon (totals; per-entry lines would be O(thousands) for Sena).
+        let total_root_allos: usize = self.entries.iter().map(|e| e.allomorphs.len()).sum();
+        let _ = writeln!(
+            out,
+            "entries={} root_allomorphs={}",
+            self.entries.len(),
+            total_root_allos
+        );
+
+        // Strata (per-section counts).
+        let _ = writeln!(out, "strata={}", self.strata.len());
+        for (i, s) in self.strata.iter().enumerate() {
+            let _ = writeln!(
+                out,
+                "  stratum[{i}] name={:?} order={:?} table={} prules={} mrules={} templates={} entries={}",
+                s.name,
+                s.mrule_order,
+                s.table.0,
+                s.prules.len(),
+                s.mrules.len(),
+                s.templates.len(),
+                s.entries.len()
+            );
+        }
+
+        // Registries.
+        let _ = writeln!(out, "morphemes={}", self.morphemes.len());
+        let _ = writeln!(out, "allomorphs={}", self.allomorph_owners.len());
+        let _ = writeln!(out, "fs_interned={}", self.fs_interner.len());
+
+        out
     }
 }

@@ -1,0 +1,18 @@
+[package]
+name = "pg-grammar-model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hashbrown.workspace = true
+pg-featstruct.workspace = true
+pg-shape.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+unicode-normalization.workspace = true
+
+[lints]
+workspace = true

@@ -4,6 +4,7 @@
 resolver = "2"
 members = [
     "crates/pg-comment-hygiene",
+    "crates/pg-grammar-model",
     "crates/pg-grammar",
     "crates/pg-featstruct",
     "crates/pg-shape",
@@ -104,6 +105,7 @@ regex = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # internal crates
 pg-grammar = { path = "crates/pg-grammar" }
+pg-grammar-model = { path = "crates/pg-grammar-model" }
 pg-featstruct = { path = "crates/pg-featstruct" }
 pg-shape = { path = "crates/pg-shape" }
 # The compiler's report vocabulary as plain data (health findings, backend compatibility-report

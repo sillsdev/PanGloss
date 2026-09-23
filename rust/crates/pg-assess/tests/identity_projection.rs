@@ -1,7 +1,7 @@
 //! Projects `pg_parse::WordAnalysis` to a stable-key identity that survives a dense-ordinal reshuffle from an unrelated grammar edit (ADR 0006).
 
 use pg_assess::{AnalysisIdentity, AnalysisSet};
-use pg_grammar::model::Grammar;
+use pg_grammar_model::model::Grammar;
 use pg_parse::morpher::Morpher;
 use pg_parse::ParseOptions;
 

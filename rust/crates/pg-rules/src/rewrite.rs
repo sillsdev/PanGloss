@@ -18,9 +18,9 @@ use pg_featstruct::{FeatureStruct, FeatureValue};
 use pg_fst::{
     CompileInput, CompileNode, Direction, Fst, FstResult, Segment, Transduce, ENTIRE_MATCH,
 };
-use pg_grammar::chardef::{CharDefKind, CharDefTable};
-use pg_grammar::featsys::FlatIndex;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::{CharDefKind, CharDefTable};
+use pg_grammar_model::featsys::FlatIndex;
+use pg_grammar_model::model::{
     Grammar, MprSet, NaturalClassKind, PRuleId, Pattern, PatternNode, RewriteMode, RewriteRuleDef,
     RewriteSubruleDef, StratumId, TableId,
 };
@@ -786,7 +786,7 @@ pub fn synthesize_with_mpr(
 /// `rule` — every production call site indexed `g.prules` by `pid` to get it in the first place.
 pub(crate) fn synthesize_with_mpr_cached(
     g: &Grammar,
-    pid: pg_grammar::model::PRuleId,
+    pid: pg_grammar_model::model::PRuleId,
     rule: &RewriteRuleDef,
     input: &Shape,
     syn_fs: &FeatureStruct,
@@ -895,10 +895,10 @@ fn subrule_gate_reason(
     if !required_pos_ok(g, &sr.required_pos, syn_fs) {
         return Some(FailureReason::RequiredSyntacticFeatureStruct);
     }
-    if !pg_grammar::model::mpr_required_ok(&g.mpr_groups, sr.required_mpr, mpr) {
+    if !pg_grammar_model::model::mpr_required_ok(&g.mpr_groups, sr.required_mpr, mpr) {
         return Some(FailureReason::RequiredMprFeatures);
     }
-    if !pg_grammar::model::mpr_excluded_ok(&g.mpr_groups, sr.excluded_mpr, mpr) {
+    if !pg_grammar_model::model::mpr_excluded_ok(&g.mpr_groups, sr.excluded_mpr, mpr) {
         return Some(FailureReason::ExcludedMprFeatures);
     }
     None
@@ -1238,7 +1238,7 @@ pub fn analyze(
 /// for the `pid`/`rule` correspondence contract.
 pub(crate) fn analyze_cached(
     g: &Grammar,
-    pid: pg_grammar::model::PRuleId,
+    pid: pg_grammar_model::model::PRuleId,
     rule: &RewriteRuleDef,
     input: &Shape,
     cache: &crate::cache::RuleCache,
@@ -2514,12 +2514,12 @@ fn dir_of(rule: &RewriteRuleDef) -> Direction {
     dir_from_model(rule.dir)
 }
 
-/// `pg_grammar::model::Dir` → `pg_fst::Direction`. `pub(crate)` so `pg_rules::metathesis` (whose
+/// `pg_grammar_model::model::Dir` → `pg_fst::Direction`. `pub(crate)` so `pg_rules::metathesis` (whose
 /// `MetathesisRuleDef.dir` is the same model `Dir`) can reuse it instead of duplicating the match.
-pub(crate) fn dir_from_model(d: pg_grammar::model::Dir) -> Direction {
+pub(crate) fn dir_from_model(d: pg_grammar_model::model::Dir) -> Direction {
     match d {
-        pg_grammar::model::Dir::LeftToRight => Direction::LeftToRight,
-        pg_grammar::model::Dir::RightToLeft => Direction::RightToLeft,
+        pg_grammar_model::model::Dir::LeftToRight => Direction::LeftToRight,
+        pg_grammar_model::model::Dir::RightToLeft => Direction::RightToLeft,
     }
 }
 
@@ -2577,8 +2577,8 @@ fn new_seg_node_dirty(
     let (char_def, kind) = match node {
         PatternNode::CharDef(cd) => {
             let kind = match table.get(*cd).kind() {
-                pg_grammar::chardef::CharDefKind::Segment => NodeKind::Segment,
-                pg_grammar::chardef::CharDefKind::Boundary => NodeKind::Boundary,
+                pg_grammar_model::chardef::CharDefKind::Segment => NodeKind::Segment,
+                pg_grammar_model::chardef::CharDefKind::Boundary => NodeKind::Boundary,
             };
             (cd.0, kind)
         }
@@ -2885,7 +2885,7 @@ pub(crate) enum ProbeOutcome {
 /// on top of the inherent per-word cost, and had to be fixed to make probing runnable at all.
 pub(crate) fn probe_apply_rule_cached(
     g: &Grammar,
-    pid: pg_grammar::model::PRuleId,
+    pid: pg_grammar_model::model::PRuleId,
     rule: &RewriteRuleDef,
     ms: &mut MutShape,
     cache: &crate::cache::RuleCache,
@@ -2960,7 +2960,7 @@ pub(crate) fn probe_apply_rule_cached(
 /// reset -- that is the entire point of this probing path (module note above).
 pub(crate) fn probe_synthesize_stratum(
     g: &Grammar,
-    prules: &[pg_grammar::model::PRuleId],
+    prules: &[pg_grammar_model::model::PRuleId],
     ms: &mut MutShape,
     cache: &crate::cache::RuleCache,
 ) -> ProbeOutcome {
@@ -2969,12 +2969,12 @@ pub(crate) fn probe_synthesize_stratum(
             n.dirty = false;
         }
         match &g.prules[pid.0 as usize] {
-            pg_grammar::model::PhonRuleDef::Rewrite(r) => {
+            pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
                 if let ProbeOutcome::Refused = probe_apply_rule_cached(g, pid, r, ms, cache) {
                     return ProbeOutcome::Refused;
                 }
             }
-            pg_grammar::model::PhonRuleDef::Metathesis(_) => {
+            pg_grammar_model::model::PhonRuleDef::Metathesis(_) => {
                 // Unreachable on the three reference grammars (verified: zero `<MetathesisRule>`s); refuse rather than silently mis-track positions if one is ever added.
                 return ProbeOutcome::Refused;
             }

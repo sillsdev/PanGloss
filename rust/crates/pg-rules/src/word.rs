@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use pg_featstruct::{FeatId, FeatureStruct};
-use pg_grammar::model::{AllomorphId, LexEntryId, MRuleId, MorphemeId, MprSet, StratumId};
+use pg_grammar_model::model::{AllomorphId, LexEntryId, MRuleId, MorphemeId, MprSet, StratumId};
 use pg_shape::Shape;
 
 /// State used by the final-template interleaving prune. `None` means the most recently applied

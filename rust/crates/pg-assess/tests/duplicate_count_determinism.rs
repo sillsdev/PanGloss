@@ -5,7 +5,7 @@ use pg_assess::digest::{digest_projection, SEMANTIC_PROJECTION};
 use pg_assess::identity::AnalysisIdentity;
 use pg_assess::set::AnalysisSet;
 use pg_foma::composite::FomaAnalyzer;
-use pg_grammar::model::Grammar;
+use pg_grammar_model::model::Grammar;
 
 /// Bare-root synthetic grammar (never modeled on a real language): one lexical entry with three allomorphs of the identical shape "kax", expected to collapse to one `AnalysisIdentity` with `duplicate_count == 3`.
 const DUP_ROOT_FIXTURE: &str = r#"<?xml version="1.0" encoding="utf-8"?>

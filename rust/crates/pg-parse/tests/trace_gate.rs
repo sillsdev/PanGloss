@@ -14,7 +14,7 @@ fn sample_path(name: &str) -> Option<PathBuf> {
 }
 
 /// The shared `ed_suffix`-shaped grammar, duplicated here to keep this file self-contained: `posV` entry "32" = "sag", rule `ed_suffix` appends "+d" -- a trivially-valid word.
-fn valid_grammar() -> pg_grammar::model::Grammar {
+fn valid_grammar() -> pg_grammar_model::model::Grammar {
     let mrules = r#"
       <MorphologicalRule id="mrEd" requiredPartsOfSpeech="posV"><Name>ed_suffix</Name><MorphemeId>PAST</MorphemeId>
         <MorphologicalSubrules>
@@ -29,7 +29,7 @@ fn valid_grammar() -> pg_grammar::model::Grammar {
 }
 
 /// A rule that declares `outputObligatoryFeatures="featEvid"` but whose output never sets it and which no lexical entry provides either -- a guaranteed, deterministic `FailureReason::ObligatorySyntacticFeatures` rejection.
-fn obligatory_feature_never_satisfied_grammar() -> pg_grammar::model::Grammar {
+fn obligatory_feature_never_satisfied_grammar() -> pg_grammar_model::model::Grammar {
     let mrules = r#"
       <MorphologicalRule id="mrObl" requiredPartsOfSpeech="posV" outputObligatoryFeatures="featEvid">
         <Name>obl_suffix</Name><MorphemeId>OBL</MorphemeId>
@@ -129,7 +129,7 @@ fn obligatory_syntactic_feature_never_satisfied_is_reported() {
 // See `docs/research/pg-parse-trace-gate-notes.md` for the full event list and wiring sites.
 
 /// One stratum, no phonological rules, ONE affix template with a single MANDATORY slot referencing a template-only rule: "sagd" unapplies its "+d" off entry "32" ("sag"), and the fully-unapplied "sag" survives as a second stratum output alongside "sagd" itself.
-fn template_grammar() -> pg_grammar::model::Grammar {
+fn template_grammar() -> pg_grammar_model::model::Grammar {
     let mrules = r#"
       <MorphologicalRule id="mrEdT" requiredPartsOfSpeech="posV"><Name>ed_suffix_t</Name><MorphemeId>PASTT</MorphemeId>
         <MorphologicalSubrules>
@@ -328,7 +328,7 @@ fn g4_events_do_not_fire_when_tracing_is_off() {
 }
 
 /// `Morpher.cs` fires `LexicalLookup` from TWO sites: the real-lexicon path (exercised above) and the guesser path. This grammar has no entry any real word can match, only a lexical-PATTERN entry, so a guess-root parse reaches `lexical_guess` exclusively, confirming the second site independently.
-fn guess_only_grammar() -> pg_grammar::model::Grammar {
+fn guess_only_grammar() -> pg_grammar_model::model::Grammar {
     let xml = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>

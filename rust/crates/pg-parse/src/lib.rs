@@ -38,7 +38,7 @@ pub struct WordAnalysis {
     pub root_morpheme_index: i32,
     pub pos_id: Option<u32>,
     pub syn_fs: pg_featstruct::FeatureStruct,
-    pub mpr: pg_grammar::model::MprSet,
+    pub mpr: pg_grammar_model::model::MprSet,
     /// P11 §4.1: whether this analysis came from the guess branch (`Morpher::parse_word_opts`
     /// with `ParseOptions.guess_root = true`, on a total normal-lexicon miss). Always equal to
     /// the owning `ParseOutcome.guessed` today (the branch is all-or-nothing), but carried

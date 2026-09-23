@@ -27,7 +27,7 @@
 //! Ordinary tracing retains its existing snapshots without formatting this extra evidence.
 use std::cell::{Cell, RefCell};
 
-use pg_grammar::model::{MRuleId, PRuleId, StratumId, TemplateId};
+use pg_grammar_model::model::{MRuleId, PRuleId, StratumId, TemplateId};
 
 use crate::word::Word;
 

@@ -19,13 +19,13 @@
 //! projection to express its parity relation. `pg-foma` is the engine and `pg-assess` is the
 //! assessment/reporting layer, so `pg-foma -> pg-assess` is a backwards dependency and forking the
 //! projection into `pg-foma` would leave two definitions of "the same analysis" free to drift —
-//! the one failure this module exists to prevent. This module imports only `pg_grammar::model` and
+//! the one failure this module exists to prevent. This module imports only `pg_grammar_model::model` and
 //! this crate's own `crate::WordAnalysis`, which it is the natural owner of, and BOTH `pg-foma`
 //! and `pg-assess` already depend on `pg-parse`. `pg-assess` re-exports it (`pub use
 //! pg_parse::identity`), so its public API, schemas, and call sites are unchanged.
 
 use crate::WordAnalysis;
-use pg_grammar::model::{Grammar, MorphemeId, SynFeatureKind};
+use pg_grammar_model::model::{Grammar, MorphemeId, SynFeatureKind};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

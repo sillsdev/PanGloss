@@ -2,7 +2,7 @@
 
 #![allow(dead_code)]
 
-use pg_grammar::model::Grammar;
+use pg_grammar_model::model::Grammar;
 
 pub const GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -90,22 +90,22 @@ pub fn load_probe_grammar() -> Grammar {
 }
 
 /// The single char-def table of the probe grammar.
-pub fn table(g: &Grammar) -> &pg_grammar::chardef::CharDefTable {
+pub fn table(g: &Grammar) -> &pg_grammar_model::chardef::CharDefTable {
     &g.char_tables[0]
 }
 
 /// Resolve a natural class by its XML id.
-pub fn nat_class(g: &Grammar, xml_id: &str) -> pg_grammar::model::NatClassId {
+pub fn nat_class(g: &Grammar, xml_id: &str) -> pg_grammar_model::model::NatClassId {
     let i = g
         .natural_classes
         .iter()
         .position(|nc| nc.xml_id == xml_id)
         .unwrap_or_else(|| panic!("no natural class {xml_id}"));
-    pg_grammar::model::NatClassId(i as u32)
+    pg_grammar_model::model::NatClassId(i as u32)
 }
 
 /// Resolve a char-def by its XML id (in table 0).
-pub fn char_def(g: &Grammar, xml_id: &str) -> pg_grammar::chardef::CharDefId {
+pub fn char_def(g: &Grammar, xml_id: &str) -> pg_grammar_model::chardef::CharDefId {
     table(g)
         .iter()
         .find(|(_, cd)| cd.xml_id() == xml_id)
@@ -114,15 +114,17 @@ pub fn char_def(g: &Grammar, xml_id: &str) -> pg_grammar::chardef::CharDefId {
 }
 
 /// A `SimpleContext` with no alpha variables over the given natural class.
-pub fn ctx(nat_class: pg_grammar::model::NatClassId) -> pg_grammar::model::SimpleContext {
-    pg_grammar::model::SimpleContext {
+pub fn ctx(
+    nat_class: pg_grammar_model::model::NatClassId,
+) -> pg_grammar_model::model::SimpleContext {
+    pg_grammar_model::model::SimpleContext {
         nat_class,
         vars: vec![],
     }
 }
 
 /// Resolve a phonological feature's `FlatIndex` by XML id.
-pub fn feat(g: &Grammar, xml_id: &str) -> pg_grammar::featsys::FlatIndex {
+pub fn feat(g: &Grammar, xml_id: &str) -> pg_grammar_model::featsys::FlatIndex {
     g.phon_features
         .flat_index(xml_id)
         .unwrap_or_else(|| panic!("no feature {xml_id}"))
@@ -130,16 +132,16 @@ pub fn feat(g: &Grammar, xml_id: &str) -> pg_grammar::featsys::FlatIndex {
 
 /// A `SimpleContext` over `nat_class` carrying one alpha variable governing `feature` with the given polarity (`plus` = agree).
 pub fn ctx_var(
-    nat_class: pg_grammar::model::NatClassId,
-    feature: pg_grammar::featsys::FlatIndex,
+    nat_class: pg_grammar_model::model::NatClassId,
+    feature: pg_grammar_model::featsys::FlatIndex,
     var: u16,
     plus: bool,
-) -> pg_grammar::model::SimpleContext {
-    pg_grammar::model::SimpleContext {
+) -> pg_grammar_model::model::SimpleContext {
+    pg_grammar_model::model::SimpleContext {
         nat_class,
-        vars: vec![pg_grammar::model::AlphaVar {
+        vars: vec![pg_grammar_model::model::AlphaVar {
             feature,
-            var: pg_grammar::model::VarId(var),
+            var: pg_grammar_model::model::VarId(var),
             plus,
         }],
     }

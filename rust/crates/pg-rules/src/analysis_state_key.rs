@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use pg_featstruct::FeatureStruct;
-use pg_grammar::model::{AllomorphId, MRuleId, MorphemeId, StratumId};
+use pg_grammar_model::model::{AllomorphId, MRuleId, MorphemeId, StratumId};
 use pg_shape::Shape;
 
 use crate::word::{FinalTemplateState, MorphStatus};

@@ -1,12 +1,12 @@
 use pg_featstruct::FeatureStruct;
-use pg_grammar::model::{MprSet, StratumId};
+use pg_grammar_model::model::{MprSet, StratumId};
 use pg_parse::morpher::ParseOptions;
 use pg_parse::{AnalysisProvenance, Morpher, RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 use pg_rules::stats::{ObjectKind, OverlayPhase};
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 
-fn grammar() -> pg_grammar::model::Grammar {
+fn grammar() -> pg_grammar_model::model::Grammar {
     pg_grammar::load(r#"<HermitCrabInput><Language><Name>T</Name><PartsOfSpeech><PartOfSpeech id="n"><Name>n</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation><Representation>á</Representation></Representations></SegmentDefinition><SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="official-a" partOfSpeech="n"><Gloss>official</Gloss><Allomorphs><Allomorph id="ao"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#).unwrap()
 }
 

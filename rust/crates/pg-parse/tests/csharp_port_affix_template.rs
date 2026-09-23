@@ -168,7 +168,10 @@ fn same_rule_used_in_multiple_templates() {
 }
 
 /// The shared common lexicon lacks entry "53" and the TV/IV parts of speech this test needs, and is small enough that a bespoke tiny grammar is clearer than growing the shared fixture for it.
-fn build_grammar_with_tv_iv(mrules_xml: &str, templates_xml: &str) -> pg_grammar::model::Grammar {
+fn build_grammar_with_tv_iv(
+    mrules_xml: &str,
+    templates_xml: &str,
+) -> pg_grammar_model::model::Grammar {
     let xml = format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -240,7 +243,7 @@ fn two_templates_share_a_slot_rule_with_different_required_pos_both_roots_parse(
 fn build_grammar_two_roots_n_and_v(
     mrules_xml: &str,
     templates_xml: &str,
-) -> pg_grammar::model::Grammar {
+) -> pg_grammar_model::model::Grammar {
     let xml = format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>

@@ -1,7 +1,7 @@
 //! Compound non-head resolution on the real Sena grammar: `pg_rules::morph::resolve_non_head_roots` mirrors C#'s `AnalysisCompoundingRule.Apply`, replacing the non-head's shape/syntactic-FS/root-morph with the matched `LexEntry`'s own values, and this exercises `pg_rules::morph::{analyze_with_root_filter, synthesize}` directly (not full `Morpher::parse_word`) since Sena's boundary-inserting compounding rules make an unconstrained full-word search combinatorially explode.
 
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::{
     AllomorphId, CompoundingRuleDef, Grammar, LexEntryId, MorphRuleDef, StratumId,
 };
 use pg_rules::morph::{analyze_with_root_filter, synthesize};
@@ -25,7 +25,7 @@ fn load_sena() -> Option<Grammar> {
 /// A feature-bearing shape from `text`; table 0 is the one Sena's morphological rules resolve char-defs against.
 fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let w = g.phon_features.len() as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
     for (_, kind, cd, _) in seg.interior() {
@@ -162,7 +162,7 @@ fn clone_def(def: &CompoundingRuleDef) -> CompoundingRuleDef {
         subrules: def
             .subrules
             .iter()
-            .map(|sr| pg_grammar::model::CompoundingSubruleDef {
+            .map(|sr| pg_grammar_model::model::CompoundingSubruleDef {
                 vars: sr.vars.clone(),
                 required_mpr: sr.required_mpr,
                 excluded_mpr: sr.excluded_mpr,

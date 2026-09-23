@@ -1,6 +1,6 @@
 //! Unit tests for `allomorphs_valid_impl`'s sentinel-delegation branch for a guessed root, built by hand against a real grammar since nothing in the matcher/wire-up yet produces such a `Word`.
 
-use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MorphemeId};
+use pg_grammar_model::model::{AllomorphId, Grammar, LexEntryId, MorphemeId};
 use pg_rules::validity::allomorphs_valid;
 use pg_rules::word::{GuessedRoot, MorphRecord};
 use pg_rules::Word;
@@ -82,7 +82,7 @@ fn load_gate_grammar() -> Grammar {
 fn find_entry<'g>(
     g: &'g Grammar,
     xml_id_allomorph_text: &str,
-) -> &'g pg_grammar::model::LexEntryDef {
+) -> &'g pg_grammar_model::model::LexEntryDef {
     g.entries
         .iter()
         .find(|e| {
@@ -105,7 +105,7 @@ fn find_entry_id(g: &Grammar, allomorph_text: &str) -> LexEntryId {
 /// Builds a feature-less shape (root allomorphs are stored feature-less), matching `validity_gate.rs`'s `entry_shape` helper.
 fn shape_of(g: &Grammar, text: &str) -> pg_shape::Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let mut b = ShapeBuilder::with_features_capacity(0, seg.len());
     for (_, kind, cd, _) in seg.interior() {
         match kind {
@@ -121,7 +121,7 @@ fn shape_of(g: &Grammar, text: &str) -> pg_shape::Shape {
 fn guessed_word(g: &Grammar, text: &str) -> Word {
     let pattern_entry = find_entry_id(g, "[Any]*");
     let pattern_allo = find_entry(g, "[Any]*").allomorphs[0].id;
-    let mut w = Word::new(shape_of(g, text), pg_grammar::model::StratumId(0));
+    let mut w = Word::new(shape_of(g, text), pg_grammar_model::model::StratumId(0));
     let runtime = pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {
         pattern_allo,
         pattern_entry,

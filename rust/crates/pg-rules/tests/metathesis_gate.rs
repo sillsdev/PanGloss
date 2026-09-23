@@ -4,10 +4,10 @@
 mod common;
 
 use common::*;
-use pg_grammar::model::{Dir, MetathesisRuleDef, Pattern, PatternNode};
+use pg_grammar_model::model::{Dir, MetathesisRuleDef, Pattern, PatternNode};
 use pg_shape::{NodeKind, Shape};
 
-fn seg(g: &pg_grammar::model::Grammar, word: &str) -> Shape {
+fn seg(g: &pg_grammar_model::model::Grammar, word: &str) -> Shape {
     pg_rules::shape_feat::segment_with_features(g, table(g), word).unwrap()
 }
 
@@ -37,7 +37,7 @@ const D: [u64; 3] = [0b01, 0b01, 0b01]; // consonant, voiced
 
 // Bug 1: a reversed switch-tag order (`left_switch` tagging the physically-first node) must not make analysis rebuild a tag-name-driven pattern that searches for the un-swapped arrangement.
 
-fn reversed_tag_rule(g: &pg_grammar::model::Grammar) -> MetathesisRuleDef {
+fn reversed_tag_rule(g: &pg_grammar_model::model::Grammar) -> MetathesisRuleDef {
     MetathesisRuleDef {
         xml_id: "test-reversed".into(),
         name: None,
@@ -91,7 +91,7 @@ fn metathesis_reversed_switch_tag_order_round_trips() {
 
 // Bug 2: a middle context node strictly between the two switches must not be dropped from the rebuilt analysis pattern, which would wrongly require the switches strictly adjacent.
 
-fn middle_context_rule(g: &pg_grammar::model::Grammar) -> MetathesisRuleDef {
+fn middle_context_rule(g: &pg_grammar_model::model::Grammar) -> MetathesisRuleDef {
     MetathesisRuleDef {
         xml_id: "test-middle".into(),
         name: None,

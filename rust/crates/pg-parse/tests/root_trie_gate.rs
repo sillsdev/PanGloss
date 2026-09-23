@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use pg_grammar::load;
-use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, StratumId};
+use pg_grammar_model::model::{AllomorphId, Grammar, LexEntryId, StratumId};
 use pg_parse::RootAllomorphIndex;
 use pg_shape::{NodeFlags, NodeKind, Shape, ShapeBuilder};
 

@@ -13,8 +13,8 @@
 //! mirrors that exactly.
 
 use pg_featstruct::flat_unifiable;
-use pg_grammar::chardef::{CharDefId, CharDefKind, CharDefTable};
-use pg_grammar::model::Grammar;
+use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
+use pg_grammar_model::model::Grammar;
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
 
 use crate::cache::RuleCache;

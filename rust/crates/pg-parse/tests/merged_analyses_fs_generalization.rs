@@ -3,7 +3,7 @@
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::assert_morphs_eq;
-use pg_grammar::model::Grammar;
+use pg_grammar_model::model::Grammar;
 use pg_parse::Morpher;
 
 /// Lower (Morphophonemic-like) stratum: lexicon + `r3`; upper (Allophonic-like): `r0`/`r1`/`r2`, whose declared order `upper_mrule_ids` lets the caller vary independently.

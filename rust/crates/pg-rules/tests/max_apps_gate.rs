@@ -4,8 +4,8 @@
 mod common;
 
 use common::load_alpha_grammar;
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, Grammar, MRuleId, MorphRuleDef,
     MorphRuleOrder, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
     ReduplicationHint, SegmentedText, SimpleContext, StratumDef, StratumId, TableId, VarTable,
@@ -18,7 +18,7 @@ use pg_shape::{NodeKind, Shape, ShapeBuilder};
 
 fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let w = g.phon_features.len() as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
     for (_, kind, cd, _) in seg.interior() {
@@ -59,7 +59,7 @@ fn one_or_more(nc: &str, g: &Grammar) -> Pattern {
 }
 
 fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
-    let shape = pg_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
+    let shape = pg_grammar_model::segment::segment(&g.char_tables[0], text).expect("segments");
     OutputAction::InsertSegments {
         table: TableId(0),
         shape: SegmentedText {

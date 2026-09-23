@@ -1,6 +1,6 @@
 use super::*;
 use pg_featstruct::FeatureStruct;
-use pg_grammar::model::TemplateId;
+use pg_grammar_model::model::TemplateId;
 
 const XML: &str = r#"
 <HermitCrabInput>
@@ -68,7 +68,7 @@ fn grammar() -> Grammar {
 }
 
 fn word(g: &Grammar, text: &str) -> Word {
-    let shape = pg_grammar::segment::segment(&g.char_tables[0], text).expect("word segments");
+    let shape = pg_grammar_model::segment::segment(&g.char_tables[0], text).expect("word segments");
     Word::new(shape, StratumId(0))
 }
 

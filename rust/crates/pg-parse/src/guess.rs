@@ -29,8 +29,8 @@
 
 use std::rc::Rc;
 
-use pg_grammar::chardef::{CharDefId, CharDefTable};
-use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MorphemeId};
+use pg_grammar_model::chardef::{CharDefId, CharDefTable};
+use pg_grammar_model::model::{AllomorphId, Grammar, LexEntryId, MorphemeId};
 use pg_rules::shape_feat::segment_with_features;
 use pg_rules::trace::{TraceHandle, TraceSink};
 use pg_rules::word::{GuessedRoot, MorphRecord, Word};
@@ -615,7 +615,7 @@ mod tests {
     // `render_match`: the rendering half, against a tiny real table.
 
     /// Grammar-load-based table probe, mirroring this crate's established test convention.
-    fn render_grammar() -> pg_grammar::model::Grammar {
+    fn render_grammar() -> pg_grammar_model::model::Grammar {
         const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>

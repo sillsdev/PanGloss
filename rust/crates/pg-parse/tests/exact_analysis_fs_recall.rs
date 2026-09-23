@@ -6,7 +6,7 @@ use csharp_port_common::assert_morphs_eq;
 use pg_parse::Morpher;
 
 /// Root (POS=V, tense unspecified) + a 3-slot template: `inner` (Out=pres,"a"), `outer` (Out=past,"u"), `outermost` (Required=past, no Out, "i"); un-applied outermost, outer, inner in that order.
-fn build_grammar() -> pg_grammar::model::Grammar {
+fn build_grammar() -> pg_grammar_model::model::Grammar {
     let xml = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>

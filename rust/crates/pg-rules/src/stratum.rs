@@ -19,7 +19,7 @@ use web_time::{Duration, Instant};
 
 use crate::analysis_state_key::{AnalysisStateKey, MorphHistoryKey};
 use pg_featstruct::{is_unifiable, subsumes, subtract, union};
-use pg_grammar::model::{
+use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, SlotDef,
     StratumId, TemplateId,
 };
@@ -739,7 +739,7 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
 struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     g: &'g Grammar,
     stratum_id: StratumId,
-    stratum: &'g pg_grammar::model::StratumDef,
+    stratum: &'g pg_grammar_model::model::StratumDef,
     order: MorphRuleOrder,
     /// The stratum's morphological rules reversed; the cascade indexes this list, so the closure maps `i -> reversed[i]` to record the correct `MRuleId`.
     reversed_mrules: Vec<MRuleId>,
@@ -1092,7 +1092,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     fn template_unapply_slots(
         &self,
         tid: TemplateId,
-        tmpl: &pg_grammar::model::AffixTemplateDef,
+        tmpl: &pg_grammar_model::model::AffixTemplateDef,
         in_word: &Word,
         index: isize,
         out: &mut HashMap<WordKey, Word>,
@@ -1174,7 +1174,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             });
             let _phon_time = prule_stats.map(PRuleStatsCtx::time);
             let result = match &self.g.prules[pid.0 as usize] {
-                pg_grammar::model::PhonRuleDef::Rewrite(r) => match self.cache {
+                pg_grammar_model::model::PhonRuleDef::Rewrite(r) => match self.cache {
                     Some(cache) => rewrite::analyze_cached_traced(
                         self.g,
                         pid,
@@ -1195,7 +1195,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                         self.parent,
                     ),
                 },
-                pg_grammar::model::PhonRuleDef::Metathesis(r) => {
+                pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {
                     // `rewrite` records its own counters; `metathesis` takes no stats context.
                     if let Some(ctx) = prule_stats {
                         ctx.record_attempt(input.shape.len() as u64);
@@ -1605,7 +1605,7 @@ fn end_apply_template(
 #[allow(clippy::too_many_arguments)]
 fn synth_slots_generic<F>(
     g: &Grammar,
-    tmpl: &pg_grammar::model::AffixTemplateDef,
+    tmpl: &pg_grammar_model::model::AffixTemplateDef,
     input: &Word,
     index: usize,
     out: &mut HashMap<WordKey, Word>,
@@ -1918,12 +1918,12 @@ pub fn synthesize_stratum_traced_with_policy(
                 ctx.record_attempt(nw.shape.len() as u64);
             }
             let result = match &g.prules[pid.0 as usize] {
-                pg_grammar::model::PhonRuleDef::Rewrite(r) => {
+                pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
                     rewrite::synthesize_with_mpr_cached_traced(
                         g, pid, r, &nw, cache, trace, w_parent,
                     )
                 }
-                pg_grammar::model::PhonRuleDef::Metathesis(r) => {
+                pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {
                     metathesis::synthesize_cached_traced(
                         g,
                         pid,
@@ -1958,7 +1958,7 @@ pub fn synthesize_stratum_traced_with_policy(
 fn synth_apply_mrules(
     g: &Grammar,
     stratum: StratumId,
-    sd: &pg_grammar::model::StratumDef,
+    sd: &pg_grammar_model::model::StratumDef,
     input: &Word,
     cap: usize,
     steps: &Cell<usize>,
@@ -2079,7 +2079,7 @@ fn choose_inflectional_stem(g: &Grammar, input: &Word) -> Word {
 fn synth_apply_templates(
     g: &Grammar,
     stratum: StratumId,
-    sd: &pg_grammar::model::StratumDef,
+    sd: &pg_grammar_model::model::StratumDef,
     input: &Word,
     cap: usize,
     steps: &Cell<usize>,

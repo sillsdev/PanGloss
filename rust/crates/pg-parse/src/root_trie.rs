@@ -24,11 +24,11 @@
 //!    `pg_featstruct::flat_unifiable` on two empty rows is trivially `true`. A lane-only trie would
 //!    therefore merge *all* Sena roots onto one path and return every equal-length root. The Rust
 //!    engine does not model `StrRep`; its faithful analog for a zero-feature grammar is the node's
-//!    `char_def` (a `pg_grammar::chardef::CharDefId`, whose representations are unique per table).
+//!    `char_def` (a `pg_grammar_model::chardef::CharDefId`, whose representations are unique per table).
 //!    For a feature-bearing grammar (Indonesian, Amharic, the C# test fixtures) C# attaches **no**
 //!    `StrRep` at all, so two distinct char-defs whose feature structs unify legitimately cross-match
 //!    lexical lookup in C#. `edge_matches`'s build-time
-//!    `pg_grammar::chardef::CharDefTable::unifiable_cds` closure (Design A) is the equality-miss
+//!    `pg_grammar_model::chardef::CharDefTable::unifiable_cds` closure (Design A) is the equality-miss
 //!    fallback that restores this: a bitset probe, consulted only when `char_def` equality itself
 //!    misses, and entirely absent (`None`) for a zero-feature table so Sena/en/sp pay nothing and
 //!    keep the pre-P5 identity-only behavior bit-for-bit.
@@ -46,7 +46,7 @@
 //! matching the C# filter `ann.Type() == HCFeatureSystem.Segment` (`Morpher.cs:40`).
 //!
 //! ## M5b invariants introduced by the `char_def` key (C#'s `StrRep` did not have these)
-//! `char_def` ids are **per-table** (`pg_grammar::chardef::CharDefId` is a dense per-table
+//! `char_def` ids are **per-table** (`pg_grammar_model::chardef::CharDefId` is a dense per-table
 //! identity), whereas C#'s `StrRep` is a table-independent string. Two consequences the pipeline
 //! must uphold:
 //! - **Same-table segmentation.** `RootAllomorphTrie::search` requires the input shape to be
@@ -66,8 +66,8 @@
 //! than on the frozen FSA engine; `pg-fst` itself is left untouched.
 
 use pg_featstruct::flat_unifiable;
-use pg_grammar::chardef::{CharDefId, CharDefTable};
-use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, StratumId, TableId};
+use pg_grammar_model::chardef::{CharDefId, CharDefTable};
+use pg_grammar_model::model::{AllomorphId, Grammar, LexEntryId, StratumId, TableId};
 use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, NO_CHAR_DEF};
 
 /// A trie node: outgoing edges (keyed by `char_def`) and the root allomorphs that accept here.

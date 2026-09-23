@@ -22,7 +22,7 @@ fn phon_synth_nodes(
 }
 
 /// A single feature-change rewrite rule (final devoicing: C -> VlUnasp / _ #), reusing the shared grammar's `ncC`/`ncVlUnasp` natural classes.
-fn devoicing_grammar() -> pg_grammar::model::Grammar {
+fn devoicing_grammar() -> pg_grammar_model::model::Grammar {
     build_grammar(
         r#"<PhonologicalRule id="pr3"><Name>rule3</Name>
              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncC" /></PhoneticSequence></PhoneticInput>

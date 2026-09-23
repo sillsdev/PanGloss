@@ -99,7 +99,7 @@ const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 </HermitCrabInput>
 "#;
 
-fn load() -> pg_grammar::model::Grammar {
+fn load() -> pg_grammar_model::model::Grammar {
     pg_grammar::load(XML)
         .unwrap_or_else(|e| panic!("cross-table metathesis surface-match probe grammar loads: {e}"))
 }

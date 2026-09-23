@@ -4,7 +4,7 @@
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar, lex_entry_id, mrule_id};
 use pg_featstruct::{FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits};
-use pg_grammar::model::{Grammar, MorphRuleDef};
+use pg_grammar_model::model::{Grammar, MorphRuleDef};
 use pg_parse::identity::AnalysisIdentity;
 use pg_parse::{GenMorpheme, Morpher, ParseOptions};
 use pg_rules::trace::TreeTraceSink;
@@ -51,7 +51,7 @@ fn pos_fs(g: &Grammar, xml_id: &str) -> FeatureStruct {
 }
 
 /// Builds a bare root `Word` for the lexical entry whose `<MorphemeId>` text is `gloss`, driving `pg_rules::morph::synthesize` directly without the full `Morpher` pipeline.
-fn root_word(g: &pg_grammar::model::Grammar, gloss: &str) -> Word {
+fn root_word(g: &pg_grammar_model::model::Grammar, gloss: &str) -> Word {
     let (entry_idx, entry) = g
         .entries
         .iter()
@@ -60,8 +60,8 @@ fn root_word(g: &pg_grammar::model::Grammar, gloss: &str) -> Word {
         .unwrap_or_else(|| panic!("no entry with MorphemeId {gloss:?}"));
     let allo = &entry.allomorphs[0];
     let shape =
-        pg_grammar::segment::segment(&g.char_tables[0], &allo.shape.text).expect("segments");
-    let mut w = Word::new(shape, pg_grammar::model::StratumId(0));
+        pg_grammar_model::segment::segment(&g.char_tables[0], &allo.shape.text).expect("segments");
+    let mut w = Word::new(shape, pg_grammar_model::model::StratumId(0));
     w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
     w.root_allomorph = Some(allo.id);
     w.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];

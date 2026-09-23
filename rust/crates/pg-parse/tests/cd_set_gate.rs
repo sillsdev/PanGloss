@@ -1,7 +1,7 @@
 //! Regression gate for the char-def-set fix: a class insertion must render/match its real members.
 //! See `docs/research/pg-parse-cd-set-gate-notes.md`.
 
-use pg_grammar::model::{
+use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, Grammar, MorphRuleDef, MorphemeId, MprSet,
     NatClassId, OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint, SimpleContext,
     StratumId, VarTable,

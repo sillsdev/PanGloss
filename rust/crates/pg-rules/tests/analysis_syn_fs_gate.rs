@@ -3,7 +3,7 @@
 use pg_featstruct::{
     add, is_unifiable, unify, FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits,
 };
-use pg_grammar::model::{Grammar, MorphRuleDef, StratumId};
+use pg_grammar_model::model::{Grammar, MorphRuleDef, StratumId};
 use pg_rules::morph::analyze;
 use pg_rules::Word;
 use pg_shape::{NodeKind, ShapeBuilder};
@@ -203,7 +203,7 @@ fn load_grammar(xml: &str) -> Grammar {
 
 fn word_shape(g: &Grammar, text: &str) -> pg_shape::Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let mut b = ShapeBuilder::with_features_capacity(0, seg.len());
     for (_, kind, cd, _) in seg.interior() {
         match kind {

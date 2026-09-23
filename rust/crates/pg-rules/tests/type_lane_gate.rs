@@ -2,8 +2,8 @@
 //! Root cause (empty boundary lanes canonicalizing to "matches any segment") and the two width regimes exercised: docs/research/pg-rules-type-lane-regression.md.
 
 use pg_fst::{Segment, Transduce};
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{Grammar, NatClassId, Pattern, PatternNode, SimpleContext};
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::{Grammar, NatClassId, Pattern, PatternNode, SimpleContext};
 use pg_rules::bridge::PatternBridge;
 
 fn char_def(g: &Grammar, xml_id: &str) -> CharDefId {
@@ -200,7 +200,7 @@ fn feature_grammar_phon_features_len_includes_type_appended_last() {
     );
     assert_eq!(
         g.phon_features.type_flat(),
-        pg_grammar::featsys::FlatIndex(1)
+        pg_grammar_model::featsys::FlatIndex(1)
     );
 }
 

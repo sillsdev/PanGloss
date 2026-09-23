@@ -5,12 +5,12 @@ mod common;
 
 use common::*;
 use pg_featstruct::FeatureStruct;
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::AnchorSide;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::AnchorSide;
+use pg_grammar_model::model::{
     Dir, NatClassId, Pattern, PatternNode, RewriteMode, RewriteRuleDef, RewriteSubruleDef,
 };
-use pg_grammar::model::{MprId, MprSet, PRuleId};
+use pg_grammar_model::model::{MprId, MprSet, PRuleId};
 use pg_rules::trace::{FailureReason, TraceSink, TraceType, TreeTraceSink};
 use pg_shape::{NodeKind, Shape};
 
@@ -19,8 +19,8 @@ use pg_shape::{NodeKind, Shape};
 fn subrule(rhs: Pattern, left: Option<Pattern>, right: Option<Pattern>) -> RewriteSubruleDef {
     RewriteSubruleDef {
         required_pos: None,
-        required_mpr: pg_grammar::model::MprSet::EMPTY,
-        excluded_mpr: pg_grammar::model::MprSet::EMPTY,
+        required_mpr: pg_grammar_model::model::MprSet::EMPTY,
+        excluded_mpr: pg_grammar_model::model::MprSet::EMPTY,
         rhs,
         left_env: left,
         right_env: right,
@@ -92,7 +92,7 @@ fn interior(s: &Shape) -> Vec<(NodeKind, u32, Vec<u64>, bool)> {
         .collect()
 }
 
-fn seg(g: &pg_grammar::model::Grammar, word: &str) -> Shape {
+fn seg(g: &pg_grammar_model::model::Grammar, word: &str) -> Shape {
     pg_rules::shape_feat::segment_with_features(g, table(g), word).unwrap()
 }
 
@@ -103,7 +103,7 @@ const D: [u64; 3] = [0b01, 0b01, 0b01]; // consonant, voiced
 
 // Feature-change: t -> [+voice] / V _ V (C# FeatureSynthesisRewriteSubruleSpec.ApplyRhs / FeatureAnalysisRewriteRuleSpec.Unapply)
 
-fn voicing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn voicing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     rule(
         pat_char(char_def(g, "char_t")),
         subrule(
@@ -191,7 +191,7 @@ fn feature_change_round_trip_recovers_superset() {
 
 // Analysis feature-reversal uses C#'s AntiFeatureStruct negation (L ∪ R via mask & !bits), not a blanket full-unconstrain; needs a >=3-symbol feature since a 2-symbol feature's negation always degenerates to full_mask. C# analog: RewriteRuleTests.CommonFeatureRules.
 
-fn place_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn place_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     // p -> [vel] (place feature), no environment (fires unconditionally).
     rule(
         pat_char(char_def(g, "char_p")),
@@ -225,7 +225,7 @@ fn feature_change_analysis_reversal_excludes_the_third_symbol() {
 
 // Deletion: t -> 0 / a _ a (C# NarrowSynthesisRewriteSubruleSpec.ApplyRhs / NarrowAnalysisRewriteRuleSpec.Unapply, reapply=Deletion)
 
-fn deletion_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn deletion_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     rule(
         pat_char(char_def(g, "char_t")),
         subrule(
@@ -282,7 +282,7 @@ fn deletion_round_trip_recovers_original() {
 
 // Word-initial deletion: t -> 0 / # _ a — the word-initial gap must be a matchable analysis-unapply site, not just "after each segment".
 
-fn word_initial_deletion_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn word_initial_deletion_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     rule(
         pat_char(char_def(g, "char_t")),
         subrule(
@@ -340,7 +340,7 @@ fn word_initial_deletion_round_trip_recovers_original() {
 
 // Narrowing (RHS non-empty, LHS/RHS node counts differ): tt -> n / a _ a (C# NarrowSynthesisRewriteSubruleSpec.ApplyRhs); the inserted RHS must be non-optional, only dirty, so it can never be treated as skippable downstream.
 
-fn narrowing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn narrowing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     rule(
         Pattern {
             nodes: vec![
@@ -377,7 +377,7 @@ fn narrow_synthesis_replacement_segment_is_not_optional() {
 
 // Narrowing RHS alpha-variable resolution: syn_narrow's RHS build resolves an alpha variable bound from a merged LHS segment instead of leaving it fully unconstrained. C# analog: RewriteRuleTests.AlphaVariableRules x MergeRules.
 
-fn merge_with_alpha_voice_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn merge_with_alpha_voice_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     let voi = feat(g, "feat_voi");
     // [C, var1=voice] [C] -> [C, var1=voice]: two consonants merge to one whose voice comes from the first LHS node's captured value via alpha var 1.
     rule(
@@ -420,7 +420,7 @@ fn narrow_synthesis_resolves_rhs_alpha_variable_from_lhs() {
 
 // Epenthesis: 0 -> t / a _ a (C# EpenthesisSynthesisRewriteSubruleSpec.ApplyRhs / EpenthesisAnalysisRewriteRuleSpec.Unapply)
 
-fn epenthesis_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn epenthesis_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     rule(
         Pattern::default(), // empty LHS => epenthesis
         subrule(
@@ -551,7 +551,7 @@ fn mark_optional(shape: &Shape, interior_idx: usize) -> Shape {
     m.freeze()
 }
 
-fn double_t_feature_change_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn double_t_feature_change_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     // tt -> [+voice][+voice]: a 2-node LHS/RHS feature-change rule with no environment.
     rule(
         Pattern {
@@ -588,7 +588,7 @@ fn feature_change_synthesis_rejects_an_over_wide_optional_skip_span() {
     );
 }
 
-fn double_t_narrow_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn double_t_narrow_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     // tt -> n (narrowing: 2 LHS nodes coalesce to 1 RHS node), no environment.
     rule(
         Pattern {
@@ -617,7 +617,7 @@ fn narrow_synthesis_rejects_an_over_wide_optional_skip_span() {
 
 // Direction-aware Iterative pick order: matching C#'s IterativePhonologicalPatternRule.Apply, a LeftToRight rule must find its leftmost remaining candidate first and a RightToLeft rule its rightmost, never both directions picking the same leftmost match.
 
-fn double_t_narrow_rule_dir(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleDef {
+fn double_t_narrow_rule_dir(g: &pg_grammar_model::model::Grammar, dir: Dir) -> RewriteRuleDef {
     rule_dir(
         Pattern {
             nodes: vec![
@@ -713,7 +713,10 @@ fn narrow_synthesis_pick_order_with_environment_changes_final_result() {
     );
 }
 
-fn double_t_feature_change_rule_dir(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleDef {
+fn double_t_feature_change_rule_dir(
+    g: &pg_grammar_model::model::Grammar,
+    dir: Dir,
+) -> RewriteRuleDef {
     rule_dir(
         Pattern {
             nodes: vec![
@@ -820,7 +823,7 @@ fn feature_change_word_final_anchor_environment() {
 // Multi-subrule Simultaneous disjunction: Rust dispatches sim_feature/sim_narrow per-subrule rather than C#'s one collect-then-apply pass with per-position first-applicable dispatch, so this test pins which subrule wins when two Simultaneous subrules' environments both hold at the same position.
 
 /// Two Simultaneous subrules over nc_cons: subrule 1 voices before another consonant, subrule 2 is an unconditional catch-all — on "td", both environments hold at position 0, a genuine same-position overlap; only subrule 2 can apply at position 1.
-fn disjunctive_simultaneous_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn disjunctive_simultaneous_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     rule_multi(
         pat_ctx(nat_class(g, "nc_cons")),
         vec![
@@ -867,7 +870,7 @@ fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_posi
 
 // sim_narrow coverage: its splice-then-delete-descending transform is genuinely new code with no oracle fixture exercising a Simultaneous Narrow/Expansion synthesis rule, unlike sim_feature and Simultaneous Epenthesis (both covered elsewhere).
 
-fn simultaneous_narrowing_rule(g: &pg_grammar::model::Grammar) -> RewriteRuleDef {
+fn simultaneous_narrowing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     // tt -> n / V _ V, tagged Simultaneous — the Iterative form of this same rule is narrowing_rule, tested elsewhere via a single site.
     rule_multi(
         Pattern {
@@ -1149,7 +1152,7 @@ fn traced_analysis_cached_matches_uncached() {
     // deletion_rule builds a fresh RewriteRuleDef each call; one copy is registered for RuleCache::build and a second is held here, matching the real (pid, rule) contract that rule must describe what pid indexes.
     let for_cache = deletion_rule(&g);
     g.prules
-        .push(pg_grammar::model::PhonRuleDef::Rewrite(for_cache));
+        .push(pg_grammar_model::model::PhonRuleDef::Rewrite(for_cache));
     let cache = pg_rules::cache::RuleCache::build(&g);
     let r = deletion_rule(&g);
 
@@ -1213,7 +1216,7 @@ fn quantifier_as_whole_lhs_ignores_its_own_multiplicity_but_never_crashes_or_mis
 
 // Pins natural-class (PatternNode::Context) RHS epenthesis with a two-sided environment round-tripping in both directions, distinct from the epenthesis_* gates above, which all use a concrete CharDef RHS.
 
-fn ctx_epenthesis_rule(g: &pg_grammar::model::Grammar, dir: Dir) -> RewriteRuleDef {
+fn ctx_epenthesis_rule(g: &pg_grammar_model::model::Grammar, dir: Dir) -> RewriteRuleDef {
     rule_dir(
         Pattern::default(), // empty LHS => epenthesis
         subrule(

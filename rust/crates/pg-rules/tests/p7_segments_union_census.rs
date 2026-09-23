@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use pg_featstruct::bitvec::flat_unifiable;
-use pg_grammar::chardef::{CharDefId, CharDefKind};
-use pg_grammar::model::{Grammar, NaturalClassKind, TableId};
+use pg_grammar_model::chardef::{CharDefId, CharDefKind};
+use pg_grammar_model::model::{Grammar, NaturalClassKind, TableId};
 
 fn sample_path(name: &str) -> Option<PathBuf> {
     // CARGO_MANIFEST_DIR = .../rust/crates/pg-rules ; samples live at repo_root/samples/data.

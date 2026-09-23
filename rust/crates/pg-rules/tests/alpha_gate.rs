@@ -4,8 +4,8 @@
 mod common;
 
 use common::*;
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::{
     Dir, Grammar, Pattern, PatternNode, RewriteMode, RewriteRuleDef, RewriteSubruleDef,
 };
 use pg_shape::{NodeKind, Shape};
@@ -13,8 +13,8 @@ use pg_shape::{NodeKind, Shape};
 fn subrule(rhs: Pattern, left: Option<Pattern>, right: Option<Pattern>) -> RewriteSubruleDef {
     RewriteSubruleDef {
         required_pos: None,
-        required_mpr: pg_grammar::model::MprSet::EMPTY,
-        excluded_mpr: pg_grammar::model::MprSet::EMPTY,
+        required_mpr: pg_grammar_model::model::MprSet::EMPTY,
+        excluded_mpr: pg_grammar_model::model::MprSet::EMPTY,
         rhs,
         left_env: left,
         right_env: right,

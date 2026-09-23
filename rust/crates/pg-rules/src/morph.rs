@@ -25,9 +25,9 @@
 
 use pg_featstruct::{is_unifiable, priority_union, unify, FeatureStruct};
 use pg_fst::{CompileInput, CompileNode, Direction, Fst, FstResult, Segment, Transduce};
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::featsys::FlatIndex;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::featsys::FlatIndex;
+use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, CompoundingRuleDef,
     CompoundingSubruleDef, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId,
     NaturalClassKind, OutputAction, PartRef, Pattern, PatternNode, RealizationalRuleDef,
@@ -280,14 +280,14 @@ pub fn synthesize_cached(
 /// Reports which of `g.mpr_group_ok`'s required/excluded MPR gates actually failed, checked required-then-excluded.
 fn mpr_gate_reason(
     g: &Grammar,
-    required: pg_grammar::model::MprSet,
-    excluded: pg_grammar::model::MprSet,
-    have: pg_grammar::model::MprSet,
+    required: pg_grammar_model::model::MprSet,
+    excluded: pg_grammar_model::model::MprSet,
+    have: pg_grammar_model::model::MprSet,
 ) -> Option<FailureReason> {
-    if !pg_grammar::model::mpr_required_ok(&g.mpr_groups, required, have) {
+    if !pg_grammar_model::model::mpr_required_ok(&g.mpr_groups, required, have) {
         return Some(FailureReason::RequiredMprFeatures);
     }
-    if !pg_grammar::model::mpr_excluded_ok(&g.mpr_groups, excluded, have) {
+    if !pg_grammar_model::model::mpr_excluded_ok(&g.mpr_groups, excluded, have) {
         return Some(FailureReason::ExcludedMprFeatures);
     }
     None
@@ -809,7 +809,7 @@ fn ctx_cd_set(g: &Grammar, table: TableId, ctx: &SimpleContext) -> CdSet {
             let mut members = Vec::new();
             let mut all = true;
             for (id, cd) in t.iter() {
-                if cd.kind() != pg_grammar::chardef::CharDefKind::Segment {
+                if cd.kind() != pg_grammar_model::chardef::CharDefKind::Segment {
                     continue;
                 }
                 let lanes = fit(g, cd.feature_lanes());
@@ -1047,8 +1047,8 @@ fn attribute_morphs(
     head: &Word,
     non_head: Option<&Word>,
     affix: Option<(
-        pg_grammar::model::AllomorphId,
-        pg_grammar::model::MorphemeId,
+        pg_grammar_model::model::AllomorphId,
+        pg_grammar_model::model::MorphemeId,
         &[u16],
     )>,
 ) -> Vec<MorphRecord> {
@@ -1109,7 +1109,7 @@ fn attribute_morphs(
 
     // Pass 2: walks each input word's morphs in order; an unpositioned record subsumes onto the affix's new material or order 0, a dropped marker re-anchors to its host, and pure truncation drops a `SubsumedChild` but not a `SubsumedFirst` (bug-compatible with C#'s non-recursing truncation branch); compounding has no fallbacks at all.
     let mut records: Vec<MorphRecord> = Vec::new();
-    let mut marked: Vec<pg_grammar::model::AllomorphId> = Vec::new();
+    let mut marked: Vec<pg_grammar_model::model::AllomorphId> = Vec::new();
 
     let push_runs = |records: &mut Vec<MorphRecord>, key: &MorphKey, m: &MorphRecord| {
         for &(order, _) in &key_runs[key] {
@@ -1392,8 +1392,8 @@ fn ana_syn_fs(
 /// C# `HashSet<AllomorphEnvironment>.SetEquals` — environment lists compared as sets (shared by
 /// `constraints_equal` and `crate::validity`'s root-allomorph `ConstraintsEqual` port).
 pub(crate) fn env_set_equal(
-    a: &[pg_grammar::model::EnvironmentDef],
-    b: &[pg_grammar::model::EnvironmentDef],
+    a: &[pg_grammar_model::model::EnvironmentDef],
+    b: &[pg_grammar_model::model::EnvironmentDef],
 ) -> bool {
     if a.len() != b.len() {
         return false;
@@ -1447,7 +1447,7 @@ fn final_template_prohibits(
 // Affix process — synthesis.
 
 /// Resolves `word`'s root allomorph to its stem name; `None` for a missing root, no stem name, or a guessed root (conservative — this synthesis-time gate does not consult the guess's pattern).
-fn root_stem_name(g: &Grammar, word: &Word) -> Option<pg_grammar::model::StemNameId> {
+fn root_stem_name(g: &Grammar, word: &Word) -> Option<pg_grammar_model::model::StemNameId> {
     let root_id = word.root_allomorph?;
     if root_id == AllomorphId::GUESSED {
         return None;
@@ -2084,7 +2084,8 @@ pub(crate) struct AnalysisLhs {
 fn strip_boundaries(g: &Grammar, table: TableId, part: &Pattern) -> Pattern {
     fn is_boundary(g: &Grammar, table: TableId, cd: CharDefId) -> bool {
         let t = &g.char_tables[table.0 as usize];
-        (cd.0 as usize) < t.len() && t.get(cd).kind() == pg_grammar::chardef::CharDefKind::Boundary
+        (cd.0 as usize) < t.len()
+            && t.get(cd).kind() == pg_grammar_model::chardef::CharDefKind::Boundary
     }
     fn strip(g: &Grammar, table: TableId, nodes: &[PatternNode]) -> Vec<PatternNode> {
         let mut out = Vec::new();
@@ -2314,7 +2315,7 @@ fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Patter
                 PatternNode::CharDef(cd) => {
                     let t = &g.char_tables[table.0 as usize];
                     if (cd.0 as usize) < t.len()
-                        && t.get(*cd).kind() == pg_grammar::chardef::CharDefKind::Segment
+                        && t.get(*cd).kind() == pg_grammar_model::chardef::CharDefKind::Segment
                     {
                         out.push(OutNode {
                             kind: NodeKind::Segment,

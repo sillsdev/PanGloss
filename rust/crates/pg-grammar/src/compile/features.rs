@@ -330,7 +330,7 @@ pub(crate) fn build_phon_features(
             recorder.represented(vkey);
         }
     }
-    PhonFeatureSystem::from_raw(raw)
+    PhonFeatureSystem::from_raw(raw).map_err(Into::into)
 }
 
 /// Builds a `{POS, head}` feature struct for the syntactic domain from a resolved POS symbol set and an optional, already-resolved morphosyntactic `FeatureStructure`.

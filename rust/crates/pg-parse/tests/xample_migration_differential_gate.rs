@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use pg_grammar::compile::{CompileOptions, CompileOutput};
-use pg_grammar::model::Grammar;
+use pg_grammar_model::model::Grammar;
 use pg_parse::Morpher;
 use pg_xample_oracle::fieldworks::{self, MutateResponse, ProjectResponse, Projector};
 use pg_xample_oracle::fixture::{self, PhonologyMutations};
@@ -171,7 +171,7 @@ fn assert_substrate_report_matches_manifest(clone_output: &CompileOutput, expect
     // This witness declares zero authored phonological features (phon_features.is_empty()), so every lane here is trivially the unspecified mask regardless of inference -- not evidence of anything. The real, falsifiable featureless proof needs a feature-bearing grammar and lives in pg-grammar's own compile::tests::inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment, which InferredChar's own field list (no feature slot at all) is designed to keep true by construction.
     let table = &clone_output.grammar.char_tables[0];
     for inferred in &clone_output.substrate.inferred_segments {
-        let nfd_rep = pg_grammar::nfd::nfd(&inferred.representation);
+        let nfd_rep = pg_grammar_model::nfd::nfd(&inferred.representation);
         assert!(
             table.lookup_nfd(&nfd_rep).is_some(),
             "inferred segment {:?} must be in the compiled char table",

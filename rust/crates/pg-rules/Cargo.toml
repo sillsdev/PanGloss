@@ -10,11 +10,14 @@ autotests = false
 pg-featstruct.workspace = true
 pg-shape.workspace = true
 pg-fst.workspace = true
-pg-grammar.workspace = true
+pg-grammar-model.workspace = true
 smallvec.workspace = true
 hashbrown.workspace = true
 rustc-hash.workspace = true
 web-time.workspace = true
+
+[dev-dependencies]
+pg-grammar.workspace = true
 
 [[test]]
 name = "stratum_gate"

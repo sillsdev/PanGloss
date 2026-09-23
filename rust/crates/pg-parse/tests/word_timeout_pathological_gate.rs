@@ -7,7 +7,7 @@ use pg_parse::Morpher;
 use std::time::{Duration, Instant};
 
 /// A grammar with `k` distinct one-shot rules that all unapply the same literal suffix "n" from any word, one root entry, no phonological rules or templates, so the only work is the morphological cascade.
-fn homophonous_suffix_grammar(k: usize) -> pg_grammar::model::Grammar {
+fn homophonous_suffix_grammar(k: usize) -> pg_grammar_model::model::Grammar {
     let mut mrule_defs = String::new();
     let mut ids = Vec::with_capacity(k);
     for i in 0..k {

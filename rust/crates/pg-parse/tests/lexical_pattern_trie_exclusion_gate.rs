@@ -78,5 +78,5 @@ fn trie_excludes_pattern_allomorph_and_morpher_carries_it_in_lexical_patterns() 
     );
     let (allo, entry) = m.lexical_patterns()[0];
     assert_eq!(allo, g.entries[0].allomorphs[0].id);
-    assert_eq!(entry, pg_grammar::model::LexEntryId(0));
+    assert_eq!(entry, pg_grammar_model::model::LexEntryId(0));
 }

@@ -13,17 +13,14 @@
 //! writes those XML sections.
 #![forbid(unsafe_code)]
 
-pub mod chardef;
 pub mod compile;
-pub mod featsys;
 pub mod grammar_health;
 pub(crate) mod grammar_health_presentation;
 pub mod lint;
 pub mod load;
-pub mod model;
-pub mod nfd;
-pub mod segment;
 pub mod stats_identity;
+
+pub use pg_grammar_model::{chardef, featsys, model, nfd, segment};
 
 pub use compile::{compile_project, compile_project_measured, compile_project_with};
 pub use load::load;
@@ -53,6 +50,18 @@ pub enum GrammarError {
     DuplicateRepresentation(String),
     #[error("cannot compile compounding: {0}")]
     UnsegmentableBoundary(String),
+}
+
+impl From<pg_grammar_model::ModelError> for GrammarError {
+    fn from(error: pg_grammar_model::ModelError) -> Self {
+        match error {
+            pg_grammar_model::ModelError::Unsupported(message) => Self::Unsupported(message),
+            pg_grammar_model::ModelError::Semantic(message) => Self::Semantic(message),
+            pg_grammar_model::ModelError::DuplicateRepresentation(message) => {
+                Self::DuplicateRepresentation(message)
+            }
+        }
+    }
 }
 
 impl GrammarError {

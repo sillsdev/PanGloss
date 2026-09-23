@@ -11,8 +11,8 @@
 
 use std::cell::{Cell, RefCell};
 
-use pg_grammar::model::{Grammar, LexEntryId, MRuleId, PRuleId, StratumId};
-pub use pg_grammar::stats_identity::OverlayPhase;
+use pg_grammar_model::model::{Grammar, LexEntryId, MRuleId, PRuleId, StratumId};
+pub use pg_grammar_model::stats_identity::OverlayPhase;
 use rustc_hash::FxHashMap as HashMap;
 
 /// The allomorph-dimension sentinel: cost belonging to no allomorph (rule-level setup, or a

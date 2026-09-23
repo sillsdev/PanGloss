@@ -11,7 +11,6 @@ name = "all"
 path = "tests/harnesses/all.rs"
 
 [dependencies]
-pg-grammar.workspace = true
 pg-parse.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }

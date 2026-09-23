@@ -5,8 +5,8 @@ mod common;
 
 use common::load_alpha_grammar;
 use pg_featstruct::{FeatId, FeatureStructBuilder, FeatureValue, FsId, SymbolBits};
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::{
     AllomorphId, CompoundingRuleDef, CompoundingSubruleDef, Grammar, LexEntryDef, LexEntryId,
     MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MorphemeInfo, MprId, MprSet, OutputAction,
     PartRef, Pattern, PatternNode, RootAllomorphDef, SegmentedText, SimpleContext, StratumDef,
@@ -22,7 +22,7 @@ use pg_shape::{NodeKind, Shape, ShapeBuilder};
 
 fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let w = g.phon_features.len() as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
     for (_, kind, cd, _) in seg.interior() {
@@ -191,7 +191,7 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
 
     let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
-            pg_grammar::model::AllomorphId(300),
+            pg_grammar_model::model::AllomorphId(300),
             entry,
         )]
     };
@@ -261,7 +261,7 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
 
     let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
-            pg_grammar::model::AllomorphId(300),
+            pg_grammar_model::model::AllomorphId(300),
             entry,
         )]
     };
@@ -296,7 +296,7 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
 
     let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
-            pg_grammar::model::AllomorphId(300),
+            pg_grammar_model::model::AllomorphId(300),
             entry,
         )]
     };

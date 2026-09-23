@@ -4,7 +4,7 @@
 mod common;
 
 use common::load_alpha_grammar;
-use pg_grammar::model::{
+use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, EnvironmentDef, Grammar, MorphRuleDef,
     MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint,
     SegmentedText, SimpleContext, StratumId, TableId, VarTable,
@@ -17,13 +17,13 @@ use pg_shape::{NodeKind, Shape, ShapeBuilder};
 
 fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let w = g.phon_features.len() as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
     for (_, kind, cd, _) in seg.interior() {
         let mut lanes = vec![u64::MAX; w as usize];
         for (i, &l) in t
-            .get(pg_grammar::chardef::CharDefId(cd))
+            .get(pg_grammar_model::chardef::CharDefId(cd))
             .feature_lanes()
             .iter()
             .enumerate()
@@ -70,7 +70,7 @@ fn single(nc: &str, g: &Grammar) -> Pattern {
 }
 
 fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
-    let shape = pg_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
+    let shape = pg_grammar_model::segment::segment(&g.char_tables[0], text).expect("segments");
     OutputAction::InsertSegments {
         table: TableId(0),
         shape: SegmentedText {
@@ -238,7 +238,7 @@ fn constraint_equal_adjacent_allomorphs_both_synthesize() {
         .iter()
         .map(|w| {
             let last = w.shape.interior().last().unwrap();
-            let cd = pg_grammar::chardef::CharDefId(last.2);
+            let cd = pg_grammar_model::chardef::CharDefId(last.2);
             g.char_tables[0].get(cd).representations()[0]
                 .chars()
                 .next()

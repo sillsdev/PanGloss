@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use pg_grammar::model::{Grammar, Pattern, PhonRuleDef};
+use pg_grammar_model::model::{Grammar, Pattern, PhonRuleDef};
 use pg_rules::bridge::PatternBridge;
 
 fn sample_path(name: &str) -> Option<PathBuf> {

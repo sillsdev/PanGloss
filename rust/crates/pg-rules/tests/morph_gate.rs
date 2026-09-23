@@ -4,8 +4,8 @@
 mod common;
 
 use common::{load_alpha_grammar, nat_class};
-use pg_grammar::chardef::CharDefId;
-use pg_grammar::model::{
+use pg_grammar_model::chardef::CharDefId;
+use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, CompoundingRuleDef, CompoundingSubruleDef,
     Grammar, MorphRuleDef, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
     ReduplicationHint, SegmentedText, SimpleContext, StratumId, TableId, VarTable,
@@ -19,7 +19,7 @@ use pg_shape::{NodeKind, Shape, ShapeBuilder};
 /// Build a feature-bearing shape from `text`, filling per-node lanes so feature matching is real.
 fn shape_with_lanes(g: &Grammar, text: &str) -> Shape {
     let t = &g.char_tables[0];
-    let seg = pg_grammar::segment::segment(t, text).expect("segments");
+    let seg = pg_grammar_model::segment::segment(t, text).expect("segments");
     let w = g.phon_features.len() as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, seg.len());
     for (_, kind, cd, _) in seg.interior() {
@@ -81,7 +81,7 @@ fn single(nc: &str, g: &Grammar) -> Pattern {
 }
 
 fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
-    let shape = pg_grammar::segment::segment(&g.char_tables[0], text).expect("segments");
+    let shape = pg_grammar_model::segment::segment(&g.char_tables[0], text).expect("segments");
     OutputAction::InsertSegments {
         table: TableId(0),
         shape: SegmentedText {
@@ -234,7 +234,7 @@ fn simulfix_synthesis_voices_target_segment() {
     let voi = common::feat(&g, "feat_voi").0 as usize;
     let vp = g
         .phon_features
-        .symbol_index(pg_grammar::featsys::FlatIndex(voi as u32), "sym_vp")
+        .symbol_index(pg_grammar_model::featsys::FlatIndex(voi as u32), "sym_vp")
         .unwrap();
     let voiced_bits = 1u64 << vp; // {voi+}
 
@@ -274,7 +274,7 @@ fn simulfix_analysis_underspecifies_modified_feature() {
     let voi = common::feat(&g, "feat_voi").0 as usize;
     let full_voi = g
         .phon_features
-        .mask(pg_grammar::featsys::FlatIndex(voi as u32));
+        .mask(pg_grammar_model::featsys::FlatIndex(voi as u32));
 
     let stem = root_word(&g, "ap", 100);
     let rule = affix_rule(
@@ -542,7 +542,7 @@ fn sena_affix_and_compounding_rules_compile_and_run_without_panic() {
         .find_map(|e| e.allomorphs.first().map(|a| a.shape.text.clone()))
         .expect("Sena has a lexical entry");
     let probe_shape =
-        pg_grammar::segment::segment(&g.char_tables[0], &probe_text).expect("probe segments");
+        pg_grammar_model::segment::segment(&g.char_tables[0], &probe_text).expect("probe segments");
     let mut probe = Word::new(probe_shape, StratumId(0));
     probe
         .morphs

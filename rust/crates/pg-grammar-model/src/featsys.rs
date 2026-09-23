@@ -17,25 +17,26 @@
 use hashbrown::HashMap;
 use pg_featstruct::full_mask;
 
-use crate::GrammarError;
+use crate::ModelError;
 
 /// Dense per-grammar index of a symbolic feature, assigned in XML document order (plan §5.3).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct FlatIndex(pub u32);
 
 /// One `<SymbolicFeature>` as read off the XML, before dense-indexing (loader-internal).
-pub(crate) struct RawFeature {
-    pub(crate) xml_id: String,
-    pub(crate) name: String,
+#[doc(hidden)]
+pub struct RawFeature {
+    pub xml_id: String,
+    pub name: String,
     /// `(symbol xml id, symbol name)` in document order.
-    pub(crate) symbols: Vec<(String, String)>,
+    pub symbols: Vec<(String, String)>,
     /// Finding N2 (phase2 audit C): `SymbolicFeature@defaultSymbol`, the XML `id` of one of this
     /// same feature's own `<Symbol>`s (C# `LoadFeature`, `XmlLanguageLoader.cs:632-654`:
     /// `feature.DefaultSymbolID = defValId` resolves via the feature's own `_possibleSymbols`
     /// dict, `SymbolicFeature.cs:57-60`). `None` when the attribute is absent (the common case —
     /// C#'s `string.IsNullOrEmpty(defValId)` guard is equivalent to "no default configured", not
     /// "default is the empty string").
-    pub(crate) default_symbol: Option<String>,
+    pub default_symbol: Option<String>,
 }
 
 #[derive(Debug)]
@@ -64,7 +65,7 @@ pub const TYPE_BOUNDARY_BITS: u64 = 1 << TYPE_BOUNDARY_SYMBOL;
 
 /// The compiled phonological feature system: features and their symbols, dense-indexed.
 ///
-/// **Lint:** a `SymbolicFeature` with >= 64 symbols is rejected as `GrammarError::Unsupported`
+/// **Lint:** a `SymbolicFeature` with >= 64 symbols is rejected as `ModelError::Unsupported`
 /// rather than silently mis-masked — the 64-symbol mask boundary is a known parity hazard
 /// (`pg_featstruct::full_mask` doc comment; #446's regression fixture). None of the three
 /// reference grammars come close (widest is Sena's HeadFeatures `genro` at 20 symbols, and that
@@ -95,12 +96,13 @@ impl Default for PhonFeatureSystem {
 }
 
 impl PhonFeatureSystem {
-    pub(crate) fn from_raw(raw: Vec<RawFeature>) -> Result<Self, GrammarError> {
+    #[doc(hidden)]
+    pub fn from_raw(raw: Vec<RawFeature>) -> Result<Self, ModelError> {
         let mut features = Vec::with_capacity(raw.len() + 1);
         let mut id_to_flat = HashMap::with_capacity(raw.len() + 1);
         for (flat, f) in raw.into_iter().enumerate() {
             if f.symbols.len() >= 64 {
-                return Err(GrammarError::Unsupported(format!(
+                return Err(ModelError::Unsupported(format!(
                     "SymbolicFeature '{}' ({}) has {} symbols; the flat bit-vector representation \
                      supports at most 63 symbols per feature (the 64-symbol mask boundary is a \
                      known parity hazard) — grammar must fall back to the managed engine",
@@ -116,11 +118,11 @@ impl PhonFeatureSystem {
                 symbol_names.push(sym_name);
             }
             let mask = full_mask(symbol_names.len() as u32);
-            // `defaultSymbol` resolves against this feature's own symbols; an unresolvable id becomes a `GrammarError::Semantic`, matching this loader's malformed-reference convention.
+            // `defaultSymbol` resolves against this feature's own symbols; an unresolvable id becomes a `ModelError::Semantic`, matching this loader's malformed-reference convention.
             let default_bits = match &f.default_symbol {
                 Some(sym_id) => {
                     let idx = symbol_index.get(sym_id).ok_or_else(|| {
-                        GrammarError::Semantic(format!(
+                        ModelError::Semantic(format!(
                             "SymbolicFeature '{}' ({}): defaultSymbol '{sym_id}' is not one of its own symbols",
                             f.name, f.xml_id
                         ))
@@ -330,7 +332,7 @@ mod tests {
             Some("nope"),
         )])
         .unwrap_err();
-        assert!(matches!(err, GrammarError::Semantic(_)));
+        assert!(matches!(err, ModelError::Semantic(_)));
     }
 
     #[test]
@@ -368,7 +370,7 @@ mod tests {
             .collect();
         let err =
             PhonFeatureSystem::from_raw(vec![raw("featBig", "big", &symbols_ref)]).unwrap_err();
-        assert!(matches!(err, GrammarError::Unsupported(_)));
+        assert!(matches!(err, ModelError::Unsupported(_)));
     }
 
     #[test]
