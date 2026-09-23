@@ -61,6 +61,8 @@ An entry's `Status` is one of:
 - **`fixed-in-rust`** — Rust had a genuine bug (its output differed from hc.dll's), and it has been
   fixed to match hc.dll, verified against the oracle or a fixture. No proposal to hc.dll was needed
   because hc.dll was already correct.
+- **`optimized-in-rust`** — a Rust-only efficiency difference was removed with behavior unchanged,
+  demonstrated by stable-output and counter-parity evidence.
 - **`wont-fix`** — a real difference that no supported input can reach (typically an HC-XML-only
   shape FieldWorks cannot author), closed deliberately with the reachability evidence in the entry.
 - **`not-a-bug`** — investigated as a suspected divergence and found, on reading both sources
@@ -120,6 +122,7 @@ what the original claim got wrong.
 | 043 | [Synthesis-direction stratum reassignment diverged from hc.dll's surface rendering](043-synthesis-stratum-reassignment-reverted.md) | behavioural | reverted-in-rust | `SynthesisStratumRule.Apply`/`AnalysisStratumRule.Apply` (`Stratum.cs`) | `pg-rules/src/stratum.rs::synthesize_stratum_traced`, `pg-parse/src/morpher.rs::surface_of` | `two-table-shared-representation-recall` |
 | 044 | [RTL rewrite-rule FST construction refused `Segments`-shaped patterns entirely](044-rtl-segments-pattern-coverage.md) | unported | fixed-in-rust | (no C# equivalent — no FST-compilability gate exists) | `pg-foma/src/replace.rs` (`pattern_slots`, `compile_rtl_branch_net`), `pg-foma/src/capability.rs` (`RightToLeftRewriteFaithfulReversalPredicate`) | `right-to-left-segments-environment`, `right-to-left-cross-table-segments-environment` |
 | 045 | [Analysis memoization removed from HC-Rust](045-memoization-removed.md) | behavioural under a budget | removed-in-rust | `AnalysisScope / AnalysisStateKey` | `pg-memo` deleted; `pg-rules/src/analysis_state_key.rs` keeps the merge key | `-Mode test` + `-Mode conformance-test -Scope all`; `docs/research/memo-sena-bisect.md` and four companion measurement docs |
+| 048 | [`batch --stats` parsed each HC word twice](048-batch-stats-single-parse.md) | efficiency | optimized-in-rust | none — `--stats` is Rust CLI-only | `pg-cli/src/main.rs::run_batch` / `parse_batch_with_stats`; `pg-cli/src/stats_cmd.rs::run_batch_stats_hc` | `stats_cmd::tests::batch_stats_parses_each_uncached_word_once`; `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options` |
 
 
 ## Evidence and upstream reporting

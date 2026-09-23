@@ -41,7 +41,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | FieldWorks `HCLoader.cs` (`LoadCircumfixAffixProcessAllomorph`) | 039 |
 | `Stratum.cs` (`CharacterDefinitionTable` property) | 041 |
 | `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
-| (none — no C# equivalent) | 021, 028, 029, 040, 042, 044 |
+| (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
 
 ## By Rust module
 
@@ -87,6 +87,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/metathesis.rs` (`synthesis_reorder`) | 042 |
 | `pg-rules/src/stratum.rs` (`synthesize_stratum_traced`) | 043 |
 | `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
+| `pg-cli/src/main.rs` (`run_batch`, `parse_batch_with_stats`) | 048 |
+| `pg-cli/src/stats_cmd.rs` (`run_batch_stats_hc`) | 048 |
 
 ## By fixture / test file
 
@@ -112,6 +114,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/segment-natural-class-table-binding/`, `pg-foma/tests/segment_natural_class_table_binding_discriminates.rs` | 010, 041 |
 | `conformance-staging/edge-cases/right-to-left-segments-environment/`, `pg-foma/src/capability.rs` unit tests | 044 |
 | `conformance-staging/edge-cases/right-to-left-cross-table-segments-environment/` | 044 |
+| `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |
+
 ## Optimization and shared-correctness follow-up
 
 | C# / Rust seam | Entries | Shared fixtures |

@@ -94,6 +94,30 @@ use pg_parse::{
 };
 use pg_stats::StepCap;
 
+#[cfg(test)]
+thread_local! {
+    static BATCH_PARSE_FIRES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn record_batch_parse_fire() {
+    BATCH_PARSE_FIRES.with(|count| count.set(count.get() + 1));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+pub(crate) fn record_batch_parse_fire() {}
+
+#[cfg(test)]
+pub(crate) fn reset_batch_parse_fires() -> usize {
+    BATCH_PARSE_FIRES.with(|count| count.replace(0))
+}
+
+#[cfg(test)]
+pub(crate) fn batch_parse_fires() -> usize {
+    BATCH_PARSE_FIRES.with(std::cell::Cell::get)
+}
+
 mod assess;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 pub mod backend_report;
@@ -705,9 +729,55 @@ fn parse_batch_with_opts(
             .par_iter()
             .map(|word| {
                 let start = Instant::now();
+                record_batch_parse_fire();
                 let outcome = morpher.parse_word_opts(word, opts);
                 let elapsed = start.elapsed();
                 pg_parse::BatchWordOutcome { outcome, elapsed }
+            })
+            .collect()
+    })
+}
+
+struct BatchWordRun {
+    outcome: pg_parse::BatchWordOutcome,
+    stats: Option<stats_cmd::BatchStatsWord>,
+}
+
+fn parse_batch_with_stats(
+    morpher: &Morpher,
+    grammar: &Grammar,
+    words: &[String],
+    max_threads: usize,
+    opts: &pg_parse::ParseOptions,
+) -> Vec<BatchWordRun> {
+    use rayon::prelude::*;
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let mut pool_builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
+    if max_threads > 0 {
+        pool_builder = pool_builder.num_threads(max_threads);
+    }
+    let pool = pool_builder
+        .build()
+        .expect("build rayon pool for --stats batch dispatch");
+    pool.install(|| {
+        words
+            .par_iter()
+            .map(|word| {
+                let start = Instant::now();
+                record_batch_parse_fire();
+                let (outcome, rows, prune_rows) =
+                    morpher.parse_word_with_stats_and_prunes(word, opts);
+                let result = pg_parse::BatchWordOutcome {
+                    outcome,
+                    elapsed: start.elapsed(),
+                };
+                let stats = stats_cmd::batch_stats_word(grammar, word, &result, &rows, &prune_rows);
+                BatchWordRun {
+                    outcome: result,
+                    stats: Some(stats),
+                }
             })
             .collect()
     })
@@ -879,6 +949,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     );
     // --guess omitted is exactly ParseOptions::default(), so parse_word_opts below is byte-identical to parse_word(word).
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
+    let mut stats_words = Vec::new();
 
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
     let t_parse = Instant::now();
@@ -886,14 +957,56 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         // Legacy sequential path: STARTED sentinel + per-line flush, crash-resumable.
         for (i, word) in words.iter().enumerate() {
             if i < start_idx {
+                if stats_requested {
+                    let start = Instant::now();
+                    record_batch_parse_fire();
+                    let (outcome, rows, prune_rows) =
+                        morpher.parse_word_with_stats_and_prunes(word, &opts);
+                    let result = pg_parse::BatchWordOutcome {
+                        outcome,
+                        elapsed: start.elapsed(),
+                    };
+                    stats_words.push(stats_cmd::batch_stats_word(
+                        &grammar,
+                        word,
+                        &result,
+                        &rows,
+                        &prune_rows,
+                    ));
+                }
                 continue;
             }
             writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
             // Flush the STARTED sentinel immediately, before starting this word's parse, or it would only reach disk alongside the result line, defeating its purpose as a live in-flight signal for an external watchdog.
             w.flush().map_err(|e| e.to_string())?;
             let start = Instant::now();
-            let outcome = morpher.parse_word_opts(word, &opts);
-            let elapsed_ms = start.elapsed().as_millis();
+            let (result, stats) = if stats_requested {
+                record_batch_parse_fire();
+                let (outcome, rows, prune_rows) =
+                    morpher.parse_word_with_stats_and_prunes(word, &opts);
+                let result = pg_parse::BatchWordOutcome {
+                    outcome,
+                    elapsed: start.elapsed(),
+                };
+                let stats =
+                    stats_cmd::batch_stats_word(&grammar, word, &result, &rows, &prune_rows);
+                (result, Some(stats))
+            } else {
+                record_batch_parse_fire();
+                let outcome = morpher.parse_word_opts(word, &opts);
+                (
+                    pg_parse::BatchWordOutcome {
+                        outcome,
+                        elapsed: start.elapsed(),
+                    },
+                    None,
+                )
+            };
+            if let Some(stats) = stats {
+                stats_words.push(stats);
+            }
+            let outcome = result.outcome;
+            let elapsed_ms = result.elapsed.as_millis();
             let (status, signature) = if outcome.invalid_shape {
                 skipped += 1;
                 ("SKIPPED", "-".to_string())
@@ -1063,14 +1176,38 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     } else {
         // Parallel path: hc_parse_batch parallelizes internally and returns results already reindexed to original word order; buffered and written once, no STARTED lines, so --start only skips work with no per-word crash-resume in this mode.
         let remaining = &words[start_idx..];
-        // --guess omitted keeps calling hc_parse_batch unchanged; only the --guess path routes through the additive parse_batch_with_opts sibling.
-        let results = if guess {
-            parse_batch_with_opts(&morpher, remaining, threads, &opts)
+        let (results, result_start) = if stats_requested {
+            (
+                parse_batch_with_stats(&morpher, &grammar, &words, threads, &opts),
+                0,
+            )
         } else {
-            hc_parse_batch(&morpher, remaining, threads)
+            let results = if guess {
+                parse_batch_with_opts(&morpher, remaining, threads, &opts)
+            } else {
+                hc_parse_batch(&morpher, remaining, threads)
+            };
+            (
+                results
+                    .into_iter()
+                    .map(|outcome| BatchWordRun {
+                        outcome,
+                        stats: None,
+                    })
+                    .collect(),
+                start_idx,
+            )
         };
-        for (j, (word, r)) in remaining.iter().zip(results.iter()).enumerate() {
-            let i = start_idx + j;
+        for (j, mut result) in results.into_iter().enumerate() {
+            let i = result_start + j;
+            if let Some(stats) = result.stats.take() {
+                stats_words.push(stats);
+            }
+            if i < start_idx {
+                continue;
+            }
+            let word = &words[i];
+            let r = result.outcome;
             let elapsed_ms = r.elapsed.as_millis();
             let (status, signature) = if r.outcome.invalid_shape {
                 skipped += 1;
@@ -1121,11 +1258,9 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     );
     if stats_requested {
         let _ = stats_cmd::run_batch_stats_hc(
-            &grammar,
             grammar_path,
-            &morpher,
-            &opts,
             &words,
+            stats_words,
             step_cap,
             word_timeout_ms,
             guess,

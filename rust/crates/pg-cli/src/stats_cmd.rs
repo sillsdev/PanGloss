@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use pg_grammar::model::{AllomorphId, Grammar, LexEntryId, MRuleId, PRuleId};
 use pg_stats::StepCap;
@@ -301,14 +301,48 @@ fn finish_stats_flush(
     Ok(())
 }
 
-/// `batch --stats`'s default-engine path: skips cached words, parses the rest via the stats-enabled Morpher entry point, and accumulates the result.
+pub(crate) struct BatchStatsWord {
+    pub(crate) record: pg_stats::WordRecord,
+    pub(crate) prunes: pg_rules::stats::PruneCounters,
+}
+
+pub(crate) fn batch_stats_word(
+    grammar: &Grammar,
+    word: &str,
+    outcome: &pg_parse::BatchWordOutcome,
+    rows: &[pg_rules::stats::StatsRow],
+    prune_rows: &[pg_rules::stats::PruneRow],
+) -> BatchStatsWord {
+    let mut prunes = pg_rules::stats::PruneCounters::default();
+    for row in prune_rows {
+        prunes.template_entries += row.counters.template_entries;
+        prunes.template_batteries_skipped += row.counters.template_batteries_skipped;
+        prunes.final_templates_skipped += row.counters.final_templates_skipped;
+    }
+    let facts = rows
+        .iter()
+        .map(|row| fact_record_from_stats_row(grammar, row))
+        .collect();
+    BatchStatsWord {
+        record: pg_stats::WordRecord {
+            form: word.to_string(),
+            elapsed_ns: outcome.elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
+            attempts: outcome.outcome.steps as u64,
+            passes: outcome.outcome.analyses.len() as u64,
+            capped: outcome.outcome.capped,
+            timed_out: outcome.outcome.timed_out,
+            invalid_shape: outcome.outcome.invalid_shape,
+            facts,
+        },
+        prunes,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_batch_stats_hc(
-    grammar: &Grammar,
     grammar_path: &str,
-    morpher: &pg_parse::Morpher,
-    opts: &pg_parse::ParseOptions,
     words: &[String],
+    stats_words: Vec<BatchStatsWord>,
     step_cap: StepCap,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -331,7 +365,6 @@ pub(crate) fn run_batch_stats_hc(
         &cache_path,
         always_enforce_final_templates,
     )?;
-    // A cache hit under `existing_words` below is not interchangeable across step caps.
     outcome
         .cache
         .refuse_if_step_cap_differs(step_cap)
@@ -344,41 +377,22 @@ pub(crate) fn run_batch_stats_hc(
         .map_err(|e| e.to_string())?;
     let skipped = words
         .iter()
-        .filter(|w| existing.contains(w.as_str()))
+        .filter(|word| existing.contains(word.as_str()))
         .count();
-
-    let start = Instant::now();
-    let mut records = Vec::new();
     let mut prune_totals = pg_rules::stats::PruneCounters::default();
-    for word in words {
-        if existing.contains(word.as_str()) {
-            continue;
-        }
-        let word_start = Instant::now();
-        let (parse_outcome, rows, prune_rows) =
-            morpher.parse_word_with_stats_and_prunes(word, opts);
-        for row in prune_rows {
-            prune_totals.template_entries += row.counters.template_entries;
-            prune_totals.template_batteries_skipped += row.counters.template_batteries_skipped;
-            prune_totals.final_templates_skipped += row.counters.final_templates_skipped;
-        }
-        let word_elapsed = word_start.elapsed();
-        let facts = rows
-            .iter()
-            .map(|r| fact_record_from_stats_row(grammar, r))
-            .collect();
-        records.push(pg_stats::WordRecord {
-            form: word.clone(),
-            elapsed_ns: word_elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
-            attempts: parse_outcome.steps as u64,
-            passes: parse_outcome.analyses.len() as u64,
-            capped: parse_outcome.capped,
-            timed_out: parse_outcome.timed_out,
-            invalid_shape: parse_outcome.invalid_shape,
-            facts,
-        });
-    }
-    let total_elapsed = start.elapsed();
+    let mut total_elapsed_ns = 0u128;
+    let records: Vec<_> = stats_words
+        .into_iter()
+        .filter(|stats_word| !existing.contains(stats_word.record.form.as_str()))
+        .map(|stats_word| {
+            prune_totals.template_entries += stats_word.prunes.template_entries;
+            prune_totals.template_batteries_skipped += stats_word.prunes.template_batteries_skipped;
+            prune_totals.final_templates_skipped += stats_word.prunes.final_templates_skipped;
+            total_elapsed_ns += u128::from(stats_word.record.elapsed_ns);
+            stats_word.record
+        })
+        .collect();
+    let total_elapsed = Duration::from_nanos(total_elapsed_ns.min(u128::from(u64::MAX)) as u64);
 
     let options = StatsOptionsRecord {
         engine: "hc",
@@ -1861,6 +1875,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::Instant;
 
     fn scratch_dir(tag: &str) -> PathBuf {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -2063,6 +2078,80 @@ mod tests {
         (args, out_path)
     }
 
+    fn stable_batch_fields(tsv: &str) -> Vec<[String; 4]> {
+        tsv.lines()
+            .filter_map(|line| {
+                let columns: Vec<_> = line.split('\t').collect();
+                (columns.len() == 5).then(|| {
+                    [
+                        columns[0].to_owned(),
+                        columns[1].to_owned(),
+                        columns[3].to_owned(),
+                        columns[4].to_owned(),
+                    ]
+                })
+            })
+            .collect()
+    }
+
+    fn legacy_stats_words(
+        grammar: &Grammar,
+        morpher: &pg_parse::Morpher,
+        opts: &pg_parse::ParseOptions,
+        words: &[String],
+    ) -> Vec<BatchStatsWord> {
+        words
+            .iter()
+            .map(|word| {
+                let start = Instant::now();
+                let (outcome, rows, prune_rows) =
+                    morpher.parse_word_with_stats_and_prunes(word, opts);
+                let result = pg_parse::BatchWordOutcome {
+                    outcome,
+                    elapsed: start.elapsed(),
+                };
+                batch_stats_word(grammar, word, &result, &rows, &prune_rows)
+            })
+            .collect()
+    }
+
+    fn stable_cache_snapshot(path: &std::path::Path) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
+        let conn = rusqlite::Connection::open(path).expect("open stats cache");
+        let query = |sql: &str| {
+            let mut statement = conn.prepare(sql).expect("prepare stats snapshot");
+            let column_count = statement.column_count();
+            statement
+                .query_map([], |row| {
+                    (0..column_count)
+                        .map(|index| {
+                            row.get::<_, rusqlite::types::Value>(index)
+                                .map(|value| format!("{value:?}"))
+                        })
+                        .collect()
+                })
+                .expect("query stats snapshot")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("read stats snapshot")
+        };
+        let words = query(
+            "SELECT form, attempts, passes, capped, timed_out, invalid_shape \
+             FROM word ORDER BY form",
+        );
+        let facts = query(
+            "SELECT w.form, o.key, o.kind, o.label, o.identity_quality, m.key, s.key, a.key, \
+                    f.direction, f.attempts, f.work, f.outputs, f.not_applied, f.no_root, \
+                    f.surface_mismatch, f.uses \
+             FROM fact f \
+             JOIN word w ON w.word_id = f.word_id \
+             JOIN object o ON o.object_id = f.object_id \
+             LEFT JOIN morpheme m ON m.morpheme_id = o.morpheme_id \
+             LEFT JOIN stratum s ON s.stratum_id = f.stratum_id \
+             LEFT JOIN allomorph a ON a.allomorph_id = f.allomorph_id \
+             ORDER BY w.form, o.key, o.kind, s.key, a.key, f.direction",
+        );
+        (words, facts)
+    }
+
     #[test]
     fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() {
         let (grammar_xml, word) = primary_fixture();
@@ -2084,23 +2173,9 @@ mod tests {
         crate::run_batch(&args_stats).expect("stats batch run");
         let tsv_stats = fs::read_to_string(&out_stats).expect("read stats tsv");
 
-        let stable_fields = |tsv: &str| {
-            tsv.lines()
-                .map(|line| {
-                    let columns: Vec<_> = line.split('\t').collect();
-                    assert_eq!(columns.len(), 5, "batch TSV row must keep its five columns");
-                    [
-                        columns[0].to_owned(),
-                        columns[1].to_owned(),
-                        columns[3].to_owned(),
-                        columns[4].to_owned(),
-                    ]
-                })
-                .collect::<Vec<_>>()
-        };
         assert_eq!(
-            stable_fields(&tsv_plain),
-            stable_fields(&tsv_stats),
+            stable_batch_fields(&tsv_plain),
+            stable_batch_fields(&tsv_stats),
             "batch's stable TSV fields must be identical with or without --stats; elapsed milliseconds are measured independently"
         );
 
@@ -2120,6 +2195,151 @@ mod tests {
             Some(morph_row.attempts),
             "the hc engine's attempts counter is Measured for morph_rule"
         );
+    }
+
+    #[test]
+    fn batch_stats_parses_each_uncached_word_once() {
+        let (grammar_xml, word) = primary_fixture();
+        let words_text = format!("{word}\n{word}x\n");
+        let dir = scratch_dir("single-parse-fire-count");
+        let cache_path = dir.join("cache.sqlite3");
+        let (args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &words_text,
+            &["--threads", "1", "--cache", cache_path.to_str().unwrap()],
+        );
+
+        crate::reset_batch_parse_fires();
+        crate::run_batch(&args).expect("plain batch run");
+        assert_eq!(
+            crate::batch_parse_fires(),
+            2,
+            "plain batch should enter the Morpher once per word"
+        );
+
+        let (stats_args, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &words_text,
+            &[
+                "--threads",
+                "1",
+                "--stats",
+                "--cache",
+                cache_path.to_str().unwrap(),
+            ],
+        );
+        crate::reset_batch_parse_fires();
+        crate::run_batch(&stats_args).expect("stats batch run");
+
+        assert_eq!(
+            crate::batch_parse_fires(),
+            2,
+            "each uncached word should enter the Morpher once when --stats is enabled"
+        );
+    }
+
+    #[test]
+    fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options() {
+        let (grammar_xml, word) = primary_fixture();
+        let words_text = format!("{word}\n{word}x\n{word}y\n");
+        let words = vec![word.clone(), format!("{word}x"), format!("{word}y")];
+        let step_cap = StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap());
+        let timeout_ms = Some(10_000);
+
+        let dir_legacy = scratch_dir("legacy-stats-snapshot");
+        let (legacy_args, legacy_tsv_path) = run_batch_args(
+            &dir_legacy,
+            &grammar_xml,
+            &words_text,
+            &[
+                "--threads",
+                "1",
+                "--start",
+                "1",
+                "--guess",
+                "--step-cap",
+                "50000000",
+                "--word-timeout-ms",
+                "10000",
+                "--always-enforce-final-templates",
+            ],
+        );
+        crate::run_batch(&legacy_args).expect("plain baseline batch run");
+        let legacy_tsv = fs::read_to_string(legacy_tsv_path).expect("read plain baseline tsv");
+        let legacy_grammar_path = &legacy_args[0];
+        let legacy_cache_path = dir_legacy.join("legacy.sqlite3");
+        let (grammar, _warnings) = crate::load_grammar(legacy_grammar_path).expect("load grammar");
+        let morpher = pg_parse::Morpher::new(&grammar, step_cap.as_morpher_cap())
+            .with_word_timeout(timeout_ms.map(Duration::from_millis))
+            .with_always_enforce_final_templates(true);
+        let opts = pg_parse::ParseOptions::default().with_guess_root(true);
+        let expected_words = legacy_stats_words(&grammar, &morpher, &opts, &words);
+        run_batch_stats_hc(
+            legacy_grammar_path,
+            &words,
+            expected_words,
+            step_cap,
+            timeout_ms,
+            true,
+            true,
+            Some(legacy_cache_path.to_str().unwrap()),
+        )
+        .expect("write legacy second-pass cache");
+        let legacy_cache = stable_cache_snapshot(&legacy_cache_path);
+
+        let mut parallel_tsv = None;
+        let mut parallel_cache = None;
+        for threads in ["1", "3"] {
+            let dir = scratch_dir(&format!("single-pass-{threads}-threads"));
+            let cache_path = dir.join("cache.sqlite3");
+            let (args, tsv_path) = run_batch_args(
+                &dir,
+                &grammar_xml,
+                &words_text,
+                &[
+                    "--threads",
+                    threads,
+                    "--start",
+                    "1",
+                    "--guess",
+                    "--step-cap",
+                    "50000000",
+                    "--word-timeout-ms",
+                    "10000",
+                    "--always-enforce-final-templates",
+                    "--stats",
+                    "--cache",
+                    cache_path.to_str().unwrap(),
+                ],
+            );
+            crate::run_batch(&args).expect("stats batch run");
+            let tsv = fs::read_to_string(tsv_path).expect("read stats tsv");
+            assert_eq!(
+                stable_batch_fields(&legacy_tsv),
+                stable_batch_fields(&tsv),
+                "stable TSV fields must match the legacy parse with --threads {threads}"
+            );
+            let cache = stable_cache_snapshot(&cache_path);
+            assert_eq!(
+                legacy_cache, cache,
+                "stable cache dimensions and counters must match the old stats-only pass with --threads {threads}"
+            );
+            let stable_tsv = stable_batch_fields(&tsv);
+            if let Some(previous) = parallel_tsv.replace(stable_tsv.clone()) {
+                assert_eq!(
+                    previous, stable_tsv,
+                    "thread counts must preserve the same stable TSV rows"
+                );
+            }
+            if let Some(previous) = parallel_cache.replace(cache.clone()) {
+                assert_eq!(
+                    previous, cache,
+                    "thread counts must produce the same stable stats cache"
+                );
+            }
+        }
     }
 
     #[test]
@@ -2210,12 +2430,11 @@ mod tests {
         let opts = pg_parse::ParseOptions::default();
         let words = vec![word];
 
+        let first_stats = legacy_stats_words(&grammar, &morpher, &opts, &words);
         let first = run_batch_stats_hc(
-            &grammar,
             &grammar_path_str,
-            &morpher,
-            &opts,
             &words,
+            first_stats,
             StepCap::Unbounded,
             None,
             false,
@@ -2230,12 +2449,11 @@ mod tests {
              scope; measured {first:?}"
         );
 
+        let second_stats = legacy_stats_words(&grammar, &morpher, &opts, &words);
         let second = run_batch_stats_hc(
-            &grammar,
             &grammar_path_str,
-            &morpher,
-            &opts,
             &words,
+            second_stats,
             StepCap::Unbounded,
             None,
             false,
