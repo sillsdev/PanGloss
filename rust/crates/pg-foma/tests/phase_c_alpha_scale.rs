@@ -1,5 +1,6 @@
 //! GATE: alpha-variable scale recall-parity, against an LHS+RHS identity rule unambiguous by construction -- see `pg_grammar_gen::build::alpha`'s module doc for why that construction won.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::HashSet;

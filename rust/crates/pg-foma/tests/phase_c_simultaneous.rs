@@ -1,6 +1,7 @@
 //! `RewriteMode::Simultaneous` compiles via `replace.rs`'s ordinary sequential-compose machinery, unchanged, for any rule the overlap predicate proves pairwise non-overlapping; one it cannot clear stays honestly gated.
 //! See `docs/research/pg-foma-simultaneous-rewrite-notes.md` for the fixture design and why no oracle mode-blindness workaround is needed here.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::HashSet;

@@ -1,6 +1,7 @@
 //! GATE: quantifier / `OptionalSegmentSequence` compile gate: pins the loader/compiler's ACTUAL disposition per shape (bounded now compiles via `Slot::Repeat`'s `^{min,max}`; unbounded now compiles via its `*`/`^>N` widening), placing the containment fixture in an environment rather than the LHS/RHS focus since only the former is free of a pre-existing confirm-engine width-mismatch gap.
 //! See `docs/research/pg-foma-phase-c-quantifier-gate-notes.md` for the width-mismatch gap and why the environment placement is load-bearing, not arbitrary.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::HashSet;

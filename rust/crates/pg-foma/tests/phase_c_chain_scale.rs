@@ -1,5 +1,6 @@
 //! Gate for `pg_grammar_gen::build::chain` (deep standalone-affix chains): a synthetic deep chain does NOT reproduce the real Aweti `apply_up`-explosion/OOM even at N=24, most likely because foma's minimization collapses bisimilar "which level fired" derivation-order variants for this pure, content-free chain — a property Aweti's real, phonologically-conditioned rules are not guaranteed to share. Pins the actual (small) measured envelope as a regression guard rather than claiming a cliff this construct doesn't reproduce.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::time::{Duration, Instant};

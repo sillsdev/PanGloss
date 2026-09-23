@@ -1,5 +1,6 @@
 //! GATE: stratum-depth scale, recall-parity only; a deliberately single-table recipe so it probes multi-stratum cascading alone (extra strata reuse table 0, per `pg_grammar_gen::build::strata`), through the production `pg_foma::emit::emit` path over stratum-attached obligatory rules.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::time::Duration;

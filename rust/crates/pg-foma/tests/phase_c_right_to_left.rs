@@ -1,5 +1,6 @@
 //! `Dir::RightToLeft` containment tests against `pg_parse::Morpher`, via `compile_rtl_branch_net`'s reversal-plus-safety-net-union construction.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::HashSet;

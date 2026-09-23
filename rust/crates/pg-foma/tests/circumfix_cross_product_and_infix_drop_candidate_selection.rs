@@ -1,5 +1,6 @@
 //! Candidate-selection coverage for the mrCross/mrInfixDrop constructs; see `docs/research/circumfix-composite-precedence-census.md`.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::path::PathBuf;

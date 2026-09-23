@@ -1,5 +1,6 @@
 //! Recall-parity gate for the templated backend's circumfix shape, synthetic grammars only (none of the seven ratchet-pinned words) -- pins the mechanism via direct `FomaProposer::propose`, not `common::gate_template::recall_reachable` (never exercised against a templated-compiled network).
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::time::Duration;

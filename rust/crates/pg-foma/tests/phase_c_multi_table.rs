@@ -1,6 +1,7 @@
 //! Multi-table compiled-correctness gate: two tables with deliberately misaligned voice-feature indices, checking that rule compilation resolves each rule's own stratum table rather than defaulting to table 0.
 //! Full argument and worked example: docs/research/pg-foma-replace-design-notes.md.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use foma::lexcread::fsm_lexc_parse_string;

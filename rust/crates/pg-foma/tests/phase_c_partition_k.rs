@@ -1,5 +1,6 @@
 //! Partition-k / MPR-POS subrule gating recall-parity: calls the production `pg_foma::gate::compile_gated_grammar` directly, generates each of the `2^k` bare-root entries, sweeps the real per-stratum cascade for ground truth, and verifies the compiled net relates the same surface string to the same root tag.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::time::{Duration, Instant};

@@ -1,6 +1,7 @@
 //! Proposer-to-confirm containment for `MorphRuleDef::Compounding`'s non-recursive case: the license-gated head/non-head cross product `crate::emit::compound_license` proposes, checked against `pg_parse::Morpher` (the full-HC oracle) via `pg_foma::composite::FomaAnalyzer`. Synthetic, delanguaged fixture (invented CVCV/CVC roots).
 //! See `docs/research/pg-foma-cover-compounding-fixture-notes.md` for the group-(un)awareness contract, the left-to-confirm syntactic-FS gate, and a pre-existing compound-loop surface-order finding this fixture pins.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::HashSet;

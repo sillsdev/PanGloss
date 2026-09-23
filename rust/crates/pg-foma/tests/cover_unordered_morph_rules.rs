@@ -1,6 +1,7 @@
 //! Proposer-to-confirm containment for `MorphRuleOrder::Unordered`'s configuration.
 //! See docs/research/pg-foma-cover-unordered-morph-rules-notes.md for the fixture and the distinguishing-witness arguments.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::HashSet;

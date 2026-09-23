@@ -1,6 +1,7 @@
 //! Circumfix recall-parity gate: the first full end-to-end validation of generator + oracle + gate together, requiring the production ENUMERATION path (`pg_foma::emit::emit`), not `pg-foma/src/uflexc.rs`, and requiring 100% recall since circumfix has no known compiler gap on that path.
 //! See `docs/research/pg-foma-phase-c-circumfix-gate-notes.md` for why that path is required and the recall technique used.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::time::Duration;

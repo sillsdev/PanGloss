@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+autotests = false
 
 [features]
 developer-tools = []
@@ -99,6 +100,85 @@ pg-conformance-fixtures.workspace = true
 # any crate's `src/`). Already a transitive dependency (via `pg-rules`/`pg-parse`) -- this only makes
 # it nameable from this crate's own tests, same rationale as the other dev-only entries above.
 pg-fst.workspace = true
+
+# Keep expensive/isolated integration test processes explicit. The remaining original test files
+# are imported once each by thematic harnesses under tests/harnesses/, reducing the linker fan-out
+# without moving their source paths or merging process-global panic-hook/temp-file hazards.
+[[test]]
+name = "all_fixtures_foma_analyzer_new_no_panic"
+path = "tests/all_fixtures_foma_analyzer_new_no_panic.rs"
+
+[[test]]
+name = "candidate_filter_passes"
+path = "tests/candidate_filter_passes.rs"
+
+[[test]]
+name = "f0_viability"
+path = "tests/f0_viability.rs"
+
+[[test]]
+name = "typology_speedup"
+path = "tests/typology_speedup.rs"
+
+[[test]]
+name = "f1_large_lexicon_gate"
+path = "tests/f1_large_lexicon_gate.rs"
+
+[[test]]
+name = "f2_junction_gate"
+path = "tests/f2_junction_gate.rs"
+
+[[test]]
+name = "f3_interdigitation_gate"
+path = "tests/f3_interdigitation_gate.rs"
+
+[[test]]
+name = "f4_composite_gate"
+path = "tests/f4_composite_gate.rs"
+
+[[test]]
+name = "mbugwe_corpus_smoke_gate"
+path = "tests/mbugwe_corpus_smoke_gate.rs"
+
+[[test]]
+name = "p6_gate_parity"
+path = "tests/p6_gate_parity.rs"
+
+[[test]]
+name = "p6_templated_morphotactics_gate"
+path = "tests/p6_templated_morphotactics_gate.rs"
+
+[[test]]
+name = "pk1_precision_recall_invariance"
+path = "tests/pk1_precision_recall_invariance.rs"
+
+[[test]]
+name = "phase_c"
+path = "tests/harnesses/phase_c.rs"
+
+[[test]]
+name = "backend_strategy"
+path = "tests/harnesses/backend_strategy.rs"
+
+[[test]]
+name = "backend_runtime"
+path = "tests/harnesses/backend_runtime.rs"
+
+[[test]]
+name = "evidence_contracts"
+path = "tests/harnesses/evidence_contracts.rs"
+
+[[test]]
+name = "morphology_cover"
+path = "tests/harnesses/morphology_cover.rs"
+
+[[test]]
+name = "route_template"
+path = "tests/harnesses/route_template.rs"
+
+[[test]]
+name = "fst_oracle"
+path = "tests/harnesses/fst_oracle.rs"
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]

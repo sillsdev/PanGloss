@@ -1,5 +1,6 @@
 //! Mbugwe-derived containment regression for a structural anchor reached after four ordinary rules.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::path::PathBuf;

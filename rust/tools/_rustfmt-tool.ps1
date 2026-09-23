@@ -83,6 +83,45 @@ function Get-RustFmtChangedPaths {
     [PSCustomObject]@{ Success = $true; Paths = $relevant }
 }
 
+function Invoke-RustFmtChunked {
+    <#
+      .DESCRIPTION
+      What `cargo fmt` does -- rustfmt over every target root, following `mod` declarations -- but in
+      batches: `cargo fmt --all` passes every root in one command line, which overflows Windows'
+      32K limit (os error 206) on this workspace.
+    #>
+    param([Parameter(Mandatory)][string]$Manifest, [string[]]$Packages = @(), [switch]$Check)
+    $metadataText = & cargo metadata --no-deps --format-version 1 --manifest-path $Manifest 2>$null
+    if ($LASTEXITCODE -ne 0) { return [PSCustomObject]@{ ExitCode = $LASTEXITCODE; Output = @('cargo metadata failed') } }
+    $metadata = $metadataText | ConvertFrom-Json
+    $groups = @{}
+    foreach ($package in $metadata.packages) {
+        if (@($Packages).Count -and $package.name -notin $Packages) { continue }
+        if (-not $groups.ContainsKey($package.edition)) { $groups[$package.edition] = [Collections.Generic.List[string]]::new() }
+        foreach ($target in $package.targets) { if ($target.src_path -notin $groups[$package.edition]) { $groups[$package.edition].Add($target.src_path) } }
+    }
+    $output = [Collections.Generic.List[string]]::new()
+    $exitCode = 0
+    foreach ($edition in $groups.Keys) {
+        $batches = [Collections.Generic.List[object]]::new()
+        $batch = [Collections.Generic.List[string]]::new()
+        $length = 0
+        foreach ($path in $groups[$edition]) {
+            if ($batch.Count -and ($length + $path.Length + 3) -gt 24000) { $batches.Add($batch.ToArray()); $batch.Clear(); $length = 0 }
+            $batch.Add($path)
+            $length += $path.Length + 3
+        }
+        if ($batch.Count) { $batches.Add($batch.ToArray()) }
+        foreach ($files in $batches) {
+            $rustfmtArgs = @('--edition', $edition)
+            if ($Check) { $rustfmtArgs += '--check' }
+            foreach ($line in @(& rustfmt @rustfmtArgs @files 2>&1)) { $output.Add([string]$line) }
+            if ($LASTEXITCODE -ne 0 -and $exitCode -eq 0) { $exitCode = $LASTEXITCODE }
+        }
+    }
+    [PSCustomObject]@{ ExitCode = $exitCode; Output = $output.ToArray() }
+}
+
 function Invoke-RustFmtCached {
     param(
         [Parameter(Mandatory)][string]$RepoRoot,
@@ -95,23 +134,10 @@ function Invoke-RustFmtCached {
     )
     $manifest = Join-Path $RustRoot 'Cargo.toml'
     if (-not $CheckAction) {
-        $CheckAction = {
-            param($Manifest, $Packages)
-            $args = @('fmt', '--manifest-path', $Manifest)
-            if (@($Packages).Count) { foreach ($package in $Packages) { $args += @('--package', $package) } } else { $args += '--all' }
-            $args += @('--', '--check')
-            $output = @(& cargo @args 2>&1)
-            [PSCustomObject]@{ ExitCode = $LASTEXITCODE; Output = $output }
-        }
+        $CheckAction = { param($Manifest, $Packages) Invoke-RustFmtChunked -Manifest $Manifest -Packages $Packages -Check }
     }
     if (-not $ApplyAction) {
-        $ApplyAction = {
-            param($Manifest, $Packages)
-            $args = @('fmt', '--manifest-path', $Manifest)
-            if (@($Packages).Count) { foreach ($package in $Packages) { $args += @('--package', $package) } } else { $args += '--all' }
-            $output = @(& cargo @args 2>&1)
-            [PSCustomObject]@{ ExitCode = $LASTEXITCODE; Output = $output }
-        }
+        $ApplyAction = { param($Manifest, $Packages) Invoke-RustFmtChunked -Manifest $Manifest -Packages $Packages }
     }
 
     $fingerprint = Get-RustFmtInputFingerprint -RepoRoot $RepoRoot -RustRoot $RustRoot -ToolIdentity $ToolIdentity

@@ -1,6 +1,7 @@
 //! Proposer-to-confirm containment for `MprGroupOutput::Append`'s `mpr-group.append-output` configuration predicate (target: `ConfirmOnly` via a non-tracking baseline), plus the `mpr-group.overwrite-output` witness and the Append/Overwrite order-(in)dependence distinction.
 //! See docs/research/pg-foma-cover-mpr-groups-notes.md for the non-tracking-baseline argument and the synthetic fixture's design.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::HashSet;

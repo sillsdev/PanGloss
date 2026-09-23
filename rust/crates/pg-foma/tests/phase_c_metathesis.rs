@@ -1,6 +1,7 @@
 //! `PhonRuleDef::Metathesis` real FST semantics via `compile_metathesis_rule`'s dedicated swap relation: oracle-exact for `Dir::LeftToRight`, a proven safe superset (`ConfirmOnly`) for `Dir::RightToLeft`. Synthetic fixtures, named by construct, checked against `pg_parse::Morpher` via the established `fst_candidate_set`/`oracle_candidate_set` methodology. Also pins two `build_analysis_pattern` invariants this file calls "gap 1" (physical position, not tag name, decides switch order) and "gap 2" (a context node between switches is kept unless it's a boundary).
 //! See `docs/research/pg-foma-phase-c-metathesis-gate-notes.md` for the full scope line, the RTL direction-blindness finding, and both invariants in detail.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use std::collections::HashSet;
