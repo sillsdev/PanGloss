@@ -162,6 +162,7 @@ fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
     let mut phon_synthesis_ns = 0u64;
     let mut root_index_ns = 0u64;
     let mut phon_work = 0u64;
+    let mut phon_synthesis_work = 0u64;
     let mut root_work = 0u64;
     let mut morph_allomorph_work = 0u64;
     let mut morph_allomorph_ns = 0u64;
@@ -190,6 +191,15 @@ fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
                     elapsed_ns
                 );
                 for row in rows {
+                    if row.kind == ObjectKind::PhonRule {
+                        assert!(
+                            row.counters.attempts > 0,
+                            "{}: phon rule {} ({:?}) was timed but never counted",
+                            case.label,
+                            row.object_index,
+                            row.direction
+                        );
+                    }
                     match (row.kind, row.direction) {
                         (ObjectKind::PhonRule, Direction::Analysis) => {
                             phon_analysis_ns += row.counters.self_time_ns;
@@ -197,7 +207,7 @@ fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
                         }
                         (ObjectKind::PhonRule, Direction::Synthesis) => {
                             phon_synthesis_ns += row.counters.self_time_ns;
-                            phon_work += row.counters.work;
+                            phon_synthesis_work += row.counters.work;
                         }
                         (ObjectKind::RootIndex, Direction::Analysis) => {
                             root_index_ns += row.counters.self_time_ns;
@@ -229,6 +239,10 @@ fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
     assert!(
         phon_synthesis_ns > 0,
         "phonological synthesis work must be timed"
+    );
+    assert!(
+        phon_synthesis_work > 0,
+        "phonological synthesis work must be counted"
     );
     assert!(root_index_ns > 0, "root-index lookup work must be timed");
     assert!(

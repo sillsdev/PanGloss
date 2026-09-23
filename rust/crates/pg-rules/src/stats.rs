@@ -233,6 +233,29 @@ pub struct PRuleStatsCtx<'a> {
     pub direction: Direction,
 }
 
+impl<'a> PRuleStatsCtx<'a> {
+    /// Times one application of this rule on its `ALLOMORPH_NONE` row.
+    pub fn time(self) -> ObjectTimeGuard<'a> {
+        self.stats.time_enter(
+            ObjectKind::PhonRule,
+            self.stratum,
+            self.id.0,
+            ALLOMORPH_NONE,
+            self.direction,
+        )
+    }
+
+    pub fn record_attempt(self, segments: u64) {
+        self.stats
+            .record_prule_attempt(self.stratum, self.id, self.direction, segments);
+    }
+
+    pub fn record_outcome(self, outputs: u64) {
+        self.stats
+            .record_prule_outcome(self.stratum, self.id, self.direction, outputs);
+    }
+}
+
 /// Mirrors `PRuleStatsCtx` for the morphological-rule allomorph loops in `crate::morph`.
 #[derive(Copy, Clone)]
 pub struct MRuleStatsCtx<'a> {
@@ -240,6 +263,19 @@ pub struct MRuleStatsCtx<'a> {
     pub stratum: StratumId,
     pub id: MRuleId,
     pub direction: Direction,
+}
+
+impl<'a> MRuleStatsCtx<'a> {
+    /// Times the rule's allomorph or subrule at zero-based `index`, on row `index + 1`.
+    pub fn time_allomorph(self, index: usize) -> ObjectTimeGuard<'a> {
+        self.stats.time_enter(
+            ObjectKind::MorphRule,
+            self.stratum,
+            self.id.0,
+            index as u32 + 1,
+            self.direction,
+        )
+    }
 }
 
 /// One open `StatsCollector::time_enter` region: its row address, start time, and children's elapsed time so far.

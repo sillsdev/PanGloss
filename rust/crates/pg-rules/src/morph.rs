@@ -481,15 +481,7 @@ fn ana_affix_cached_traced(
         };
         let before = output.len();
         let matches = {
-            let _allo_time = mstats.map(|m| {
-                m.stats.time_enter(
-                    ObjectKind::MorphRule,
-                    m.stratum,
-                    m.id.0,
-                    i as u32 + 1,
-                    m.direction,
-                )
-            });
+            let _allo_time = mstats.map(|m| m.time_allomorph(i));
             ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
         };
         for mut w in matches {
@@ -544,15 +536,7 @@ fn ana_realizational_cached_traced(
         };
         let before = output.len();
         let matches = {
-            let _allo_time = mstats.map(|m| {
-                m.stats.time_enter(
-                    ObjectKind::MorphRule,
-                    m.stratum,
-                    m.id.0,
-                    i as u32 + 1,
-                    m.direction,
-                )
-            });
+            let _allo_time = mstats.map(|m| m.time_allomorph(i));
             ana_realizational_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs)
         };
         for mut w in matches {
@@ -609,15 +593,7 @@ fn ana_compound_cached_traced(
         };
         let before = output.len();
         let matches = {
-            let _allo_time = mstats.map(|m| {
-                m.stats.time_enter(
-                    ObjectKind::MorphRule,
-                    m.stratum,
-                    m.id.0,
-                    i as u32 + 1,
-                    m.direction,
-                )
-            });
+            let _allo_time = mstats.map(|m| m.time_allomorph(i));
             ana_compound_subrule(
                 g,
                 table,
@@ -1638,15 +1614,7 @@ fn synth_affix_cached(
         let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
             continue;
         };
-        let _allo_time = mstats.map(|m| {
-            m.stats.time_enter(
-                ObjectKind::MorphRule,
-                m.stratum,
-                m.id.0,
-                i as u32 + 1,
-                m.direction,
-            )
-        });
+        let _allo_time = mstats.map(|m| m.time_allomorph(i));
         let matched = synth_process_allomorph(
             g,
             table,
@@ -1854,15 +1822,7 @@ fn synth_realizational_cached(
         let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
             continue;
         };
-        let _allo_time = mstats.map(|m| {
-            m.stats.time_enter(
-                ObjectKind::MorphRule,
-                m.stratum,
-                m.id.0,
-                i as u32 + 1,
-                m.direction,
-            )
-        });
+        let _allo_time = mstats.map(|m| m.time_allomorph(i));
         let matched = synth_process_allomorph(
             g,
             table,
@@ -2455,15 +2415,7 @@ fn ana_affix_cached(
         };
         let before = output.len();
         // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
-        let _allo_time = mstats.map(|m| {
-            m.stats.time_enter(
-                ObjectKind::MorphRule,
-                m.stratum,
-                m.id.0,
-                i as u32 + 1,
-                m.direction,
-            )
-        });
+        let _allo_time = mstats.map(|m| m.time_allomorph(i));
         output.extend(ana_affix_allomorph(
             g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn,
         ));
@@ -2580,15 +2532,7 @@ fn ana_realizational_cached(
         };
         let before = output.len();
         // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
-        let _allo_time = mstats.map(|m| {
-            m.stats.time_enter(
-                ObjectKind::MorphRule,
-                m.stratum,
-                m.id.0,
-                i as u32 + 1,
-                m.direction,
-            )
-        });
+        let _allo_time = mstats.map(|m| m.time_allomorph(i));
         output.extend(ana_realizational_allomorph(
             g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs,
         ));
@@ -2873,15 +2817,7 @@ fn synth_compound_cached(
         else {
             continue;
         };
-        let _sr_time = mstats.map(|m| {
-            m.stats.time_enter(
-                ObjectKind::MorphRule,
-                m.stratum,
-                m.id.0,
-                i as u32 + 1,
-                m.direction,
-            )
-        });
+        let _sr_time = mstats.map(|m| m.time_allomorph(i));
         let matched = synth_compound_subrule(
             g,
             table,
@@ -3110,15 +3046,7 @@ fn ana_compound_cached(
         };
         let before = output.len();
         // Tier-1: this subrule's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention). Nesting-aware: excludes whatever a non-head lexicon lookup inside `ana_compound_subrule` already claimed for itself when `root_filter` is `Some` and that filter also calls `StatsCollector::time_enter`.
-        let _sr_time = mstats.map(|m| {
-            m.stats.time_enter(
-                ObjectKind::MorphRule,
-                m.stratum,
-                m.id.0,
-                i as u32 + 1,
-                m.direction,
-            )
-        });
+        let _sr_time = mstats.map(|m| m.time_allomorph(i));
         output.extend(ana_compound_subrule(
             g,
             table,
