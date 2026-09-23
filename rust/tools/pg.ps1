@@ -727,17 +727,17 @@ if ($Mode -ne 'run') {
 $useNextest = ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
 
 $cargoArgs = @()
-if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
-    # A test file absorbed into a consolidated harness is still addressable by its own stem.
-    $harnessModule = $null
-    if ($TestTarget -and $Package) {
-        $absorbed = Resolve-HarnessTestTarget -TestsDir (Join-Path $rustRoot "crates\$Package\tests") -TestTarget $TestTarget
-        if ($absorbed) {
-            Write-Host "[pg] -TestTarget $TestTarget lives in harness '$($absorbed.Target)'; running only its '$($absorbed.Module)::' tests." -ForegroundColor DarkGray
-            $TestTarget = $absorbed.Target
-            $harnessModule = $absorbed.Module
-        }
+# A test file absorbed into a consolidated harness is still addressable by its own stem, in every mode.
+$harnessModule = $null
+if ($TestTarget -and $Package) {
+    $absorbed = Resolve-HarnessTestTarget -TestsDir (Join-Path $rustRoot "crates\$Package\tests") -TestTarget $TestTarget
+    if ($absorbed) {
+        Write-Host "[pg] -TestTarget $TestTarget lives in harness '$($absorbed.Target)'; running only its '$($absorbed.Module)::' tests." -ForegroundColor DarkGray
+        $TestTarget = $absorbed.Target
+        $harnessModule = $absorbed.Module
     }
+}
+if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
     $testInvocation = Get-CargoTestInvocation -Mode $Mode -UseNextest:$useNextest -DebugProfile:$DebugProfile `
         -TestThreads $TestThreads -Package $Package -TestTarget $TestTarget -Filter $Filter `
         -FailFast:$FailFast -HarnessModule $harnessModule -ExtraArgs $ExtraArgs
@@ -749,6 +749,9 @@ if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
             # --all-targets reaches test and example code; check stops before codegen and linking.
             $cargoArgs += @('check', '--all-targets')
             if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
+            # Examples sit behind each crate's `examples` feature; turn it on so check still type-checks them.
+            $exampleFeatures = @(Get-ExampleFeaturePackages | Where-Object { -not $Package -or $_ -eq $Package } | ForEach-Object { "$_/examples" })
+            if ($exampleFeatures.Count -gt 0) { $cargoArgs += @('--features', ($exampleFeatures -join ',')) }
         }
         'build' {
             $cargoArgs += 'build'

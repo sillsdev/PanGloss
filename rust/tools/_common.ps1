@@ -468,6 +468,17 @@ function Get-CargoTestInvocation {
     }
 }
 
+function Get-ExampleFeaturePackages {
+    <# .DESCRIPTION Workspace packages that declare an `examples` feature, read from their manifests. #>
+    param([string]$CratesRoot = (Join-Path $PSScriptRoot '..\crates'))
+    foreach ($manifest in Get-ChildItem -Path $CratesRoot -Filter Cargo.toml -Recurse -Depth 1 -ErrorAction SilentlyContinue) {
+        $text = Get-Content -Raw -LiteralPath $manifest.FullName
+        $features = [regex]::Match($text, '(?ms)^\[features\]\s*(?<body>.*?)(?=^\[|\z)').Groups['body'].Value
+        if ($features -match '(?m)^examples\s*=') {
+            [regex]::Match($text, '(?ms)^\[package\]\s*.*?^name\s*=\s*"([^"]+)"').Groups[1].Value
+        }
+    }
+}
 function Get-GatedExamplePackage {
     <#
       .DESCRIPTION
@@ -1855,11 +1866,12 @@ function Write-Preflight {
         $slotHolders = @(Get-SlotHolders -Pool $pool)
         if ($slotHolders.Count -eq 0) { continue }
         # Lazy: a process snapshot is not cheap, and the common preflight has no holders to describe.
-        if ($null -eq $slotSnapshot) { $slotSnapshot = Get-ProcessSnapshot }
+        # Get-ProcessSnapshot is Windows CIM; on Linux holders are listed without a staleness verdict.
+        if ($null -eq $slotSnapshot -and -not $IsLinux) { $slotSnapshot = Get-ProcessSnapshot }
         Write-Host "$pool slots in use:"
         foreach ($h in $slotHolders) {
             # Reported for both pools, but only the build pool is ever reaped -- Remove-StaleBuildSlotHolders walks it alone.
-            $stale = $h.Alive -and (Test-BuildSlotHolderStale -Holder $h -Snapshot $slotSnapshot)
+            $stale = $h.Alive -and ($null -ne $slotSnapshot) -and (Test-BuildSlotHolderStale -Holder $h -Snapshot $slotSnapshot)
             $state = if (-not $h.Alive) { 'NOT ALIVE -- stale ledger entry; the kernel hands this slot to the next waiter' }
                 elseif ($stale -and $pool -eq 'build') { "alive since $($h.AcquiredAt) -- STALE: no compiler activity for 20+ min; 'pg.ps1 -Mode gc -Apply' will reap it" }
                 elseif ($stale) { "alive since $($h.AcquiredAt) -- no build-shaped activity for 20+ min (not reaped: run slots are not swept)" }

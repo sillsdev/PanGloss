@@ -896,6 +896,13 @@ fn run_recipe_optimize_supervised(args: &[String]) -> Result<(), RecipeOptimizeE
         .map_err(|e| RecipeOptimizeError::Runtime(format!("spawn recipe worker: {e}")))?;
     let started = Instant::now();
     let memory_limit = parsed.budget.memory;
+    if memory_limit > 0 && !pg_worker_containment::PROCESS_RSS_SUPPORTED {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(RecipeOptimizeError::Runtime(format!(
+            "a memory limit of {memory_limit} bytes was requested, but process memory cannot be measured on this platform"
+        )));
+    }
     let mut observed_peak = 0u64;
     loop {
         if let Some(status) = child

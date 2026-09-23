@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 pub(crate) fn process_rss_bytes(pid: u32) -> Option<u64> {
     let statm = fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
     let resident_pages = statm.split_whitespace().nth(1)?.parse::<u64>().ok()?;
-    resident_pages.checked_mul(4096)
+    // SAFETY: sysconf reads a system constant and has no preconditions.
+    let page_size = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
+    resident_pages.checked_mul(page_size)
 }
 
 const CLONE_PIDFD: u64 = 0x0000_1000;

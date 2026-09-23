@@ -280,5 +280,12 @@ Test-Case 'without CaptureStdoutPath no file is produced (the default stays live
     Assert-Equal 0 $code 'the probe process must exit cleanly'
     Assert-False (Test-Path $out) 'no capture path was passed, so nothing may be written'
 }
+Test-Case 'packages with an examples feature are discovered from their manifests' {
+    $packages = @(Get-ExampleFeaturePackages)
+    Assert-Contains $packages 'pg-foma'
+    Assert-Contains $packages 'pg-cli'
+    Assert-False ($packages -contains 'pg-parse') 'a crate without the feature must not be listed'
+}
+
 Write-TestSummary
 

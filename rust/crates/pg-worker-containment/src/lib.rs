@@ -15,6 +15,9 @@ mod linux;
 #[cfg(all(not(windows), not(target_os = "linux")))]
 mod unsupported;
 
+/// Whether `process_rss_bytes` can measure anything on this target; a caller enforcing a memory limit must refuse when false.
+pub const PROCESS_RSS_SUPPORTED: bool = cfg!(any(windows, target_os = "linux"));
+
 /// Resident set size of `pid` in bytes, or None when it cannot be read (process gone, access denied, unsupported OS).
 pub fn process_rss_bytes(pid: u32) -> Option<u64> {
     #[cfg(windows)]
