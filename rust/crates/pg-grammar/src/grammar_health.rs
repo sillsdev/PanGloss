@@ -1,8 +1,8 @@
 //! The `hc-*` grammar-authoring health checks, ported from C#
 //! `SIL.Machine.Morphology.HermitCrab.GrammarHealthChecker`/`GrammarHealthCheckFinding`
 //! (`sillsdev/machine` PR 475, branch `feature/grammar-health-checker`). Diagnostic only: running
-//! these checks never fails, never refuses, and never changes how a [`Grammar`] compiles or
-//! parses -- it reports, and the caller decides.
+//! these checks never refuses or changes how a [`Grammar`] compiles or parses. If the model cannot
+//! provide a canonical diagnostic fact, the inspection error is returned to the caller.
 //!
 //! This answers a *different* question from `pg_health::health`'s FST-compilation vocabulary
 //! (`Severity`/`FindingCode`/`FindingClass`): that module asks "can this grammar be compiled to an
@@ -33,9 +33,11 @@
 //! change out of scope for this port.
 
 use crate::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
-use crate::grammar_health_presentation::{morph_rule_link, prepare_report, subject_link};
-use crate::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef, OutputAction, TableId};
-use crate::stats_identity;
+use crate::grammar_health_presentation::{fieldworks_link, FieldWorksSource};
+use crate::model::{
+    Grammar, LexEntryId, MRuleId, MorphRuleDef, OutputAction, PartialMorphemeFacts,
+    PartialMorphemeIdentity, TableId,
+};
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
 
 /// How serious a [`GrammarHealthCheckFinding`] is. Mirrors C# `GrammarHealthSeverity`: `Error` means
@@ -73,8 +75,7 @@ pub enum GrammarHealthCode {
 }
 
 impl GrammarHealthCode {
-    /// Every grammar-health code in the stable contract. The exhaustive `group_name` match below
-    /// makes adding a code without a sidebar label a compile error.
+    /// Every grammar-health code in the stable contract.
     pub const ALL: &'static [Self] = &[
         Self::UndeclaredSegment,
         Self::DuplicateFeatureBundle,
@@ -122,14 +123,44 @@ impl GrammarHealthSubjectKind {
     }
 }
 
-/// FieldWorks navigation data. The tool is selected by PanGloss from the subject kind; an absent
-/// URL is explicit and never a guessed or malformed link.
+/// Why a subject cannot be opened in FieldWorks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldWorksUnavailableReason {
+    MissingProject,
+    MissingGuid,
+    InvalidGuid,
+    UnverifiedGuidKind,
+    UnverifiedTool,
+}
+
+impl FieldWorksUnavailableReason {
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::MissingProject => "no FieldWorks project name supplied",
+            Self::MissingGuid => "source item has no FieldWorks GUID",
+            Self::InvalidGuid => "source item has an invalid FieldWorks GUID",
+            Self::UnverifiedGuidKind => {
+                "source item GUID kind is not proven to navigate to its owning record"
+            }
+            Self::UnverifiedTool => "source item has no verified FieldWorks tool",
+        }
+    }
+}
+
+/// Complete FieldWorks navigation state, resolved once while the subject is built.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct FieldWorksLink {
-    pub guid: Option<String>,
-    pub tool: String,
-    pub url: Option<String>,
-    pub url_unavailable: Option<String>,
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum FieldWorksLink {
+    Available {
+        guid: String,
+        tool: String,
+        url: String,
+    },
+    Unavailable {
+        reason: FieldWorksUnavailableReason,
+        guid: Option<String>,
+    },
 }
 
 /// One structured item a grammar-health finding references. `title` is the only identity a human
@@ -143,116 +174,113 @@ pub struct GrammarHealthSubject {
     pub fieldworks: FieldWorksLink,
 }
 
+fn is_internal_subject_label(title: &str) -> bool {
+    let lower = title.trim().to_ascii_lowercase();
+    if crate::grammar_health_presentation::canonical_guid(&lower).is_some() {
+        return true;
+    }
+    if let Some((prefix, suffix)) = lower.split_once('#') {
+        return [
+            "char_def",
+            "entry",
+            "lex_entry",
+            "mrule",
+            "morph_rule",
+            "rule",
+            "slot",
+            "table",
+            "template",
+        ]
+        .contains(&prefix)
+            && !suffix.trim().is_empty();
+    }
+    ["entry", "mrule", "rule", "slot", "template"]
+        .iter()
+        .any(|prefix| {
+            lower.strip_prefix(prefix).is_some_and(|rest| {
+                !rest.is_empty() && rest.chars().all(|character| character.is_ascii_digit())
+            })
+        })
+}
+
 impl GrammarHealthSubject {
-    pub fn where_text(&self) -> String {
+    fn render_location(&self, include_guid: bool) -> String {
         let mut text = self.title.clone();
         if let Some(subtitle) = self.subtitle.as_deref().filter(|text| !text.is_empty()) {
             text.push_str(" (");
             text.push_str(subtitle);
             text.push(')');
         }
-        if let Some(url) = self.fieldworks.url.as_deref() {
-            text.push_str(" [");
-            text.push_str(url);
-            text.push(']');
-        } else if let Some(reason) = self.fieldworks.url_unavailable.as_deref() {
-            text.push_str(" [FieldWorks link unavailable: ");
-            text.push_str(reason);
-            text.push(']');
+        if include_guid {
+            match &self.fieldworks {
+                FieldWorksLink::Available { guid, .. } => {
+                    text.push_str(" [guid ");
+                    text.push_str(guid);
+                    text.push(']');
+                }
+                FieldWorksLink::Unavailable { guid, .. } => match guid {
+                    Some(guid) => {
+                        text.push_str(" [guid ");
+                        text.push_str(guid);
+                        text.push(']');
+                    }
+                    None => text.push_str(" [guid unavailable]"),
+                },
+            }
+        }
+        match &self.fieldworks {
+            FieldWorksLink::Available { url, .. } => {
+                text.push_str(" [");
+                text.push_str(url);
+                text.push(']');
+            }
+            FieldWorksLink::Unavailable { reason, .. } => {
+                text.push_str(" [FieldWorks link unavailable: ");
+                text.push_str(reason.message());
+                text.push(']');
+            }
         }
         text
-    }
-
-    fn log_title(&self, include_guid: bool) -> String {
-        if !include_guid {
-            return self.title.clone();
-        }
-        match self.fieldworks.guid.as_deref() {
-            Some(guid) => format!("{} [guid {guid}]", self.title),
-            None => format!("{} [guid unavailable]", self.title),
-        }
     }
 }
 
 /// One problem found by check_grammar_health. JSON uses `problem` for the human message while
-/// the Rust field remains `message` for source compatibility with the existing API.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// the Rust field remains `message` for the diagnostic API.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrammarHealthCheckFinding {
     pub severity: GrammarHealthSeverity,
     pub code: GrammarHealthCode,
-    /// Stable plain-language grouping label, duplicated per finding for simple JSON consumers.
-    pub group_name: String,
-    #[serde(rename = "problem")]
     pub message: String,
     pub subjects: Vec<GrammarHealthSubject>,
 }
 
+impl serde::Serialize for GrammarHealthCheckFinding {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(serde::Serialize)]
+        struct Wire<'a> {
+            severity: GrammarHealthSeverity,
+            code: GrammarHealthCode,
+            group_name: &'static str,
+            #[serde(rename = "problem")]
+            message: &'a str,
+            subjects: &'a [GrammarHealthSubject],
+        }
+
+        Wire {
+            severity: self.severity,
+            code: self.code,
+            group_name: self.code.group_name(),
+            message: &self.message,
+            subjects: &self.subjects,
+        }
+        .serialize(serializer)
+    }
+}
+
 impl GrammarHealthCheckFinding {
-    fn validation_message(&self, finding_index: usize) -> Option<String> {
-        let prefix = format!(
-            "grammar-health finding {finding_index} ({})",
-            self.code.wire()
-        );
-        if self.group_name.trim().is_empty() {
-            return Some(format!("{prefix}: missing group_name"));
-        }
-        if self.group_name != self.code.group_name() {
-            return Some(format!(
-                "{prefix}: group_name does not match the code-owned label"
-            ));
-        }
-        if self.message.trim().is_empty() {
-            return Some(format!("{prefix}: missing message"));
-        }
-        if self.subjects.is_empty() {
-            return Some(format!("{prefix}: missing subjects"));
-        }
-        for (subject_index, subject) in self.subjects.iter().enumerate() {
-            let subject_prefix = format!("{prefix} subject {subject_index}");
-            if subject.title.trim().is_empty() {
-                return Some(format!("{subject_prefix}: missing title"));
-            }
-            if subject.internal_id.trim().is_empty() {
-                return Some(format!("{subject_prefix}: missing internal_id"));
-            }
-            if subject.fieldworks.tool.trim().is_empty() {
-                return Some(format!("{subject_prefix}: missing fieldworks.tool"));
-            }
-            match (
-                subject.fieldworks.url.as_deref(),
-                subject.fieldworks.url_unavailable.as_deref(),
-            ) {
-                (Some(url), None) if !url.trim().is_empty() => {}
-                (None, Some(reason)) if !reason.trim().is_empty() => {}
-                (Some(_), Some(_)) => {
-                    return Some(format!(
-                        "{subject_prefix}: fieldworks link must have either url or url_unavailable, not both"
-                    ));
-                }
-                (Some(_), None) => {
-                    return Some(format!(
-                        "{subject_prefix}: fieldworks.url must be nonblank"
-                    ));
-                }
-                (None, Some(_)) => {
-                    return Some(format!(
-                        "{subject_prefix}: fieldworks.url_unavailable must be nonblank"
-                    ));
-                }
-                (None, None) => {
-                    return Some(format!(
-                        "{subject_prefix}: missing fieldworks.url or fieldworks.url_unavailable"
-                    ));
-                }
-            }
-        }
-        None
-    }
-
-    pub fn is_complete(&self) -> bool {
-        self.validation_message(0).is_none()
-    }
-
     fn log_line(&self, include_guids: bool) -> String {
         let kinds = self
             .subjects
@@ -262,12 +290,12 @@ impl GrammarHealthCheckFinding {
         let titles = self
             .subjects
             .iter()
-            .map(|subject| subject.log_title(include_guids))
+            .map(|subject| subject.render_location(include_guids))
             .collect::<Vec<_>>();
         format!(
             "{} [{}] {}: {} - {}",
             self.severity.wire(),
-            self.group_name,
+            self.code.group_name(),
             kinds.join(", "),
             titles.join(", "),
             self.message.trim()
@@ -275,71 +303,137 @@ impl GrammarHealthCheckFinding {
     }
 }
 
-/// Validate the complete report input before any presentation adapter runs.
-pub fn validate_findings(findings: &[GrammarHealthCheckFinding]) -> serde_json::Result<()> {
-    for (finding_index, finding) in findings.iter().enumerate() {
-        if let Some(message) = finding.validation_message(finding_index) {
-            return Err(<serde_json::Error as serde::de::Error>::custom(message));
-        }
-    }
-    Ok(())
-}
-
-/// Versioned JSON contract for Motif and other structured consumers. Version 1 is the first
-/// contract containing structured subjects and FieldWorks navigation data; the previous bare array
-/// is intentionally not reused after this shape change.
-///
-/// The wire shape is { schema_version: 1, findings: [{ severity, code, group_name, problem,
-/// subjects: [{ kind, title, subtitle, internal_id, fieldworks: { guid, tool, url,
-/// url_unavailable } }] }] }. 	itle is the human identity; internal_id is secondary
-/// tooling data, and group_name is a stable linguist-facing grouping label.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GrammarHealthJsonReport {
-    pub schema_version: u32,
-    pub findings: Vec<GrammarHealthCheckFinding>,
-}
-
 pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 1;
 
-fn validate_report(
-    schema_version: u32,
-    findings: &[GrammarHealthCheckFinding],
-) -> serde_json::Result<()> {
-    if schema_version != GRAMMAR_HEALTH_SCHEMA_VERSION {
-        return Err(<serde_json::Error as serde::de::Error>::custom(format!(
-            "unsupported grammar-health schema version {schema_version}; expected {GRAMMAR_HEALTH_SCHEMA_VERSION}"
-        )));
-    }
-    validate_findings(findings)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrammarHealthReportErrorCode {
+    MalformedJson,
+    InvalidShape,
+    MissingField,
+    InvalidField,
+    UnsupportedSchemaVersion,
+    MissingSubjects,
+    InvalidFinding,
+    Serialization,
 }
 
-impl GrammarHealthJsonReport {
-    /// Encode the canonical versioned grammar-health report.
-    pub fn to_json(&self) -> serde_json::Result<String> {
-        serde_json::to_string_pretty(self)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrammarHealthReportError {
+    pub code: GrammarHealthReportErrorCode,
+    pub finding_index: Option<usize>,
+    pub field: Option<String>,
+    pub message: String,
+}
+
+impl std::fmt::Display for GrammarHealthReportError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for GrammarHealthReportError {}
+
+impl std::fmt::Display for GrammarHealthReportErrorCode {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            Self::MalformedJson => "malformed_json",
+            Self::InvalidShape => "invalid_shape",
+            Self::MissingField => "missing_field",
+            Self::InvalidField => "invalid_field",
+            Self::UnsupportedSchemaVersion => "unsupported_schema_version",
+            Self::MissingSubjects => "missing_subjects",
+            Self::InvalidFinding => "invalid_finding",
+            Self::Serialization => "serialization",
+        };
+        formatter.write_str(name)
+    }
+}
+
+/// The sole validated in-memory grammar-health report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrammarHealthReport {
+    findings: Vec<GrammarHealthCheckFinding>,
+}
+
+impl GrammarHealthReport {
+    pub fn new(findings: Vec<GrammarHealthCheckFinding>) -> Result<Self, GrammarHealthReportError> {
+        for (finding_index, finding) in findings.iter().enumerate() {
+            validate_finding(finding, finding_index)?;
+        }
+        Ok(Self { findings })
     }
 
-    /// Decode the canonical versioned grammar-health report.
-    pub fn from_json(json: &str) -> serde_json::Result<Self> {
-        let value: serde_json::Value = serde_json::from_str(json)?;
-        if !value.is_object() {
-            return Err(<serde_json::Error as serde::de::Error>::custom(
-                "grammar-health report must be an object with schema_version and findings; bare findings arrays are unsupported",
+    pub fn findings(&self) -> &[GrammarHealthCheckFinding] {
+        &self.findings
+    }
+
+    pub fn len(&self) -> usize {
+        self.findings.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.findings.is_empty()
+    }
+
+    pub fn to_json(&self) -> Result<String, GrammarHealthReportError> {
+        serde_json::to_string_pretty(self).map_err(|error| GrammarHealthReportError {
+            code: GrammarHealthReportErrorCode::Serialization,
+            finding_index: None,
+            field: None,
+            message: error.to_string(),
+        })
+    }
+
+    pub fn from_json(json: &str) -> Result<Self, GrammarHealthReportError> {
+        let value: serde_json::Value = serde_json::from_str(json).map_err(|error| {
+            report_error(
+                GrammarHealthReportErrorCode::MalformedJson,
+                None,
+                None,
+                error.to_string(),
+            )
+        })?;
+        let object = value.as_object().ok_or_else(|| {
+            report_error(
+                GrammarHealthReportErrorCode::InvalidShape,
+                None,
+                None,
+                "grammar-health report must be an object".to_string(),
+            )
+        })?;
+        let schema_version = required_field::<u32>(object, "schema_version", None)?;
+        if schema_version != GRAMMAR_HEALTH_SCHEMA_VERSION {
+            return Err(report_error(
+                GrammarHealthReportErrorCode::UnsupportedSchemaVersion,
+                None,
+                Some("schema_version"),
+                format!(
+                    "unsupported grammar-health schema version {schema_version}; expected {GRAMMAR_HEALTH_SCHEMA_VERSION}"
+                ),
             ));
         }
-        serde_json::from_value(value)
+        let finding_values = required_field::<Vec<serde_json::Value>>(object, "findings", None)?;
+        let mut findings = Vec::with_capacity(finding_values.len());
+        for (finding_index, value) in finding_values.into_iter().enumerate() {
+            findings.push(decode_finding(value, finding_index)?);
+        }
+        Self::new(findings)
     }
 }
 
-impl serde::Serialize for GrammarHealthJsonReport {
+impl std::ops::Deref for GrammarHealthReport {
+    type Target = [GrammarHealthCheckFinding];
+
+    fn deref(&self) -> &Self::Target {
+        self.findings()
+    }
+}
+
+impl serde::Serialize for GrammarHealthReport {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        validate_report(self.schema_version, &self.findings).map_err(|error| {
-            <S::Error as serde::ser::Error>::custom(error.to_string())
-        })?;
-
         #[derive(serde::Serialize)]
         struct Wire<'a> {
             schema_version: u32,
@@ -347,80 +441,160 @@ impl serde::Serialize for GrammarHealthJsonReport {
         }
 
         Wire {
-            schema_version: self.schema_version,
+            schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
             findings: &self.findings,
         }
         .serialize(serializer)
     }
 }
 
-impl<'de> serde::Deserialize<'de> for GrammarHealthJsonReport {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
-        let Some(object) = value.as_object() else {
-            return Err(<D::Error as serde::de::Error>::custom(
-                "grammar-health report must be an object with schema_version and findings; bare findings arrays are unsupported",
-            ));
-        };
-        let Some(schema_value) = object.get("schema_version") else {
-            return Err(<D::Error as serde::de::Error>::custom(
-                "grammar-health report is missing schema_version",
-            ));
-        };
-        let Some(schema_version) = schema_value.as_u64() else {
-            return Err(<D::Error as serde::de::Error>::custom(
-                "grammar-health schema_version must be an unsigned integer",
-            ));
-        };
-        let schema_version = u32::try_from(schema_version).map_err(|_| {
-            <D::Error as serde::de::Error>::custom(
-                "grammar-health schema_version is outside the supported unsigned range",
-            )
-        })?;
-        let Some(findings_value) = object.get("findings") else {
-            return Err(<D::Error as serde::de::Error>::custom(
-                "grammar-health report is missing findings",
-            ));
-        };
-        let findings = serde_json::from_value::<Vec<GrammarHealthCheckFinding>>(
-            findings_value.clone(),
-        )
-        .map_err(|error| <D::Error as serde::de::Error>::custom(error.to_string()))?;
-        validate_report(schema_version, &findings)
-            .map_err(|error| <D::Error as serde::de::Error>::custom(error.to_string()))?;
-        Ok(Self {
-            schema_version,
-            findings,
-        })
+fn report_error(
+    code: GrammarHealthReportErrorCode,
+    finding_index: Option<usize>,
+    field: Option<&str>,
+    message: String,
+) -> GrammarHealthReportError {
+    GrammarHealthReportError {
+        code,
+        finding_index,
+        field: field.map(str::to_string),
+        message,
     }
+}
+
+fn required_field<T: serde::de::DeserializeOwned>(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &str,
+    finding_index: Option<usize>,
+) -> Result<T, GrammarHealthReportError> {
+    let value = object.get(field).ok_or_else(|| {
+        report_error(
+            GrammarHealthReportErrorCode::MissingField,
+            finding_index,
+            Some(field),
+            format!("missing field {field}"),
+        )
+    })?;
+    serde_json::from_value(value.clone()).map_err(|error| {
+        report_error(
+            GrammarHealthReportErrorCode::InvalidField,
+            finding_index,
+            Some(field),
+            error.to_string(),
+        )
+    })
+}
+
+fn decode_finding(
+    value: serde_json::Value,
+    finding_index: usize,
+) -> Result<GrammarHealthCheckFinding, GrammarHealthReportError> {
+    let object = value.as_object().ok_or_else(|| {
+        report_error(
+            GrammarHealthReportErrorCode::InvalidShape,
+            Some(finding_index),
+            None,
+            "finding must be an object".to_string(),
+        )
+    })?;
+    let severity: GrammarHealthSeverity = required_field(object, "severity", Some(finding_index))?;
+    let code: GrammarHealthCode = required_field(object, "code", Some(finding_index))?;
+    let group_name: String = required_field(object, "group_name", Some(finding_index))?;
+    if group_name != code.group_name() {
+        return Err(report_error(
+            GrammarHealthReportErrorCode::InvalidField,
+            Some(finding_index),
+            Some("group_name"),
+            format!("group_name does not match code-owned label {}", code.wire()),
+        ));
+    }
+    let message = required_field(object, "problem", Some(finding_index))?;
+    let subjects = required_field(object, "subjects", Some(finding_index))?;
+    Ok(GrammarHealthCheckFinding {
+        severity,
+        code,
+        message,
+        subjects,
+    })
+}
+
+fn validate_finding(
+    finding: &GrammarHealthCheckFinding,
+    finding_index: usize,
+) -> Result<(), GrammarHealthReportError> {
+    let prefix = format!(
+        "grammar-health finding {finding_index} ({})",
+        finding.code.wire()
+    );
+    let missing = |field: &'static str, message: String| {
+        Err(report_error(
+            GrammarHealthReportErrorCode::InvalidFinding,
+            Some(finding_index),
+            Some(field),
+            message,
+        ))
+    };
+    if finding.message.trim().is_empty() {
+        return missing("problem", format!("{prefix}: missing problem"));
+    }
+    if finding.subjects.is_empty() {
+        return Err(report_error(
+            GrammarHealthReportErrorCode::MissingSubjects,
+            Some(finding_index),
+            Some("subjects"),
+            format!("{prefix}: missing subjects"),
+        ));
+    }
+    for (subject_index, subject) in finding.subjects.iter().enumerate() {
+        let subject_prefix = format!("{prefix} subject {subject_index}");
+        if subject.title.trim().is_empty() {
+            return missing("title", format!("{subject_prefix}: missing title"));
+        }
+        if subject.internal_id.trim().is_empty() {
+            return missing(
+                "internal_id",
+                format!("{subject_prefix}: missing internal_id"),
+            );
+        }
+        match &subject.fieldworks {
+            FieldWorksLink::Available { guid, tool, url } => {
+                if crate::grammar_health_presentation::canonical_guid(guid).is_none() {
+                    return missing("fieldworks.guid", format!("{subject_prefix}: invalid GUID"));
+                }
+                if tool.trim().is_empty() {
+                    return missing("fieldworks.tool", format!("{subject_prefix}: missing tool"));
+                }
+                if url.trim().is_empty() {
+                    return missing("fieldworks.url", format!("{subject_prefix}: missing URL"));
+                }
+            }
+            FieldWorksLink::Unavailable { .. } => {}
+        }
+        if is_internal_subject_label(&subject.title) {
+            return missing(
+                "title",
+                format!("{subject_prefix}: title must be a human-readable subject name"),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Render complete findings as one nonblank plain-text line per finding.
 ///
 /// include_guids is opt-in because the title remains the human identity in the default log.
-pub fn render_log(
-    findings: &[GrammarHealthCheckFinding],
-    include_guids: bool,
-) -> serde_json::Result<String> {
-    validate_findings(findings)?;
-    Ok(findings
+pub fn render_log(report: &GrammarHealthReport, include_guids: bool) -> String {
+    report
+        .findings()
         .iter()
         .map(|finding| finding.log_line(include_guids))
         .collect::<Vec<_>>()
-        .join("\n"))
+        .join("\n")
 }
 
-/// Render the full Motif-facing JSON shape, including FieldWorks links and explicit link reasons.
-pub fn render_json(findings: &[GrammarHealthCheckFinding]) -> Result<String, serde_json::Error> {
-    validate_findings(findings)?;
-    GrammarHealthJsonReport {
-        schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
-        findings: findings.to_vec(),
-    }
-    .to_json()
+/// Render the versioned grammar-health report.
+pub fn render_json(report: &GrammarHealthReport) -> Result<String, GrammarHealthReportError> {
+    report.to_json()
 }
 
 /// Runs every registered check against grammar. `fieldworks_project` is caller-supplied because
@@ -428,14 +602,15 @@ pub fn render_json(findings: &[GrammarHealthCheckFinding]) -> Result<String, ser
 pub fn check_grammar_health(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
-) -> Vec<GrammarHealthCheckFinding> {
+) -> Result<GrammarHealthReport, crate::GrammarError> {
+    let partial_facts = grammar.partial_morpheme_facts()?;
     let mut findings = Vec::new();
-    check_duplicate_feature_bundles(grammar, &mut findings);
-    check_undeclared_segments(grammar, &mut findings);
-    check_partial_morphemes(grammar, &mut findings);
-    prepare_report(&mut findings, fieldworks_project);
-    validate_findings(&findings).expect("grammar-health emitted an incomplete finding");
-    findings
+    check_duplicate_feature_bundles(grammar, fieldworks_project, &mut findings)?;
+    check_undeclared_segments(grammar, fieldworks_project, &mut findings)?;
+    check_partial_morphemes(grammar, fieldworks_project, &partial_facts, &mut findings)?;
+    let report = GrammarHealthReport::new(findings)
+        .map_err(|error| crate::GrammarError::Semantic(error.to_string()))?;
+    Ok(report)
 }
 
 // --- hc-duplicate-feature-bundle -------------------------------------------------------------
@@ -443,10 +618,11 @@ pub fn check_grammar_health(
 /// Distinct-bundle segments only; skipped for a zero-feature grammar, where every bundle is the same empty struct by construction.
 fn check_duplicate_feature_bundles(
     grammar: &Grammar,
+    fieldworks_project: Option<&str>,
     findings: &mut Vec<GrammarHealthCheckFinding>,
-) {
+) -> Result<(), crate::GrammarError> {
     if grammar.phon_features.is_empty() {
-        return;
+        return Ok(());
     }
     for (table_idx, table) in grammar.char_tables.iter().enumerate() {
         let table_id = TableId(table_idx as u16);
@@ -475,16 +651,13 @@ fn check_duplicate_feature_bundles(
                 .iter()
                 .map(|(_, cd)| first_representation(cd))
                 .collect();
-            let mut subjects = vec![table_subject(table_id, table)];
-            subjects.extend(
-                group
-                    .iter()
-                    .map(|(id, cd)| char_def_subject(table_id, *id, cd, table)),
-            );
+            let mut subjects = vec![table_subject(grammar, fieldworks_project, table_id, table)];
+            subjects.extend(group.iter().map(|(id, cd)| {
+                char_def_subject(grammar, fieldworks_project, table_id, *id, cd, table)
+            }));
             findings.push(GrammarHealthCheckFinding {
                 severity: GrammarHealthSeverity::Warning,
                 code: GrammarHealthCode::DuplicateFeatureBundle,
-                group_name: GrammarHealthCode::DuplicateFeatureBundle.group_name().to_string(),
                 message: format!(
                     "Character definition table '{}' has {} segments with an identical \
                      phonological feature bundle, so a segment-changing rule cannot reliably \
@@ -497,6 +670,7 @@ fn check_duplicate_feature_bundles(
             });
         }
     }
+    Ok(())
 }
 
 // The `Type` lane is always appended last (`PhonFeatureSystem::from_raw`), so slicing it off is a bare truncation, not a search.
@@ -537,17 +711,24 @@ fn make_subject(
     }
 }
 
-fn table_subject(id: TableId, table: &CharDefTable) -> GrammarHealthSubject {
+fn table_subject(
+    grammar: &Grammar,
+    fieldworks_project: Option<&str>,
+    id: TableId,
+    table: &CharDefTable,
+) -> GrammarHealthSubject {
     make_subject(
         GrammarHealthSubjectKind::Table,
         table_display_name(table).to_string(),
         None,
         format!("table#{}:{}", id.0, table.xml_id()),
-        subject_link(GrammarHealthSubjectKind::Table, table.xml_id()),
+        fieldworks_link(grammar, FieldWorksSource::Table, fieldworks_project),
     )
 }
 
 fn char_def_subject(
+    grammar: &Grammar,
+    fieldworks_project: Option<&str>,
     table_id: TableId,
     id: CharDefId,
     cd: &CharDef,
@@ -558,112 +739,141 @@ fn char_def_subject(
         first_representation(cd).to_string(),
         Some(format!("in {}", table_display_name(table))),
         format!("table#{}:char_def#{}:{}", table_id.0, id.0, cd.xml_id()),
-        subject_link(GrammarHealthSubjectKind::CharDef, cd.xml_id()),
+        fieldworks_link(grammar, FieldWorksSource::CharDef, fieldworks_project),
     )
 }
 
-fn lex_entry_subject(grammar: &Grammar, id: LexEntryId) -> GrammarHealthSubject {
-    let entry = &grammar.entries[id.0 as usize];
+fn lex_entry_subject(
+    grammar: &Grammar,
+    fieldworks_project: Option<&str>,
+    id: LexEntryId,
+) -> Result<GrammarHealthSubject, crate::GrammarError> {
+    Ok(lex_entry_subject_named(
+        grammar,
+        fieldworks_project,
+        id,
+        grammar.lex_entry_display_name(id)?,
+        grammar.lex_entry_internal_id(id)?,
+    ))
+}
+
+fn lex_entry_subject_named(
+    grammar: &Grammar,
+    fieldworks_project: Option<&str>,
+    id: LexEntryId,
+    title: String,
+    internal_id: String,
+) -> GrammarHealthSubject {
     make_subject(
         GrammarHealthSubjectKind::LexEntry,
-        stats_identity::lex_entry_identity(grammar, id).label,
+        title,
         None,
-        format!("lex_entry#{}:{}", id.0, entry.authored_id),
-        subject_link(GrammarHealthSubjectKind::LexEntry, &entry.authored_id),
+        internal_id,
+        fieldworks_link(grammar, FieldWorksSource::LexEntry(id), fieldworks_project),
     )
 }
 
-fn morph_rule_source_id(grammar: &Grammar, id: MRuleId) -> String {
-    match &grammar.mrules[id.0 as usize] {
-        MorphRuleDef::Compounding(def) => def.xml_id.clone(),
-        MorphRuleDef::AffixProcess(def) => grammar
-            .morphemes
-            .get(def.morpheme.0 as usize)
-            .and_then(|info| {
-                info.source_msa_guid
-                    .as_deref()
-                    .or(info.source_infl_type_guid.as_deref())
-                    .or(Some(info.xml_key.as_str()))
-            })
-            .unwrap_or_default()
-            .to_string(),
-        MorphRuleDef::Realizational(def) => grammar
-            .morphemes
-            .get(def.morpheme.0 as usize)
-            .and_then(|info| {
-                info.source_msa_guid
-                    .as_deref()
-                    .or(info.source_infl_type_guid.as_deref())
-                    .or(Some(info.xml_key.as_str()))
-            })
-            .unwrap_or_default()
-            .to_string(),
-    }
+fn morph_rule_subject(
+    grammar: &Grammar,
+    fieldworks_project: Option<&str>,
+    id: MRuleId,
+) -> Result<GrammarHealthSubject, crate::GrammarError> {
+    let rule = grammar.mrules.get(id.0 as usize).ok_or_else(|| {
+        crate::GrammarError::Semantic(format!("morphological rule id {} is out of range", id.0))
+    })?;
+    Ok(morph_rule_subject_named(
+        grammar,
+        fieldworks_project,
+        id,
+        rule.health_kind_label(),
+        grammar.morph_rule_display_name(id)?,
+        grammar.morph_rule_internal_id(id)?,
+    ))
 }
 
-fn morph_rule_subject(grammar: &Grammar, id: MRuleId) -> GrammarHealthSubject {
-    let source_id = morph_rule_source_id(grammar, id);
-    let kind = match &grammar.mrules[id.0 as usize] {
-        MorphRuleDef::Compounding(_) => "compounding rule",
-        MorphRuleDef::AffixProcess(_) => "affix-process rule",
-        MorphRuleDef::Realizational(_) => "realizational rule",
-    };
+fn morph_rule_subject_named(
+    grammar: &Grammar,
+    fieldworks_project: Option<&str>,
+    id: MRuleId,
+    kind: &str,
+    title: String,
+    internal_id: String,
+) -> GrammarHealthSubject {
     make_subject(
         GrammarHealthSubjectKind::MorphRule,
-        stats_identity::morph_rule_identity(grammar, id).label,
+        title,
         Some(kind.to_string()),
-        format!("morph_rule#{}:{}", id.0, source_id),
-        morph_rule_link(grammar, id, &source_id),
+        internal_id,
+        fieldworks_link(grammar, FieldWorksSource::MorphRule(id), fieldworks_project),
     )
 }
 
 // --- hc-undeclared-segment ---------------------------------------------------------------------
 
-/// Lex-entry allomorph segments plus rule InsertSegments, walking only a stratum's ordinary
-/// mrules -- matches C#'s own scope, so a template-slot-only rule is outside this check too.
+/// Checks lex-entry allomorphs and InsertSegments in a stratum's ordinary mrules.
 fn check_undeclared_segments(
     grammar: &Grammar,
+    fieldworks_project: Option<&str>,
     findings: &mut Vec<GrammarHealthCheckFinding>,
-) {
+) -> Result<(), crate::GrammarError> {
     for stratum in &grammar.strata {
-        let Some(table) = grammar.char_tables.get(stratum.table.0 as usize) else {
-            continue;
-        };
+        let table = grammar
+            .char_tables
+            .get(stratum.table.0 as usize)
+            .ok_or_else(|| {
+                crate::GrammarError::Semantic(format!(
+                    "stratum table id {} is out of range",
+                    stratum.table.0
+                ))
+            })?;
         for &entry_id in &stratum.entries {
-            let Some(entry) = grammar.entries.get(entry_id.0 as usize) else {
-                continue;
-            };
-            let name = stats_identity::lex_entry_identity(grammar, entry_id).label;
+            let entry = grammar.entries.get(entry_id.0 as usize).ok_or_else(|| {
+                crate::GrammarError::Semantic(format!(
+                    "stratum lexical entry id {} is out of range",
+                    entry_id.0
+                ))
+            })?;
+            let subject = lex_entry_subject(grammar, fieldworks_project, entry_id)?;
+            let name = subject.title.clone();
             for allomorph in &entry.allomorphs {
                 check_segments_declared(
+                    grammar,
+                    fieldworks_project,
                     table,
                     stratum.table,
                     &allomorph.shape.shape,
-                    &format!("Lexical entry '{name}' allomorph '{}'", allomorph.shape.text),
-                    lex_entry_subject(grammar, entry_id),
+                    &format!(
+                        "Lexical entry '{name}' allomorph '{}'",
+                        allomorph.shape.text
+                    ),
+                    subject.clone(),
                     findings,
                 );
             }
         }
 
         for &rule_id in &stratum.mrules {
-            let Some(rule) = grammar.mrules.get(rule_id.0 as usize) else {
-                continue;
-            };
-            let name = stats_identity::morph_rule_identity(grammar, rule_id).label;
-            let subject = morph_rule_subject(grammar, rule_id);
+            let rule = grammar.mrules.get(rule_id.0 as usize).ok_or_else(|| {
+                crate::GrammarError::Semantic(format!(
+                    "stratum morphological rule id {} is out of range",
+                    rule_id.0
+                ))
+            })?;
+            let subject = morph_rule_subject(grammar, fieldworks_project, rule_id)?;
+            let name = subject.title.clone();
             match rule {
                 MorphRuleDef::AffixProcess(def) => {
                     for allomorph in &def.allomorphs {
                         for action in &allomorph.rhs {
                             check_insert_segments(
                                 grammar,
+                                fieldworks_project,
                                 action,
                                 "Morphological rule",
                                 &name,
                                 subject.clone(),
                                 findings,
-                            );
+                            )?;
                         }
                     }
                 }
@@ -672,52 +882,69 @@ fn check_undeclared_segments(
                         for action in &subrule.rhs {
                             check_insert_segments(
                                 grammar,
+                                fieldworks_project,
                                 action,
                                 "Compounding rule",
                                 &name,
                                 subject.clone(),
                                 findings,
-                            );
+                            )?;
                         }
                     }
                 }
+                // C# casts to `AffixProcessRule`/`CompoundingRule` only; `RealizationalAffixProcessRule` is never checked there either.
                 MorphRuleDef::Realizational(_) => {}
             }
         }
     }
+    Ok(())
 }
 
 fn check_insert_segments(
     grammar: &Grammar,
+    fieldworks_project: Option<&str>,
     action: &OutputAction,
     kind_label: &str,
     rule_name: &str,
     owner_subject: GrammarHealthSubject,
     findings: &mut Vec<GrammarHealthCheckFinding>,
-) {
+) -> Result<(), crate::GrammarError> {
     let OutputAction::InsertSegments {
         table: table_id,
         shape,
     } = action
     else {
-        return;
+        return Ok(());
     };
-    let Some(table) = grammar.char_tables.get(table_id.0 as usize) else {
-        return;
-    };
+    let table = grammar
+        .char_tables
+        .get(table_id.0 as usize)
+        .ok_or_else(|| {
+            crate::GrammarError::Semantic(format!(
+                "insert-segments table id {} is out of range",
+                table_id.0
+            ))
+        })?;
     check_segments_declared(
+        grammar,
+        fieldworks_project,
         table,
         *table_id,
         &shape.shape,
-        &format!("{kind_label} '{rule_name}' inserted segments '{}'", shape.text),
+        &format!(
+            "{kind_label} '{rule_name}' inserted segments '{}'",
+            shape.text
+        ),
         owner_subject,
         findings,
     );
+    Ok(())
 }
 
-/// Boundary/anchor nodes are structural and an abstract natural-class node is already declared,
-/// so both are skipped -- mirrors C#'s Segment-type-only filter.
+/// Skips structural boundary/anchor nodes and already-declared natural classes.
 fn check_segments_declared(
+    grammar: &Grammar,
+    fieldworks_project: Option<&str>,
     table: &CharDefTable,
     table_id: TableId,
     shape: &Shape,
@@ -737,13 +964,12 @@ fn check_segments_declared(
         findings.push(GrammarHealthCheckFinding {
             severity: GrammarHealthSeverity::Error,
             code: GrammarHealthCode::UndeclaredSegment,
-            group_name: GrammarHealthCode::UndeclaredSegment.group_name().to_string(),
             message: format!(
                 "{where_desc} contains an undeclared segment; character definition table '{}' does not declare it.",
                 table_display_name(table)
             ),
             subjects: vec![
-                table_subject(table_id, table),
+                table_subject(grammar, fieldworks_project, table_id, table),
                 owner_subject.clone(),
             ],
         });
@@ -752,39 +978,52 @@ fn check_segments_declared(
 
 // --- hc-partial-morpheme -------------------------------------------------------------------
 
-/// Reads partial directly (the model's own published fact); every rule lives once in Grammar::mrules
-/// regardless of slot references, so one pass already dedups without a seen-set.
+/// Consume the canonical typed inventory; this warning path does not inspect rule definitions.
 fn check_partial_morphemes(
     grammar: &Grammar,
+    fieldworks_project: Option<&str>,
+    facts: &PartialMorphemeFacts,
     findings: &mut Vec<GrammarHealthCheckFinding>,
-) {
-    for (i, entry) in grammar.entries.iter().enumerate() {
-        if !entry.partial {
-            continue;
+) -> Result<(), crate::GrammarError> {
+    for identity in facts.identities() {
+        match identity {
+            PartialMorphemeIdentity::LexicalEntry {
+                id,
+                display_name,
+                internal_id,
+                ..
+            } => findings.push(partial_finding(
+                "Lexical entry",
+                display_name,
+                lex_entry_subject_named(
+                    grammar,
+                    fieldworks_project,
+                    *id,
+                    display_name.clone(),
+                    internal_id.clone(),
+                ),
+            )),
+            PartialMorphemeIdentity::MorphologicalRule {
+                id,
+                display_name,
+                internal_id,
+                rule_kind,
+                ..
+            } => findings.push(partial_finding(
+                "Morphological rule",
+                display_name,
+                morph_rule_subject_named(
+                    grammar,
+                    fieldworks_project,
+                    *id,
+                    rule_kind,
+                    display_name.clone(),
+                    internal_id.clone(),
+                ),
+            )),
         }
-        let id = LexEntryId(i as u32);
-        let name = stats_identity::lex_entry_identity(grammar, id).label;
-        findings.push(partial_finding(
-            "Lexical entry",
-            &name,
-            lex_entry_subject(grammar, id),
-        ));
     }
-    for (i, rule) in grammar.mrules.iter().enumerate() {
-        let MorphRuleDef::AffixProcess(def) = rule else {
-            continue;
-        };
-        if !def.partial {
-            continue;
-        }
-        let id = MRuleId(i as u32);
-        let name = stats_identity::morph_rule_identity(grammar, id).label;
-        findings.push(partial_finding(
-            "Morphological rule",
-            &name,
-            morph_rule_subject(grammar, id),
-        ));
-    }
+    Ok(())
 }
 
 fn partial_finding(
@@ -795,7 +1034,6 @@ fn partial_finding(
     GrammarHealthCheckFinding {
         severity: GrammarHealthSeverity::Warning,
         code: GrammarHealthCode::PartialMorpheme,
-        group_name: GrammarHealthCode::PartialMorpheme.group_name().to_string(),
         message: format!(
             "{kind_label} '{name}' is partially analyzed. Supply its missing category or \
              template/slot analysis; leaving it partial can broaden analysis and disable safe \
@@ -824,8 +1062,10 @@ mod tests {
         for &code in GrammarHealthCode::ALL {
             let name = code.group_name();
             assert!(!name.trim().is_empty(), "{code:?} has no group name");
-            assert!(name.chars().count() <= 30, "{code:?} group name is too long: {name}");
-            assert!(name.chars().count() <= 45, "{code:?} group name exceeds the hard limit: {name}");
+            assert!(
+                name.chars().count() <= 30,
+                "{code:?} group name is too long: {name}"
+            );
             assert!(!names.contains(&name), "duplicate group name: {name}");
             names.push(name);
         }
@@ -861,7 +1101,7 @@ mod tests {
     #[test]
     fn two_segments_share_feature_bundle_reports_both_by_name() {
         let g = grammar(TWO_SEGMENTS_SHARE_BUNDLE_XML);
-        let findings = check_grammar_health(&g, None);
+        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
         assert_eq!(findings.len(), 1);
         let finding = &findings[0];
         assert_eq!(finding.code, GrammarHealthCode::DuplicateFeatureBundle);
@@ -903,7 +1143,9 @@ mod tests {
     #[test]
     fn every_segment_has_distinct_feature_bundle_no_findings() {
         let g = grammar(DISTINCT_BUNDLES_XML);
-        assert!(check_grammar_health(&g, None).is_empty());
+        assert!(check_grammar_health(&g, None)
+            .expect("grammar-health checks")
+            .is_empty());
     }
 
     const ZERO_FEATURE_SYSTEM_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -928,7 +1170,9 @@ mod tests {
     fn no_phonological_feature_system_does_not_flag_trivially_identical_bundles() {
         // No `<PhonologicalFeatureSystem>` at all (the real Sena shape) -- every bundle is the same empty struct, so this must not report a duplicate.
         let g = grammar(ZERO_FEATURE_SYSTEM_XML);
-        assert!(check_grammar_health(&g, None).is_empty());
+        assert!(check_grammar_health(&g, None)
+            .expect("grammar-health checks")
+            .is_empty());
     }
 
     // --- hc-undeclared-segment -------------------------------------------------------------
@@ -963,7 +1207,9 @@ mod tests {
     #[test]
     fn clean_grammar_no_findings_at_all() {
         let g = grammar(CLEAN_LEXICON_XML);
-        assert!(check_grammar_health(&g, None).is_empty());
+        assert!(check_grammar_health(&g, None)
+            .expect("grammar-health checks")
+            .is_empty());
     }
 
     /// A hand-built `Shape` bypassing the table's own validated segmentation -- mirrors C#'s own test note that direct object-model construction need not go through it.
@@ -978,7 +1224,7 @@ mod tests {
         let mut g = grammar(CLEAN_LEXICON_XML);
         g.entries[0].allomorphs[0].shape.shape = undeclared_shape();
 
-        let findings = check_grammar_health(&g, None);
+        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, GrammarHealthCode::UndeclaredSegment);
         assert_eq!(findings[0].severity, GrammarHealthSeverity::Error);
@@ -1049,7 +1295,7 @@ mod tests {
         let mut g = grammar(AFFIX_INSERT_SEGMENTS_XML);
         *insert_segments_shape_mut(&mut g) = undeclared_shape();
 
-        let findings = check_grammar_health(&g, None);
+        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, GrammarHealthCode::UndeclaredSegment);
         assert!(findings[0].message.contains("plural"));
@@ -1111,7 +1357,7 @@ mod tests {
         }
         assert!(replaced, "fixture must contain an InsertSegments action");
 
-        let findings = check_grammar_health(&g, None);
+        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, GrammarHealthCode::UndeclaredSegment);
         assert!(findings[0].message.contains("compound1"));
@@ -1148,7 +1394,7 @@ mod tests {
     #[test]
     fn partial_lexical_entry_reports_actionable_warning() {
         let g = grammar(PARTIAL_LEX_ENTRY_XML);
-        let findings = check_grammar_health(&g, None);
+        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
         assert_eq!(findings.len(), 1);
         let finding = &findings[0];
         assert_eq!(finding.code, GrammarHealthCode::PartialMorpheme);
@@ -1261,7 +1507,7 @@ mod tests {
 </HermitCrabInput>
 "#;
         let g = grammar(XML);
-        let findings = check_grammar_health(&g, None);
+        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, GrammarHealthCode::PartialMorpheme);
         assert!(findings[0].message.contains("plural"));
@@ -1274,7 +1520,7 @@ mod tests {
     #[test]
     fn partial_template_rule_referenced_twice_reports_once() {
         let g = grammar(PARTIAL_TEMPLATE_RULE_XML);
-        let findings = check_grammar_health(&g, None);
+        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
         assert_eq!(findings.len(), 1, "referenced by two slots, reported once");
         assert_eq!(findings[0].code, GrammarHealthCode::PartialMorpheme);
         assert!(findings[0].message.contains("subject"));
@@ -1319,7 +1565,7 @@ mod tests {
     #[test]
     fn partial_morpheme_and_existing_problem_reports_both() {
         let g = grammar(PARTIAL_MORPHEME_AND_EXISTING_PROBLEM_XML);
-        let mut found = codes(&check_grammar_health(&g, None));
+        let mut found = codes(&check_grammar_health(&g, None).expect("grammar-health checks"));
         found.sort_by_key(|c| c.wire());
         let mut expected = vec![
             GrammarHealthCode::DuplicateFeatureBundle,
@@ -1332,14 +1578,13 @@ mod tests {
     // --- serialization ------------------------------------------------------------------------
 
     #[test]
-    fn findings_are_serializable() {
+    fn report_round_trips_through_the_single_decode_path() {
         let g = grammar(PARTIAL_LEX_ENTRY_XML);
-        let findings = check_grammar_health(&g, None);
-        let json = serde_json::to_string(&findings).expect("findings must serialize");
+        let report = check_grammar_health(&g, None).expect("grammar-health checks");
+        let json = report.to_json().expect("report must serialize");
         assert!(json.contains("hc-partial-morpheme"));
-        let round_tripped: Vec<GrammarHealthCheckFinding> =
-            serde_json::from_str(&json).expect("findings must deserialize");
-        assert_eq!(round_tripped, findings);
+        let round_tripped = GrammarHealthReport::from_json(&json).expect("report must decode");
+        assert_eq!(round_tripped, report);
     }
 
     #[test]
@@ -1393,7 +1638,7 @@ mod tests {
     #[test]
     fn fieldworks_guid_partial_entry_uses_its_readable_name() {
         let g = grammar(FIELDWORKS_GUID_PARTIAL_XML);
-        let findings = check_grammar_health(&g, None);
+        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
         assert_eq!(findings.len(), 1);
         assert!(matches!(
             &findings[0].subjects[..],
@@ -1404,40 +1649,36 @@ mod tests {
             .contains("f4e4b416-5a15-41e3-9039-c3cca7093153"));
     }
 
-    fn looks_like_internal_subject_label(title: &str) -> bool {
-        let lower = title.trim().to_ascii_lowercase();
-        ["mrule", "entry", "rule", "slot", "template"].iter().any(|prefix| {
-            lower
-                .strip_prefix(prefix)
-                .is_some_and(|rest| {
-                    let rest = rest.trim();
-                    !rest.is_empty() && rest.chars().all(|character| character.is_ascii_digit())
-                })
-        }) || crate::grammar_health_presentation::canonical_guid(title).is_some()
-    }
-
-    fn assert_no_blank_or_internal_subjects(findings: &[GrammarHealthCheckFinding]) {
+    fn assert_no_blank_or_internal_subjects(report: &GrammarHealthReport) {
+        let findings = report.findings();
         for finding in findings {
-            assert!(finding.is_complete(), "incomplete finding: {finding:?}");
-            assert!(!finding.group_name.trim().is_empty());
-            assert_eq!(finding.group_name, finding.code.group_name());
             assert!(!finding.message.trim().is_empty());
             assert!(!finding.code.wire().is_empty());
             for subject in &finding.subjects {
                 assert!(!subject.kind.label().is_empty());
                 assert!(!subject.title.trim().is_empty());
-                assert!(!subject.where_text().trim().is_empty());
-                assert!(!looks_like_internal_subject_label(&subject.title));
+                assert!(!subject.render_location(false).trim().is_empty());
+                assert!(!is_internal_subject_label(&subject.title));
             }
             let json = serde_json::to_value(finding).expect("finding serializes");
-            assert!(json["severity"].as_str().is_some_and(|value| !value.is_empty()));
-            assert!(json["group_name"].as_str().is_some_and(|value| !value.trim().is_empty()));
-            assert!(json["problem"].as_str().is_some_and(|value| !value.is_empty()));
-            let subjects = json["subjects"].as_array().expect("subjects serialize as an array");
+            assert!(json["severity"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty()));
+            assert_eq!(json["group_name"], finding.code.group_name());
+            assert!(json["problem"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty()));
+            let subjects = json["subjects"]
+                .as_array()
+                .expect("subjects serialize as an array");
             assert!(!subjects.is_empty());
             for subject in subjects {
-                assert!(subject["kind"].as_str().is_some_and(|value| !value.is_empty()));
-                assert!(subject["title"].as_str().is_some_and(|value| !value.trim().is_empty()));
+                assert!(subject["kind"]
+                    .as_str()
+                    .is_some_and(|value| !value.is_empty()));
+                assert!(subject["title"]
+                    .as_str()
+                    .is_some_and(|value| !value.trim().is_empty()));
             }
         }
     }
@@ -1447,40 +1688,57 @@ mod tests {
         let incomplete = GrammarHealthCheckFinding {
             severity: GrammarHealthSeverity::Warning,
             code: GrammarHealthCode::PartialMorpheme,
-            group_name: GrammarHealthCode::PartialMorpheme.group_name().to_string(),
-            message: String::new(),
+            message: "incomplete".to_string(),
             subjects: Vec::new(),
         };
-        let mut findings = check_grammar_health(&grammar(PARTIAL_LEX_ENTRY_XML), None);
-        findings.push(incomplete);
-
-        let error = render_json(&findings).expect_err("incomplete findings must fail the report");
-        let error = error.to_string();
-        assert!(error.contains("hc-partial-morpheme"), "{error}");
-        assert!(error.contains("finding 1"), "{error}");
-        assert!(error.contains("message"), "{error}");
+        let error = GrammarHealthReport::new(vec![incomplete])
+            .expect_err("incomplete findings must fail report construction");
+        assert_eq!(error.code, GrammarHealthReportErrorCode::MissingSubjects);
+        assert_eq!(error.finding_index, Some(0));
+        assert_eq!(error.field.as_deref(), Some("subjects"));
     }
 
     #[test]
-    fn log_renderer_rejects_the_same_incomplete_finding() {
-        let incomplete = GrammarHealthCheckFinding {
-            severity: GrammarHealthSeverity::Warning,
-            code: GrammarHealthCode::PartialMorpheme,
-            group_name: GrammarHealthCode::PartialMorpheme.group_name().to_string(),
-            message: String::new(),
-            subjects: Vec::new(),
-        };
-        let error =
-            render_log(&[incomplete], false).expect_err("incomplete findings must fail the log");
-        assert!(error.to_string().contains("hc-partial-morpheme"));
-        assert!(error.to_string().contains("message"));
+    fn validated_empty_report_renders_lossless_log() {
+        let report = GrammarHealthReport::new(Vec::new()).expect("empty report is valid");
+        assert_eq!(
+            render_log(&report, false),
+            ""
+        );
     }
 
     #[test]
     fn an_empty_report_remains_valid() {
-        assert_eq!(render_log(&[], false).expect("empty log renders"), "");
-        let json = render_json(&[]).expect("empty report serializes");
-        assert!(json.contains("\"findings\": []"));
+        let report = GrammarHealthReport::new(Vec::new()).expect("empty report is valid");
+        assert_eq!(render_log(&report, false), "");
+        let json = render_json(&report).expect("empty report serializes");
+        let report: serde_json::Value = serde_json::from_str(&json).expect("versioned report");
+        assert_eq!(report["schema_version"], GRAMMAR_HEALTH_SCHEMA_VERSION);
+        assert_eq!(report["findings"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn every_code_variant_occurs_once_in_all() {
+        assert_eq!(GrammarHealthCode::ALL.len(), 3);
+        for code in [
+            GrammarHealthCode::UndeclaredSegment,
+            GrammarHealthCode::DuplicateFeatureBundle,
+            GrammarHealthCode::PartialMorpheme,
+        ] {
+            assert_eq!(
+                GrammarHealthCode::ALL
+                    .iter()
+                    .filter(|candidate| **candidate == code)
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn internal_hash_identifiers_are_not_accepted_as_human_titles() {
+        assert!(is_internal_subject_label("mrule#18"));
+        assert!(is_internal_subject_label("lex_entry#4:entry"));
     }
 
     #[test]
@@ -1489,49 +1747,44 @@ mod tests {
             "schema_version": 99,
             "findings": [],
         });
-        let error = serde_json::from_value::<GrammarHealthJsonReport>(json)
+        let error = GrammarHealthReport::from_json(&json.to_string())
             .expect_err("unsupported schema versions must be rejected");
-        assert!(error.to_string().contains("schema version 99"));
-        assert!(error.to_string().contains("expected 1"));
+        assert_eq!(
+            error.code,
+            GrammarHealthReportErrorCode::UnsupportedSchemaVersion
+        );
+        assert_eq!(error.field.as_deref(), Some("schema_version"));
     }
 
     #[test]
     fn direct_report_decode_rejects_both_fieldworks_link_states() {
         let grammar = grammar(FIELDWORKS_GUID_PARTIAL_XML);
-        let finding = check_grammar_health(&grammar, None)
-            .into_iter()
+        let source_report = check_grammar_health(&grammar, None).expect("grammar-health checks");
+        let finding = source_report
+            .findings()
+            .iter()
             .next()
             .expect("fixture has a finding");
-        let report = GrammarHealthJsonReport {
-            schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
-            findings: vec![finding],
-        };
+        let report = GrammarHealthReport::new(vec![finding.clone()]).expect("report validates");
         let mut json = serde_json::to_value(&report).expect("report serializes");
-        json["findings"][0]["subjects"][0]["fieldworks"]["url"] =
-            serde_json::Value::String("silfw://invalid".to_string());
-        let error = serde_json::from_value::<GrammarHealthJsonReport>(json)
-            .expect_err("both link states must be rejected");
-        assert!(error.to_string().contains("fieldworks"));
-        assert!(error.to_string().contains("either url or url_unavailable"));
-    }
-
-    #[test]
-    fn canonical_decoder_rejects_the_previous_bare_array_shape() {
-        let error = GrammarHealthJsonReport::from_json("[]")
-            .expect_err("bare findings arrays are not the versioned report");
-        assert!(error.to_string().contains("bare findings arrays"));
+        json["findings"][0]["subjects"][0]["fieldworks"] = serde_json::json!({
+            "status": "available",
+            "guid": "invalid",
+            "tool": "lexiconEdit",
+            "url": "silfw://invalid"
+        });
+        let error = GrammarHealthReport::from_json(&json.to_string())
+            .expect_err("invalid link state must be rejected");
+        assert_eq!(error.field.as_deref(), Some("fieldworks.guid"));
     }
 
     #[test]
     fn canonical_report_round_trips_without_changing_consumer_values() {
-        let findings = check_grammar_health(&grammar(FIELDWORKS_GUID_PARTIAL_XML), None);
-        let original = GrammarHealthJsonReport {
-            schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
-            findings,
-        };
+        let findings = check_grammar_health(&grammar(FIELDWORKS_GUID_PARTIAL_XML), None)
+            .expect("grammar-health checks");
+        let original = findings;
         let json = original.to_json().expect("canonical report serializes");
-        let decoded =
-            GrammarHealthJsonReport::from_json(&json).expect("canonical report deserializes");
+        let decoded = GrammarHealthReport::from_json(&json).expect("canonical report decodes");
         assert_eq!(decoded, original);
     }
 
@@ -1546,13 +1799,21 @@ mod tests {
                 shape.shape = undeclared_shape();
             }
         }
-        let compounding_findings = check_grammar_health(&compounding_grammar, None);
+        let compounding_findings =
+            check_grammar_health(&compounding_grammar, Some("FieldWorks Demo"))
+                .expect("grammar-health checks");
         let compounding_subject = compounding_findings
             .iter()
             .flat_map(|finding| &finding.subjects)
             .find(|subject| subject.kind == GrammarHealthSubjectKind::MorphRule)
             .expect("compounding finding names its rule");
-        assert_eq!(compounding_subject.fieldworks.tool, "compoundRuleAdvancedEdit");
+        assert!(matches!(
+            compounding_subject.fieldworks,
+            FieldWorksLink::Unavailable {
+                reason: FieldWorksUnavailableReason::MissingGuid,
+                ..
+            }
+        ));
         for xml in [
             TWO_SEGMENTS_SHARE_BUNDLE_XML,
             DISTINCT_BUNDLES_XML,
@@ -1565,56 +1826,337 @@ mod tests {
             PARTIAL_MORPHEME_AND_EXISTING_PROBLEM_XML,
             FIELDWORKS_GUID_PARTIAL_XML,
         ] {
-            let findings = check_grammar_health(&grammar(xml), None);
+            let findings =
+                check_grammar_health(&grammar(xml), None).expect("grammar-health checks");
             assert_no_blank_or_internal_subjects(&findings);
         }
     }
 
     #[test]
     fn log_and_json_render_the_same_guid_fixture_with_explicit_link_state() {
-        let g = grammar(FIELDWORKS_GUID_PARTIAL_XML);
-        let with_project = check_grammar_health(&g, Some("FieldWorks Demo"));
+        let mut g = grammar(FIELDWORKS_GUID_PARTIAL_XML);
+        let allomorph_id = g.entries[0].allomorphs[0].id.0 as usize;
+        g.allomorph_sources[allomorph_id].form_guids =
+            vec![Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string())];
+        let with_project =
+            check_grammar_health(&g, Some("FieldWorks Demo")).expect("grammar-health checks");
         assert_no_blank_or_internal_subjects(&with_project);
         let subject = &with_project[0].subjects[0];
         assert_eq!(subject.title, "a - walk");
-        assert_eq!(subject.fieldworks.guid.as_deref(), Some("f4e4b416-5a15-41e3-9039-c3cca7093153"));
-        assert_eq!(subject.fieldworks.tool, "lexiconEdit");
-        let url = subject.fieldworks.url.as_deref().expect("project makes a link");
+        let FieldWorksLink::Available { guid, tool, url } = &subject.fieldworks else {
+            panic!("provenance-backed lexical subject should have a link");
+        };
+        assert_eq!(guid, "f4e4b416-5a15-41e3-9039-c3cca7093153");
+        assert_eq!(tool, "lexiconEdit");
         assert!(url.contains("database%3DFieldWorks+Demo%26tool%3DlexiconEdit%26guid%3Df4e4b416-5a15-41e3-9039-c3cca7093153%26tag%3D"));
         assert!(!url.contains("&tool="));
         assert!(!url.contains("&guid="));
 
-        let log = render_log(&with_project, false).expect("complete findings render");
+        let log = render_log(&with_project, false);
         assert_eq!(log.lines().count(), with_project.len());
         assert!(log.lines().all(|line| !line.trim().is_empty()));
         assert!(log.contains("a - walk"));
         assert!(log.contains("Partial morpheme analysis"));
-        assert!(!log.contains("f4e4b416-5a15-41e3-9039-c3cca7093153"));
+        assert!(log.contains(url));
         assert!(!log.contains("entry0"));
-        let log_with_guids = render_log(&with_project, true).expect("complete findings render");
+        let log_with_guids = render_log(&with_project, true);
         assert!(log_with_guids.contains("a - walk [guid f4e4b416-5a15-41e3-9039-c3cca7093153]"));
         assert!(!log_with_guids.contains("entry0"));
 
         let json = render_json(&with_project).expect("structured findings serialize");
         assert!(json.contains("\"schema_version\": 1"));
         assert!(json.contains("\"group_name\": \"Partial morpheme analysis\""));
-        assert!(json.contains("silfw://localhost/link?database%3DFieldWorks+Demo%26tool%3DlexiconEdit"));
+        assert!(
+            json.contains("silfw://localhost/link?database%3DFieldWorks+Demo%26tool%3DlexiconEdit")
+        );
         assert!(json.contains("\"internal_id\""));
 
-        let without_project = check_grammar_health(&g, None);
+        let without_project = check_grammar_health(&g, None).expect("grammar-health checks");
         let no_link = &without_project[0].subjects[0].fieldworks;
-        assert!(no_link.url.is_none());
-        assert_eq!(
-            no_link.url_unavailable.as_deref(),
-            Some("no FieldWorks project name supplied")
-        );
+        assert!(matches!(
+            no_link,
+            FieldWorksLink::Unavailable {
+                reason: FieldWorksUnavailableReason::MissingProject,
+                guid: Some(_),
+            }
+        ));
         let no_project_json = render_json(&without_project).expect("structured findings serialize");
-        assert!(no_project_json.contains("no FieldWorks project name supplied"));
+        assert!(no_project_json.contains("missing_project"));
+        assert!(no_project_json.contains("f4e4b416-5a15-41e3-9039-c3cca7093153"));
         assert!(!no_project_json.contains("silfw://localhost/link?database="));
 
-        let no_guid_findings = check_grammar_health(&grammar(TWO_SEGMENTS_SHARE_BUNDLE_XML), Some("FieldWorks Demo"));
-        let no_guid_log = render_log(&no_guid_findings, true).expect("complete findings render");
+        let no_guid_findings = check_grammar_health(
+            &grammar(TWO_SEGMENTS_SHARE_BUNDLE_XML),
+            Some("FieldWorks Demo"),
+        )
+        .expect("grammar-health checks");
+        let no_guid_log = render_log(&no_guid_findings, true);
+        assert!(no_guid_log.contains("source item has no FieldWorks GUID"));
         assert!(no_guid_log.contains("[guid unavailable]"));
-        assert!(!no_guid_log.contains("[guid ]"));
+    }
+
+    #[test]
+    fn log_rendering_keeps_subject_context_and_navigation_state() {
+        let duplicate = check_grammar_health(
+            &grammar(TWO_SEGMENTS_SHARE_BUNDLE_XML),
+            Some("FieldWorks Demo"),
+        )
+        .expect("duplicate fixture checks");
+        let log = render_log(&duplicate, false);
+        assert!(log.contains("in table1"), "{log}");
+        assert!(log.contains("FieldWorks link unavailable:"), "{log}");
+        assert!(log.contains("source item has no FieldWorks GUID"), "{log}");
+    }
+
+    #[test]
+    fn partial_warning_subjects_match_canonical_facts_in_both_directions() {
+        for xml in [PARTIAL_MORPHEME_AND_EXISTING_PROBLEM_XML, PARTIAL_TEMPLATE_RULE_XML] {
+            assert_partial_subjects_match_facts(&grammar(xml));
+        }
+    }
+
+    fn assert_partial_subjects_match_facts(g: &Grammar) {
+        let facts = g.partial_morpheme_facts().expect("valid partial facts");
+        assert!(facts.has_partials(), "fixture must declare a partial morpheme");
+        let findings = check_grammar_health(g, None).expect("grammar-health checks");
+        let mut warning_subjects = findings
+            .iter()
+            .filter(|finding| finding.code == GrammarHealthCode::PartialMorpheme)
+            .flat_map(|finding| finding.subjects.iter())
+            .map(|subject| {
+                (
+                    subject.kind,
+                    subject.title.clone(),
+                    subject.internal_id.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut fact_subjects = facts
+            .identities()
+            .map(|identity| match identity {
+                PartialMorphemeIdentity::LexicalEntry {
+                    display_name,
+                    internal_id,
+                    ..
+                } => (
+                    GrammarHealthSubjectKind::LexEntry,
+                    display_name.clone(),
+                    internal_id.clone(),
+                ),
+                PartialMorphemeIdentity::MorphologicalRule {
+                    display_name,
+                    internal_id,
+                    ..
+                } => (
+                    GrammarHealthSubjectKind::MorphRule,
+                    display_name.clone(),
+                    internal_id.clone(),
+                ),
+            })
+            .collect::<Vec<_>>();
+        let sort_subjects = |subjects: &mut Vec<(GrammarHealthSubjectKind, String, String)>| {
+            subjects.sort_by(|left, right| {
+                left.1
+                    .cmp(&right.1)
+                    .then_with(|| left.2.cmp(&right.2))
+                    .then_with(|| left.0.label().cmp(right.0.label()))
+            });
+        };
+        sort_subjects(&mut warning_subjects);
+        sort_subjects(&mut fact_subjects);
+        assert_eq!(warning_subjects, fact_subjects);
+        for (_, _, internal_id) in &warning_subjects {
+            assert_eq!(internal_id.matches('#').count(), 1, "{internal_id}");
+        }
+    }
+
+    #[test]
+    fn rule_subject_internal_id_is_the_canonical_model_id() {
+        let g = grammar(AFFIX_INSERT_SEGMENTS_XML);
+        let subject = morph_rule_subject(&g, None, MRuleId(0)).expect("rule subject");
+        assert_eq!(
+            subject.internal_id,
+            g.morph_rule_internal_id(MRuleId(0)).expect("model id")
+        );
+        assert!(subject.internal_id.starts_with("morph_rule#0"), "{}", subject.internal_id);
+        assert_eq!(subject.internal_id.matches('#').count(), 1, "{}", subject.internal_id);
+    }
+
+    #[test]
+    fn partial_fact_failure_is_propagated_instead_of_admitted() {
+        let mut g = grammar(PARTIAL_TEMPLATE_RULE_XML);
+        let MorphRuleDef::AffixProcess(def) = &mut g.mrules[0] else {
+            panic!("fixture must contain an affix-process rule");
+        };
+        def.morpheme = crate::model::MorphemeId(u32::MAX);
+        let error = check_grammar_health(&g, None).expect_err("invalid partial facts must fail");
+        assert!(error.to_string().contains("unknown morpheme"), "{error}");
+    }
+
+    #[test]
+    fn invalid_subject_references_return_named_errors_instead_of_panicking() {
+        let mut lexical = grammar(FIELDWORKS_GUID_PARTIAL_XML);
+        lexical.entries[0].morpheme = crate::model::MorphemeId(u32::MAX);
+        let error = lex_entry_subject(&lexical, None, LexEntryId(0))
+            .expect_err("invalid lexical subject reference must fail");
+        assert!(
+            error.to_string().contains("morpheme id 4294967295"),
+            "{error}"
+        );
+
+        let mut rule = grammar(AFFIX_INSERT_SEGMENTS_XML);
+        let MorphRuleDef::AffixProcess(def) = &mut rule.mrules[0] else {
+            panic!("fixture must contain an affix-process rule");
+        };
+        def.morpheme = crate::model::MorphemeId(u32::MAX);
+        let error = morph_rule_subject(&rule, None, MRuleId(0))
+            .expect_err("invalid morphological subject reference must fail");
+        assert!(
+            error.to_string().contains("morpheme id 4294967295"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn fieldworks_navigation_has_exact_supported_and_unavailable_states() {
+        // Proof citations: FieldWorks/Src/xWorks/FwLinkArgs.cs; RecordClerk.cs:1036, 998-1016; RecordList.cs:3435.
+        let mut lexical_grammar = grammar(FIELDWORKS_GUID_PARTIAL_XML);
+        let allomorph_id = lexical_grammar.entries[0].allomorphs[0].id.0 as usize;
+        lexical_grammar.allomorph_sources[allomorph_id].form_guids =
+            vec![Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string())];
+        let lexical =
+            check_grammar_health(&lexical_grammar, Some("Demo")).expect("lexical fixture checks");
+        let lexical = &lexical[0].subjects[0].fieldworks;
+        assert!(matches!(
+            lexical,
+            FieldWorksLink::Available { guid, tool, url }
+                if guid == "f4e4b416-5a15-41e3-9039-c3cca7093153"
+                    && tool == "lexiconEdit"
+                    && url == "silfw://localhost/link?database%3DDemo%26tool%3DlexiconEdit%26guid%3Df4e4b416-5a15-41e3-9039-c3cca7093153%26tag%3D"
+        ));
+
+        let mut affix = grammar(AFFIX_INSERT_SEGMENTS_XML);
+        *insert_segments_shape_mut(&mut affix) = undeclared_shape();
+        let MorphRuleDef::AffixProcess(def) = &affix.mrules[0] else {
+            panic!("affix fixture checks");
+        };
+        affix.morphemes[def.morpheme.0 as usize].source_msa_guid =
+            Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".to_string());
+        let affix = check_grammar_health(&affix, Some("Demo")).expect("affix fixture checks");
+        let affix = affix[0]
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == GrammarHealthSubjectKind::MorphRule)
+            .expect("affix subject")
+            .fieldworks
+            .clone();
+        assert!(matches!(
+            affix,
+            FieldWorksLink::Available { guid, tool, url }
+                if guid == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+                    && tool == "lexiconEdit"
+                    && url.contains("tool%3DlexiconEdit")
+        ));
+
+        let mut infl_type = grammar(AFFIX_INSERT_SEGMENTS_XML);
+        *insert_segments_shape_mut(&mut infl_type) = undeclared_shape();
+        let MorphRuleDef::AffixProcess(def) = &infl_type.mrules[0] else {
+            panic!("infl-type fixture checks");
+        };
+        let info = &mut infl_type.morphemes[def.morpheme.0 as usize];
+        info.source_msa_guid = None;
+        info.source_infl_type_guid = Some("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".to_string());
+        let infl_type =
+            check_grammar_health(&infl_type, Some("Demo")).expect("infl-type fixture checks");
+        let infl_type = infl_type[0]
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == GrammarHealthSubjectKind::MorphRule)
+            .expect("infl-type subject")
+            .fieldworks
+            .clone();
+        assert!(matches!(
+            infl_type,
+            FieldWorksLink::Unavailable {
+                reason: FieldWorksUnavailableReason::UnverifiedGuidKind,
+                guid: Some(guid),
+            } if guid == "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        ));
+
+        let mut compound = grammar(COMPOUNDING_INSERT_SEGMENTS_XML);
+        let MorphRuleDef::Compounding(def) = &mut compound.mrules[0] else {
+            panic!("fixture must contain a compounding rule");
+        };
+        for action in &mut def.subrules[0].rhs {
+            if let OutputAction::InsertSegments { shape, .. } = action {
+                shape.shape = undeclared_shape();
+            }
+        }
+        let compound =
+            check_grammar_health(&compound, Some("Demo")).expect("compound fixture checks");
+        let compound = compound[0]
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == GrammarHealthSubjectKind::MorphRule)
+            .expect("compound subject")
+            .fieldworks
+            .clone();
+        assert!(matches!(
+            compound,
+            FieldWorksLink::Unavailable {
+                reason: FieldWorksUnavailableReason::MissingGuid,
+                ..
+            }
+        ));
+
+        let duplicate = check_grammar_health(&grammar(TWO_SEGMENTS_SHARE_BUNDLE_XML), Some("Demo"))
+            .expect("table fixture checks");
+        for kind in [
+            GrammarHealthSubjectKind::Table,
+            GrammarHealthSubjectKind::CharDef,
+        ] {
+            let link = duplicate[0]
+                .subjects
+                .iter()
+                .find(|subject| subject.kind == kind)
+                .expect("character-definition subject")
+                .fieldworks
+                .clone();
+            assert!(matches!(
+                link,
+                FieldWorksLink::Unavailable {
+                    reason: FieldWorksUnavailableReason::MissingGuid,
+                    ..
+                }
+            ));
+        }
+    }
+
+    #[test]
+    fn report_constructor_owns_validation_and_renderers_accept_only_reports() {
+        let finding = GrammarHealthCheckFinding {
+            severity: GrammarHealthSeverity::Warning,
+            code: GrammarHealthCode::PartialMorpheme,
+            message: "partial".to_string(),
+            subjects: vec![],
+        };
+        let error =
+            GrammarHealthReport::new(vec![finding]).expect_err("empty subjects are invalid");
+        assert_eq!(error.code, GrammarHealthReportErrorCode::MissingSubjects);
+        assert_eq!(error.finding_index, Some(0));
+        assert_eq!(error.field.as_deref(), Some("subjects"));
+    }
+
+    #[test]
+    fn authored_xml_guid_shape_does_not_create_a_fieldworks_link() {
+        let report = check_grammar_health(&grammar(FIELDWORKS_GUID_PARTIAL_XML), Some("Demo"))
+            .expect("grammar-health checks");
+        assert!(matches!(
+            &report.findings()[0].subjects[0].fieldworks,
+            FieldWorksLink::Unavailable {
+                reason: FieldWorksUnavailableReason::MissingGuid,
+                ..
+            }
+        ));
     }
 }

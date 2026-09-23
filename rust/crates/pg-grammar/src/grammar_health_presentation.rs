@@ -1,7 +1,19 @@
-use crate::grammar_health::{
-    FieldWorksLink, GrammarHealthCheckFinding, GrammarHealthSubjectKind,
-};
-use crate::model::{Grammar, MRuleId, MorphRuleDef};
+use crate::grammar_health::{FieldWorksLink, FieldWorksUnavailableReason};
+use crate::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
+
+pub(crate) enum FieldWorksSource {
+    Table,
+    CharDef,
+    LexEntry(LexEntryId),
+    MorphRule(MRuleId),
+}
+
+#[derive(Clone, Copy)]
+enum FieldWorksGuidKind {
+    MoForm,
+    Msa,
+    InflType,
+}
 
 pub(crate) fn canonical_guid(source_id: &str) -> Option<String> {
     let bytes = source_id.as_bytes();
@@ -20,39 +32,71 @@ pub(crate) fn canonical_guid(source_id: &str) -> Option<String> {
     Some(source_id.to_ascii_lowercase())
 }
 
-fn tool_for_kind(kind: GrammarHealthSubjectKind) -> &'static str {
-    match kind {
-        GrammarHealthSubjectKind::Table => "phonologicalFeaturesAdvancedEdit",
-        GrammarHealthSubjectKind::CharDef => "phonemeEdit",
-        GrammarHealthSubjectKind::LexEntry => "lexiconEdit",
-        GrammarHealthSubjectKind::MorphRule => "lexiconEdit",
+fn source_guid<'a>(
+    grammar: &'a Grammar,
+    source: &FieldWorksSource,
+) -> Option<(&'a str, FieldWorksGuidKind)> {
+    match source {
+        FieldWorksSource::Table | FieldWorksSource::CharDef => None,
+        FieldWorksSource::LexEntry(id) => grammar
+            .entries
+            .get(id.0 as usize)?
+            .allomorphs
+            .iter()
+            .flat_map(|allomorph| {
+                grammar
+                    .allomorph_sources
+                    .get(allomorph.id.0 as usize)
+                    .into_iter()
+                    .flat_map(|source| source.form_guids.iter())
+            })
+            .flatten()
+            .next()
+            .map(|guid| (guid.as_str(), FieldWorksGuidKind::MoForm)),
+        FieldWorksSource::MorphRule(id) => match grammar.mrules.get(id.0 as usize)? {
+            MorphRuleDef::AffixProcess(def) => grammar
+                .morphemes
+                .get(def.morpheme.0 as usize)
+                .and_then(|info| {
+                    info.source_msa_guid
+                        .as_deref()
+                        .map(|guid| (guid, FieldWorksGuidKind::Msa))
+                        .or_else(|| {
+                            info.source_infl_type_guid
+                                .as_deref()
+                                .map(|guid| (guid, FieldWorksGuidKind::InflType))
+                        })
+                }),
+            MorphRuleDef::Realizational(def) => grammar
+                .morphemes
+                .get(def.morpheme.0 as usize)
+                .and_then(|info| {
+                    info.source_msa_guid
+                        .as_deref()
+                        .map(|guid| (guid, FieldWorksGuidKind::Msa))
+                        .or_else(|| {
+                            info.source_infl_type_guid
+                                .as_deref()
+                                .map(|guid| (guid, FieldWorksGuidKind::InflType))
+                        })
+                }),
+            MorphRuleDef::Compounding(_) => None,
+        },
     }
 }
 
-pub(crate) fn subject_link(kind: GrammarHealthSubjectKind, source_id: &str) -> FieldWorksLink {
-    FieldWorksLink {
-        guid: canonical_guid(source_id),
-        tool: tool_for_kind(kind).to_string(),
-        url: None,
-        url_unavailable: None,
+fn verified_tool(source: &FieldWorksSource) -> Option<&'static str> {
+    match source {
+        // FieldWorks: DistFiles/Language Explorer/Configuration/Lexicon/Edit/toolConfiguration.xml:6.
+        FieldWorksSource::LexEntry(_) => Some("lexiconEdit"),
+        // FieldWorks: DistFiles/Language Explorer/Configuration/Lexicon/Edit/toolConfiguration.xml:6.
+        FieldWorksSource::MorphRule(_) => Some("lexiconEdit"),
+        FieldWorksSource::Table | FieldWorksSource::CharDef => None,
     }
 }
 
-pub(crate) fn morph_rule_link(
-    grammar: &Grammar,
-    id: MRuleId,
-    source_id: &str,
-) -> FieldWorksLink {
-    let tool = match &grammar.mrules[id.0 as usize] {
-        MorphRuleDef::Compounding(_) => "compoundRuleAdvancedEdit",
-        MorphRuleDef::AffixProcess(_) | MorphRuleDef::Realizational(_) => "lexiconEdit",
-    };
-    FieldWorksLink {
-        guid: canonical_guid(source_id),
-        tool: tool.to_string(),
-        url: None,
-        url_unavailable: None,
-    }
+fn verified_guid_kind(kind: FieldWorksGuidKind) -> bool {
+    matches!(kind, FieldWorksGuidKind::MoForm | FieldWorksGuidKind::Msa)
 }
 
 fn encode_query(value: &str) -> String {
@@ -69,39 +113,50 @@ fn encode_query(value: &str) -> String {
         .collect()
 }
 
-fn prepared_link(link: &FieldWorksLink, fieldworks_project: Option<&str>) -> FieldWorksLink {
-    let project = fieldworks_project
-        .map(str::trim)
-        .filter(|project| !project.is_empty());
-    let (url, url_unavailable) = match (project, link.guid.as_deref()) {
-        (None, _) => (None, Some("no FieldWorks project name supplied".to_string())),
-        (Some(_), None) => (None, Some("source item has no FieldWorks GUID".to_string())),
-        (Some(project), Some(guid)) => (
-            Some({
-                let query = format!(
-                    "database={project}&tool={}&guid={guid}&tag=",
-                    link.tool
-                );
-                format!("silfw://localhost/link?{}", encode_query(&query))
-            }),
-            None,
-        ),
-    };
-    FieldWorksLink {
-        guid: link.guid.clone(),
-        tool: link.tool.clone(),
-        url,
-        url_unavailable,
-    }
-}
-
-pub(crate) fn prepare_report(
-    findings: &mut [GrammarHealthCheckFinding],
+/// Build complete navigation state before a subject enters a report.
+pub(crate) fn fieldworks_link(
+    grammar: &Grammar,
+    source: FieldWorksSource,
     fieldworks_project: Option<&str>,
-) {
-    for finding in findings {
-        for subject in &mut finding.subjects {
-            subject.fieldworks = prepared_link(&subject.fieldworks, fieldworks_project);
-        }
+) -> FieldWorksLink {
+    let Some((raw_guid, guid_kind)) = source_guid(grammar, &source) else {
+        return FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::MissingGuid,
+            guid: None,
+        };
+    };
+    let Some(guid) = canonical_guid(raw_guid) else {
+        return FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::InvalidGuid,
+            guid: None,
+        };
+    };
+    let Some(tool) = verified_tool(&source) else {
+        return FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::UnverifiedTool,
+            guid: Some(guid),
+        };
+    };
+    let Some(project) = fieldworks_project
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::MissingProject,
+            guid: Some(guid),
+        };
+    };
+    if !verified_guid_kind(guid_kind) {
+        return FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::UnverifiedGuidKind,
+            guid: Some(guid),
+        };
+    }
+    let query = format!("database={project}&tool={tool}&guid={guid}&tag=");
+    let url = format!("silfw://localhost/link?{}", encode_query(&query));
+    FieldWorksLink::Available {
+        guid,
+        tool: tool.to_string(),
+        url,
     }
 }

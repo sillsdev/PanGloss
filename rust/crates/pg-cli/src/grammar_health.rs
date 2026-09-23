@@ -5,21 +5,17 @@
 //! different questions (grammar authoring correctness vs. FST compilation/production readiness),
 //! and `fst-health`'s JSON is a versioned wire shape (`pg_health::HEALTH_SCHEMA_VERSION`) read by
 //! `pg-pack`/`pg-wasm` -- folding a second vocabulary into it would need a version bump for a
-//! question those readers never asked. This command emits a versioned structured JSON report and a plain-text log,
-//! mirroring the C# checker's `IList<GrammarHealthCheckFinding>` return shape exactly.
-//!
-//! Diagnostic only: this command always exits 0, even when findings are reported. It is not a
-//! build gate -- the caller decides what to do with the findings.
+//! question those readers never asked. This command emits one versioned structured report and a
+//! lossless plain-text log.
 
 use std::fs;
 
 use pg_grammar::grammar_health::{
-    check_grammar_health, render_json, render_log, GrammarHealthCheckFinding,
-    GrammarHealthSeverity,
+    check_grammar_health, render_json, render_log, GrammarHealthCheckFinding, GrammarHealthSeverity,
 };
 
 /// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`; `<out.json>` omitted prints the findings as a
-/// versioned JSON report to stdout instead of a file. Findings are also logged one per line on stderr.
+/// versioned report to stdout instead of a file. Findings are also logged one per line on stderr.
 pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
     let mut positionals = Vec::new();
     let mut fieldworks_project = None;
@@ -72,9 +68,10 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     crate::print_grammar_warnings(&warnings);
 
-    let findings = check_grammar_health(&grammar, fieldworks_project);
-    let json = render_json(&findings)
-        .map_err(|e| format!("serialize grammar health findings: {e}"))?;
+    let report = check_grammar_health(&grammar, fieldworks_project)
+        .map_err(|error| format!("run grammar health checks: {error}"))?;
+    let json =
+        render_json(&report).map_err(|e| format!("serialize grammar health findings: {e}"))?;
 
     match out_path {
         Some(path) => {
@@ -83,15 +80,14 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
         None => println!("{json}"),
     }
 
-    let log = render_log(&findings, log_guids)
-        .map_err(|e| format!("render grammar health log: {e}"))?;
+    let log = render_log(&report, log_guids);
     if !log.is_empty() {
         eprintln!("{log}");
     }
     eprintln!(
         "grammar-health complete: {} finding(s) ({})",
-        findings.len(),
-        render_severity_counts(&findings),
+        report.len(),
+        render_severity_counts(report.findings()),
     );
     Ok(())
 }
@@ -172,28 +168,62 @@ mod tests {
     }
 
     #[test]
-    fn clean_grammar_serializes_to_an_empty_json_array() {
+    fn clean_grammar_serializes_to_an_empty_versioned_report() {
         let g = grammar(CLEAN_GRAMMAR_XML);
-        let findings = check_grammar_health(&g, None);
-        assert!(findings.is_empty());
-        let json = render_json(&findings).expect("empty findings serialize");
-        assert!(json.contains("schema_version"));
-        assert!(json.contains("\"findings\": []"));
-        assert_eq!(
-            render_severity_counts(&findings),
-            "0 error(s), 0 warning(s)"
-        );
+        let report = check_grammar_health(&g, None).expect("clean grammar checks");
+        assert!(report.is_empty());
+        let json = render_json(&report).expect("empty findings serialize");
+        let report_value: serde_json::Value =
+            serde_json::from_str(&json).expect("versioned report");
+        assert_eq!(report_value["schema_version"], 1);
+        assert!(report_value["findings"].is_array());
+        assert_eq!(render_severity_counts(&report), "0 error(s), 0 warning(s)");
+    }
+
+    #[test]
+    fn json_is_versioned_by_default() {
+        let g = grammar(CLEAN_GRAMMAR_XML);
+        let report = check_grammar_health(&g, None).expect("clean grammar checks");
+        let json = render_json(&report).expect("structured findings serialize");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("structured JSON");
+        assert_eq!(value["schema_version"], 1);
+        assert!(value["findings"].is_array());
+    }
+
+    #[test]
+    fn command_emits_versioned_json_by_default() {
+        let grammar_path = std::env::temp_dir().join(format!(
+            "pangloss-grammar-health-{}-input.xml",
+            std::process::id()
+        ));
+        let output_path = grammar_path.with_extension("json");
+        fs::write(&grammar_path, PARTIAL_ENTRY_GRAMMAR_XML).expect("write grammar fixture");
+
+        run_grammar_health(&[
+            grammar_path.to_string_lossy().into_owned(),
+            output_path.to_string_lossy().into_owned(),
+        ])
+        .expect("grammar-health command");
+        let report: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
+                .expect("structured JSON");
+        assert_eq!(report["schema_version"], 1);
+        assert!(report["findings"].is_array());
+        assert_eq!(report["findings"].as_array().unwrap().len(), 1);
+
+        let _ = fs::remove_file(grammar_path);
+        let _ = fs::remove_file(output_path);
     }
 
     #[test]
     fn partial_entry_grammar_reports_one_warning_naming_its_code() {
         let g = grammar(PARTIAL_ENTRY_GRAMMAR_XML);
-        let findings = check_grammar_health(&g, None);
-        assert_eq!(findings.len(), 1);
-        let json = render_json(&findings).expect("findings serialize");
+        let report = check_grammar_health(&g, None).expect("partial grammar checks");
+        assert_eq!(report.len(), 1);
+        let json = render_json(&report).expect("findings serialize");
         assert!(json.contains("hc-partial-morpheme"));
         assert_eq!(
-            render_severity_counts(&findings),
+            render_severity_counts(report.findings()),
             "0 error(s), 1 warning(s)"
         );
     }
