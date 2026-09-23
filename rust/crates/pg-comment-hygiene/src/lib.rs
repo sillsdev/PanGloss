@@ -576,7 +576,7 @@ fn has_claim_and_ident(line: &str) -> bool {
     let claim_match = claim.is_match(line)
         || unreachable
             .find_iter(line)
-            .any(|m| line[m.end()..].chars().next() != Some('!'));
+            .any(|m| !line[m.end()..].starts_with('!'));
     claim_match
         && IDENT
             .get_or_init(|| regex(r"\x60[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z0-9_]+)*(?:\(\))?\x60"))
