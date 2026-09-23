@@ -10,15 +10,27 @@ fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// `<target>/<profile>`, taken from this test executable's own `<target>/<profile>/deps/` path.
 fn target_profile() -> PathBuf {
-    std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| workspace_root().join("target"))
-        .join(if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        })
+    let exe = std::env::current_exe().expect("locate the running test executable");
+    exe.parent()
+        .and_then(Path::parent)
+        .expect("test executable lives in <target>/<profile>/deps")
+        .to_path_buf()
+}
+
+/// The Cargo profile this test binary was built with, so the nested build reuses its artifacts.
+fn cargo_profile() -> String {
+    let dir = target_profile();
+    let name = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .expect("profile directory name");
+    if name == "debug" {
+        "dev".to_string()
+    } else {
+        name.to_string()
+    }
 }
 
 struct ScratchDir(PathBuf);
@@ -113,12 +125,14 @@ fn compile_and_run(source: &str, cpp: bool, scratch: &Path) {
 #[test]
 fn installed_header_compiles_links_and_runs_as_c_and_cpp() {
     let mut build = Command::new(env!("CARGO"));
-    build
-        .current_dir(workspace_root())
-        .args(["build", "-p", "pg-ffi", "--lib"]);
-    if !cfg!(debug_assertions) {
-        build.arg("--release");
-    }
+    build.current_dir(workspace_root()).args([
+        "build",
+        "-p",
+        "pg-ffi",
+        "--lib",
+        "--profile",
+        &cargo_profile(),
+    ]);
     let status = build.status().expect("build pg-ffi cdylib");
     assert!(status.success());
     let scratch = ScratchDir::new(&target_profile());
