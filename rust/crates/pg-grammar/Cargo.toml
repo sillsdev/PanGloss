@@ -26,8 +26,6 @@ serde_json.workspace = true
 
 [dev-dependencies]
 pg-conformance-fixtures.workspace = true
-# grammar_health.rs's serialization round-trip test only; production code never needs JSON.
-serde_json.workspace = true
 # Enables this crate's own `test-support` feature for its test targets without offering it to any
 # other crate -- same pattern as pg-foma's own self dev-dependency (see that crate's Cargo.toml).
 pg-grammar = { path = ".", features = ["test-support"] }

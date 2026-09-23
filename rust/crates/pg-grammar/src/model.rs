@@ -603,6 +603,25 @@ impl MorphRuleDef {
         }
     }
 
+    /// The owning morpheme; compounding rules have none.
+    pub fn morpheme(&self) -> Option<MorphemeId> {
+        match self {
+            MorphRuleDef::AffixProcess(def) => Some(def.morpheme),
+            MorphRuleDef::Realizational(def) => Some(def.morpheme),
+            MorphRuleDef::Compounding(_) => None,
+        }
+    }
+
+    /// The authored rule name, trimmed; `None` when blank.
+    pub fn authored_name(&self) -> Option<&str> {
+        let name = match self {
+            MorphRuleDef::AffixProcess(def) => def.name.as_deref(),
+            MorphRuleDef::Realizational(def) => def.name.as_deref(),
+            MorphRuleDef::Compounding(def) => def.name.as_deref(),
+        };
+        nonempty(name)
+    }
+
     /// The rule's `AffixProcessAllomorph` list, for the two kinds that have one (`Compounding`
     /// rules have `CompoundingSubruleDef`s instead — a structurally different shape with head/
     /// non-head LHS pairs — so this returns `None` for them). Both `AffixProcess.allomorphs` and
@@ -1336,43 +1355,44 @@ impl Grammar {
         let def = self.mrules.get(id.0 as usize).ok_or_else(|| {
             crate::GrammarError::Semantic(format!("morphological rule id {} is out of range", id.0))
         })?;
-        let (morpheme, name) = match def {
-            MorphRuleDef::Compounding(def) => (None, nonempty(def.name.as_deref())),
-            MorphRuleDef::AffixProcess(def) => (Some(def.morpheme), nonempty(def.name.as_deref())),
-            MorphRuleDef::Realizational(def) => (Some(def.morpheme), nonempty(def.name.as_deref())),
-        };
-        match morpheme {
+        let name = def.authored_name();
+        match def.morpheme() {
             Some(morpheme) => morpheme_title(self, morpheme, name, "unnamed morphological rule"),
             None => Ok(human_title(name, None, "unnamed morphological rule")),
         }
     }
 
-    pub(crate) fn lex_entry_internal_id(&self, id: LexEntryId) -> Result<String, crate::GrammarError> {
+    pub(crate) fn lex_entry_internal_id(
+        &self,
+        id: LexEntryId,
+    ) -> Result<String, crate::GrammarError> {
         let entry = self.entries.get(id.0 as usize).ok_or_else(|| {
             crate::GrammarError::Semantic(format!("lexical entry id {} is out of range", id.0))
         })?;
         Ok(format!("lex_entry#{}:{}", id.0, entry.authored_id))
     }
 
-    pub(crate) fn morph_rule_internal_id(&self, id: MRuleId) -> Result<String, crate::GrammarError> {
+    pub(crate) fn morph_rule_internal_id(
+        &self,
+        id: MRuleId,
+    ) -> Result<String, crate::GrammarError> {
         let def = self.mrules.get(id.0 as usize).ok_or_else(|| {
             crate::GrammarError::Semantic(format!("morphological rule id {} is out of range", id.0))
         })?;
-        let morpheme_key = |morpheme: MorphemeId| {
-            self.morphemes
+        let key = match (def, def.morpheme()) {
+            (MorphRuleDef::Compounding(def), _) => def.xml_id.trim(),
+            (_, None) => "",
+            (_, Some(morpheme)) => self
+                .morphemes
                 .get(morpheme.0 as usize)
-                .map(|info| info.xml_key.trim())
                 .ok_or_else(|| {
                     crate::GrammarError::Semantic(format!(
                         "morpheme id {} is out of range while naming morphological rule {}",
                         morpheme.0, id.0
                     ))
-                })
-        };
-        let key = match def {
-            MorphRuleDef::Compounding(def) => def.xml_id.trim(),
-            MorphRuleDef::AffixProcess(def) => morpheme_key(def.morpheme)?,
-            MorphRuleDef::Realizational(def) => morpheme_key(def.morpheme)?,
+                })?
+                .xml_key
+                .trim(),
         };
         Ok(if key.is_empty() {
             format!("morph_rule#{}", id.0)
@@ -1397,11 +1417,7 @@ impl Grammar {
     fn validated_rule_owner_strata(&self) -> Result<Vec<Option<StratumId>>, crate::GrammarError> {
         let mut rule_owner = vec![None; self.mrules.len()];
         for (id, rule) in self.mrules.iter().enumerate() {
-            let Some(morpheme) = (match rule {
-                MorphRuleDef::AffixProcess(def) => Some(def.morpheme),
-                MorphRuleDef::Realizational(def) => Some(def.morpheme),
-                MorphRuleDef::Compounding(_) => None,
-            }) else {
+            let Some(morpheme) = rule.morpheme() else {
                 continue;
             };
             let Some(info) = self.morphemes.get(morpheme.0 as usize) else {

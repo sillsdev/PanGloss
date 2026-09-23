@@ -163,6 +163,15 @@ pub enum FieldWorksLink {
     },
 }
 
+impl FieldWorksLink {
+    pub fn guid(&self) -> Option<&str> {
+        match self {
+            Self::Available { guid, .. } => Some(guid),
+            Self::Unavailable { guid, .. } => guid.as_deref(),
+        }
+    }
+}
+
 /// One structured item a grammar-health finding references. `title` is the only identity a human
 /// report should display; `internal_id` is retained solely for tooling and navigation joins.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -174,33 +183,14 @@ pub struct GrammarHealthSubject {
     pub fieldworks: FieldWorksLink,
 }
 
+/// Only the `prefix#N` forms this crate mints as internal ids; authored names are never rejected.
 fn is_internal_subject_label(title: &str) -> bool {
     let lower = title.trim().to_ascii_lowercase();
-    if crate::grammar_health_presentation::canonical_guid(&lower).is_some() {
-        return true;
-    }
-    if let Some((prefix, suffix)) = lower.split_once('#') {
-        return [
-            "char_def",
-            "entry",
-            "lex_entry",
-            "mrule",
-            "morph_rule",
-            "rule",
-            "slot",
-            "table",
-            "template",
-        ]
-        .contains(&prefix)
-            && !suffix.trim().is_empty();
-    }
-    ["entry", "mrule", "rule", "slot", "template"]
-        .iter()
-        .any(|prefix| {
-            lower.strip_prefix(prefix).is_some_and(|rest| {
-                !rest.is_empty() && rest.chars().all(|character| character.is_ascii_digit())
-            })
-        })
+    let Some((prefix, suffix)) = lower.split_once('#') else {
+        return false;
+    };
+    ["char_def", "lex_entry", "mrule", "morph_rule", "table"].contains(&prefix)
+        && suffix.starts_with(|character: char| character.is_ascii_digit())
 }
 
 impl GrammarHealthSubject {
@@ -212,20 +202,13 @@ impl GrammarHealthSubject {
             text.push(')');
         }
         if include_guid {
-            match &self.fieldworks {
-                FieldWorksLink::Available { guid, .. } => {
+            match self.fieldworks.guid() {
+                Some(guid) => {
                     text.push_str(" [guid ");
                     text.push_str(guid);
                     text.push(']');
                 }
-                FieldWorksLink::Unavailable { guid, .. } => match guid {
-                    Some(guid) => {
-                        text.push_str(" [guid ");
-                        text.push_str(guid);
-                        text.push(']');
-                    }
-                    None => text.push_str(" [guid unavailable]"),
-                },
+                None => text.push_str(" [guid unavailable]"),
             }
         }
         match &self.fieldworks {
@@ -833,20 +816,25 @@ fn check_undeclared_segments(
                     entry_id.0
                 ))
             })?;
-            let subject = lex_entry_subject(grammar, fieldworks_project, entry_id)?;
-            let name = subject.title.clone();
+            let mut owner = LazySubject::new(SubjectOwner::LexEntry(entry_id));
             for allomorph in &entry.allomorphs {
-                check_segments_declared(
+                let undeclared = undeclared_segment_count(table, &allomorph.shape.shape);
+                if undeclared == 0 {
+                    continue;
+                }
+                let subject = owner.get(grammar, fieldworks_project)?;
+                let where_desc = format!(
+                    "Lexical entry '{}' allomorph '{}'",
+                    subject.title, allomorph.shape.text
+                );
+                push_undeclared_segments(
                     grammar,
                     fieldworks_project,
                     table,
                     stratum.table,
-                    &allomorph.shape.shape,
-                    &format!(
-                        "Lexical entry '{name}' allomorph '{}'",
-                        allomorph.shape.text
-                    ),
-                    subject.clone(),
+                    &where_desc,
+                    subject,
+                    undeclared,
                     findings,
                 );
             }
@@ -859,8 +847,7 @@ fn check_undeclared_segments(
                     rule_id.0
                 ))
             })?;
-            let subject = morph_rule_subject(grammar, fieldworks_project, rule_id)?;
-            let name = subject.title.clone();
+            let mut owner = LazySubject::new(SubjectOwner::MorphRule(rule_id));
             match rule {
                 MorphRuleDef::AffixProcess(def) => {
                     for allomorph in &def.allomorphs {
@@ -870,8 +857,7 @@ fn check_undeclared_segments(
                                 fieldworks_project,
                                 action,
                                 "Morphological rule",
-                                &name,
-                                subject.clone(),
+                                &mut owner,
                                 findings,
                             )?;
                         }
@@ -885,8 +871,7 @@ fn check_undeclared_segments(
                                 fieldworks_project,
                                 action,
                                 "Compounding rule",
-                                &name,
-                                subject.clone(),
+                                &mut owner,
                                 findings,
                             )?;
                         }
@@ -905,8 +890,7 @@ fn check_insert_segments(
     fieldworks_project: Option<&str>,
     action: &OutputAction,
     kind_label: &str,
-    rule_name: &str,
-    owner_subject: GrammarHealthSubject,
+    owner: &mut LazySubject,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) -> Result<(), crate::GrammarError> {
     let OutputAction::InsertSegments {
@@ -925,42 +909,87 @@ fn check_insert_segments(
                 table_id.0
             ))
         })?;
-    check_segments_declared(
+    let undeclared = undeclared_segment_count(table, &shape.shape);
+    if undeclared == 0 {
+        return Ok(());
+    }
+    let subject = owner.get(grammar, fieldworks_project)?;
+    let where_desc = format!(
+        "{kind_label} '{}' inserted segments '{}'",
+        subject.title, shape.text
+    );
+    push_undeclared_segments(
         grammar,
         fieldworks_project,
         table,
         *table_id,
-        &shape.shape,
-        &format!(
-            "{kind_label} '{rule_name}' inserted segments '{}'",
-            shape.text
-        ),
-        owner_subject,
+        &where_desc,
+        subject,
+        undeclared,
         findings,
     );
     Ok(())
 }
 
+enum SubjectOwner {
+    LexEntry(LexEntryId),
+    MorphRule(MRuleId),
+}
+
+/// Builds the owner subject only when a finding needs it, so clean items cost no naming or link work.
+struct LazySubject {
+    owner: SubjectOwner,
+    subject: Option<GrammarHealthSubject>,
+}
+
+impl LazySubject {
+    fn new(owner: SubjectOwner) -> Self {
+        Self {
+            owner,
+            subject: None,
+        }
+    }
+
+    fn get(
+        &mut self,
+        grammar: &Grammar,
+        fieldworks_project: Option<&str>,
+    ) -> Result<&GrammarHealthSubject, crate::GrammarError> {
+        if self.subject.is_none() {
+            self.subject = Some(match self.owner {
+                SubjectOwner::LexEntry(id) => lex_entry_subject(grammar, fieldworks_project, id)?,
+                SubjectOwner::MorphRule(id) => morph_rule_subject(grammar, fieldworks_project, id)?,
+            });
+        }
+        Ok(self.subject.as_ref().expect("subject was just built"))
+    }
+}
+
 /// Skips structural boundary/anchor nodes and already-declared natural classes.
-fn check_segments_declared(
+fn undeclared_segment_count(table: &CharDefTable, shape: &Shape) -> usize {
+    shape
+        .interior()
+        .filter(|(_, kind, cd, _)| {
+            *kind == NodeKind::Segment
+                && *cd != NO_CHAR_DEF
+                && !((*cd as usize) < table.len()
+                    && table.get(CharDefId(*cd)).kind() == CharDefKind::Segment)
+        })
+        .count()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_undeclared_segments(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
     table: &CharDefTable,
     table_id: TableId,
-    shape: &Shape,
     where_desc: &str,
-    owner_subject: GrammarHealthSubject,
+    owner_subject: &GrammarHealthSubject,
+    count: usize,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) {
-    for (_, kind, cd, _) in shape.interior() {
-        if kind != NodeKind::Segment || cd == NO_CHAR_DEF {
-            continue;
-        }
-        let declared =
-            (cd as usize) < table.len() && table.get(CharDefId(cd)).kind() == CharDefKind::Segment;
-        if declared {
-            continue;
-        }
+    for _ in 0..count {
         findings.push(GrammarHealthCheckFinding {
             severity: GrammarHealthSeverity::Error,
             code: GrammarHealthCode::UndeclaredSegment,
@@ -1701,10 +1730,7 @@ mod tests {
     #[test]
     fn validated_empty_report_renders_lossless_log() {
         let report = GrammarHealthReport::new(Vec::new()).expect("empty report is valid");
-        assert_eq!(
-            render_log(&report, false),
-            ""
-        );
+        assert_eq!(render_log(&report, false), "");
     }
 
     #[test]
@@ -1739,6 +1765,19 @@ mod tests {
     fn internal_hash_identifiers_are_not_accepted_as_human_titles() {
         assert!(is_internal_subject_label("mrule#18"));
         assert!(is_internal_subject_label("lex_entry#4:entry"));
+    }
+
+    #[test]
+    fn authored_names_resembling_ids_are_accepted_as_titles() {
+        for authored in [
+            "rule1",
+            "slot2",
+            "entry3",
+            "Rule #1",
+            "0a1b2c3d-0000-0000-0000-000000000000",
+        ] {
+            assert!(!is_internal_subject_label(authored), "{authored}");
+        }
     }
 
     #[test]
@@ -1910,14 +1949,20 @@ mod tests {
 
     #[test]
     fn partial_warning_subjects_match_canonical_facts_in_both_directions() {
-        for xml in [PARTIAL_MORPHEME_AND_EXISTING_PROBLEM_XML, PARTIAL_TEMPLATE_RULE_XML] {
+        for xml in [
+            PARTIAL_MORPHEME_AND_EXISTING_PROBLEM_XML,
+            PARTIAL_TEMPLATE_RULE_XML,
+        ] {
             assert_partial_subjects_match_facts(&grammar(xml));
         }
     }
 
     fn assert_partial_subjects_match_facts(g: &Grammar) {
         let facts = g.partial_morpheme_facts().expect("valid partial facts");
-        assert!(facts.has_partials(), "fixture must declare a partial morpheme");
+        assert!(
+            facts.has_partials(),
+            "fixture must declare a partial morpheme"
+        );
         let findings = check_grammar_health(g, None).expect("grammar-health checks");
         let mut warning_subjects = findings
             .iter()
@@ -1978,8 +2023,17 @@ mod tests {
             subject.internal_id,
             g.morph_rule_internal_id(MRuleId(0)).expect("model id")
         );
-        assert!(subject.internal_id.starts_with("morph_rule#0"), "{}", subject.internal_id);
-        assert_eq!(subject.internal_id.matches('#').count(), 1, "{}", subject.internal_id);
+        assert!(
+            subject.internal_id.starts_with("morph_rule#0"),
+            "{}",
+            subject.internal_id
+        );
+        assert_eq!(
+            subject.internal_id.matches('#').count(),
+            1,
+            "{}",
+            subject.internal_id
+        );
     }
 
     #[test]

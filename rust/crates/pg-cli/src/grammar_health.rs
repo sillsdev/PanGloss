@@ -1,5 +1,6 @@
-//! `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`: run the ported `hc-*` HermitCrab
-//! grammar-authoring checks (`pg_grammar::grammar_health`) and print/serialize the findings.
+//! `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`: run
+//! the ported `hc-*` HermitCrab grammar-authoring checks (`pg_grammar::grammar_health`) and
+//! print/serialize the findings.
 //!
 //! Deliberately a SEPARATE command from `fst-health`, not a section added to it: the two answer
 //! different questions (grammar authoring correctness vs. FST compilation/production readiness),
@@ -14,8 +15,9 @@ use pg_grammar::grammar_health::{
     check_grammar_health, render_json, render_log, GrammarHealthCheckFinding, GrammarHealthSeverity,
 };
 
-/// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`; `<out.json>` omitted prints the findings as a
-/// versioned report to stdout instead of a file. Findings are also logged one per line on stderr.
+/// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`;
+/// `<out.json>` omitted prints the versioned report to stdout instead of a file. Findings are
+/// also logged one per line on stderr.
 pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
     let mut positionals = Vec::new();
     let mut fieldworks_project = None;

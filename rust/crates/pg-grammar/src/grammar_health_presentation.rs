@@ -1,5 +1,5 @@
 use crate::grammar_health::{FieldWorksLink, FieldWorksUnavailableReason};
-use crate::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
+use crate::model::{Grammar, LexEntryId, MRuleId};
 
 pub(crate) enum FieldWorksSource {
     Table,
@@ -17,19 +17,12 @@ enum FieldWorksGuidKind {
 
 pub(crate) fn canonical_guid(source_id: &str) -> Option<String> {
     let bytes = source_id.as_bytes();
-    if bytes.len() != 36
-        || ![8, 13, 18, 23].iter().all(|&index| bytes[index] == b'-')
-        || bytes.iter().enumerate().any(|(index, byte)| {
-            if [8, 13, 18, 23].contains(&index) {
-                *byte != b'-'
-            } else {
-                !byte.is_ascii_hexdigit()
-            }
-        })
-    {
-        return None;
-    }
-    Some(source_id.to_ascii_lowercase())
+    let well_formed = bytes.len() == 36
+        && bytes.iter().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => *byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        });
+    well_formed.then(|| source_id.to_ascii_lowercase())
 }
 
 fn source_guid<'a>(
@@ -53,48 +46,30 @@ fn source_guid<'a>(
             .flatten()
             .next()
             .map(|guid| (guid.as_str(), FieldWorksGuidKind::MoForm)),
-        FieldWorksSource::MorphRule(id) => match grammar.mrules.get(id.0 as usize)? {
-            MorphRuleDef::AffixProcess(def) => grammar
-                .morphemes
-                .get(def.morpheme.0 as usize)
-                .and_then(|info| {
-                    info.source_msa_guid
+        FieldWorksSource::MorphRule(id) => {
+            let morpheme = grammar.mrules.get(id.0 as usize)?.morpheme()?;
+            let info = grammar.morphemes.get(morpheme.0 as usize)?;
+            info.source_msa_guid
+                .as_deref()
+                .map(|guid| (guid, FieldWorksGuidKind::Msa))
+                .or_else(|| {
+                    info.source_infl_type_guid
                         .as_deref()
-                        .map(|guid| (guid, FieldWorksGuidKind::Msa))
-                        .or_else(|| {
-                            info.source_infl_type_guid
-                                .as_deref()
-                                .map(|guid| (guid, FieldWorksGuidKind::InflType))
-                        })
-                }),
-            MorphRuleDef::Realizational(def) => grammar
-                .morphemes
-                .get(def.morpheme.0 as usize)
-                .and_then(|info| {
-                    info.source_msa_guid
-                        .as_deref()
-                        .map(|guid| (guid, FieldWorksGuidKind::Msa))
-                        .or_else(|| {
-                            info.source_infl_type_guid
-                                .as_deref()
-                                .map(|guid| (guid, FieldWorksGuidKind::InflType))
-                        })
-                }),
-            MorphRuleDef::Compounding(_) => None,
-        },
+                        .map(|guid| (guid, FieldWorksGuidKind::InflType))
+                })
+        }
     }
 }
 
 fn verified_tool(source: &FieldWorksSource) -> Option<&'static str> {
     match source {
-        // FieldWorks: DistFiles/Language Explorer/Configuration/Lexicon/Edit/toolConfiguration.xml:6.
-        FieldWorksSource::LexEntry(_) => Some("lexiconEdit"),
-        // FieldWorks: DistFiles/Language Explorer/Configuration/Lexicon/Edit/toolConfiguration.xml:6.
-        FieldWorksSource::MorphRule(_) => Some("lexiconEdit"),
+        // FieldWorks DistFiles/Language Explorer/Configuration/Lexicon/Edit/toolConfiguration.xml:6.
+        FieldWorksSource::LexEntry(_) | FieldWorksSource::MorphRule(_) => Some("lexiconEdit"),
         FieldWorksSource::Table | FieldWorksSource::CharDef => None,
     }
 }
 
+// FieldWorks LinkListener.cs:578 -> RecordClerk.cs:998-1016 -> RecordList.cs:3435 walks owners to the entry.
 fn verified_guid_kind(kind: FieldWorksGuidKind) -> bool {
     matches!(kind, FieldWorksGuidKind::MoForm | FieldWorksGuidKind::Msa)
 }
@@ -137,6 +112,12 @@ pub(crate) fn fieldworks_link(
             guid: Some(guid),
         };
     };
+    if !verified_guid_kind(guid_kind) {
+        return FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::UnverifiedGuidKind,
+            guid: Some(guid),
+        };
+    }
     let Some(project) = fieldworks_project
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -146,12 +127,6 @@ pub(crate) fn fieldworks_link(
             guid: Some(guid),
         };
     };
-    if !verified_guid_kind(guid_kind) {
-        return FieldWorksLink::Unavailable {
-            reason: FieldWorksUnavailableReason::UnverifiedGuidKind,
-            guid: Some(guid),
-        };
-    }
     let query = format!("database={project}&tool={tool}&guid={guid}&tag=");
     let url = format!("silfw://localhost/link?{}", encode_query(&query));
     FieldWorksLink::Available {

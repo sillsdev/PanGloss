@@ -57,8 +57,9 @@
 //! `<out.json>` omitted prints the JSON to stdout.
 //!
 //! ## `grammar-health` (see `grammar_health.rs`'s own doc for the full contract)
-//! `grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]` runs the ported `hc-*` HermitCrab grammar-authoring
-//! checks (`pg_grammar::grammar_health::check_grammar_health`) and prints/writes a versioned JSON
+//! `grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]` runs the ported
+//! `hc-*` HermitCrab grammar-authoring checks
+//! (`pg_grammar::grammar_health::check_grammar_health`) and prints/writes a versioned JSON
 //! report. A separate report from `fst-health`: this one asks whether the grammar is
 //! well-formed for its author, not whether a compiled FST is production-ready.
 //!
