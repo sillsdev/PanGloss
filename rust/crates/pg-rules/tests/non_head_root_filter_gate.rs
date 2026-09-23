@@ -189,7 +189,7 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape| {
+    let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
             pg_grammar::model::AllomorphId(300),
             entry,
@@ -222,7 +222,7 @@ fn split_dropped_when_non_head_is_not_a_root() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape| Vec::new();
+    let filter: NonHeadRootFilter = &|_st, _shape, _stats| Vec::new();
 
     let cache = pg_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_filtered(
@@ -259,7 +259,7 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape| {
+    let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
             pg_grammar::model::AllomorphId(300),
             entry,
@@ -294,7 +294,7 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape| {
+    let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
             pg_grammar::model::AllomorphId(300),
             entry,

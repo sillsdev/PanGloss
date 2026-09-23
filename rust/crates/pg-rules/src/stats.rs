@@ -55,8 +55,24 @@ pub enum ObjectKind {
 pub fn self_time_supported(kind: ObjectKind) -> bool {
     matches!(
         kind,
-        ObjectKind::MorphRule | ObjectKind::PhonRule | ObjectKind::LexEntry | ObjectKind::RootIndex
+        ObjectKind::MorphRule
+            | ObjectKind::PhonRule
+            | ObjectKind::LexEntry
+            | ObjectKind::RootIndex
+            | ObjectKind::Guesser
+            | ObjectKind::Overlay
     )
+}
+
+/// Timing support for a direction, independent of whether that path fired in a word.
+pub fn self_time_supported_in_direction(kind: ObjectKind, direction: Direction) -> bool {
+    match kind {
+        ObjectKind::MorphRule | ObjectKind::PhonRule => true,
+        ObjectKind::LexEntry
+        | ObjectKind::RootIndex
+        | ObjectKind::Guesser
+        | ObjectKind::Overlay => direction == Direction::Analysis,
+    }
 }
 
 /// The seven counters for one `(object, stratum, allomorph)` row.
@@ -823,7 +839,7 @@ fn collect_rows(table: &DenseTable, kind: ObjectKind, out: &mut Vec<StatsRow>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{self_time_supported, ObjectKind};
+    use super::{self_time_supported, self_time_supported_in_direction, Direction, ObjectKind};
 
     #[test]
     fn self_time_support_matches_every_instrumented_kind() {
@@ -832,11 +848,19 @@ mod tests {
             (ObjectKind::PhonRule, true),
             (ObjectKind::LexEntry, true),
             (ObjectKind::RootIndex, true),
-            (ObjectKind::Guesser, false),
-            (ObjectKind::Overlay, false),
+            (ObjectKind::Guesser, true),
+            (ObjectKind::Overlay, true),
         ];
         for (kind, expected) in support {
             assert_eq!(self_time_supported(kind), expected, "{kind:?}");
         }
+        assert!(!self_time_supported_in_direction(
+            ObjectKind::LexEntry,
+            Direction::Synthesis
+        ));
+        assert!(self_time_supported_in_direction(
+            ObjectKind::MorphRule,
+            Direction::Synthesis
+        ));
     }
 }

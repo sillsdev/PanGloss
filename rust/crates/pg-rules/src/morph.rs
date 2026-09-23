@@ -480,8 +480,19 @@ fn ana_affix_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
-        {
+        let matches = {
+            let _allo_time = mstats.map(|m| {
+                m.stats.time_enter(
+                    ObjectKind::MorphRule,
+                    m.stratum,
+                    m.id.0,
+                    i as u32 + 1,
+                    m.direction,
+                )
+            });
+            ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
+        };
+        for mut w in matches {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
@@ -532,9 +543,19 @@ fn ana_realizational_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in
+        let matches = {
+            let _allo_time = mstats.map(|m| {
+                m.stats.time_enter(
+                    ObjectKind::MorphRule,
+                    m.stratum,
+                    m.id.0,
+                    i as u32 + 1,
+                    m.direction,
+                )
+            });
             ana_realizational_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs)
-        {
+        };
+        for mut w in matches {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
@@ -587,19 +608,32 @@ fn ana_compound_cached_traced(
             continue;
         };
         let before = output.len();
-        for mut w in ana_compound_subrule(
-            g,
-            table,
-            word,
-            rule,
-            sr,
-            lhs,
-            fst,
-            &segs,
-            &node_of,
-            &new_syn,
-            root_filter,
-        ) {
+        let matches = {
+            let _allo_time = mstats.map(|m| {
+                m.stats.time_enter(
+                    ObjectKind::MorphRule,
+                    m.stratum,
+                    m.id.0,
+                    i as u32 + 1,
+                    m.direction,
+                )
+            });
+            ana_compound_subrule(
+                g,
+                table,
+                word,
+                rule,
+                sr,
+                lhs,
+                fst,
+                &segs,
+                &node_of,
+                &new_syn,
+                root_filter,
+                mstats,
+            )
+        };
+        for mut w in matches {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
@@ -1604,6 +1638,15 @@ fn synth_affix_cached(
         let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
             continue;
         };
+        let _allo_time = mstats.map(|m| {
+            m.stats.time_enter(
+                ObjectKind::MorphRule,
+                m.stratum,
+                m.id.0,
+                i as u32 + 1,
+                m.direction,
+            )
+        });
         let matched = synth_process_allomorph(
             g,
             table,
@@ -1620,6 +1663,7 @@ fn synth_affix_cached(
             names,
             &applied,
         );
+        drop(_allo_time);
         record_mrule_reach(
             mstats,
             i as u32,
@@ -1810,6 +1854,15 @@ fn synth_realizational_cached(
         let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
             continue;
         };
+        let _allo_time = mstats.map(|m| {
+            m.stats.time_enter(
+                ObjectKind::MorphRule,
+                m.stratum,
+                m.id.0,
+                i as u32 + 1,
+                m.direction,
+            )
+        });
         let matched = synth_process_allomorph(
             g,
             table,
@@ -1826,6 +1879,7 @@ fn synth_realizational_cached(
             names,
             &applied,
         );
+        drop(_allo_time);
         record_mrule_reach(
             mstats,
             i as u32,
@@ -2819,6 +2873,15 @@ fn synth_compound_cached(
         else {
             continue;
         };
+        let _sr_time = mstats.map(|m| {
+            m.stats.time_enter(
+                ObjectKind::MorphRule,
+                m.stratum,
+                m.id.0,
+                i as u32 + 1,
+                m.direction,
+            )
+        });
         let matched = synth_compound_subrule(
             g,
             table,
@@ -2836,6 +2899,7 @@ fn synth_compound_cached(
             nh_fst,
             nh_names,
         );
+        drop(_sr_time);
         record_mrule_reach(
             mstats,
             i as u32,
@@ -3011,6 +3075,7 @@ fn ana_compound(
             &node_of,
             &new_syn,
             root_filter,
+            mstats,
         ));
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -3066,6 +3131,7 @@ fn ana_compound_cached(
             &node_of,
             &new_syn,
             root_filter,
+            mstats,
         ));
         drop(_sr_time);
         let n = (output.len() - before) as u64;
@@ -3089,6 +3155,7 @@ fn ana_compound_subrule(
     node_of: &[usize],
     new_syn: &FeatureStruct,
     root_filter: Option<NonHeadRootFilter>,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
     let parts = ana_compound_parts(sr);
     let head_parts: Vec<(String, &Pattern)> = parts
@@ -3139,7 +3206,8 @@ fn ana_compound_subrule(
                 push_remove_duplicates_compound(&mut sr_out, w);
             }
             Some(filter) => {
-                for resolved_nh in resolve_non_head_roots(g, rule, filter, &nh_shape, word.stratum)
+                for resolved_nh in
+                    resolve_non_head_roots(g, rule, filter, &nh_shape, word.stratum, mstats)
                 {
                     let mut w = word.clone();
                     w.shape = head_shape.clone();
@@ -3160,14 +3228,24 @@ fn resolve_non_head_roots(
     filter: NonHeadRootFilter,
     nh_shape: &Shape,
     stratum: StratumId,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
     let req = g.fs_interner.get(rule.non_head_required_syn_fs);
     let mut out = Vec::new();
-    for resolved in filter(stratum, nh_shape) {
+    for resolved in filter(stratum, nh_shape, mstats.map(|m| m.stats)) {
         let crate::word::ResolvedRoot::Grammar(allo_id, le_id) = resolved else {
             let crate::word::ResolvedRoot::Supplied(root) = resolved else {
                 unreachable!()
             };
+            let _overlay_time = mstats.map(|m| {
+                m.stats.time_enter(
+                    ObjectKind::Overlay,
+                    stratum,
+                    0,
+                    crate::stats::ALLOMORPH_NONE,
+                    crate::stats::Direction::Analysis,
+                )
+            });
             if !is_unifiable(req, &root.syn_fs)
                 || !rule.non_head_prod_restrictions_mpr.compound_match(root.mpr)
             {
@@ -3179,6 +3257,9 @@ fn resolve_non_head_roots(
             else {
                 continue;
             };
+            if let Some(m) = mstats {
+                m.stats.record_overlay_attempt(stratum, shape.len() as u64);
+            }
             let mut nh = Word::new(shape, root.stratum);
             nh.syn_fs = root.syn_fs.clone();
             nh.mpr = root.mpr;
@@ -3201,9 +3282,27 @@ fn resolve_non_head_roots(
         {
             continue;
         }
-        let Some(allo) = entry.allomorphs.iter().find(|a| a.id == allo_id) else {
+        let Some((allo_idx, allo)) = entry
+            .allomorphs
+            .iter()
+            .enumerate()
+            .find(|(_, allo)| allo.id == allo_id)
+        else {
             continue;
         };
+        if let Some(m) = mstats {
+            m.stats
+                .record_lex_entry_attempt(stratum, le_id, allo_idx as u32 + 1);
+        }
+        let _lex_time = mstats.map(|m| {
+            m.stats.time_enter(
+                ObjectKind::LexEntry,
+                stratum,
+                le_id.0,
+                allo_idx as u32 + 1,
+                crate::stats::Direction::Analysis,
+            )
+        });
         let root_stratum = g.morphemes[entry.morpheme.0 as usize].stratum;
         let table = &g.char_tables[g.strata[root_stratum.0 as usize].table.0 as usize];
         let shape = crate::shape_feat::segment_with_features(g, table, &allo.shape.text)

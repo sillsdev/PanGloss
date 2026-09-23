@@ -715,6 +715,26 @@ fn kind_row_view(r: &pg_stats::PerKindRow) -> RowView {
     }
 }
 
+fn direction_time_view(mut view: RowView, direction: Option<&str>) -> RowView {
+    let direction = match direction {
+        Some("analysis") => Some(pg_rules::stats::Direction::Analysis),
+        Some("synthesis") => Some(pg_rules::stats::Direction::Synthesis),
+        _ => None,
+    };
+    if let (Some(kind), Some(direction)) = (view.kind.as_deref(), direction) {
+        let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
+            panic!("kind string from the cache must be a known ObjectKind: {kind}")
+        });
+        if !pg_rules::stats::self_time_supported_in_direction(
+            stats_kind_to_rules_kind(stats_kind),
+            direction,
+        ) {
+            view.self_time_ns = None;
+        }
+    }
+    view
+}
+
 fn fmt_ms(ns: Option<i64>) -> String {
     match ns {
         Some(v) => format!("{:.3}", v as f64 / 1e6),
@@ -1301,7 +1321,10 @@ fn render_object(
 ) -> Result<String, String> {
     let rows = pg_stats::per_object_report(conn, &per_object_filter(filters))
         .map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows.iter().map(object_row_view).collect();
+    let views: Vec<RowView> = rows
+        .iter()
+        .map(|row| direction_time_view(object_row_view(row), filters.direction.as_deref()))
+        .collect();
     render_rowview_body(
         conn,
         "object",
@@ -1319,7 +1342,10 @@ fn render_allomorph(
 ) -> Result<String, String> {
     let rows = pg_stats::per_allomorph_report(conn, &per_allomorph_filter(filters))
         .map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows.iter().map(allomorph_row_view).collect();
+    let views: Vec<RowView> = rows
+        .iter()
+        .map(|row| direction_time_view(allomorph_row_view(row), filters.direction.as_deref()))
+        .collect();
     render_rowview_body(
         conn,
         "allomorph",
@@ -1337,7 +1363,10 @@ fn render_morpheme(
 ) -> Result<String, String> {
     let rows = pg_stats::per_morpheme_report(conn, &per_morpheme_filter(filters))
         .map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows.iter().map(morpheme_row_view).collect();
+    let views: Vec<RowView> = rows
+        .iter()
+        .map(|row| direction_time_view(morpheme_row_view(row), filters.direction.as_deref()))
+        .collect();
     render_rowview_body(conn, "morpheme", filters, views, Some("lex_entry"), format)
 }
 
@@ -1348,7 +1377,10 @@ fn render_group(
 ) -> Result<String, String> {
     let rows =
         pg_stats::per_kind_report(conn, &per_kind_filter(filters)).map_err(|e| e.to_string())?;
-    let views: Vec<RowView> = rows.iter().map(kind_row_view).collect();
+    let views: Vec<RowView> = rows
+        .iter()
+        .map(|row| direction_time_view(kind_row_view(row), filters.direction.as_deref()))
+        .collect();
     render_rowview_body(
         conn,
         "group",
@@ -3029,7 +3061,7 @@ mod tests {
     }
 
     #[test]
-    fn untimed_object_kinds_render_self_time_as_unavailable() {
+    fn newly_timed_object_kinds_render_self_time() {
         for kind in ["guesser", "overlay"] {
             let row = pg_stats::PerObjectRow {
                 kind: kind.to_string(),
@@ -3044,13 +3076,20 @@ mod tests {
                 uses: 0,
                 self_time_ns: 0,
             };
-            assert_eq!(object_row_view(&row).self_time_ns, None, "{kind}");
+            assert_eq!(object_row_view(&row).self_time_ns, Some(0), "{kind}");
         }
     }
 
     #[test]
     fn timed_object_kinds_render_their_self_time() {
-        for kind in ["morph_rule", "phon_rule", "lex_entry", "root_index"] {
+        for kind in [
+            "morph_rule",
+            "phon_rule",
+            "lex_entry",
+            "root_index",
+            "guesser",
+            "overlay",
+        ] {
             let row = pg_stats::PerObjectRow {
                 kind: kind.to_string(),
                 label: kind.to_string(),
@@ -3069,7 +3108,32 @@ mod tests {
     }
 
     #[test]
-    fn untimed_kind_totals_remain_unavailable_instead_of_becoming_zero() {
+    fn direction_filter_does_not_claim_unmeasured_lexical_synthesis_time() {
+        let row = pg_stats::PerObjectRow {
+            kind: "lex_entry".to_string(),
+            label: "root".to_string(),
+            identity_quality: "synthetic".to_string(),
+            attempts: 0,
+            work: 0,
+            outputs: 0,
+            not_applied: 0,
+            no_root: 0,
+            surface_mismatch: 1,
+            uses: 0,
+            self_time_ns: 0,
+        };
+        assert_eq!(
+            direction_time_view(object_row_view(&row), Some("synthesis")).self_time_ns,
+            None
+        );
+        assert_eq!(
+            direction_time_view(object_row_view(&row), Some("analysis")).self_time_ns,
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn newly_timed_kind_totals_include_measured_time() {
         let cache = synthetic_stats_cache(
             "hc",
             vec![synthetic_fact(pg_stats::ObjectKind::Guesser, None, 4)],
@@ -3080,12 +3144,11 @@ mod tests {
         };
         let text = render_object(cache.connection(), &filters, OutputFormat::Text).unwrap();
         let total = text.lines().find(|line| line.starts_with("TOTAL")).unwrap();
-        assert!(total.contains("time -"), "{total}");
+        assert!(!total.contains("time -"), "{total}");
 
         let json = render_object(cache.connection(), &filters, OutputFormat::Jsonl).unwrap();
         let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
-        assert!(meta["totals"]["time_ns"].is_null(), "{meta}");
-        assert!(meta["totals"]["attributed_pct"].is_null(), "{meta}");
+        assert_eq!(meta["totals"]["time_ns"], 100, "{meta}");
     }
 
     #[test]

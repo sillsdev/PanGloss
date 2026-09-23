@@ -228,6 +228,15 @@ impl<'g> Morpher<'g> {
             }
         }
         if let Some(overlay) = self.overlay {
+            let _overlay_time = stats.map(|stats| {
+                stats.time_enter(
+                    pg_rules::stats::ObjectKind::Overlay,
+                    stratum,
+                    0,
+                    pg_rules::stats::ALLOMORPH_NONE,
+                    pg_rules::stats::Direction::Analysis,
+                )
+            });
             roots.extend(
                 overlay
                     .search(self.g, stratum, shape)
@@ -416,7 +425,14 @@ impl<'g> Morpher<'g> {
         let budget = pg_rules::stratum::StepBudget::new(self.cap).with_timeout(self.word_timeout);
         // Closure lives here because `pg-parse` owns `RootAllomorphIndex` and `pg-rules` cannot depend on `pg-parse`.
         let filter: NonHeadRootFilter =
-            &|st: StratumId, shape: &pg_shape::Shape| self.search_roots(st, shape, None);
+            &|st: StratumId,
+              shape: &pg_shape::Shape,
+              stats: Option<&pg_rules::stats::StatsCollector>| {
+                if let Some(stats) = stats {
+                    stats.record_root_index_attempt(st, shape.len() as u64);
+                }
+                self.search_roots(st, shape, stats)
+            };
         let mut input_set: HashMap<WordKey, Word> = HashMap::default();
         input_set.insert(input.dedup_key(), input);
         let mut results: HashMap<WordKey, Word> = HashMap::default();
@@ -526,9 +542,19 @@ impl<'g> Morpher<'g> {
                 // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
                 alt_yield::record_canonical(aw.alternatives.len());
                 // C#'s `.Distinct()` here is a documented no-op (fresh clones, no `Equals` override), so consuming `guess::lexical_guess`'s output directly is faithful.
-                for synthesis_word in
+                let guessed_words = {
+                    let _guesser_time = stats.map(|stats| {
+                        stats.time_enter(
+                            pg_rules::stats::ObjectKind::Guesser,
+                            aw.stratum,
+                            0,
+                            pg_rules::stats::ALLOMORPH_NONE,
+                            pg_rules::stats::Direction::Analysis,
+                        )
+                    });
                     guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
-                {
+                };
+                for synthesis_word in guessed_words {
                     let expanded = synthesis_word.expand_alternatives();
                     alt_yield::record_expansion(expanded.len());
                     for alt in expanded {
@@ -649,6 +675,15 @@ impl<'g> Morpher<'g> {
             let ResolvedRoot::Supplied(root) = root else {
                 continue;
             };
+            let _overlay_time = stats.map(|stats| {
+                stats.time_enter(
+                    pg_rules::stats::ObjectKind::Overlay,
+                    aw.stratum,
+                    0,
+                    pg_rules::stats::ALLOMORPH_NONE,
+                    pg_rules::stats::Direction::Analysis,
+                )
+            });
             let mut nw = aw.clone_without_alternatives();
             nw.source = Some(Rc::new(aw.clone()));
             let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];

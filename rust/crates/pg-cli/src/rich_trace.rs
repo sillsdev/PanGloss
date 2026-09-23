@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use pg_grammar::model::Grammar;
 use pg_parse::{project_parse_analysis, ParseOutcome, ParseProjectionError};
-use pg_rules::stats::{self, ObjectKind, StatsRow};
+use pg_rules::stats::{self, Direction, ObjectKind, StatsRow};
 use pg_rules::trace::{FailureContext, TraceHandle, TraceSource, TraceType, TreeTraceSink};
 use pg_rules::word::{RuntimeRoot, Word};
 use pg_snapshot::{AffixSlot, InflectionClass, Msa, PartOfSpeech, Snapshot};
@@ -97,6 +97,15 @@ fn stats_json(rows: &[StatsRow]) -> Value {
     let categories = kinds.into_iter().map(|kind| {
         let counters = stats::summarize_kind(rows, kind);
         let timing_available = stats::self_time_supported(kind);
+        let direction_ns = |direction| {
+            stats::self_time_supported_in_direction(kind, direction).then(|| {
+                rows.iter()
+                    .filter(|row| row.kind == kind && row.direction == direction)
+                    .fold(0u64, |total, row| {
+                        total.saturating_add(row.counters.self_time_ns)
+                    })
+            })
+        };
         (
             kind_name(kind).to_owned(),
             json!({
@@ -109,6 +118,8 @@ fn stats_json(rows: &[StatsRow]) -> Value {
                 "uses": counters.uses,
                 "timingAvailable": timing_available,
                 "selfElapsedNs": timing_available.then_some(counters.self_time_ns),
+                "analysisSelfElapsedNs": direction_ns(Direction::Analysis),
+                "synthesisSelfElapsedNs": direction_ns(Direction::Synthesis),
             }),
         )
     });
@@ -685,6 +696,9 @@ fn envelope_json(
     analyses: Vec<Value>,
 ) -> Result<String, String> {
     let elapsed_ns = elapsed.as_nanos().min(u128::from(u64::MAX)) as u64;
+    let timed_ns = rows.iter().fold(0u64, |total, row| {
+        total.saturating_add(row.counters.self_time_ns)
+    });
     serde_json::to_string(&json!({
         "schemaVersion": "pangloss.trace-details.v2",
         "word": word,
@@ -714,6 +728,9 @@ fn envelope_json(
             "invalidShape": outcome.invalid_shape,
             "steps": outcome.steps,
             "elapsedNs": elapsed_ns,
+            "timedNs": timed_ns,
+            "unattributedNs": elapsed_ns.saturating_sub(timed_ns),
+            "timingOverrunNs": timed_ns.saturating_sub(elapsed_ns),
         },
         "result": {
             "signature": outcome.signature(),
@@ -849,7 +866,7 @@ mod tests {
                 "sagd",
                 &outcome,
                 &rows,
-                Duration::from_nanos(7),
+                Duration::from_nanos(300),
                 &TraceMetadata::default(),
             )
             .expect("rich envelope serializes"),
@@ -860,6 +877,11 @@ mod tests {
         assert_eq!(value["search"]["completed"], true);
         assert_eq!(value["result"]["signature"], "root+past|sagd");
         assert_eq!(value["categories"]["morphRule"]["selfElapsedNs"], 18);
+        assert_eq!(value["categories"]["morphRule"]["analysisSelfElapsedNs"], 0);
+        assert_eq!(
+            value["categories"]["morphRule"]["synthesisSelfElapsedNs"],
+            18
+        );
         assert_eq!(value["categories"]["morphRule"]["notApplied"], 1);
         assert_eq!(value["categories"]["morphRule"]["attempts"], 2);
         assert_eq!(value["categories"]["phonRule"]["attempts"], 3);
@@ -867,11 +889,14 @@ mod tests {
         assert_eq!(value["categories"]["phonRule"]["timingAvailable"], true);
         assert_eq!(value["categories"]["rootIndex"]["selfElapsedNs"], 23);
         assert_eq!(value["categories"]["rootIndex"]["timingAvailable"], true);
+        assert_eq!(value["categories"]["overlay"]["selfElapsedNs"], 99);
+        assert_eq!(value["categories"]["overlay"]["timingAvailable"], true);
         assert_eq!(
-            value["categories"]["overlay"]["selfElapsedNs"],
+            value["categories"]["overlay"]["synthesisSelfElapsedNs"],
             serde_json::Value::Null
         );
-        assert_eq!(value["categories"]["overlay"]["timingAvailable"], false);
+        assert_eq!(value["search"]["timedNs"], 217);
+        assert_eq!(value["search"]["unattributedNs"], 83);
     }
 
     #[test]

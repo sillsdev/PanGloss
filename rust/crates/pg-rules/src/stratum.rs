@@ -35,8 +35,8 @@ use rustc_hash::{FxHashMap as HashMap, FxHashSet};
 /// resolution, and the per-subrule dedup all stay on this side (`morph::resolve_non_head_roots`),
 /// because `Grammar` already carries everything they need. `+ Sync` so parallelizing batch parsing
 /// later is not a breaking API change.
-pub type NonHeadRootFilter<'a> =
-    &'a (dyn Fn(StratumId, &Shape) -> Vec<crate::word::ResolvedRoot> + Sync);
+pub type NonHeadRootFilter<'a> = &'a (dyn Fn(StratumId, &Shape, Option<&StatsCollector>) -> Vec<crate::word::ResolvedRoot>
+         + Sync);
 
 /// The admission unit C#'s `Morpher.RuleSelector` gates: one variant per rule kind with its own
 /// selector read site. Rust has no shared `IHCRule` object to hand back, so the caller's closure
@@ -1697,6 +1697,15 @@ fn guided_synth(
     if !applicable {
         return Vec::new();
     }
+    let _morph_time = stats.map(|stats| {
+        stats.time_enter(
+            crate::stats::ObjectKind::MorphRule,
+            stratum,
+            id.0,
+            crate::stats::ALLOMORPH_NONE,
+            crate::stats::Direction::Synthesis,
+        )
+    });
     // The synthesis-direction counterpart of `Analyzer::apply_one_mrule`'s ctx: this invocation is the confirm-pass reapplication of `id`.
     let mstats = stats.map(|stats| crate::stats::MRuleStatsCtx {
         stats,

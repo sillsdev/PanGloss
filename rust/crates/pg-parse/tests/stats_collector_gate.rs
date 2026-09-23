@@ -92,6 +92,9 @@ fn sum_of_morph_rule_attempts_equals_steps() {
 fn synthesis_direction_rows_are_nonzero_for_words_that_parse() {
     let mut parsed = 0usize;
     let mut total_synth_attempts: u64 = 0;
+    let mut total_synth_ns: u64 = 0;
+    let mut total_synth_allomorph_work: u64 = 0;
+    let mut total_synth_allomorph_ns: u64 = 0;
     for (g, cases) in fixture_cases() {
         let morpher = Morpher::new(&g, usize::MAX);
         for case in &cases {
@@ -106,6 +109,29 @@ fn synthesis_direction_rows_are_nonzero_for_words_that_parse() {
                 .filter(|r| r.kind == ObjectKind::MorphRule && r.direction == Direction::Synthesis)
                 .map(|r| r.counters.attempts)
                 .sum::<u64>();
+            total_synth_ns += rows
+                .iter()
+                .filter(|r| r.kind == ObjectKind::MorphRule && r.direction == Direction::Synthesis)
+                .map(|r| r.counters.self_time_ns)
+                .sum::<u64>();
+            total_synth_allomorph_work += rows
+                .iter()
+                .filter(|r| {
+                    r.kind == ObjectKind::MorphRule
+                        && r.direction == Direction::Synthesis
+                        && r.allomorph > 0
+                })
+                .map(|r| r.counters.work)
+                .sum::<u64>();
+            total_synth_allomorph_ns += rows
+                .iter()
+                .filter(|r| {
+                    r.kind == ObjectKind::MorphRule
+                        && r.direction == Direction::Synthesis
+                        && r.allomorph > 0
+                })
+                .map(|r| r.counters.self_time_ns)
+                .sum::<u64>();
         }
     }
     assert!(parsed >= 1, "must have replayed at least one parsing word");
@@ -114,6 +140,18 @@ fn synthesis_direction_rows_are_nonzero_for_words_that_parse() {
         "at least one parsed word's confirm pass must leave a nonzero synthesis-direction \
          attempts row -- this is the gap that made the old, direction-less invariant unable to \
          detect the synthesis side going uninstrumented"
+    );
+    assert!(
+        total_synth_ns > 0,
+        "counted morphological synthesis must be timed"
+    );
+    assert!(
+        total_synth_allomorph_work > 0,
+        "fixture must exercise synthesis allomorphs"
+    );
+    assert!(
+        total_synth_allomorph_ns > 0,
+        "counted synthesis allomorphs must be timed"
     );
 }
 
@@ -125,16 +163,31 @@ fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
     let mut root_index_ns = 0u64;
     let mut phon_work = 0u64;
     let mut root_work = 0u64;
+    let mut morph_allomorph_work = 0u64;
+    let mut morph_allomorph_ns = 0u64;
 
     for _ in 0..8 {
         for (g, cases) in fixture_cases() {
             let morpher = Morpher::new(&g, usize::MAX);
             for case in &cases {
                 let trace = TreeTraceSink::new();
+                let started = std::time::Instant::now();
                 let (_outcome, rows) = morpher.parse_word_traced_with_stats(
                     case.word,
                     &ParseOptions::default(),
                     &trace,
+                );
+                let elapsed_ns = started.elapsed().as_nanos();
+                let timed_ns: u128 = rows
+                    .iter()
+                    .map(|row| u128::from(row.counters.self_time_ns))
+                    .sum();
+                assert!(
+                    timed_ns <= elapsed_ns,
+                    "{}: disjoint object time must fit inside parse elapsed ({} > {})",
+                    case.label,
+                    timed_ns,
+                    elapsed_ns
                 );
                 for row in rows {
                     match (row.kind, row.direction) {
@@ -149,6 +202,10 @@ fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
                         (ObjectKind::RootIndex, Direction::Analysis) => {
                             root_index_ns += row.counters.self_time_ns;
                             root_work += row.counters.work;
+                        }
+                        (ObjectKind::MorphRule, Direction::Analysis) if row.allomorph > 0 => {
+                            morph_allomorph_work += row.counters.work;
+                            morph_allomorph_ns += row.counters.self_time_ns;
                         }
                         _ => {}
                     }
@@ -174,6 +231,14 @@ fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
         "phonological synthesis work must be timed"
     );
     assert!(root_index_ns > 0, "root-index lookup work must be timed");
+    assert!(
+        morph_allomorph_work > 0,
+        "fixture must exercise morphological allomorphs"
+    );
+    assert!(
+        morph_allomorph_ns > 0,
+        "traced morphological allomorph work must be timed"
+    );
 }
 
 /// Stats-off and stats-on parses must produce byte-identical outcomes, never merely similar ones.
@@ -543,10 +608,16 @@ fn guesser_attempts_and_work_are_nonzero_when_the_guess_branch_fires() {
         .filter(|r| r.kind == ObjectKind::Guesser)
         .map(|r| r.counters.work)
         .sum();
+    let guesser_ns: u64 = rows
+        .iter()
+        .filter(|r| r.kind == ObjectKind::Guesser)
+        .map(|r| r.counters.self_time_ns)
+        .sum();
     assert!(
         guesser_attempts >= 1,
         "a fired guess must record guesser attempts, not stay silently empty"
     );
+    assert!(guesser_ns > 0, "a fired guess must have measured self time");
     assert!(guesser_work >= 1, "a fired guess must record guesser work");
 }
 
@@ -580,8 +651,17 @@ fn overlay_attempts_and_work_are_nonzero_when_a_supplied_root_matches() {
         .filter(|r| r.kind == ObjectKind::Overlay)
         .map(|r| r.counters.attempts)
         .sum();
+    let overlay_ns: u64 = rows
+        .iter()
+        .filter(|r| r.kind == ObjectKind::Overlay)
+        .map(|r| r.counters.self_time_ns)
+        .sum();
     assert!(
         overlay_attempts >= 1,
         "a matched supplied root must record overlay attempts, not stay silently empty"
+    );
+    assert!(
+        overlay_ns > 0,
+        "supplied-root lookup and materialization must be timed"
     );
 }

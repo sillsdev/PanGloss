@@ -1,6 +1,8 @@
 use pg_featstruct::FeatureStruct;
 use pg_grammar::model::{MprSet, StratumId};
+use pg_parse::morpher::ParseOptions;
 use pg_parse::{AnalysisProvenance, Morpher, RootAuthority, SuppliedRoot, SuppliedRootOverlay};
+use pg_rules::stats::ObjectKind;
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 
@@ -228,6 +230,18 @@ fn supplied_roots_participate_as_compound_heads_and_non_heads() {
     )
     .unwrap();
     let m = Morpher::new_with_overlay(&g, 100_000, &overlay);
+    // With ordinary lookup disabled, RootIndex rows come from non-head resolution.
+    let mut guess_only = ParseOptions::default();
+    guess_only.guess_only = true;
+    let (_, non_head_rows) = m.parse_word_with_stats("papdas", &guess_only);
+    assert!(
+        non_head_rows
+            .iter()
+            .any(|row| row.kind == ObjectKind::RootIndex
+                && row.counters.attempts > 0
+                && row.counters.self_time_ns > 0),
+        "non-head root lookup must be counted and timed"
+    );
     assert!(m.parse_word("papdat").structured.iter().any(|a| matches!(
         a.provenance,
         AnalysisProvenance::Supplied { ref entry_id } if entry_id == "pgl_head"

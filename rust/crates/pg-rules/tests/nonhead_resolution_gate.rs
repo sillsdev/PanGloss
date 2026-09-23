@@ -88,7 +88,7 @@ fn nonhead_resolution_replaces_shape_and_syntactic_fs() {
     // Stand-in for `pg-parse::RootAllomorphIndex::search`: a real surface-keyed lexicon lookup over just these two entries, matching `pg-parse::Morpher`'s production filter shape.
     let sine_cds = char_defs(&shape_with_lanes(&g, "sine"));
     let ico_cds = char_defs(&shape_with_lanes(&g, "ico"));
-    let filter: NonHeadRootFilter = &|_st, shape: &Shape| {
+    let filter: NonHeadRootFilter = &|_st, shape: &Shape, _stats| {
         let cds = char_defs(shape);
         if cds == sine_cds {
             vec![pg_rules::word::ResolvedRoot::Grammar(sine_allo, sine_entry)]

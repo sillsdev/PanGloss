@@ -42,8 +42,21 @@ This prints one row per authored-object kind, such as `morph_rule`, `phon_rule`,
 `time_ms` is the sum of measured self-time for objects of that kind. Nested measured work is
 subtracted from its parent, so it is not counted twice.
 
-Some object kinds have no timing boundary. Their time is unavailable (`—` in text and `null` in
-JSON), not zero.
+All six object kinds have timing boundaries on the HermitCrab stats path. A direction that
+does not perform an operation remains unavailable (`—` in text and `null` in JSON), not zero:
+for example, lexical-entry materialization is timed in analysis, while a lexical entry's
+surface-mismatch counter can appear in synthesis without a lexical-entry synthesis timer.
+Zero measured time means the supported path did not run in that selection (or rounded to
+zero), not that the category is unsupported.
+
+`parse --trace --trace-format json --trace-details` also reports each category's
+`analysisSelfElapsedNs` and `synthesisSelfElapsedNs`. Under `search`, `timedNs` sums the
+disjoint object self-times and `unattributedNs` is the remainder of `elapsedNs`. The
+remainder includes segmentation, search orchestration, validation, result assembly, and
+collector overhead; it is not silently assigned to a rule. `timingOverrunNs` is a
+diagnostic for an impossible or synthetic case where summed object time exceeds elapsed
+time and should be zero for an actual Try-a-word run. Grammar loading and JSON rendering
+are outside this parse elapsed boundary.
 
 ### What is repeatedly attempted but never produces output?
 
