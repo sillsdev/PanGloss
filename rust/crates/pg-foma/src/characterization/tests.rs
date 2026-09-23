@@ -4,27 +4,27 @@ use super::*;
 #[test]
 fn characterization_raises_nothing_for_a_clean_small_grammar() {
     const CLEAN_XML: &str = r#"<HermitCrabInput><Language><Name>CharacterizationCleanFixture</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="segA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="segK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="segT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-        </SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses></NaturalClasses>
-      <Strata>
-        <Stratum characterDefinitionTable="t1">
-          <Name>main</Name>
-          <LexicalEntries>
-            <LexicalEntry id="e1">
-              <Allomorphs><Allomorph id="e1-1"><PhoneticShape>kat</PhoneticShape></Allomorph></Allomorphs>
-              <Gloss>kat</Gloss>
-            </LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="segA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="segK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="segT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>main</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="e1-1"><PhoneticShape>kat</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>kat</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
     let grammar =
         pg_grammar::load(CLEAN_XML).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
     assert_eq!(
@@ -43,34 +43,34 @@ fn characterization_raises_nothing_for_a_clean_small_grammar() {
 #[test]
 fn characterization_raises_cannot_represent_finding_for_refuse_verdict() {
     const REFUSE_XML: &str = r#"<HermitCrabInput><Language><Name>RedupRealizational</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
-      <Strata>
-        <Stratum characterDefinitionTable="t1" morphologicalRules="rrRedupBad">
-          <Name>S</Name>
-          <MorphologicalRuleDefinitions>
-            <RealizationalRule id="rrRedupBad">
-              <Name>redupBad</Name>
-              <MorphologicalSubrules>
-                <MorphologicalSubrule id="subRedupBad">
-                  <MorphologicalInput>
-                    <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
-                  </MorphologicalInput>
-                  <MorphologicalOutput redupMorphType="suffix">
-                    <CopyFromInput index="qA" />
-                    <CopyFromInput index="qA" />
-                  </MorphologicalOutput>
-                </MorphologicalSubrule>
-              </MorphologicalSubrules>
-              <MorphemeId>REDBAD</MorphemeId>
-            </RealizationalRule>
-          </MorphologicalRuleDefinitions>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRules="rrRedupBad">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <RealizationalRule id="rrRedupBad">
+                  <Name>redupBad</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="subRedupBad">
+                      <MorphologicalInput>
+                        <PhoneticSequence id="qA"><SimpleContext naturalClass="ncAll" /></PhoneticSequence>
+                      </MorphologicalInput>
+                      <MorphologicalOutput redupMorphType="suffix">
+                        <CopyFromInput index="qA" />
+                        <CopyFromInput index="qA" />
+                      </MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                  <MorphemeId>REDBAD</MorphemeId>
+                </RealizationalRule>
+              </MorphologicalRuleDefinitions>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
     let grammar =
         pg_grammar::load(REFUSE_XML).unwrap_or_else(|e| panic!("fixture load failed: {e}"));
     assert!(matches!(

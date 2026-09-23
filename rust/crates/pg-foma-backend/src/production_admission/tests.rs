@@ -3,21 +3,21 @@ use crate::health::FindingClass;
 
 /// Minimal, delanguaged grammar: one char table, one entry, no rules.
 const NO_PARTIAL_XML: &str = r#"<HermitCrabInput><Language><Name>NoPartialFixture</Name>
-  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-  <CharacterDefinitionTable id="t1"><Name>Main</Name>
-    <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-  </CharacterDefinitionTable>
-  <Strata>
-    <Stratum characterDefinitionTable="t1">
-      <Name>S</Name>
-      <LexicalEntries>
-        <LexicalEntry id="entry-plain">
-          <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-        </LexicalEntry>
-      </LexicalEntries>
-    </Stratum>
-  </Strata>
-</Language></HermitCrabInput>"#;
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <Strata>
+        <Stratum characterDefinitionTable="t1">
+          <Name>S</Name>
+          <LexicalEntries>
+            <LexicalEntry id="entry-plain">
+              <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+            </LexicalEntry>
+          </LexicalEntries>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
 
 #[test]
 fn a_grammar_with_no_partials_is_production_admissible_for_every_strategy() {

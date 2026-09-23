@@ -10,22 +10,22 @@ fn two_table_shared_repr_grammar() -> Grammar {
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>AliasMapUnitProbe</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="t0">
-  <Name>TableA</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c0x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<CharacterDefinitionTable id="t1">
-  <Name>TableB</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1z"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c1x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c1y"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
+    <Name>AliasMapUnitProbe</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t0">
+      <Name>TableA</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1">
+      <Name>TableB</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1z"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c1x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c1y"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
   </Language>
 </HermitCrabInput>
 "#;

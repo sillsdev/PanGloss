@@ -5,12 +5,12 @@ use pg_grammar_model::model::{MorphemeInfo, MprSet, SourceMorphPlacement, Stratu
 
 fn grammar(msa: Option<&str>, infl_type: Option<&str>, forms: Vec<Vec<Option<&str>>>) -> Grammar {
     const XML: &str = r#"<HermitCrabInput><Language>
-      <Name>ParseMorphProjection</Name>
-      <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="table"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-    </Language></HermitCrabInput>"#;
+          <Name>ParseMorphProjection</Name>
+          <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="table"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+        </Language></HermitCrabInput>"#;
     let mut grammar = pg_grammar::load(XML).expect("projection grammar loads");
     grammar.morphemes.push(MorphemeInfo {
         xml_key: "morpheme-key".to_string(),
@@ -480,30 +480,30 @@ fn rejects_empty_source_guid() {
 #[test]
 fn projects_ordered_morphs_from_a_real_parse() {
     const XML: &str = r#"<HermitCrabInput><Language>
-      <Name>RealParseProjection</Name>
-      <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="table"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-        </SegmentDefinitions>
-        <BoundaryDefinitions><BoundaryDefinition id="plus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="any"><Name>Any</Name><Segment segment="a" /><Segment segment="b" /></SegmentNaturalClass></NaturalClasses>
-      <Strata><Stratum characterDefinitionTable="table" morphologicalRules="11111111-1111-4111-8111-111111111111">
-        <Name>Morphology</Name>
-        <MorphologicalRuleDefinitions>
-          <MorphologicalRule id="11111111-1111-4111-8111-111111111111" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
-            <MorphemeId>SUFFIX</MorphemeId>
-            <MorphologicalSubrules><MorphologicalSubrule id="33333333-3333-4333-8333-333333333333">
-              <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-              <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments></MorphologicalOutput>
-            </MorphologicalSubrule></MorphologicalSubrules>
-          </MorphologicalRule>
-        </MorphologicalRuleDefinitions>
-        <LexicalEntries><LexicalEntry id="22222222-2222-4222-8222-222222222222" partOfSpeech="pos"><Allomorphs><Allomorph id="44444444-4444-4444-8444-444444444444"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries>
-      </Stratum></Strata>
-    </Language></HermitCrabInput>"#;
+          <Name>RealParseProjection</Name>
+          <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="table"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+            <BoundaryDefinitions><BoundaryDefinition id="plus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="any"><Name>Any</Name><Segment segment="a" /><Segment segment="b" /></SegmentNaturalClass></NaturalClasses>
+          <Strata><Stratum characterDefinitionTable="table" morphologicalRules="11111111-1111-4111-8111-111111111111">
+            <Name>Morphology</Name>
+            <MorphologicalRuleDefinitions>
+              <MorphologicalRule id="11111111-1111-4111-8111-111111111111" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+                <MorphemeId>SUFFIX</MorphemeId>
+                <MorphologicalSubrules><MorphologicalSubrule id="33333333-3333-4333-8333-333333333333">
+                  <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                  <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments></MorphologicalOutput>
+                </MorphologicalSubrule></MorphologicalSubrules>
+              </MorphologicalRule>
+            </MorphologicalRuleDefinitions>
+            <LexicalEntries><LexicalEntry id="22222222-2222-4222-8222-222222222222" partOfSpeech="pos"><Allomorphs><Allomorph id="44444444-4444-4444-8444-444444444444"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries>
+          </Stratum></Strata>
+        </Language></HermitCrabInput>"#;
     let mut grammar = pg_grammar::load(XML).expect("real parse grammar loads");
     assert!(
         grammar
@@ -564,36 +564,36 @@ fn projects_ordered_morphs_from_a_real_parse() {
 #[test]
 fn homophonous_affix_allomorphs_survive_structured_source_projection() {
     const XML: &str = r#"<HermitCrabInput><Language>
-      <Name>HomophonousAffixProjection</Name>
-      <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="table"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-        </SegmentDefinitions>
-        <BoundaryDefinitions><BoundaryDefinition id="plus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="any"><Name>Any</Name><Segment segment="a" /><Segment segment="b" /></SegmentNaturalClass></NaturalClasses>
-      <Strata><Stratum characterDefinitionTable="table" morphologicalRules="11111111-1111-4111-8111-111111111111">
-        <Name>Morphology</Name>
-        <MorphologicalRuleDefinitions>
-          <MorphologicalRule id="11111111-1111-4111-8111-111111111111" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
-            <MorphemeId>SUFFIX</MorphemeId>
-            <MorphologicalSubrules>
-              <MorphologicalSubrule id="33333333-3333-4333-8333-333333333333">
-                <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-                <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments></MorphologicalOutput>
-              </MorphologicalSubrule>
-              <MorphologicalSubrule id="55555555-5555-4555-8555-555555555555">
-                <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-                <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments></MorphologicalOutput>
-              </MorphologicalSubrule>
-            </MorphologicalSubrules>
-          </MorphologicalRule>
-        </MorphologicalRuleDefinitions>
-        <LexicalEntries><LexicalEntry id="22222222-2222-4222-8222-222222222222" partOfSpeech="pos"><Allomorphs><Allomorph id="44444444-4444-4444-8444-444444444444"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries>
-      </Stratum></Strata>
-    </Language></HermitCrabInput>"#;
+          <Name>HomophonousAffixProjection</Name>
+          <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="table"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+            <BoundaryDefinitions><BoundaryDefinition id="plus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="any"><Name>Any</Name><Segment segment="a" /><Segment segment="b" /></SegmentNaturalClass></NaturalClasses>
+          <Strata><Stratum characterDefinitionTable="table" morphologicalRules="11111111-1111-4111-8111-111111111111">
+            <Name>Morphology</Name>
+            <MorphologicalRuleDefinitions>
+              <MorphologicalRule id="11111111-1111-4111-8111-111111111111" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+                <MorphemeId>SUFFIX</MorphemeId>
+                <MorphologicalSubrules>
+                  <MorphologicalSubrule id="33333333-3333-4333-8333-333333333333">
+                    <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                    <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments></MorphologicalOutput>
+                  </MorphologicalSubrule>
+                  <MorphologicalSubrule id="55555555-5555-4555-8555-555555555555">
+                    <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                    <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments></MorphologicalOutput>
+                  </MorphologicalSubrule>
+                </MorphologicalSubrules>
+              </MorphologicalRule>
+            </MorphologicalRuleDefinitions>
+            <LexicalEntries><LexicalEntry id="22222222-2222-4222-8222-222222222222" partOfSpeech="pos"><Allomorphs><Allomorph id="44444444-4444-4444-8444-444444444444"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries>
+          </Stratum></Strata>
+        </Language></HermitCrabInput>"#;
     let mut grammar = pg_grammar::load(XML).expect("homophonous grammar loads");
     assert!(
         grammar
@@ -673,44 +673,44 @@ fn homophonous_affix_allomorphs_survive_structured_source_projection() {
 #[test]
 fn unordered_two_stage_homophonous_parse_keeps_both_ordered_source_trails() {
     const XML: &str = r#"<HermitCrabInput><Language>
-      <Name>TwoStageHomophonousProjection</Name>
-      <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="table"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
-        </SegmentDefinitions>
-        <BoundaryDefinitions><BoundaryDefinition id="plus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="any"><Name>Any</Name><Segment segment="a" /><Segment segment="b" /><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
-      <Strata><Stratum characterDefinitionTable="table" morphologicalRuleOrder="unordered" morphologicalRules="11111111-1111-4111-8111-111111111111 77777777-7777-4777-8777-777777777777">
-        <Name>Morphology</Name>
-        <MorphologicalRuleDefinitions>
-          <MorphologicalRule id="11111111-1111-4111-8111-111111111111" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
-            <MorphemeId>INNER</MorphemeId>
-            <MorphologicalSubrules><MorphologicalSubrule id="88888888-8888-4888-8888-888888888888">
-              <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-              <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments></MorphologicalOutput>
-            </MorphologicalSubrule></MorphologicalSubrules>
-          </MorphologicalRule>
-          <MorphologicalRule id="77777777-7777-4777-8777-777777777777" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
-            <MorphemeId>OUTER</MorphemeId>
-            <MorphologicalSubrules>
-              <MorphologicalSubrule id="33333333-3333-4333-8333-333333333333">
-                <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-                <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+c</PhoneticShape></InsertSegments></MorphologicalOutput>
-              </MorphologicalSubrule>
-              <MorphologicalSubrule id="55555555-5555-4555-8555-555555555555">
-                <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-                <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+c</PhoneticShape></InsertSegments></MorphologicalOutput>
-              </MorphologicalSubrule>
-            </MorphologicalSubrules>
-          </MorphologicalRule>
-        </MorphologicalRuleDefinitions>
-        <LexicalEntries><LexicalEntry id="22222222-2222-4222-8222-222222222222" partOfSpeech="pos"><Allomorphs><Allomorph id="44444444-4444-4444-8444-444444444444"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries>
-      </Stratum></Strata>
-    </Language></HermitCrabInput>"#;
+          <Name>TwoStageHomophonousProjection</Name>
+          <PartsOfSpeech><PartOfSpeech id="pos"><Name>POS</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="table"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+            <BoundaryDefinitions><BoundaryDefinition id="plus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="any"><Name>Any</Name><Segment segment="a" /><Segment segment="b" /><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
+          <Strata><Stratum characterDefinitionTable="table" morphologicalRuleOrder="unordered" morphologicalRules="11111111-1111-4111-8111-111111111111 77777777-7777-4777-8777-777777777777">
+            <Name>Morphology</Name>
+            <MorphologicalRuleDefinitions>
+              <MorphologicalRule id="11111111-1111-4111-8111-111111111111" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+                <MorphemeId>INNER</MorphemeId>
+                <MorphologicalSubrules><MorphologicalSubrule id="88888888-8888-4888-8888-888888888888">
+                  <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                  <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments></MorphologicalOutput>
+                </MorphologicalSubrule></MorphologicalSubrules>
+              </MorphologicalRule>
+              <MorphologicalRule id="77777777-7777-4777-8777-777777777777" requiredPartsOfSpeech="pos" outputPartOfSpeech="pos">
+                <MorphemeId>OUTER</MorphemeId>
+                <MorphologicalSubrules>
+                  <MorphologicalSubrule id="33333333-3333-4333-8333-333333333333">
+                    <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                    <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+c</PhoneticShape></InsertSegments></MorphologicalOutput>
+                  </MorphologicalSubrule>
+                  <MorphologicalSubrule id="55555555-5555-4555-8555-555555555555">
+                    <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                    <MorphologicalOutput><CopyFromInput index="stem" /><InsertSegments><PhoneticShape>+c</PhoneticShape></InsertSegments></MorphologicalOutput>
+                  </MorphologicalSubrule>
+                </MorphologicalSubrules>
+              </MorphologicalRule>
+            </MorphologicalRuleDefinitions>
+            <LexicalEntries><LexicalEntry id="22222222-2222-4222-8222-222222222222" partOfSpeech="pos"><Allomorphs><Allomorph id="44444444-4444-4444-8444-444444444444"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries>
+          </Stratum></Strata>
+        </Language></HermitCrabInput>"#;
     let mut grammar = pg_grammar::load(XML).expect("two-stage grammar loads");
     assert!(grammar
         .morphemes

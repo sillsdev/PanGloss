@@ -246,18 +246,18 @@ fn render_grammar() -> pg_grammar_model::model::Grammar {
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>RenderMatchProbe</Name>
-<PartsOfSpeech><PartOfSpeech id="n"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-  <BoundaryDefinitions>
-    <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
-  </BoundaryDefinitions>
-</CharacterDefinitionTable>
+    <Name>RenderMatchProbe</Name>
+    <PartsOfSpeech><PartOfSpeech id="n"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
   </Language>
 </HermitCrabInput>
 "#;

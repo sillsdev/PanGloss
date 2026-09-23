@@ -5,83 +5,83 @@ use pg_grammar::model::PhonRuleDef;
 const TWO_TABLE_ALPHA_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>TwoTableSymbolDivergenceAlphaFixture</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-</PartsOfSpeech>
-<PhonologicalFeatureSystem>
-  <SymbolicFeature id="featA">
-    <Name>dummy</Name>
-    <Symbols>
-      <Symbol id="symA1">a</Symbol>
-      <Symbol id="symA2">b</Symbol>
-    </Symbols>
-  </SymbolicFeature>
-</PhonologicalFeatureSystem>
-<CharacterDefinitionTable id="t0">
-  <Name>Table0</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c0a"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
-    <SegmentDefinition id="c0b"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<CharacterDefinitionTable id="t1">
-  <Name>Table1</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1a"><Representations><Representation>k</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
-    <SegmentDefinition id="c1b"><Representations><Representation>g</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
-    <SegmentDefinition id="c1c"><Representations><Representation>x</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <FeatureNaturalClass id="ncBig"><Name>Any</Name></FeatureNaturalClass>
-</NaturalClasses>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="prule_alpha_t1">
-    <Name>alpha rule on table 1</Name>
-    <VariableFeatures>
-      <VariableFeature id="var1" name="a" phonologicalFeature="featA" />
-    </VariableFeatures>
-    <PhoneticInput>
-      <PhoneticSequence>
-        <Segment segment="c1a" />
-      </PhoneticSequence>
-    </PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput>
+    <Name>TwoTableSymbolDivergenceAlphaFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featA">
+        <Name>dummy</Name>
+        <Symbols>
+          <Symbol id="symA1">a</Symbol>
+          <Symbol id="symA2">b</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t0">
+      <Name>Table0</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0a"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c0b"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1">
+      <Name>Table1</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1a"><Representations><Representation>k</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c1b"><Representations><Representation>g</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+        <SegmentDefinition id="c1c"><Representations><Representation>x</Representation></Representations><FeatureValue feature="featA" symbolValues="symA1" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncBig"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prule_alpha_t1">
+        <Name>alpha rule on table 1</Name>
+        <VariableFeatures>
+          <VariableFeature id="var1" name="a" phonologicalFeature="featA" />
+        </VariableFeatures>
+        <PhoneticInput>
           <PhoneticSequence>
-            <SimpleContext naturalClass="ncBig">
-              <AlphaVariables>
-                <AlphaVariable variableFeature="var1" />
-              </AlphaVariables>
-            </SimpleContext>
+            <Segment segment="c1a" />
           </PhoneticSequence>
-        </PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t0" morphologicalRuleOrder="unordered">
-    <Name>S0</Name>
-    <LexicalEntries>
-      <LexicalEntry id="entry0" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="allo0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>dummy0</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule_alpha_t1">
-    <Name>S1</Name>
-    <LexicalEntries>
-      <LexicalEntry id="entry1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="allo1"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>dummy1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <SimpleContext naturalClass="ncBig">
+                  <AlphaVariables>
+                    <AlphaVariable variableFeature="var1" />
+                  </AlphaVariables>
+                </SimpleContext>
+              </PhoneticSequence>
+            </PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t0" morphologicalRuleOrder="unordered">
+        <Name>S0</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entry0" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="allo0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>dummy0</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule_alpha_t1">
+        <Name>S1</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entry1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="allo1"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>dummy1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;
@@ -160,45 +160,45 @@ fn resolve_alpha_tuples_surviving_count_reflects_the_owning_table_not_table_zero
 
 /// Two VariableFeatures disagreeing over a 4-member class varying on both features -- `featBack` alone does not uniquely determine a member (`cI`/`cY` share `bkMinus`).
 const TWO_VAR_AMBIGUOUS_DISAGREE_XML: &str = r#"<HermitCrabInput><Language><Name>AmbiguousDisagree</Name>
-  <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
-  <PhonologicalFeatureSystem>
-    <SymbolicFeature id="featBack"><Name>back</Name><Symbols><Symbol id="bkPlus">+bk</Symbol><Symbol id="bkMinus">-bk</Symbol></Symbols></SymbolicFeature>
-    <SymbolicFeature id="featRound"><Name>round</Name><Symbols><Symbol id="rdMinus">-rd</Symbol><Symbol id="rdPlus">+rd</Symbol></Symbols></SymbolicFeature>
-  </PhonologicalFeatureSystem>
-  <CharacterDefinitionTable id="tbl"><Name>Main</Name>
-    <SegmentDefinitions>
-      <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
-      <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
-      <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
-      <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
-    </SegmentDefinitions>
-  </CharacterDefinitionTable>
-  <NaturalClasses><SegmentNaturalClass id="ncVowel"><Name>vowels</Name><Segment segment="cI" /><Segment segment="cY" /><Segment segment="cA" /><Segment segment="cU" /></SegmentNaturalClass></NaturalClasses>
-  <PhonologicalRuleDefinitions>
-    <PhonologicalRule id="prDoubleAlpha">
-      <Name>doubleAlphaFlip</Name>
-      <VariableFeatures>
-        <VariableFeature id="varBack" name="a" phonologicalFeature="featBack" />
-        <VariableFeature id="varRound" name="b" phonologicalFeature="featRound" />
-      </VariableFeatures>
-      <PhoneticInput><PhoneticSequence>
-        <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varBack" polarity="plus" /></AlphaVariables></SimpleContext>
-        <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varRound" polarity="plus" /></AlphaVariables></SimpleContext>
-      </PhoneticSequence></PhoneticInput>
-      <PhonologicalSubrules>
-        <PhonologicalSubrule>
-          <PhoneticOutput><PhoneticSequence>
-            <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varBack" polarity="minus" /></AlphaVariables></SimpleContext>
-            <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varRound" polarity="minus" /></AlphaVariables></SimpleContext>
-          </PhoneticSequence></PhoneticOutput>
-        </PhonologicalSubrule>
-      </PhonologicalSubrules>
-    </PhonologicalRule>
-  </PhonologicalRuleDefinitions>
-  <Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="prDoubleAlpha"><Name>Main</Name>
-    <LexicalEntries><LexicalEntry id="eAu" partOfSpeech="posN"><Allomorphs><Allomorph id="aAu"><PhoneticShape>au</PhoneticShape></Allomorph></Allomorphs><MorphemeId>AU</MorphemeId><Gloss>au</Gloss></LexicalEntry></LexicalEntries>
-  </Stratum></Strata>
-</Language></HermitCrabInput>"#;
+      <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+      <PhonologicalFeatureSystem>
+        <SymbolicFeature id="featBack"><Name>back</Name><Symbols><Symbol id="bkPlus">+bk</Symbol><Symbol id="bkMinus">-bk</Symbol></Symbols></SymbolicFeature>
+        <SymbolicFeature id="featRound"><Name>round</Name><Symbols><Symbol id="rdMinus">-rd</Symbol><Symbol id="rdPlus">+rd</Symbol></Symbols></SymbolicFeature>
+      </PhonologicalFeatureSystem>
+      <CharacterDefinitionTable id="tbl"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
+          <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
+          <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
+          <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses><SegmentNaturalClass id="ncVowel"><Name>vowels</Name><Segment segment="cI" /><Segment segment="cY" /><Segment segment="cA" /><Segment segment="cU" /></SegmentNaturalClass></NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prDoubleAlpha">
+          <Name>doubleAlphaFlip</Name>
+          <VariableFeatures>
+            <VariableFeature id="varBack" name="a" phonologicalFeature="featBack" />
+            <VariableFeature id="varRound" name="b" phonologicalFeature="featRound" />
+          </VariableFeatures>
+          <PhoneticInput><PhoneticSequence>
+            <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varBack" polarity="plus" /></AlphaVariables></SimpleContext>
+            <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varRound" polarity="plus" /></AlphaVariables></SimpleContext>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence>
+                <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varBack" polarity="minus" /></AlphaVariables></SimpleContext>
+                <SimpleContext naturalClass="ncVowel"><AlphaVariables><AlphaVariable variableFeature="varRound" polarity="minus" /></AlphaVariables></SimpleContext>
+              </PhoneticSequence></PhoneticOutput>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+      <Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="prDoubleAlpha"><Name>Main</Name>
+        <LexicalEntries><LexicalEntry id="eAu" partOfSpeech="posN"><Allomorphs><Allomorph id="aAu"><PhoneticShape>au</PhoneticShape></Allomorph></Allomorphs><MorphemeId>AU</MorphemeId><Gloss>au</Gloss></LexicalEntry></LexicalEntries>
+      </Stratum></Strata>
+    </Language></HermitCrabInput>"#;
 
 /// FALSIFICATION: unguarded, this shape's 64 surviving tuples collapse to one wrong branch (`down("au")` produced `"ii"`, never the oracle-facing set) -- must stay refused.
 #[test]

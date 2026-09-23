@@ -9,18 +9,18 @@ use pg_shape::ShapeBuilder;
 /// The smallest grammar `pg_grammar::load` accepts; sufficient since `is_word_valid_traced` doesn't read `Grammar::strata`.
 fn minimal_grammar() -> pg_grammar_model::model::Grammar {
     const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
-      <HeadFeatures />
-      <MorphologicalPhonologicalRuleFeatures>
-        <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
-        <MorphologicalPhonologicalRuleFeatureGroup features="mprA"><Name>G</Name></MorphologicalPhonologicalRuleFeatureGroup>
-      </MorphologicalPhonologicalRuleFeatures>
-      <CharacterDefinitionTable id="t1">
-        <Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cA" /></SegmentNaturalClass></NaturalClasses>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
+          <HeadFeatures />
+          <MorphologicalPhonologicalRuleFeatures>
+            <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
+            <MorphologicalPhonologicalRuleFeatureGroup features="mprA"><Name>G</Name></MorphologicalPhonologicalRuleFeatureGroup>
+          </MorphologicalPhonologicalRuleFeatures>
+          <CharacterDefinitionTable id="t1">
+            <Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cA" /></SegmentNaturalClass></NaturalClasses>
+        </Language></HermitCrabInput>"#;
     pg_grammar::load(XML).unwrap_or_else(|e| panic!("minimal_grammar failed to load: {e}"))
 }
 

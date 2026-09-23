@@ -17,72 +17,72 @@ fn slot_gate_fixture(vacuous: bool) -> String {
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
 <HermitCrabInput>
   <Language>
-<Name>PruningDepth0Gate</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
-</PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
-</NaturalClasses>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="pr1">
-    <Name>PR</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="pr1">
-    <Name>Main</Name>
-    <MorphologicalRuleDefinitions>
-      <MorphologicalRule id="mrA" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>a</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="subA">
-            <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-            <MorphologicalOutput>{slot0_output}</MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-        <MorphemeId>A</MorphemeId>
-      </MorphologicalRule>
-      <MorphologicalRule id="mrB" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>b</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="subB">
-            <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-            <MorphologicalOutput><InsertSegments><PhoneticShape>b</PhoneticShape></InsertSegments><CopyFromInput index="stemB" /></MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-        <MorphemeId>B</MorphemeId>
-      </MorphologicalRule>
-    </MorphologicalRuleDefinitions>
-    <AffixTemplates>
-      <AffixTemplate requiredPartsOfSpeech="posV">
-        <Name>T</Name>
-        <Slot morphologicalRules="mrA"><Name>s0</Name></Slot>
-        <Slot morphologicalRules="mrB"><Name>s1</Name></Slot>
-      </AffixTemplate>
-    </AffixTemplates>
-    <LexicalEntries>
-      <LexicalEntry id="eK" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
-        <MorphemeId>K</MorphemeId>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>PruningDepth0Gate</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>PR</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="pr1">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrA" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subA">
+                <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput>{slot0_output}</MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>A</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrB" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subB">
+                <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><InsertSegments><PhoneticShape>b</PhoneticShape></InsertSegments><CopyFromInput index="stemB" /></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>B</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posV">
+            <Name>T</Name>
+            <Slot morphologicalRules="mrA"><Name>s0</Name></Slot>
+            <Slot morphologicalRules="mrB"><Name>s1</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>"#
     )
@@ -147,13 +147,13 @@ fn vacuous_slot0_lets_slot1_be_probed_at_depth0_under_pruning() {
 #[test]
 fn ordinary_preexpand_exhausts_a_four_rule_chain() {
     let phonology = r#"
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="pr1">
-    <Name>identity</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>identity</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAny" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
   <Strata>"#;
     let xml = include_str!(
         "../../tests/fixtures/pangloss/fst-completeness/late-structural-anchor-five-rule-chain/grammar.xml"

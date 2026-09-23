@@ -34,46 +34,46 @@ fn oracle_gated_two_group_fixture_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>OracleGatedTwoGroupFixture</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-</PartsOfSpeech>
-<MorphologicalPhonologicalRuleFeatures>
-  <MorphologicalPhonologicalRuleFeature id="mpr1">f1</MorphologicalPhonologicalRuleFeature>
-</MorphologicalPhonologicalRuleFeatures>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="prule1">
-    <Name>gate1</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule requiredMPRFeatures="mpr1">
-        <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule1">
-    <Name>S</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e0" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="allo0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e0</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e1" partOfSpeech="posV" ruleFeatures="mpr1">
-        <Allomorphs><Allomorph id="allo1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>OracleGatedTwoGroupFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mpr1">f1</MorphologicalPhonologicalRuleFeature>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prule1">
+        <Name>gate1</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule requiredMPRFeatures="mpr1">
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule1">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e0" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="allo0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e0</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e1" partOfSpeech="posV" ruleFeatures="mpr1">
+            <Allomorphs><Allomorph id="allo1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#
@@ -117,42 +117,42 @@ fn oracle_union_root_fixture_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>OracleUnionRootFixture</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-</PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
-</NaturalClasses>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="pr1">
-    <Name>PR</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="pr1">
-    <Name>S</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>OracleUnionRootFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>PR</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="pr1">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#
@@ -163,37 +163,37 @@ fn oracle_three_entry_ungated_fixture_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>OracleThreeEntryUngatedFixture</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-</PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c3"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
-    <Name>S</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e0" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e0</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>t</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e1</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e2" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a2"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e2</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>OracleThreeEntryUngatedFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c3"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e0" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e0</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>t</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e2" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a2"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e2</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#
@@ -204,49 +204,49 @@ fn oracle_two_rule_cascade_fixture_xml() -> &'static str {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>OracleTwoRuleCascadeFixture</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-</PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c3"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="pr1">
-    <Name>PR1</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-  <PhonologicalRule id="pr2">
-    <Name>PR2</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><Segment segment="c3" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="pr1 pr2">
-    <Name>S</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>OracleTwoRuleCascadeFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c3"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>PR1</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="pr2">
+        <Name>PR2</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="c3" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="pr1 pr2">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#

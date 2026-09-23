@@ -276,44 +276,44 @@ fn pos_gated_no_mpr_features_grammar() -> Grammar {
     let xml = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>PosGatedNoMprFixture</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-  <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
-</PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="prule1">
-    <Name>posGate</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule requiredPartsOfSpeech="posV">
-        <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule1">
-    <Name>S</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>E1</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e2" partOfSpeech="posN">
-        <Allomorphs><Allomorph id="a2"><PhoneticShape>q</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>E2</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>PosGatedNoMprFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prule1">
+        <Name>posGate</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule requiredPartsOfSpeech="posV">
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prule1">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>E1</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e2" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="a2"><PhoneticShape>q</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>E2</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;
@@ -373,47 +373,47 @@ fn redup_hint_grammar(echoed: bool) -> Grammar {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>RedupHintFixture</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-</PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /><Segment segment="c2" /></SegmentNaturalClass>
-</NaturalClasses>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
-    <Name>S</Name>
-    <MorphologicalRuleDefinitions>
-      <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>redupish</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="sub1">
-            <MorphologicalInput>
-              <PhoneticSequence id="stem">
-                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
-              </PhoneticSequence>
-            </MorphologicalInput>
-            <MorphologicalOutput redupMorphType="prefix">{copies}</MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-        <Gloss>RED</Gloss>
-      </MorphologicalRule>
-    </MorphologicalRuleDefinitions>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>E1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>RedupHintFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /><Segment segment="c2" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>redupish</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub1">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput redupMorphType="prefix">{copies}</MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>RED</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>E1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#

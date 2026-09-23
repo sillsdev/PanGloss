@@ -9,50 +9,50 @@ fn crate_builds() {
 const HAND_BUILT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>Test</Name>
-<PhonologicalFeatureSystem>
-  <SymbolicFeature id="feat1">
-    <Name>voice</Name>
-    <Symbols>
-      <Symbol id="symP">+</Symbol>
-      <Symbol id="symM">-</Symbol>
-    </Symbols>
-  </SymbolicFeature>
-</PhonologicalFeatureSystem>
-<CharacterDefinitionTable id="table1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="char1">
-      <Representations>
-        <Representation>s</Representation>
-      </Representations>
-      <FeatureValue feature="feat1" symbolValues="symM" />
-    </SegmentDefinition>
-    <SegmentDefinition id="char2">
-      <Representations>
-        <Representation>y</Representation>
-      </Representations>
-    </SegmentDefinition>
-    <SegmentDefinition id="char3">
-      <Representations>
-        <Representation>sy</Representation>
-      </Representations>
-    </SegmentDefinition>
-    <SegmentDefinition id="char4">
-      <Representations>
-        <Representation>m</Representation>
-        <Representation>n</Representation>
-      </Representations>
-    </SegmentDefinition>
-  </SegmentDefinitions>
-  <BoundaryDefinitions>
-    <BoundaryDefinition id="char5">
-      <Representations>
-        <Representation>+</Representation>
-      </Representations>
-    </BoundaryDefinition>
-  </BoundaryDefinitions>
-</CharacterDefinitionTable>
+    <Name>Test</Name>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="feat1">
+        <Name>voice</Name>
+        <Symbols>
+          <Symbol id="symP">+</Symbol>
+          <Symbol id="symM">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="char1">
+          <Representations>
+            <Representation>s</Representation>
+          </Representations>
+          <FeatureValue feature="feat1" symbolValues="symM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="char2">
+          <Representations>
+            <Representation>y</Representation>
+          </Representations>
+        </SegmentDefinition>
+        <SegmentDefinition id="char3">
+          <Representations>
+            <Representation>sy</Representation>
+          </Representations>
+        </SegmentDefinition>
+        <SegmentDefinition id="char4">
+          <Representations>
+            <Representation>m</Representation>
+            <Representation>n</Representation>
+          </Representations>
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="char5">
+          <Representations>
+            <Representation>+</Representation>
+          </Representations>
+        </BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
   </Language>
 </HermitCrabInput>
 "#;
@@ -90,34 +90,34 @@ fn hand_built_grammar_greedy_segmentation_prefers_two_char_rep() {
 const TWO_PHON_FEATURE_SYSTEMS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>N1Test</Name>
-<PhonologicalFeatureSystem>
-  <SymbolicFeature id="feat_a">
-    <Name>active</Name>
-    <Symbols>
-      <Symbol id="a_p">+</Symbol>
-      <Symbol id="a_m">-</Symbol>
-    </Symbols>
-  </SymbolicFeature>
-</PhonologicalFeatureSystem>
-<PhonologicalFeatureSystem isActive="no">
-  <SymbolicFeature id="feat_b">
-    <Name>inactive draft</Name>
-    <Symbols>
-      <Symbol id="b_p">+</Symbol>
-    </Symbols>
-  </SymbolicFeature>
-</PhonologicalFeatureSystem>
-<CharacterDefinitionTable id="table1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="char1">
-      <Representations>
-        <Representation>x</Representation>
-      </Representations>
-    </SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
+    <Name>N1Test</Name>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="feat_a">
+        <Name>active</Name>
+        <Symbols>
+          <Symbol id="a_p">+</Symbol>
+          <Symbol id="a_m">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <PhonologicalFeatureSystem isActive="no">
+      <SymbolicFeature id="feat_b">
+        <Name>inactive draft</Name>
+        <Symbols>
+          <Symbol id="b_p">+</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="char1">
+          <Representations>
+            <Representation>x</Representation>
+          </Representations>
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
   </Language>
 </HermitCrabInput>
 "#;

@@ -19,93 +19,93 @@ use crate::uflexc::emit_underlying;
 const COMPOUND_NULL_PREFIX_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>BuildCompoundNullShapedPrefixFixture</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
-</PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-  <BoundaryDefinitions>
-    <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
-    <BoundaryDefinition id="cNull"><Representations><Representation>^0</Representation><Representation>*0</Representation></Representations></BoundaryDefinition>
-  </BoundaryDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
-</NaturalClasses>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="cr1 mrRealPfx mrNullPfx">
-    <Name>S</Name>
-    <MorphologicalRuleDefinitions>
-      <CompoundingRule id="cr1">
-        <Name>Compound</Name>
-        <CompoundingSubrules>
-          <CompoundingSubrule>
-            <HeadMorphologicalInput>
-              <PhoneticSequence id="h0"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
-            </HeadMorphologicalInput>
-            <NonHeadMorphologicalInput>
-              <PhoneticSequence id="n0"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
-            </NonHeadMorphologicalInput>
-            <MorphologicalOutput>
-              <CopyFromInput index="h0" />
-              <CopyFromInput index="n0" />
-            </MorphologicalOutput>
-          </CompoundingSubrule>
-        </CompoundingSubrules>
-      </CompoundingRule>
-      <MorphologicalRule id="mrRealPfx" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>RealPrefix</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="mrRealPfxS">
-            <MorphologicalInput>
-              <PhoneticSequence id="stem1">
-                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
-              </PhoneticSequence>
-            </MorphologicalInput>
-            <MorphologicalOutput>
-              <InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments>
-              <CopyFromInput index="stem1" />
-            </MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-        <Gloss>RPX</Gloss>
-      </MorphologicalRule>
-      <MorphologicalRule id="mrNullPfx" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>NullPrefix</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="mrNullPfxS">
-            <MorphologicalInput>
-              <PhoneticSequence id="stem2">
-                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
-              </PhoneticSequence>
-            </MorphologicalInput>
-            <MorphologicalOutput>
-              <InsertSegments><PhoneticShape>^0+</PhoneticShape></InsertSegments>
-              <CopyFromInput index="stem2" />
-            </MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-        <Gloss>NPX</Gloss>
-      </MorphologicalRule>
-    </MorphologicalRuleDefinitions>
-    <LexicalEntries>
-      <LexicalEntry id="root1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="root1a0"><PhoneticShape>s</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>rootS</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="root2" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="root2a0"><PhoneticShape>t</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>rootT</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>BuildCompoundNullShapedPrefixFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+        <BoundaryDefinition id="cNull"><Representations><Representation>^0</Representation><Representation>*0</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="cr1 mrRealPfx mrNullPfx">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <CompoundingRule id="cr1">
+            <Name>Compound</Name>
+            <CompoundingSubrules>
+              <CompoundingSubrule>
+                <HeadMorphologicalInput>
+                  <PhoneticSequence id="h0"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </HeadMorphologicalInput>
+                <NonHeadMorphologicalInput>
+                  <PhoneticSequence id="n0"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </NonHeadMorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="h0" />
+                  <CopyFromInput index="n0" />
+                </MorphologicalOutput>
+              </CompoundingSubrule>
+            </CompoundingSubrules>
+          </CompoundingRule>
+          <MorphologicalRule id="mrRealPfx" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>RealPrefix</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrRealPfxS">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem1">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments>
+                  <CopyFromInput index="stem1" />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>RPX</Gloss>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrNullPfx" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>NullPrefix</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="mrNullPfxS">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem2">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <InsertSegments><PhoneticShape>^0+</PhoneticShape></InsertSegments>
+                  <CopyFromInput index="stem2" />
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <Gloss>NPX</Gloss>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="root1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="root1a0"><PhoneticShape>s</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>rootS</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="root2" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="root2a0"><PhoneticShape>t</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>rootT</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;

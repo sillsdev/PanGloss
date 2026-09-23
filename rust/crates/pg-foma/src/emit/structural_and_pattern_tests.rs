@@ -734,24 +734,24 @@ fn load_xml(xml: &str) -> Grammar {
 #[test]
 fn plan_topology_decisions_matches_real_seams_bare_grammar() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyBare</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-        </SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <Strata>
-        <Stratum characterDefinitionTable="t1">
-          <Name>S</Name>
-          <LexicalEntries>
-            <LexicalEntry id="e1">
-              <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-              <Gloss>e1</Gloss>
-            </LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
     assert_plan_topology_matches_real_seams(&load_xml(XML), (false, false));
 }
 
@@ -759,39 +759,39 @@ fn plan_topology_decisions_matches_real_seams_bare_grammar() {
 #[test]
 fn plan_topology_decisions_matches_real_seams_ordinary_phonology_only() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyOrdinaryPhon</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-        </SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses>
-        <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cp" /></SegmentNaturalClass>
-      </NaturalClasses>
-      <PhonologicalRuleDefinitions>
-        <PhonologicalRule id="pr1">
-          <Name>PR</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules>
-            <PhonologicalSubrule>
-              <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
-            </PhonologicalSubrule>
-          </PhonologicalSubrules>
-        </PhonologicalRule>
-      </PhonologicalRuleDefinitions>
-      <Strata>
-        <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
-          <Name>S</Name>
-          <LexicalEntries>
-            <LexicalEntry id="e1">
-              <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-              <Gloss>e1</Gloss>
-            </LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cp" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1">
+              <Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><Segment segment="cb" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
     assert_plan_topology_matches_real_seams(&load_xml(XML), (true, false));
 }
 
@@ -799,63 +799,63 @@ fn plan_topology_decisions_matches_real_seams_ordinary_phonology_only() {
 #[test]
 fn plan_topology_decisions_matches_real_seams_epenthesis_plus_suffix() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyEpenthesisPlusSuffix</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
-          <SegmentDefinition id="cy"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
-        </SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses>
-        <SegmentNaturalClass id="ncE"><Name>Epenthetic</Name><Segment segment="ce" /></SegmentNaturalClass>
-        <SegmentNaturalClass id="ncX"><Name>X</Name><Segment segment="cx" /></SegmentNaturalClass>
-        <SegmentNaturalClass id="ncY"><Name>Y</Name><Segment segment="cy" /></SegmentNaturalClass>
-        <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cx" /><Segment segment="ce" /><Segment segment="cy" /></SegmentNaturalClass>
-      </NaturalClasses>
-      <PhonologicalRuleDefinitions>
-        <PhonologicalRule id="prEpenthesis">
-          <Name>epenthesisAlone</Name>
-          <PhoneticInput><PhoneticSequence /></PhoneticInput>
-          <PhonologicalSubrules>
-            <PhonologicalSubrule>
-              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncE" /></PhoneticSequence></PhoneticOutput>
-              <Environment>
-                <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncX" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
-                <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncY" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
-              </Environment>
-            </PhonologicalSubrule>
-          </PhonologicalSubrules>
-        </PhonologicalRule>
-      </PhonologicalRuleDefinitions>
-      <Strata>
-        <Stratum characterDefinitionTable="t1" phonologicalRules="prEpenthesis" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
-          <Name>S</Name>
-          <MorphologicalRuleDefinitions>
-            <MorphologicalRule id="mr1">
-              <Name>-x</Name>
-              <MorphologicalSubrules>
-                <MorphologicalSubrule id="sub1">
-                  <MorphologicalInput>
-                    <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
-                  </MorphologicalInput>
-                  <MorphologicalOutput>
-                    <CopyFromInput index="stem" />
-                    <InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments>
-                  </MorphologicalOutput>
-                </MorphologicalSubrule>
-              </MorphologicalSubrules>
-            </MorphologicalRule>
-          </MorphologicalRuleDefinitions>
-          <LexicalEntries>
-            <LexicalEntry id="e1">
-              <Allomorphs><Allomorph id="a1"><PhoneticShape>xy</PhoneticShape></Allomorph></Allomorphs>
-              <Gloss>e1</Gloss>
-            </LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cx"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+              <SegmentDefinition id="cy"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <SegmentNaturalClass id="ncE"><Name>Epenthetic</Name><Segment segment="ce" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncX"><Name>X</Name><Segment segment="cx" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncY"><Name>Y</Name><Segment segment="cy" /></SegmentNaturalClass>
+            <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cx" /><Segment segment="ce" /><Segment segment="cy" /></SegmentNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prEpenthesis">
+              <Name>epenthesisAlone</Name>
+              <PhoneticInput><PhoneticSequence /></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncE" /></PhoneticSequence></PhoneticOutput>
+                  <Environment>
+                    <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncX" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncY" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+                  </Environment>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" phonologicalRules="prEpenthesis" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <MorphologicalRule id="mr1">
+                  <Name>-x</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput>
+                        <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
+                      </MorphologicalInput>
+                      <MorphologicalOutput>
+                        <CopyFromInput index="stem" />
+                        <InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments>
+                      </MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>xy</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
     assert_plan_topology_matches_real_seams(&load_xml(XML), (true, true));
 }
 
@@ -863,41 +863,41 @@ fn plan_topology_decisions_matches_real_seams_epenthesis_plus_suffix() {
 #[test]
 fn plan_topology_decisions_matches_real_seams_circumfix_only() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>PlanTopologyCircumfixOnly</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-        </SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
-      <Strata>
-        <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
-          <Name>S</Name>
-          <MorphologicalRuleDefinitions>
-            <MorphologicalRule id="mr1">
-              <Name>circumfix</Name>
-              <MorphologicalSubrules>
-                <MorphologicalSubrule id="sub1">
-                  <MorphologicalInput>
-                    <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
-                  </MorphologicalInput>
-                  <MorphologicalOutput>
-                    <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
-                    <CopyFromInput index="stem" />
-                    <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
-                  </MorphologicalOutput>
-                </MorphologicalSubrule>
-              </MorphologicalSubrules>
-            </MorphologicalRule>
-          </MorphologicalRuleDefinitions>
-          <LexicalEntries>
-            <LexicalEntry id="e1">
-              <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-              <Gloss>e1</Gloss>
-            </LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <Strata>
+            <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr1">
+              <Name>S</Name>
+              <MorphologicalRuleDefinitions>
+                <MorphologicalRule id="mr1">
+                  <Name>circumfix</Name>
+                  <MorphologicalSubrules>
+                    <MorphologicalSubrule id="sub1">
+                      <MorphologicalInput>
+                        <PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence></PhoneticSequence>
+                      </MorphologicalInput>
+                      <MorphologicalOutput>
+                        <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                        <CopyFromInput index="stem" />
+                        <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                      </MorphologicalOutput>
+                    </MorphologicalSubrule>
+                  </MorphologicalSubrules>
+                </MorphologicalRule>
+              </MorphologicalRuleDefinitions>
+              <LexicalEntries>
+                <LexicalEntry id="e1">
+                  <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+                  <Gloss>e1</Gloss>
+                </LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
     assert_plan_topology_matches_real_seams(&load_xml(XML), (false, true));
 }

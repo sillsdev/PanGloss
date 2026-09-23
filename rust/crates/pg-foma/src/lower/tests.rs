@@ -10,65 +10,65 @@ fn load(xml: &str) -> pg_grammar::model::Grammar {
 }
 
 const OVERLAP_LOWER_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>OverlapLowerProbe</Name>
-  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-  <PhonologicalFeatureSystem>
-    <SymbolicFeature id="featPlace"><Name>place</Name>
-      <Symbols>
-        <Symbol id="symNeutral">neutral</Symbol>
-        <Symbol id="symFront">front</Symbol>
-        <Symbol id="symBack">back</Symbol>
-      </Symbols>
-    </SymbolicFeature>
-  </PhonologicalFeatureSystem>
-  <CharacterDefinitionTable id="t1"><Name>Main</Name>
-    <SegmentDefinitions>
-      <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations>
-        <FeatureValue feature="featPlace" symbolValues="symNeutral" />
-      </SegmentDefinition>
-      <SegmentDefinition id="cFront"><Representations><Representation>i</Representation></Representations>
-        <FeatureValue feature="featPlace" symbolValues="symFront" />
-      </SegmentDefinition>
-      <SegmentDefinition id="cBack"><Representations><Representation>u</Representation></Representations>
-        <FeatureValue feature="featPlace" symbolValues="symBack" />
-      </SegmentDefinition>
-    </SegmentDefinitions>
-  </CharacterDefinitionTable>
-  <NaturalClasses>
-    <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cStop" /></SegmentNaturalClass>
-    <FeatureNaturalClass id="ncFront"><Name>Front</Name>
-      <FeatureValue feature="featPlace" symbolValues="symFront" />
-    </FeatureNaturalClass>
-    <FeatureNaturalClass id="ncBack"><Name>Back</Name>
-      <FeatureValue feature="featPlace" symbolValues="symBack" />
-    </FeatureNaturalClass>
-  </NaturalClasses>
-  <PhonologicalRuleDefinitions>
-    <PhonologicalRule id="prNoOverlap" multipleApplicationOrder="simultaneous"><Name>noOverlap</Name>
-      <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-      <PhonologicalSubrules>
-        <PhonologicalSubrule>
-          <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-          <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-        </PhonologicalSubrule>
-        <PhonologicalSubrule>
-          <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-          <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-        </PhonologicalSubrule>
-      </PhonologicalSubrules>
-    </PhonologicalRule>
-    <PhonologicalRule id="prOverlap" multipleApplicationOrder="simultaneous"><Name>overlap</Name>
-      <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-      <PhonologicalSubrules>
-        <PhonologicalSubrule>
-          <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-        </PhonologicalSubrule>
-        <PhonologicalSubrule>
-          <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
-        </PhonologicalSubrule>
-      </PhonologicalSubrules>
-    </PhonologicalRule>
-  </PhonologicalRuleDefinitions>
-</Language></HermitCrabInput>"#;
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <PhonologicalFeatureSystem>
+        <SymbolicFeature id="featPlace"><Name>place</Name>
+          <Symbols>
+            <Symbol id="symNeutral">neutral</Symbol>
+            <Symbol id="symFront">front</Symbol>
+            <Symbol id="symBack">back</Symbol>
+          </Symbols>
+        </SymbolicFeature>
+      </PhonologicalFeatureSystem>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="cStop"><Representations><Representation>p</Representation></Representations>
+            <FeatureValue feature="featPlace" symbolValues="symNeutral" />
+          </SegmentDefinition>
+          <SegmentDefinition id="cFront"><Representations><Representation>i</Representation></Representations>
+            <FeatureValue feature="featPlace" symbolValues="symFront" />
+          </SegmentDefinition>
+          <SegmentDefinition id="cBack"><Representations><Representation>u</Representation></Representations>
+            <FeatureValue feature="featPlace" symbolValues="symBack" />
+          </SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses>
+        <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cStop" /></SegmentNaturalClass>
+        <FeatureNaturalClass id="ncFront"><Name>Front</Name>
+          <FeatureValue feature="featPlace" symbolValues="symFront" />
+        </FeatureNaturalClass>
+        <FeatureNaturalClass id="ncBack"><Name>Back</Name>
+          <FeatureValue feature="featPlace" symbolValues="symBack" />
+        </FeatureNaturalClass>
+      </NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prNoOverlap" multipleApplicationOrder="simultaneous"><Name>noOverlap</Name>
+          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+              <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+            </PhonologicalSubrule>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+              <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBack" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+        <PhonologicalRule id="prOverlap" multipleApplicationOrder="simultaneous"><Name>overlap</Name>
+          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+            </PhonologicalSubrule>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticOutput>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+    </Language></HermitCrabInput>"#;
 
 fn rewrite_rule<'g>(
     g: &'g pg_grammar::model::Grammar,
@@ -159,52 +159,52 @@ use foma::apply::{apply_init, apply_up};
 
 /// One `CharacterDefinitionTable` and four `PhonologicalRule`s, each a bare Segment-focused LHS with one quantifier-bearing probe fed straight to `pattern_slots`, never compiled/composed.
 const QUANTIFIER_SCOPE_PROBE_XML: &str = r#"<HermitCrabInput><Language><Name>QuantifierScopeProbe</Name>
-  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-  <PhonologicalFeatureSystem>
-    <SymbolicFeature id="featA"><Name>a</Name>
-      <Symbols><Symbol id="symX">x</Symbol><Symbol id="symY">y</Symbol></Symbols>
-    </SymbolicFeature>
-  </PhonologicalFeatureSystem>
-  <CharacterDefinitionTable id="t1"><Name>Main</Name>
-    <SegmentDefinitions>
-      <SegmentDefinition id="c1"><Representations><Representation>a</Representation></Representations>
-        <FeatureValue feature="featA" symbolValues="symX" />
-      </SegmentDefinition>
-    </SegmentDefinitions>
-  </CharacterDefinitionTable>
-  <NaturalClasses>
-    <SegmentNaturalClass id="ncC1"><Name>C1</Name><Segment segment="c1" /></SegmentNaturalClass>
-  </NaturalClasses>
-  <PhonologicalRuleDefinitions>
-    <PhonologicalRule id="prUnboundedMinZero"><Name>demo0</Name>
-      <PhoneticInput><PhoneticSequence>
-        <OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
-      </PhoneticSequence></PhoneticInput>
-      <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
-    </PhonologicalRule>
-    <PhonologicalRule id="prUnboundedLargeMin"><Name>demo1</Name>
-      <PhoneticInput><PhoneticSequence>
-        <OptionalSegmentSequence min="1000" max="-1"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
-      </PhoneticSequence></PhoneticInput>
-      <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
-    </PhonologicalRule>
-    <PhonologicalRule id="prInvertedFinite"><Name>demo2</Name>
-      <PhoneticInput><PhoneticSequence>
-        <OptionalSegmentSequence min="5" max="2"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
-      </PhoneticSequence></PhoneticInput>
-      <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
-    </PhonologicalRule>
-    <PhonologicalRule id="prAlphaNestedUnbounded"><Name>demo4</Name>
-      <VariableFeatures><VariableFeature id="var1" name="a" phonologicalFeature="featA" /></VariableFeatures>
-      <PhoneticInput><PhoneticSequence>
-        <OptionalSegmentSequence min="1" max="-1">
-          <SimpleContext naturalClass="ncC1"><AlphaVariables><AlphaVariable variableFeature="var1" /></AlphaVariables></SimpleContext>
-        </OptionalSegmentSequence>
-      </PhoneticSequence></PhoneticInput>
-      <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
-    </PhonologicalRule>
-  </PhonologicalRuleDefinitions>
-</Language></HermitCrabInput>"#;
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <PhonologicalFeatureSystem>
+        <SymbolicFeature id="featA"><Name>a</Name>
+          <Symbols><Symbol id="symX">x</Symbol><Symbol id="symY">y</Symbol></Symbols>
+        </SymbolicFeature>
+      </PhonologicalFeatureSystem>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="c1"><Representations><Representation>a</Representation></Representations>
+            <FeatureValue feature="featA" symbolValues="symX" />
+          </SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <NaturalClasses>
+        <SegmentNaturalClass id="ncC1"><Name>C1</Name><Segment segment="c1" /></SegmentNaturalClass>
+      </NaturalClasses>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prUnboundedMinZero"><Name>demo0</Name>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+        <PhonologicalRule id="prUnboundedLargeMin"><Name>demo1</Name>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="1000" max="-1"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+        <PhonologicalRule id="prInvertedFinite"><Name>demo2</Name>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="5" max="2"><SimpleContext naturalClass="ncC1" /></OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+        <PhonologicalRule id="prAlphaNestedUnbounded"><Name>demo4</Name>
+          <VariableFeatures><VariableFeature id="var1" name="a" phonologicalFeature="featA" /></VariableFeatures>
+          <PhoneticInput><PhoneticSequence>
+            <OptionalSegmentSequence min="1" max="-1">
+              <SimpleContext naturalClass="ncC1"><AlphaVariables><AlphaVariable variableFeature="var1" /></AlphaVariables></SimpleContext>
+            </OptionalSegmentSequence>
+          </PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+    </Language></HermitCrabInput>"#;
 
 fn quantifier_probe_rule<'g>(
     g: &'g pg_grammar::model::Grammar,
@@ -426,16 +426,16 @@ fn render_slots_aliases_fixed_and_union_atoms_across_tables() {
 <HermitCrabInput><Language><Name>RenderSlotsAliasProbe</Name>
   <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
   <CharacterDefinitionTable id="t0"><Name>TableA</Name>
-<SegmentDefinitions>
-  <SegmentDefinition id="c0x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
-</SegmentDefinitions>
+    <SegmentDefinitions>
+      <SegmentDefinition id="c0x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
   </CharacterDefinitionTable>
   <CharacterDefinitionTable id="t1"><Name>TableB</Name>
-<SegmentDefinitions>
-  <SegmentDefinition id="c1z"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
-  <SegmentDefinition id="c1x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
-  <SegmentDefinition id="c1y"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
-</SegmentDefinitions>
+    <SegmentDefinitions>
+      <SegmentDefinition id="c1z"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="c1x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="c1y"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
   </CharacterDefinitionTable>
 </Language></HermitCrabInput>"#;
     let g = load(XML);

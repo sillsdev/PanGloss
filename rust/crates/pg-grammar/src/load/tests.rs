@@ -140,74 +140,74 @@ fn loads_hand_built_minimal_grammar() {
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>Mini</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
-  <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
-</PartsOfSpeech>
-<HeadFeatures />
-<MorphologicalPhonologicalRuleFeatures>
-  <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
-  <MorphologicalPhonologicalRuleFeature id="mprB">Alpha</MorphologicalPhonologicalRuleFeature>
-</MorphologicalPhonologicalRuleFeatures>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-  <BoundaryDefinitions>
-    <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
-  </BoundaryDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cA" /><Segment segment="cB" /></SegmentNaturalClass>
-</NaturalClasses>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr2 bogus mr1">
-    <Name>S</Name>
-    <MorphologicalRuleDefinitions>
-      <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>-b</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="sub1">
-            <MorphologicalInput>
-              <PhoneticSequence id="stem">
-                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
-              </PhoneticSequence>
-            </MorphologicalInput>
-            <MorphologicalOutput MPRFeatures="mprA">
-              <CopyFromInput index="stem" />
-              <InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments>
-            </MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-      </MorphologicalRule>
-      <MorphologicalRule id="mr2" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>-a</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="sub2">
-            <MorphologicalInput>
-              <PhoneticSequence id="stem2">
-                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
-              </PhoneticSequence>
-            </MorphologicalInput>
-            <MorphologicalOutput>
-              <CopyFromInput index="stem2" />
-              <InsertSegments><PhoneticShape>+a</PhoneticShape></InsertSegments>
-            </MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-      </MorphologicalRule>
-    </MorphologicalRuleDefinitions>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>ab</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>do</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>Mini</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeature id="mprB">Alpha</MorphologicalPhonologicalRuleFeature>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cA" /><Segment segment="cB" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mr2 bogus mr1">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>-b</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub1">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput MPRFeatures="mprA">
+                  <CopyFromInput index="stem" />
+                  <InsertSegments><PhoneticShape>+b</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+          <MorphologicalRule id="mr2" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>-a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub2">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem2">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stem2" />
+                  <InsertSegments><PhoneticShape>+a</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>ab</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>do</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;
@@ -317,19 +317,19 @@ fn loads_hand_built_minimal_grammar() {
 #[test]
 fn final_template_facts_disable_default_pruning_for_template_overlap() {
     const XML: &str = r#"<HermitCrabInput><Language>
-      <Name>Overlap</Name>
-      <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
-        <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
-      </SegmentDefinitions></CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
-      <Strata><Stratum characterDefinitionTable="t" morphologicalRules="mr">
-        <Name>S</Name><MorphologicalRuleDefinitions><MorphologicalRule id="mr" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>mr</Name>
-          <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
-        </MorphologicalRule></MorphologicalRuleDefinitions>
-        <AffixTemplates><AffixTemplate id="tpl" final="true"><Name>Tpl</Name><Slot morphologicalRules="mr" /></AffixTemplate></AffixTemplates>
-      </Stratum></Strata>
-    </Language></HermitCrabInput>"#;
+          <Name>Overlap</Name>
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+            <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+          </SegmentDefinitions></CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
+          <Strata><Stratum characterDefinitionTable="t" morphologicalRules="mr">
+            <Name>S</Name><MorphologicalRuleDefinitions><MorphologicalRule id="mr" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>mr</Name>
+              <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+            </MorphologicalRule></MorphologicalRuleDefinitions>
+            <AffixTemplates><AffixTemplate id="tpl" final="true"><Name>Tpl</Name><Slot morphologicalRules="mr" /></AffixTemplate></AffixTemplates>
+          </Stratum></Strata>
+        </Language></HermitCrabInput>"#;
     let grammar = load(XML).expect("overlap remains representable when pruning is disabled");
     let facts = grammar.final_template_prune_facts().unwrap();
     assert!(!facts.slot_rules_disjoint_from_mrules());
@@ -343,28 +343,28 @@ fn partial_morpheme_facts_counts_entries_and_rules_independently() {
     fn grammar(entry_partial: bool, rule_partial: bool) -> Grammar {
         let xml = format!(
             r#"<HermitCrabInput><Language>
-          <Name>PartialFacts</Name>
-          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
-            <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
-          </SegmentDefinitions></CharacterDefinitionTable>
-          <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
-          <Strata><Stratum characterDefinitionTable="t" morphologicalRules="rule-plain rule-partial">
-            <Name>S</Name>
-            <MorphologicalRuleDefinitions>
-              <MorphologicalRule id="rule-plain" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>plain</Name>
-                <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem1" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
-              </MorphologicalRule>
-              <MorphologicalRule id="rule-partial" requiredPartsOfSpeech="p" outputPartOfSpeech="p" partial="{rule_partial}"><Name>partial</Name>
-                <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem2" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
-              </MorphologicalRule>
-            </MorphologicalRuleDefinitions>
-            <LexicalEntries>
-              <LexicalEntry id="entry-plain" partOfSpeech="p"><Allomorphs><Allomorph id="a1"><PhoneticShape>c</PhoneticShape></Allomorph></Allomorphs><Gloss>plain</Gloss></LexicalEntry>
-              <LexicalEntry id="entry-partial" partOfSpeech="p" partial="{entry_partial}"><Allomorphs><Allomorph id="a2"><PhoneticShape>c</PhoneticShape></Allomorph></Allomorphs><Gloss>partial</Gloss></LexicalEntry>
-            </LexicalEntries>
-          </Stratum></Strata>
-        </Language></HermitCrabInput>"#
+              <Name>PartialFacts</Name>
+              <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+              <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+                <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+              </SegmentDefinitions></CharacterDefinitionTable>
+              <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
+              <Strata><Stratum characterDefinitionTable="t" morphologicalRules="rule-plain rule-partial">
+                <Name>S</Name>
+                <MorphologicalRuleDefinitions>
+                  <MorphologicalRule id="rule-plain" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>plain</Name>
+                    <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem1" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+                  </MorphologicalRule>
+                  <MorphologicalRule id="rule-partial" requiredPartsOfSpeech="p" outputPartOfSpeech="p" partial="{rule_partial}"><Name>partial</Name>
+                    <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem2" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+                  </MorphologicalRule>
+                </MorphologicalRuleDefinitions>
+                <LexicalEntries>
+                  <LexicalEntry id="entry-plain" partOfSpeech="p"><Allomorphs><Allomorph id="a1"><PhoneticShape>c</PhoneticShape></Allomorph></Allomorphs><Gloss>plain</Gloss></LexicalEntry>
+                  <LexicalEntry id="entry-partial" partOfSpeech="p" partial="{entry_partial}"><Allomorphs><Allomorph id="a2"><PhoneticShape>c</PhoneticShape></Allomorph></Allomorphs><Gloss>partial</Gloss></LexicalEntry>
+                </LexicalEntries>
+              </Stratum></Strata>
+            </Language></HermitCrabInput>"#
         );
         load(&xml).expect("valid partial-facts fixture")
     }
@@ -406,21 +406,21 @@ fn partial_morpheme_facts_counts_entries_and_rules_independently() {
 #[test]
 fn partial_morpheme_facts_rejects_invalid_owner_stratum() {
     const XML: &str = r#"<HermitCrabInput><Language>
-      <Name>InvalidStratum</Name>
-      <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
-        <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
-      </SegmentDefinitions></CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
-      <Strata><Stratum characterDefinitionTable="t" morphologicalRules="rule-partial">
-        <Name>S</Name>
-        <MorphologicalRuleDefinitions>
-          <MorphologicalRule id="rule-partial" requiredPartsOfSpeech="p" outputPartOfSpeech="p" partial="true"><Name>partial</Name>
-            <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
-          </MorphologicalRule>
-        </MorphologicalRuleDefinitions>
-      </Stratum></Strata>
-    </Language></HermitCrabInput>"#;
+          <Name>InvalidStratum</Name>
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+            <SegmentDefinition id="c"><Representations><Representation>c</Representation></Representations></SegmentDefinition>
+          </SegmentDefinitions></CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="nc"><Name>C</Name><Segment segment="c" /></SegmentNaturalClass></NaturalClasses>
+          <Strata><Stratum characterDefinitionTable="t" morphologicalRules="rule-partial">
+            <Name>S</Name>
+            <MorphologicalRuleDefinitions>
+              <MorphologicalRule id="rule-partial" requiredPartsOfSpeech="p" outputPartOfSpeech="p" partial="true"><Name>partial</Name>
+                <MorphologicalSubrules><MorphologicalSubrule><MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="nc" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="stem" /></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules>
+              </MorphologicalRule>
+            </MorphologicalRuleDefinitions>
+          </Stratum></Strata>
+        </Language></HermitCrabInput>"#;
     let mut grammar = load(XML).expect("valid grammar before corruption");
     let MorphRuleDef::AffixProcess(def) = &grammar.mrules[0] else {
         panic!("expected affix process rule");
@@ -439,33 +439,33 @@ fn root_allomorph_shape_falls_back_to_pattern_language_natural_class_reference()
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>N3Test</Name>
-<PartsOfSpeech><PartOfSpeech id="n"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncVowel"><Name>Vowel</Name><Segment segment="cA" /><Segment segment="cE" /></SegmentNaturalClass>
-</NaturalClasses>
-<Strata>
-  <Stratum characterDefinitionTable="t1">
-    <Name>S</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="n">
-        <Allomorphs>
-          <Allomorph id="a1"><PhoneticShape>b[Vowel]t</PhoneticShape></Allomorph>
-        </Allomorphs>
-        <Gloss>bVt</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>N3Test</Name>
+    <PartsOfSpeech><PartOfSpeech id="n"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncVowel"><Name>Vowel</Name><Segment segment="cA" /><Segment segment="cE" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="n">
+            <Allomorphs>
+              <Allomorph id="a1"><PhoneticShape>b[Vowel]t</PhoneticShape></Allomorph>
+            </Allomorphs>
+            <Gloss>bVt</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;
@@ -504,53 +504,53 @@ fn is_pattern_matches_the_csharp_root_allomorph_classification_rule() {
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>PatternClassTest</Name>
-<PartsOfSpeech><PartOfSpeech id="n"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-  <BoundaryDefinitions>
-    <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
-  </BoundaryDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncVowel"><Name>Vowel</Name><Segment segment="cA" /><Segment segment="cE" /></SegmentNaturalClass>
-  <SegmentNaturalClass id="ncAny"><Name>Any</Name><Segment segment="cB" /><Segment segment="cP" /><Segment segment="cI" /><Segment segment="cT" /><Segment segment="cA" /><Segment segment="cE" /></SegmentNaturalClass>
-</NaturalClasses>
-<Strata>
-  <Stratum characterDefinitionTable="t1">
-    <Name>S</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e_star" partOfSpeech="n">
-        <Allomorphs><Allomorph id="a_star"><PhoneticShape>[Any]*</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>star</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e_opt" partOfSpeech="n">
-        <Allomorphs><Allomorph id="a_opt"><PhoneticShape>([Vowel])</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>opt</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e_mandatory_class" partOfSpeech="n">
-        <Allomorphs><Allomorph id="a_mandatory_class"><PhoneticShape>b[Vowel]t</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>bVt</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e_plain" partOfSpeech="n">
-        <Allomorphs><Allomorph id="a_plain"><PhoneticShape>pit</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>pit</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e_boundary" partOfSpeech="n">
-        <Allomorphs><Allomorph id="a_boundary"><PhoneticShape>pi+t</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>piPlusT</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>PatternClassTest</Name>
+    <PartsOfSpeech><PartOfSpeech id="n"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncVowel"><Name>Vowel</Name><Segment segment="cA" /><Segment segment="cE" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncAny"><Name>Any</Name><Segment segment="cB" /><Segment segment="cP" /><Segment segment="cI" /><Segment segment="cT" /><Segment segment="cA" /><Segment segment="cE" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e_star" partOfSpeech="n">
+            <Allomorphs><Allomorph id="a_star"><PhoneticShape>[Any]*</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>star</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e_opt" partOfSpeech="n">
+            <Allomorphs><Allomorph id="a_opt"><PhoneticShape>([Vowel])</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>opt</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e_mandatory_class" partOfSpeech="n">
+            <Allomorphs><Allomorph id="a_mandatory_class"><PhoneticShape>b[Vowel]t</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>bVt</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e_plain" partOfSpeech="n">
+            <Allomorphs><Allomorph id="a_plain"><PhoneticShape>pit</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>pit</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e_boundary" partOfSpeech="n">
+            <Allomorphs><Allomorph id="a_boundary"><PhoneticShape>pi+t</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>piPlusT</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;
@@ -586,9 +586,9 @@ fn is_pattern_matches_the_csharp_root_allomorph_classification_rule() {
 #[test]
 fn foot_features_loads_as_a_complex_feature_mirroring_head() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
-      <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
-      <FootFeatures><SymbolicFeature id="f"><Name>x</Name><Symbols><Symbol id="s">+</Symbol></Symbols></SymbolicFeature></FootFeatures>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+          <FootFeatures><SymbolicFeature id="f"><Name>x</Name><Symbols><Symbol id="s">+</Symbol></Symbols></SymbolicFeature></FootFeatures>
+        </Language></HermitCrabInput>"#;
     let g = load(XML).expect("FootFeatures must load, not lint unsupported");
     assert!(
         g.syn_features.foot.is_some(),
@@ -604,8 +604,8 @@ fn foot_features_loads_as_a_complex_feature_mirroring_head() {
 #[test]
 fn absent_foot_features_element_leaves_foot_none() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
-      <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+        </Language></HermitCrabInput>"#;
     let g = load(XML).expect("grammar with no FootFeatures must still load");
     assert!(g.syn_features.foot.is_none());
 }
@@ -617,73 +617,73 @@ fn dtd_attribute_defaults_match_spec() {
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>Defaults</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
-</PartsOfSpeech>
-<HeadFeatures />
-<MorphologicalPhonologicalRuleFeatures>
-  <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
-  <MorphologicalPhonologicalRuleFeatureGroup features="mprA"><Name>G</Name></MorphologicalPhonologicalRuleFeatureGroup>
-</MorphologicalPhonologicalRuleFeatures>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cA" /></SegmentNaturalClass>
-</NaturalClasses>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="pr1">
-    <Name>PR</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
-    <Name>S</Name>
-    <MorphologicalRuleDefinitions>
-      <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>-a</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="sub1">
-            <MorphologicalInput>
-              <PhoneticSequence id="stem">
-                <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
-              </PhoneticSequence>
-            </MorphologicalInput>
-            <MorphologicalOutput>
-              <CopyFromInput index="stem" />
-              <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
-            </MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-      </MorphologicalRule>
-    </MorphologicalRuleDefinitions>
-    <AffixTemplates>
-      <AffixTemplate>
-        <Name>T1</Name>
-        <Slot morphologicalRules="mr1"><Name>Sl1</Name></Slot>
-      </AffixTemplate>
-      <AffixTemplate final="false">
-        <Name>T2</Name>
-        <Slot morphologicalRules="mr1"><Name>Sl2</Name></Slot>
-      </AffixTemplate>
-    </AffixTemplates>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>Defaults</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mprA">Alpha</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeatureGroup features="mprA"><Name>G</Name></MorphologicalPhonologicalRuleFeatureGroup>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="cA" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>PR</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mr1" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>-a</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sub1">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem">
+                    <OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAll" /></OptionalSegmentSequence>
+                  </PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stem" />
+                  <InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate>
+            <Name>T1</Name>
+            <Slot morphologicalRules="mr1"><Name>Sl1</Name></Slot>
+          </AffixTemplate>
+          <AffixTemplate final="false">
+            <Name>T2</Name>
+            <Slot morphologicalRules="mr1"><Name>Sl2</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;
@@ -752,23 +752,23 @@ fn dtd_attribute_defaults_match_spec() {
 #[test]
 fn rewrite_mode_simultaneous_loads_and_round_trips() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>X</Name>
-      <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
-      <PhonologicalRuleDefinitions>
-        <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous">
-          <Name>PR</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules>
-            <PhonologicalSubrule>
-              <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticOutput>
-            </PhonologicalSubrule>
-          </PhonologicalSubrules>
-        </PhonologicalRule>
-      </PhonologicalRuleDefinitions>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses><SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="ca" /></SegmentNaturalClass></NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="pr1" multipleApplicationOrder="simultaneous">
+              <Name>PR</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules>
+                <PhonologicalSubrule>
+                  <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticOutput>
+                </PhonologicalSubrule>
+              </PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+        </Language></HermitCrabInput>"#;
     let g = load(XML).unwrap_or_else(|e| panic!("simultaneous rule must load: {e}"));
     let PhonRuleDef::Rewrite(pr0) = &g.prules[0] else {
         panic!("expected a rewrite rule");
@@ -793,69 +793,69 @@ fn rewrite_mode_simultaneous_loads_and_round_trips() {
 #[test]
 fn self_opaquing_pin_semantics_match_node_pins() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>SelfOpaquingProbe</Name>
-      <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
-      <PhonologicalFeatureSystem>
-        <SymbolicFeature id="featCons"><Name>cons</Name>
-          <Symbols><Symbol id="symConsP">+</Symbol><Symbol id="symConsM">-</Symbol></Symbols>
-        </SymbolicFeature>
-        <SymbolicFeature id="featVoi"><Name>voi</Name>
-          <Symbols><Symbol id="symVoiP">+</Symbol><Symbol id="symVoiM">-</Symbol></Symbols>
-        </SymbolicFeature>
-      </PhonologicalFeatureSystem>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions>
-          <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations>
-            <FeatureValue feature="featCons" symbolValues="symConsP" />
-            <FeatureValue feature="featVoi" symbolValues="symVoiM" />
-          </SegmentDefinition>
-        </SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <NaturalClasses>
-        <FeatureNaturalClass id="ncStop"><Name>Stop</Name>
-          <FeatureValue feature="featCons" symbolValues="symConsP" />
-        </FeatureNaturalClass>
-        <FeatureNaturalClass id="ncVoiced"><Name>Voiced</Name>
-          <FeatureValue feature="featVoi" symbolValues="symVoiP" />
-        </FeatureNaturalClass>
-        <FeatureNaturalClass id="ncVoiceless"><Name>Voiceless</Name>
-          <FeatureValue feature="featVoi" symbolValues="symVoiM" />
-        </FeatureNaturalClass>
-      </NaturalClasses>
-      <PhonologicalRuleDefinitions>
-        <PhonologicalRule id="prA" multipleApplicationOrder="simultaneous"><Name>ruleA</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules><PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-          </PhonologicalSubrule></PhonologicalSubrules>
-        </PhonologicalRule>
-        <PhonologicalRule id="prB" multipleApplicationOrder="simultaneous"><Name>ruleB</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules><PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVoiceless" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-          </PhonologicalSubrule></PhonologicalSubrules>
-        </PhonologicalRule>
-        <PhonologicalRule id="prC"><Name>ruleC</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules><PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVoiceless" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-          </PhonologicalSubrule></PhonologicalSubrules>
-        </PhonologicalRule>
-        <PhonologicalRule id="prD" multipleApplicationOrder="simultaneous"><Name>ruleD</Name>
-          <PhonologicalSubrules><PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-          </PhonologicalSubrule></PhonologicalSubrules>
-        </PhonologicalRule>
-        <PhonologicalRule id="prE" multipleApplicationOrder="simultaneous"><Name>ruleE</Name>
-          <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-          <PhonologicalSubrules><PhonologicalSubrule>
-            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
-          </PhonologicalSubrule></PhonologicalSubrules>
-        </PhonologicalRule>
-      </PhonologicalRuleDefinitions>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+          <PhonologicalFeatureSystem>
+            <SymbolicFeature id="featCons"><Name>cons</Name>
+              <Symbols><Symbol id="symConsP">+</Symbol><Symbol id="symConsM">-</Symbol></Symbols>
+            </SymbolicFeature>
+            <SymbolicFeature id="featVoi"><Name>voi</Name>
+              <Symbols><Symbol id="symVoiP">+</Symbol><Symbol id="symVoiM">-</Symbol></Symbols>
+            </SymbolicFeature>
+          </PhonologicalFeatureSystem>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions>
+              <SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations>
+                <FeatureValue feature="featCons" symbolValues="symConsP" />
+                <FeatureValue feature="featVoi" symbolValues="symVoiM" />
+              </SegmentDefinition>
+            </SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <NaturalClasses>
+            <FeatureNaturalClass id="ncStop"><Name>Stop</Name>
+              <FeatureValue feature="featCons" symbolValues="symConsP" />
+            </FeatureNaturalClass>
+            <FeatureNaturalClass id="ncVoiced"><Name>Voiced</Name>
+              <FeatureValue feature="featVoi" symbolValues="symVoiP" />
+            </FeatureNaturalClass>
+            <FeatureNaturalClass id="ncVoiceless"><Name>Voiceless</Name>
+              <FeatureValue feature="featVoi" symbolValues="symVoiM" />
+            </FeatureNaturalClass>
+          </NaturalClasses>
+          <PhonologicalRuleDefinitions>
+            <PhonologicalRule id="prA" multipleApplicationOrder="simultaneous"><Name>ruleA</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules><PhonologicalSubrule>
+                <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
+                <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+              </PhonologicalSubrule></PhonologicalSubrules>
+            </PhonologicalRule>
+            <PhonologicalRule id="prB" multipleApplicationOrder="simultaneous"><Name>ruleB</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules><PhonologicalSubrule>
+                <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
+                <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVoiceless" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+              </PhonologicalSubrule></PhonologicalSubrules>
+            </PhonologicalRule>
+            <PhonologicalRule id="prC"><Name>ruleC</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules><PhonologicalSubrule>
+                <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
+                <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVoiceless" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+              </PhonologicalSubrule></PhonologicalSubrules>
+            </PhonologicalRule>
+            <PhonologicalRule id="prD" multipleApplicationOrder="simultaneous"><Name>ruleD</Name>
+              <PhonologicalSubrules><PhonologicalSubrule>
+                <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
+              </PhonologicalSubrule></PhonologicalSubrules>
+            </PhonologicalRule>
+            <PhonologicalRule id="prE" multipleApplicationOrder="simultaneous"><Name>ruleE</Name>
+              <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+              <PhonologicalSubrules><PhonologicalSubrule>
+                <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncVoiced" /></PhoneticSequence></PhoneticOutput>
+              </PhonologicalSubrule></PhonologicalSubrules>
+            </PhonologicalRule>
+          </PhonologicalRuleDefinitions>
+        </Language></HermitCrabInput>"#;
     let g = load(XML).unwrap_or_else(|e| panic!("self-opaquing probe grammar must load: {e}"));
     let rewrite = |i: usize| -> &RewriteRuleDef {
         let PhonRuleDef::Rewrite(r) = &g.prules[i] else {
@@ -920,11 +920,11 @@ fn phon_feature_grammar_with_n_symbols(n: usize) -> String {
     }
     format!(
         r#"<HermitCrabInput><Language><Name>X</Name>
-          <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
-          <PhonologicalFeatureSystem>
-            <SymbolicFeature id="f1"><Name>f</Name><Symbols>{syms}</Symbols></SymbolicFeature>
-          </PhonologicalFeatureSystem>
-        </Language></HermitCrabInput>"#
+              <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+              <PhonologicalFeatureSystem>
+                <SymbolicFeature id="f1"><Name>f</Name><Symbols>{syms}</Symbols></SymbolicFeature>
+              </PhonologicalFeatureSystem>
+            </Language></HermitCrabInput>"#
     )
 }
 
@@ -946,12 +946,12 @@ fn phonological_symbolic_feature_cap_63_ok_64_rejected() {
 // --- Well-formedness / DTD-required-element strictness ------------------------------------
 
 const WELL_FORMED_MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>WellFormed</Name>
-  <!-- a comment with a single hyphen - not a double one -->
-  <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
-  <CharacterDefinitionTable id="t1"><Name>Main</Name>
-    <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-  </CharacterDefinitionTable>
-</Language></HermitCrabInput>"#;
+      <!-- a comment with a single hyphen - not a double one -->
+      <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+    </Language></HermitCrabInput>"#;
 
 #[test]
 fn well_formed_document_with_a_hyphen_in_a_comment_still_loads() {
@@ -961,12 +961,12 @@ fn well_formed_document_with_a_hyphen_in_a_comment_still_loads() {
 #[test]
 fn double_hyphen_inside_a_comment_is_refused_not_silently_tolerated() {
     let xml = r#"<HermitCrabInput><Language><Name>X</Name>
-      <!-- this comment uses -- an illegal double hyphen -->
-      <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-    </Language></HermitCrabInput>"#;
+          <!-- this comment uses -- an illegal double hyphen -->
+          <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+        </Language></HermitCrabInput>"#;
     let err = load(xml).expect_err("a `--` inside a comment must be refused, not tolerated");
     let msg = err.to_string();
     assert!(
@@ -978,10 +978,10 @@ fn double_hyphen_inside_a_comment_is_refused_not_silently_tolerated() {
 #[test]
 fn missing_parts_of_speech_is_refused_not_silently_zero_pos() {
     let xml = r#"<HermitCrabInput><Language><Name>NoPos</Name>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-    </Language></HermitCrabInput>"#;
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+        </Language></HermitCrabInput>"#;
     let err = load(xml).expect_err(
         "HermitCrabInput.dtd requires <PartsOfSpeech> (at least one <PartOfSpeech>); a document without it must be refused",
     );
@@ -995,11 +995,11 @@ fn missing_parts_of_speech_is_refused_not_silently_zero_pos() {
 #[test]
 fn empty_parts_of_speech_block_is_also_refused() {
     let xml = r#"<HermitCrabInput><Language><Name>EmptyPos</Name>
-      <PartsOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+        </Language></HermitCrabInput>"#;
     let err = load(xml)
         .expect_err("<PartsOfSpeech> with zero <PartOfSpeech> children violates PartOfSpeech+ and must be refused");
     assert!(matches!(err, GrammarError::Xml(_)));

@@ -39,21 +39,21 @@ fn incomplete_closure_error_preserves_frontier_evidence() {
 
 /// Minimal, delanguaged grammar: one char table, one entry, no rules.
 const MINIMAL_XML: &str = r#"<HermitCrabInput><Language><Name>MinimalCompletedBuildFixture</Name>
-  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-  <CharacterDefinitionTable id="t1"><Name>Main</Name>
-    <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-  </CharacterDefinitionTable>
-  <Strata>
-    <Stratum characterDefinitionTable="t1">
-      <Name>S</Name>
-      <LexicalEntries>
-        <LexicalEntry id="e1">
-          <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
-        </LexicalEntry>
-      </LexicalEntries>
-    </Stratum>
-  </Strata>
-</Language></HermitCrabInput>"#;
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <Strata>
+        <Stratum characterDefinitionTable="t1">
+          <Name>S</Name>
+          <LexicalEntries>
+            <LexicalEntry id="e1">
+              <Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs>
+            </LexicalEntry>
+          </LexicalEntries>
+        </Stratum>
+      </Strata>
+    </Language></HermitCrabInput>"#;
 
 /// Pins that no production artifact can come from this strategy; fails the day an arm is added.
 #[test]

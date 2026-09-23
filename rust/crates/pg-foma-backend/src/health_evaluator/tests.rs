@@ -504,40 +504,40 @@ fn representative_inputs() -> (u64, EmitReport) {
 const GOLDEN_JSON: &str = r#"{
   "schema_version": 8,
   "findings": [
-{
-  "code": "PGF0001",
-  "severity": "not_production_ready",
-  "phase": "compile",
-  "affected": [],
-  "metric": "payload_bytes",
-  "value": {
-    "kind": "bytes",
-    "value": 250000000
-  },
-  "provenance": "observed",
-  "threshold": {
-    "kind": "bytes",
-    "value": 100000000
-  },
-  "explanation": "Final FST payload is 250000000 bytes, in the NotProductionReady band (R6 decimal-byte size thresholds).",
-  "remedies": []
-},
-{
-  "code": "PGF0013",
-  "severity": "cannot_represent",
-  "phase": "compile",
-  "affected": [
-    "mrule0007#allo0"
-  ],
-  "metric": "backend_coverage_gap_count",
-  "value": {
-    "kind": "count",
-    "value": 1
-  },
-  "provenance": "observed",
-  "explanation": "1 construct occurrence(s) could not be represented in this FST-propose network and contribute no candidates for it. Confirmation cannot restore omitted candidates, so normal generation fails closed.",
-  "remedies": []
-}
+    {
+      "code": "PGF0001",
+      "severity": "not_production_ready",
+      "phase": "compile",
+      "affected": [],
+      "metric": "payload_bytes",
+      "value": {
+        "kind": "bytes",
+        "value": 250000000
+      },
+      "provenance": "observed",
+      "threshold": {
+        "kind": "bytes",
+        "value": 100000000
+      },
+      "explanation": "Final FST payload is 250000000 bytes, in the NotProductionReady band (R6 decimal-byte size thresholds).",
+      "remedies": []
+    },
+    {
+      "code": "PGF0013",
+      "severity": "cannot_represent",
+      "phase": "compile",
+      "affected": [
+        "mrule0007#allo0"
+      ],
+      "metric": "backend_coverage_gap_count",
+      "value": {
+        "kind": "count",
+        "value": 1
+      },
+      "provenance": "observed",
+      "explanation": "1 construct occurrence(s) could not be represented in this FST-propose network and contribute no candidates for it. Confirmation cannot restore omitted candidates, so normal generation fails closed.",
+      "remedies": []
+    }
   ]
 }"#;
 

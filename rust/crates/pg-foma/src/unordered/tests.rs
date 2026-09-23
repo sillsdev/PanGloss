@@ -10,15 +10,15 @@ fn stratum_xml(order: &str, rule_count: u32) -> String {
         ));
         rules.push_str(&format!(
             r#"<MorphologicalRule id="mr{i}" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-                 <Name>r{i}</Name>
-                 <MorphologicalSubrules>
-                   <MorphologicalSubrule id="sub{i}">
-                     <MorphologicalInput><PhoneticSequence id="stem{i}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
-                     <MorphologicalOutput><InsertSegments><PhoneticShape>x{i}</PhoneticShape></InsertSegments><CopyFromInput index="stem{i}" /></MorphologicalOutput>
-                   </MorphologicalSubrule>
-                 </MorphologicalSubrules>
-                 <MorphemeId>R{i}</MorphemeId>
-               </MorphologicalRule>"#
+                     <Name>r{i}</Name>
+                     <MorphologicalSubrules>
+                       <MorphologicalSubrule id="sub{i}">
+                         <MorphologicalInput><PhoneticSequence id="stem{i}"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                         <MorphologicalOutput><InsertSegments><PhoneticShape>x{i}</PhoneticShape></InsertSegments><CopyFromInput index="stem{i}" /></MorphologicalOutput>
+                       </MorphologicalSubrule>
+                     </MorphologicalSubrules>
+                     <MorphemeId>R{i}</MorphemeId>
+                   </MorphologicalRule>"#
         ));
     }
     let rule_ids: Vec<String> = (0..rule_count).map(|i| format!("mr{i}")).collect();
@@ -32,28 +32,28 @@ fn stratum_xml(order: &str, rule_count: u32) -> String {
 <!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
 <HermitCrabInput>
   <Language>
-<Name>UnorderedBoundFixture</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
-    {segs}
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
-<Strata>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="{order}"{rules_attr}>
-    <Name>Main</Name>
-    <MorphologicalRuleDefinitions>{rules}</MorphologicalRuleDefinitions>
-    <LexicalEntries>
-      <LexicalEntry id="eK" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
-        <MorphemeId>K</MorphemeId>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>UnorderedBoundFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        {segs}
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="{order}"{rules_attr}>
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>{rules}</MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>"#,
     )

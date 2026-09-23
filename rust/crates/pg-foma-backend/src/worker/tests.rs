@@ -303,28 +303,28 @@ fn run_worker_child_reports_success_for_a_clean_small_grammar() {
     const CLEAN_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>WorkerSuccessFixture</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="table1">
-  <Name>Orthography</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="segA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="segK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="segT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses></NaturalClasses>
-<Strata>
-  <Stratum characterDefinitionTable="table1">
-    <Name>main</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e1">
-        <Allomorphs><Allomorph id="e1-1"><PhoneticShape>kat</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>kat</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>WorkerSuccessFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Orthography</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="segA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="segK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="segT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses></NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="table1">
+        <Name>main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1">
+            <Allomorphs><Allomorph id="e1-1"><PhoneticShape>kat</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>kat</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;

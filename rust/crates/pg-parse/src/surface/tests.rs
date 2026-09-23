@@ -9,28 +9,28 @@ use pg_shape::ShapeBuilder;
 const FEATURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>SurfaceP5</Name>
-<PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
-<PhonologicalFeatureSystem>
-  <SymbolicFeature id="feat_voi">
-    <Name>voi</Name>
-    <Symbols><Symbol id="sym_vp">+</Symbol><Symbol id="sym_vm">-</Symbol></Symbols>
-  </SymbolicFeature>
-</PhonologicalFeatureSystem>
-<CharacterDefinitionTable id="table1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="char_x"><Representations><Representation>x</Representation></Representations>
-      <FeatureValue feature="feat_voi" symbolValues="sym_vp" />
-    </SegmentDefinition>
-    <SegmentDefinition id="char_y"><Representations><Representation>y</Representation></Representations>
-      <FeatureValue feature="feat_voi" symbolValues="sym_vp" />
-    </SegmentDefinition>
-    <SegmentDefinition id="char_z"><Representations><Representation>z</Representation></Representations>
-      <FeatureValue feature="feat_voi" symbolValues="sym_vm" />
-    </SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
+    <Name>SurfaceP5</Name>
+    <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="feat_voi">
+        <Name>voi</Name>
+        <Symbols><Symbol id="sym_vp">+</Symbol><Symbol id="sym_vm">-</Symbol></Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="char_x"><Representations><Representation>x</Representation></Representations>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vp" />
+        </SegmentDefinition>
+        <SegmentDefinition id="char_y"><Representations><Representation>y</Representation></Representations>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vp" />
+        </SegmentDefinition>
+        <SegmentDefinition id="char_z"><Representations><Representation>z</Representation></Representations>
+          <FeatureValue feature="feat_voi" symbolValues="sym_vm" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
   </Language>
 </HermitCrabInput>
 "#;
@@ -38,15 +38,15 @@ const FEATURE_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 const ZERO_FEAT_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>SurfaceP5Zero</Name>
-<PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="table1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="char_x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="char_y"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
+    <Name>SurfaceP5Zero</Name>
+    <PartsOfSpeech><PartOfSpeech id="p"><Name>P</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="char_x"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="char_y"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
   </Language>
 </HermitCrabInput>
 "#;

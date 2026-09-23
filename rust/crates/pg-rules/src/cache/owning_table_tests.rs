@@ -6,59 +6,59 @@ use pg_grammar_model::model::MprSet;
 const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>OwningTableProbe</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<PhonologicalFeatureSystem>
-  <SymbolicFeature id="featF">
-    <Name>f</Name>
-    <Symbols><Symbol id="fp">+</Symbol><Symbol id="fm">-</Symbol></Symbols>
-  </SymbolicFeature>
-</PhonologicalFeatureSystem>
-<CharacterDefinitionTable id="t0">
-  <Name>T0</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c0z">
-      <Representations><Representation>z</Representation></Representations>
-      <FeatureValue feature="featF" symbolValues="fp" />
-    </SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<CharacterDefinitionTable id="t1">
-  <Name>T1</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1q">
-      <Representations><Representation>q</Representation></Representations>
-      <FeatureValue feature="featF" symbolValues="fm" />
-    </SegmentDefinition>
-    <SegmentDefinition id="c1p">
-      <Representations><Representation>p</Representation></Representations>
-      <FeatureValue feature="featF" symbolValues="fp" />
-    </SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="c1q" /></SegmentNaturalClass>
-  <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="c1p" /></SegmentNaturalClass>
-</NaturalClasses>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="prQtoP">
-    <Name>qtop</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncQ" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncP" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t0" morphologicalRuleOrder="unordered">
-    <Name>S0</Name>
-  </Stratum>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prQtoP">
-    <Name>S1</Name>
-  </Stratum>
-</Strata>
+    <Name>OwningTableProbe</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featF">
+        <Name>f</Name>
+        <Symbols><Symbol id="fp">+</Symbol><Symbol id="fm">-</Symbol></Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t0">
+      <Name>T0</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0z">
+          <Representations><Representation>z</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fp" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1">
+      <Name>T1</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1q">
+          <Representations><Representation>q</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fm" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c1p">
+          <Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fp" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="c1q" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="c1p" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prQtoP">
+        <Name>qtop</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncQ" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncP" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t0" morphologicalRuleOrder="unordered">
+        <Name>S0</Name>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" phonologicalRules="prQtoP">
+        <Name>S1</Name>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;
@@ -145,72 +145,72 @@ fn cached_affix_synthesis_resolves_the_allomorphs_own_lhs_rhs_pattern_against_it
     const XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>OwningTableAffixProbe</Name>
-<PartsOfSpeech>
-  <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
-</PartsOfSpeech>
-<HeadFeatures />
-<PhonologicalFeatureSystem>
-  <SymbolicFeature id="featF">
-    <Name>f</Name>
-    <Symbols><Symbol id="fp">+</Symbol><Symbol id="fm">-</Symbol></Symbols>
-  </SymbolicFeature>
-</PhonologicalFeatureSystem>
-<CharacterDefinitionTable id="t0">
-  <Name>T0</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c0z">
-      <Representations><Representation>z</Representation></Representations>
-      <FeatureValue feature="featF" symbolValues="fp" />
-    </SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<CharacterDefinitionTable id="t1">
-  <Name>T1</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1q">
-      <Representations><Representation>q</Representation></Representations>
-      <FeatureValue feature="featF" symbolValues="fm" />
-    </SegmentDefinition>
-    <SegmentDefinition id="c1p">
-      <Representations><Representation>p</Representation></Representations>
-      <FeatureValue feature="featF" symbolValues="fp" />
-    </SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="c1q" /></SegmentNaturalClass>
-</NaturalClasses>
-<Strata>
-  <Stratum characterDefinitionTable="t0" morphologicalRuleOrder="unordered">
-    <Name>S0</Name>
-  </Stratum>
-  <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrQtoQP">
-    <Name>S1</Name>
-    <MorphologicalRuleDefinitions>
-      <MorphologicalRule id="mrQtoQP" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
-        <Name>plus-p</Name>
-        <MorphologicalSubrules>
-          <MorphologicalSubrule id="subQP">
-            <MorphologicalInput>
-              <PhoneticSequence id="stem"><SimpleContext naturalClass="ncQ" /></PhoneticSequence>
-            </MorphologicalInput>
-            <MorphologicalOutput>
-              <CopyFromInput index="stem" />
-              <InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments>
-            </MorphologicalOutput>
-          </MorphologicalSubrule>
-        </MorphologicalSubrules>
-      </MorphologicalRule>
-    </MorphologicalRuleDefinitions>
-    <LexicalEntries>
-      <LexicalEntry id="eQ" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="aQ"><PhoneticShape>q</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>root</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>OwningTableAffixProbe</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures />
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featF">
+        <Name>f</Name>
+        <Symbols><Symbol id="fp">+</Symbol><Symbol id="fm">-</Symbol></Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t0">
+      <Name>T0</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0z">
+          <Representations><Representation>z</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fp" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <CharacterDefinitionTable id="t1">
+      <Name>T1</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1q">
+          <Representations><Representation>q</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fm" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c1p">
+          <Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featF" symbolValues="fp" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="c1q" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t0" morphologicalRuleOrder="unordered">
+        <Name>S0</Name>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrQtoQP">
+        <Name>S1</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrQtoQP" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>plus-p</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subQP">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stem"><SimpleContext naturalClass="ncQ" /></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="stem" />
+                  <InsertSegments><PhoneticShape>p</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eQ" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aQ"><PhoneticShape>q</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>root</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#;

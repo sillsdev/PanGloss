@@ -35,19 +35,19 @@ fn exactly_one_backend_interprets_a_plan() {
 #[test]
 fn plan_composed_backend_refuses_measurement_unconditionally() {
     const XML: &str = r#"<HermitCrabInput><Language><Name>BackendTraitFixture</Name>
-      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-      <CharacterDefinitionTable id="t1"><Name>Main</Name>
-        <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
-      </CharacterDefinitionTable>
-      <Strata>
-        <Stratum characterDefinitionTable="t1">
-          <Name>S</Name>
-          <LexicalEntries>
-            <LexicalEntry id="e1"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
-          </LexicalEntries>
-        </Stratum>
-      </Strata>
-    </Language></HermitCrabInput>"#;
+          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+          <CharacterDefinitionTable id="t1"><Name>Main</Name>
+            <SegmentDefinitions><SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+          </CharacterDefinitionTable>
+          <Strata>
+            <Stratum characterDefinitionTable="t1">
+              <Name>S</Name>
+              <LexicalEntries>
+                <LexicalEntry id="e1"><Allomorphs><Allomorph id="a1"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>
+              </LexicalEntries>
+            </Stratum>
+          </Strata>
+        </Language></HermitCrabInput>"#;
     let grammar = pg_grammar::load(XML).expect("fixture must load");
     let selection = crate::backend_selection::select_backends_for_grammar(&grammar);
     let request = CompileAttempt::try_new().expect("attempt id must construct");

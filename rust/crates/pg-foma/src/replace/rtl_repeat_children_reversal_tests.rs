@@ -54,33 +54,33 @@ fn load(xml: &str) -> Grammar {
 fn rtl_hetero_repeat_xml(max_attr: &str) -> String {
     format!(
         r#"<HermitCrabInput><Language><Name>RtlHeteroRepeat</Name>
-  <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-  <CharacterDefinitionTable id="t1"><Name>Main</Name>
-    <SegmentDefinitions>
-      <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-      <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
-      <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
-      <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-    </SegmentDefinitions>
-  </CharacterDefinitionTable>
-  <PhonologicalRuleDefinitions>
-    <PhonologicalRule id="prRtlHeteroRepeat" multipleApplicationOrder="rightToLeftIterative">
-      <Name>rtlHeteroRepeatDemo</Name>
-      <PhoneticInput><PhoneticSequence><Segment segment="ct" /></PhoneticSequence></PhoneticInput>
-      <PhonologicalSubrules>
-        <PhonologicalSubrule>
-          <PhoneticOutput><PhoneticSequence><Segment segment="cd" /></PhoneticSequence></PhoneticOutput>
-          <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
-            <OptionalSegmentSequence min="1" max="{max_attr}">
-              <Segment segment="ca" /><Segment segment="cb" />
-            </OptionalSegmentSequence>
-          </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-        </PhonologicalSubrule>
-      </PhonologicalSubrules>
-    </PhonologicalRule>
-  </PhonologicalRuleDefinitions>
-  <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlHeteroRepeat"><Name>S</Name></Stratum></Strata>
-</Language></HermitCrabInput>"#
+      <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t1"><Name>Main</Name>
+        <SegmentDefinitions>
+          <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+          <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        </SegmentDefinitions>
+      </CharacterDefinitionTable>
+      <PhonologicalRuleDefinitions>
+        <PhonologicalRule id="prRtlHeteroRepeat" multipleApplicationOrder="rightToLeftIterative">
+          <Name>rtlHeteroRepeatDemo</Name>
+          <PhoneticInput><PhoneticSequence><Segment segment="ct" /></PhoneticSequence></PhoneticInput>
+          <PhonologicalSubrules>
+            <PhonologicalSubrule>
+              <PhoneticOutput><PhoneticSequence><Segment segment="cd" /></PhoneticSequence></PhoneticOutput>
+              <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence>
+                <OptionalSegmentSequence min="1" max="{max_attr}">
+                  <Segment segment="ca" /><Segment segment="cb" />
+                </OptionalSegmentSequence>
+              </PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+            </PhonologicalSubrule>
+          </PhonologicalSubrules>
+        </PhonologicalRule>
+      </PhonologicalRuleDefinitions>
+      <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="prRtlHeteroRepeat"><Name>S</Name></Stratum></Strata>
+    </Language></HermitCrabInput>"#
     )
 }
 

@@ -11,40 +11,40 @@ fn ordinary_fixture() -> String {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>PlanDiagramOrdinaryFixture</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
-</NaturalClasses>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="pr1">
-    <Name>PR</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
-    <Name>OnlyStratum</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>PlanDiagramOrdinaryFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>PR</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
+        <Name>OnlyStratum</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#
@@ -62,65 +62,65 @@ fn gated_plus_independent_stratum_fixture(e0_has_mpr1: bool) -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>PlanDiagramContentAddressFixture</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<MorphologicalPhonologicalRuleFeatures>
-  <MorphologicalPhonologicalRuleFeature id="mpr1">f1</MorphologicalPhonologicalRuleFeature>
-</MorphologicalPhonologicalRuleFeatures>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c3"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c4"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="prule1">
-    <Name>gate1</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule requiredMPRFeatures="mpr1">
-        <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-  <PhonologicalRule id="pruleIndep">
-    <Name>indep</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c3" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><Segment segment="c4" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" phonologicalRules="prule1">
-    <Name>Gated</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e0" partOfSpeech="posV"{e0_attr}>
-        <Allomorphs><Allomorph id="allo0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e0</Gloss>
-      </LexicalEntry>
-      <LexicalEntry id="e1" partOfSpeech="posV" ruleFeatures="mpr1">
-        <Allomorphs><Allomorph id="allo1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-  <Stratum characterDefinitionTable="t1" phonologicalRules="pruleIndep">
-    <Name>Independent</Name>
-    <LexicalEntries>
-      <!-- Always tagged ruleFeatures="mpr1": gate::partition_entries buckets every grammar-wide entry, so pinning this one keeps its contribution constant across the e0 toggle. -->
-      <LexicalEntry id="e2" partOfSpeech="posV" ruleFeatures="mpr1">
-        <Allomorphs><Allomorph id="allo2"><PhoneticShape>s</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e2</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>PlanDiagramContentAddressFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mpr1">f1</MorphologicalPhonologicalRuleFeature>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c3"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c4"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prule1">
+        <Name>gate1</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule requiredMPRFeatures="mpr1">
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="pruleIndep">
+        <Name>indep</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c3" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="c4" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="prule1">
+        <Name>Gated</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e0" partOfSpeech="posV"{e0_attr}>
+            <Allomorphs><Allomorph id="allo0"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e0</Gloss>
+          </LexicalEntry>
+          <LexicalEntry id="e1" partOfSpeech="posV" ruleFeatures="mpr1">
+            <Allomorphs><Allomorph id="allo1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="pruleIndep">
+        <Name>Independent</Name>
+        <LexicalEntries>
+          <!-- Always tagged ruleFeatures="mpr1": gate::partition_entries buckets every grammar-wide entry, so pinning this one keeps its contribution constant across the e0 toggle. -->
+          <LexicalEntry id="e2" partOfSpeech="posV" ruleFeatures="mpr1">
+            <Allomorphs><Allomorph id="allo2"><PhoneticShape>s</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e2</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#
@@ -132,53 +132,53 @@ fn multi_stratum_refused_fixture() -> String {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>PlanDiagramMultiStratumRefusedFixture</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<MorphologicalPhonologicalRuleFeatures>
-  <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
-  <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
-</MorphologicalPhonologicalRuleFeatures>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
-</NaturalClasses>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="pr1">
-    <Name>PR1</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
-    <Name>StratumAlpha</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-  <Stratum characterDefinitionTable="t1">
-    <Name>StratumBeta</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e2" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a2"><PhoneticShape>b</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e2</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>PlanDiagramMultiStratumRefusedFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <MorphologicalPhonologicalRuleFeatures>
+      <MorphologicalPhonologicalRuleFeature id="mprA">A</MorphologicalPhonologicalRuleFeature>
+      <MorphologicalPhonologicalRuleFeatureGroup matchType="all" outputType="overwrite" features="mprA"><Name>GOverwrite</Name></MorphologicalPhonologicalRuleFeatureGroup>
+    </MorphologicalPhonologicalRuleFeatures>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncAll"><Name>All</Name><Segment segment="c1" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>PR1</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncAll" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="pr1">
+        <Name>StratumAlpha</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1">
+        <Name>StratumBeta</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e2" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a2"><PhoneticShape>b</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e2</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#
@@ -190,71 +190,71 @@ fn mixed_node_local_refusal_fixture() -> String {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>PlanDiagramMixedNodeLocalFixture</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<PhonologicalFeatureSystem>
-  <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols>
-    <Symbol id="symVless">vless</Symbol><Symbol id="symVd1">vd1</Symbol><Symbol id="symVd2">vd2</Symbol><Symbol id="symVoc">voc</Symbol>
-  </Symbols></SymbolicFeature>
-  <SymbolicFeature id="featPlace"><Name>place</Name><Symbols>
-    <Symbol id="symFront">front</Symbol><Symbol id="symMid">mid</Symbol><Symbol id="symBack">back</Symbol><Symbol id="symNeutral">neutral</Symbol>
-  </Symbols></SymbolicFeature>
-</PhonologicalFeatureSystem>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVless" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-    <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd1" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-    <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd2" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-    <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symFront" /></SegmentDefinition>
-    <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symMid" /></SegmentDefinition>
-    <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symBack" /></SegmentDefinition>
-    <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVless" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<NaturalClasses>
-  <FeatureNaturalClass id="ncStop"><Name>Stop</Name><FeatureValue feature="featVoice" symbolValues="symVless" /></FeatureNaturalClass>
-  <FeatureNaturalClass id="ncBackOrMid"><Name>BackOrMid</Name><FeatureValue feature="featPlace" symbolValues="symBack symMid" /></FeatureNaturalClass>
-  <FeatureNaturalClass id="ncMidOrFront"><Name>MidOrFront</Name><FeatureValue feature="featPlace" symbolValues="symMid symFront" /></FeatureNaturalClass>
-  <FeatureNaturalClass id="ncB"><Name>B</Name><FeatureValue feature="featVoice" symbolValues="symVd1" /></FeatureNaturalClass>
-  <FeatureNaturalClass id="ncD"><Name>D</Name><FeatureValue feature="featVoice" symbolValues="symVd2" /></FeatureNaturalClass>
-</NaturalClasses>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="prOverlap" multipleApplicationOrder="simultaneous">
-    <Name>simOverlap</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncB" /></PhoneticSequence></PhoneticOutput>
-        <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBackOrMid" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-      </PhonologicalSubrule>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
-        <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncMidOrFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-  <PhonologicalRule id="prOrdinary">
-    <Name>ordinaryRule</Name>
-    <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules>
-      <PhonologicalSubrule>
-        <PhoneticOutput><PhoneticSequence><Segment segment="ct" /></PhoneticSequence></PhoneticOutput>
-      </PhonologicalSubrule>
-    </PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" phonologicalRules="prOverlap prOrdinary">
-    <Name>S</Name>
-    <LexicalEntries>
-      <LexicalEntry id="entryPU" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="alloPU"><PhoneticShape>pu</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>PU</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>PlanDiagramMixedNodeLocalFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featVoice"><Name>voice</Name><Symbols>
+        <Symbol id="symVless">vless</Symbol><Symbol id="symVd1">vd1</Symbol><Symbol id="symVd2">vd2</Symbol><Symbol id="symVoc">voc</Symbol>
+      </Symbols></SymbolicFeature>
+      <SymbolicFeature id="featPlace"><Name>place</Name><Symbols>
+        <Symbol id="symFront">front</Symbol><Symbol id="symMid">mid</Symbol><Symbol id="symBack">back</Symbol><Symbol id="symNeutral">neutral</Symbol>
+      </Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVless" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
+        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd1" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
+        <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVd2" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
+        <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symFront" /></SegmentDefinition>
+        <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symMid" /></SegmentDefinition>
+        <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVoc" /><FeatureValue feature="featPlace" symbolValues="symBack" /></SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations><FeatureValue feature="featVoice" symbolValues="symVless" /><FeatureValue feature="featPlace" symbolValues="symNeutral" /></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncStop"><Name>Stop</Name><FeatureValue feature="featVoice" symbolValues="symVless" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncBackOrMid"><Name>BackOrMid</Name><FeatureValue feature="featPlace" symbolValues="symBack symMid" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncMidOrFront"><Name>MidOrFront</Name><FeatureValue feature="featPlace" symbolValues="symMid symFront" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncB"><Name>B</Name><FeatureValue feature="featVoice" symbolValues="symVd1" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncD"><Name>D</Name><FeatureValue feature="featVoice" symbolValues="symVd2" /></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prOverlap" multipleApplicationOrder="simultaneous">
+        <Name>simOverlap</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncB" /></PhoneticSequence></PhoneticOutput>
+            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncBackOrMid" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+          </PhonologicalSubrule>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><SimpleContext naturalClass="ncD" /></PhoneticSequence></PhoneticOutput>
+            <Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncMidOrFront" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="prOrdinary">
+        <Name>ordinaryRule</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule>
+            <PhoneticOutput><PhoneticSequence><Segment segment="ct" /></PhoneticSequence></PhoneticOutput>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="prOverlap prOrdinary">
+        <Name>S</Name>
+        <LexicalEntries>
+          <LexicalEntry id="entryPU" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="alloPU"><PhoneticShape>pu</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>PU</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#
@@ -266,53 +266,53 @@ fn three_rule_ungated_fixture() -> String {
     r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-<Name>PlanDiagramThreeRuleFixture</Name>
-<PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-<CharacterDefinitionTable id="t1">
-  <Name>Main</Name>
-  <SegmentDefinitions>
-    <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c3"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c4"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c5"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
-    <SegmentDefinition id="c6"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
-  </SegmentDefinitions>
-</CharacterDefinitionTable>
-<PhonologicalRuleDefinitions>
-  <PhonologicalRule id="pr1">
-    <Name>PR1</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules><PhonologicalSubrule>
-      <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
-    </PhonologicalSubrule></PhonologicalSubrules>
-  </PhonologicalRule>
-  <PhonologicalRule id="pr2">
-    <Name>PR2</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c3" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules><PhonologicalSubrule>
-      <PhoneticOutput><PhoneticSequence><Segment segment="c4" /></PhoneticSequence></PhoneticOutput>
-    </PhonologicalSubrule></PhonologicalSubrules>
-  </PhonologicalRule>
-  <PhonologicalRule id="pr3">
-    <Name>PR3</Name>
-    <PhoneticInput><PhoneticSequence><Segment segment="c5" /></PhoneticSequence></PhoneticInput>
-    <PhonologicalSubrules><PhonologicalSubrule>
-      <PhoneticOutput><PhoneticSequence><Segment segment="c6" /></PhoneticSequence></PhoneticOutput>
-    </PhonologicalSubrule></PhonologicalSubrules>
-  </PhonologicalRule>
-</PhonologicalRuleDefinitions>
-<Strata>
-  <Stratum characterDefinitionTable="t1" phonologicalRules="pr1 pr2 pr3">
-    <Name>OnlyStratum</Name>
-    <LexicalEntries>
-      <LexicalEntry id="e1" partOfSpeech="posV">
-        <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
-        <Gloss>e1</Gloss>
-      </LexicalEntry>
-    </LexicalEntries>
-  </Stratum>
-</Strata>
+    <Name>PlanDiagramThreeRuleFixture</Name>
+    <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c1"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c2"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c3"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c4"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c5"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="c6"><Representations><Representation>g</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="pr1">
+        <Name>PR1</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c1" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule>
+          <PhoneticOutput><PhoneticSequence><Segment segment="c2" /></PhoneticSequence></PhoneticOutput>
+        </PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="pr2">
+        <Name>PR2</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c3" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule>
+          <PhoneticOutput><PhoneticSequence><Segment segment="c4" /></PhoneticSequence></PhoneticOutput>
+        </PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="pr3">
+        <Name>PR3</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="c5" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule>
+          <PhoneticOutput><PhoneticSequence><Segment segment="c6" /></PhoneticSequence></PhoneticOutput>
+        </PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" phonologicalRules="pr1 pr2 pr3">
+        <Name>OnlyStratum</Name>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="a1"><PhoneticShape>p</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>e1</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
   </Language>
 </HermitCrabInput>
 "#
