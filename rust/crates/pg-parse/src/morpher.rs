@@ -907,11 +907,14 @@ impl<'g> Morpher<'g> {
                 if trace.is_tracing() {
                     let event = trace.failed(parent, w, FailureReason::ObligatorySyntacticFeatures);
                     if trace.captures_failure_context() {
-                        trace.set_failure_context(event, pg_rules::trace::FailureContext {
-                            required: Some(format!("obligatory feature {f:?}")),
-                            actual: Some(format!("{:?}", w.syn_fs)),
-                            environment: None,
-                        });
+                        trace.set_failure_context(
+                            event,
+                            pg_rules::trace::FailureContext {
+                                required: Some(format!("obligatory feature {f:?}")),
+                                actual: Some(format!("{:?}", w.syn_fs)),
+                                environment: None,
+                            },
+                        );
                     }
                 }
                 return false;
@@ -939,11 +942,14 @@ impl<'g> Morpher<'g> {
             } else {
                 let event = trace.failed(parent, w, FailureReason::SurfaceFormMismatch);
                 if trace.captures_failure_context() {
-                    trace.set_failure_context(event, pg_rules::trace::FailureContext {
-                        required: Some(word.to_owned()),
-                        actual: Some(surface::to_regex_display(surface_table, &w.shape)),
-                        environment: None,
-                    });
+                    trace.set_failure_context(
+                        event,
+                        pg_rules::trace::FailureContext {
+                            required: Some(word.to_owned()),
+                            actual: Some(surface::to_regex_display(surface_table, &w.shape)),
+                            environment: None,
+                        },
+                    );
                 }
             }
         }

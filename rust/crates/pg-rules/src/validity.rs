@@ -523,10 +523,17 @@ fn allomorphs_valid_impl(
             }
             // Reuses the pattern allomorph's own cached environment matcher; no per-guess compilation.
             if !check.envs_ok(g, gr.pattern_allo, &def.environments, &w.shape, start, end) {
-                return fail_with_context(trace, parent, w, FailureReason::Environments, || crate::trace::FailureContext {
-                    required: Some("at least one declared environment must accept this morph span".into()),
-                    actual: Some(format!("allomorph {:?}, interior span {start}..={end}, shape {:?}", m.allomorph, w.shape)),
-                    environment: Some(format!("{:?}", def.environments)),
+                return fail_with_context(trace, parent, w, FailureReason::Environments, || {
+                    crate::trace::FailureContext {
+                        required: Some(
+                            "at least one declared environment must accept this morph span".into(),
+                        ),
+                        actual: Some(format!(
+                            "allomorph {:?}, interior span {start}..={end}, shape {:?}",
+                            m.allomorph, w.shape
+                        )),
+                        environment: Some(format!("{:?}", def.environments)),
+                    }
                 });
             }
             // No disjunctive re-check: the fabricated entry has exactly one allomorph, so the candidate set is empty.
@@ -556,11 +563,23 @@ fn allomorphs_valid_impl(
                     return fail(trace, parent, w, FailureReason::MorphemeCoOccurrenceRules);
                 }
                 if !check.envs_ok(g, m.allomorph, &def.environments, &w.shape, start, end) {
-                    return fail_with_context(trace, parent, w, FailureReason::Environments, || crate::trace::FailureContext {
-                    required: Some("at least one declared environment must accept this morph span".into()),
-                    actual: Some(format!("allomorph {:?}, interior span {start}..={end}, shape {:?}", m.allomorph, w.shape)),
-                    environment: Some(format!("{:?}", def.environments)),
-                });
+                    return fail_with_context(
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::Environments,
+                        || crate::trace::FailureContext {
+                            required: Some(
+                                "at least one declared environment must accept this morph span"
+                                    .into(),
+                            ),
+                            actual: Some(format!(
+                                "allomorph {:?}, interior span {start}..={end}, shape {:?}",
+                                m.allomorph, w.shape
+                            )),
+                            environment: Some(format!("{:?}", def.environments)),
+                        },
+                    );
                 }
                 // The candidate's own allomorph-co-occurrence rules are checked here; morpheme-level rules are provably a
                 // no-op per candidate and are intentionally omitted -- see docs/research/pg-rules-validity-design-notes.md.
@@ -590,7 +609,10 @@ fn allomorphs_valid_impl(
                 let def = &allos[idx as usize];
                 if !pg_featstruct::subsumes(g.fs_interner.get(def.required_syn_fs), &w.syn_fs) {
                     return fail_with_context(
-                        trace, parent, w, FailureReason::RequiredSyntacticFeatureStruct,
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::RequiredSyntacticFeatureStruct,
                         || crate::trace::FailureContext {
                             required: Some(format!("{:?}", g.fs_interner.get(def.required_syn_fs))),
                             actual: Some(format!("{:?}", w.syn_fs)),
@@ -610,11 +632,23 @@ fn allomorphs_valid_impl(
                     return fail(trace, parent, w, FailureReason::MorphemeCoOccurrenceRules);
                 }
                 if !check.envs_ok(g, m.allomorph, &def.environments, &w.shape, start, end) {
-                    return fail_with_context(trace, parent, w, FailureReason::Environments, || crate::trace::FailureContext {
-                    required: Some("at least one declared environment must accept this morph span".into()),
-                    actual: Some(format!("allomorph {:?}, interior span {start}..={end}, shape {:?}", m.allomorph, w.shape)),
-                    environment: Some(format!("{:?}", def.environments)),
-                });
+                    return fail_with_context(
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::Environments,
+                        || crate::trace::FailureContext {
+                            required: Some(
+                                "at least one declared environment must accept this morph span"
+                                    .into(),
+                            ),
+                            actual: Some(format!(
+                                "allomorph {:?}, interior span {start}..={end}, shape {:?}",
+                                m.allomorph, w.shape
+                            )),
+                            environment: Some(format!("{:?}", def.environments)),
+                        },
+                    );
                 }
                 // Same disjunctive re-check shape as the root arm above (see its comment).
                 for ci in disjunctive_candidates(m, idx as usize) {

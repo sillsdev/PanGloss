@@ -1,7 +1,5 @@
 //! Renders opt-in rich trace-details v2 envelopes.
 
-
-
 use std::time::Duration;
 
 use pg_grammar::model::Grammar;
@@ -144,11 +142,14 @@ fn find_pos<'a>(parts: &'a [PartOfSpeech], id: &str) -> Option<&'a PartOfSpeech>
 
 fn find_infl<'a>(parts: &'a [PartOfSpeech], id: &str) -> Option<&'a InflectionClass> {
     parts.iter().find_map(|part| {
-        part.inflection_classes.iter().find_map(|class| {
-            (class.guid == id)
-                .then_some(class)
-                .or_else(|| find_infl_class(&class.children, id))
-        }).or_else(|| find_infl(&part.children, id))
+        part.inflection_classes
+            .iter()
+            .find_map(|class| {
+                (class.guid == id)
+                    .then_some(class)
+                    .or_else(|| find_infl_class(&class.children, id))
+            })
+            .or_else(|| find_infl(&part.children, id))
     })
 }
 
@@ -162,18 +163,22 @@ fn find_infl_class<'a>(classes: &'a [InflectionClass], id: &str) -> Option<&'a I
 
 fn find_slot<'a>(parts: &'a [PartOfSpeech], id: &str) -> Option<&'a AffixSlot> {
     parts.iter().find_map(|part| {
-        part.affix_slots.iter().find_map(|slot| {
-            (slot.guid == id)
-                .then_some(slot)
-        }).or_else(|| find_slot(&part.children, id))
+        part.affix_slots
+            .iter()
+            .find_map(|slot| (slot.guid == id).then_some(slot))
+            .or_else(|| find_slot(&part.children, id))
     })
 }
 
 fn pos_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
-    id.and_then(|id| find_pos(&snapshot.morphology.parts_of_speech, id)).map_or_else(
-        || id.map(|id| json!({ "id": id, "quality": "source-id-only" })).unwrap_or(Value::Null),
-        |pos| json!({ "id": pos.guid, "name": pos.name, "abbreviation": pos.abbreviation }),
-    )
+    id.and_then(|id| find_pos(&snapshot.morphology.parts_of_speech, id))
+        .map_or_else(
+            || {
+                id.map(|id| json!({ "id": id, "quality": "source-id-only" }))
+                    .unwrap_or(Value::Null)
+            },
+            |pos| json!({ "id": pos.guid, "name": pos.name, "abbreviation": pos.abbreviation }),
+        )
 }
 
 fn class_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
@@ -184,12 +189,15 @@ fn class_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
 }
 
 fn slots_json(snapshot: &Snapshot, ids: &[String]) -> Value {
-    let values: Vec<Value> = ids.iter().map(|id| {
-        find_slot(&snapshot.morphology.parts_of_speech, id).map_or_else(
-            || json!({ "id": id, "quality": "source-id-only" }),
-            |slot| json!({ "id": slot.guid, "name": slot.name, "optional": slot.optional }),
-        )
-    }).collect();
+    let values: Vec<Value> = ids
+        .iter()
+        .map(|id| {
+            find_slot(&snapshot.morphology.parts_of_speech, id).map_or_else(
+                || json!({ "id": id, "quality": "source-id-only" }),
+                |slot| json!({ "id": slot.guid, "name": slot.name, "optional": slot.optional }),
+            )
+        })
+        .collect();
     Value::Array(values)
 }
 
@@ -212,41 +220,111 @@ fn msa_fields(snapshot: &Snapshot, msa_id: Option<&str>) -> Value {
             let mut object = serde_json::Map::new();
             object.insert("id".to_string(), json!(msa_id));
             match msa {
-                Msa::Stem { part_of_speech, inflection_class, features, from_parts_of_speech, slots, .. } => {
+                Msa::Stem {
+                    part_of_speech,
+                    inflection_class,
+                    features,
+                    from_parts_of_speech,
+                    slots,
+                    ..
+                } => {
                     let slot_ids: Vec<String> = slots.clone();
                     object.insert("kind".to_string(), json!("stem"));
-                    object.insert("category".to_string(), pos_json(snapshot, part_of_speech.as_deref()));
-                    object.insert("slot".to_string(), slots_json(snapshot, &slot_ids).as_array().and_then(|values| values.first()).cloned().unwrap_or(Value::Null));
+                    object.insert(
+                        "category".to_string(),
+                        pos_json(snapshot, part_of_speech.as_deref()),
+                    );
+                    object.insert(
+                        "slot".to_string(),
+                        slots_json(snapshot, &slot_ids)
+                            .as_array()
+                            .and_then(|values| values.first())
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                    );
                     object.insert("slots".to_string(), slots_json(snapshot, &slot_ids));
-                    object.insert("inflectionClass".to_string(), class_json(snapshot, inflection_class.as_deref()));
+                    object.insert(
+                        "inflectionClass".to_string(),
+                        class_json(snapshot, inflection_class.as_deref()),
+                    );
                     object.insert("features".to_string(), features_json(features.as_ref()));
-                    object.insert("attachesTo".to_string(), json!({
-                        "partOfSpeechIds": from_parts_of_speech,
-                        "slotIds": slots,
-                    }));
+                    object.insert(
+                        "attachesTo".to_string(),
+                        json!({
+                            "partOfSpeechIds": from_parts_of_speech,
+                            "slotIds": slots,
+                        }),
+                    );
                 }
-                Msa::Inflectional { part_of_speech, slots, features, .. } => {
+                Msa::Inflectional {
+                    part_of_speech,
+                    slots,
+                    features,
+                    ..
+                } => {
                     let slot_ids: Vec<String> = slots.clone();
                     object.insert("kind".to_string(), json!("inflectional"));
-                    object.insert("category".to_string(), pos_json(snapshot, part_of_speech.as_deref()));
-                    object.insert("slot".to_string(), slots_json(snapshot, &slot_ids).as_array().and_then(|values| values.first()).cloned().unwrap_or(Value::Null));
+                    object.insert(
+                        "category".to_string(),
+                        pos_json(snapshot, part_of_speech.as_deref()),
+                    );
+                    object.insert(
+                        "slot".to_string(),
+                        slots_json(snapshot, &slot_ids)
+                            .as_array()
+                            .and_then(|values| values.first())
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                    );
                     object.insert("slots".to_string(), slots_json(snapshot, &slot_ids));
                     object.insert("features".to_string(), features_json(features.as_ref()));
                 }
-                Msa::Derivational { from_part_of_speech, to_part_of_speech, from_inflection_class, to_inflection_class, from_features, to_features, .. } => {
+                Msa::Derivational {
+                    from_part_of_speech,
+                    to_part_of_speech,
+                    from_inflection_class,
+                    to_inflection_class,
+                    from_features,
+                    to_features,
+                    ..
+                } => {
                     object.insert("kind".to_string(), json!("derivational"));
-                    object.insert("fromCategory".to_string(), pos_json(snapshot, from_part_of_speech.as_deref()));
-                    object.insert("toCategory".to_string(), pos_json(snapshot, to_part_of_speech.as_deref()));
-                    object.insert("fromInflectionClass".to_string(), class_json(snapshot, from_inflection_class.as_deref()));
-                    object.insert("toInflectionClass".to_string(), class_json(snapshot, to_inflection_class.as_deref()));
-                    object.insert("fromFeatures".to_string(), features_json(from_features.as_ref()));
-                    object.insert("toFeatures".to_string(), features_json(to_features.as_ref()));
-                    object.insert("category".to_string(), object.get("toCategory").cloned().unwrap_or(Value::Null));
+                    object.insert(
+                        "fromCategory".to_string(),
+                        pos_json(snapshot, from_part_of_speech.as_deref()),
+                    );
+                    object.insert(
+                        "toCategory".to_string(),
+                        pos_json(snapshot, to_part_of_speech.as_deref()),
+                    );
+                    object.insert(
+                        "fromInflectionClass".to_string(),
+                        class_json(snapshot, from_inflection_class.as_deref()),
+                    );
+                    object.insert(
+                        "toInflectionClass".to_string(),
+                        class_json(snapshot, to_inflection_class.as_deref()),
+                    );
+                    object.insert(
+                        "fromFeatures".to_string(),
+                        features_json(from_features.as_ref()),
+                    );
+                    object.insert(
+                        "toFeatures".to_string(),
+                        features_json(to_features.as_ref()),
+                    );
+                    object.insert(
+                        "category".to_string(),
+                        object.get("toCategory").cloned().unwrap_or(Value::Null),
+                    );
                     object.insert("slot".to_string(), Value::Null);
                 }
                 Msa::Unclassified { part_of_speech, .. } => {
                     object.insert("kind".to_string(), json!("unclassified"));
-                    object.insert("category".to_string(), pos_json(snapshot, part_of_speech.as_deref()));
+                    object.insert(
+                        "category".to_string(),
+                        pos_json(snapshot, part_of_speech.as_deref()),
+                    );
                     object.insert("slot".to_string(), Value::Null);
                 }
             }
@@ -271,12 +349,18 @@ fn rich_morph(snapshot: Option<&Snapshot>, morph: &pg_parse::ParseMorph) -> Valu
                 entry_id = Some(entry.guid.clone());
                 form_value = first_ws(&allomorph.forms, Some(&allomorph.guid));
                 headword = if entry.citation_form.is_empty() {
-                    entry.allomorphs.last().map_or(Value::Null, |lexeme| first_ws(&lexeme.forms, Some(&lexeme.guid)))
+                    entry.allomorphs.last().map_or(Value::Null, |lexeme| {
+                        first_ws(&lexeme.forms, Some(&lexeme.guid))
+                    })
                 } else {
                     first_ws(&entry.citation_form, Some(&entry.guid))
                 };
                 if let Some(msa_id) = morph.msa.as_deref() {
-                    if let Some(sense) = entry.senses.iter().find(|sense| sense.msa.as_deref() == Some(msa_id)) {
+                    if let Some(sense) = entry
+                        .senses
+                        .iter()
+                        .find(|sense| sense.msa.as_deref() == Some(msa_id))
+                    {
                         gloss = first_ws(&sense.gloss, Some(&sense.guid));
                     }
                 }
@@ -287,12 +371,21 @@ fn rich_morph(snapshot: Option<&Snapshot>, morph: &pg_parse::ParseMorph) -> Valu
         if let Some(object) = msa.as_object() {
             slot_value = object.get("slot").cloned().unwrap_or(Value::Null);
             features_value = object.get("features").cloned().unwrap_or(features_value);
-            infl_value = object.get("inflectionClass").cloned().unwrap_or(Value::Null);
+            infl_value = object
+                .get("inflectionClass")
+                .cloned()
+                .unwrap_or(Value::Null);
         }
         msa_value = msa;
         if gloss.is_null() {
             if let Some(msa_id) = morph.msa.as_deref() {
-                if let Some(sense) = snapshot.lexicon.entries.iter().flat_map(|entry| &entry.senses).find(|sense| sense.msa.as_deref() == Some(msa_id)) {
+                if let Some(sense) = snapshot
+                    .lexicon
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.senses)
+                    .find(|sense| sense.msa.as_deref() == Some(msa_id))
+                {
                     gloss = first_ws(&sense.gloss, Some(&sense.guid));
                 }
             }
@@ -300,7 +393,11 @@ fn rich_morph(snapshot: Option<&Snapshot>, morph: &pg_parse::ParseMorph) -> Valu
     }
 
     let quality = if entry_id.is_some() || morph.msa.is_some() {
-        if snapshot.is_some() { "authored" } else { "grammar-local" }
+        if snapshot.is_some() {
+            "authored"
+        } else {
+            "grammar-local"
+        }
     } else if morph.guessed_string.is_some() {
         "synthetic"
     } else {
@@ -401,8 +498,12 @@ fn source_identity(grammar: &Grammar, source: TraceSource) -> Value {
     use pg_grammar::stats_identity::{morph_rule_identity, phon_rule_identity, IdentityQuality};
     let (kind, identity) = match source {
         TraceSource::Language | TraceSource::None => return Value::Null,
-        TraceSource::Stratum(id) => return json!({ "kind": "stratum", "id": id.0.to_string(), "quality": "grammar-local" }),
-        TraceSource::Template(id) => return json!({ "kind": "template", "id": id.0.to_string(), "quality": "grammar-local" }),
+        TraceSource::Stratum(id) => {
+            return json!({ "kind": "stratum", "id": id.0.to_string(), "quality": "grammar-local" })
+        }
+        TraceSource::Template(id) => {
+            return json!({ "kind": "template", "id": id.0.to_string(), "quality": "grammar-local" })
+        }
         TraceSource::MorphRule(id) => ("morphRule", morph_rule_identity(grammar, id)),
         TraceSource::PhonRule(id) => ("phonRule", phon_rule_identity(grammar, id)),
     };
@@ -430,7 +531,9 @@ fn failure_context(reason: pg_rules::trace::FailureReason) -> Value {
         pg_rules::trace::FailureReason::ObligatorySyntacticFeatures
         | pg_rules::trace::FailureReason::RequiredSyntacticFeatureStruct
         | pg_rules::trace::FailureReason::HeadRequiredSyntacticFeatureStruct
-        | pg_rules::trace::FailureReason::NonHeadRequiredSyntacticFeatureStruct => "syntacticFeatures",
+        | pg_rules::trace::FailureReason::NonHeadRequiredSyntacticFeatureStruct => {
+            "syntacticFeatures"
+        }
         pg_rules::trace::FailureReason::RequiredMprFeatures
         | pg_rules::trace::FailureReason::ExcludedMprFeatures
         | pg_rules::trace::FailureReason::HeadProdRestrictMprFeatures
@@ -449,7 +552,10 @@ fn failure_context(reason: pg_rules::trace::FailureReason) -> Value {
     })
 }
 
-fn captured_failure_context(reason: pg_rules::trace::FailureReason, context: &FailureContext) -> Value {
+fn captured_failure_context(
+    reason: pg_rules::trace::FailureReason,
+    context: &FailureContext,
+) -> Value {
     let mut value = failure_context(reason);
     if let Some(object) = value.as_object_mut() {
         object.insert("status".to_string(), json!("captured"));
@@ -472,11 +578,17 @@ fn decorate_trace_node(
     let Some(object) = value.as_object_mut() else {
         return Ok(());
     };
-    object.insert("sourceIdentity".to_string(), source_identity(grammar, node.source));
-    object.insert("outcome".to_string(), json!({
-        "status": outcome_status(node.type_),
-        "eventType": format!("{:?}", node.type_),
-    }));
+    object.insert(
+        "sourceIdentity".to_string(),
+        source_identity(grammar, node.source),
+    );
+    object.insert(
+        "outcome".to_string(),
+        json!({
+            "status": outcome_status(node.type_),
+            "eventType": format!("{:?}", node.type_),
+        }),
+    );
     if let Some(reason) = node.failure_reason {
         let context = node.failure_context.as_ref().map_or_else(
             || failure_context(reason),
@@ -489,7 +601,8 @@ fn decorate_trace_node(
     let word = node.output.as_ref().or(node.input.as_ref());
     object.insert(
         "attemptedMorphs".to_string(),
-        word.map_or_else(Vec::new, |word| attempted_morphs(grammar, metadata, word)).into(),
+        word.map_or_else(Vec::new, |word| attempted_morphs(grammar, metadata, word))
+            .into(),
     );
     let children = node
         .children
@@ -623,8 +736,10 @@ pub fn render(
     metadata: &TraceMetadata,
 ) -> Result<String, String> {
     let mut trace = match root {
-        Some(root) => serde_json::from_str::<Value>(&crate::trace_render::render_json_node_shallow(grammar, sink, root))
-            .map_err(|error| format!("serialize trace JSON: {error}"))?,
+        Some(root) => serde_json::from_str::<Value>(
+            &crate::trace_render::render_json_node_shallow(grammar, sink, root),
+        )
+        .map_err(|error| format!("serialize trace JSON: {error}"))?,
         None => Value::Null,
     };
     if let Some(root) = root {
@@ -664,14 +779,82 @@ mod tests {
             candidates_generated: 1,
         };
         let rows = vec![
-            StatsRow { kind: ObjectKind::MorphRule, object_index: 0, stratum: StratumId(0), allomorph: 0, direction: Direction::Synthesis, counters: Counters { attempts: 2, not_applied: 1, self_time_ns: 11, ..Counters::default() } },
-            StatsRow { kind: ObjectKind::MorphRule, object_index: 0, stratum: StratumId(0), allomorph: 1, direction: Direction::Synthesis, counters: Counters { not_applied: 2, self_time_ns: 7, ..Counters::default() } },
-            StatsRow { kind: ObjectKind::Overlay, object_index: 0, stratum: StratumId(0), allomorph: 0, direction: Direction::Analysis, counters: Counters { attempts: 1, self_time_ns: 99, ..Counters::default() } },
-            StatsRow { kind: ObjectKind::PhonRule, object_index: 0, stratum: StratumId(0), allomorph: 0, direction: Direction::Analysis, counters: Counters { attempts: 3, self_time_ns: 77, ..Counters::default() } },
-            StatsRow { kind: ObjectKind::RootIndex, object_index: 0, stratum: StratumId(0), allomorph: 0, direction: Direction::Analysis, counters: Counters { attempts: 4, self_time_ns: 23, ..Counters::default() } },
+            StatsRow {
+                kind: ObjectKind::MorphRule,
+                object_index: 0,
+                stratum: StratumId(0),
+                allomorph: 0,
+                direction: Direction::Synthesis,
+                counters: Counters {
+                    attempts: 2,
+                    not_applied: 1,
+                    self_time_ns: 11,
+                    ..Counters::default()
+                },
+            },
+            StatsRow {
+                kind: ObjectKind::MorphRule,
+                object_index: 0,
+                stratum: StratumId(0),
+                allomorph: 1,
+                direction: Direction::Synthesis,
+                counters: Counters {
+                    not_applied: 2,
+                    self_time_ns: 7,
+                    ..Counters::default()
+                },
+            },
+            StatsRow {
+                kind: ObjectKind::Overlay,
+                object_index: 0,
+                stratum: StratumId(0),
+                allomorph: 0,
+                direction: Direction::Analysis,
+                counters: Counters {
+                    attempts: 1,
+                    self_time_ns: 99,
+                    ..Counters::default()
+                },
+            },
+            StatsRow {
+                kind: ObjectKind::PhonRule,
+                object_index: 0,
+                stratum: StratumId(0),
+                allomorph: 0,
+                direction: Direction::Analysis,
+                counters: Counters {
+                    attempts: 3,
+                    self_time_ns: 77,
+                    ..Counters::default()
+                },
+            },
+            StatsRow {
+                kind: ObjectKind::RootIndex,
+                object_index: 0,
+                stratum: StratumId(0),
+                allomorph: 0,
+                direction: Direction::Analysis,
+                counters: Counters {
+                    attempts: 4,
+                    self_time_ns: 23,
+                    ..Counters::default()
+                },
+            },
         ];
-        let tree = json!({ "type": "WordAnalysis", "children": [{"type": "Successful", "children": []}] });
-        let value: serde_json::Value = serde_json::from_str(&render_envelope_v2(tree.clone(), "sagd", &outcome, &rows, Duration::from_nanos(7), &TraceMetadata::default()).expect("rich envelope serializes")).expect("rich envelope is JSON");
+        let tree =
+            json!({ "type": "WordAnalysis", "children": [{"type": "Successful", "children": []}] });
+        let value: serde_json::Value = serde_json::from_str(
+            &render_envelope_v2(
+                tree.clone(),
+                "sagd",
+                &outcome,
+                &rows,
+                Duration::from_nanos(7),
+                &TraceMetadata::default(),
+            )
+            .expect("rich envelope serializes"),
+        )
+        .expect("rich envelope is JSON");
         assert_eq!(value["schemaVersion"], "pangloss.trace-details.v2");
         assert_eq!(value["trace"], tree);
         assert_eq!(value["search"]["completed"], true);
@@ -684,28 +867,70 @@ mod tests {
         assert_eq!(value["categories"]["phonRule"]["timingAvailable"], true);
         assert_eq!(value["categories"]["rootIndex"]["selfElapsedNs"], 23);
         assert_eq!(value["categories"]["rootIndex"]["timingAvailable"], true);
-        assert_eq!(value["categories"]["overlay"]["selfElapsedNs"], serde_json::Value::Null);
+        assert_eq!(
+            value["categories"]["overlay"]["selfElapsedNs"],
+            serde_json::Value::Null
+        );
         assert_eq!(value["categories"]["overlay"]["timingAvailable"], false);
     }
 
     #[test]
     fn v2_retains_analysis_when_projection_is_unavailable() {
-        let outcome = ParseOutcome { analyses: vec![("root".into(), "sagd".into())], structured: Vec::new(), capped: true, invalid_shape: false, steps: 99, timed_out: false, guessed: false, candidates_generated: 1 };
-        let value: serde_json::Value = serde_json::from_str(&render_envelope_v2(json!({"type": "WordAnalysis", "children": []}), "sagd", &outcome, &[], Duration::from_nanos(7), &TraceMetadata { grammar_name: Some("Test".into()), grammar_hash: Some("abc".into()), grammar_hash_semantics: Some("source-bytes-v1".into()), source_kind: "xml".into(), ..TraceMetadata::default() }).expect("v2 envelope serializes")).expect("v2 envelope is JSON");
+        let outcome = ParseOutcome {
+            analyses: vec![("root".into(), "sagd".into())],
+            structured: Vec::new(),
+            capped: true,
+            invalid_shape: false,
+            steps: 99,
+            timed_out: false,
+            guessed: false,
+            candidates_generated: 1,
+        };
+        let value: serde_json::Value = serde_json::from_str(
+            &render_envelope_v2(
+                json!({"type": "WordAnalysis", "children": []}),
+                "sagd",
+                &outcome,
+                &[],
+                Duration::from_nanos(7),
+                &TraceMetadata {
+                    grammar_name: Some("Test".into()),
+                    grammar_hash: Some("abc".into()),
+                    grammar_hash_semantics: Some("source-bytes-v1".into()),
+                    source_kind: "xml".into(),
+                    ..TraceMetadata::default()
+                },
+            )
+            .expect("v2 envelope serializes"),
+        )
+        .expect("v2 envelope is JSON");
         assert_eq!(value["schemaVersion"], "pangloss.trace-details.v2");
         assert_eq!(value["provenance"]["grammar"]["name"], "Test");
-        assert_eq!(value["provenance"]["grammar"]["grammarHashSemantics"], "source-bytes-v1");
+        assert_eq!(
+            value["provenance"]["grammar"]["grammarHashSemantics"],
+            "source-bytes-v1"
+        );
         assert_eq!(value["search"]["completed"], false);
-        assert_eq!(value["result"]["analyses"][0]["projection"]["status"], "unavailable");
+        assert_eq!(
+            value["result"]["analyses"][0]["projection"]["status"],
+            "unavailable"
+        );
         assert_eq!(value["trace"]["children"].as_array().unwrap().len(), 0);
     }
     #[test]
     fn rich_tree_preserves_nodes_beyond_default_json_parse_depth() {
         use pg_rules::trace::TraceSink;
-        let grammar = pg_grammar::load(include_str!("../../../../conformance-staging/filter-passes/exact-span/grammar.xml")).unwrap();
+        let grammar = pg_grammar::load(include_str!(
+            "../../../../conformance-staging/filter-passes/exact-span/grammar.xml"
+        ))
+        .unwrap();
         let sink = pg_rules::trace::TreeTraceSink::with_failure_context();
         let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
-        let (outcome, rows) = morpher.parse_word_traced_with_stats("matinlu", &pg_parse::ParseOptions::default(), &sink);
+        let (outcome, rows) = morpher.parse_word_traced_with_stats(
+            "matinlu",
+            &pg_parse::ParseOptions::default(),
+            &sink,
+        );
         let root = sink.root().unwrap();
         let input = sink.node(root).input.unwrap();
         let mut cursor = root;
@@ -714,7 +939,17 @@ mod tests {
         }
         let ordinary = crate::trace_render::render_json(&grammar, &sink, root);
         assert!(serde_json::from_str::<serde_json::Value>(&ordinary).is_err());
-        let rich = super::render(&grammar, &sink, Some(root), "matinlu", &outcome, &rows, Duration::ZERO, &TraceMetadata::default()).unwrap();
+        let rich = super::render(
+            &grammar,
+            &sink,
+            Some(root),
+            "matinlu",
+            &outcome,
+            &rows,
+            Duration::ZERO,
+            &TraceMetadata::default(),
+        )
+        .unwrap();
         assert_eq!(rich.matches("\"type\":").count(), sink.len());
         assert_eq!(ordinary.matches("\"type\":").count(), sink.len());
         assert!(rich.contains("\"schemaVersion\":\"pangloss.trace-details.v2\""));
@@ -722,19 +957,32 @@ mod tests {
 
     #[test]
     fn authored_morph_keeps_lexeme_headword_when_citation_is_absent() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../pg-fwdata/tests/data/fixture.fwdata");
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../pg-fwdata/tests/data/fixture.fwdata");
         let (mut snapshot, _) = pg_fwdata::import_file(&path).unwrap();
-        let entry = snapshot.lexicon.entries.iter_mut().find(|entry| entry.citation_form.iter().any(|form| form.form == "ranna")).unwrap();
+        let entry = snapshot
+            .lexicon
+            .entries
+            .iter_mut()
+            .find(|entry| entry.citation_form.iter().any(|form| form.form == "ranna"))
+            .unwrap();
         entry.citation_form.clear();
         let lexeme = entry.allomorphs.last().unwrap();
         let form_id = lexeme.guid.clone();
         let expected = lexeme.forms[0].form.clone();
         let msa_id = entry.msas[0].guid().to_string();
-        let morph = super::rich_morph(Some(&snapshot), &pg_parse::ParseMorph { form: Some(form_id.clone()), msa: Some(msa_id), infl_type: None, guessed_string: None });
+        let morph = super::rich_morph(
+            Some(&snapshot),
+            &pg_parse::ParseMorph {
+                form: Some(form_id.clone()),
+                msa: Some(msa_id),
+                infl_type: None,
+                guessed_string: None,
+            },
+        );
         assert_eq!(morph["headword"]["text"], expected);
         assert_eq!(morph["headword"]["sourceId"], form_id);
         assert_eq!(morph["identity"]["quality"], "authored");
         assert!(!morph["msa"].is_null());
     }
-
 }

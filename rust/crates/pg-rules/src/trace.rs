@@ -190,7 +190,9 @@ pub trait TraceSink {
     fn is_tracing(&self) -> bool;
 
     /// Rich diagnostic evidence is separately opt-in; ordinary tracing does not format it.
-    fn captures_failure_context(&self) -> bool { false }
+    fn captures_failure_context(&self) -> bool {
+        false
+    }
 
     /// Called only after the owner has emitted the exact failed event.
     fn set_failure_context(&self, _event: TraceHandle, _context: FailureContext) {
@@ -577,7 +579,10 @@ impl Default for TreeTraceSink {
 impl TreeTraceSink {
     /// Retain owner-provided rejection evidence for an explicit rich diagnostic request.
     pub fn with_failure_context() -> Self {
-        Self { capture_failure_context: true, ..Self::new() }
+        Self {
+            capture_failure_context: true,
+            ..Self::new()
+        }
     }
     pub fn new() -> Self {
         TreeTraceSink {
@@ -637,13 +642,21 @@ impl TreeTraceSink {
 }
 
 impl TraceSink for TreeTraceSink {
-    fn captures_failure_context(&self) -> bool { self.capture_failure_context }
+    fn captures_failure_context(&self) -> bool {
+        self.capture_failure_context
+    }
 
     fn set_failure_context(&self, event: TraceHandle, context: FailureContext) {
-        assert!(self.capture_failure_context, "failure context capture was not enabled");
+        assert!(
+            self.capture_failure_context,
+            "failure context capture was not enabled"
+        );
         let mut nodes = self.nodes.borrow_mut();
         let node = &mut nodes[event.0 as usize];
-        assert!(node.failure_reason.is_some(), "failure context requires a failed event");
+        assert!(
+            node.failure_reason.is_some(),
+            "failure context requires a failed event"
+        );
         node.failure_context = Some(context);
     }
     #[inline(always)]
@@ -1076,12 +1089,22 @@ mod tests {
         let root = sink.analyze_word(&word);
         let failed = sink.failed(root, &word, FailureReason::SurfaceFormMismatch);
         let succeeded = sink.successful(root, &word);
-        sink.set_failure_context(failed, FailureContext {
-            required: Some("cats".into()),
-            actual: Some("cat".into()),
-            environment: None,
-        });
-        assert_eq!(sink.node(failed).failure_context.unwrap().required.as_deref(), Some("cats"));
+        sink.set_failure_context(
+            failed,
+            FailureContext {
+                required: Some("cats".into()),
+                actual: Some("cat".into()),
+                environment: None,
+            },
+        );
+        assert_eq!(
+            sink.node(failed)
+                .failure_context
+                .unwrap()
+                .required
+                .as_deref(),
+            Some("cats")
+        );
         assert!(sink.node(succeeded).failure_context.is_none());
         assert!(sink.node(root).failure_context.is_none());
     }

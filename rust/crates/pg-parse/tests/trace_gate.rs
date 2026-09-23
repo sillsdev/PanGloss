@@ -434,17 +434,38 @@ fn rich_failure_context_preserves_parse_results_and_exact_surface_inputs() {
     assert_eq!(before.steps, after.steps);
     assert_eq!(plain.len(), rich.len());
     let mut failures = Vec::new();
-    find_all_by_type(&rich, rich.root().unwrap(), TraceType::Failed, &mut failures);
-    let contexts: Vec<_> = failures.into_iter().map(|h| rich.node(h))
+    find_all_by_type(
+        &rich,
+        rich.root().unwrap(),
+        TraceType::Failed,
+        &mut failures,
+    );
+    let contexts: Vec<_> = failures
+        .into_iter()
+        .map(|h| rich.node(h))
         .filter(|node| node.failure_reason == Some(FailureReason::SurfaceFormMismatch))
-        .map(|node| node.failure_context.expect("mismatch owner must capture its operands"))
+        .map(|node| {
+            node.failure_context
+                .expect("mismatch owner must capture its operands")
+        })
         .collect();
     assert!(!contexts.is_empty());
-    assert!(contexts.iter().all(|context| context.required.as_deref() == Some("bu")));
-    assert!(contexts.iter().any(|context| context.actual.as_deref() == Some("bo")));
+    assert!(contexts
+        .iter()
+        .all(|context| context.required.as_deref() == Some("bu")));
+    assert!(contexts
+        .iter()
+        .any(|context| context.actual.as_deref() == Some("bo")));
     let mut plain_failures = Vec::new();
-    find_all_by_type(&plain, plain.root().unwrap(), TraceType::Failed, &mut plain_failures);
-    assert!(plain_failures.into_iter().all(|h| plain.node(h).failure_context.is_none()));
+    find_all_by_type(
+        &plain,
+        plain.root().unwrap(),
+        TraceType::Failed,
+        &mut plain_failures,
+    );
+    assert!(plain_failures
+        .into_iter()
+        .all(|h| plain.node(h).failure_context.is_none()));
 }
 
 #[test]
@@ -455,11 +476,23 @@ fn rich_obligatory_feature_failure_retains_gate_inputs() {
     let outcome = m.parse_word_traced("sagz", &ParseOptions::default(), &sink);
     assert!(outcome.analyses.is_empty());
     let mut failures = Vec::new();
-    find_all_by_type(&sink, sink.root().unwrap(), TraceType::Failed, &mut failures);
-    let contexts: Vec<_> = failures.into_iter().map(|h| sink.node(h))
+    find_all_by_type(
+        &sink,
+        sink.root().unwrap(),
+        TraceType::Failed,
+        &mut failures,
+    );
+    let contexts: Vec<_> = failures
+        .into_iter()
+        .map(|h| sink.node(h))
         .filter(|node| node.failure_reason == Some(FailureReason::ObligatorySyntacticFeatures))
-        .map(|node| node.failure_context.expect("feature rejection must retain the failed obligation"))
+        .map(|node| {
+            node.failure_context
+                .expect("feature rejection must retain the failed obligation")
+        })
         .collect();
     assert!(!contexts.is_empty());
-    assert!(contexts.iter().all(|context| context.required.is_some() && context.actual.is_some()));
+    assert!(contexts
+        .iter()
+        .all(|context| context.required.is_some() && context.actual.is_some()));
 }

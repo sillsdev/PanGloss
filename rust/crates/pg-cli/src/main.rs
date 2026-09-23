@@ -384,8 +384,8 @@ fn load_grammar_impl(
             let json = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
             let snapshot = pg_snapshot::Snapshot::from_json(&json)
                 .map_err(|e| format!("parse snapshot {path}: {e}"))?;
-            let metadata = capture_metadata
-                .then(|| rich_trace::metadata_from_snapshot(&snapshot, "snapshot"));
+            let metadata =
+                capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "snapshot"));
             let (grammar, warnings) = pg_grammar::compile_project(&snapshot)
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
             Ok((grammar, warnings, metadata))
@@ -396,8 +396,8 @@ fn load_grammar_impl(
             let mut warnings: Vec<String> =
                 report.warnings.into_iter().map(|w| w.to_string()).collect();
             warnings.extend(snapshot.validate().into_iter().map(|w| w.to_string()));
-            let metadata = capture_metadata
-                .then(|| rich_trace::metadata_from_snapshot(&snapshot, "fwdata"));
+            let metadata =
+                capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "fwdata"));
             let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
             warnings.extend(compile_warnings);
