@@ -1,11 +1,50 @@
 //! Rendering a `TreeTraceSink` for `pangloss parse --trace`: an indented, diffable text tree and a nested-object JSON tree. Lives here, not in `pg-parse`/`pg-rules`, since both need `Grammar` to resolve names and render a `Word`'s shape as text -- display-only, grammar-aware work `pg-cli` already does elsewhere.
 
-use pg_grammar::model::Grammar;
-use pg_grammar::stats_identity::{
-    morph_rule_identity, phon_rule_identity, stratum_identity, template_identity,
-};
+use pg_grammar::model::{Grammar, MorphRuleDef, PhonRuleDef};
 use pg_rules::trace::{TraceHandle, TraceNode, TraceSource, TreeTraceSink};
 use pg_rules::word::Word;
+
+/// A morphological rule's display name (`<Name>`), falling back to a numeric id for a hand-built test grammar that never named it.
+fn mrule_name(g: &Grammar, id: pg_grammar::model::MRuleId) -> String {
+    let idx = id.0 as usize;
+    let Some(rule) = g.mrules.get(idx) else {
+        return format!("mrule#{idx}");
+    };
+    let name = match rule {
+        MorphRuleDef::AffixProcess(d) => d.name.as_deref(),
+        MorphRuleDef::Realizational(d) => d.name.as_deref(),
+        MorphRuleDef::Compounding(d) => d.name.as_deref(),
+    };
+    name.map(str::to_string)
+        .unwrap_or_else(|| format!("mrule#{idx}"))
+}
+
+fn prule_name(g: &Grammar, id: pg_grammar::model::PRuleId) -> String {
+    let idx = id.0 as usize;
+    let Some(rule) = g.prules.get(idx) else {
+        return format!("prule#{idx}");
+    };
+    let name = match rule {
+        PhonRuleDef::Rewrite(d) => d.name.as_deref(),
+        PhonRuleDef::Metathesis(d) => d.name.as_deref(),
+    };
+    name.map(str::to_string)
+        .unwrap_or_else(|| format!("prule#{idx}"))
+}
+
+fn stratum_name(g: &Grammar, id: pg_grammar::model::StratumId) -> String {
+    g.strata
+        .get(id.0 as usize)
+        .and_then(|s| s.name.clone())
+        .unwrap_or_else(|| format!("stratum#{}", id.0))
+}
+
+fn template_name(g: &Grammar, id: pg_grammar::model::TemplateId) -> String {
+    g.templates
+        .get(id.0 as usize)
+        .and_then(|t| t.name.clone())
+        .unwrap_or_else(|| format!("template#{}", id.0))
+}
 
 /// Renders a `Word`'s shape using its own `stratum`'s character table, so a mid-derivation word is rendered in the stratum that produced it, never forced through the surface one.
 fn render_word_shape(g: &Grammar, w: &Word) -> String {
@@ -16,10 +55,10 @@ fn render_word_shape(g: &Grammar, w: &Word) -> String {
 fn source_label(g: &Grammar, source: TraceSource) -> Option<String> {
     match source {
         TraceSource::Language | TraceSource::None => None,
-        TraceSource::Stratum(id) => Some(stratum_identity(g, id).label),
-        TraceSource::Template(id) => Some(template_identity(g, id).label),
-        TraceSource::MorphRule(id) => Some(morph_rule_identity(g, id).label),
-        TraceSource::PhonRule(id) => Some(phon_rule_identity(g, id).label),
+        TraceSource::Stratum(id) => Some(stratum_name(g, id)),
+        TraceSource::Template(id) => Some(template_name(g, id)),
+        TraceSource::MorphRule(id) => Some(mrule_name(g, id)),
+        TraceSource::PhonRule(id) => Some(prule_name(g, id)),
     }
 }
 
@@ -212,14 +251,14 @@ mod tests {
         let expected = "WordAnalysis  input=sagd\n\
                          \x20 StratumAnalysisInput \"S\"  input=sagd\n\
                          \x20 StratumAnalysisOutput \"S\"  shape=sagd\n\
-                         \x20 MorphologicalRuleAnalysis \"ed_suffix - PAST\" subrule=0  shape=sag\n\
+                         \x20 MorphologicalRuleAnalysis \"ed_suffix\" subrule=0  shape=sag\n\
                          \x20   StratumAnalysisOutput \"S\"  shape=sag\n\
                          \x20   LexicalLookup \"S\"  input=sag\n\
                          \x20   StratumSynthesisInput \"S\"  input=sag\n\
-                         \x20   MorphologicalRuleSynthesis \"ed_suffix - PAST\" subrule=0  shape=sagd\n\
+                         \x20   MorphologicalRuleSynthesis \"ed_suffix\" subrule=0  shape=sagd\n\
                          \x20     StratumSynthesisOutput \"S\"  shape=sagd\n\
                          \x20     Successful  shape=sagd\n\
-                         \x20   MorphologicalRuleSynthesis \"ed_suffix - PAST\"  [NonPartialRuleProhibitedAfterFinalTemplate]  input=sag\n\
+                         \x20   MorphologicalRuleSynthesis \"ed_suffix\"  [NonPartialRuleProhibitedAfterFinalTemplate]  input=sag\n\
                          \x20   Failed  [PartialParse]  shape=sag\n\
                          \x20 LexicalLookup \"S\"  input=sagd\n";
         assert_eq!(
@@ -238,7 +277,7 @@ mod tests {
         let rendered = render_json(&g, &sink, root);
 
         assert!(rendered.contains("\"type\":\"WordAnalysis\""));
-        assert!(rendered.contains("\"source\":\"ed_suffix - PAST\""));
+        assert!(rendered.contains("\"source\":\"ed_suffix\""));
         assert!(rendered.contains("\"type\":\"Successful\""));
         // Balanced braces/brackets -- a cheap well-formedness check without a JSON parser dependency.
         assert_eq!(rendered.matches('{').count(), rendered.matches('}').count());

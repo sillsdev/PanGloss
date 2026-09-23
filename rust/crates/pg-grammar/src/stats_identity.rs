@@ -16,7 +16,7 @@
 
 use crate::model::{
     AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, PRuleId,
-    PhonRuleDef, StratumId, TemplateId,
+    PhonRuleDef, StratumId,
 };
 
 /// A morpheme's locator identity, mirroring [`StratumIdentity`]: a morpheme is a dimension a
@@ -41,13 +41,6 @@ pub enum IdentityQuality {
     Synthetic,
 }
 
-/// Whether a runtime reference resolved to a grammar object.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IdentityResolution {
-    Resolved,
-    Unresolved,
-}
-
 /// Which table an [`ObjectIdentity`] names a row in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectKind {
@@ -59,15 +52,6 @@ pub enum ObjectKind {
     Overlay,
 }
 
-/// Identity data for trace sources that are not stats objects.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SourceIdentity {
-    pub key: String,
-    pub label: String,
-    pub quality: IdentityQuality,
-    pub resolution: IdentityResolution,
-}
-
 /// A stable, human-legible identity for one runtime object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObjectIdentity {
@@ -75,7 +59,6 @@ pub struct ObjectIdentity {
     pub kind: ObjectKind,
     pub label: String,
     pub quality: IdentityQuality,
-    pub resolution: IdentityResolution,
 }
 
 /// A stratum's locator identity. Always [`IdentityQuality::Structural`]: `StratumDef` has no id
@@ -85,7 +68,6 @@ pub struct StratumIdentity {
     pub key: String,
     pub label: String,
     pub quality: IdentityQuality,
-    pub resolution: IdentityResolution,
 }
 
 /// An allomorph's locator identity: the owning object's own identity plus its index within that
@@ -111,78 +93,11 @@ fn morpheme_xml_key(grammar: &Grammar, morpheme: MorphemeId) -> Option<String> {
         .filter(|k| !k.is_empty())
 }
 
-fn nonempty(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
-}
-
-fn human_title(primary: Option<&str>, secondary: Option<&str>, fallback: &str) -> String {
-    let primary = nonempty(primary);
-    let secondary = nonempty(secondary).filter(|value| Some(*value) != primary);
-    match (primary, secondary) {
-        (Some(primary), Some(secondary)) => format!("{primary} - {secondary}"),
-        (Some(primary), None) => primary.to_string(),
-        (None, Some(secondary)) => secondary.to_string(),
-        (None, None) => fallback.to_string(),
-    }
-}
-
 fn morph_rule_name(def: &MorphRuleDef) -> Option<&str> {
     match def {
         MorphRuleDef::Compounding(c) => c.name.as_deref(),
         MorphRuleDef::AffixProcess(a) => a.name.as_deref(),
         MorphRuleDef::Realizational(r) => r.name.as_deref(),
-    }
-}
-
-fn morph_rule_morpheme_and_name(def: &MorphRuleDef) -> (Option<MorphemeId>, Option<&str>) {
-    match def {
-        MorphRuleDef::Compounding(def) => (None, nonempty(def.name.as_deref())),
-        MorphRuleDef::AffixProcess(def) => (Some(def.morpheme), nonempty(def.name.as_deref())),
-        MorphRuleDef::Realizational(def) => (Some(def.morpheme), nonempty(def.name.as_deref())),
-    }
-}
-
-fn morpheme_title(
-    grammar: &Grammar,
-    morpheme: MorphemeId,
-    primary: Option<&str>,
-    fallback: &str,
-) -> String {
-    let info = grammar.morphemes.get(morpheme.0 as usize);
-    human_title(
-        primary,
-        info.and_then(|info| {
-            nonempty(info.gloss.as_deref()).or_else(|| nonempty(info.morph_id.as_deref()))
-        }),
-        fallback,
-    )
-}
-
-/// Resolve the user-facing title for a lexical entry. The first allomorph's citation form is
-/// the primary FieldWorks name; a distinct gloss is retained as context. Authored IDs are never
-/// used as the title because they are tooling identities, not names an author recognizes.
-fn lex_entry_title(grammar: &Grammar, id: LexEntryId) -> String {
-    let entry = &grammar.entries[id.0 as usize];
-    let info = grammar.morphemes.get(entry.morpheme.0 as usize);
-    let citation = entry
-        .allomorphs
-        .iter()
-        .map(|allomorph| allomorph.shape.text.trim())
-        .find(|text| !text.is_empty());
-    let lexeme = info.and_then(|info| nonempty(info.morph_id.as_deref()));
-    let gloss = info.and_then(|info| nonempty(info.gloss.as_deref()));
-    let primary = citation.or(lexeme);
-    human_title(primary, gloss.or(lexeme), "unnamed lexical entry")
-}
-
-/// Resolve the user-facing title for a morphological rule. An authored rule/affix name is the
-/// primary FieldWorks name, with a distinct gloss as context; XML keys remain secondary data.
-fn morph_rule_title(grammar: &Grammar, id: MRuleId) -> String {
-    let def = &grammar.mrules[id.0 as usize];
-    let (morpheme, name) = morph_rule_morpheme_and_name(def);
-    match morpheme {
-        Some(morpheme) => morpheme_title(grammar, morpheme, name, "unnamed morphological rule"),
-        None => human_title(name, None, "unnamed morphological rule"),
     }
 }
 
@@ -206,48 +121,23 @@ fn morph_rule_key_and_quality(grammar: &Grammar, id: MRuleId) -> (String, Identi
 
 /// Resolve a morphological rule's stable identity.
 pub fn morph_rule_identity(grammar: &Grammar, id: MRuleId) -> ObjectIdentity {
-    let Some(_) = grammar.mrules.get(id.0 as usize) else {
-        return ObjectIdentity {
-            key: format!("mrule#unresolved:{}", id.0),
-            kind: ObjectKind::MorphRule,
-            label: "unresolved morphological rule".to_string(),
-            quality: IdentityQuality::Structural,
-            resolution: IdentityResolution::Unresolved,
-        };
-    };
     let (key, quality) = morph_rule_key_and_quality(grammar, id);
-    let label = morph_rule_title(grammar, id);
+    let def = &grammar.mrules[id.0 as usize];
+    let label = morph_rule_name(def)
+        .map(str::to_string)
+        .unwrap_or_else(|| key.clone());
     ObjectIdentity {
         key,
         kind: ObjectKind::MorphRule,
         label,
         quality,
-        resolution: IdentityResolution::Resolved,
     }
-}
-
-/// Resolve a lexical entry title through the shared identity resolver.
-pub fn lex_entry_display_name(grammar: &Grammar, id: LexEntryId) -> String {
-    lex_entry_identity(grammar, id).label
-}
-
-/// Resolve a morphological-rule title through the shared identity resolver.
-pub fn morph_rule_display_name(grammar: &Grammar, id: MRuleId) -> String {
-    morph_rule_identity(grammar, id).label
 }
 
 /// Resolve a phonological rule's stable identity. Both `PhonRuleDef` variants (`Rewrite`,
 /// `Metathesis`) carry their own `xml_id`/`name` directly.
 pub fn phon_rule_identity(grammar: &Grammar, id: PRuleId) -> ObjectIdentity {
-    let Some(def) = grammar.prules.get(id.0 as usize) else {
-        return ObjectIdentity {
-            key: format!("prule#unresolved:{}", id.0),
-            kind: ObjectKind::PhonRule,
-            label: "unresolved phonological rule".to_string(),
-            quality: IdentityQuality::Structural,
-            resolution: IdentityResolution::Unresolved,
-        };
-    };
+    let def = &grammar.prules[id.0 as usize];
     let (xml_id, name) = match def {
         PhonRuleDef::Rewrite(r) => (r.xml_id.as_str(), r.name.as_deref()),
         PhonRuleDef::Metathesis(m) => (m.xml_id.as_str(), m.name.as_deref()),
@@ -262,88 +152,43 @@ pub fn phon_rule_identity(grammar: &Grammar, id: PRuleId) -> ObjectIdentity {
         (xml_id.to_string(), IdentityQuality::Authored)
     };
     ObjectIdentity {
-        label: name
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| "unnamed phonological rule".to_string()),
+        label: name.map(str::to_string).unwrap_or_else(|| key.clone()),
         key,
         kind: ObjectKind::PhonRule,
         quality,
-        resolution: IdentityResolution::Resolved,
     }
 }
 
-/// Resolve a lexical entry's stable identity. The key is tooling data; the label is the
-/// FieldWorks-facing citation/gloss title from lex_entry_display_name.
+/// Resolve a lexical entry's stable identity. The label prefers the entry's morpheme's gloss
+/// (what a human recognizes in FLEx) and falls back to the authored id when no gloss is reachable.
 pub fn lex_entry_identity(grammar: &Grammar, id: LexEntryId) -> ObjectIdentity {
-    let Some(entry) = grammar.entries.get(id.0 as usize) else {
-        return ObjectIdentity {
-            key: format!("lex_entry#unresolved:{}", id.0),
-            kind: ObjectKind::LexEntry,
-            label: "unresolved lexical entry".to_string(),
-            quality: IdentityQuality::Structural,
-            resolution: IdentityResolution::Unresolved,
-        };
-    };
-    let label = lex_entry_title(grammar, id);
+    let entry = &grammar.entries[id.0 as usize];
+    let label = grammar
+        .morphemes
+        .get(entry.morpheme.0 as usize)
+        .and_then(|m| m.gloss.clone())
+        .filter(|g| !g.is_empty())
+        .unwrap_or_else(|| entry.authored_id.clone());
     ObjectIdentity {
-        key: if entry.authored_id.trim().is_empty() {
-            format!("lex_entry#{}", id.0)
-        } else {
-            entry.authored_id.clone()
-        },
+        key: entry.authored_id.clone(),
         kind: ObjectKind::LexEntry,
         label,
-        quality: if entry.authored_id.trim().is_empty() {
-            IdentityQuality::Structural
-        } else {
-            IdentityQuality::Authored
-        },
-        resolution: IdentityResolution::Resolved,
+        quality: IdentityQuality::Authored,
     }
 }
 
 /// Resolve a stratum's structural locator: `StratumDef` has no id field, so identity is index
 /// plus name.
 pub fn stratum_identity(grammar: &Grammar, id: StratumId) -> StratumIdentity {
-    let Some(def) = grammar.strata.get(id.0 as usize) else {
-        return StratumIdentity {
-            key: format!("stratum#unresolved:{}", id.0),
-            label: "unresolved stratum".to_string(),
-            quality: IdentityQuality::Structural,
-            resolution: IdentityResolution::Unresolved,
-        };
-    };
-    let label = nonempty(def.name.as_deref())
-        .map(str::to_string)
-        .unwrap_or_else(|| "unnamed stratum".to_string());
+    let def = &grammar.strata[id.0 as usize];
+    let label = def
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("stratum {}", id.0));
     StratumIdentity {
-        key: format!("stratum#{}:{}", id.0, label),
+        key: format!("stratum#{}:{}", id.0, def.name.as_deref().unwrap_or("")),
         label,
         quality: IdentityQuality::Structural,
-        resolution: IdentityResolution::Resolved,
-    }
-}
-
-/// Resolve an affix-template source for trace presentation.
-pub fn template_identity(grammar: &Grammar, id: TemplateId) -> SourceIdentity {
-    let Some(template) = grammar.templates.get(id.0 as usize) else {
-        return SourceIdentity {
-            key: format!("template#unresolved:{}", id.0),
-            label: "unresolved template".to_string(),
-            quality: IdentityQuality::Structural,
-            resolution: IdentityResolution::Unresolved,
-        };
-    };
-    let label = nonempty(template.name.as_deref())
-        .map(str::to_string)
-        .unwrap_or_else(|| "unnamed template".to_string());
-    SourceIdentity {
-        key: format!("template#{}:{}", id.0, label),
-        label,
-        quality: IdentityQuality::Structural,
-        resolution: IdentityResolution::Resolved,
     }
 }
 
@@ -383,13 +228,16 @@ pub fn allomorph_identity(grammar: &Grammar, id: AllomorphId) -> AllomorphIdenti
 /// The stratum's shared root trie: not an authored object (the trie is one structure serving
 /// every lexical entry in the stratum), so a synthetic key is fabricated per stratum.
 pub fn root_index_identity(grammar: &Grammar, stratum: StratumId) -> ObjectIdentity {
-    let stratum_identity = stratum_identity(grammar, stratum);
+    let def = &grammar.strata[stratum.0 as usize];
+    let stratum_label = def
+        .name
+        .clone()
+        .unwrap_or_else(|| format!("stratum {}", stratum.0));
     ObjectIdentity {
-        key: format!("root_index#{}", stratum_identity.key),
+        key: format!("root_index#{}", stratum.0),
         kind: ObjectKind::RootIndex,
-        label: format!("root trie ({})", stratum_identity.label),
+        label: format!("root trie ({stratum_label})"),
         quality: IdentityQuality::Synthetic,
-        resolution: stratum_identity.resolution,
     }
 }
 
@@ -401,7 +249,6 @@ pub fn guesser_identity(_grammar: &Grammar) -> ObjectIdentity {
         kind: ObjectKind::Guesser,
         label: "root guesser".to_string(),
         quality: IdentityQuality::Synthetic,
-        resolution: IdentityResolution::Resolved,
     }
 }
 
@@ -412,7 +259,6 @@ pub fn overlay_identity(_grammar: &Grammar) -> ObjectIdentity {
         kind: ObjectKind::Overlay,
         label: "supplied roots".to_string(),
         quality: IdentityQuality::Synthetic,
-        resolution: IdentityResolution::Resolved,
     }
 }
 
@@ -650,54 +496,19 @@ mod tests {
     }
 
     #[test]
+    fn root_index_identity_preserves_the_ordinal_persisted_key() {
+        let [grammar, _] = two_sample_grammars();
+        assert_eq!(
+            root_index_identity(&grammar, StratumId(0)).key,
+            "root_index#0"
+        );
+    }
+
+    #[test]
     fn morpheme_identity_resolves_the_guessed_sentinel_without_panicking() {
         let [grammar, _] = two_sample_grammars();
         let identity = morpheme_identity(&grammar, MorphemeId::GUESSED);
         assert!(!identity.key.is_empty());
         assert_eq!(identity.quality, IdentityQuality::Synthetic);
-    }
-
-    #[test]
-    fn unresolved_runtime_references_have_explicit_identity_state() {
-        let [grammar, _] = two_sample_grammars();
-        let morph_rule = morph_rule_identity(&grammar, MRuleId(u32::MAX));
-        assert_eq!(morph_rule.resolution, IdentityResolution::Unresolved);
-        assert_eq!(morph_rule.label, "unresolved morphological rule");
-        assert!(morph_rule.key.starts_with("mrule#unresolved:"));
-
-        let phon_rule = phon_rule_identity(&grammar, PRuleId(u32::MAX));
-        assert_eq!(phon_rule.resolution, IdentityResolution::Unresolved);
-        assert_eq!(phon_rule.label, "unresolved phonological rule");
-
-        let stratum = stratum_identity(&grammar, StratumId(u8::MAX));
-        assert_eq!(stratum.resolution, IdentityResolution::Unresolved);
-        assert_eq!(stratum.label, "unresolved stratum");
-
-        let template = template_identity(&grammar, TemplateId(u32::MAX));
-        assert_eq!(template.resolution, IdentityResolution::Unresolved);
-        assert_eq!(template.label, "unresolved template");
-    }
-
-    #[test]
-    fn resolved_unnamed_entries_remain_distinct_from_unresolved_references() {
-        let [mut grammar, _] = two_sample_grammars();
-        grammar.entries[0].authored_id.clear();
-        let resolved = lex_entry_identity(&grammar, LexEntryId(0));
-        let unresolved = lex_entry_identity(&grammar, LexEntryId(u32::MAX));
-
-        assert_eq!(resolved.resolution, IdentityResolution::Resolved);
-        assert_eq!(resolved.quality, IdentityQuality::Structural);
-        assert_eq!(unresolved.resolution, IdentityResolution::Unresolved);
-        assert_ne!(resolved.key, unresolved.key);
-        assert_ne!(resolved.label, unresolved.label);
-    }
-
-    #[test]
-    fn whitespace_only_stratum_names_use_the_shared_fallback() {
-        let [mut grammar, _] = two_sample_grammars();
-        grammar.strata[0].name = Some(" 	 ".to_string());
-        let identity = stratum_identity(&grammar, StratumId(0));
-        assert_eq!(identity.label, "unnamed stratum");
-        assert!(!identity.key.contains(" 	 "));
     }
 }
