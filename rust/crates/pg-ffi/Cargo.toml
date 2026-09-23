@@ -4,11 +4,20 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+autotests = false
 
 [lib]
 name = "pangloss_ffi"
 # cdylib for P/Invoke from net48; rlib so hc integration tests can link it too.
 crate-type = ["cdylib", "rlib"]
+
+[[test]]
+name = "all"
+path = "tests/harnesses/all.rs"
+
+[[test]]
+name = "abort_safety"
+path = "tests/abort_safety.rs"
 
 [dependencies]
 pg-parse.workspace = true

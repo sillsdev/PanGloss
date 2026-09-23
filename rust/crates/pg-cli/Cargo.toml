@@ -4,10 +4,19 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+autotests = false
 
 [[bin]]
 name = "pangloss"
 path = "src/main.rs"
+
+[[test]]
+name = "all"
+path = "tests/harnesses/all.rs"
+
+[[test]]
+name = "recipe_optimize_timeout"
+path = "tests/recipe_optimize_timeout.rs"
 
 [features]
 developer-tools = ["pg-foma/developer-tools"]

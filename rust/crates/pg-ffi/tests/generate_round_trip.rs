@@ -1,5 +1,6 @@
 //! Feeding a just-parsed word's own `structured` analysis back into `hc_generate_words` must reproduce that same surface word — the FieldWorks-shaped use case of regenerating from a previously-obtained analysis without touching a raw `FeatureStruct`. Self-skips if the untracked corpus isn't present, and is unconditionally `#[ignore]`d so the default test run stays fast.
 
+#[path = "support/mod.rs"]
 mod support;
 
 use std::ffi::c_void;

@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+autotests = false
+
+[[test]]
+name = "all"
+path = "tests/harnesses/all.rs"
 
 [dependencies]
 pg-grammar.workspace = true

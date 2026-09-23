@@ -1,5 +1,6 @@
 //! Corpus-gated (needs `samples/data/indonesian-hc.xml`, gitignored): compares the FFI batch path against `Morpher::parse_word` for all 121 words to isolate transport bugs from the engine-parity gap.
 
+#[path = "support/mod.rs"]
 mod support;
 
 use std::ffi::c_void;
