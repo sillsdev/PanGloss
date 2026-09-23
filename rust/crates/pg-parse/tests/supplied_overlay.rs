@@ -2,7 +2,7 @@ use pg_featstruct::FeatureStruct;
 use pg_grammar::model::{MprSet, StratumId};
 use pg_parse::morpher::ParseOptions;
 use pg_parse::{AnalysisProvenance, Morpher, RootAuthority, SuppliedRoot, SuppliedRootOverlay};
-use pg_rules::stats::ObjectKind;
+use pg_rules::stats::{ObjectKind, OverlayPhase};
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 
@@ -242,6 +242,16 @@ fn supplied_roots_participate_as_compound_heads_and_non_heads() {
                 && row.counters.self_time_ns > 0),
         "non-head root lookup must be counted and timed"
     );
+    for phase in [OverlayPhase::Gate, OverlayPhase::Materialize] {
+        assert!(
+            non_head_rows
+                .iter()
+                .any(|row| row.kind == ObjectKind::Overlay
+                    && row.object_index == phase.index()
+                    && row.counters.attempts > 0),
+            "a supplied non-head must record overlay {phase:?}"
+        );
+    }
     assert!(m.parse_word("papdat").structured.iter().any(|a| matches!(
         a.provenance,
         AnalysisProvenance::Supplied { ref entry_id } if entry_id == "pgl_head"

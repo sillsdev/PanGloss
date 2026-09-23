@@ -13,6 +13,7 @@ use pg_grammar::model::{
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::shape_feat::segment_with_features;
+use pg_rules::stats::OverlayPhase;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use pg_rules::stratum::{FinalTemplateAnalysisPolicy, FinalTemplateSynthesisPolicy};
 use pg_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
@@ -228,15 +229,11 @@ impl<'g> Morpher<'g> {
             }
         }
         if let Some(overlay) = self.overlay {
-            let _overlay_time = stats.map(|stats| {
-                stats.time_enter(
-                    pg_rules::stats::ObjectKind::Overlay,
-                    stratum,
-                    0,
-                    pg_rules::stats::ALLOMORPH_NONE,
-                    pg_rules::stats::Direction::Analysis,
-                )
-            });
+            if let Some(stats) = stats {
+                stats.record_overlay_attempt(stratum, OverlayPhase::Search, shape.len() as u64);
+            }
+            let _overlay_time =
+                stats.map(|stats| stats.time_overlay(stratum, OverlayPhase::Search));
             roots.extend(
                 overlay
                     .search(self.g, stratum, shape)
@@ -675,15 +672,8 @@ impl<'g> Morpher<'g> {
             let ResolvedRoot::Supplied(root) = root else {
                 continue;
             };
-            let _overlay_time = stats.map(|stats| {
-                stats.time_enter(
-                    pg_rules::stats::ObjectKind::Overlay,
-                    aw.stratum,
-                    0,
-                    pg_rules::stats::ALLOMORPH_NONE,
-                    pg_rules::stats::Direction::Analysis,
-                )
-            });
+            let _overlay_time =
+                stats.map(|stats| stats.time_overlay(aw.stratum, OverlayPhase::Materialize));
             let mut nw = aw.clone_without_alternatives();
             nw.source = Some(Rc::new(aw.clone()));
             let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];
@@ -691,7 +681,11 @@ impl<'g> Morpher<'g> {
                 continue;
             };
             if let Some(stats) = stats {
-                stats.record_overlay_attempt(aw.stratum, shape.len() as u64);
+                stats.record_overlay_attempt(
+                    aw.stratum,
+                    OverlayPhase::Materialize,
+                    shape.len() as u64,
+                );
             }
             nw.shape = shape;
             nw.stratum = root.stratum;

@@ -12,6 +12,7 @@
 use std::cell::{Cell, RefCell};
 
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, PRuleId, StratumId};
+pub use pg_grammar::stats_identity::OverlayPhase;
 use rustc_hash::FxHashMap as HashMap;
 
 /// The allomorph-dimension sentinel: cost belonging to no allomorph (rule-level setup, or a
@@ -400,6 +401,17 @@ impl StatsCollector {
         ObjectTimeGuard { stats: self }
     }
 
+    /// Times one supplied-root overlay `phase` on the row `Self::record_overlay_attempt` writes.
+    pub fn time_overlay(&self, stratum: StratumId, phase: OverlayPhase) -> ObjectTimeGuard<'_> {
+        self.time_enter(
+            ObjectKind::Overlay,
+            stratum,
+            phase.index(),
+            ALLOMORPH_NONE,
+            Direction::Analysis,
+        )
+    }
+
     fn time_exit(&self) {
         let (self_ns, kind, stratum, object_index, allomorph, direction) = {
             let mut stack = self.obj_time_stack.borrow_mut();
@@ -643,13 +655,13 @@ impl StatsCollector {
         );
     }
 
-    /// One supplied-root overlay candidate materialized.
-    pub fn record_overlay_attempt(&self, stratum: StratumId, segments: u64) {
+    /// One entry into a supplied-root overlay `phase`, over `segments` segments of shape.
+    pub fn record_overlay_attempt(&self, stratum: StratumId, phase: OverlayPhase, segments: u64) {
         self.sparse_with_row(
             SparseKey {
                 kind: ObjectKind::Overlay,
                 stratum,
-                object_index: 0,
+                object_index: phase.index(),
                 allomorph: ALLOMORPH_NONE,
                 direction: Direction::Analysis,
             },
@@ -836,8 +848,8 @@ const NOT_APPLICABLE_COUNTERS: &[(ObjectKind, &str)] = &[
 ///   would double-book the same event, and (per the point above) it has no `LexEntry`-shaped
 ///   identity for `surface_mismatch`/`uses` either.
 /// - `Guesser` and `Overlay` bypass the lexicon lookup entirely -- that is their whole purpose --
-///   so `no_root` cannot apply to either; `Overlay`'s attempt, like `LexEntry`'s, is only recorded
-///   once a candidate root shape already exists, so its `outputs`/`not_applied` are as
+///   so `no_root` cannot apply to either; `Overlay`'s attempts count entries into each
+///   `OverlayPhase`, which reports no per-phase success, so its `outputs`/`not_applied` are as
 ///   inapplicable as `LexEntry`'s.
 pub fn counter_support(kind: ObjectKind, counter: &str) -> CounterSupport {
     if WIRED_COUNTERS.contains(&(kind, counter)) {

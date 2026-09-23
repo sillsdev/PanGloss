@@ -252,12 +252,46 @@ pub fn guesser_identity(_grammar: &Grammar) -> ObjectIdentity {
     }
 }
 
-/// The grammar-wide supplied-roots overlay pseudo-object.
-pub fn overlay_identity(_grammar: &Grammar) -> ObjectIdentity {
+/// One stage of a supplied-root lookup; an overlay stats row's object index is its phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayPhase {
+    /// Searching the supplied-root trie for roots matching a shape.
+    Search,
+    /// A compounding rule's non-head compatibility check on a matched supplied root.
+    Gate,
+    /// Segmenting a matched supplied root and building its root `Word`.
+    Materialize,
+}
+
+impl OverlayPhase {
+    pub const ALL: [OverlayPhase; 3] = [Self::Search, Self::Gate, Self::Materialize];
+
+    pub fn index(self) -> u32 {
+        self as u32
+    }
+
+    /// Panics on an index no phase owns: an overlay row outside the three phases is a recorder bug.
+    pub fn from_index(index: u32) -> Self {
+        *Self::ALL
+            .get(index as usize)
+            .unwrap_or_else(|| panic!("overlay stats row {index} names no OverlayPhase"))
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Search => "search",
+            Self::Gate => "gate",
+            Self::Materialize => "materialize",
+        }
+    }
+}
+
+/// The grammar-wide supplied-roots overlay pseudo-object, one per [`OverlayPhase`].
+pub fn overlay_identity(_grammar: &Grammar, phase: OverlayPhase) -> ObjectIdentity {
     ObjectIdentity {
-        key: "overlay".to_string(),
+        key: format!("overlay:{}", phase.name()),
         kind: ObjectKind::Overlay,
-        label: "supplied roots".to_string(),
+        label: format!("supplied roots: {}", phase.name()),
         quality: IdentityQuality::Synthetic,
     }
 }
@@ -444,10 +478,12 @@ mod tests {
             guesser_identity(grammar).quality,
             IdentityQuality::Synthetic
         );
-        assert_eq!(
-            overlay_identity(grammar).quality,
-            IdentityQuality::Synthetic
-        );
+        for phase in OverlayPhase::ALL {
+            let identity = overlay_identity(grammar, phase);
+            assert_eq!(identity.quality, IdentityQuality::Synthetic);
+            assert_eq!(OverlayPhase::from_index(phase.index()), phase);
+            assert_eq!(identity.key, format!("overlay:{}", phase.name()));
+        }
 
         // Guards against a fixture change silently emptying what this test actually exercises.
         assert!(!grammar.entries.is_empty(), "{label}: no lex entries");

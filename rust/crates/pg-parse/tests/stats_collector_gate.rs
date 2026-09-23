@@ -6,7 +6,7 @@ mod csharp_port_common;
 use pg_conformance_fixtures::discover;
 use pg_parse::morpher::ParseOptions;
 use pg_parse::Morpher;
-use pg_rules::stats::{Direction, ObjectKind, StatsRow};
+use pg_rules::stats::{Direction, ObjectKind, OverlayPhase, StatsRow};
 use pg_rules::trace::{TraceHandle, TreeTraceSink};
 
 /// One fixture-provided word to replay, paired with the grammar it belongs to.
@@ -678,4 +678,29 @@ fn overlay_attempts_and_work_are_nonzero_when_a_supplied_root_matches() {
         overlay_ns > 0,
         "supplied-root lookup and materialization must be timed"
     );
+    // A head-position match searches and materializes; only a compound non-head is gated.
+    let mut phase_ns = [0u64; 3];
+    for _ in 0..32 {
+        let (_, rows) = m.parse_word_with_stats("b", &ParseOptions::default());
+        for r in rows.iter().filter(|r| r.kind == ObjectKind::Overlay) {
+            phase_ns[r.object_index as usize] += r.counters.self_time_ns;
+        }
+    }
+    for (phase, expected) in [
+        (OverlayPhase::Search, true),
+        (OverlayPhase::Gate, false),
+        (OverlayPhase::Materialize, true),
+    ] {
+        let counted = rows.iter().any(|r| {
+            r.kind == ObjectKind::Overlay
+                && r.object_index == phase.index()
+                && r.counters.attempts > 0
+        });
+        assert_eq!(counted, expected, "overlay {phase:?} counted");
+        assert_eq!(
+            phase_ns[phase.index() as usize] > 0,
+            expected,
+            "overlay {phase:?} timed"
+        );
+    }
 }

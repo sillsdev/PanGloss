@@ -115,9 +115,10 @@ fn fact_record_from_stats_row(
         pg_rules::stats::ObjectKind::Guesser => {
             pg_grammar::stats_identity::guesser_identity(grammar)
         }
-        pg_rules::stats::ObjectKind::Overlay => {
-            pg_grammar::stats_identity::overlay_identity(grammar)
-        }
+        pg_rules::stats::ObjectKind::Overlay => pg_grammar::stats_identity::overlay_identity(
+            grammar,
+            pg_grammar::stats_identity::OverlayPhase::from_index(row.object_index),
+        ),
     };
     let stratum = pg_grammar::stats_identity::stratum_identity(grammar, row.stratum);
     let allomorph = if row.allomorph == pg_rules::stats::ALLOMORPH_NONE {

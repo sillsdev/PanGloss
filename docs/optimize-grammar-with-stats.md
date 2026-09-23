@@ -58,6 +58,11 @@ diagnostic for an impossible or synthetic case where summed object time exceeds 
 time and should be zero for an actual Try-a-word run. Grammar loading and JSON rendering
 are outside this parse elapsed boundary.
 
+Supplied-root (`overlay`) work is split into three objects, `overlay:search` (the supplied-root
+trie search), `overlay:gate` (a compounding rule's non-head compatibility check) and
+`overlay:materialize` (segmenting the root and building its word). Try-a-word JSON repeats that
+split under `categories.overlay.phases`.
+
 ### What is repeatedly attempted but never produces output?
 
 ```powershell

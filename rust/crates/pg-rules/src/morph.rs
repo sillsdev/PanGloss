@@ -36,7 +36,7 @@ use pg_grammar::model::{
 use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge};
-use crate::stats::{MRuleStatsCtx, ObjectKind};
+use crate::stats::{MRuleStatsCtx, ObjectKind, OverlayPhase};
 use crate::stratum::{FinalTemplateSynthesisPolicy, NonHeadRootFilter, RuleInvocationRole};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::{MorphRecord, MorphStatus, Word};
@@ -3165,20 +3165,20 @@ fn resolve_non_head_roots(
             let crate::word::ResolvedRoot::Supplied(root) = resolved else {
                 unreachable!()
             };
-            let _overlay_time = mstats.map(|m| {
-                m.stats.time_enter(
-                    ObjectKind::Overlay,
-                    stratum,
-                    0,
-                    crate::stats::ALLOMORPH_NONE,
-                    crate::stats::Direction::Analysis,
-                )
-            });
-            if !is_unifiable(req, &root.syn_fs)
-                || !rule.non_head_prod_restrictions_mpr.compound_match(root.mpr)
-            {
+            let admitted = {
+                if let Some(m) = mstats {
+                    m.stats
+                        .record_overlay_attempt(stratum, OverlayPhase::Gate, 0);
+                }
+                let _gate_time = mstats.map(|m| m.stats.time_overlay(stratum, OverlayPhase::Gate));
+                is_unifiable(req, &root.syn_fs)
+                    && rule.non_head_prod_restrictions_mpr.compound_match(root.mpr)
+            };
+            if !admitted {
                 continue;
             }
+            let _materialize_time =
+                mstats.map(|m| m.stats.time_overlay(stratum, OverlayPhase::Materialize));
             let table = &g.char_tables[g.strata[root.stratum.0 as usize].table.0 as usize];
             let Ok(shape) =
                 crate::shape_feat::segment_with_features(g, table, &root.lexical_spelling)
@@ -3186,7 +3186,11 @@ fn resolve_non_head_roots(
                 continue;
             };
             if let Some(m) = mstats {
-                m.stats.record_overlay_attempt(stratum, shape.len() as u64);
+                m.stats.record_overlay_attempt(
+                    stratum,
+                    OverlayPhase::Materialize,
+                    shape.len() as u64,
+                );
             }
             let mut nh = Word::new(shape, root.stratum);
             nh.syn_fs = root.syn_fs.clone();

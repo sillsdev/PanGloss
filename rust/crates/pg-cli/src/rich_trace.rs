@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use pg_grammar::model::Grammar;
 use pg_parse::{project_parse_analysis, ParseOutcome, ParseProjectionError};
-use pg_rules::stats::{self, Direction, ObjectKind, StatsRow};
+use pg_rules::stats::{self, Direction, ObjectKind, OverlayPhase, StatsRow};
 use pg_rules::trace::{FailureContext, TraceHandle, TraceSource, TraceType, TreeTraceSink};
 use pg_rules::word::{RuntimeRoot, Word};
 use pg_snapshot::{AffixSlot, InflectionClass, Msa, PartOfSpeech, Snapshot};
@@ -106,24 +106,45 @@ fn stats_json(rows: &[StatsRow]) -> Value {
                     })
             })
         };
-        (
-            kind_name(kind).to_owned(),
-            json!({
-                "attempts": counters.attempts,
-                "work": counters.work,
-                "outputs": counters.outputs,
-                "notApplied": counters.not_applied,
-                "noRoot": counters.no_root,
-                "surfaceMismatch": counters.surface_mismatch,
-                "uses": counters.uses,
-                "timingAvailable": timing_available,
-                "selfElapsedNs": timing_available.then_some(counters.self_time_ns),
-                "analysisSelfElapsedNs": direction_ns(Direction::Analysis),
-                "synthesisSelfElapsedNs": direction_ns(Direction::Synthesis),
-            }),
-        )
+        let mut category = json!({
+            "attempts": counters.attempts,
+            "work": counters.work,
+            "outputs": counters.outputs,
+            "notApplied": counters.not_applied,
+            "noRoot": counters.no_root,
+            "surfaceMismatch": counters.surface_mismatch,
+            "uses": counters.uses,
+            "timingAvailable": timing_available,
+            "selfElapsedNs": timing_available.then_some(counters.self_time_ns),
+            "analysisSelfElapsedNs": direction_ns(Direction::Analysis),
+            "synthesisSelfElapsedNs": direction_ns(Direction::Synthesis),
+        });
+        if kind == ObjectKind::Overlay {
+            category["phases"] = overlay_phases_json(rows);
+        }
+        (kind_name(kind).to_owned(), category)
     });
     serde_json::Map::from_iter(categories).into()
+}
+
+fn overlay_phases_json(rows: &[StatsRow]) -> Value {
+    let phases = OverlayPhase::ALL.into_iter().map(|phase| {
+        let (attempts, work, self_time_ns) = rows
+            .iter()
+            .filter(|row| row.kind == ObjectKind::Overlay && row.object_index == phase.index())
+            .fold((0u64, 0u64, 0u64), |(a, w, t), row| {
+                (
+                    a.saturating_add(row.counters.attempts),
+                    w.saturating_add(row.counters.work),
+                    t.saturating_add(row.counters.self_time_ns),
+                )
+            });
+        (
+            phase.name().to_owned(),
+            json!({ "attempts": attempts, "work": work, "selfElapsedNs": self_time_ns }),
+        )
+    });
+    serde_json::Map::from_iter(phases).into()
 }
 
 fn projection_error_code(error: &ParseProjectionError) -> String {
@@ -774,7 +795,7 @@ mod tests {
     use super::{render_envelope_v2, validate_details, TraceMetadata};
     use pg_grammar::model::StratumId;
     use pg_parse::ParseOutcome;
-    use pg_rules::stats::{Counters, Direction, ObjectKind, StatsRow};
+    use pg_rules::stats::{Counters, Direction, ObjectKind, OverlayPhase, StatsRow};
     use serde_json::json;
 
     #[test]
@@ -825,13 +846,27 @@ mod tests {
             },
             StatsRow {
                 kind: ObjectKind::Overlay,
-                object_index: 0,
+                object_index: OverlayPhase::Search.index(),
                 stratum: StratumId(0),
                 allomorph: 0,
                 direction: Direction::Analysis,
                 counters: Counters {
                     attempts: 1,
-                    self_time_ns: 99,
+                    work: 4,
+                    self_time_ns: 90,
+                    ..Counters::default()
+                },
+            },
+            StatsRow {
+                kind: ObjectKind::Overlay,
+                object_index: OverlayPhase::Materialize.index(),
+                stratum: StratumId(0),
+                allomorph: 0,
+                direction: Direction::Analysis,
+                counters: Counters {
+                    attempts: 1,
+                    work: 3,
+                    self_time_ns: 9,
                     ..Counters::default()
                 },
             },
@@ -893,6 +928,19 @@ mod tests {
         assert_eq!(value["categories"]["rootIndex"]["timingAvailable"], true);
         assert_eq!(value["categories"]["overlay"]["selfElapsedNs"], 99);
         assert_eq!(value["categories"]["overlay"]["timingAvailable"], true);
+        let phases = &value["categories"]["overlay"]["phases"];
+        assert_eq!(
+            phases["search"],
+            json!({"attempts": 1, "work": 4, "selfElapsedNs": 90})
+        );
+        assert_eq!(
+            phases["gate"],
+            json!({"attempts": 0, "work": 0, "selfElapsedNs": 0})
+        );
+        assert_eq!(
+            phases["materialize"],
+            json!({"attempts": 1, "work": 3, "selfElapsedNs": 9})
+        );
         assert_eq!(
             value["categories"]["overlay"]["synthesisSelfElapsedNs"],
             serde_json::Value::Null
