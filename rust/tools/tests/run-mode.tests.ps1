@@ -8,11 +8,8 @@
   takes its inputs as plain strings/switches and returns a plan object, and
   Get-ExhaustionConsumersFromMessage takes a message STRING rather than an event object, precisely so
   both are testable anywhere without a real build, a real probe binary, or a machine that happens to
-  have exhaustion history in its System log. The job-object wrapping itself
-  (Invoke-ProcessInJobObject) and the live Get-WinEvent query are deliberately NOT covered here --
-  see the task notes for why: they were instead verified by hand against a real cheap process
-  (cmd.exe under Invoke-ProcessInJobObject, with procgov present and forced-absent) and this
-  machine's actual event log, rather than launched from an automated suite that runs on every CI box.
+  have exhaustion history in its System log. The live Get-WinEvent query is deliberately NOT
+  covered here because it depends on machine-specific event history.
 #>
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_common.ps1"
@@ -251,12 +248,12 @@ Test-Case 'a bare -- in the spec is preserved for cargo, not eaten' {
 
 # --- CaptureStdoutPath: judged by bytes on disk, never by the flag being accepted ---
 
-Test-Case 'Invoke-ProcessInJobObject with CaptureStdoutPath actually writes the child stdout to disk' {
+Test-Case 'Invoke-ManagedProcess with CaptureStdoutPath actually writes the child stdout to disk' {
     # `run` used to pass no capture path, so an outer PowerShell redirect captured nothing and two long censuses lost their output.
     $out = Join-Path ([System.IO.Path]::GetTempPath()) "pg-capture-probe-$PID.txt"
     if (Test-Path $out) { [System.IO.File]::Delete($out) }
-    $code = Invoke-ProcessInJobObject -Exe 'cmd.exe' -CmdArgs @('/c', 'echo pangloss-capture-probe') `
-        -WorkingDirectory ([System.IO.Path]::GetTempPath()) -Priority 'BelowNormal' -Subject 'run' -CaptureStdoutPath $out
+    $code = Invoke-ManagedProcess -Exe 'cmd.exe' -CmdArgs @('/c', 'echo pangloss-capture-probe') `
+        -WorkingDirectory ([System.IO.Path]::GetTempPath()) -Priority 'BelowNormal' -CaptureStdoutPath $out
     Assert-Equal 0 $code 'the probe process must exit cleanly'
     Assert-True (Test-Path $out) 'CaptureStdoutPath must produce a file'
     $text = (Get-Content $out -Raw)
@@ -268,8 +265,8 @@ Test-Case 'Invoke-ProcessInJobObject with CaptureStdoutPath actually writes the 
 Test-Case 'without CaptureStdoutPath no file is produced (the default stays live-console)' {
     $out = Join-Path ([System.IO.Path]::GetTempPath()) "pg-capture-absent-$PID.txt"
     if (Test-Path $out) { [System.IO.File]::Delete($out) }
-    $code = Invoke-ProcessInJobObject -Exe 'cmd.exe' -CmdArgs @('/c', 'echo no-capture') `
-        -WorkingDirectory ([System.IO.Path]::GetTempPath()) -Priority 'BelowNormal' -Subject 'run'
+    $code = Invoke-ManagedProcess -Exe 'cmd.exe' -CmdArgs @('/c', 'echo no-capture') `
+        -WorkingDirectory ([System.IO.Path]::GetTempPath()) -Priority 'BelowNormal'
     Assert-Equal 0 $code 'the probe process must exit cleanly'
     Assert-False (Test-Path $out) 'no capture path was passed, so nothing may be written'
 }

@@ -1,14 +1,4 @@
-<#
-  .DESCRIPTION
-  Covers: Test-MemoryReserve, Get-MemoryProcessBudget, Get-PerJobMemoryGB and
-  Resolve-ConcurrencyBudget (rust/tools/_common.ps1) -- the memory half of the "do not spawn
-  without headroom" gate.
-
-  Every function under test takes an available-memory NUMBER rather than querying the machine,
-  precisely so these are testable at any real memory pressure: a test that called
-  Get-AvailableMemoryGB would assert something different on every run, and would pass on a busy
-  machine for the wrong reason. Nothing here reads real memory or starts a process.
-#>
+# Covers memory admission and concurrency budgeting without querying real memory or starting a process.
 . "$PSScriptRoot\_test-harness.ps1"
 . "$PSScriptRoot\..\_common.ps1"
 
@@ -67,7 +57,7 @@ Test-Case 'the reserve is clamped at both ends' {
 }
 
 Test-Case 'an unmeasurable machine gets the floor, not the ceiling' {
-    # Guessing high would refuse builds on an unmeasurable machine; the job object bounds the damage either way.
+    # Guessing high would refuse builds on an unmeasurable machine.
     Assert-Equal $script:InteractiveReserveFloorGB (Get-InteractiveReserveGB -TotalGB $null)
 }
 
@@ -107,17 +97,17 @@ Test-Case 'a nonsensical per-process allowance yields no opinion rather than a d
     Assert-Equal $null (Get-MemoryProcessBudget -AvailableGB 40 -PerProcessGB -1 -ReserveGB 8)
 }
 
-# --- Get-PerJobMemoryGB: fat-LTO linking is the outlier that took the machine down ---
+# --- Get-MemoryPerProcessGB: fat-LTO linking is the outlier that took the machine down ---
 
 Test-Case 'fat-LTO builds assume a heavier per-job allowance than thin-LTO ones' {
-    $thin = Get-PerJobMemoryGB
-    $fat = Get-PerJobMemoryGB -FatLto
+    $thin = Get-MemoryPerProcessGB
+    $fat = Get-MemoryPerProcessGB -FatLto
     Assert-True ($fat -gt $thin) "fat-LTO linking holds a whole dependency graph's IR in one address space; it must not be sized like a per-crate codegen (thin=$thin fat=$fat)"
 }
 
 Test-Case 'the fat-LTO allowance actually narrows concurrency where the thin one would not' {
-    $thinN = Get-MemoryProcessBudget -AvailableGB 36 -PerProcessGB (Get-PerJobMemoryGB) -ReserveGB 8 -MaxConcurrent 1
-    $fatN = Get-MemoryProcessBudget -AvailableGB 36 -PerProcessGB (Get-PerJobMemoryGB -FatLto) -ReserveGB 8 -MaxConcurrent 1
+    $thinN = Get-MemoryProcessBudget -AvailableGB 36 -PerProcessGB (Get-MemoryPerProcessGB) -ReserveGB 8 -MaxConcurrent 1
+    $fatN = Get-MemoryProcessBudget -AvailableGB 36 -PerProcessGB (Get-MemoryPerProcessGB -FatLto) -ReserveGB 8 -MaxConcurrent 1
     Assert-True ($fatN -lt $thinN) "the fat-LTO allowance must bind sooner than the thin one (thin=$thinN fat=$fatN)"
 }
 
@@ -126,7 +116,7 @@ Test-Case 'an idle machine is NOT throttled: the gate costs nothing when memory 
     $total = Get-TotalMemoryGB
     if ($null -eq $total) { return }  # unmeasurable: nothing to calibrate against
     $cpu = Get-CargoJobBudget -MaxConcurrent 2
-    foreach ($perProc in @((Get-PerJobMemoryGB), (Get-PerJobMemoryGB -FatLto), $script:MemoryPerTestProcessGB)) {
+    foreach ($perProc in @((Get-MemoryPerProcessGB), (Get-MemoryPerProcessGB -FatLto), $script:MemoryPerTestProcessGB)) {
         $n = Get-MemoryProcessBudget -AvailableGB $total -PerProcessGB $perProc -MaxConcurrent 2
         $r = Resolve-ConcurrencyBudget -CpuBudget $cpu -MemoryBudget $n
         Assert-Equal 'cpu' $r.Bound "with ${total}GB installed and nothing running, a ${perProc}GB/process budget must not narrow the cores-only cap (cpu=$cpu memory=$n)"
@@ -136,7 +126,7 @@ Test-Case 'an idle machine is NOT throttled: the gate costs nothing when memory 
 Test-Case 'a machine under real pressure IS throttled below the cores-only cap' {
     # The half that does the protecting: same budgets, but most memory is already spoken for by something else.
     $cpu = Get-CargoJobBudget -MaxConcurrent 2
-    foreach ($perProc in @((Get-PerJobMemoryGB), (Get-PerJobMemoryGB -FatLto), $script:MemoryPerTestProcessGB)) {
+    foreach ($perProc in @((Get-MemoryPerProcessGB), (Get-MemoryPerProcessGB -FatLto), $script:MemoryPerTestProcessGB)) {
         $n = Get-MemoryProcessBudget -AvailableGB 14 -PerProcessGB $perProc -MaxConcurrent 2
         $r = Resolve-ConcurrencyBudget -CpuBudget $cpu -MemoryBudget $n
         Assert-Equal 'memory' $r.Bound "with only 14GB available, a ${perProc}GB/process budget must bind before the cores-only cap (cpu=$cpu memory=$n)"
@@ -182,18 +172,6 @@ Test-Case 'an explicit override is never narrowed by either budget' {
     Assert-Equal 'explicit' $r.Bound
 }
 
-# --- Job-object enforcement (procgov): the kernel-enforced ceiling on top of the pure-arithmetic gates above. ---
-
-Test-Case 'the CPU rate ceiling leaves the interactive reserve free' {
-    # -j caps codegen workers within one rustc, not threads across instances -- this is the bound it cannot give.
-    # https://github.com/rust-lang/rust/issues/81957
-    $pct = Get-JobCpuRatePercent -ReserveThreads 6
-    if ($null -ne $pct) {
-        Assert-True ($pct -lt 100) "a ceiling of $pct% would enforce nothing"
-        Assert-True ($pct -ge 10) "a ceiling of $pct% would stall the build"
-    }
-}
-
 Test-Case 'the run pool is reserved out of the build job budget, not handed out twice' {
     # Both pools draw on ONE core budget, so a build sized as if the run pool did not exist oversubscribes the machine.
     $withRuns = Get-CargoJobBudget -MaxConcurrent 2 -RunSlots 4 -RunThreadsPerSlot 1
@@ -204,64 +182,6 @@ Test-Case 'the run pool is reserved out of the build job budget, not handed out 
     }
 }
 
-Test-Case 'per-job CPU ceilings sum to the machine-wide one instead of each requesting all of it' {
-    # The bug this fixes: two builds each asked for the whole usable width, so 2 x 70% was reachable.
-    $logical = [Environment]::ProcessorCount
-    $buildJobs = Get-CargoJobBudget -MaxConcurrent 2
-    $perBuild = Get-JobCpuRatePercent -Threads $buildJobs
-    $perRun = Get-JobCpuRatePercent -Threads $script:RunThreadsPerSlot
-    if ($null -ne $perBuild -and $null -ne $perRun) {
-        $total = (2 * $perBuild) + ($script:DefaultRunSlots * $perRun)
-        $machineWide = Get-JobCpuRatePercent
-        $ceiling = if ($null -ne $machineWide) { $machineWide } else { 100 }
-        # Rounding each share down can only lose percent, never gain it, so this is a one-sided bound.
-        Assert-True ($total -le $ceiling + $logical) "the shares must not sum past the machine-wide ceiling (sum=$total ceiling=$ceiling)"
-        Assert-True ($perRun -lt $perBuild) "a one-core run must get a smaller ceiling than a multi-job build (run=$perRun build=$perBuild)"
-    }
-}
-
-Test-Case 'the light-run memory cap is flat, not a share of installed RAM' {
-    # A runaway is recognizable by absolute size, so a share of the box would judge the same binary differently per machine.
-    # docs/research/build-resource-governance.md
-    $cap = Get-RunJobMemoryCapGB
-    Assert-True ($cap -ge 1) "a cap of ${cap}GB would refuse an ordinary parse"
-    Assert-True ($cap -le 4) "a light-run cap of ${cap}GB is no longer a runaway backstop"
-    Assert-Equal $cap (Get-RunJobMemoryCapGB) 'the cap must not vary between calls'
-}
-
-Test-Case 'a reserve that would consume the whole machine still leaves the build runnable' {
-    $pct = Get-JobCpuRatePercent -ReserveThreads ([Environment]::ProcessorCount + 10)
-    if ($null -ne $pct) { Assert-True ($pct -ge 10) "expected a floor, got $pct%" }
-}
-
-Test-Case 'procgov args carry both ceilings, recurse to children, and terminate the job' {
-    $a = Get-ProcGovArgs -JobMemoryGB 28 -CpuRatePercent 70 -Priority 'BelowNormal' -Exe 'cargo' -CmdArgs @('build', '--release')
-    Assert-Contains $a '--maxjobmem=28G'
-    Assert-Contains $a '--cpurate=70'
-    Assert-Contains $a '--priority=BelowNormal'
-    # -r is load-bearing: without it the limits bind cargo alone and every rustc/link.exe escapes the job.
-    Assert-Contains $a '-r'
-    Assert-Contains $a '--terminate-job-on-exit'
-}
-
-Test-Case 'the wrapped command and its arguments survive in order after the -- separator' {
-    # A wrapper that reordered or dropped cargo's arguments would be a self-concealing failure.
-    $a = Get-ProcGovArgs -JobMemoryGB 8 -CpuRatePercent 50 -Exe 'cargo' -CmdArgs @('nextest', 'run', '--test-threads', '7')
-    $sep = [array]::IndexOf($a, '--')
-    Assert-True ($sep -ge 0) 'the -- separator must be present'
-    Assert-Equal 'cargo' $a[$sep + 1]
-    Assert-Equal 'nextest' $a[$sep + 2]
-    Assert-Equal 'run' $a[$sep + 3]
-    Assert-Equal '--test-threads' $a[$sep + 4]
-    Assert-Equal '7' $a[$sep + 5]
-}
-
-Test-Case 'omitted ceilings emit no flag at all rather than an empty value' {
-    $a = Get-ProcGovArgs -JobMemoryGB $null -CpuRatePercent $null -Exe 'cargo' -CmdArgs @('build')
-    Assert-False (@($a | Where-Object { $_ -like '--maxjobmem*' }).Count -gt 0) 'no memory flag expected'
-    Assert-False (@($a | Where-Object { $_ -like '--cpurate*' }).Count -gt 0) 'no cpu flag expected'
-    Assert-Contains $a 'cargo'
-}
 
 Test-Case 'low memory has its own exit code, distinct from low disk' {
     Assert-Equal 17 $script:ExitCodeLowMemory
@@ -279,14 +199,4 @@ Test-Case 'Get-AvailableMemoryGB answers with a plausible number or null, and ne
         }
     }
 }
-Test-Case 'procgov preserves an inherited console while retaining every resource limit' {
-    # procgov's --nogui hides whichever console it inherits, which under -NoNewWindow is the user's own terminal.
-    $a = Get-ProcGovArgs -JobMemoryGB 28 -CpuRatePercent 70 -Priority 'BelowNormal' -Exe 'cargo' -CmdArgs @('build')
-    Assert-Contains $a '--maxjobmem=28G'
-    Assert-Contains $a '--cpurate=70'
-    Assert-Contains $a '-r'
-    Assert-Contains $a '--terminate-job-on-exit'
-    Assert-False (@($a) -contains '--nogui') 'procgov must not hide the inherited Windows Terminal console'
-}
-
 Write-TestSummary

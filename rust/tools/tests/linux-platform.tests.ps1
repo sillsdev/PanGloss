@@ -57,7 +57,7 @@ function Assert-LinuxAdapterReady {
         throw 'Linux adapter importer returned no marker'
     }
     Assert-Equal 'Linux' $linuxAdapterImportResult.Platform 'the importer must return the Linux adapter marker'
-    foreach ($name in @('Get-AvailableMemoryGB', 'Get-TotalMemoryGB', 'Get-CommitChargeGB', 'Enter-BuildSlot', 'Exit-BuildSlot', 'Invoke-CargoWithReaper', 'Invoke-ProcessInJobObject')) {
+    foreach ($name in @('Get-AvailableMemoryGB', 'Get-TotalMemoryGB', 'Get-CommitChargeGB', 'Enter-BuildSlot', 'Exit-BuildSlot', 'Invoke-CargoWithReaper', 'Invoke-ManagedProcess')) {
         Assert-Contains -Haystack @($linuxAdapterImportResult.Overrides) -Needle $name `
             "the Linux adapter must override the actual shared seam $name"
         Assert-True ($null -ne (Get-Command $name -CommandType Function -ErrorAction SilentlyContinue)) `
@@ -224,21 +224,13 @@ Committed_AS:   2048 kB
             'the validated proof must be passed through the preflight/report seam'
     }
 
-    Test-Case 'pg never splats Windows-only JobMemoryGB into the Linux Cargo adapter' {
-        $pgText = Get-Content -LiteralPath (Join-Path $toolRoot 'pg.ps1') -Raw
+    Test-Case 'Linux Cargo adapter keeps the direct process contract' {
         $adapterText = Get-Content -LiteralPath (Join-Path $toolRoot '_platform_linux.ps1') -Raw
         $adapterCargo = [regex]::Match($adapterText, '(?s)function global:Invoke-CargoWithReaper\s*\{(?<body>.*?)(?=\r?\n\})')
         Assert-True $adapterCargo.Success 'the Linux adapter Cargo function must be present'
-        Assert-False $adapterCargo.Groups['body'].Value.Contains('JobMemoryGB') `
-            'Linux adapter must not acquire a Windows job-object-only parameter'
-
-        $conditionalWindowsArguments = [regex]::Matches($pgText, 'if \(\$IsWindows\) \{ \$invokeArgs\[''Threads''\] = \[Math\]::Max\(\$Jobs, \$TestThreads\) \}').Count
-        Assert-Equal 3 $conditionalWindowsArguments 'hygiene, corpus, and ordinary Cargo paths must add the Windows-only thread argument conditionally'
-        Assert-Equal 3 ([regex]::Matches($pgText, '\[''Threads''\] = \[Math\]::Max\(\$Jobs, \$TestThreads\)').Count) `
-            'each compilation Cargo callsite must keep its thread argument within the Windows-only block'
     }
 
-    Test-Case 'Linux process seam is the actual Invoke-ProcessInJobObject path and preflights before launch' {
+    Test-Case 'Linux process seam is the actual Invoke-ManagedProcess path and preflights before launch' {
         Assert-LinuxAdapterReady
         $calls = [System.Collections.Generic.List[object]]::new()
         $runner = {
@@ -246,7 +238,7 @@ Committed_AS:   2048 kB
             [void]$calls.Add([PSCustomObject]@{ Executable = $Executable; Arguments = @($Arguments); WorkingDirectory = $WorkingDirectory })
             return 23
         }.GetNewClosure()
-        $code = Invoke-ProcessInJobObject -Exe 'cargo' -CmdArgs @('build') -WorkingDirectory $fixtureRoot `
+        $code = Invoke-ManagedProcess -Exe 'cargo' -CmdArgs @('build') -WorkingDirectory $fixtureRoot `
             -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo `
             -ReadFile (New-Reader -Files $validCgroupFiles) -ProcessInvoker $runner
         Assert-Equal 23 $code 'Linux direct process invocation must preserve the injected exit code'
@@ -255,7 +247,7 @@ Committed_AS:   2048 kB
         Assert-Equal $fixtureRoot $calls[0].WorkingDirectory
     }
 
-    Test-Case 'Linux process seam accepts derived cap arguments while pg rejects explicit run overrides' {
+    Test-Case 'Linux process seam accepts the direct launch contract' {
         Assert-LinuxAdapterReady
         $calls = [System.Collections.Generic.List[object]]::new()
         $runner = {
@@ -263,20 +255,11 @@ Committed_AS:   2048 kB
             [void]$calls.Add($Executable)
             return 29
         }.GetNewClosure()
-        $code = Invoke-ProcessInJobObject -Exe 'cargo' -CmdArgs @('run') -WorkingDirectory $fixtureRoot `
-            -JobMemoryGB 10 -CpuRatePercent 50 -SelfCgroupText "0::/delegated/supervisor/worker`n" `
+        $code = Invoke-ManagedProcess -Exe 'cargo' -CmdArgs @('run') -WorkingDirectory $fixtureRoot `
+            -SelfCgroupText "0::/delegated/supervisor/worker`n" `
             -MountInfoText $mountInfo -ReadFile (New-Reader -Files $validCgroupFiles) -ProcessInvoker $runner
-        Assert-Equal 29 $code 'derived Windows-shaped cap arguments must not block ordinary Linux execution'
+        Assert-Equal 29 $code 'the direct process seam must preserve the injected exit code'
         Assert-Equal 1 $calls.Count
-
-        $pgText = Get-Content -LiteralPath (Join-Path $toolRoot 'pg.ps1') -Raw
-        $overrideCondition = 'if ($IsLinux -and $Mode -eq ''run'' -and $RunMemoryGB -gt 0)'
-        $overrideAt = $pgText.IndexOf($overrideCondition, [StringComparison]::Ordinal)
-        $fmtAt = $pgText.IndexOf('Invoke-RustFmt -RustRoot $rustRoot', [StringComparison]::Ordinal)
-        Assert-True ($overrideAt -ge 0 -and $fmtAt -gt $overrideAt) `
-            'the exact Linux -RunMemoryGB refusal must precede rustfmt/Cargo'
-        Assert-True $pgText.Contains('Linux -RunMemoryGB is not supported: the host cgroup owns the cap.') `
-            'the Linux refusal must explain that the host cgroup owns the cap'
     }
 
     Test-Case 'Linux cgroup preflight chooses a finite leaf cap below its ancestors' {
@@ -533,7 +516,7 @@ Committed_AS:   2048 kB
         $repoForReport = Split-Path (Split-Path $toolRoot -Parent) -Parent
         $text = (Write-Preflight -Mode build -Profile debug -RepoRoot $repoForReport -TargetDir '/var/tmp/target' -BaseCheck $base -SccacheHealth $sccache -FreeGB 1 -DiskCheck $disk -MemoryCheck $memory -MaxConcurrent 2 -Priority BelowNormal -HostCgroupProof $proof *>&1 | Out-String)
         Assert-True ($text -match 'host-service-owned|unapplied') 'Linux host proof report must say scheduling priority is host-service-owned/unapplied'
-        Assert-False ($text -match 'procgov|event-2004') 'Linux host proof report must not claim Windows procgov/event-2004 enforcement anywhere'
+        Assert-False ($text -match 'event-2004') 'Linux host proof report must not claim Windows event enforcement anywhere'
     }
 
     Test-Case 'Unsupported platforms and Linux gc refuse before platform-specific work' {
@@ -563,7 +546,7 @@ Committed_AS:   2048 kB
         $workingDirectory = Join-Path $fixtureRoot 'direct-process'
         $capture = Join-Path $fixtureRoot 'direct-process.out'
         New-Item -ItemType Directory -Force -Path $workingDirectory | Out-Null
-        $code = Invoke-ProcessInJobObject -Exe 'pwsh' -CmdArgs @('-NoProfile', '-Command', "Write-Output (Get-Location).Path; Write-Output 'linux-fixture'; exit 23") -WorkingDirectory $workingDirectory -CaptureStdoutPath $capture -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo -ReadFile (New-Reader -Files $validCgroupFiles)
+        $code = Invoke-ManagedProcess -Exe 'pwsh' -CmdArgs @('-NoProfile', '-Command', "Write-Output (Get-Location).Path; Write-Output 'linux-fixture'; exit 23") -WorkingDirectory $workingDirectory -CaptureStdoutPath $capture -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo -ReadFile (New-Reader -Files $validCgroupFiles)
         Assert-Equal 23 $code 'direct Linux process must preserve child exit code'
         $output = Get-Content -LiteralPath $capture -Raw
         Assert-True ($output -match [regex]::Escape($workingDirectory)) 'direct process must run in the requested cwd'

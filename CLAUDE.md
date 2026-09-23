@@ -138,7 +138,7 @@ unformatted tree before it starts.
 `code-comments` — comment and doc-comment policy.
 
 **Design docs** (`docs/design/`), for changing the mechanism rather than obeying it:
-`build-resource-governance.md` — job/thread/memory budgets, procgov job objects, slot pools, what is
+`build-resource-governance.md` — thread/memory budgets, direct process launches, slot pools, what is
 scoped per-machine versus per-worktree.
 `conformance-submodule.md` — why the submodule auto-initializes sparsely, and the exact git recipe.
 `controls-that-cannot-act.md` — four incidents behind the one rule below.

@@ -34,7 +34,7 @@ Test-Case 'unchanged inputs use the same cache key' {
 }
 
 Test-Case 'artifact discovery honors Cargo executable paths, including configured target triples' {
-    $lines = @('Process Governor banner', '{"reason":"compiler-artifact","target":{"name":"pg-comment-hygiene","kind":["lib"]},"executable":null}', '{"reason":"compiler-artifact","target":{"name":"pg-comment-hygiene","kind":["bin"]},"executable":"D:/configured/triple/debug/pg-comment-hygiene.exe"}')
+    $lines = @('managed launcher banner', '{"reason":"compiler-artifact","target":{"name":"pg-comment-hygiene","kind":["lib"]},"executable":null}', '{"reason":"compiler-artifact","target":{"name":"pg-comment-hygiene","kind":["bin"]},"executable":"D:/configured/triple/debug/pg-comment-hygiene.exe"}')
     Assert-Equal 'D:/configured/triple/debug/pg-comment-hygiene.exe' (Get-HygieneArtifactPath -Lines $lines)
 }
 

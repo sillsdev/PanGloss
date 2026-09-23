@@ -350,16 +350,13 @@ function global:Invoke-LinuxDirectProcess {
     }
 }
 
-function global:Invoke-ProcessInJobObject {
+function global:Invoke-ManagedProcess {
     param(
         [Parameter(Mandatory)][string]$Exe,
         [string[]]$CmdArgs = @(),
         [string]$WorkingDirectory,
         [string]$CaptureStdoutPath = '',
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
-        [Nullable[int]]$JobMemoryGB,
-        [Nullable[int]]$CpuRatePercent,
-        [string]$Subject = 'build',
         [string]$SelfCgroupText = $null,
         [string]$MountInfoText = $null,
         [scriptblock]$ReadFile = $null,

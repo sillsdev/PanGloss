@@ -50,12 +50,12 @@ its original path and report the launcher failure with the diagnostic output. Do
 build or change a code hypothesis before resolving the pre-launch failure.
 
 When a command returns a running session or times out after launch, inspect its Cargo, rustc,
-procgov, and slot descendants before retrying. A timeout never authorizes a duplicate build.
+linker, and slot descendants before retrying. A timeout never authorizes a duplicate build.
 
 ## Shared build state
 
-Measure physical-memory and commit headroom, CPU load, and active Cargo/procgov trees before a
-build-heavy handoff. Use `pg.ps1` for all Rust work and let its shared slots govern concurrency.
+Measure physical-memory and commit headroom, CPU load, and active Cargo trees before a build-heavy
+handoff. Use `pg.ps1` for all Rust work and let its shared slots govern concurrency.
 
 The sccache daemon is machine-wide. Before a stop, restart, configuration experiment, or cache
 counter reset, verify that no managed build or run slot can be using it. If another slot is active,

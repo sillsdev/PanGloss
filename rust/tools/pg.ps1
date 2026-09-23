@@ -70,14 +70,10 @@
                   or still-live directory -- see Get-TargetClassification/Invoke-TargetGc in
                   _common.ps1.
     run           runs an arbitrary PanGloss binary -- an example, a workspace bin, or an
-                  already-built .exe -- inside the SAME kernel-enforced job object a managed build
-                  gets (Invoke-ProcessInJobObject in _common.ps1), instead of the unmanaged direct
-                  invocation that took this machine to a frozen state three times (predict_census.exe
-                  118GB, pangloss.exe 90GB, hc-rs.exe 97GB -- all invoked directly, none through
-                  pg.ps1; see CLAUDE.md). Exactly ONE of -Example / -Bin / -Exe is required:
+                  already-built .exe through the same managed process seam as a Cargo launch,
+                  instead of an unmanaged direct invocation. Exactly ONE of -Example / -Bin / -Exe is required:
                     -Example <name>   `cargo run --example <name>` (builds first, then runs the
-                                      result as a job-object CHILD of cargo -- procgov's `-r` flag
-                                      recurses the ceiling onto it same as rustc/link.exe).
+                                      result as a child of cargo).
                     -Bin <name>       `cargo run --bin <name>`, same as above.
                     -Exe <path>       runs an already-built executable directly, no cargo involved.
                   Args after a literal `--` are passed through to the binary. `-Package` selects
@@ -86,19 +82,9 @@
                   PANGLOSS_RUN_SLOTS / -MaxConcurrentRuns), not one of the 2 build slots, because a
                   build is bounded by disk and memory while a run is bounded by CPU, and queueing a
                   0.3s `pangloss parse` behind a three-minute build served no resource purpose. A
-                  light run gets one core, a 5% CPU ceiling, and -- on Windows -- a FLAT 2GB memory
-                  ceiling (Get-RunJobMemoryCapGB). `-Heavy` uses the build CPU share and has no
-                  default memory ceiling:
-                  measured, a 6,146-word Sena corpus through the HermitCrab engine peaks at 454MB,
-                  and that peak is set by the hardest single word, not by accumulation, so corpus
-                  size does not move it. On Windows `-RunMemoryGB` overrides that ceiling for one
-                  run (the mechanism for a deliberate large-memory experiment, e.g. 40GB); on Linux
-                  an explicit value is refused because the host cgroup owns the cap -- configure the
-                  finite host service cgroup instead. `-Heavy` takes a BUILD slot and the build CPU
-                  share for a probe that really is build-sized (predict_census and friends). Heavy
-                  runs have no default memory ceiling; use `-RunMemoryGB` when one is appropriate.
-                  A light run that keeps hitting its flat cap is telling you something about the
-                  grammar -- see the dead-end-census skill.
+                  light runs use the run pool. `-Heavy` takes a BUILD slot for a probe that really is
+                  build-sized (predict_census and friends). A light run that keeps consuming resources
+                  is telling you something about the grammar -- see the dead-end-census skill.
 
   Examples:
     rust\tools\pg.ps1 -Mode check                  # does everything, including test code, compile?
@@ -116,7 +102,6 @@
     rust\tools\pg.ps1 -Mode run -Bin pangloss -- batch --threads 1 --word-timeout-ms 5000
     rust\tools\pg.ps1 -Mode run -Exe C:\path\to\already-built.exe -- --some-flag
     rust\tools\pg.ps1 -Mode run -Exe .\predict_census.exe -Heavy            # build slot + build-sized ceilings
-    rust\tools\pg.ps1 -Mode run -Exe .\predict_census.exe -RunMemoryGB 40   # Windows-only deliberate large-mem experiment
 
   -Filter vs -TestTarget (documented here because getting this backwards cost seven wrong invocations
   in one session): -Filter narrows EXECUTION ONLY -- appended as a bare positional to the test runner,
@@ -133,18 +118,12 @@
   one run, e.g. at the console with no remote session to protect. They are separate knobs because they
   bound different phases: -Jobs caps compilation, -TestThreads caps how many test processes execute.
 
-  -RunMemoryGB (run mode only): on Windows, sets a committed-memory ceiling for one run. A value
-  of 0 keeps the flat 2GB light-run default; under -Heavy, 0 means no memory ceiling. This is the
-  mechanism for a deliberate large-memory experiment (e.g. 40GB). On Linux, an explicit value is
-  refused because the host cgroup owns the cap; configure the finite host service cgroup instead.
-
   Slot pools: builds and runs queue separately (-MaxConcurrent, default 2; -MaxConcurrentRuns,
   default 4). Both are named-mutex pools, so a holder that dies leaves its slot ABANDONED and the
   kernel hands it to the next waiter -- see Enter-ResourceSlot. The two pools share ONE machine-wide
   CPU budget: the run pool's allotment (slots x 1 core) comes off the top of Get-CargoJobBudget, and
-  each job object's --cpurate is now its own share rather than the whole machine's usable width, so
-  the per-job ceilings sum back to that width instead of each requesting all of it. Only the build
-  pool is swept for stale holders (Remove-StaleBuildSlotHolders).
+  the build and run pools share the machine's CPU budget. Only the build pool is swept for stale
+  holders (Remove-StaleBuildSlotHolders).
 
   -BuildSlotTimeoutSeconds (default 1800 = 30 minutes): long enough that a normal queued build never
   trips it, short enough that a genuinely wedged holder (crashed mid-build without releasing) is
@@ -180,9 +159,7 @@ param(
     [string]$Example = '',
     [string]$Bin = '',
     [string]$Exe = '',
-    # run only: sets a committed-memory ceiling for one run; 0 takes the light-run default or leaves Heavy uncapped.
-    [int]$RunMemoryGB = 0,
-    # run only: takes a BUILD slot and the build CPU share, for a probe that is genuinely build-sized.
+    # run only: takes a BUILD slot for a probe that is genuinely build-sized.
     [switch]$Heavy,
 
     # `run` only. Without it the child's stdout goes to the inherited console, where an outer PowerShell `*>` captures NOTHING -- two long censuses lost their entire output that way. Live console output is what you give up by passing it.
@@ -255,7 +232,7 @@ $script:TestOptProfile = 'pg-test-opt'
 $repoRoot = Get-RepoRoot
 $rustRoot = Get-RustRoot
 
-# Linux has no job-object/procgov equivalent here: establish the host's finite cgroup bound before any Cargo path runs, then pass that proof to the process seam so the launch never rediscovers mutable host state.
+# Linux establishes the host's finite cgroup bound before any Cargo path runs.
 $linuxHostProof = $null
 if ($IsLinux -and $Mode -notin @('gc', 'new-worktree', 'remove-worktree')) {
     $linuxHostProof = Get-LinuxHostCgroupPreflight
@@ -264,11 +241,6 @@ if ($IsLinux -and $Mode -notin @('gc', 'new-worktree', 'remove-worktree')) {
         Write-Host '[pg] recovery: run inside the configured finite cgroup-v2 service hierarchy.' -ForegroundColor Yellow
         exit $script:ExitCodeLinuxHostContainment
     }
-}
-
-if ($IsLinux -and $Mode -eq 'run' -and $RunMemoryGB -gt 0) {
-    Write-Host '[pg] Linux -RunMemoryGB is not supported: the host cgroup owns the cap. Configure the finite host service cgroup instead.' -ForegroundColor Red
-    exit $script:ExitCodeLinuxRunMemoryOverride
 }
 
 if ($Mode -eq 'new-worktree') {
@@ -386,9 +358,9 @@ if ($runSlots -lt 1 -or $runSlots -gt $script:MaxResourceSlotWidth) {
 $availableMemGB = Get-AvailableMemoryGB
 $memCheck = Test-MemoryReserve -AvailableGB $availableMemGB
 
-# `run -Exe` compiles nothing, so it must not be counted in this COMPILE-time job memory estimate -- see Get-PerJobMemoryGB.
+# `run -Exe` compiles nothing, so it must not be counted in this COMPILE-time process memory estimate -- see Get-MemoryPerProcessGB.
 $fatLto = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile)) -or (($Mode -eq 'run') -and (-not $Exe) -and (-not $DebugProfile))
-$perJobMemGB = Get-PerJobMemoryGB -FatLto:$fatLto
+$perJobMemGB = Get-MemoryPerProcessGB -FatLto:$fatLto
 
 $jobsExplicit = ($Jobs -gt 0)
 $jobsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent $MaxConcurrent -RunSlots $runSlots) `
@@ -598,7 +570,7 @@ Write-Preflight -Mode $Mode -Profile $profileLabel -RepoRoot $repoRoot -TargetDi
     -MemoryCheck $memCheck -RunSlots $runSlots `
     -CorpusState $corpusState -ConformanceCheck $conformanceCheck `
     -MaxConcurrent $MaxConcurrent -Jobs $Jobs -JobsExplicit:$jobsExplicit `
-    -JobsBudget $jobsBudget -PerJobMemoryGB $perJobMemGB `
+    -JobsBudget $jobsBudget -MemoryPerJobGB $perJobMemGB `
     -TestThreads $(if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) { $TestThreads } else { 0 }) `
     -TestThreadsBudget $testThreadsBudget -Priority $Priority -HostCgroupProof $linuxHostProof
 
@@ -693,7 +665,7 @@ if ($Mode -eq 'doctor') {
         } else {
             Write-Host "    (could not parse consumer names from the event message -- raw text: $($latest.RawMessage))" -ForegroundColor Red
         }
-        Write-Host "  if this keeps happening: wrap the offending binary with 'pg.ps1 -Mode run' instead of invoking it directly -- that puts it under the light-run kernel-enforced --maxjobmem ceiling (or -RunMemoryGB)." -ForegroundColor Yellow
+        Write-Host "  if this keeps happening: use 'pg.ps1 -Mode run' for binaries so they participate in the run-slot pool." -ForegroundColor Yellow
     }
 
     Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot
@@ -712,8 +684,6 @@ if ($Mode -eq 'gc') {
     Remove-OrphanedCargoProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
     # Separate sweep: reaping a compiler can destroy work another worktree awaits; reaping a scanner cannot.
     Remove-OrphanedScanProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
-    # Third sweep: a governor still supervising a live build is childful, so only the abandoned ones qualify.
-    Remove-OrphanedGovernorProcesses -WhatIfOnly:(-not $Apply) -Snapshot $procSnapshot
     # A live-but-stuck build-slot holder (see Test-BuildSlotHolderStale) blocks every other worktree's builds until reaped.
     Remove-StaleBuildSlotHolders -WhatIfOnly:(-not $Apply)
 
@@ -901,37 +871,21 @@ if (-not $memCheckNow.Ok) {
     exit $script:ExitCodeLowMemory
 }
 
-if ($usedSccache) {
-    $sccacheServer = Confirm-SccacheServerOutsideJob
-    if ($sccacheServer) {
-        Write-Host "[pg] sccache server outside the job: pid $($sccacheServer.ProcessId), up since $($sccacheServer.CreationDate.ToString('HH:mm:ss'))." -ForegroundColor DarkGray
-    } else {
-        Write-Host '[pg] WARNING: could not prove an sccache server is running outside the job; an in-job client will spawn one inside it and the wrapper will have to reap it after the build.' -ForegroundColor Yellow
-    }
-}
-
 $code = 1
 $hygienePreviousStamp = $env:PANGLOSS_HYGIENE_BUILD_FINGERPRINT
 try {
     if ($Mode -eq 'run') {
-        # Light runs keep their flat cap. Heavy runs are uncapped unless -RunMemoryGB was requested.
-        $runMemGB = Get-RunJobMemoryCapGB -RunMemoryGB $RunMemoryGB -Heavy:$Heavy
-        $runCpuRate = if ($Heavy) { Get-JobCpuRatePercent -Threads $Jobs } else { Get-JobCpuRatePercent -Threads $script:RunThreadsPerSlot }
         Write-Host "[pg] run ($($runPlan.Label)): $($runPlan.LaunchExe) $($runPlan.LaunchArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }))" -ForegroundColor Cyan
         $invokeArgs = @{
             Exe = $runPlan.LaunchExe; CmdArgs = $runPlan.LaunchArgs; WorkingDirectory = $rustRoot
-            Priority = $Priority; Subject = 'run'
+            Priority = $Priority
         }
         if ($RunCaptureStdout) {
             $invokeArgs['CaptureStdoutPath'] = $RunCaptureStdout
             Write-Host "[pg] run: stdout -> $RunCaptureStdout (console stays quiet until it exits; tail the file to watch it)" -ForegroundColor Cyan
         }
-        if (-not $IsLinux) {
-            $invokeArgs['JobMemoryGB'] = $runMemGB
-            $invokeArgs['CpuRatePercent'] = $runCpuRate
-        }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
-        $code = Invoke-ProcessInJobObject @invokeArgs
+        $code = Invoke-ManagedProcess @invokeArgs
         if ($RunCaptureStdout -and (Test-Path $RunCaptureStdout)) {
             Write-Host "[pg] run: captured $((Get-Item $RunCaptureStdout).Length) byte(s) to $RunCaptureStdout" -ForegroundColor Cyan
         }
@@ -945,7 +899,6 @@ try {
                 WorkingDirectory = $rustRoot; CaptureStdoutPath = $capturePath
                 Priority = $Priority
             }
-            if ($IsWindows) { $invokeArgs['Threads'] = [Math]::Max($Jobs, $TestThreads) }
             if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
             $code = Invoke-CargoWithReaper @invokeArgs
             $artifactLines = @(Get-Content -LiteralPath $capturePath)
@@ -972,7 +925,6 @@ try {
             Exe = 'cargo'; CmdArgs = $cargoArgs; WorkingDirectory = $rustRoot; CaptureStdoutPath = $capturePath
             Priority = $Priority
         }
-        if ($IsWindows) { $invokeArgs['Threads'] = [Math]::Max($Jobs, $TestThreads) }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-CargoWithReaper @invokeArgs
         $lines = if (Test-Path $capturePath) { Get-Content $capturePath } else { @() }
@@ -996,7 +948,6 @@ try {
             Exe = 'cargo'; CmdArgs = $cargoArgs; WorkingDirectory = $rustRoot
             Priority = $Priority
         }
-        if ($IsWindows) { $invokeArgs['Threads'] = [Math]::Max($Jobs, $TestThreads) }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-CargoWithReaper @invokeArgs
         if ($code -eq 0 -and (Test-BackendCardRegenerationScope -BuildMode $Mode -BuildPackage $Package)) {

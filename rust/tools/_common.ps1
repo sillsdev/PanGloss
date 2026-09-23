@@ -1,16 +1,16 @@
 <#
   .DESCRIPTION
   Shared helpers for build.ps1 / test.ps1 / pg.ps1: worktree/path resolution, disk- and memory-aware
-  target-dir redirection, sccache wiring, a cross-worktree build-concurrency gate, kernel-enforced
-  (procgov) resource ceilings, worktree-scoped cleanup of orphaned processes and stale build caches,
+  target-dir redirection, sccache wiring, a cross-worktree build-concurrency gate, resource admission,
+  worktree-scoped cleanup of orphaned processes and stale build caches,
   and the preflight surface (exit codes, worktree base-commit contract, target ownership, corpus
   manifest validation, conformance-submodule auto-init) that pg.ps1 gates a run on.
 
   Dot-source from build.ps1/test.ps1/pg.ps1: . "$PSScriptRoot\_common.ps1"
 
   Full design rationale for the resource-governance mechanisms below (target-dir SSD/HDD placement,
-  the CPU/memory reserve model, per-job memory allowances, procgov CPU integration, the build-slot mutex
-  design, orphan reaping, the conformance-submodule sparse checkout) is consolidated in
+  the CPU/memory reserve model, the build-slot mutex design, orphan reaping, and the conformance-
+  submodule sparse checkout) is consolidated in
   docs/research/build-resource-governance.md, alongside the measured incidents in the repo's own
   CLAUDE.md that motivated each one. Comments in this file point there rather than re-deriving the
   argument at every call site.
@@ -91,7 +91,7 @@ function Import-PanGlossPlatformAdapter {
             'Get-AvailableMemoryGB', 'Get-TotalMemoryGB', 'Get-CommitChargeGB',
             'Get-FreeSpaceGB', 'Resolve-TargetDir', 'Use-Sccache', 'Set-SccacheServerPriority',
             'Get-BuildSlotHolders',
-            'Enter-BuildSlot', 'Exit-BuildSlot', 'Invoke-CargoWithReaper', 'Invoke-ProcessInJobObject'
+            'Enter-BuildSlot', 'Exit-BuildSlot', 'Invoke-CargoWithReaper', 'Invoke-ManagedProcess'
         )
     }
     return $global:PanGlossPlatformAdapter
@@ -112,7 +112,7 @@ $script:MinBuildRoomGB = if ($env:PANGLOSS_MIN_BUILD_ROOM_GB) { [double]$env:PAN
 function Get-InteractiveReserveGB {
     param([Nullable[double]]$TotalGB = (Get-TotalMemoryGB))
     if ($env:PANGLOSS_MIN_FREE_MEM_GB) { return [double]$env:PANGLOSS_MIN_FREE_MEM_GB }
-    # Unmeasurable machine gets the floor, not the ceiling; the job object bounds the damage either way.
+    # Unmeasurable machines get the floor, not the ceiling.
     if ($null -eq $TotalGB) { return $script:InteractiveReserveFloorGB }
     $r = $TotalGB * $script:InteractiveReserveFraction
     if ($r -lt $script:InteractiveReserveFloorGB) { $r = $script:InteractiveReserveFloorGB }
@@ -132,14 +132,14 @@ function Get-SpawnFloorGB {
     param([Nullable[double]]$TotalGB = (Get-TotalMemoryGB))
     return [math]::Round(((Get-InteractiveReserveGB -TotalGB $TotalGB) + $script:MinBuildRoomGB), 1)
 }
-# Working-set allowance per concurrent process (compile / fat-LTO link / test), enforced via procgov's job object.
+# Working-set allowance per concurrent process (compile / fat-LTO link / test).
 # docs/research/build-resource-governance.md
 
 $script:MemoryPerCompileJobGB = if ($env:PANGLOSS_MEM_PER_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_JOB_GB } else { 1.5 }
 $script:MemoryPerLtoLinkJobGB = if ($env:PANGLOSS_MEM_PER_LTO_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_LTO_JOB_GB } else { 2 }
 $script:MemoryPerTestProcessGB = if ($env:PANGLOSS_MEM_PER_TEST_GB) { [double]$env:PANGLOSS_MEM_PER_TEST_GB } else { 2.5 }
 
-function Get-PerJobMemoryGB {
+function Get-MemoryPerProcessGB {
     <#
       .DESCRIPTION
       Which of the two compile-side allowances applies, decided by whether the run's PROFILE turns on
@@ -210,8 +210,8 @@ function Get-CommitChargeGB {
       Committed bytes and the commit LIMIT -- a different resource from available physical memory,
       and the one that actually matters here: a `git` fork can fail on MEM_COMMIT while available
       PHYSICAL memory reads generously high, because the commit charge was near its limit even though
-      RAM was free. Both Resource-Exhaustion-Detector event 2004 and procgov's --maxjobmem are
-      commit-denominated, not physical-memory-denominated -- see
+      RAM was free. Resource-Exhaustion-Detector event 2004 is commit-denominated, not
+      physical-memory-denominated -- see
       docs/research/build-resource-governance.md.
 
       Win32_OperatingSystem's TotalVirtualMemorySize/FreeVirtualMemory are the commit limit and its
@@ -331,348 +331,6 @@ function Resolve-ConcurrencyBudget {
         return [PSCustomObject]@{ Value = [int]$MemoryBudget; Bound = 'memory'; Detail = "memory-bound (cpu budget would allow $CpuBudget)" }
     }
     return [PSCustomObject]@{ Value = $CpuBudget; Bound = 'cpu'; Detail = "cpu-bound (memory would allow $MemoryBudget)" }
-}
-
-# Resource enforcement via a Windows job object (procgov), replacing three hand-rolled mechanisms.
-# docs/research/build-resource-governance.md
-
-function Get-ProcGovPath {
-    <#
-      .DESCRIPTION
-      PATH first, then winget's own shim and package directories: winget only adds its Links
-      directory to PATH for shells started AFTER the install, so the shell that just installed it (or
-      a long-lived agent session) will not see it there yet.
-    #>
-    if ($env:PANGLOSS_PROCGOV) { return (Test-Path $env:PANGLOSS_PROCGOV) ? $env:PANGLOSS_PROCGOV : $null }
-    $cmd = Get-Command 'procgov' -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-    foreach ($candidate in @(
-            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links\procgov.exe'),
-            (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages\LowLevelDesign.ProcessGovernor_Microsoft.Winget.Source_8wekyb3d8bbwe\procgov.exe')
-        )) {
-        if ($candidate -and (Test-Path $candidate)) { return $candidate }
-    }
-    return $null
-}
-
-# The light-run ceiling: flat and small, NOT machine-proportional; measured against a full Sena corpus.
-# docs/research/build-resource-governance.md
-$script:RunSlotMemoryGB = if ($env:PANGLOSS_RUN_MEM_GB) { [int]$env:PANGLOSS_RUN_MEM_GB } else { 2 }
-
-function Get-RunJobMemoryCapGB {
-    <#
-      .DESCRIPTION
-      A light-run runaway is recognizable by absolute size, not by a share of whichever box it is
-      on. A run that legitimately needs more can use `-Heavy` to take a build slot and can set an
-      explicit `-RunMemoryGB` ceiling when a memory bound is appropriate.
-    #>
-    param(
-        [int]$RunMemoryGB = 0,
-        [switch]$Heavy
-    )
-    if ($RunMemoryGB -gt 0) { return $RunMemoryGB }
-    if ($Heavy) { return $null }
-    return $script:RunSlotMemoryGB
-}
-
-function Get-JobCpuRatePercent {
-    <#
-      .DESCRIPTION
-      Kernel-enforced ceiling sized from the same interactive reserve as the job budget, so the
-      daemons this machine is administered through keep headroom no matter how many threads rustc
-      decides to spawn. Returns $null when the reserve leaves nothing meaningful to cap.
-
-      -Threads sizes the ceiling from ONE slot's own width instead of the whole machine's usable
-      width. Without it every concurrent job requests the entire machine-wide figure and the requests
-      sum past 100%; with it they sum back to it. docs/research/build-resource-governance.md
-    #>
-    param(
-        [int]$ReserveThreads = $script:InteractiveReserveThreads,
-        [Nullable[int]]$Threads
-    )
-    $logical = [Environment]::ProcessorCount
-    if ($logical -le 0) { return $null }
-    if ($null -ne $Threads) {
-        $usable = [Math]::Max(1, $Threads)
-        # One core's worth: the whole-machine floor below would hand a single-threaded run several cores.
-        $floor = [int][math]::Ceiling(100 / $logical)
-    } else {
-        $usable = $logical - $ReserveThreads
-        if ($usable -lt 1) { $usable = 1 }
-        $floor = 10
-    }
-    $pct = [int][math]::Floor(($usable / $logical) * 100)
-    if ($pct -lt $floor) { $pct = $floor }
-    if ($pct -ge 100) { return $null }   # nothing to enforce
-    return $pct
-}
-
-function Ensure-ProcGovNative {
-    <#
-      .DESCRIPTION
-      JIT-defines the P/Invoke surface Terminate-ProcGovJob, Get-ProcGovJobMembers and
-      Get-NamedJobActiveProcessCount need (OpenJobObject/TerminateJobObject/IsProcessInJob/
-      OpenProcess/QueryInformationJobObject/CloseHandle). Split out so a
-      caller that never hits the kill path never pays Add-Type's cost, and so the type is defined at
-      most once per process.
-    #>
-    if (-not ([System.Management.Automation.PSTypeName]'PanGlossProcGov.Native').Type) {
-        Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-namespace PanGlossProcGov {
-    public static class Native {
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern IntPtr OpenJobObject(uint access, bool inheritHandle, string name);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool TerminateJobObject(IntPtr job, uint exitCode);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern IntPtr OpenProcess(uint access, bool inheritHandle, uint processId);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool QueryInformationJobObject(IntPtr job, int infoClass, IntPtr info, int len, IntPtr returned);
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern bool CloseHandle(IntPtr handle);
-    }
-}
-'@
-    }
-}
-
-# MSVC's linker launches this Visual Studio telemetry helper; it outlives link.exe, stays in the job, and keeps procgov waiting for an empty job.
-$script:LingeringJobHelperNames = @('vctip.exe')
-
-function Get-ProcGovJobMembers {
-    <#
-      .DESCRIPTION
-      Every snapshot row the kernel says is a member of procgov's named job. Membership, not
-      ancestry: a helper whose parent already exited is re-parented and invisible to
-      Get-ProcessDescendants, yet it is exactly what holds the job open. A job name procgov never
-      created (or already tore down) gives an empty list, never an error.
-    #>
-    param([Parameter(Mandatory)][string]$JobName, [Parameter(Mandatory)]$Snapshot)
-    Ensure-ProcGovNative
-    $job = [PanGlossProcGov.Native]::OpenJobObject([uint32]0x0004, $false, $JobName)
-    if ($job -eq [IntPtr]::Zero) { return @() }
-    $members = @()
-    try {
-        foreach ($p in @($Snapshot)) {
-            if (-not $p.ProcessId) { continue }
-            $h = [PanGlossProcGov.Native]::OpenProcess([uint32]0x1000, $false, [uint32]$p.ProcessId)
-            if ($h -eq [IntPtr]::Zero) { continue }
-            try {
-                $inJob = $false
-                if ([PanGlossProcGov.Native]::IsProcessInJob($h, $job, [ref]$inJob) -and $inJob) { $members += $p }
-            } finally {
-                [void][PanGlossProcGov.Native]::CloseHandle($h)
-            }
-        }
-    } finally {
-        [void][PanGlossProcGov.Native]::CloseHandle($job)
-    }
-    return $members
-}
-
-function Get-NamedJobActiveProcessCount {
-    <#
-      .DESCRIPTION
-      How many processes the KERNEL currently counts inside procgov's named job -- the only evidence
-      that the ceilings procgov printed are actually being enforced on anything. Reads
-      JOBOBJECT_BASIC_ACCOUNTING_INFORMATION's ActiveProcesses field (offset 40 of 48).
-
-      Returns -1, never 0, when the job cannot be opened or queried: "I could not look" and "the job
-      is empty" are different facts and only one of them is a reason to refuse.
-    #>
-    param([Parameter(Mandatory)][string]$JobName)
-    Ensure-ProcGovNative
-    $job = [PanGlossProcGov.Native]::OpenJobObject([uint32]0x0004, $false, $JobName)
-    if ($job -eq [IntPtr]::Zero) { return -1 }
-    $buf = [System.Runtime.InteropServices.Marshal]::AllocHGlobal(48)
-    try {
-        # 1 = JobObjectBasicAccountingInformation
-        if (-not [PanGlossProcGov.Native]::QueryInformationJobObject($job, 1, $buf, 48, [IntPtr]::Zero)) { return -1 }
-        return [System.Runtime.InteropServices.Marshal]::ReadInt32($buf, 40)
-    } finally {
-        [System.Runtime.InteropServices.Marshal]::FreeHGlobal($buf)
-        [void][PanGlossProcGov.Native]::CloseHandle($job)
-    }
-}
-
-function Wait-JobObjectTakesHold {
-    <#
-      .DESCRIPTION
-      Bounded proof that the wrapper's job object actually took hold of something, run right after
-      launch. procgov prints its limit table BEFORE it creates the job, so that table is a request,
-      not an enforcement; a procgov that then fails to create the job (observed: an
-      ERROR_INVALID_PARAMETER out of SetInformationJobObject/AssociateCompletionPort) either exits
-      255 or hangs having never started the payload at all, and the second shape reads downstream as
-      an ordinary idle-tree wedge.
-
-      Held is true as soon as the kernel counts a process in the job, and also when the wrapper has
-      already exited -- a payload short enough to finish inside the window leaves an empty job, and
-      its own exit code is the thing that speaks then. $CountProvider/$SleepAction/$NowProvider are
-      injection seams for the tests; production never overrides them.
-    #>
-    param(
-        [Parameter(Mandatory)]$Process,
-        [Parameter(Mandatory)][string]$JobName,
-        [double]$TimeoutSeconds = 30,
-        [int]$PollMilliseconds = 250,
-        [scriptblock]$CountProvider = { param($Name) Get-NamedJobActiveProcessCount -JobName $Name },
-        [scriptblock]$SleepAction = { param($Milliseconds) Start-Sleep -Milliseconds $Milliseconds },
-        [scriptblock]$NowProvider = { Get-Date }
-    )
-    $start = & $NowProvider
-    while ($true) {
-        $count = [int](& $CountProvider $JobName)
-        if ($count -gt 0) { return [PSCustomObject]@{ Held = $true; Reason = 'members'; ActiveProcesses = $count } }
-        if ($Process.HasExited) { return [PSCustomObject]@{ Held = $true; Reason = 'wrapper-exited'; ActiveProcesses = $count } }
-        if (((& $NowProvider) - $start).TotalSeconds -ge $TimeoutSeconds) {
-            return [PSCustomObject]@{ Held = $false; Reason = 'timeout'; ActiveProcesses = $count }
-        }
-        & $SleepAction $PollMilliseconds
-    }
-}
-
-function New-JobLingerReaper {
-    <#
-      .DESCRIPTION
-      The scriptblock Wait-ManagedProcessTree runs whenever the tree reads idle: reap whatever is
-      still holding procgov's job open. It takes the job name as an ARGUMENT and is deliberately not
-      a `.GetNewClosure()` closure that captures it.
-
-      A closure is bound to a fresh dynamic module, and command lookup inside a module reaches the
-      module's own scope and then the GLOBAL scope -- never the script scope that a dot-source puts
-      these functions in. Under `pwsh -File pg.ps1` the script scope happens to answer, so the
-      closure resolved; under `& pg.ps1` from an existing session (how every agent, and
-      release.ps1's gate, invokes it) it did not, and every managed build died on
-      "The term 'Get-ProcGovJobMembers' is not recognized". Pinned by
-      rust/tools/tests/managed-process-wait.tests.ps1.
-    #>
-    return { param($Snapshot, $JobName) Remove-LingeringJobHelpers -Members @(Get-ProcGovJobMembers -JobName $JobName -Snapshot $Snapshot) }
-}
-
-function Remove-LingeringJobHelpers {
-    <#
-      .DESCRIPTION
-      Kills the job members named in $script:LingeringJobHelperNames and returns the rows it killed,
-      so the caller can print each one by effect. Pure over $Members and $KillAction: the membership
-      query and the kill are both injected, which is what lets the tests drive it with no real job.
-    #>
-    param(
-        [Parameter(Mandatory)][AllowEmptyCollection()]$Members,
-        [scriptblock]$KillAction = { param($ProcessId) & taskkill /F /PID $ProcessId 2>$null | Out-Null }
-    )
-    $reaped = @()
-    foreach ($p in @($Members)) {
-        if (($p.Name -in $script:LingeringJobHelperNames) -or (Test-SccacheServerRow -Row $p)) {
-            & $KillAction $p.ProcessId
-            $reaped += $p
-        }
-    }
-    return $reaped
-}
-
-function Test-SccacheServerRow {
-    <#
-      .DESCRIPTION
-      The sccache SERVER is the bare exe with no arguments; a client carries the rustc command line.
-      A server found INSIDE a build's job was spawned by an in-job client after the outside server
-      died, and it never exits, so procgov never returns: the second observed cause of exit 27 on a
-      clean run. Killing it costs one cold server start; Confirm-SccacheServerOutsideJob restarts
-      it outside any job before the next build.
-    #>
-    param([Parameter(Mandatory)]$Row)
-    if ($Row.Name -ne 'sccache.exe') { return $false }
-    $args_ = ([string]$Row.CommandLine) -replace '^\s*("[^"]*"|\S+)', ''
-    return ($args_.Trim() -eq '')
-}
-
-function Confirm-SccacheServerOutsideJob {
-    <#
-      .DESCRIPTION
-      Called right before a governed build launches, AFTER any build-slot wait: a client inside the
-      job spawns the server itself when none is listening, and that server inherits the job, keeping
-      it non-empty forever. `--start-server` daemonizes one outside any job (this process is outside
-      one); "Address in use" means one is already listening and is equally fine. `--show-stats` is
-      NOT enough: measured here, the server it auto-spawns to answer does not stay up. Returns the
-      server row when found so the caller can print pid and start time; $null means "could not
-      prove a server is outside".
-    #>
-    if (-not (Get-Command sccache -ErrorAction SilentlyContinue)) { return $null }
-    $out = & sccache --start-server 2>&1
-    if ($LASTEXITCODE -ne 0 -and (($out -join ' ') -notmatch 'Address in use')) { return $null }
-    $server = @(Get-ProcessSnapshot | Where-Object { Test-SccacheServerRow -Row $_ } | Sort-Object CreationDate | Select-Object -First 1)
-    if ($server.Count -eq 0) { return $null }
-    return $server[0]
-}
-
-function Terminate-ProcGovJob {
-    <#
-      .DESCRIPTION
-      Kills every process procgov's named job object still contains, by asking the KERNEL for job
-      membership rather than walking a PID tree. `taskkill /T` (Invoke-ProcessInJobObject's own
-      Ctrl+C cleanup) only sees processes still parented under the PID it started with; anything
-      re-parented after a crash or an early procgov exit is invisible to that walk but still a member
-      of the job object procgov created, which is exactly the gap a real job handle doesn't have.
-      Belt-and-braces, not a replacement: called in ADDITION to the existing taskkill, never instead
-      of it, since a job name procgov didn't actually create (or already tore down cleanly) just
-      means OpenJobObject returns a null handle here -- a harmless no-op, not an error.
-    #>
-    param(
-        [Parameter(Mandatory)][string]$JobName,
-        [int]$ExitCode = 130
-    )
-    Ensure-ProcGovNative
-    $job = [PanGlossProcGov.Native]::OpenJobObject([uint32]0x0008, $false, $JobName)
-    if ($job -eq [IntPtr]::Zero) { return $false }
-    try {
-        return [PanGlossProcGov.Native]::TerminateJobObject($job, [uint32]$ExitCode)
-    } finally {
-        [void][PanGlossProcGov.Native]::CloseHandle($job)
-    }
-}
-
-function Get-ProcGovArgs {
-    <#
-      .DESCRIPTION
-      Pure argument construction, split out so the limits actually applied are assertable in a test
-      without launching procgov or a build.
-
-      -CpuCores and -EfficiencyMode are both OPT-IN alternatives to the default --cpurate ceiling,
-      unmeasured against it -- see docs/research/build-resource-governance.md for why each might help
-      and why neither has replaced the default on a hunch.
-    #>
-    param(
-        [Nullable[int]]$JobMemoryGB,
-        [Nullable[int]]$CpuRatePercent,
-        [string]$Priority = '',
-        [Nullable[int]]$CpuCores,
-        [switch]$EfficiencyMode,
-        # Names the job so Terminate-ProcGovJob can find it later; omitted = procgov names it itself.
-        [string]$JobName = '',
-        [Parameter(Mandatory)][string]$Exe,
-        [string[]]$CmdArgs = @()
-    )
-    $a = @()
-    if ($null -ne $JobMemoryGB) { $a += "--maxjobmem=${JobMemoryGB}G" }
-    if ($null -ne $CpuCores) {
-        # Mutually exclusive with --cpurate, not additive: procgov applies the rate only to the selected cores.
-        $a += "--cpu=$CpuCores"
-    } elseif ($null -ne $CpuRatePercent) {
-        $a += "--cpurate=$CpuRatePercent"
-    }
-    if ($EfficiencyMode) { $a += '--efficiency-mode=on' }
-    if ($Priority) { $a += "--priority=$Priority" }
-    if ($JobName) { $a += "--job-name=$JobName" }
-    # -r is required: without it the limits apply to the launched process alone and every rustc/link.exe escapes the job.
-    $a += '-r'
-    $a += '--terminate-job-on-exit'
-    $a += '--'
-    $a += $Exe
-    $a += $CmdArgs
-    return $a
 }
 
 function Split-ExtraArgsSpec {
@@ -975,7 +633,7 @@ function Use-Sccache {
     }
     if (-not (Get-Command sccache -ErrorAction SilentlyContinue)) { return $false }
     $env:RUSTC_WRAPPER = 'sccache'
-    # The stock 600s idle exit is what let the server die during a slot wait and get respawned INSIDE the job by the first in-job client (Confirm-SccacheServerOutsideJob).
+    # Keep the shared server alive during slot waits so clients do not start duplicate daemons.
     if (-not $env:SCCACHE_IDLE_TIMEOUT) { $env:SCCACHE_IDLE_TIMEOUT = '0' }
     # Deliberately on the HDD root: a cache hit is one blob read, so capacity matters more than seek time here.
     if (-not $env:SCCACHE_DIR) { $env:SCCACHE_DIR = Join-Path $script:HddCacheRoot 'sccache' }
@@ -1230,7 +888,7 @@ function Get-SlotHolders {
 $script:RustBuildCoreProcessNames = @('rustc.exe', 'cargo.exe')
 $script:RustBuildLinkerProcessNames = @('link.exe', 'lld-link.exe', 'rust-lld.exe')
 $script:RustBuildProcessNames = @($script:RustBuildCoreProcessNames) + @($script:RustBuildLinkerProcessNames)
-# Signs of real work under a build-slot holder; procgov.exe is deliberately excluded -- an idle wrapper IS the stuck shape this checks for.
+# Signs of real work under a build-slot holder.
 $script:LiveBuildActivityNames = @($script:RustBuildProcessNames) + @('cc1.exe', 'cc1plus.exe', 'sccache.exe', 'cargo-nextest.exe', 'pangloss.exe')
 $script:OrphanedCargoProcessNames = @($script:RustBuildProcessNames) + @('cc1.exe')
 $script:GcBusyBuildProcessNames = @($script:RustBuildProcessNames)
@@ -1240,8 +898,7 @@ function Get-ProcessDescendants {
       .DESCRIPTION
       Every process transitively parented under $RootPid, PID-reuse-safe (a candidate child is only
       accepted when created AFTER the parent it claims, same guard as Test-ParentAlive) -- a build
-      wrapper's job nests procgov one level deep, so a direct-children-only walk would miss the
-      compiler processes underneath it.
+      A direct-children-only walk would miss compiler processes nested below the slot holder.
     #>
     param([Parameter(Mandatory)][int]$RootPid, [Parameter(Mandatory)]$Snapshot)
     $byParent = @{}
@@ -1277,10 +934,8 @@ function Test-ManagedProcessTreeIdle {
       .DESCRIPTION
       True when $RootPid is alive but neither it nor any descendant (Get-ProcessDescendants) matches
       $script:LiveBuildActivityNames plus $ExtraLiveNames -- "alive, but empty of real work". Shared by
-      Test-BuildSlotHolderStale below and Wait-ManagedProcessTree (this file's wedged-procgov
-      detector) so the two never re-derive the same question differently. $ExtraLiveNames exists for
-      `-Mode run`: the launched payload (predict_census.exe, hc-rs.exe, ...) is not a build tool, so
-      without naming it here a legitimate hours-long probe would read as idle and be killed.
+      Test-BuildSlotHolderStale below. $ExtraLiveNames exists for callers that need to classify a
+      non-build payload as live work.
     #>
     param([Parameter(Mandatory)][int]$RootPid, [Parameter(Mandatory)]$Snapshot, [string[]]$ExtraLiveNames = @())
     $root = $Snapshot | Where-Object { $_.ProcessId -eq $RootPid } | Select-Object -First 1
@@ -1297,11 +952,8 @@ function Test-BuildSlotHolderStale {
       A held slot is stale when the holder is alive but doing nothing: past a generous minimum age
       (a real `-Scope all` conformance run legitimately runs tens of minutes, so this must never fire
       mid-build) AND Test-ManagedProcessTreeIdle says its tree matches nothing in
-      $script:LiveBuildActivityNames. Root cause this exists for: `Invoke-ProcessInJobObject`'s wait
-      used to be a bare `Wait-Process -Id $psi.Id` with no timeout, so a procgov process that never
-      exits after its own job empties out was invisible to that function's own `finally` cleanup,
-      which only runs once the wait returns -- Wait-ManagedProcessTree below now closes that gap
-      directly, at the source, rather than leaving this ledger-only sweep as the sole recovery.
+      $script:LiveBuildActivityNames. This remains a recovery path for a live slot holder that has
+      stopped showing compiler activity.
     #>
     param(
         $Holder, $Snapshot,
@@ -1340,213 +992,51 @@ function Remove-StaleBuildSlotHolders {
     }
 }
 
-function Wait-ManagedProcessTree {
-    <#
-      .DESCRIPTION
-      Bounded replacement for a bare `Wait-Process -Id $Process.Id`. Observed live: nextest printed
-      its full summary, every cargo/rustc/link/test process on the machine had exited, yet the outer
-      AND inner procgov.exe stayed alive with a completely empty job tree -- a bare wait on that PID
-      hangs forever, and every caller (pg.ps1, then release.ps1's test gate) hangs with it.
-
-      Liveness of the TREE is the discriminator, never a wall clock alone: this repo's own CLAUDE.md
-      already documents why a fixed deadline is the wrong instrument here (the 30-minute build-slot
-      timeout is arithmetically unreachable under load for exactly that reason, and a real -Scope all
-      run or a fat-LTO relink can legitimately run far longer). A real build keeps at least one
-      $script:LiveBuildActivityNames process alive continuously -- cargo.exe itself spans the whole
-      invocation -- so Test-ManagedProcessTreeIdle only starts reading "idle" the moment the real work
-      has already finished; $MaxIdleMinutes then bounds how long $Process may sit idle after that
-      before it is declared wedged, and is deliberately short (minutes, not the 20-minute ledger
-      threshold above) because nothing legitimate happens between "cargo returned" and "the wrapper
-      also returns".
-
-      Returns Wedged=$true rather than killing anything itself -- the caller already owns $Process's
-      cleanup (Invoke-ProcessInJobObject's existing `finally`) and must not gain a second copy of it.
-
-      $SnapshotProvider/$SleepAction/$WaitAction/$NowProvider are injection seams so the polling loop is testable
-      against synthetic ticks with no real process, no real sleep, and no real clock -- see
-      rust/tools/tests/managed-process-wait.tests.ps1 -- never something production overrides.
-    #>
-    param(
-        [Parameter(Mandatory)]$Process,
-        [int]$PollSeconds = 10,
-        # double, not int: a real-process test needs a sub-minute threshold to stay fast without ever mocking the OS process tree.
-        [double]$MaxIdleMinutes = 3,
-        # Names beyond $script:LiveBuildActivityNames that count as real work in THIS tree -- the launched payload itself, for `-Mode run`.
-        [string[]]$ExtraLiveNames = @(),
-        [scriptblock]$SnapshotProvider = { Get-ProcessSnapshot },
-        # Wait on the process so its exit ends polling immediately.
-        [scriptblock]$SleepAction = $null,
-        [scriptblock]$NowProvider = { Get-Date },
-        # Given the snapshot once the tree reads idle; returns the rows it reaped. procgov waits for its job to EMPTY, so a lingering helper (Remove-LingeringJobHelpers) is the one thing between "cargo returned" and "the wrapper returns".
-        [scriptblock]$LingerReaper = $null,
-        # Passed to $LingerReaper as its second argument, rather than captured in it. See New-JobLingerReaper.
-        [string]$LingerJobName = '',
-        [scriptblock]$WaitAction = { param($ManagedProcess, $Milliseconds) $ManagedProcess.WaitForExit($Milliseconds) }
-    )
-    $idleSince = $null
-    while (-not $Process.HasExited) {
-        $snapshot = & $SnapshotProvider
-        $now = & $NowProvider
-        if (Test-ManagedProcessTreeIdle -RootPid $Process.Id -Snapshot $snapshot -ExtraLiveNames $ExtraLiveNames) {
-            if ($LingerReaper) {
-                # Named refusal, then rethrow: a reaper that cannot run is why a finished build sits here until the idle bound, and it must not read as "nothing to reap".
-                try { $reaped = @(& $LingerReaper $snapshot $LingerJobName) } catch {
-                    Write-Host "[pg] REFUSING to continue: the lingering-helper reaper could not run for job '$LingerJobName' -- $($_.Exception.Message)" -ForegroundColor Red
-                    throw
-                }
-                foreach ($r in $reaped) {
-                    Write-Host "[pg] reaped $($r.Name) (pid $($r.ProcessId)): it outlived the build inside the job and was holding the wrapper open." -ForegroundColor Yellow
-                }
-            }
-            if (-not $idleSince) { $idleSince = $now }
-            elseif (($now - $idleSince).TotalMinutes -ge $MaxIdleMinutes) {
-                return [PSCustomObject]@{ Wedged = $true; IdleSince = $idleSince; ExitCode = $null }
-            }
-        } else {
-            $idleSince = $null
-        }
-        if ($SleepAction) {
-            & $SleepAction $PollSeconds
-        } else {
-            [void](& $WaitAction $Process ($PollSeconds * 1000))
-        }
-    }
-    return [PSCustomObject]@{ Wedged = $false; IdleSince = $null; ExitCode = $Process.ExitCode }
-}
-
-function Invoke-ProcessInJobObject {
-    <#
-      .DESCRIPTION
-      The procgov-wrapping core, extracted out of what used to be the entire body of
-      Invoke-CargoWithReaper so Cargo and an arbitrary long-running PanGloss binary
-      (`pg.ps1 -Mode run` -- predict_census, `pangloss batch`, ...) share process-tree supervision,
-      CPU limiting, and priority handling. A run may also request a memory ceiling. See
-      docs/research/build-resource-governance.md for the incidents this closes.
-
-      JobMemoryGB is optional and reserved for run mode. Managed Cargo builds pass no memory ceiling.
-      Callers resolve CpuRatePercent so build and run slots receive their own share of the machine's
-      CPU budget.
-    #>
+function Invoke-ManagedProcess {
     param(
         [Parameter(Mandatory)][string]$Exe,
-        # NOT named $Args: that's PowerShell's automatic variable, and a parameter of that name silently fails to bind.
         [string[]]$CmdArgs = @(),
         [string]$WorkingDirectory,
-        # corpus-test needs cargo's raw stdout after the run regardless of pass/fail, to sum recorded case counts.
         [string]$CaptureStdoutPath = '',
-        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
-        [Nullable[int]]$JobMemoryGB,
-        [Nullable[int]]$CpuRatePercent,
-        # Purely cosmetic word choice for the "no procgov" warning so it stays accurate for whichever pg.ps1 mode called in.
-        [string]$Subject = 'build',
-        # Wait-ManagedProcessTree tuning; overridable so a caller (or a test) never has to wait on the production default.
-        [int]$WaitPollSeconds = 10,
-        [double]$WaitMaxIdleMinutes = 3,
-        # $null means "derive from $Exe" (the payload counts as live work); a test passes @() to simulate the payload having already exited, the incident's exact shape.
-        [string[]]$WaitExtraLiveNames = $null
+        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal'
     )
-    # Wrap the whole process tree in a Windows job object (via procgov) so the kernel enforces the ceilings.
-    # docs/research/build-resource-governance.md
-    $procgov = Get-ProcGovPath
-    $launchExe = $Exe
-    $launchArgs = $CmdArgs
-    $jobName = $null
-    if ($procgov) {
-        $jobName = "PanGloss-$PID-$([guid]::NewGuid().ToString('N'))"
-        $launchArgs = Get-ProcGovArgs -JobMemoryGB $JobMemoryGB -CpuRatePercent $CpuRatePercent -Priority $Priority -JobName $jobName -Exe $Exe -CmdArgs $CmdArgs
-        $launchExe = $procgov
-        $capDesc = @()
-        if ($null -ne $JobMemoryGB) { $capDesc += "${JobMemoryGB}GB committed memory" }
-        if ($null -ne $CpuRatePercent) { $capDesc += "${CpuRatePercent}% CPU" }
-        Write-Host "[pg] job object: $($capDesc -join ', ') (kernel-enforced across $Exe and every process it spawns)" -ForegroundColor DarkGray
-    } else {
-        Write-Host "[pg] WARNING: procgov not found -- this $Subject runs without its kernel-enforced CPU ceiling or any requested memory ceiling." -ForegroundColor Yellow
-        Write-Host '[pg] Pre-spawn gates and process priority still apply. Install with: winget install LowLevelDesign.ProcessGovernor' -ForegroundColor Yellow
-    }
 
     $psiArgs = @{
-        FilePath         = $launchExe
-        ArgumentList     = $launchArgs
+        FilePath         = $Exe
+        ArgumentList     = $CmdArgs
         WorkingDirectory = $WorkingDirectory
         NoNewWindow      = $true
         PassThru         = $true
     }
     if ($CaptureStdoutPath) { $psiArgs['RedirectStandardOutput'] = $CaptureStdoutPath }
-    # Start-Process so we hold a real PID to reap: only `taskkill /T` reliably kills rustc/link.exe descendants on Windows.
-    $psi = Start-Process @psiArgs
 
-    if ($jobName) {
-        # Never set procgov's own priority class: it is not in the job it creates, and the call broke that job's setup in 5 of 8 measured launches.
-        $hold = Wait-JobObjectTakesHold -Process $psi -JobName $jobName
-        if (-not $hold.Held) {
-            Write-Host "[pg] REFUSING to launch: procgov (pid $($psi.Id)) never put anything inside job object '$jobName'." -ForegroundColor Red
-            Write-Host '[pg]   The limit table procgov prints is a REQUEST; the kernel counted no process in the job, so CPU limits and process-tree cleanup cannot be verified.' -ForegroundColor Red
-            Write-Host "[pg] exit $script:ExitCodeJobObjectNeverHeld means exactly this: job-object setup could not be verified, so the $Subject was not started." -ForegroundColor Red
-            & taskkill /T /F /PID $psi.Id 2>$null | Out-Null
-            [void](Terminate-ProcGovJob -JobName $jobName)
-            exit $script:ExitCodeJobObjectNeverHeld
-        }
-        if ($hold.Reason -eq 'members') {
-            Write-Host "[pg] job object '$jobName' holds $($hold.ActiveProcesses) process(es) -- the ceiling is applied, not just requested." -ForegroundColor DarkGray
-        }
-    } else {
-        # Without procgov, $psi IS the payload, and Windows propagates BelowNormal to its children for free.
-        # docs/research/build-resource-governance.md
+    $psi = $null
+    try {
+        $psi = Start-Process @psiArgs
         try {
-            if (-not $psi.HasExited) { $psi.PriorityClass = $Priority }
+            if (-not $psi.HasExited) { [void]($psi.PriorityClass = $Priority) }
         } catch {
             Write-Host "[pg] note: could not set $Priority priority on $Exe (pid $($psi.Id)): $($_.Exception.Message)" -ForegroundColor DarkGray
         }
-    }
-
-    # Bounded, tree-liveness-aware wait -- see Wait-ManagedProcessTree's own doc for the wedge this replaced.
-    try {
-        if ($null -eq $WaitExtraLiveNames) {
-            # The payload IS the work for `-Mode run -Exe`: without this, an hours-long predict_census.exe would read as idle and be killed at the bound.
-            $payloadName = [System.IO.Path]::GetFileName($Exe)
-            if ($payloadName -and -not [System.IO.Path]::GetExtension($payloadName)) { $payloadName = "$payloadName.exe" }
-            $WaitExtraLiveNames = @($payloadName)
-        }
-        $reaper = if ($jobName) { New-JobLingerReaper } else { $null }
-        $wait = Wait-ManagedProcessTree -Process $psi -PollSeconds $WaitPollSeconds -MaxIdleMinutes $WaitMaxIdleMinutes -ExtraLiveNames $WaitExtraLiveNames -LingerReaper $reaper -LingerJobName $jobName
-        if ($wait.Wedged) {
-            $liveNames = @($script:LiveBuildActivityNames) + @($WaitExtraLiveNames)
-            Write-Host "[pg] REFUSING to wait any longer: pid $($psi.Id) ($launchExe) is alive but its process tree has matched none of {$($liveNames -join ', ')} for ${WaitMaxIdleMinutes}+ minute(s) (idle since $($wait.IdleSince))." -ForegroundColor Red
-            if ($jobName) { Write-Host "[pg]   job object: $jobName -- terminating it now, along with pid $($psi.Id)." -ForegroundColor Red }
-            Write-Host "[pg] exit $script:ExitCodeManagedProcessWedged means exactly this: the wrapper's own work already finished and it never returned on its own." -ForegroundColor Red
-            exit $script:ExitCodeManagedProcessWedged
-        }
-        return $wait.ExitCode
+        [void]$psi.WaitForExit()
+        return $psi.ExitCode
     } finally {
-        if (-not $psi.HasExited) {
+        if ($psi -and -not $psi.HasExited) {
             & taskkill /T /F /PID $psi.Id 2>$null | Out-Null
-        }
-        # Belt-and-braces: catches anything taskkill's PID-tree walk missed after a re-parent.
-        if ($jobName) {
-            [void](Terminate-ProcGovJob -JobName $jobName)
         }
     }
 }
 
 function Invoke-CargoWithReaper {
-    <#
-      .DESCRIPTION
-      Cargo-specific front end onto Invoke-ProcessInJobObject, kept as its own function rather than
-      inlining the CPU-rate derivation at every call site. Ordinary managed Cargo launches have no
-      procgov committed-memory ceiling.
-    #>
     param(
         [string]$Exe,
         [string[]]$CmdArgs,
         [string]$WorkingDirectory,
         [string]$CaptureStdoutPath = '',
-        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
-        # This invocation's own width, so its CPU ceiling is its share rather than the whole machine's; 0 keeps the pre-split behavior.
-        [int]$Threads = 0
+        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal'
     )
-    $cpuRate = if ($Threads -gt 0) { Get-JobCpuRatePercent -Threads $Threads } else { Get-JobCpuRatePercent }
-    return Invoke-ProcessInJobObject -Exe $Exe -CmdArgs $CmdArgs -WorkingDirectory $WorkingDirectory `
-        -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority -CpuRatePercent $cpuRate -Subject 'build'
+    return Invoke-ManagedProcess -Exe $Exe -CmdArgs $CmdArgs -WorkingDirectory $WorkingDirectory `
+        -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority
 }
 
 function Get-LiveWorktreeSlugs {
@@ -1624,74 +1114,6 @@ function Remove-OrphanedCargoProcesses {
                 Write-Host "[gc] killing orphan PID $($p.ProcessId) ($($p.Name))" -ForegroundColor Yellow
                 & taskkill /T /F /PID $p.ProcessId 2>$null | Out-Null
             }
-        }
-    }
-}
-
-# The ONLY process names the governor sweep may consider -- named for the same reason $script:ReapableScanNames is.
-$script:ReapableGovernorNames = @('procgov.exe')
-
-function Test-ReapableGovernorProcess {
-    <#
-      .DESCRIPTION
-      Pure decision behind Remove-OrphanedGovernorProcesses, split from the killing so the safety
-      properties are testable without spawning or terminating anything real. Returns $true only when
-      ALL of:
-        - the name is in $script:ReapableGovernorNames, so a compiler can never be selected;
-        - the parent is genuinely gone (PID-reuse-safe, see Test-ParentAlive);
-        - it governs NOTHING: no process in the snapshot is still its child.
-
-      That last condition is the one that matters. `Invoke-ManagedProcess` launches procgov as the
-      job-object owner of a whole build tree, so a procgov whose launcher died while cargo and rustc
-      are still running underneath it is supervising live work -- reaping it would orphan (and with
-      /T, kill) another worktree's build. A procgov with a dead parent and no children supervises
-      nothing and cannot acquire one: procgov spawns its child at startup or not at all.
-
-      Deliberately NOT gated on CPU, unlike Test-ReapableScanProcess: a governor is idle by design
-      (the observed orphans had burned 0.25-0.33s across half an hour), so a CPU floor would exclude
-      exactly the processes this sweep exists to remove. Childlessness carries the whole argument.
-    #>
-    param(
-        $Proc, $Snapshot,
-        [int]$MinAgeMinutes = 2,
-        [datetime]$Now = (Get-Date)
-    )
-    if ($Proc.Name -notin $script:ReapableGovernorNames) { return $false }
-    if (Test-ParentAlive -Proc $Proc -Snapshot $Snapshot) { return $false }
-    $ageMin = if ($Proc.CreationDate) { ($Now - $Proc.CreationDate).TotalMinutes } else { 0 }
-    if ($ageMin -lt $MinAgeMinutes) { return $false }
-    foreach ($c in $Snapshot) {
-        if ($c.ProcessId -eq $Proc.ProcessId) { continue }
-        if ($c.ParentProcessId -ne $Proc.ProcessId) { continue }
-        # Same PID-reuse guard Test-ParentAlive applies: a "child" predating this process is not its child.
-        if ($c.CreationDate -and $Proc.CreationDate -and $c.CreationDate -lt $Proc.CreationDate) { continue }
-        return $false
-    }
-    return $true
-}
-
-function Remove-OrphanedGovernorProcesses {
-    <#
-      .DESCRIPTION
-      Reaps procgov processes left behind when their launching shell died -- see
-      Test-ReapableGovernorProcess for why childlessness is the safety condition. These leak one
-      process and one job object per abandoned run and are invisible to Remove-OrphanedCargoProcesses,
-      whose name list covers only the compiler binaries.
-
-      They do NOT hold a build slot: the slot mutex is held by the launching shell, and the kernel
-      hands an abandoned mutex to the next waiter (see Enter-ResourceSlot). This sweep is process and
-      job-object hygiene, not queue recovery.
-    #>
-    param([switch]$WhatIfOnly = $true, $Snapshot = $null)
-    if (-not $Snapshot) { $Snapshot = Get-ProcessSnapshot }
-    foreach ($p in $Snapshot) {
-        if (-not (Test-ReapableGovernorProcess -Proc $p -Snapshot $Snapshot)) { continue }
-        if ($WhatIfOnly) {
-            Write-Host "[gc] would kill orphaned governor PID $($p.ProcessId) ($($p.Name), parent $($p.ParentProcessId) is dead, governs nothing)" -ForegroundColor Yellow
-        } else {
-            Write-Host "[gc] killing orphaned governor PID $($p.ProcessId) ($($p.Name))" -ForegroundColor Yellow
-            # /F without /T: childlessness is this sweep's precondition, so there is no tree to walk.
-            & taskkill /F /PID $p.ProcessId 2>$null | Out-Null
         }
     }
 }
@@ -1836,20 +1258,14 @@ $script:ExitCodeWorktreeMismatch = 19
 $script:ExitCodeConformanceScopeUnclaimed = 20
 # Linux managed spawning requires proof that this wrapper is already under a finite host cgroup cap.
 $script:ExitCodeLinuxHostContainment = 21
-# An explicit per-run memory override cannot be honored on Linux; the service cgroup owns the cap.
-$script:ExitCodeLinuxRunMemoryOverride = 22
 $script:ExitCodeUnsupportedPlatform = 23
 $script:ExitCodeLinuxGcUnsupported = 24
 # oracle-conformance.ps1: dotnet or hc-conformance.exe not found -- "I could not look" must exit loud.
 $script:ExitCodeOracleUnavailable = 25
 # oracle-conformance.ps1: a signature/load-failure mismatch outside the known-divergence baseline.
 $script:ExitCodeOracleDivergence = 26
-# Wait-ManagedProcessTree declared $Process (procgov, or the bare exe without it) wedged: alive, tree idle past the bound.
-$script:ExitCodeManagedProcessWedged = 27
 # -Mode release compiled but produced nothing exportable: the deliverable exists only in a reclaimable cache, so the build is not a pass.
 $script:ExitCodeReleaseArtifactNotExported = 28
-# Wait-JobObjectTakesHold found nothing inside the job procgov was told to create: the ceiling was printed but never applied.
-$script:ExitCodeJobObjectNeverHeld = 29
 
 function Get-FilterZeroMatchHint {
     <#
@@ -2620,7 +2036,7 @@ function Write-Preflight {
         [int]$Jobs = 0,
         [switch]$JobsExplicit,
         $JobsBudget = $null,
-        [double]$PerJobMemoryGB = 0,
+        [double]$MemoryPerJobGB = 0,
         [int]$TestThreads = 0,
         $TestThreadsBudget = $null,
         [string]$Priority = '',
@@ -2707,7 +2123,7 @@ function Write-Preflight {
             'explicit -Jobs override'
         } elseif ($JobsBudget -and $JobsBudget.Bound -eq 'memory') {
             # Memory can bind the number instead of CPU; the CPU derivation is still true arithmetic but no longer the reason.
-            $perJob = if ($PerJobMemoryGB -gt 0) { $PerJobMemoryGB } else { $script:MemoryPerCompileJobGB }
+            $perJob = if ($MemoryPerJobGB -gt 0) { $MemoryPerJobGB } else { $script:MemoryPerCompileJobGB }
             $ltoNote = if ($perJob -eq $script:MemoryPerLtoLinkJobGB) { ' (fat-LTO link peak)' } else { '' }
             "$($JobsBudget.Detail); ${perJob}GB/job assumed${ltoNote} over a $(Get-InteractiveReserveGB)GB reserve, split across $MaxConcurrent slot(s)"
         } else {

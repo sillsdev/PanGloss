@@ -107,43 +107,4 @@ Test-Case 'the reapable-name list contains no Rust build binary' {
     }
 }
 
-Test-Case 'an orphaned governor that supervises nothing is reapable' {
-    # The observed leak: procgov outliving its launching shell with no build under it.
-    $gov = New-FakeProc -Pid_ 400 -Name 'procgov.exe' -ParentPid 999 -Created $now.AddMinutes(-30)
-    Assert-True (Test-ReapableGovernorProcess -Proc $gov -Snapshot ($snapshot + $gov) -Now $now)
-}
-
-Test-Case 'PLAY NICELY: an orphaned governor still supervising a live build is NEVER reapable' {
-    # Launcher died but cargo/rustc still run underneath: this governor owns another worktree's build.
-    $gov = New-FakeProc -Pid_ 401 -Name 'procgov.exe' -ParentPid 999 -Created $now.AddMinutes(-30)
-    $build = New-FakeProc -Pid_ 402 -Name 'cargo.exe' -ParentPid 401 -Created $now.AddMinutes(-29)
-    Assert-False (Test-ReapableGovernorProcess -Proc $gov -Snapshot ($snapshot + $gov + $build) -Now $now)
-}
-
-Test-Case 'a governor whose parent is alive is never reapable' {
-    $gov = New-FakeProc -Pid_ 403 -Name 'procgov.exe' -ParentPid 100 -Created $now.AddMinutes(-10)
-    Assert-False (Test-ReapableGovernorProcess -Proc $gov -Snapshot ($snapshot + $gov) -Now $now)
-}
-
-Test-Case 'a freshly started orphaned governor is left alone (age threshold)' {
-    $fresh = New-FakeProc -Pid_ 404 -Name 'procgov.exe' -ParentPid 999 -Created $now.AddSeconds(-20)
-    Assert-False (Test-ReapableGovernorProcess -Proc $fresh -Snapshot ($snapshot + $fresh) -Now $now)
-}
-
-Test-Case 'PID reuse: a "child" predating the governor does not protect it' {
-    # Without the creation-time guard a recycled PID reads as a live child and the orphan survives forever.
-    $gov = New-FakeProc -Pid_ 405 -Name 'procgov.exe' -ParentPid 999 -Created $now.AddMinutes(-30)
-    $stale = New-FakeProc -Pid_ 406 -Name 'cargo.exe' -ParentPid 405 -Created $now.AddMinutes(-90)
-    Assert-True (Test-ReapableGovernorProcess -Proc $gov -Snapshot ($snapshot + $gov + $stale) -Now $now)
-}
-
-Test-Case 'PLAY NICELY: no Rust build process is ever reapable by the governor sweep' {
-    foreach ($n in 'cargo.exe', 'rustc.exe', 'link.exe', 'cc1.exe', 'cargo-nextest.exe', 'sccache.exe') {
-        $rust = New-FakeProc -Pid_ 407 -Name $n -ParentPid 999 -Created $now.AddHours(-3)
-        Assert-False (Test-ReapableGovernorProcess -Proc $rust -Snapshot ($snapshot + $rust) -Now $now) `
-            "$n must never be selected by the governor sweep"
-        Assert-False ($script:ReapableGovernorNames -contains $n) "$n must not be in ReapableGovernorNames"
-    }
-}
-
 Write-TestSummary
