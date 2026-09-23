@@ -43,11 +43,17 @@ Test-Case 'the reserve scales with installed memory instead of being a flat numb
     Assert-True ($small -lt $big) "reserve must scale (16GB machine got $small, 64GB got $big)"
 }
 
-Test-Case 'a 16GB developer machine is not asked to keep half its RAM free' {
-    # A flat 8GB reserve is 50% of a 16GB box, so no build could start unless half of RAM were free.
-    $floor = Get-SpawnFloorGB -TotalGB 16
-    Assert-True ($floor -lt (16 * 0.35)) "spawn floor ${floor}GB is too large a share of a 16GB machine"
-    Assert-True ($floor -ge $script:MinBuildRoomGB) "must still leave room for the build to progress (got $floor)"
+Test-Case 'the spawn floor is a flat 2GB regardless of installed memory' {
+    # A local model holding tens of GB must not stop a build that needs ~2GB to start.
+    $old = $env:PANGLOSS_MIN_FREE_MEM_GB
+    try {
+        Remove-Item Env:PANGLOSS_MIN_FREE_MEM_GB -ErrorAction SilentlyContinue
+        Assert-Equal 2 (Get-SpawnFloorGB -TotalGB 16)
+        Assert-Equal 2 (Get-SpawnFloorGB -TotalGB 64)
+        Assert-True (Test-MemoryReserve -AvailableGB 3).Ok 'a build with 3GB available must be admitted'
+    } finally {
+        if ($null -ne $old) { $env:PANGLOSS_MIN_FREE_MEM_GB = $old }
+    }
 }
 
 Test-Case 'the reserve is clamped at both ends' {

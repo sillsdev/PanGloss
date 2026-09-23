@@ -123,14 +123,16 @@ function Get-InteractiveReserveGB {
 function Get-SpawnFloorGB {
     <#
       .DESCRIPTION
-      The "do not start a build" line: daemon headroom (Get-InteractiveReserveGB) plus enough room
-      for the build itself to make progress ($script:MinBuildRoomGB).
+      The "do not start a build" line: a flat 2GB of available physical memory
+      ($script:MinBuildRoomGB), overridable with PANGLOSS_MIN_FREE_MEM_GB.
 
-      This threshold turns a hopeless start into a clear message instead of a mid-build allocation
-      failure. It is sized to leave room for the build while remaining generous to the developer.
+      It only turns a hopeless start into a clear message instead of a mid-build allocation
+      failure. The interactive reserve narrows -j (Get-MemoryProcessBudget); it does not refuse
+      the build, because a larger floor refused ordinary builds while a local model held RAM.
     #>
     param([Nullable[double]]$TotalGB = (Get-TotalMemoryGB))
-    return [math]::Round(((Get-InteractiveReserveGB -TotalGB $TotalGB) + $script:MinBuildRoomGB), 1)
+    if ($env:PANGLOSS_MIN_FREE_MEM_GB) { return [double]$env:PANGLOSS_MIN_FREE_MEM_GB }
+    return [math]::Round($script:MinBuildRoomGB, 1)
 }
 # Working-set allowance per concurrent process (compile / fat-LTO link / test).
 # docs/research/build-resource-governance.md

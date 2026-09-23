@@ -20,7 +20,8 @@ mechanism has one clear responsibility.
 Admission is deliberately a spawn gate, not a promise that memory remains
 constant for the lifetime of a process. A memory estimate is used to choose a
 safe concurrency budget; the process itself is not given a kernel-enforced
-memory ceiling.
+memory ceiling. The refusal floor is a flat 2GB of available physical memory
+(`PANGLOSS_MIN_FREE_MEM_GB` overrides it); the interactive reserve only narrows `-j`.
 
 ## Managed process launch
 
