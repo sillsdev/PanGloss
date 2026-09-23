@@ -88,7 +88,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/stratum.rs` (`synthesize_stratum_traced`) | 043 |
 | `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
 | `pg-cli/src/main.rs` (`run_batch`, `parse_batch_with_stats`) | 048 |
-| `pg-cli/src/stats_cmd.rs` (`run_batch_stats_hc`) | 048 |
+| `pg-cli/src/stats_cmd.rs` (`prepare_batch_stats_hc`, `finish_batch_stats_hc`) | 048 |
 
 ## By fixture / test file
 

@@ -81,10 +81,17 @@ mod alloc_trace;
 #[cfg(test)]
 mod test_support;
 
+use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{
@@ -94,28 +101,31 @@ use pg_parse::{
 };
 use pg_stats::StepCap;
 
-#[cfg(test)]
-thread_local! {
-    static BATCH_PARSE_FIRES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+#[derive(Clone)]
+struct BatchParseCounter {
+    #[cfg(test)]
+    fires: Arc<AtomicUsize>,
 }
 
-#[cfg(test)]
-pub(crate) fn record_batch_parse_fire() {
-    BATCH_PARSE_FIRES.with(|count| count.set(count.get() + 1));
+impl Default for BatchParseCounter {
+    fn default() -> Self {
+        Self {
+            #[cfg(test)]
+            fires: Arc::new(AtomicUsize::new(0)),
+        }
+    }
 }
 
-#[cfg(not(test))]
-#[inline(always)]
-pub(crate) fn record_batch_parse_fire() {}
+impl BatchParseCounter {
+    fn record(&self) {
+        #[cfg(test)]
+        self.fires.fetch_add(1, Ordering::Relaxed);
+    }
 
-#[cfg(test)]
-pub(crate) fn reset_batch_parse_fires() -> usize {
-    BATCH_PARSE_FIRES.with(|count| count.replace(0))
-}
-
-#[cfg(test)]
-pub(crate) fn batch_parse_fires() -> usize {
-    BATCH_PARSE_FIRES.with(std::cell::Cell::get)
+    #[cfg(test)]
+    fn count(&self) -> usize {
+        self.fires.load(Ordering::Relaxed)
+    }
 }
 
 mod assess;
@@ -712,6 +722,7 @@ fn parse_batch_with_opts(
     words: &[String],
     max_threads: usize,
     opts: &pg_parse::ParseOptions,
+    parse_counter: &BatchParseCounter,
 ) -> Vec<pg_parse::BatchWordOutcome> {
     use rayon::prelude::*;
     if words.is_empty() {
@@ -729,7 +740,7 @@ fn parse_batch_with_opts(
             .par_iter()
             .map(|word| {
                 let start = Instant::now();
-                record_batch_parse_fire();
+                parse_counter.record();
                 let outcome = morpher.parse_word_opts(word, opts);
                 let elapsed = start.elapsed();
                 pg_parse::BatchWordOutcome { outcome, elapsed }
@@ -749,7 +760,10 @@ fn parse_batch_with_stats(
     words: &[String],
     max_threads: usize,
     opts: &pg_parse::ParseOptions,
-) -> Vec<BatchWordRun> {
+    start_idx: usize,
+    existing_words: &HashSet<String>,
+    parse_counter: &BatchParseCounter,
+) -> Vec<Option<BatchWordRun>> {
     use rayon::prelude::*;
     if words.is_empty() {
         return Vec::new();
@@ -764,9 +778,13 @@ fn parse_batch_with_stats(
     pool.install(|| {
         words
             .par_iter()
-            .map(|word| {
+            .enumerate()
+            .map(|(index, word)| {
+                if index < start_idx && existing_words.contains(word.as_str()) {
+                    return None;
+                }
                 let start = Instant::now();
-                record_batch_parse_fire();
+                parse_counter.record();
                 let (outcome, rows, prune_rows) =
                     morpher.parse_word_with_stats_and_prunes(word, opts);
                 let result = pg_parse::BatchWordOutcome {
@@ -774,16 +792,30 @@ fn parse_batch_with_stats(
                     elapsed: start.elapsed(),
                 };
                 let stats = stats_cmd::batch_stats_word(grammar, word, &result, &rows, &prune_rows);
-                BatchWordRun {
+                Some(BatchWordRun {
                     outcome: result,
                     stats: Some(stats),
-                }
+                })
             })
             .collect()
     })
 }
 
 fn run_batch(args: &[String]) -> Result<(), String> {
+    run_batch_with_counter(args, &BatchParseCounter::default())
+}
+
+#[cfg(test)]
+pub(crate) fn run_batch_counted(args: &[String]) -> Result<usize, String> {
+    let parse_counter = BatchParseCounter::default();
+    run_batch_with_counter(args, &parse_counter)?;
+    Ok(parse_counter.count())
+}
+
+fn run_batch_with_counter(
+    args: &[String],
+    parse_counter: &BatchParseCounter,
+) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut step_cap: StepCap = DEFAULT_STEP_CAP;
     // --word-timeout-ms: an optional wall-clock deadline per word, independent of --step-cap; None (omitted) is a complete no-op.
@@ -950,6 +982,19 @@ fn run_batch(args: &[String]) -> Result<(), String> {
     // --guess omitted is exactly ParseOptions::default(), so parse_word_opts below is byte-identical to parse_word(word).
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
     let mut stats_words = Vec::new();
+    let stats_cache = if stats_requested {
+        Some(stats_cmd::prepare_batch_stats_hc(
+            grammar_path,
+            &words,
+            step_cap,
+            word_timeout_ms,
+            guess,
+            always_enforce_final_templates,
+            cache_path_arg.as_deref(),
+        )?)
+    } else {
+        None
+    };
 
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
     let t_parse = Instant::now();
@@ -957,9 +1002,12 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         // Legacy sequential path: STARTED sentinel + per-line flush, crash-resumable.
         for (i, word) in words.iter().enumerate() {
             if i < start_idx {
-                if stats_requested {
+                if stats_cache
+                    .as_ref()
+                    .is_some_and(|cache| !cache.contains(word))
+                {
                     let start = Instant::now();
-                    record_batch_parse_fire();
+                    parse_counter.record();
                     let (outcome, rows, prune_rows) =
                         morpher.parse_word_with_stats_and_prunes(word, &opts);
                     let result = pg_parse::BatchWordOutcome {
@@ -981,7 +1029,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
             w.flush().map_err(|e| e.to_string())?;
             let start = Instant::now();
             let (result, stats) = if stats_requested {
-                record_batch_parse_fire();
+                parse_counter.record();
                 let (outcome, rows, prune_rows) =
                     morpher.parse_word_with_stats_and_prunes(word, &opts);
                 let result = pg_parse::BatchWordOutcome {
@@ -992,7 +1040,7 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     stats_cmd::batch_stats_word(&grammar, word, &result, &rows, &prune_rows);
                 (result, Some(stats))
             } else {
-                record_batch_parse_fire();
+                parse_counter.record();
                 let outcome = morpher.parse_word_opts(word, &opts);
                 (
                     pg_parse::BatchWordOutcome {
@@ -1177,13 +1225,25 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         // Parallel path: hc_parse_batch parallelizes internally and returns results already reindexed to original word order; buffered and written once, no STARTED lines, so --start only skips work with no per-word crash-resume in this mode.
         let remaining = &words[start_idx..];
         let (results, result_start) = if stats_requested {
+            let cache = stats_cache
+                .as_ref()
+                .expect("--stats initializes the batch stats cache before parsing");
             (
-                parse_batch_with_stats(&morpher, &grammar, &words, threads, &opts),
+                parse_batch_with_stats(
+                    &morpher,
+                    &grammar,
+                    &words,
+                    threads,
+                    &opts,
+                    start_idx,
+                    cache.existing_words(),
+                    parse_counter,
+                ),
                 0,
             )
         } else {
             let results = if guess {
-                parse_batch_with_opts(&morpher, remaining, threads, &opts)
+                parse_batch_with_opts(&morpher, remaining, threads, &opts, parse_counter)
             } else {
                 hc_parse_batch(&morpher, remaining, threads)
             };
@@ -1194,12 +1254,16 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                         outcome,
                         stats: None,
                     })
+                    .map(Some)
                     .collect(),
                 start_idx,
             )
         };
-        for (j, mut result) in results.into_iter().enumerate() {
+        for (j, result) in results.into_iter().enumerate() {
             let i = result_start + j;
+            let Some(mut result) = result else {
+                continue;
+            };
             if let Some(stats) = result.stats.take() {
                 stats_words.push(stats);
             }
@@ -1256,17 +1320,8 @@ fn run_batch(args: &[String]) -> Result<(), String> {
         timed_out_words,
         threads,
     );
-    if stats_requested {
-        let _ = stats_cmd::run_batch_stats_hc(
-            grammar_path,
-            &words,
-            stats_words,
-            step_cap,
-            word_timeout_ms,
-            guess,
-            always_enforce_final_templates,
-            cache_path_arg.as_deref(),
-        )?;
+    if let Some(stats_cache) = stats_cache {
+        let _ = stats_cmd::finish_batch_stats_hc(stats_cache, stats_words)?;
     }
     Ok(())
 }

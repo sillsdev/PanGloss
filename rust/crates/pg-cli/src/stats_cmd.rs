@@ -1,6 +1,6 @@
 //! The HC `batch --stats` cache-writing path and the `stats` subcommand's cache-reading/reporting side of `pg_stats::StatsCache`, including synthetic Foma-cache report semantics.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -295,7 +295,7 @@ fn finish_stats_flush(
     }
 
     println!(
-        "stats: analyzed={analyzed} skipped={skipped} elapsed_ms={:.3}",
+        "stats: analyzed={analyzed} skipped={skipped} summed_word_ms={:.3}",
         elapsed.as_secs_f64() * 1e3
     );
     Ok(())
@@ -338,20 +338,38 @@ pub(crate) fn batch_stats_word(
     }
 }
 
+pub(crate) struct BatchStatsCache {
+    cache: pg_stats::StatsCache,
+    grammar_path: String,
+    grammar_hash: String,
+    existing_words: HashSet<String>,
+    skipped: usize,
+    options: StatsOptionsRecord,
+}
+
+impl BatchStatsCache {
+    pub(crate) fn contains(&self, word: &str) -> bool {
+        self.existing_words.contains(word)
+    }
+
+    pub(crate) fn existing_words(&self) -> &HashSet<String> {
+        &self.existing_words
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run_batch_stats_hc(
+pub(crate) fn prepare_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
-    stats_words: Vec<BatchStatsWord>,
     step_cap: StepCap,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
-) -> Result<pg_rules::stats::PruneCounters, String> {
+) -> Result<BatchStatsCache, String> {
     let grammar_hash = grammar_hash_for(grammar_path)?;
     let cache_path = resolve_cache_path(grammar_path, cache_override)?;
-    let mut outcome =
+    let outcome =
         pg_stats::StatsCache::open(&cache_path, &grammar_hash).map_err(|e| e.to_string())?;
     if outcome.wiped {
         println!(
@@ -379,11 +397,36 @@ pub(crate) fn run_batch_stats_hc(
         .iter()
         .filter(|word| existing.contains(word.as_str()))
         .count();
+
+    Ok(BatchStatsCache {
+        cache: outcome.cache,
+        grammar_path: grammar_path.to_owned(),
+        grammar_hash,
+        existing_words: existing,
+        skipped,
+        options: StatsOptionsRecord {
+            engine: "hc",
+            step_cap: Some(step_cap),
+            word_timeout_ms,
+            guess,
+            always_enforce_final_templates,
+        },
+    })
+}
+
+pub(crate) fn finish_batch_stats_hc(
+    mut prepared: BatchStatsCache,
+    stats_words: Vec<BatchStatsWord>,
+) -> Result<pg_rules::stats::PruneCounters, String> {
     let mut prune_totals = pg_rules::stats::PruneCounters::default();
     let mut total_elapsed_ns = 0u128;
     let records: Vec<_> = stats_words
         .into_iter()
-        .filter(|stats_word| !existing.contains(stats_word.record.form.as_str()))
+        .filter(|stats_word| {
+            !prepared
+                .existing_words
+                .contains(stats_word.record.form.as_str())
+        })
         .map(|stats_word| {
             prune_totals.template_entries += stats_word.prunes.template_entries;
             prune_totals.template_batteries_skipped += stats_word.prunes.template_batteries_skipped;
@@ -393,25 +436,41 @@ pub(crate) fn run_batch_stats_hc(
         })
         .collect();
     let total_elapsed = Duration::from_nanos(total_elapsed_ns.min(u128::from(u64::MAX)) as u64);
-
-    let options = StatsOptionsRecord {
-        engine: "hc",
-        step_cap: Some(step_cap),
-        word_timeout_ms,
-        guess,
-        always_enforce_final_templates,
-    };
     finish_stats_flush(
-        &mut outcome.cache,
-        grammar_path,
-        &grammar_hash,
-        &options,
+        &mut prepared.cache,
+        &prepared.grammar_path,
+        &prepared.grammar_hash,
+        &prepared.options,
         records,
-        skipped,
+        prepared.skipped,
         total_elapsed,
     )?;
     println!("{}", final_template_stats_line(prune_totals));
     Ok(prune_totals)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg(test)]
+pub(crate) fn run_batch_stats_hc(
+    grammar_path: &str,
+    words: &[String],
+    stats_words: Vec<BatchStatsWord>,
+    step_cap: StepCap,
+    word_timeout_ms: Option<u64>,
+    guess: bool,
+    always_enforce_final_templates: bool,
+    cache_override: Option<&str>,
+) -> Result<pg_rules::stats::PruneCounters, String> {
+    let prepared = prepare_batch_stats_hc(
+        grammar_path,
+        words,
+        step_cap,
+        word_timeout_ms,
+        guess,
+        always_enforce_final_templates,
+        cache_override,
+    )?;
+    finish_batch_stats_hc(prepared, stats_words)
 }
 
 // The `stats` subcommand: read-only, no grammar loaded.
@@ -2078,20 +2137,30 @@ mod tests {
         (args, out_path)
     }
 
-    fn stable_batch_fields(tsv: &str) -> Vec<[String; 4]> {
-        tsv.lines()
-            .filter_map(|line| {
-                let columns: Vec<_> = line.split('\t').collect();
-                (columns.len() == 5).then(|| {
-                    [
-                        columns[0].to_owned(),
-                        columns[1].to_owned(),
-                        columns[3].to_owned(),
-                        columns[4].to_owned(),
-                    ]
-                })
-            })
-            .collect()
+    fn stable_batch_fields(tsv: &str) -> Vec<Vec<String>> {
+        let mut rows = Vec::new();
+        for line in tsv.lines() {
+            let columns: Vec<_> = line.split('\t').collect();
+            if columns.len() == 3 && columns[2] == "STARTED" {
+                continue;
+            }
+            assert!(
+                matches!(columns.len(), 5 | 6),
+                "batch TSV result row must have five or six columns: {line:?}"
+            );
+            rows.push(
+                columns
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, value)| (index != 2).then(|| value.to_owned()))
+                    .collect(),
+            );
+        }
+        assert!(
+            !rows.is_empty(),
+            "batch TSV must contain at least one result row"
+        );
+        rows
     }
 
     fn legacy_stats_words(
@@ -2210,11 +2279,9 @@ mod tests {
             &["--threads", "1", "--cache", cache_path.to_str().unwrap()],
         );
 
-        crate::reset_batch_parse_fires();
-        crate::run_batch(&args).expect("plain batch run");
+        let plain_fires = crate::run_batch_counted(&args).expect("plain batch run");
         assert_eq!(
-            crate::batch_parse_fires(),
-            2,
+            plain_fires, 2,
             "plain batch should enter the Morpher once per word"
         );
 
@@ -2230,14 +2297,53 @@ mod tests {
                 cache_path.to_str().unwrap(),
             ],
         );
-        crate::reset_batch_parse_fires();
-        crate::run_batch(&stats_args).expect("stats batch run");
+        let stats_fires = crate::run_batch_counted(&stats_args).expect("stats batch run");
 
         assert_eq!(
-            crate::batch_parse_fires(),
-            2,
+            stats_fires, 2,
             "each uncached word should enter the Morpher once when --stats is enabled"
         );
+
+        let cached_dir = scratch_dir("single-parse-cached-prefix-seed");
+        let cached_path = cached_dir.join("cache.sqlite3");
+        let (seed_args, _) = run_batch_args(
+            &cached_dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &[
+                "--threads",
+                "1",
+                "--stats",
+                "--cache",
+                cached_path.to_str().unwrap(),
+            ],
+        );
+        crate::run_batch(&seed_args).expect("seed first word into stats cache");
+
+        let remaining_words = format!("{word}\n{word}x\n{word}y\n");
+        for threads in ["1", "2"] {
+            let dir = scratch_dir(&format!("single-parse-cached-prefix-{threads}-threads"));
+            let (args, _) = run_batch_args(
+                &dir,
+                &grammar_xml,
+                &remaining_words,
+                &[
+                    "--threads",
+                    threads,
+                    "--start",
+                    "1",
+                    "--stats",
+                    "--cache",
+                    cached_path.to_str().unwrap(),
+                ],
+            );
+            let fires = crate::run_batch_counted(&args).expect("cached-prefix stats batch run");
+            assert_eq!(
+                fires,
+                2,
+                "with --threads {threads}, a cached word before --start must be skipped and each of the two output words must be parsed once"
+            );
+        }
     }
 
     #[test]
