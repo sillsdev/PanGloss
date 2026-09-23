@@ -1,5 +1,6 @@
 //! Morphological-rule tests: hand-built affix-process/compounding rules against expected shapes and morph records, cross-referenced to C#'s HermitCrab unit tests, plus structural coverage over the real Sena grammar.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::{load_alpha_grammar, nat_class};

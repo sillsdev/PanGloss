@@ -1,5 +1,6 @@
 //! Ports `LexEntryTests` (`SIL.Machine.Morphology.HermitCrab.Tests`). Grammar/lexicon shared via `csharp_port_common` (entries `disj`/`free`/`54` transcribed verbatim from `HermitCrabTestBase.cs`); every test drives `pg_parse::Morpher::parse_word`, matching each C# test's own `ParseWord` calls, with expected values transcribed from `AssertMorphsEqual`/`Is.Empty` literals.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar};
 use pg_parse::Morpher;

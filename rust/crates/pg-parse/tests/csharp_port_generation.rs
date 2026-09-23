@@ -1,5 +1,6 @@
 //! Ports `MorpherTests`' `GenerateWords_*`/`AnalyzeWord_CanAnalyze_ReturnsCorrectAnalysis` tests plus `CompoundingRuleTests.MorphosyntacticRules`'s bare-`LexEntry`-as-non-head case, covering the `WordAnalysis`/`GenerateWords` direct API this crate's other C# ports leave out of scope.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::{build_grammar, lex_entry_id, morpheme_ordinal, mrule_id};
 use pg_featstruct::FeatureStruct;

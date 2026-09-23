@@ -1,5 +1,6 @@
 //! Ports `AffixTemplateTests` (`SIL.Machine.Morphology.HermitCrab.Tests`). Grammar/lexicon shared via `csharp_port_common`; every test drives `pg_parse::Morpher::parse_word` end-to-end over an XML-loaded grammar, matching each C# test's own `ParseWord` calls, with expected values transcribed verbatim from the C# source's `AssertMorphsEqual` literals.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq};
 use pg_parse::Morpher;

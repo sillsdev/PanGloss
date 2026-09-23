@@ -1,5 +1,6 @@
 //! Acceptance gate for the compounding-analysis non-head root filter (C# `AnalysisCompoundingRule.Apply`): a candidate split whose non-head is not a lexicon root is dropped, never a valid analysis.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::load_alpha_grammar;

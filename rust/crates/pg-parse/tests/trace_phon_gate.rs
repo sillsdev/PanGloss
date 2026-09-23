@@ -1,5 +1,6 @@
 //! Phonological rule tracing: `pg_rules::rewrite`/`pg_rules::metathesis` wired into `synthesize_stratum_traced`'s trailing prule application, observable through `Morpher::parse_word_traced` (the analysis-side stratum caller remains untraced).
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::build_grammar;
 use pg_parse::{Morpher, ParseOptions};

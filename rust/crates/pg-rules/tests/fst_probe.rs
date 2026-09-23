@@ -1,5 +1,6 @@
 //! Confirms a compiled LHS pattern reports the physical match span under both LtoR and RtoL, since the RtoL `get_offsets` un-swap is the single place the analysis path can silently go wrong.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use pg_fst::{Direction, Segment, Transduce, ENTIRE_MATCH};

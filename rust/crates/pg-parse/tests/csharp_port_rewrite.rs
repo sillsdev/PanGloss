@@ -1,6 +1,7 @@
 //! Ports `RewriteRuleTests` (`RewriteRuleTests.cs`). `MergeRules`/`MultipleMergeRules`/`ExpandRules` are out of scope; each other scope reduction is noted at its own test.
 //! Divergences found while porting: docs/research/csharp-port-rewrite-divergences.md.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar};
 use pg_parse::Morpher;

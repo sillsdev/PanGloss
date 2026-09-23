@@ -1,6 +1,7 @@
 //! The three template/partial synthesis gates added to `stratum.rs`/`morph.rs`.
 //! See `docs/research/pg-rules-template-partial-gate-design-notes.md`.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::load_alpha_grammar;

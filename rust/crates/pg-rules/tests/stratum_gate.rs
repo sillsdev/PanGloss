@@ -1,5 +1,6 @@
 //! Per-stratum analysis orchestration and affix-template battery, plus structural coverage over the real Sena grammar.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::load_alpha_grammar;

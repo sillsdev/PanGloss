@@ -1,5 +1,6 @@
 //! Regression gate for the `MaxApplicationCount` cap: a self-matching rule must not re-unapply indefinitely.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::load_alpha_grammar;

@@ -1,6 +1,7 @@
 //! Pins `SynthesisAffixProcessRule.Apply`'s gate order: the syn-FS unify runs last, not first. See
 //! docs/research/pg-rules-synth-gate-order-design-notes.md.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::load_alpha_grammar;

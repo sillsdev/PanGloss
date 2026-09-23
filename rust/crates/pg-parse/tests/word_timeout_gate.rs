@@ -1,5 +1,6 @@
 //! `--word-timeout-ms` end-to-end regression guard, at the `Morpher::parse_word` level; `pg-cli`'s `batch` flag-parsing/TSV plumbing is covered separately by `pg-cli/src/main.rs`'s own tests.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::build_grammar;
 use pg_parse::Morpher;

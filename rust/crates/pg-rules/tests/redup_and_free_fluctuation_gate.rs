@@ -1,5 +1,6 @@
 //! Hand-built regression gate for reduplication morph attribution and the free-fluctuation allomorph break: neither fix's effect surfaces in the reference-grammar corpora, so these pin the mechanism directly against a controlled shape.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::load_alpha_grammar;

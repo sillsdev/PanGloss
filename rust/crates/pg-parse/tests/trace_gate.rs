@@ -1,5 +1,6 @@
 //! The smallest end-to-end tracing slice: `Morpher::parse_word_traced` mints the root `WordAnalysis` node and wires the three morpher-level `Failed(...)` reasons plus `Successful`, proving the handle threads correctly from `parse_word`'s entry to its exit without touching `pg_rules` internals. `PartialParse` needs a scenario this crate's grammar helper can't cheaply support; see `pg-parse/src/morpher.rs`'s `#[cfg(test)]` module for a direct unit test of that gate instead.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::build_grammar;
 use pg_parse::{Morpher, ParseOptions};

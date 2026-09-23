@@ -1,5 +1,6 @@
 //! `StatsCollector` morphological-rule instrumentation, reusing the `max_apps_gate` fixture.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::load_alpha_grammar;

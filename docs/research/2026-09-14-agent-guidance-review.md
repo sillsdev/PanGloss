@@ -45,7 +45,7 @@ Two things I want to say plainly because the brief invited it:
 - The **conformance-grammars skill instructs agents to run bare Cargo**, in three places, and the
   repo's own `PreToolUse` hook denies those exact commands. Lines 115-118, 276, and 282 tell the
   agent to run `cargo build -p pg-cli --release`, `target/release/pangloss batch …`,
-  `cargo test -p pg-parse --test conformance_fixtures_gate`, and `cargo test --workspace --release`.
+  `cargo test -p pg-parse --test parse`, and `cargo test --workspace --release`.
   The second of those also runs a PanGloss binary outside `-Mode run`, which is the exact shape that
   produced the 97/90/118 GB exhaustion table. A skill that tells an agent to do the thing the
   harness refuses teaches the agent that the harness is an obstacle.

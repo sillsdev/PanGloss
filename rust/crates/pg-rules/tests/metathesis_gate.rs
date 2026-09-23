@@ -1,5 +1,6 @@
 //! Regression gate for two `pg_rules::metathesis` analysis-side bugs: round-trips a hand-built rule through `synthesize` then `analyze` and asserts the un-applied shape recovers the pre-synthesis original.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::*;

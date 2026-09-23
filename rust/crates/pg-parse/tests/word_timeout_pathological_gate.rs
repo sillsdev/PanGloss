@@ -1,5 +1,6 @@
 //! Regression guard for `--word-timeout-ms`: a genuinely slow, real `parse_word` call (not a synthetic loop, not a 0ms-deadline vacuous case) times out promptly on a fixture of `k` homophonous one-shot suffix rules whose unwind is genuinely combinatorial.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::build_grammar_custom_lexicon;
 use pg_parse::Morpher;

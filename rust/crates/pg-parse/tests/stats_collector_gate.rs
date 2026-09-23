@@ -1,5 +1,6 @@
 //! `Morpher::parse_word_with_stats` invariants: attempts-vs-steps, stats-off parity, determinism.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 
 use pg_conformance_fixtures::discover;

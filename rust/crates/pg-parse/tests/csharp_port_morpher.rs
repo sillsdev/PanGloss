@@ -1,5 +1,6 @@
 //! Ports selected `MorpherTests` cases from the C# HermitCrab oracle; the 3 thread tests compare two independent `Morpher`s over one grammar, since HC-Rust has no intra-word parallelism and C#'s was cut, leaving repeated-parse determinism as what those cases actually assert.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::{
     assert_empty, assert_morphs_eq, build_grammar, build_grammar_cooccurrence, build_grammar_linear,

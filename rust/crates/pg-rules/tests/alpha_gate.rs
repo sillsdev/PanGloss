@@ -1,5 +1,6 @@
 //! Alpha-variable agreement gate: the FST over-approximates variable-governed lanes, so pg-rules re-checks agreement after a candidate span is found, binding on first occurrence and rejecting any later occurrence that disagrees.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::*;

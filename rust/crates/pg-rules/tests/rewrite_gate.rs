@@ -1,5 +1,6 @@
 //! Rewrite apply/unapply on hand-built rules against hand-reasoned expected shapes, cross-checked against the C# `RewriteRuleTests.cs` method each test cites.
 
+#[path = "common/mod.rs"]
 mod common;
 
 use common::*;

@@ -1,6 +1,7 @@
 use pg_featstruct::FeatureStruct;
 use pg_grammar::model::{MprSet, StratumId};
 use pg_parse::{AnalysisProvenance, Morpher, RootAuthority, SuppliedRoot, SuppliedRootOverlay};
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 
 fn grammar() -> pg_grammar::model::Grammar {

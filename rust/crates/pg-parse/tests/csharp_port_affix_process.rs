@@ -1,5 +1,6 @@
 //! Ports `AffixProcessRuleTests` (`SIL.Machine.Morphology.HermitCrab.Tests`) bucket-B/C rows not already covered by `pg-rules/tests/validity_gate.rs`/`redup_and_free_fluctuation_gate.rs`; each test below notes its own scope reduction from the full C# body.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar, lex_entry_id, mrule_id};
 use pg_featstruct::{FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBits};

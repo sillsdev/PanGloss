@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 pg-featstruct.workspace = true
@@ -14,6 +15,14 @@ smallvec.workspace = true
 hashbrown.workspace = true
 rustc-hash.workspace = true
 web-time.workspace = true
+
+[[test]]
+name = "stratum_gate"
+path = "tests/stratum_gate.rs"
+
+[[test]]
+name = "rules"
+path = "tests/harnesses/rules.rs"
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]

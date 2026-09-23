@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 pg-featstruct.workspace = true
@@ -37,6 +38,18 @@ sha2.workspace = true
 # `cargo test` but never for the shipped `pangloss_ffi.dll` (`cargo build --release -p pg-ffi`
 # builds only `[dependencies]`, never `[dev-dependencies]`). See `batch.rs::TEST_PANIC_WORD`.
 test-panic-hook = []
+
+[[test]]
+name = "csharp_port"
+path = "tests/harnesses/csharp_port.rs"
+
+[[test]]
+name = "timing"
+path = "tests/harnesses/timing.rs"
+
+[[test]]
+name = "parse"
+path = "tests/harnesses/parse.rs"
 
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]

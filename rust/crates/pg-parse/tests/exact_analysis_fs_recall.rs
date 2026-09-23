@@ -1,5 +1,6 @@
 //! End-to-end pin for `pg-rules::morph::ana_syn_fs`'s "Exact" mode, porting `AnalysisSyntacticFeatureMergeTests.OverrideLoss_TenseFlipFlop_AddAndPriorityUnionLoseTheParse_ExactFindsIt` (research C#): `outermost`'s `Required=tense:past` can only see what `outer`'s `Out=tense:past` wrote if `inner`'s later un-application first strips it via `remove_paths`; old code left it in place and lost the parse. Deliberate, documented divergence from hc.dll master (still `Add`, PR #494/"Exact" unmerged); see `docs/research/pg-rules-analysis-syn-fs-gate-notes.md`.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::assert_morphs_eq;
 use pg_parse::Morpher;

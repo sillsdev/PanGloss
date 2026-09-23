@@ -1,5 +1,6 @@
 //! Ports upstream `MorpherTests.ParseWord_MergedEquivalentAnalyses_CanonicalFsCoversEveryAlternative` and `ParseWord_CategoryChangeChain_FullChainStillFound`, exercising `AnalysisStratumRule`'s merge/generalization and its companion `PriorityUnion` change together.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::assert_morphs_eq;
 use pg_grammar::model::Grammar;

@@ -6,6 +6,7 @@ use pg_rules::word::MorphRecord;
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
 
+#[path = "common/mod.rs"]
 mod common;
 use common::{ctx, load_probe_grammar, nat_class};
 

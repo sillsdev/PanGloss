@@ -1,6 +1,7 @@
 //! Ports `CompoundingRuleTests` (`CompoundingRuleTests.cs`) plus `ProdRestrictRule`.
 //! Divergences found while porting: docs/research/csharp-port-compounding-divergences.md.
 
+#[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
 use csharp_port_common::{assert_empty, assert_morphs_eq, build_grammar};
 use pg_parse::Morpher;
