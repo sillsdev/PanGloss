@@ -69,15 +69,11 @@ a 10-minute kill on a hung test; read it before adding a knob here). So a capped
 
   Note the 64GB row lands on the flat 8GB it replaced — which is exactly why that number looked
   right on the box it was picked on. Overrides: `PANGLOSS_MEM_RESERVE_FRACTION`,
-  `PANGLOSS_MIN_FREE_MEM_GB` (absolute), `PANGLOSS_MIN_BUILD_ROOM_GB`, `PANGLOSS_JOB_MEM_GB`.
-  Caveat at the small end: below ~12GB installed, two concurrent builds cannot both fit under the
-  reserve (the job cap floors at 4GB to keep linking working), so such a machine should also run
-  `-MaxConcurrent 1`. Nothing enforces that yet.
+  `PANGLOSS_MIN_FREE_MEM_GB` (absolute), `PANGLOSS_MIN_BUILD_ROOM_GB`.
 
 - **Kernel-enforced ceilings (`procgov`).** The pre-spawn gate cannot bound a peak that develops ten
   minutes into a build, so every managed build runs inside a **Windows job object** via
-  [procgov](https://github.com/lowleveldesign/process-governor) — `--maxjobmem` (committed memory
-  for the whole tree), `--cpurate` (hard CPU ceiling), `-r` (bind every rustc/link.exe, not just
+  [procgov](https://github.com/lowleveldesign/process-governor) — `--cpurate` (hard CPU ceiling), `-r` (bind every rustc/link.exe, not just
   cargo). Install: `winget install LowLevelDesign.ProcessGovernor`. It is **optional**: without it
   builds still run, with every pre-spawn gate intact and a loud warning.
 
@@ -176,10 +172,9 @@ a 10-minute kill on a hung test; read it before adding a knob here). So a capped
     - `pg.ps1 -Mode run -Bin <name> -- <args>` — same, for a workspace `[[bin]]` target.
     - `pg.ps1 -Mode run -Exe <path> -- <args>` — runs an already-built executable directly, no
       cargo involved.
-  The job-object memory cap defaults to the SAME machine-proportional figure a build gets
-  (`Get-JobMemoryCapGB`, divided across `-MaxConcurrent` slots) and is overridable per-run with
-  `-RunMemoryGB` — e.g. a deliberate 40GB experiment — without touching `PANGLOSS_JOB_MEM_GB`,
-  which would also change every ordinary build's cap for as long as the env var stayed set.
+  A light run gets a flat 2GB job-object memory cap (`Get-RunJobMemoryCapGB`); `-Heavy` runs are
+  uncapped by default, and `-RunMemoryGB` sets an explicit cap for one run — e.g. a deliberate 40GB
+  experiment. Managed Cargo builds carry no memory cap.
 
   **`run` DOES take a slot** (`Enter-ResourceSlot`), weighed deliberately rather than assumed: the
   alternative — a `run` that counts against nothing — breaks the property the rest of this file
@@ -253,7 +248,7 @@ a machine-wide resource just multiplies by the number of worktrees. The rule is 
 | Concern | Scope | Mechanism |
 |---|---|---|
 | CPU cores | **per PC** | `Get-CargoJobBudget` (cores − reserve − run pool ÷ build slots), `-TestThreads`, `BelowNormal` priority, and `procgov --cpurate` — now sized from **one slot's own width**, so the per-job ceilings sum to the machine-wide one instead of each requesting all of it |
-| Memory | **per PC** | spawn gate (machine-wide available memory) + `procgov --maxjobmem` per build; a light run gets a flat 2GB instead (`Get-RunJobMemoryCapGB`) |
+| Memory | **per PC** | spawn gate (machine-wide available memory) only for builds; a light run gets a flat 2GB `procgov --maxjobmem` (`Get-RunJobMemoryCapGB`) |
 | Taking your turn | **per PC** | `Enter-ResourceSlot` — two independent named-**mutex** pools: `Global\PanGlossBuildSlot0..N-1` (default 2) and `Global\PanGlossRunSlot0..M-1` (default 4) |
 | Killing old processes | **per worktree** | `gc`'s orphan sweeps: liveness by dead *parent*, never by name/age |
 | Disk / target dirs | **per worktree** | ownership markers; `gc` never deletes another worktree's target |
@@ -297,8 +292,7 @@ It also fixes a wart that was **measured failing**: a semaphore's maximum is fro
 process creates it first and cannot be queried, and on 2026-07-31 three procgov-wrapped builds ran
 concurrently under a nominal limit of 2 (orphaning and a `Global\`/`Local\` namespace split were both
 ruled out). With mutexes the slot count is simply how many names a caller waits on, so
-`-MaxConcurrent 1` genuinely cannot take a second slot. `Get-JobMemoryCapGB` still sizes for
-`MaxConcurrent + 1` as belt-and-braces, so the memory bound survives one slot of over-admission.
+`-MaxConcurrent 1` genuinely cannot take a second slot.
 
 Two things it still does **not** fix. It only binds callers who go through `pg.ps1` — bare cargo
 takes no slot, which is what `block-bare-cargo.py` is for. And the queue is **unfair**: Windows makes

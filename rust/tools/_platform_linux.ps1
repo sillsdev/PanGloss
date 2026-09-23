@@ -324,7 +324,6 @@ function global:Invoke-LinuxDirectProcess {
         [string]$WorkingDirectory,
         [string]$CaptureStdoutPath = '',
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
-        [int]$JobMaxConcurrent = 2,
         [string]$SelfCgroupText = $null,
         [string]$MountInfoText = $null,
         [scriptblock]$ReadFile = $null,
@@ -380,7 +379,6 @@ function global:Invoke-CargoWithReaper {
         [string]$WorkingDirectory,
         [string]$CaptureStdoutPath = '',
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
-        [int]$JobMaxConcurrent = 2,
         [string]$SelfCgroupText = $null,
         [string]$MountInfoText = $null,
         [scriptblock]$ReadFile = $null,
@@ -388,7 +386,7 @@ function global:Invoke-CargoWithReaper {
         [object]$HostCgroupProof = $null
     )
     return Invoke-LinuxDirectProcess -Exe $Exe -CmdArgs $CmdArgs -WorkingDirectory $WorkingDirectory `
-        -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority -JobMaxConcurrent $JobMaxConcurrent `
+        -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority `
         -SelfCgroupText $SelfCgroupText -MountInfoText $MountInfoText -ReadFile $ReadFile `
         -ProcessInvoker $ProcessInvoker -HostCgroupProof $HostCgroupProof
 }

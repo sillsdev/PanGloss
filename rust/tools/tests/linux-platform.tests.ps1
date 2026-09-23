@@ -232,12 +232,8 @@ Committed_AS:   2048 kB
         Assert-False $adapterCargo.Groups['body'].Value.Contains('JobMemoryGB') `
             'Linux adapter must not acquire a Windows job-object-only parameter'
 
-        $conditionalWindowsArguments = [regex]::Matches($pgText, 'if \(\$IsWindows\) \{\s*\$invokeArgs\[''JobMemoryGB''\] = \$launchCapSelection\.JobCapGB\s*\$invokeArgs\[''Threads''\] = \[Math\]::Max\(\$Jobs, \$TestThreads\)\s*\}').Count
-        Assert-Equal 3 $conditionalWindowsArguments 'hygiene, corpus, and ordinary Cargo paths must add both Windows-only arguments conditionally'
-        Assert-True $pgText.Contains("if (`$IsWindows) { `$invokeArgs['JobMemoryGB'] = `$BuildJobMemoryGB }") `
-            'backend regeneration must also add its cap only on Windows'
-        Assert-False $pgText.Contains('JobMemoryGB = $launchCapSelection.JobCapGB') `
-            'Cargo splats must not unconditionally include the platform-specific cap'
+        $conditionalWindowsArguments = [regex]::Matches($pgText, 'if \(\$IsWindows\) \{ \$invokeArgs\[''Threads''\] = \[Math\]::Max\(\$Jobs, \$TestThreads\) \}').Count
+        Assert-Equal 3 $conditionalWindowsArguments 'hygiene, corpus, and ordinary Cargo paths must add the Windows-only thread argument conditionally'
         Assert-Equal 3 ([regex]::Matches($pgText, '\[''Threads''\] = \[Math\]::Max\(\$Jobs, \$TestThreads\)').Count) `
             'each compilation Cargo callsite must keep its thread argument within the Windows-only block'
     }

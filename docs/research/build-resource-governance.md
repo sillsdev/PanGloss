@@ -52,8 +52,14 @@ sizes at once: a fixed figure that is a sane fraction of a large box is half the
 developer machine, and a gate that blocks ordinary work on the small box gets disabled and then
 protects nobody. The reserve is a fraction of installed RAM (`Get-InteractiveReserveGB`), clamped
 to a floor and ceiling so it stays meaningful at both extremes; the same proportional approach
-sizes the per-build job-object memory cap (`Get-JobMemoryCapGB`) and the CPU rate ceiling
-(`Get-JobCpuRatePercent`).
+sizes the CPU rate ceiling (`Get-JobCpuRatePercent`).
+
+**Managed Rust builds carry no memory cap.** An earlier design gave each build a procgov
+`--maxjobmem` ceiling of `floor((installed - reserve) / (MaxConcurrent + 1))` (19 GB on a 64 GB
+machine) plus a commit-headroom admission gate before rustfmt and after the slot wait. Both were
+removed in one commit, so reverting that commit restores them. Builds still run inside a procgov job
+object for process-tree cleanup, the CPU rate ceiling, and priority. Only `run` mode still passes a
+memory ceiling (see the light-run section below).
 
 **Commit charge is a distinct resource from available physical memory** (`Get-CommitChargeGB`).
 `git`'s own child-process fork can fail with `MEM_COMMIT failed` while available physical memory
@@ -62,32 +68,8 @@ things this repo relies on are commit-denominated, not physical-memory-denominat
 Resource-Exhaustion-Detector's event 2004 reports committed memory per process, and procgov's
 `--maxjobmem` caps committed bytes. Reporting only available *physical* memory while enforcing on
 *commit* is how "there is plenty of memory" and "allocation failed" can both be true at once.
-
-On Windows, every managed launch checks commit headroom before rustfmt and before taking a
-build/run slot, then checks again after the slot opens. The decision uses the unrounded
-`Get-CommitChargeGB.FreeGBExact` value; `FreeGB` remains rounded for reports. The pre-format check
-requires the exact procgov cap selected for this launch plus the interactive reserve. After acquiring
-a slot, pg probes the pool's kernel mutexes (not the diagnostic holder ledger) over the fixed
-supported census width of 64, independent of the caller's requested width. Acquisition waits only on
-the requested first N slots and rejects widths outside 1..64; the wider census lets a width-one caller
-see a width-two peer on slot 1. It requires the selected cap for this process plus one conservative
-cap for every other kernel-occupied slot. Build peers use the largest ordinary derived build cap
-(`Get-JobMemoryCapGB -MaxConcurrent 1`), so a narrow peer is not undercounted when the current
-invocation has a smaller width-two cap. Light-run peers use the ordinary flat `Get-RunJobMemoryCapGB`
-cap. The selected cap for the current launch raises the peer bound if it is larger, and the final
-requirement adds the interactive reserve. This closes the mixed-width same-pool race in either
-acquisition order, in addition to the two-default-build case.
-
-The count remains deliberately same-pool only: light runs and builds occupy separate mutex pools.
-Also, an already-running peer with a heterogeneous explicit per-launch cap cannot be reconstructed
-from kernel mutex ownership alone; the current selected cap can raise the conservative peer bound,
-but this is not an authoritative reservation record for a different peer override. Thus the check
-handles ordinary width-dependent build caps and standard light-run caps, but is not a whole-machine
-cross-pool or arbitrary-override reservation proof. `Get-PgLaunchMemoryCapGB` delegates cap selection
-to the existing owners: Cargo builds and `-Heavy` runs use `Get-JobMemoryCapGB`, a light `run` uses
-`Get-RunJobMemoryCapGB`, and an explicit `-RunMemoryGB` is honored for that run. The selected cap is
-passed through to procgov so the value admitted is the value enforced. An unqueryable Windows commit
-reading or unresolvable cap refuses with the low-memory exit code before formatting or launch.
+`doctor` and the preflight report commit charge for diagnosis; no Rust build admission decision
+reads it.
 
 Linux keeps its scoped resource contract: pg requires a finite host cgroup proof before managed
 launch and carries that proof through the process seam. Its global `/proc/meminfo` commit counter is
@@ -235,12 +217,6 @@ killed holder is expected and reported as NOT ALIVE rather than trusted. The poo
 ledger directories so a `run` is never reported as occupying a build slot, which is the confusion the
 split exists to end.
 
-Sizing `Get-JobMemoryCapGB` for `MaxConcurrent + 1`, not `MaxConcurrent`, is a correctness fix, not
-padding: it keeps the per-build memory bound true even through one slot of over-admission from a
-caller passing a different `-MaxConcurrent` than the mutex names actually in use (a semaphore-shaped
-failure mode that briefly recurred even after the mutex migration, since nothing stops two callers
-disagreeing on how many names to wait on).
-
 ## Two pools: builds and runs queue separately
 
 `Enter-ResourceSlot -Pool build|run` replaces the single `Enter-BuildSlot` queue (which survives as a
@@ -273,8 +249,8 @@ one-sided bound (per-slot rounding can only lose percent, never gain it).
 
 ### The light-run memory cap is flat, and that is measured
 
-`Get-RunJobMemoryCapGB` returns a flat 2GB (`PANGLOSS_RUN_MEM_GB`), deliberately *not*
-`Get-JobMemoryCapGB`'s machine-proportional derivation. A runaway is recognizable by absolute size; a
+`Get-RunJobMemoryCapGB` returns a flat 2GB (`PANGLOSS_RUN_MEM_GB`), deliberately *not* a
+machine-proportional share. A runaway is recognizable by absolute size; a
 share of the box would make the same binary legal at 8GB on one machine and refused at 2GB on
 another.
 
@@ -299,15 +275,14 @@ an unmeasured grammar, tight enough that hitting it is a signal worth chasing wi
 `dead-end-census` skill.
 
 A run that legitimately needs more is not a light run. `-Heavy` puts it in the **build** pool with a
-build's ceilings — the right home for a `predict_census`-shaped probe — and `-RunMemoryGB` overrides
-the cap for one invocation without touching `PANGLOSS_JOB_MEM_GB`, which would change every ordinary
-build's cap for as long as it stayed set.
+build's CPU share and no default memory ceiling — the right home for a `predict_census`-shaped probe
+— and `-RunMemoryGB` sets an explicit cap for one invocation when one is wanted.
 
 ### Transition hazard
 
 Same shape as the semaphore → mutex migration: while some worktrees still run the old code, their
 `run` takes a *build* slot while a new-code worktree's takes a *run* slot, so the two do not exclude
-each other for runs. Tolerable only because the per-job memory and CPU ceilings above are sized for
+each other for runs. Tolerable only because the per-job CPU ceilings above are sized for
 the full six-slot worst case regardless.
 
 ## Orphan process reaping

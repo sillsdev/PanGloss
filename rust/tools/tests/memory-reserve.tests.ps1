@@ -71,16 +71,6 @@ Test-Case 'an unmeasurable machine gets the floor, not the ceiling' {
     Assert-Equal $script:InteractiveReserveFloorGB (Get-InteractiveReserveGB -TotalGB $null)
 }
 
-Test-Case 'all permitted builds together still leave the machine its reserve' {
-    # Holds at both sizes -- a flat 45%-of-RAM job cap broke this on 16GB (7.2GB x 2 slots left the OS nothing).
-    foreach ($total in @(8, 16, 32, 64, 128)) {
-        $reserve = Get-InteractiveReserveGB -TotalGB $total
-        $cap = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB $total
-        Assert-True ((2 * $cap) -le ($total - $reserve) -or $cap -eq 4) `
-            "on a ${total}GB machine, 2 builds at ${cap}GB each must fit inside ${total}-${reserve}GB"
-    }
-}
-
 # --- Get-MemoryProcessBudget: available memory -> a concurrency number ---
 
 Test-Case 'budget subtracts the reserve before dividing' {
@@ -194,32 +184,6 @@ Test-Case 'an explicit override is never narrowed by either budget' {
 
 # --- Job-object enforcement (procgov): the kernel-enforced ceiling on top of the pure-arithmetic gates above. ---
 
-Test-Case 'the job memory cap is derived from installed RAM, not from current load' {
-    # Independent of what is running right now: a ceiling that shrank with load would fail one build at a size the other was allowed.
-    $a = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64
-    $b = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64
-    Assert-Equal $a $b 'the cap must be a pure function of installed memory and slot count'
-    Assert-True ($a -gt 4) "expected a real cap on a 64GB machine, got $a"
-    $solo = Get-JobMemoryCapGB -MaxConcurrent 1 -TotalGB 64
-    Assert-True ($solo -gt $a) "a single permitted build should get more headroom than one of two (solo=$solo, of-two=$a)"
-}
-
-Test-Case 'two concurrent builds cannot together exceed installed memory' {
-    # The property that makes a reservation ledger unnecessary: with slots capped and each job-object capped, the machine-wide worst case is bounded by construction.
-    $total = 64
-    $cap = Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB $total
-    Assert-True ((2 * $cap) -lt $total) "2 builds at ${cap}GB each must stay under ${total}GB total"
-}
-
-Test-Case 'the job memory cap floors at 4GB on a tiny machine' {
-    # A cap below this fails ordinary linking, and a limit that breaks every build gets removed rather than tuned.
-    Assert-Equal 4 (Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 2)
-}
-
-Test-Case 'an unmeasurable machine gets no cap rather than a fabricated one' {
-    Assert-Equal $null (Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB $null)
-}
-
 Test-Case 'the CPU rate ceiling leaves the interactive reserve free' {
     # -j caps codegen workers within one rustc, not threads across instances -- this is the bound it cannot give.
     # https://github.com/rust-lang/rust/issues/81957
@@ -261,7 +225,7 @@ Test-Case 'the light-run memory cap is flat, not a share of installed RAM' {
     # docs/research/build-resource-governance.md
     $cap = Get-RunJobMemoryCapGB
     Assert-True ($cap -ge 1) "a cap of ${cap}GB would refuse an ordinary parse"
-    Assert-True ($cap -lt (Get-JobMemoryCapGB -MaxConcurrent 2 -TotalGB 64)) 'a light run must be capped well below a build'
+    Assert-True ($cap -le 4) "a light-run cap of ${cap}GB is no longer a runaway backstop"
     Assert-Equal $cap (Get-RunJobMemoryCapGB) 'the cap must not vary between calls'
 }
 
