@@ -1,6 +1,6 @@
 <#
   .DESCRIPTION
-  Covers: Enter-BuildSlot / Exit-BuildSlot (rust/tools/_common.ps1) after the switch from ONE
+  Covers: Enter-ResourceSlot / Exit-ResourceSlot (rust/tools/_slots.ps1) after the switch from ONE
   counted semaphore to N named mutexes, plus the diagnostic slot ledger and commit-charge reporting.
 
   Why this file exists: the semaphore it replaced DEADLOCKED every worktree on this machine.
@@ -76,12 +76,12 @@ function Start-SlotHolder {
 }
 
 Test-Case 'a slot is acquired and released, and can be reacquired' {
-    $a = Enter-BuildSlot -MaxConcurrent 2 -TimeoutSeconds 5
+    $a = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 5
     Assert-True ($null -ne $a) 'first acquire must succeed on an idle pool'
-    Exit-BuildSlot -Semaphore $a
-    $b = Enter-BuildSlot -MaxConcurrent 2 -TimeoutSeconds 5
+    Exit-ResourceSlot -Slot $a
+    $b = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 5
     Assert-True ($null -ne $b) 'a released slot must be reusable'
-    Exit-BuildSlot -Semaphore $b
+    Exit-ResourceSlot -Slot $b
 }
 
 Test-Case 'a full 1-slot pool denies another PROCESS' {
@@ -104,7 +104,7 @@ Test-Case 'MaxConcurrent is honoured per invocation, not frozen by the first cal
 Test-Case 'timing out returns null rather than throwing or hanging' {
     $holder = Start-SlotHolder -Slots 1
     try {
-        # DENIED is Enter-BuildSlot having returned null, which pg.ps1 maps to exit 15.
+        # DENIED is Enter-ResourceSlot having returned null, which pg.ps1 maps to exit 15.
         Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 1)
     } finally { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
 }
@@ -157,12 +157,12 @@ Test-Case 'the two pools keep separate ledgers' {
     } finally { Remove-Item Env:\PANGLOSS_STATE_ROOT -ErrorAction SilentlyContinue }
 }
 
-Test-Case 'Exit-BuildSlot tolerates null and a double release without throwing' {
+Test-Case 'Exit-ResourceSlot tolerates null and a double release without throwing' {
     # Runs inside a finally, so it must never itself throw and mask a build failure underneath it.
-    Exit-BuildSlot -Semaphore $null
-    $s = Enter-BuildSlot -MaxConcurrent 2 -TimeoutSeconds 5
-    Exit-BuildSlot -Semaphore $s
-    Exit-BuildSlot -Semaphore $s
+    Exit-ResourceSlot -Slot $null
+    $s = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 5
+    Exit-ResourceSlot -Slot $s
+    Exit-ResourceSlot -Slot $s
     Assert-True $true 'no throw'
 }
 
@@ -171,14 +171,14 @@ Test-Case 'Exit-BuildSlot tolerates null and a double release without throwing' 
 Test-Case 'the ledger records a holder and reports it as alive' {
     $env:PANGLOSS_STATE_ROOT = New-TestTempDir -Prefix 'pg-slots'
     try {
-        Write-BuildSlotHolder -Slot 0 -Mode 'corpus-test' -Worktree 'crp-objective'
-        $h = @(Get-BuildSlotHolders)
+        Write-SlotHolder -Pool 'build' -Slot 0 -Mode 'corpus-test' -Worktree 'crp-objective'
+        $h = @(Get-SlotHolders -Pool 'build')
         Assert-Equal 1 $h.Count
         Assert-Equal 'corpus-test' $h[0].Mode
         Assert-Equal 'crp-objective' $h[0].Worktree
         Assert-True $h[0].Alive 'this process is the recorded holder, so it must read as alive'
-        Clear-BuildSlotHolder -Slot 0
-        Assert-Equal 0 @(Get-BuildSlotHolders).Count
+        Clear-SlotHolder -Pool 'build' -Slot 0
+        Assert-Equal 0 @(Get-SlotHolders -Pool 'build').Count
     } finally { Remove-Item Env:\PANGLOSS_STATE_ROOT -ErrorAction SilentlyContinue }
 }
 
@@ -186,11 +186,11 @@ Test-Case 'a stale entry from a dead holder reads as NOT alive rather than being
     # Expected and harmless after a kill. This is a label on a diagnostic, never a decision input.
     $env:PANGLOSS_STATE_ROOT = New-TestTempDir -Prefix 'pg-slots'
     try {
-        $dir = Get-BuildSlotLedgerPath
+        $dir = Get-SlotLedgerPath -Pool 'build'
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
         '{"Pid":999999,"Mode":"build","Worktree":"ghost","AcquiredAt":"01:02:03"}' |
             Set-Content -Path (Join-Path $dir 'slot1.json') -Encoding UTF8
-        $h = @(Get-BuildSlotHolders)
+        $h = @(Get-SlotHolders -Pool 'build')
         Assert-Equal 1 $h.Count
         Assert-False $h[0].Alive 'a nonexistent pid must never read as alive'
     } finally { Remove-Item Env:\PANGLOSS_STATE_ROOT -ErrorAction SilentlyContinue }
@@ -199,10 +199,10 @@ Test-Case 'a stale entry from a dead holder reads as NOT alive rather than being
 Test-Case 'a corrupt ledger entry is skipped, not thrown on' {
     $env:PANGLOSS_STATE_ROOT = New-TestTempDir -Prefix 'pg-slots'
     try {
-        $dir = Get-BuildSlotLedgerPath
+        $dir = Get-SlotLedgerPath -Pool 'build'
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
         'not json at all' | Set-Content -Path (Join-Path $dir 'slot0.json') -Encoding UTF8
-        Assert-Equal 0 @(Get-BuildSlotHolders).Count 'a half-written file must degrade to no-data'
+        Assert-Equal 0 @(Get-SlotHolders -Pool 'build').Count 'a half-written file must degrade to no-data'
     } finally { Remove-Item Env:\PANGLOSS_STATE_ROOT -ErrorAction SilentlyContinue }
 }
 

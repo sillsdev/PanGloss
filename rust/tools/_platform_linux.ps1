@@ -19,7 +19,6 @@ function global:ConvertFrom-LinuxMountField {
     }
     return $builder.ToString()
 }
-
 function global:ConvertTo-LinuxCanonicalPath {
     param([Parameter(Mandatory)][string]$Path)
     if ([string]::IsNullOrEmpty($Path) -or -not $Path.StartsWith('/') -or $Path.Contains([char]0)) {
@@ -36,7 +35,6 @@ function global:ConvertTo-LinuxCanonicalPath {
     }
     return $Path
 }
-
 function global:Read-LinuxPlatformText {
     param([Parameter(Mandatory)][string]$Path)
     $text = [System.IO.File]::ReadAllText($Path)
@@ -202,19 +200,6 @@ function global:Get-LinuxHostCgroupPreflight {
     }
 }
 
-function global:Get-LinuxBuildSlotRoot {
-    param([string]$LockRoot = '')
-    if ($LockRoot) {
-        if (-not [System.IO.Path]::IsPathRooted($LockRoot)) { throw "LockRoot must be an absolute path: $LockRoot" }
-        return $LockRoot
-    }
-    if ($env:PANGLOSS_STATE_ROOT) {
-        if (-not [System.IO.Path]::IsPathRooted($env:PANGLOSS_STATE_ROOT)) { throw "PANGLOSS_STATE_ROOT must be an absolute path: $($env:PANGLOSS_STATE_ROOT)" }
-        return (Join-Path $env:PANGLOSS_STATE_ROOT 'build-slots-linux')
-    }
-    return (Join-Path ([System.IO.Path]::GetTempPath()) 'PanGloss-build-slots-linux')
-}
-
 function global:Get-LinuxFreeSpaceGB {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return $null }
@@ -270,53 +255,6 @@ function global:Use-LinuxSccache {
     }
 }
 
-function global:Get-BuildSlotHolders { return @() }
-
-function global:Set-SccacheServerPriority {
-    param([ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal')
-    return 0
-}
-
-function global:Enter-BuildSlot {
-    param([int]$MaxConcurrent = 2, [int]$TimeoutSeconds = 0, [string]$LockRoot = '')
-    if ($MaxConcurrent -lt 1) { $MaxConcurrent = 1 }
-    $root = Get-LinuxBuildSlotRoot -LockRoot $LockRoot
-    New-Item -ItemType Directory -Force -Path $root | Out-Null
-    $deadline = if ($TimeoutSeconds -le 0) { $null } else { [DateTime]::UtcNow.AddSeconds($TimeoutSeconds) }
-    while ($true) {
-        for ($i = 0; $i -lt $MaxConcurrent; $i++) {
-            $path = Join-Path $root "slot$i.lock"
-            $stream = $null
-            try {
-                $stream = [System.IO.File]::Open($path, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::ReadWrite)
-                $stream.Lock(0, 1)
-                return [PSCustomObject]@{ Stream = $stream; Slot = $i; Released = $false }
-            } catch [System.IO.IOException] {
-                if ($stream) { $stream.Dispose() }
-            } catch {
-                if ($stream) { $stream.Dispose() }
-                throw
-            }
-        }
-        if ($deadline -and [DateTime]::UtcNow -ge $deadline) { return $null }
-        Start-Sleep -Milliseconds 50
-    }
-}
-
-function global:Exit-BuildSlot {
-    param($Semaphore)
-    if (-not $Semaphore -or $Semaphore.Released) { return }
-    try {
-        if ($Semaphore.Stream) {
-            try { $Semaphore.Stream.Unlock(0, 1) } catch {}
-            try { $Semaphore.Stream.Dispose() } catch {}
-            $Semaphore.Released = $true
-            return
-        }
-    } catch {}
-    try { $Semaphore.Dispose() } catch {}
-}
-
 function global:Invoke-LinuxDirectProcess {
     param(
         [string]$Exe,
@@ -367,23 +305,4 @@ function global:Invoke-ManagedProcess {
         -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority -SelfCgroupText $SelfCgroupText `
         -MountInfoText $MountInfoText -ReadFile $ReadFile -ProcessInvoker $ProcessInvoker `
         -HostCgroupProof $HostCgroupProof
-}
-
-function global:Invoke-CargoWithReaper {
-    param(
-        [string]$Exe,
-        [string[]]$CmdArgs,
-        [string]$WorkingDirectory,
-        [string]$CaptureStdoutPath = '',
-        [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
-        [string]$SelfCgroupText = $null,
-        [string]$MountInfoText = $null,
-        [scriptblock]$ReadFile = $null,
-        [scriptblock]$ProcessInvoker = $null,
-        [object]$HostCgroupProof = $null
-    )
-    return Invoke-LinuxDirectProcess -Exe $Exe -CmdArgs $CmdArgs -WorkingDirectory $WorkingDirectory `
-        -CaptureStdoutPath $CaptureStdoutPath -Priority $Priority `
-        -SelfCgroupText $SelfCgroupText -MountInfoText $MountInfoText -ReadFile $ReadFile `
-        -ProcessInvoker $ProcessInvoker -HostCgroupProof $HostCgroupProof
 }

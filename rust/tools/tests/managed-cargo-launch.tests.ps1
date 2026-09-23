@@ -28,7 +28,7 @@ Test-Case 'managed Cargo launches the payload directly, applies priority, and pr
     }
     try {
         Set-Item Function:\script:Start-Process -Value $mockStartProcess
-        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs @('build', '--release') -WorkingDirectory 'C:\fixture'
+        $code = Invoke-ManagedProcess -Exe 'cargo' -CmdArgs @('build', '--release') -WorkingDirectory 'C:\fixture'
         Assert-Equal 37 $code 'the direct managed launch must return the payload exit code'
         Assert-Equal 'cargo' $script:CapturedStart.FilePath 'Cargo must be the launched executable, not a wrapper'
         Assert-Equal 'build,--release' ($script:CapturedStart.ArgumentList -join ',')
@@ -43,35 +43,6 @@ Test-Case 'managed Cargo launches the payload directly, applies priority, and pr
         Remove-Variable -Scope Script -Name CapturedStart -ErrorAction SilentlyContinue
         Remove-Variable -Scope Script -Name CapturedProcess -ErrorAction SilentlyContinue
         Remove-Variable -Scope Script -Name FakeWaitArguments -ErrorAction SilentlyContinue
-    }
-}
-
-Test-Case 'managed Cargo forwards the direct launch contract and preserves the process result' {
-    $originalInvoker = (Get-Item Function:\script:Invoke-ManagedProcess).ScriptBlock
-    $script:CapturedCargoLaunch = $null
-    $mockInvoker = {
-        param(
-            [string]$Exe, [string[]]$CmdArgs, [string]$WorkingDirectory, [string]$CaptureStdoutPath,
-            [string]$Priority
-        )
-        $script:CapturedCargoLaunch = [PSCustomObject]@{
-            Exe = $Exe; CmdArgs = @($CmdArgs); WorkingDirectory = $WorkingDirectory
-            CaptureStdoutPath = $CaptureStdoutPath; Priority = $Priority
-        }
-        return 37
-    }
-    try {
-        Set-Item Function:\script:Invoke-ManagedProcess -Value $mockInvoker
-        $result = Invoke-CargoWithReaper -Exe cargo -CmdArgs @('check') -WorkingDirectory '.'
-        Assert-Equal 37 $result 'the Cargo wrapper must preserve the process result'
-        Assert-Equal 'cargo' $script:CapturedCargoLaunch.Exe
-        Assert-Equal 'check' ($script:CapturedCargoLaunch.CmdArgs -join ',')
-        Assert-Equal 'BelowNormal' $script:CapturedCargoLaunch.Priority
-        Assert-False ((Get-Command Invoke-CargoWithReaper).Parameters.ContainsKey('Threads')) `
-            'Cargo callers must not pass a removed CPU-width override'
-    } finally {
-        Set-Item Function:\script:Invoke-ManagedProcess -Value $originalInvoker
-        Remove-Variable -Scope Script -Name CapturedCargoLaunch -ErrorAction SilentlyContinue
     }
 }
 

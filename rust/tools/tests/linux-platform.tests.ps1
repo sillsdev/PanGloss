@@ -57,7 +57,7 @@ function Assert-LinuxAdapterReady {
         throw 'Linux adapter importer returned no marker'
     }
     Assert-Equal 'Linux' $linuxAdapterImportResult.Platform 'the importer must return the Linux adapter marker'
-    foreach ($name in @('Get-AvailableMemoryGB', 'Get-TotalMemoryGB', 'Get-CommitChargeGB', 'Enter-BuildSlot', 'Exit-BuildSlot', 'Invoke-CargoWithReaper', 'Invoke-ManagedProcess')) {
+    foreach ($name in @('Get-AvailableMemoryGB', 'Get-TotalMemoryGB', 'Get-CommitChargeGB', 'Invoke-ManagedProcess')) {
         Assert-Contains -Haystack @($linuxAdapterImportResult.Overrides) -Needle $name `
             "the Linux adapter must override the actual shared seam $name"
         Assert-True ($null -ne (Get-Command $name -CommandType Function -ErrorAction SilentlyContinue)) `
@@ -68,14 +68,24 @@ function Assert-LinuxAdapterReady {
 $fixtureRoot = New-TestTempDir -Prefix 'pg-linux-platform'
 
 try {
+    Test-Case 'Linux adapter override manifest matches its defined functions' {
+        $adapterText = Get-Content -LiteralPath (Join-Path $toolRoot '_platform_linux.ps1') -Raw
+        $defined = @(
+            [regex]::Matches($adapterText, '(?m)^\s*function global:(?<Name>[A-Za-z][\w-]*)\s*\{') |
+                ForEach-Object { $_.Groups['Name'].Value } | Sort-Object -Unique
+        )
+        $declared = @($linuxAdapterImportResult.Overrides | Sort-Object -Unique)
+        Assert-Equal ($defined -join ',') ($declared -join ',') 'the importer manifest must list exactly the adapter functions'
+    }
+
     Test-Case 'Linux platform adapter exposes every injected contract seam' {
         Assert-LinuxAdapterReady
         foreach ($name in @(
             'Get-LinuxMemorySnapshot',
             'Get-LinuxHostCgroupPreflight',
-            'Enter-BuildSlot',
-            'Exit-BuildSlot',
-            'Invoke-CargoWithReaper'
+            'Enter-ResourceSlot',
+            'Exit-ResourceSlot',
+            'Invoke-ManagedProcess'
         )) {
             Assert-True ($null -ne (Get-Command $name -CommandType Function -ErrorAction SilentlyContinue)) `
                 "_common.ps1 must expose $name before the Linux tests can run"
@@ -224,12 +234,6 @@ Committed_AS:   2048 kB
             'the validated proof must be passed through the preflight/report seam'
     }
 
-    Test-Case 'Linux Cargo adapter keeps the direct process contract' {
-        $adapterText = Get-Content -LiteralPath (Join-Path $toolRoot '_platform_linux.ps1') -Raw
-        $adapterCargo = [regex]::Match($adapterText, '(?s)function global:Invoke-CargoWithReaper\s*\{(?<body>.*?)(?=\r?\n\})')
-        Assert-True $adapterCargo.Success 'the Linux adapter Cargo function must be present'
-    }
-
     Test-Case 'Linux process seam is the actual Invoke-ManagedProcess path and preflights before launch' {
         Assert-LinuxAdapterReady
         $calls = [System.Collections.Generic.List[object]]::new()
@@ -375,76 +379,41 @@ Committed_AS:   2048 kB
             'the finite unit cap must bound the run even though the root cgroup exposes no memory.max'
     }
 
-    # --- Linux build slot: exclusive FileStreams at injected paths through the shared seam. ---
-
-    Test-Case 'Linux build slots honor MaxConcurrent and release owned files through the shared seam' {
+    Test-Case 'Linux resource slots honor MaxConcurrent and release through the shared seam' {
         Assert-LinuxAdapterReady
-        $lockRoot = Join-Path $fixtureRoot 'build-slots'
-        New-Item -ItemType Directory -Force -Path $lockRoot | Out-Null
-        $slotA = Enter-BuildSlot -MaxConcurrent 2 -TimeoutSeconds 1 -LockRoot $lockRoot
-        Assert-True ($null -ne $slotA) 'the first Linux slot must be acquired'
-        Assert-True ($slotA.Stream -is [System.IO.FileStream]) `
-            'the returned Linux token must own its FileStream, not only a path or name'
-        $probe = $null
-        try {
-            $probe = [System.IO.File]::Open($slotA.Stream.Name, [System.IO.FileMode]::OpenOrCreate, `
-                [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::ReadWrite)
-            Assert-Throws { $probe.Lock(0, 1) } `
-                'a second stream must not lock the byte range owned by the token'
-        } finally {
-            if ($probe) { $probe.Dispose() }
-        }
+        $script:BuildSlotMutexPrefix = "Global\PanGlossLinuxTestSlot$PID-"
+        $slotA = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 1
+        Assert-True ($null -ne $slotA) 'the first resource slot must be acquired'
+        Assert-Equal 2 $slotA.Mutexes.Count 'the resource token must contain the requested pool width'
         $slotB = $null
+        $slotC = $null
         try {
-            $slotB = Enter-BuildSlot -MaxConcurrent 2 -TimeoutSeconds 1 -LockRoot $lockRoot
+            $slotB = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 1
             Assert-True ($null -ne $slotB) 'MaxConcurrent=2 must permit two independently held tokens'
-            $slotC = Enter-BuildSlot -MaxConcurrent 2 -TimeoutSeconds 1 -LockRoot $lockRoot
-            Assert-Equal $null $slotC 'a third token must time out while both slots are held'
-
-            Exit-BuildSlot -Semaphore $slotA
-            $slotC = Enter-BuildSlot -MaxConcurrent 2 -TimeoutSeconds 1 -LockRoot $lockRoot
+            Exit-ResourceSlot -Slot $slotA
+            $slotC = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 1
             Assert-True ($null -ne $slotC) 'releasing one token must permit reacquisition'
-            Exit-BuildSlot -Semaphore $slotC
         } finally {
-            Exit-BuildSlot -Semaphore $slotA
-            Exit-BuildSlot -Semaphore $slotB
+            Exit-ResourceSlot -Slot $slotA
+            Exit-ResourceSlot -Slot $slotB
+            Exit-ResourceSlot -Slot $slotC
         }
     }
 
-    Test-Case 'Exit-BuildSlot tolerates null and repeated release on the Linux token' {
+    Test-Case 'Exit-ResourceSlot tolerates null and repeated release on the Linux token' {
         Assert-LinuxAdapterReady
-        Exit-BuildSlot -Semaphore $null
-        $lockRoot = Join-Path $fixtureRoot 'build-slots-repeat'
-        $slot = Enter-BuildSlot -MaxConcurrent 1 -TimeoutSeconds 1 -LockRoot $lockRoot
+        $script:BuildSlotMutexPrefix = "Global\PanGlossLinuxRepeatSlot$PID-"
+        Exit-ResourceSlot -Slot $null
+        $slot = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 1 -TimeoutSeconds 1
         Assert-True ($null -ne $slot)
-        Exit-BuildSlot -Semaphore $slot
-        Exit-BuildSlot -Semaphore $slot
-    }
-
-    Test-Case 'Linux build slots refuse a relative state or lock root' {
-        Assert-LinuxAdapterReady
-        $oldStateRoot = $env:PANGLOSS_STATE_ROOT
-        $oldLocation = Get-Location
-        $slot = $null
-        try {
-            Set-Location -LiteralPath $fixtureRoot
-            $env:PANGLOSS_STATE_ROOT = 'relative-state-root'
-            Assert-Throws { $slot = Enter-BuildSlot -MaxConcurrent 1 -TimeoutSeconds 1 -LockRoot 'relative-lock-root' } 'a relative LockRoot must fail closed rather than create a separate pool'
-            Assert-False (Test-Path -LiteralPath (Join-Path $fixtureRoot 'relative-lock-root')) 'relative LockRoot refusal must not create a pool under the current directory'
-            Assert-Throws { $slot = Enter-BuildSlot -MaxConcurrent 1 -TimeoutSeconds 1 } 'a relative PANGLOSS_STATE_ROOT must fail closed when LockRoot is omitted'
-            Assert-False (Test-Path -LiteralPath (Join-Path $fixtureRoot 'relative-state-root')) 'relative PANGLOSS_STATE_ROOT refusal must not create a pool under the current directory'
-        } finally {
-            Exit-BuildSlot -Semaphore $slot
-            Set-Location -LiteralPath $oldLocation
-            $env:PANGLOSS_STATE_ROOT = $oldStateRoot
-        }
+        Exit-ResourceSlot -Slot $slot
+        Exit-ResourceSlot -Slot $slot
     }
 
     Test-Case 'Linux adapter provides safe path and cache seams without Windows drive defaults' {
         Assert-LinuxAdapterReady
         foreach ($name in @('Get-FreeSpaceGB', 'Resolve-TargetDir', 'Use-Sccache')) {
-            Assert-True ($null -ne (Get-Command $name -CommandType Function -ErrorAction SilentlyContinue)) "Linux adapter must expose $name"
-            Assert-Contains -Haystack @($linuxAdapterImportResult.Overrides) -Needle $name "Linux importer must register the $name override before it is exercised"
+            Assert-True ($null -ne (Get-Command $name -CommandType Function -ErrorAction SilentlyContinue)) "shared platform seam must expose $name"
         }
         $linuxTarget = '/var/tmp/pangloss-fixture-target'
         $oldTarget = $env:CARGO_TARGET_DIR
@@ -510,11 +479,15 @@ Committed_AS:   2048 kB
         $base = [PSCustomObject]@{ Checked = $true; Ok = $true; Detail = 'fixture'; Expected = ''; Actual = '' }
         $sccache = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
         $disk = [PSCustomObject]@{ Ok = $true; Detail = 'fixture' }
-        Assert-Contains -Haystack @($linuxAdapterImportResult.Overrides) -Needle 'Get-BuildSlotHolders' 'Linux importer must override build-holder census without Windows CIM'
-        function global:Get-BuildSlotHolders { @() }
         $memory = [PSCustomObject]@{ Ok = $true; Detail = 'fixture memory' }
         $repoForReport = Split-Path (Split-Path $toolRoot -Parent) -Parent
-        $text = (Write-Preflight -Mode build -Profile debug -RepoRoot $repoForReport -TargetDir '/var/tmp/target' -BaseCheck $base -SccacheHealth $sccache -FreeGB 1 -DiskCheck $disk -MemoryCheck $memory -MaxConcurrent 2 -Priority BelowNormal -HostCgroupProof $proof *>&1 | Out-String)
+        $originalHolders = (Get-Command Get-SlotHolders -CommandType Function).ScriptBlock
+        try {
+            Set-Item Function:\script:Get-SlotHolders -Value { @() }
+            $text = (Write-Preflight -Mode build -Profile debug -RepoRoot $repoForReport -TargetDir '/var/tmp/target' -BaseCheck $base -SccacheHealth $sccache -FreeGB 1 -DiskCheck $disk -MemoryCheck $memory -MaxConcurrent 2 -Priority BelowNormal -HostCgroupProof $proof *>&1 | Out-String)
+        } finally {
+            Set-Item Function:\script:Get-SlotHolders -Value $originalHolders
+        }
         Assert-True ($text -match 'host-service-owned|unapplied') 'Linux host proof report must say scheduling priority is host-service-owned/unapplied'
         Assert-False ($text -match 'event-2004') 'Linux host proof report must not claim Windows event enforcement anywhere'
     }
@@ -553,38 +526,41 @@ Committed_AS:   2048 kB
         Assert-True ($output -match 'linux-fixture') 'direct process stdout must be captured'
     }
 
-    Test-Case 'Linux build-slot exclusion is shared with an independent pwsh process' {
+    Test-Case 'Linux resource-slot exclusion is shared with an independent pwsh process' {
         Assert-LinuxAdapterReady
-        $lockRoot = Join-Path $fixtureRoot 'build-slots-cross-process'
+        $prefix = "Global\PanGlossLinuxCrossProcessSlot$PID-"
         $holderScript = Join-Path $fixtureRoot 'linux-slot-holder.ps1'
         $probeScript = Join-Path $fixtureRoot 'linux-slot-probe.ps1'
         $readyPath = Join-Path $fixtureRoot 'linux-slot-holder.ready'
         $holderOut = Join-Path $fixtureRoot 'linux-slot-holder.out'
         $probeOut = Join-Path $fixtureRoot 'linux-slot-probe.out'
         Set-Content -LiteralPath $holderScript -Encoding utf8 -Value @'
-param([string]$Common, [string]$ToolRoot, [string]$LockRoot, [string]$ReadyPath)
+param([string]$Common, [string]$ToolRoot, [string]$Prefix, [string]$ReadyPath)
 . $Common
 $import = Import-PanGlossPlatformAdapter -Platform Linux -ToolRoot $ToolRoot
-$slot = Enter-BuildSlot -MaxConcurrent 1 -TimeoutSeconds 5 -LockRoot $LockRoot
+$script:BuildSlotMutexPrefix = $Prefix
+$slot = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 1 -TimeoutSeconds 5
 if ($null -eq $slot) { exit 2 }
 Set-Content -LiteralPath $ReadyPath -Value 'held' -NoNewline
 Start-Sleep -Seconds 30
-Exit-BuildSlot -Semaphore $slot
+Exit-ResourceSlot -Slot $slot
 '@
         Set-Content -LiteralPath $probeScript -Encoding utf8 -Value @'
-param([string]$Common, [string]$ToolRoot, [string]$LockRoot)
+param([string]$Common, [string]$ToolRoot, [string]$Prefix)
 . $Common
 $import = Import-PanGlossPlatformAdapter -Platform Linux -ToolRoot $ToolRoot
-$slot = Enter-BuildSlot -MaxConcurrent 1 -TimeoutSeconds 1 -LockRoot $LockRoot
+$script:BuildSlotMutexPrefix = $Prefix
+$slot = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 1 -TimeoutSeconds 1
 if ($null -eq $slot) { 'DENIED'; exit 0 }
-Exit-BuildSlot -Semaphore $slot
+Exit-ResourceSlot -Slot $slot
 'ACQUIRED'
 exit 1
 '@
         $holder = $null
+        $probe = $null
         try {
             $holder = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $holderOut `
-                -ArgumentList @('-NoProfile', '-File', $holderScript, $commonPath, $toolRoot, $lockRoot, $readyPath)
+                -ArgumentList @('-NoProfile', '-File', $holderScript, $commonPath, $toolRoot, $prefix, $readyPath)
             foreach ($attempt in 1..100) {
                 Start-Sleep -Milliseconds 50
                 if (Test-Path -LiteralPath $readyPath) { break }
@@ -593,25 +569,32 @@ exit 1
             Assert-True (Test-Path -LiteralPath $readyPath) 'child process never reported its held slot'
 
             $probe = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $probeOut `
-                -ArgumentList @('-NoProfile', '-File', $probeScript, $commonPath, $toolRoot, $lockRoot)
+                -ArgumentList @('-NoProfile', '-File', $probeScript, $commonPath, $toolRoot, $prefix)
             $probe.WaitForExit(10000) | Out-Null
+            Assert-True $probe.HasExited "the probe must return within its slot timeout (output: $(if (Test-Path $probeOut) { Get-Content -LiteralPath $probeOut -Raw } else { '<none>' }))"
             Assert-Equal 0 $probe.ExitCode 'an independent process must be denied while the holder owns the slot'
-            Assert-Equal 'DENIED' (Get-Content -LiteralPath $probeOut -Raw).Trim()
+            Assert-True ((Get-Content -LiteralPath $probeOut -Raw) -match '(?m)^DENIED\s*$') 'the probe must report denial after the shared wait diagnostic'
         } finally {
+            if ($probe -and -not $probe.HasExited) { Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue }
             if ($holder -and -not $holder.HasExited) { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
+            if ($probe) { $probe.WaitForExit(10000) | Out-Null }
             if ($holder) { $holder.WaitForExit(10000) | Out-Null }
         }
 
         $probe = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $probeOut `
-            -ArgumentList @('-NoProfile', '-File', $probeScript, $commonPath, $toolRoot, $lockRoot)
-        $probe.WaitForExit(10000) | Out-Null
-        Assert-Equal 1 $probe.ExitCode 'a released cross-process slot must be acquirable'
-        Assert-Equal 'ACQUIRED' (Get-Content -LiteralPath $probeOut -Raw).Trim()
+            -ArgumentList @('-NoProfile', '-File', $probeScript, $commonPath, $toolRoot, $prefix)
+        try {
+            $probe.WaitForExit(10000) | Out-Null
+            Assert-True $probe.HasExited 'the released-slot probe must return'
+            Assert-Equal 1 $probe.ExitCode 'a released cross-process slot must be acquirable'
+            Assert-True ((Get-Content -LiteralPath $probeOut -Raw) -match '(?m)^ACQUIRED\s*$') 'the released probe must report acquisition after the shared wait diagnostic'
+        } finally {
+            if ($probe -and -not $probe.HasExited) { Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue }
+            if ($probe) { $probe.WaitForExit(10000) | Out-Null }
+        }
     }
 
-    # --- Process seam: valid preflight gates the injected launch; no real Cargo is reachable. ---
-
-    Test-Case 'Linux Cargo process seam preserves working directory and exit code' {
+    Test-Case 'Linux managed process seam preserves working directory and exit code' {
         Assert-LinuxAdapterReady
         $calls = [System.Collections.Generic.List[object]]::new()
         $workingDirectory = Join-Path $fixtureRoot 'working-directory'
@@ -625,7 +608,7 @@ exit 1
             })
             return 37
         }.GetNewClosure()
-        $code = Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs @('test', '--package', 'fixture') `
+        $code = Invoke-ManagedProcess -Exe 'cargo' -CmdArgs @('test', '--package', 'fixture') `
             -WorkingDirectory $workingDirectory -SelfCgroupText "0::/delegated/supervisor/worker`n" `
             -MountInfoText $mountInfo -ReadFile (New-Reader -Files $validCgroupFiles) -ProcessInvoker $runner
         Assert-Equal 37 $code 'the adapter must return the injected process exit code unchanged'
@@ -635,10 +618,8 @@ exit 1
         Assert-Equal 'test' $calls[0].Arguments[0]
     }
 
-    Test-Case 'Linux Cargo refuses before the process seam when host containment is unproven' {
+    Test-Case 'Linux managed process refuses before the process seam when host containment is unproven' {
         Assert-LinuxAdapterReady
-        Assert-True ($null -ne (Get-Command Invoke-CargoWithReaper -CommandType Function -ErrorAction SilentlyContinue)) `
-            'missing contract function: Invoke-CargoWithReaper'
         $called = @{ Value = $false }
         $runner = {
             param([string]$Executable, [string[]]$Arguments, [string]$WorkingDirectory)
@@ -651,12 +632,12 @@ exit 1
         $invalidFiles['/cg d/supervisor/worker/memory.max'] = "max`n"
         $threw = $false
         try {
-            Invoke-CargoWithReaper -Exe 'cargo' -CmdArgs @('build') -WorkingDirectory $fixtureRoot `
+            Invoke-ManagedProcess -Exe 'cargo' -CmdArgs @('build') -WorkingDirectory $fixtureRoot `
                 -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo `
                 -ReadFile (New-Reader -Files $invalidFiles) -ProcessInvoker $runner
         } catch { $threw = $true }
         Assert-True $threw 'an unproven host cgroup must refuse before process launch'
-        Assert-False $called.Value 'Cargo must never be called after a failed host proof'
+        Assert-False $called.Value 'the process must never be called after a failed host proof'
     }
 } finally {
     Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue

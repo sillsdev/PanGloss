@@ -67,7 +67,7 @@ Nothing enforces these. They are here because they change what a careful agent d
 - **Probe pathological grammars single-threaded.** `pangloss batch --threads 1` plus
   `--word-timeout-ms`. *Scar: one probe reached 30+GB RSS and never finished; the same work took ~2
   minutes single-threaded.*
-- **Cap build-heavy agents at 2-3 concurrent.** `Enter-BuildSlot` caps *builds* at 2 machine-wide,
+- **Cap build-heavy agents at 2-3 concurrent.** `Enter-ResourceSlot -Pool build` caps *builds* at 2 machine-wide,
   but nothing caps agents; extras just queue and then exit 15.
 - **A long command that is NOT a managed build should be a background job**, so the harness notifies
   on completion. *Scar: a 7,121-word corpus batch run in the foreground truncated silently at ~1,663

@@ -6,13 +6,13 @@ CLAUDE.md has prohibited bare `cargo build|test|check|run` since the build-harde
 and the prohibition was still violated wholesale: when PowerShell broke mid-session, six concurrent
 agents were told to use bare cargo as a workaround. The result, measured:
 
-  * 6 `cargo` + 20 `rustc` processes alive at once, because `Enter-BuildSlot`'s machine-wide
+  * 6 `cargo` + 20 `rustc` processes alive at once, because `Enter-ResourceSlot`'s machine-wide
     semaphore (max 2) is only honoured by callers who go through pg.ps1;
   * `rust/target/debug` grew to 32.7 GB ON THE SYSTEM DRIVE, because bare cargo ignores
     `Resolve-TargetDir`'s redirection to the cache root;
   * C: fell from 46 GB to 7 GB free, with no disk-reserve gate in the path to notice;
   * orphaned rustc/link processes held their own .exe files locked, producing LNK1104 failures in
-    later builds, because nothing reaped the process tree (`Invoke-CargoWithReaper` does).
+    later builds, because nothing reaped the process tree (`Invoke-ManagedProcess` does).
 
 Every one of those mechanisms already existed and was simply bypassed. A prohibition a model can
 reason its way around under pressure is not a control; a hook is executed by the harness, so it

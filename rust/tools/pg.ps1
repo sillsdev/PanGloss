@@ -404,7 +404,7 @@ function Invoke-BackendCardRegeneration {
         Priority = $BuildPriority
     }
     if ($null -ne $HostCgroupProof) { $invokeArgs['HostCgroupProof'] = $HostCgroupProof }
-    $generatorCode = Invoke-CargoWithReaper @invokeArgs
+    $generatorCode = Invoke-ManagedProcess @invokeArgs
     if ($generatorCode -ne 0) {
         Write-Host "[pg] backend capability card regeneration failed with exit code $generatorCode" -ForegroundColor Red
         return $generatorCode
@@ -845,7 +845,7 @@ try {
                 Priority = $Priority
             }
             if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
-            $code = Invoke-CargoWithReaper @invokeArgs
+            $code = Invoke-ManagedProcess @invokeArgs
             $artifactLines = @(Get-Content -LiteralPath $capturePath)
             foreach ($line in $artifactLines) {
                 if (-not $line.StartsWith('{')) { continue }
@@ -870,7 +870,7 @@ try {
             Priority = $Priority
         }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
-        $code = Invoke-CargoWithReaper @invokeArgs
+        $code = Invoke-ManagedProcess @invokeArgs
         $lines = if (Test-Path $capturePath) { Get-Content $capturePath } else { @() }
         $lines | ForEach-Object { Write-Host $_ }
         $caseLines = @($lines | Where-Object { $_ -match '^PANGLOSS_CORPUS_CASES\s+(\S+)\s+(\d+)$' })
@@ -892,7 +892,7 @@ try {
             Priority = $Priority
         }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
-        $code = Invoke-CargoWithReaper @invokeArgs
+        $code = Invoke-ManagedProcess @invokeArgs
         if ($code -eq 0 -and (Test-BackendCardRegenerationScope -BuildMode $Mode -BuildPackage $Package)) {
             $releaseBuild = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile))
             $code = Invoke-BackendCardRegeneration -RustRoot $rustRoot -ReleaseBuild:$releaseBuild `
