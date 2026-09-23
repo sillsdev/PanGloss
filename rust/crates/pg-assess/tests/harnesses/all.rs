@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../certification_ledger.rs"]
 mod certification_ledger;
 #[path = "../duplicate_count_determinism.rs"]

@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../analysis_orchestration.rs"]
 mod analysis_orchestration;
 #[path = "../class_catalog.rs"]

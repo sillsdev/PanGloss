@@ -176,7 +176,7 @@ fn find_slot<'a>(parts: &'a [PartOfSpeech], id: &str) -> Option<&'a AffixSlot> {
     parts.iter().find_map(|part| {
         part.affix_slots
             .iter()
-            .find_map(|slot| (slot.guid == id).then_some(slot))
+            .find(|slot| slot.guid == id)
             .or_else(|| find_slot(&part.children, id))
     })
 }
@@ -742,6 +742,8 @@ fn envelope_json(
     }))
     .map_err(|error| format!("serialize rich trace JSON: {error}"))
 }
+
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     grammar: &Grammar,
     sink: &TreeTraceSink,

@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../batch_determinism.rs"]
 mod batch_determinism;
 #[path = "../cd_set_gate.rs"]

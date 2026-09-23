@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../agent_docs_resolve_gate.rs"]
 mod agent_docs_resolve_gate;
 #[path = "../developer_flags_contract.rs"]

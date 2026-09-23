@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../phase_c_alpha_scale.rs"]
 mod phase_c_alpha_scale;
 #[path = "../phase_c_chain_scale.rs"]

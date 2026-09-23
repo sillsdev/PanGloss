@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../ffi_transport_parity.rs"]
 mod ffi_transport_parity;
 #[path = "../generate_round_trip.rs"]

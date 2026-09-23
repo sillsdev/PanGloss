@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../circumfix_conditioning_parity.rs"]
 mod circumfix_conditioning_parity;
 #[path = "../compile_refusal_gate.rs"]

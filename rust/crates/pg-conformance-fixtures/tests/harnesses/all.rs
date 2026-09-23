@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../build_command_contract.rs"]
 mod build_command_contract;
 #[path = "../case_set_schema.rs"]

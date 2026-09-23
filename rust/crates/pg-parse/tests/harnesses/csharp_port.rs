@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../csharp_port_affix_process.rs"]
 mod csharp_port_affix_process;
 #[path = "../csharp_port_affix_template.rs"]

@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../boundary_marker_epsilon_collapse_gate.rs"]
 mod boundary_marker_epsilon_collapse_gate;
 #[path = "../cross_compiler_equivalence_gate.rs"]

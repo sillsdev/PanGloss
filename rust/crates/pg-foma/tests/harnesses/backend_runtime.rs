@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../backend_runtime_cache_gate.rs"]
 mod backend_runtime_cache_gate;
 #[path = "../backend_runtime_net_is_queryable_gate.rs"]

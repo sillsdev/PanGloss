@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../circumfix_candidate_selection.rs"]
 mod circumfix_candidate_selection;
 #[path = "../circumfix_cross_product_and_infix_drop_candidate_selection.rs"]

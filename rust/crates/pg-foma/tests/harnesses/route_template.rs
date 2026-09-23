@@ -1,3 +1,6 @@
+// Included test files share support modules (`mod common;`), so each is loaded once per includer.
+#![allow(clippy::duplicate_mod)]
+
 #[path = "../apply_path_refusal_gate.rs"]
 mod apply_path_refusal_gate;
 #[path = "../atomic_template_slot_carrier_gate.rs"]
