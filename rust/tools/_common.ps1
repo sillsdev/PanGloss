@@ -99,7 +99,7 @@ function Import-PanGlossPlatformAdapter {
 
 # Logical processors left unclaimed by compiler work, machine-wide, so latency-sensitive daemons (sshd,
 # Chrome Remote Desktop) keep headroom. docs/research/build-resource-governance.md
-$script:InteractiveReserveThreads = if ($env:PANGLOSS_INTERACTIVE_RESERVE) { [int]$env:PANGLOSS_INTERACTIVE_RESERVE } else { 6 }
+$script:InteractiveReserveThreads = if ($env:PANGLOSS_INTERACTIVE_RESERVE) { [int]$env:PANGLOSS_INTERACTIVE_RESERVE } else { 2 }
 
 # The memory analogue of the thread reserve above, proportional to installed RAM rather than a flat
 # figure. docs/research/build-resource-governance.md
@@ -2127,9 +2127,9 @@ function Write-Preflight {
             # Memory can bind the number instead of CPU; the CPU derivation is still true arithmetic but no longer the reason.
             $perJob = if ($MemoryPerJobGB -gt 0) { $MemoryPerJobGB } else { $script:MemoryPerCompileJobGB }
             $ltoNote = if ($perJob -eq $script:MemoryPerLtoLinkJobGB) { ' (fat-LTO link peak)' } else { '' }
-            "$($JobsBudget.Detail); ${perJob}GB/job assumed${ltoNote} over a $(Get-InteractiveReserveGB)GB reserve, split across $MaxConcurrent slot(s)"
+            "$($JobsBudget.Detail); ${perJob}GB/job assumed${ltoNote} over a $(Get-InteractiveReserveGB)GB reserve"
         } else {
-            "$([Environment]::ProcessorCount) logical - $script:InteractiveReserveThreads reserved for SSH/remote-desktop daemons - $($runSlotsShown * $script:RunThreadsPerSlot) reserved for the run pool, split across $MaxConcurrent slot(s)"
+            "$([Environment]::ProcessorCount) logical - $script:InteractiveReserveThreads reserved; BelowNormal priority shares the rest when builds overlap"
         }
         Write-Host "cargo jobs: $Jobs per build ($why)"
     }

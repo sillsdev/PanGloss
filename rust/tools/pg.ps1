@@ -113,16 +113,15 @@
   is silent -- it runs some tests, exits 0, and omits the ones you meant.
 
   -Jobs / -TestThreads: 0 means "derive from the machine" (Get-CargoJobBudget: logical cores minus
-  the interactive reserve, narrowed further by available memory, split across build slots) -- see
+  the interactive reserve, narrowed further by available memory; each build is sized as if alone and BelowNormal priority shares cores when builds overlap) -- see
   docs/research/build-resource-governance.md. A positive value overrides the derivation outright for
   one run, e.g. at the console with no remote session to protect. They are separate knobs because they
   bound different phases: -Jobs caps compilation, -TestThreads caps how many test processes execute.
 
   Slot pools: builds and runs queue separately (-MaxConcurrent, default 2; -MaxConcurrentRuns,
   default 4). Both are named-mutex pools, so a holder that dies leaves its slot ABANDONED and the
-  kernel hands it to the next waiter -- see Enter-ResourceSlot. The two pools share ONE machine-wide
-  CPU budget: the run pool's allotment (slots x 1 core) comes off the top of Get-CargoJobBudget, and
-  the build and run pools share the machine's CPU budget. Only the build pool is swept for stale
+  kernel hands it to the next waiter -- see Enter-ResourceSlot. Builds are not pre-divided across
+  slots; BelowNormal priority arbitrates when builds and runs overlap. Only the build pool is swept for stale
   holders (Remove-StaleBuildSlotHolders).
 
   -BuildSlotTimeoutSeconds (default 1800 = 30 minutes): long enough that a normal queued build never
@@ -362,8 +361,8 @@ $fatLto = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfil
 $perJobMemGB = Get-MemoryPerProcessGB -FatLto:$fatLto
 
 $jobsExplicit = ($Jobs -gt 0)
-$jobsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent $MaxConcurrent -RunSlots $runSlots) `
-    -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $perJobMemGB -MaxConcurrent $MaxConcurrent) `
+$jobsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent 1 -RunSlots 0) `
+    -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $perJobMemGB -MaxConcurrent 1) `
     -Explicit:$jobsExplicit
 if (-not $jobsExplicit) { $Jobs = $jobsBudget.Value }
 $env:CARGO_BUILD_JOBS = "$Jobs"
@@ -371,8 +370,8 @@ $env:CARGO_BUILD_JOBS = "$Jobs"
 # The EXECUTION half: CARGO_BUILD_JOBS bounds compilation only, and nextest/libtest fan out test processes
 # at their own uncapped default. Sized against a heavier per-process allowance. docs/research/build-resource-governance.md
 $testThreadsExplicit = ($TestThreads -gt 0)
-$testThreadsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent $MaxConcurrent -RunSlots $runSlots) `
-    -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $script:MemoryPerTestProcessGB -MaxConcurrent $MaxConcurrent) `
+$testThreadsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent 1 -RunSlots 0) `
+    -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $script:MemoryPerTestProcessGB -MaxConcurrent 1) `
     -Explicit:$testThreadsExplicit
 if (-not $testThreadsExplicit) { $TestThreads = $testThreadsBudget.Value }
 

@@ -196,3 +196,8 @@ codegen-units = 16
 # Line tables, not full DWARF: keeps panic/backtrace locations useful for a failing corpus or perf
 # gate without paying release's usual full debug-info cost across hundreds of test binaries.
 debug = "line-tables-only"
+
+# SQLite's bundled C amalgamation is one ~9MB translation unit; at opt-level 3 cl.exe spends ~70s on
+# it in every fresh target dir. Tests only use it for the stats cache, so compile it unoptimized here.
+[profile.pg-test-opt.package.libsqlite3-sys]
+opt-level = 0
