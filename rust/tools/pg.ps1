@@ -335,8 +335,7 @@ if ($NoSccache) {
     $MaxConcurrent = 1
 }
 
-# Validate the effective pool widths before any formatter, hygiene checker, or managed child can run.
-# MaxConcurrentRuns=0 means "use the configured default"; negative values are never a default.
+# Validate pool widths before anything runs; MaxConcurrentRuns=0 means the default, negatives never do.
 if ($MaxConcurrent -lt 1 -or $MaxConcurrent -gt $script:MaxResourceSlotWidth) {
     Write-Host "[pg] -MaxConcurrent must be in 1..$($script:MaxResourceSlotWidth); got $MaxConcurrent." -ForegroundColor Red
     exit 2
@@ -616,8 +615,7 @@ if ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-t
     Invoke-RustFmt -RustRoot $rustRoot
 }
 
-# Not in doctor: it reports this in its own findings section further up, so an unguarded call would scan twice there.
-# The native checker is a process launch and a stale checker may bootstrap a nested managed build.
+# Skipped in doctor, which reports this itself; a stale native checker may bootstrap a nested build.
 if ($HygieneBootstrap) {
     Write-Host '[pg] hygiene preflight omitted only while compiling the checker itself.'
 } elseif ($Mode -notin @('doctor', 'check', 'quick')) { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }

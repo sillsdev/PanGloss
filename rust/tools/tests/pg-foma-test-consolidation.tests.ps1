@@ -57,8 +57,7 @@ Test-Case 'every explicit harness path exists and target paths are unique' {
 }
 
 Test-Case 'every original source is mapped exactly once and no harness imports an extra source' {
-    # This immutable pre-consolidation inventory deliberately does not derive from Cargo targets:
-    # a missing [[test]] entry must not make an original test disappear from the expected side.
+    # Fixed inventory, not derived from Cargo, so a dropped [[test]] entry cannot hide an original test.
     $expectedSourceNames = @(
         'admission_single_owner_gate.rs', 'advice_catalog_contract.rs',
         'all_fixtures_foma_analyzer_new_no_panic.rs', 'apply_path_refusal_gate.rs',

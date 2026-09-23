@@ -116,10 +116,7 @@ fn synthesis_direction_rows_are_nonzero_for_words_that_parse() {
     );
 }
 
-/// Try-a-word's rich collector must time the same phonological-rule and root-index work
-/// whose counters it already records. Replaying the real fixtures makes the assertion
-/// insensitive to any one sub-microsecond clock reading while still proving both phon
-/// owner loops and the trie-search boundary actually fire.
+/// The rich collector must time the phon-rule and root-index work it counts; real fixtures prove both loops fire.
 #[test]
 fn traced_stats_time_phon_rules_in_both_directions_and_root_lookups() {
     let mut phon_analysis_ns = 0u64;
