@@ -101,19 +101,10 @@ use pg_parse::{
 };
 use pg_stats::StepCap;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct BatchParseCounter {
     #[cfg(test)]
     fires: Arc<AtomicUsize>,
-}
-
-impl Default for BatchParseCounter {
-    fn default() -> Self {
-        Self {
-            #[cfg(test)]
-            fires: Arc::new(AtomicUsize::new(0)),
-        }
-    }
 }
 
 impl BatchParseCounter {
@@ -754,6 +745,7 @@ struct BatchWordRun {
     stats: Option<stats_cmd::BatchStatsWord>,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_batch_with_stats(
     morpher: &Morpher,
     grammar: &Grammar,

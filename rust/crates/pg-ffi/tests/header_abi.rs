@@ -133,6 +133,12 @@ fn installed_header_compiles_links_and_runs_as_c_and_cpp() {
         "--profile",
         &cargo_profile(),
     ]);
+    // Under cargo-llvm-cov the test binary lives in its own target dir; build next to it.
+    build.arg("--target-dir").arg(
+        target_profile()
+            .parent()
+            .expect("<target>/<profile> has a <target> parent"),
+    );
     let status = build.status().expect("build pg-ffi cdylib");
     assert!(status.success());
     let scratch = ScratchDir::new(&target_profile());

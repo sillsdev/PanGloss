@@ -2152,7 +2152,8 @@ mod tests {
                 columns
                     .into_iter()
                     .enumerate()
-                    .filter_map(|(index, value)| (index != 2).then(|| value.to_owned()))
+                    .filter(|(index, _)| *index != 2)
+                    .map(|(_, value)| value.to_owned())
                     .collect(),
             );
         }
