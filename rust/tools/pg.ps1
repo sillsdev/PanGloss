@@ -822,18 +822,33 @@ switch ($Mode) {
 }
 if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
 
+# A test file absorbed into a consolidated harness is still addressable by its own stem.
+$harnessModule = $null
+if ($TestTarget -and $Package) {
+    $absorbed = Resolve-HarnessTestTarget -TestsDir (Join-Path $rustRoot "crates\$Package\tests") -TestTarget $TestTarget
+    if ($absorbed) {
+        Write-Host "[pg] -TestTarget $TestTarget lives in harness '$($absorbed.Target)'; running only its '$($absorbed.Module)::' tests." -ForegroundColor DarkGray
+        $TestTarget = $absorbed.Target
+        $harnessModule = $absorbed.Module
+    }
+}
+
 # Before the runner-specific branches: `--test` is a CARGO argument, valid for both runners, and must not land after `--`.
 if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 
 if ($useNextest) {
     # Skipped when the caller already passed it; nextest refuses a repeated flag.
     if ((-not $FailFast) -and ($ExtraArgs -notcontains '--no-fail-fast')) { $cargoArgs += '--no-fail-fast' }
-    if ($Filter) { $cargoArgs += $Filter }
+    if ($harnessModule) {
+        $expr = "test(/^$harnessModule`::/)"
+        if ($Filter) { $expr += " & test($Filter)" }
+        $cargoArgs += @('-E', $expr)
+    } elseif ($Filter) { $cargoArgs += $Filter }
     # Without this, PANGLOSS_CORPUS_CASES lines from PASSING tests are swallowed and misreport as zero cases.
     if (($Mode -eq 'corpus-test') -and ($ExtraArgs -notcontains '--no-capture')) { $cargoArgs += '--no-capture' }
 } else {
     $trailing = @()
-    if ($Filter) { $trailing += $Filter }
+    if ($Filter) { $trailing += $Filter } elseif ($harnessModule) { $trailing += "$harnessModule`::" }
     if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) { $trailing += @('--test-threads', "$TestThreads") }
     if ($Mode -eq 'corpus-test') {
         $trailing += '--nocapture'

@@ -1886,6 +1886,24 @@ function Get-FilterZeroMatchHint {
     return $out
 }
 
+function Resolve-HarnessTestTarget {
+    <#
+      .DESCRIPTION
+      Map a test-file stem that a consolidated harness absorbs (tests/harnesses/<h>.rs declaring
+      `#[path = "../<stem>.rs"] mod <stem>;`) to that harness's target and module, so existing
+      `-TestTarget <stem>` commands keep working. $null when no harness absorbs the stem.
+    #>
+    param([Parameter(Mandatory)][string]$TestsDir, [Parameter(Mandatory)][string]$TestTarget)
+    $harnessDir = Join-Path $TestsDir 'harnesses'
+    if (-not (Test-Path -LiteralPath $harnessDir)) { return $null }
+    $pattern = '#\[path\s*=\s*"\.\./' + [regex]::Escape($TestTarget) + '\.rs"\]\s*mod\s+(?<module>\w+)\s*;'
+    foreach ($harness in Get-ChildItem -LiteralPath $harnessDir -Filter '*.rs' -File) {
+        $m = [regex]::Match((Get-Content -Raw -LiteralPath $harness.FullName), $pattern)
+        if ($m.Success) { return [PSCustomObject]@{ Target = $harness.BaseName; Module = $m.Groups['module'].Value } }
+    }
+    return $null
+}
+
 function Assert-ScriptAndCwdAgreeOnWorktree {
     <#
       .DESCRIPTION
