@@ -7,16 +7,16 @@ use pg_conformance_fixtures::{
     discover_scoped, producibility_census, ConformanceScope, ProducibilityCensus,
 };
 use pg_foma::capability::{default_registry, CharacteristicKind, Disposition};
-use pg_foma::conformance_coverage::CoverageStatus;
-use pg_foma::coverage_ledger::{build_ledger, CoverageLedger};
-use pg_foma::plan_interaction_coverage::{
+use pg_foma_backend::conformance_coverage::CoverageStatus;
+use pg_foma_backend::coverage_ledger::{build_ledger, CoverageLedger};
+use pg_foma_backend::plan_interaction_coverage::{
     compute_interaction_coverage, plan_and_profile, TupleStatus,
 };
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 use serde::Serialize;
 
-/// This CLI report's own schema version, independent of `pg_foma::coverage_ledger::COVERAGE_LEDGER_SCHEMA_VERSION`, which the embedded `ledger` field carries in its own right.
+/// This CLI report's own schema version, independent of `pg_foma_backend::coverage_ledger::COVERAGE_LEDGER_SCHEMA_VERSION`, which the embedded `ledger` field carries in its own right.
 pub const COVERAGE_CLI_SCHEMA_VERSION: u32 = 1;
 
 /// Mirrors `pg-foma/tests/conformance_coverage_gate.rs::passing_covered_constructs` exactly, restated rather than imported since that helper is private to a dev-only test file.

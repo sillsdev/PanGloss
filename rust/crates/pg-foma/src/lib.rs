@@ -1,63 +1,5 @@
-//! Compiles a `pg_grammar::model::Grammar` into `foma` finite-state transducers that PROPOSE
-//! candidate analyses, and confirms those candidates against the verifier engine.
-//!
-//! - `tags`: the `<R:nnnn>`/`<M:nnnn>` tag codec — escaped lexc spellings, decoded literal
-//!   text, an `apply_up`-output decoder, and the `Candidate` split for compound (multi-root) paths.
-//! - `emit`: `Grammar -> lexc source` — see that module's doc for the full design.
-//! - `junctions`: `junctions::PhonologyProbe`, the pre-probed surface-variant/deletion-junction
-//!   machinery `emit` drives for a grammar with real phonological rules — a `None`-safe
-//!   no-op for a grammar without any.
-//! - `morphotactics` (crate-internal): the
-//!   `MorphotacticIndex`/`ChainState` subset-construction automaton over the engine's own
-//!   `pg-rules/src/stratum.rs` morphotactics, shared by `preexpand::extend`/`emit::struct_extend`
-//!   to prune their composite-chain recursion to engine-legal rule adjacencies (the Aweti scale
-//!   fix — see that module's doc for the full design).
-//! - `preexpand` (crate-internal): rule-application pre-expansion (interdigitation —
-//!   `Role::Infix` rules applied to each root via the engine's own `pg_rules::morph::synthesize`)
-//!   and boundary-fusion composite probing (Ge'ez glyph coalescence), emitted as multi-tag
-//!   composite entries in the engine's own morph order and wired into `emit`'s shared `Composites`
-//!   lexicon — see `tests/f3_amharic_gate.rs` (Amharic recall 100%, asserted).
-//! - `analyzer`: `FomaProposer`, the thin `emit + compile + apply-up` wrapper.
-//! - `confirm`: a fresh port of `hc-hybrid/src/replay.rs`'s confirm half — `MorphemeOwner`,
-//!   `build_morpheme_owners`, and `confirm_all` (multiplicity recovery: every matching analysis
-//!   in the pinned `parse_word_selected` outcome, not just the first).
-//! - `peel`: a fresh port of `hc-hybrid/src/proposers.rs::ReduplicationProposer`, its
-//!   recursion target swapped to the foma proposer (`ReduplicationPeeler::peel_candidates`).
-//! - `plan`: the reified,
-//!   content-addressed compilation-`Plan` data type -- a closed node-kind enum (`Leaf`, `Compose`,
-//!   `Union`, `Gate`, `Replace`) plus the interning arena that makes identical subtrees dedup.
-//!   Built by `enumerate`, interpreted into real `Fsm`s by `build`; does not rewire
-//!   `emit`/`preexpand`'s own seams.
-//! - `composite`: `FomaAnalyzer`, the public propose→confirm product API — `analyze_word`
-//!   mirrors `pg_parse::ParseOutcome`'s `analyses`/`structured` shape, plus diagnostics.
-//! - `precision`: the FST precision knob's
-//!   `ConstraintCatalog`/`PrecisionAction`/`PrecisionConfig` for the
-//!   GATE-CONSTRAINT ENVIRONMENT family, plus the `AllFlags` preset's flag-emission runtime
-//!   (`crate::emit::emit_with_precision` is the opt-in entry point; `crate::emit::emit` always
-//!   passes `PrecisionConfig::Strip`).
-//!
-//! `tests/f0_viability.rs` proves the pure-Rust `foma` crate
-//! (crates.io v0.1.1, github.com/divvun/foma-rs) compiles and behaves correctly on Windows and
-//! wasm32; `tests/f1_sena_gate.rs` covers emit+compile for Sena (recall vs. the full
-//! engine, `mbali`, overgeneration sanity); `tests/f2_indonesian_gate.rs` covers
-//! emit+compile for Indonesian (recall minus the reduplication exclusion list, junction spot-checks,
-//! overgeneration sanity, plus a Sena regression re-run); `tests/f3_amharic_gate.rs` covers
-//! Amharic (emit+compile with the infix items gone from `uncovered`, recall asserted 100%,
-//! end-to-end multiset parity vs the full engine, overgeneration sanity);
-//! `tests/f4_composite_gate.rs` covers the propose→confirm composite (over-generation pruning,
-//! `mbali` multiplicity, Indonesian redup round-trip, empty-on-miss, and a mini-parity smoke pass).
-//!
-//! ## `pg-parse` is a NORMAL dependency, not just a dev-dependency oracle
-//! Confirm needs `pg_parse::Morpher::parse_word_selected` pinned to a
-//! candidate's root(s)/rules, so `confirm` and `composite` depend on
-//! `pg_parse::{Morpher, ParseOptions, WordAnalysis}` for real. This is not a wasm32 risk:
-//! `pg-wasm` already links `pg-parse` directly (it IS the verifier
-//! engine `pg-wasm`'s own demo runs today), so this crate depending on it too adds no new transitive
-//! dependency to that build — see `tests/f2_indonesian_gate.rs`'s wasm32 `cargo check`, still green
-//! with `pg-parse` promoted, and this crate's own wasm32 check in CI/`README`.
 #![forbid(unsafe_code)]
 
-// Workbench modules are `pub` only under `test-support`; one macro keeps the 26 gated pairs from drifting.
 macro_rules! workbench_module {
     ($(#[$meta:meta])* pub mod $name:ident $($body:tt)*) => {
         $(#[$meta])*
@@ -70,323 +12,53 @@ macro_rules! workbench_module {
 }
 
 #[cfg(test)]
-mod test_support;
+mod peel_compile_tests;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 
-/// Versioned, structured backend advice keyed by compiler-observed grammar shapes.
 pub mod advice_catalog;
 pub mod analyzer;
-workbench_module! {
-    /// **The accuracy question, split off from the speed question.** Confirmation-free undergeneration
-    /// detection by admission-key set containment against the run's already-shared oracle result — zero
-    /// full-HC confirmation calls per candidate. Deliberately says NOTHING about cost; ranking stays
-    /// `backend_optimizer::Score`'s job. Read that module's own doc for the soundness argument and the
-    /// one hazard it is counted against.
-    pub mod backend_accuracy;
-}
-/// Static, machine-independent capability cards for the executable backends.
-mod backend_cards_data;
-workbench_module! {
-    /// Serializable mechanism vocabulary and fail-closed executable-backend graph validation.
-    pub mod backend_mechanism;
-}
-/// `backend::Backend`, the interface every compiler backend implements, plus the closed `backend::ALL_BACKENDS` table (`PlanComposed`, `LexcMainline`, `TemplatedUnderlyingTokens`) every compile dispatch goes through.
-pub mod backend;
-/// Extensible, budget-aware offline search and confirmed-only backend selection.
-pub mod backend_optimizer;
-/// Extensible registry of realizable compilation-backend families.
-pub mod backend_registry;
-pub mod backend_runtime;
-workbench_module! {
-    /// Opaque trusted compiler output and selector-owned runtime handoff.
-    pub mod completed_build;
-}
-workbench_module! {
-    pub mod backend_cards {
-        // The workbench module is gated out of an ordinary build, which leaves this re-export unused.
-        #[allow(unused_imports)]
-        pub use super::backend_cards_data::{
-            catalog, checked_in_relative_path, render_markdown, BackendCard, BigO, Envelope,
-            EnvelopeControl, CARD_SCHEMA_VERSION,
-        };
-    }
-}
-/// The selector: `backend_selection::select_backends` turns
-/// `capability::StrategyEnvelope`'s per-backend compatibility reports into a choice — which
-/// backend(s) can compile a grammar, and the named construct each excluded one declined on. No
-/// path, one path and several are all ordinary answers. `backend_selection::
-/// best_case_across_backends` is check-only in the same sense: an advisory, whole-grammar join,
-/// never a per-backend decision.
 pub mod backend_selection;
-pub mod backend_space;
-workbench_module! {
-    /// [`build::
-    /// build_controllable`], a `plan::Plan` interpreter for the controllable subtree (the `Gate`
-    /// node and its per-group `Compose{LexiconFragment, Replace}` children [`enumerate::
-    /// enumerate_default`] emits) into a real, composed `foma::types::Fsm` -- proven equivalent to
-    /// `gate::compile_gated_grammar`'s own direct-compile output by an apply-based test.
-    /// Composite/structural-composite markers stay out of scope (that path's artifact type is a lexc
-    /// `String`, not this module's `Fsm`); see that module's own doc for the full scope and the
-    /// per-group-Replace-variance obstacle this step surfaced.
-    pub mod build;
-}
-pub mod candidate_filter;
-/// The
-/// `CharacteristicsProfile` projection, the `CapabilityPredicate` trait + `PredicateVerdict`, the
-/// exhaustive default-deny `characterize`, and the `simultaneous.subrule-overlap` predicate.
-/// Gates SELECTION, not compilation: `compose_envelope_for_strategy` decides what `selection`
-/// may offer, while the compile passes themselves are untouched.
+pub mod build;
+/// Shared compiler classification predicates.
 pub mod capability;
-workbench_module! {
-    pub mod capability_gate;
-}
-/// The
-/// cheap, pre-compile health pass -- `characterization::characterization_findings` turns
-/// `capability::characterize`'s already-computed `capability::CharacteristicsProfile` and
-/// `backend_selection::best_case_across_backends`'s already-resolved, advisory-only
-/// `capability::CompileDecision` into `health::HealthFinding`s BEFORE any foma compile is
-/// attempted -- semantic uncertainty
-/// (`Refuse`), cost uncertainty (`ConfirmOnly`/unbounded quantifiers), and bounded-product findings
-/// (`Unordered`-stratum rule counts, a grammar-wide mrule x prule product). See that module's own
-/// doc for the full design and judgment calls.
+pub mod capability_gate;
 pub mod characterization;
-workbench_module! {
-    /// Composition-path budget guards for (`replace`, `gate`, `uflexc`) -- size/count caps plus an
-    /// opt-in wall-clock deadline for every
-    /// compose/union/minimize call on that path. See that module's own doc for the full design.
-    pub mod compose_budget;
-}
+pub use pg_foma_runtime::candidate_filter;
+#[cfg(feature = "test-support")]
+pub use pg_foma_runtime::compose_budget;
+#[cfg(not(feature = "test-support"))]
+pub(crate) use pg_foma_runtime::compose_budget;
 pub mod composite;
-pub mod confirm;
-/// The
-/// conformance-coverage cross-check — `conformance_coverage::construct_ids_for` (the
-/// `capability::CharacteristicKind` → `machine/conformance/constructs.txt` identifier mapping,
-/// the contract) and `conformance_coverage::supported_coverage_report`/[`conformance_coverage::
-/// supported_uncovered`] (the pure cross-check over a caller-supplied passing-construct set).
-/// Reports gaps — see its own doc for the mapping and today's reported gaps. The fixture-replay
-/// glue that builds the "passing" set lives in
-/// `tests/conformance_coverage_gate.rs` (dev-dependency-only).
-pub mod conformance_coverage;
-/// The one-time,
-/// audited coverage LEDGER over the frozen `pg-grammar/src/model.rs` construct set —
-/// `coverage_ledger::LedgerRow`/`coverage_ledger::CoverageLedger`/[`coverage_ledger::
-/// build_ledger`] (a consolidated, serializable view over `capability::CharacteristicKind`'s
-/// existing disposition/predicate/conformance-mapping facts) plus [`coverage_ledger::
-/// containment_evidence_for`] (the curated, hand-reviewed proposer-to-confirm containment-test
-/// citation table). **Evidence, not a gate**: a report input, not a compile-time check — see
-/// that module's own doc.
-pub mod coverage_ledger;
-workbench_module! {
-    /// The shared walk + fold `witnessed_coverage` and `faithfulness_coverage` build their own
-    /// `(CharacteristicKind, EmissionStrategy)` reports from -- see that module's own doc.
-    pub mod coverage_seam;
-}
-workbench_module! {
-    /// A feasibility probe (not mainline; see that module's doc): does token-space Infix-rule
-    /// splicing (Amharic root-and-pattern interdigitation) reach 100% recall composed with
-    /// `replace`'s rule cascade? Standalone, additive, same status as `replace`/`uflexc`.
-    pub mod e2_infix_probe;
-}
+pub use pg_foma_runtime::confirm;
 pub mod emit;
-/// `enumerate_default`, which
-/// builds today's compilation topology for a `Grammar` as a single reified `plan::Plan`, verified
-/// structurally against the real `preexpand::should_run`/`emit::probe_would_refuse`/`gate::
-/// partition_entries` seams. `crate::emit::plan_topology_decisions` flips
-/// `emit.rs`'s own compile path to DERIVE its composite-emission/structural-composite topology
-/// decisions from a `Plan` this function builds, rather than re-deriving `should_run`/
-/// `probe_would_refuse`/`structural_candidate_rules` a second, independent time -- still does not
-/// build/execute a `Plan` into real FSTs itself (that stays data-only). `gate::
-/// partition_entries` belongs
-/// to `gate.rs`'s own, separate compile entry point; see that module's own doc for full scope and
-/// the judgment calls it surfaces.
 pub mod enumerate;
-workbench_module! {
-    /// The per-STRATEGY FAITHFULNESS account: whether a backend's proposal set CONTAINS every analysis
-    /// full Rust HermitCrab finds, for each discovered fixture exhibiting a
-    /// `capability::CharacteristicKind`. Complements `witnessed_coverage` (which proves only that a
-    /// backend COMPILED a grammar containing a construct) by running the real propose+observe pipeline
-    /// (`backend_runtime::evaluate_plans_observed_with_cache`) and comparing against the same oracle.
-    /// See that module's own doc for the containment relation and the denominator discipline.
-    pub mod faithfulness_coverage;
-}
-/// Static MPR/POS subrule gating, a sibling of `replace`/`uflexc`. See that module's doc for
-/// the design and why it is a flag-free static partition rather than a flag-diacritics encoding.
 pub mod gate;
-/// [`grammar_semantics::
-/// GrammarSemantics`], the ONE immutable typed owner of this crate's grammar-derived semantic
-/// facts. Capability (`capability`/`backend_selection`/`characterization`), registry
-/// applicability (`backend_registry::Applicability`), backend-space accounting
-/// (`backend_space::GrammarFacts`) and the phonology existence gate (`junctions::PhonologyProbe`)
-/// are projections over it rather than four independent grammar walks. See that module's own
-/// doc for what it deliberately does NOT own (`conformance_coverage`'s independent structural
-/// witnesses, and the compile paths themselves) and for the declared-vs-cascade phonology split.
 pub mod grammar_semantics;
-/// The FST
-/// compilation-health finding schema -- `health::Severity`/`health::severity_for_size_bytes`
-/// (the single decimal-byte size threshold), the current `health::FindingCode` `PGFdddd` registry,
-/// `health::HealthFinding`/`health::HealthReport`, and canonical JSON. Health is REPORTED
-/// about a compile, never consulted during one; `health_evaluator` produces the findings.
-pub mod health;
-/// The real health EVALUATOR --
-/// `health_evaluator::evaluate` turns a `health_evaluator::CompileMeasurements` (the non-empty
-/// `health_evaluator::AttemptedPhases` an attempt reached, plus final FST payload size,
-/// `emit::EmitReport`, `compose_budget::ComposeError`, per-word
-/// `health_evaluator::ApplyBudgetTrip`s) into `health::HealthFinding`s + a [`health::
-/// HealthReport`], consuming `health`'s schema without recomputing any measurement itself. See
-/// that module's own doc for the exact input -> finding mapping.
-pub mod health_evaluator;
 pub mod junctions;
+pub use pg_health::health;
 workbench_module! {
-    /// The shared
-    /// pattern/environment → FST lowering seam -- `lower::lower_span` lowers one subrule's
-    /// `left_env · lhs_focus · right_env` triple into foma acceptors, `lower::spans_overlap` tests
-    /// two such spans for a non-empty intersection. `lower::Slot`/`lower::pattern_slots`/
-    /// `lower::resolve_alpha_tuples`/`lower::render_slots`/`lower::AlphaAssignment`/
-    /// `lower::TupleReport` are defined HERE, the canonical pattern-lowering vocabulary, with
-    /// `replace` re-exporting them at their old paths for its own rewrite-rule compilation and every
-    /// other existing caller; see that module's own doc for full scope, what stayed in
-    /// `replace` (`SegAlphabet`, `owning_table`) and why, and the judgment calls it surfaces.
     pub mod lower;
 }
-workbench_module! {
-    /// The ONE derivation of a
-    /// `backend_mechanism::MechanismGraph`, taking `grammar_semantics::GrammarSemantics` and no
-    /// `&Grammar` at all. Builds and verifies data only -- see that module's own doc for why the
-    /// signature is the enforcement.
-    pub mod mechanism_provider;
-}
-pub(crate) mod morphotactics;
-workbench_module! {
-    /// **The speed question's cheap first-pass filter, split off from the accuracy question.** A purely
-    /// STATIC structural inspection of a finished `foma::types::Fsm` -- cycles and self-loops in the
-    /// continuation graph, zero-width (input-epsilon) cycles specifically, and the per-state
-    /// branching/ambiguity distribution -- computed without applying a single word. Deliberately says
-    /// NOTHING about size as a preference: on the private `sena` grammar the plan-composed net is 50x
-    /// SMALLER and ~1300x slower to apply than the hand-spun one, so every size metric picks the wrong
-    /// candidate. Read that module's own doc for the mechanism, and for the hard scope rule: it is a
-    /// first-pass filter and a regression tripwire that can never suppress a proposal, and no `Score`
-    /// field, ranking key, eligibility predicate or certification verdict consults it -- grep for
-    /// callers of its public functions to confirm.
-    pub mod net_shape;
-}
-workbench_module! {
-    /// The
-    /// differential-correctness oracle -- `oracle::differential_oracle` builds two `plan::Plan`s
-    /// via `build::build_controllable` and compares their `apply_up` result sets, reporting the
-    /// shortest disagreeing word plus symmetric difference on mismatch; `oracle::permute_gate_groups`
-    /// is the second same-relation topology generator this module's own tests diff against. Cheap,
-    /// always-on tier only (an expensive exact-equivalence stretch tier and any real confirm-engine
-    /// integration are explicitly out of scope; see that module's own doc).
-    pub mod oracle;
-}
-workbench_module! {
-    /// Grammar-derived backend-space bounds, pruning accounting, and pilot measurements.
-    pub mod ordering_witnesses;
-}
-workbench_module! {
-    /// The backend parity RELATION, stated once: deduplicated `pg_parse::identity::AnalysisIdentity`
-    /// set equality per word occurrence, plus the typed faults that make a candidate non-selectable
-    /// without ever being reported as disagreement. `backend_runtime::certify_word` is the only
-    /// production consumer; it lives here rather than there so the relation can be read, tested, and
-    /// changed without reading the evaluator that applies it.
-    pub mod parity;
-}
-pub mod peel;
-/// The content-addressed compilation-`Plan` data type -- compilation topology as enumerable data,
-/// so a compiler can be composed rather than hand-written. Built by `enumerate`, interpreted
-/// into real `Fsm`s by `build`.
+pub mod oracle;
+pub use pg_foma_runtime::peel;
 pub mod plan;
-/// Renders a `plan::Plan` as a versioned JSON
-/// document (`plan_diagram::PlanDocument`, schema-versioned like `coverage_ledger`/`health`)
-/// and, from that document, a mermaid diagram (`plan_diagram::render_mermaid`) labelled by the
-/// linguistic work each node performs and marked with its REAL `capability` verdict (never
-/// inferred from a node's mere presence). Read-only over `plan`/`enumerate`/`capability`/
-/// `plan_interaction_coverage` — no compile path is touched. See that module's own doc for the full
-/// contract, including the honest summarization convention for large plans.
-pub mod plan_diagram;
-/// Tree-structured node/subtree interaction coverage over the reified compilation plan --
-/// `plan_interaction_coverage::AdjacencyTuple` extraction + tagging,
-/// `plan_interaction_coverage::retired_interactions` (orthogonality pruning, evidence-cited, never
-/// invented), `plan_interaction_coverage::compute_interaction_coverage` (the required/covered/
-/// uncovered/contains-unsupported report), and [`plan_interaction_coverage::
-/// fuzz_gate_group_reordering_for_grammar`] (targeted Gate-node subtree fuzzing via
-/// `oracle::permute_gate_groups` + `oracle::differential_oracle`). **BUILD-BREAKING**: see that
-/// module's own doc for the mapping and `tests/plan_interaction_coverage_gate.rs` for the gate.
-pub mod plan_interaction_coverage;
 workbench_module! {
     pub mod precision;
 }
 pub(crate) mod preexpand;
 workbench_module! {
-    /// The one post-compile FST production-admission decision —
-    /// [`production_admission::assess_completed_fst`] — that every strategy consults instead of
-    /// re-deriving grammar partiality for itself.
-    pub mod production_admission;
-}
-workbench_module! {
-    /// The compile-time
-    /// **profile** type -- `profile::CompileProfile`/`profile::CompileStage`/[`profile::
-    /// GroupLineCount`] -- collected from the PRODUCTION
-    /// `emit::emit_with_budget_profiled` -> `foma::lexcread::fsm_lexc_parse_string` path
-    /// (`analyzer::FomaProposer::new_proposer`). See that module's
-    /// own doc for the more expensive profiling this stays clear of.
     pub mod profile;
 }
-/// The declared,
-/// Replace-calculus rule compilation + underlying-form lexc -- the relational encoding of a
-/// rewrite rule, used by `build` and `gate`.
 pub mod replace;
-workbench_module! {
-    /// Typed per-(grammar, words) backend measurement extracted from `examples/conf_matrix.rs` -- see
-    /// this module's own doc for why `IdentityDivergence` is exposed rather than recomputed, and why it
-    /// names no fixture-loading type (fixture discovery is a caller's concern, not the Compiler's).
-    pub mod scoreboard;
-}
-workbench_module! {
-    /// The per-STRATEGY construct-coverage account: which of this crate's compilers can actually
-    /// PROPOSE each `capability::CharacteristicKind`. `capability::Disposition::ConfirmOnly` is
-    /// defined as "recall-preserving only if the proposer proposes the superset", and until this module
-    /// existed nothing checked WHICH proposer was in use -- so one compiler's coverage was silently
-    /// inherited by all three. Consulted by `capability::compose_envelope_for_strategy`, the seam a
-    /// per-strategy admission decision is composed through.
-    pub mod strategy_coverage;
-}
-workbench_module! {
-    /// Joins `strategy_coverage`'s table against a real per-fixture measurement -- the check that
-    /// table never previously had. See that module's own doc for the sound/unsound direction split.
-    pub mod strategy_coverage_join;
-}
-workbench_module! {
-    /// Exact shared templated-morphotactics compile pipeline and its stage profile.
-    pub mod structural_allomorph;
-}
-workbench_module! {
-    pub mod tags;
-}
-workbench_module! {
-    pub mod templated_compile;
-}
-/// A feasibility prototype sibling of `replace`: the underlying-form lexc emitter.
+pub mod strategy_coverage;
+pub mod structural_allomorph;
+#[cfg(feature = "test-support")]
+pub use pg_foma_runtime::tags;
+#[cfg(not(feature = "test-support"))]
+pub(crate) use pg_foma_runtime::tags;
 pub mod uflexc;
-/// Structural facts and semantics for `MorphRuleOrder::Unordered`, including the load-bearing
-/// finding that the "ordering-union proposal" is an EXISTING mechanism
-/// (`crate::emit::build_deriv_chain`), not a new one.
 pub(crate) mod unordered;
-workbench_module! {
-    /// The COLLECTED half of the per-strategy construct account: `witnessed_coverage::observe_grammar`
-    /// characterizes a grammar, asks `backend_selection` which backends may run it, and then actually
-    /// compiles with each one, crediting a `(capability::CharacteristicKind, enumerate::
-    /// EmissionStrategy)` pair only when that backend's own compile returned `Ok`. Where
-    /// `strategy_coverage` is a reviewed table and `coverage_ledger`'s unwitnessed counts are derived
-    /// from hand-written citations, this module's positive evidence is produced by running. The
-    /// cannot-represent half necessarily stays declarative -- a run yields positive evidence only.
-    pub mod witnessed_coverage;
-}
-pub(crate) mod word_timer;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod worker;
-/// Versioned worker protocol constants and frame limits.
-pub(crate) mod worker_contract;
+pub(crate) use pg_foma_runtime::morphotactics;
 
-/// Re-exported so downstream crates have a single, versioned door into the
-/// `foma` runtime rather than depending on it directly.
 pub use foma as foma_runtime;

@@ -69,7 +69,7 @@ if [ -n "$repeats" ]; then
 fi
 
 echo "[typology-speedup] running the timing harness (release build)..." >&2
-(cd "$repo_root/rust" && cargo test --release -p pg-foma --test typology_speedup -- \
+(cd "$repo_root/rust" && cargo test --release -p pg-foma-backend --test typology_speedup -- \
     --ignored --nocapture full_corpus_report)
 
 echo "[typology-speedup] CSV:      $out_dir/typology-speedup.csv" >&2

@@ -1,0 +1,268 @@
+//! Containment + order-independence tests for circumfix composite-mechanism precedence (C1/C2/C3).
+//! See `docs/research/circumfix-composite-precedence-census.md`.
+
+use std::path::PathBuf;
+
+use pg_foma::emit;
+use pg_foma::peel::ReduplicationPeeler;
+use pg_grammar::model::Grammar;
+use pg_parse::{Morpher, ParseOptions};
+
+/// Repo root, from this crate's own `CARGO_MANIFEST_DIR` -- never a path relative to the process CWD.
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
+}
+
+/// Loads a staged fixture's `grammar.xml` directly off disk -- the same grammar the oracle replays, never a drifting inline copy.
+fn load_staged(name: &str) -> Grammar {
+    let path = repo_root()
+        .join("conformance-staging/edge-cases")
+        .join(name)
+        .join("grammar.xml");
+    let xml =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    pg_grammar::load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}\n{xml}"))
+}
+
+fn load(xml: &str) -> Grammar {
+    pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+}
+
+/// Requires development proposals to retain an oracle analysis while production remains fail-closed.
+fn assert_full_containment(g: &Grammar, surface: &str) {
+    let (proposer, _) = pg_foma::analyzer::compile_proposer_unproven_with_profile(g);
+    let mut proposer = proposer.expect("development-only proposer must compile");
+    let morpher = Morpher::new(g, 20_000);
+    let oracle = morpher.parse_word_opts(surface, &ParseOptions::default());
+    assert!(
+        !oracle.structured.is_empty(),
+        "oracle word {surface:?} must parse against its own grammar -- oracle/parser \
+         inconsistency, not a recall question"
+    );
+    let proposals = proposer.propose(surface);
+    let any_reachable = oracle.structured.iter().any(|analysis| {
+        proposals.iter().any(|candidate| {
+            candidate
+                .morphemes
+                .iter()
+                .map(|morpheme| morpheme.0)
+                .eq(analysis.morpheme_ids.iter().copied())
+                && candidate.root_index == analysis.root_morpheme_index
+        })
+    });
+    assert!(
+        any_reachable,
+        "{surface:?} must be reachable with its own real tag sequence -- the census gap this \
+         fixture pins is not closed"
+    );
+}
+
+// C1: circumfix-non-first-allomorph-selection.
+
+#[test]
+fn non_first_allomorph_circumfix_recall_parity() {
+    let g = load_staged("circumfix-non-first-allomorph-selection");
+    // Allomorph 0 (ordinary suffix): over-inclusion once the rule is admitted must stay harmless.
+    assert_full_containment(&g, "mits");
+    // Allomorph 1 (circumfix, declared SECOND): the load-bearing census C1 case.
+    assert_full_containment(&g, "kemitan");
+}
+
+/// The same rule shape as the staged fixture above, inline so the order-independence variant below can swap the two allomorphs.
+const SUFFIX_THEN_CIRCUMFIX_XML: &str = r#"<HermitCrabInput><Language><Name>OrderSuffixThenCircumfix</Name>
+  <PartsOfSpeech><PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions>
+      <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+  <Strata>
+    <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrMixed">
+      <Name>Main</Name>
+      <MorphologicalRuleDefinitions>
+        <MorphologicalRule id="mrMixed" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot">
+          <Name>mixed</Name>
+          <MorphologicalSubrules>
+            <MorphologicalSubrule id="subSuffix">
+              <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><CopyFromInput index="stemA" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
+            </MorphologicalSubrule>
+            <MorphologicalSubrule id="subCircum">
+              <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><InsertSegments><PhoneticShape>ke</PhoneticShape></InsertSegments><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>an</PhoneticShape></InsertSegments></MorphologicalOutput>
+            </MorphologicalSubrule>
+          </MorphologicalSubrules>
+          <MorphemeId>MIXED</MorphemeId>
+        </MorphologicalRule>
+      </MorphologicalRuleDefinitions>
+      <LexicalEntries>
+        <LexicalEntry id="eRoot" partOfSpeech="posRoot">
+          <Allomorphs><Allomorph id="aRoot"><PhoneticShape>mit</PhoneticShape></Allomorph></Allomorphs>
+          <MorphemeId>ROOT</MorphemeId>
+        </LexicalEntry>
+      </LexicalEntries>
+    </Stratum>
+  </Strata>
+</Language></HermitCrabInput>"#;
+
+/// Identical rule to `SUFFIX_THEN_CIRCUMFIX_XML` with the two allomorphs swapped; both orders must now select identically.
+const CIRCUMFIX_THEN_SUFFIX_XML: &str = r#"<HermitCrabInput><Language><Name>OrderCircumfixThenSuffix</Name>
+  <PartsOfSpeech><PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech></PartsOfSpeech>
+  <CharacterDefinitionTable id="t1"><Name>Main</Name>
+    <SegmentDefinitions>
+      <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+    </SegmentDefinitions>
+  </CharacterDefinitionTable>
+  <NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+  <Strata>
+    <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrMixed">
+      <Name>Main</Name>
+      <MorphologicalRuleDefinitions>
+        <MorphologicalRule id="mrMixed" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot">
+          <Name>mixed</Name>
+          <MorphologicalSubrules>
+            <MorphologicalSubrule id="subCircum">
+              <MorphologicalInput><PhoneticSequence id="stemB"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><InsertSegments><PhoneticShape>ke</PhoneticShape></InsertSegments><CopyFromInput index="stemB" /><InsertSegments><PhoneticShape>an</PhoneticShape></InsertSegments></MorphologicalOutput>
+            </MorphologicalSubrule>
+            <MorphologicalSubrule id="subSuffix">
+              <MorphologicalInput><PhoneticSequence id="stemA"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput><CopyFromInput index="stemA" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
+            </MorphologicalSubrule>
+          </MorphologicalSubrules>
+          <MorphemeId>MIXED</MorphemeId>
+        </MorphologicalRule>
+      </MorphologicalRuleDefinitions>
+      <LexicalEntries>
+        <LexicalEntry id="eRoot" partOfSpeech="posRoot">
+          <Allomorphs><Allomorph id="aRoot"><PhoneticShape>mit</PhoneticShape></Allomorph></Allomorphs>
+          <MorphemeId>ROOT</MorphemeId>
+        </LexicalEntry>
+      </LexicalEntries>
+    </Stratum>
+  </Strata>
+</Language></HermitCrabInput>"#;
+
+#[test]
+fn circumfix_allomorph_selection_is_order_independent() {
+    let g_a = load(SUFFIX_THEN_CIRCUMFIX_XML);
+    let g_b = load(CIRCUMFIX_THEN_SUFFIX_XML);
+
+    let diag_a = emit::composite_candidate_rules(&g_a);
+    let diag_b = emit::composite_candidate_rules(&g_b);
+    assert_eq!(
+        diag_a.structural_candidate_count, 1,
+        "order A (suffix declared first) must admit mrMixed as a structural candidate"
+    );
+    assert_eq!(
+        diag_b.structural_candidate_count, 1,
+        "order B (circumfix declared first) must admit mrMixed as a structural candidate"
+    );
+    assert_eq!(
+        diag_a.structural_candidate_count, diag_b.structural_candidate_count,
+        "declaration order of mrMixed's two allomorphs must not change whether the rule is \
+         selected as a structural candidate -- this is the invariant census C1's bug violated"
+    );
+
+    // Not just the counter: full proposer-to-confirm containment in both declaration orders.
+    assert_full_containment(&g_a, "kemitan");
+    assert_full_containment(&g_b, "kemitan");
+}
+
+// C3: circumfix-infix-interior-action-precedence.
+
+#[test]
+fn circumfix_infix_interior_action_recall_parity() {
+    let g = load_staged("circumfix-infix-interior-action-precedence");
+    assert_full_containment(&g, "kebzatan");
+}
+
+/// The ownership-handoff check: once the allomorph reclassifies `CircumfixPrefix`, `crate::preexpand` must drop it cleanly.
+/// See `docs/research/circumfix-composite-precedence-census.md`.
+#[test]
+fn circumfix_infix_ownership_handoff_is_clean() {
+    let g = load_staged("circumfix-infix-interior-action-precedence");
+    let diag = emit::composite_candidate_rules(&g);
+    assert!(
+        diag.preexpand_candidates.is_empty(),
+        "mrCircInfix must NOT be claimed by crate::preexpand's own candidate set once it \
+         classifies CircumfixPrefix (Infix's old claim must be relinquished): {:?}",
+        diag.preexpand_candidates
+    );
+    assert_eq!(
+        diag.structural_candidate_count, 1,
+        "mrCircInfix must be exactly the one structural-composite candidate in this grammar"
+    );
+}
+
+// C2: circumfix-reduplication-precedence.
+
+#[test]
+fn circumfix_reduplication_recall_parity() {
+    let g = load_staged("circumfix-reduplication-precedence");
+    assert_full_containment(&g, "ketamtaman");
+}
+
+/// The ownership-handoff check for the other direction: `crate::peel::ReduplicationPeeler` must relinquish the rule entirely, not merely stop preferring it.
+/// See `docs/research/circumfix-composite-precedence-census.md`.
+#[test]
+fn peel_relinquishes_circumfix_reduplication_cleanly() {
+    let g = load_staged("circumfix-reduplication-precedence");
+    let peeler = ReduplicationPeeler::new(&g);
+    assert!(
+        !peeler.has_redup_rules(),
+        "mrCircRedup must NOT be classified as a reduplication rule by \
+         crate::peel::ReduplicationPeeler once its allomorph reclassifies CircumfixPrefix -- the \
+         peel's one-sided scan kinds cannot recall a genuine wrap-both-sides-plus-reduplication \
+         surface, so it must relinquish this rule entirely, not merely stop being preferred"
+    );
+
+    let diag = emit::composite_candidate_rules(&g);
+    assert_eq!(
+        diag.structural_candidate_count, 1,
+        "mrCircRedup must be exactly the one structural-composite candidate in this grammar"
+    );
+}
+
+/// A required pin: C1's and C3's selection outcomes must be unperturbed by the C2 fix.
+#[test]
+fn c1_and_c3_selection_is_unperturbed_by_the_c2_fix() {
+    // C1: the circumfix allomorph must still be selected and the plain-suffix one still harmless.
+    let g_c1 = load_staged("circumfix-non-first-allomorph-selection");
+    let diag_c1 = emit::composite_candidate_rules(&g_c1);
+    assert_eq!(
+        diag_c1.structural_candidate_count, 1,
+        "C2's fix must not change C1's own structural-candidate selection count"
+    );
+    assert_full_containment(&g_c1, "mits");
+    assert_full_containment(&g_c1, "kemitan");
+
+    // C3: still `CircumfixPrefix`, still handed off cleanly away from `crate::preexpand`.
+    let g_c3 = load_staged("circumfix-infix-interior-action-precedence");
+    let diag_c3 = emit::composite_candidate_rules(&g_c3);
+    assert!(
+        diag_c3.preexpand_candidates.is_empty(),
+        "C2's fix must not resurrect mrCircInfix in crate::preexpand's own candidate set: {:?}",
+        diag_c3.preexpand_candidates
+    );
+    assert_eq!(
+        diag_c3.structural_candidate_count, 1,
+        "C2's fix must not change C3's own structural-candidate selection count"
+    );
+    assert_full_containment(&g_c3, "kebzatan");
+}

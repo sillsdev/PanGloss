@@ -1,0 +1,29 @@
+[package]
+name = "pg-foma-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+test-support = []
+test-concurrency-hook = []
+
+[dependencies]
+foma = "=0.4.2"
+pg-grammar.workspace = true
+pg-featstruct.workspace = true
+pg-health.workspace = true
+pg-parse.workspace = true
+pg-rules.workspace = true
+pg-shape.workspace = true
+rayon.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+pg-foma-runtime = { path = ".", features = ["test-support", "test-concurrency-hook"] }
+
+[lints]
+workspace = true

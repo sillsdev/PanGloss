@@ -1,0 +1,96 @@
+[package]
+name = "pg-foma-backend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+autotests = false
+
+[features]
+default = []
+examples = ["test-support"]
+developer-tools = ["pg-foma/developer-tools"]
+test-concurrency-hook = ["pg-foma-runtime/test-concurrency-hook"]
+test-support = ["pg-foma/test-support", "pg-foma-runtime/test-support"]
+
+[dependencies]
+pg-foma.workspace = true
+pg-foma-runtime.workspace = true
+foma = "=0.4.2"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+pg-featstruct.workspace = true
+pg-grammar.workspace = true
+pg-health.workspace = true
+pg-parse.workspace = true
+pg-rules.workspace = true
+pg-shape.workspace = true
+rayon.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pg-snapshot.workspace = true
+pg-fwdata.workspace = true
+pg-worker-containment.workspace = true
+
+[dev-dependencies]
+pg-foma-backend = { path = ".", features = ["test-support", "developer-tools", "test-concurrency-hook"] }
+pg-grammar-gen = { workspace = true, features = ["oracle"] }
+pg-conformance-fixtures.workspace = true
+pg-fst.workspace = true
+
+[[test]]
+name = "backend_strategy"
+path = "tests/harnesses/backend_strategy.rs"
+
+[[test]]
+name = "backend_runtime"
+path = "tests/harnesses/backend_runtime.rs"
+
+[[test]]
+name = "evidence_contracts"
+path = "tests/harnesses/evidence_contracts.rs"
+
+[[test]]
+name = "morphology_cover"
+path = "tests/harnesses/morphology_cover.rs"
+
+[[test]]
+name = "route_template"
+path = "tests/harnesses/route_template.rs"
+
+[[test]]
+name = "fst_oracle"
+path = "tests/harnesses/fst_oracle.rs"
+
+[[test]]
+name = "typology_speedup"
+path = "tests/typology_speedup.rs"
+
+[[test]]
+name = "p6_templated_morphotactics_gate"
+path = "tests/p6_templated_morphotactics_gate.rs"
+
+[[test]]
+name = "phase_c_chain_scale"
+path = "tests/phase_c_chain_scale.rs"
+
+[lints]
+workspace = true
+
+[[example]]
+name = "predict_census"
+path = "examples/predict_census.rs"
+test = true
+
+[[example]]
+name = "lab"
+path = "examples/lab/main.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "regenerate_backend_cards"
+path = "examples/regenerate_backend_cards.rs"
+required-features = ["examples"]

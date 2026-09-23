@@ -3,7 +3,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use pg_foma::composite::FomaAnalyzer;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions, WordAnalysis};
 
@@ -78,7 +77,7 @@ fn a_overgeneration_pruned_mbali() {
         return;
     }
     let g = load_sena();
-    let mut analyzer = FomaAnalyzer::new(&g).expect("sena compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
     let opts = ParseOptions::default();
 
@@ -123,7 +122,7 @@ fn b_mbali_multiplicity_matches_full_engine() {
         return;
     }
     let g = load_sena();
-    let mut analyzer = FomaAnalyzer::new(&g).expect("sena compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
     let opts = ParseOptions::default();
 
@@ -162,7 +161,7 @@ fn c_indonesian_redup_words_round_trip() {
         return;
     }
     let g = load_indonesian();
-    let mut analyzer = FomaAnalyzer::new(&g).expect("indonesian compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("indonesian compiles");
     let morpher = Morpher::new(&g, usize::MAX);
     let opts = ParseOptions::default();
 
@@ -210,7 +209,7 @@ fn d_no_analysis_word_returns_empty_consistent_with_engine() {
         return;
     }
     let g = load_sena();
-    let mut analyzer = FomaAnalyzer::new(&g).expect("sena compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
     let opts = ParseOptions::default();
 
@@ -257,7 +256,7 @@ fn e_mini_parity_sena_40_and_indonesian_non_redup() {
 
     // --- Sena: first 40 corpus words -----------------------------------------------------------
     let g_sena = load_sena();
-    let mut analyzer_sena = FomaAnalyzer::new(&g_sena).expect("sena compiles");
+    let mut analyzer_sena = pg_foma::composite::compile_analyzer(&g_sena).expect("sena compiles");
     let morpher_sena = Morpher::new(&g_sena, usize::MAX);
     let sena_words: Vec<String> = read_words("sena-words.txt").into_iter().take(40).collect();
     assert_eq!(
@@ -313,7 +312,8 @@ fn e_mini_parity_sena_40_and_indonesian_non_redup() {
 
     // --- Indonesian: every non-redup corpus word ------------------------------------------------
     let g_indo = load_indonesian();
-    let mut analyzer_indo = FomaAnalyzer::new(&g_indo).expect("indonesian compiles");
+    let mut analyzer_indo =
+        pg_foma::composite::compile_analyzer(&g_indo).expect("indonesian compiles");
     let morpher_indo = Morpher::new(&g_indo, usize::MAX);
     let indo_words: Vec<String> = read_words("indonesian-words.txt")
         .into_iter()

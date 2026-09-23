@@ -3,8 +3,6 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use pg_foma::analyzer::FomaProposer;
-use pg_foma::composite::FomaAnalyzer;
 use pg_foma::emit;
 use pg_foma::peel::ReduplicationPeeler;
 use pg_grammar::model::Grammar;
@@ -197,7 +195,7 @@ fn a_emits_and_compiles_impl() {
     }
 
     let t_compile = Instant::now();
-    let proposer = FomaProposer::new(&g);
+    let proposer = pg_foma::analyzer::compile_proposer(&g);
     let compile_elapsed = t_compile.elapsed();
     println!(
         "amharic emit+foma-compile (fresh emit inside FomaProposer::new): {compile_elapsed:?} \
@@ -226,7 +224,7 @@ fn b_recall_first_100_words_is_100_percent_impl() {
         "Amharic was verified to have zero Role::Reduplication rules; if this grammar changed, \
          re-derive the denominator exclusion rule (plan P1d gate item b)"
     );
-    let mut proposer = FomaProposer::new(&g).expect("Amharic compiles");
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g).expect("Amharic compiles");
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(ENGINE_TIMEOUT));
     let opts = ParseOptions::default();
 
@@ -333,7 +331,7 @@ fn c_end_to_end_multiset_parity() {
 
 fn c_end_to_end_multiset_parity_impl() {
     let g = load_grammar();
-    let mut analyzer = FomaAnalyzer::new(&g).expect("Amharic compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("Amharic compiles");
     let morpher = Morpher::new(&g, usize::MAX).with_word_timeout(Some(ENGINE_TIMEOUT));
     let opts = ParseOptions::default();
 
@@ -419,7 +417,7 @@ fn d_nonsense_word_proposes_boundedly_and_never_panics() {
 
 fn d_nonsense_word_proposes_boundedly_and_never_panics_impl() {
     let g = load_grammar();
-    let mut proposer = FomaProposer::new(&g).expect("Amharic compiles");
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g).expect("Amharic compiles");
     let t0 = Instant::now();
     let candidates = proposer.propose("ዝጎጠቃኝዬ");
     println!(
@@ -440,7 +438,7 @@ fn d_nonsense_word_proposes_boundedly_and_never_panics_impl() {
     );
 
     // Through the full composite (propose -> confirm): nonsense must confirm to zero analyses.
-    let mut analyzer = FomaAnalyzer::new(&g).expect("Amharic compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("Amharic compiles");
     let outcome = analyzer.analyze_word("ዝጎጠቃኝዬ");
     assert!(
         outcome.structured.is_empty(),

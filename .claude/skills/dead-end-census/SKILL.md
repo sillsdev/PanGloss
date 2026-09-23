@@ -45,7 +45,7 @@ live in the tail (Amharic's single worst word is nowhere near line 1, and its de
 40). So pin them:
 
 ```
-rust/tools/pg.ps1 -Mode run -Example lab -- worst_words      # add the grammar to its GRAMMARS list
+rust/tools/pg.ps1 -Mode run -Package pg-foma-backend -Example lab -- worst_words      # add the grammar to its GRAMMARS list
 ```
 
 It runs the full corpus 3× and ranks words by **median** per-word (propose+confirm) ms
@@ -66,7 +66,7 @@ slice; `#`-comment lines carry provenance.
 ### 2. Run the census
 
 ```
-rust/tools/pg.ps1 -Mode run -Example lab -- deadend_census <grammar> [cap]
+rust/tools/pg.ps1 -Mode run -Package pg-foma-backend -Example lab -- deadend_census <grammar> [cap]
 # caps also via env: CENSUS_SENA_CAP / CENSUS_AMHARIC_CAP / CENSUS_INDONESIAN_CAP
 ```
 
@@ -184,9 +184,9 @@ are small (`[[build-for-full-scale-grammars]]`); design for 10⁴–10⁵ entrie
 
 ## Files this skill drives
 
-- `rust/crates/pg-foma/examples/lab/worst_words.rs` — the pinned-set generator (step 1).
+- `rust/crates/pg-foma-backend/examples/lab/worst_words.rs` — the pinned-set generator (step 1).
 - `samples/data/<grammar>-worst-words.txt` — gitignored pinned fixtures (step 1 output).
-- `rust/crates/pg-foma/examples/lab/deadend_census.rs` — the census harness (steps 2–3); reads the
+- `rust/crates/pg-foma-backend/examples/lab/deadend_census.rs` — the census harness (steps 2–3); reads the
   pinned set via `read_pinned`, unions with `take(cap)`.
 - `rust/crates/pg-foma/examples/propose_parity.rs` — candidate-set dumps for the monotonicity
   gate (step 6.2).

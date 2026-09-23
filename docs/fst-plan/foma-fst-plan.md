@@ -378,7 +378,7 @@ workspace-wide (`cargo test`).
 **Historical Gate F3 verdict (2026-07-16): MET for that bounded prototype run, not a current
 certificate or trusted shipped artifact.** All recall gaps found by the initial P3 report
 (below) are now closed, nothing laundered:
-- **3a parity — 100% on all three grammars** (`pg-foma/tests/f3_parity.rs`, release, empty
+- **3a parity — 100% on all three grammars** (`pg-foma-backend/tests/f3_parity.rs`, release, empty
   known-failures ledger): Indonesian 121/121; Sena sample-300 0 mismatches (`musandilesera`
   now 10/10 — `emit.rs` `eligible_roots` admits every root to every group for grammars with
   compounding rules, so an `é`-headed-elsewhere inflected compound is reachable; upward-safe,

@@ -20,7 +20,7 @@ they change which callers a migration actually has to move.
 `evaluate_health(Some(oversized), None, &[], &[])` call (line 10) is a regression pin, not a
 runtime call site. Grepping the whole workspace for `evaluate_health` turns up exactly **one**
 production call site: `worker.rs:331`. Every other call is inside `#[cfg(test)]` — in
-`health_evaluator.rs` itself, `pack.rs`, and `pg-foma/tests/phase_c_chain_scale.rs`. This makes the
+`health_evaluator.rs` itself, `pack.rs`, and `pg-foma-backend/tests/phase_c_chain_scale.rs`. This makes the
 migration's blast radius smaller than "two production callers" suggests, and I'd flag it to a
 reviewer explicitly since it changes the urgency/risk calculus for Section 6's migration order.
 

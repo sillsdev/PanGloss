@@ -46,7 +46,7 @@ test keyed to a location is a test with an expiry date.
    falsify. Bumping the submodule pin and deleting four graduated copies broke seven tests this way
    at once. A repo-wide sweep (2026-09) found this shape well beyond the two `compounding-non-recursive`
    sites (`cross_compiler_equivalence_gate.rs`, `uflexc_compound_loop.rs`) that first surfaced it:
-   roughly a dozen more single-fixture lookups across `pg-foma`/`pg-cli` test files, plus three
+   roughly a dozen more single-fixture lookups across `pg-foma`/`pg-foma-backend`/`pg-cli` test files, plus three
    `root`-parameterized helpers (`strategy_aware_capability_gate.rs`'s `conformance_fixture`,
    `orthogonal_basis_group_a.rs`'s `fixture_of`, `orthogonal_basis_group_b.rs`'s `Fixture::resolve`)
    whose every call site hard-coded a root per fixture name — all converted to `require_fixture`.

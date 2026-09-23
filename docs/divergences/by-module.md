@@ -109,9 +109,9 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `parity_divergence_census.rs` | 028 |
 | `machine/conformance/edge-cases/disjunctive-recheck/`, `disjunctive_recheck_gate.rs` | 030 |
 | `conformance-staging/edge-cases/circumfix-conditioned-halves/` (HCLoader shape; fwdata path unpinned) | 039 |
-| `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma/tests/two_table_shared_representation_recall.rs` | 040, 043 |
-| `conformance-staging/edge-cases/multi-table-metathesis-shared-representation/`, `pg-foma/tests/multi_table_metathesis_shared_representation.rs` | 040, 041, 042 |
-| `conformance-staging/edge-cases/segment-natural-class-table-binding/`, `pg-foma/tests/segment_natural_class_table_binding_discriminates.rs` | 010, 041 |
+| `conformance-staging/edge-cases/two-table-shared-representation-recall/`, `pg-foma-backend/tests/two_table_shared_representation_recall.rs` | 040, 043 |
+| `conformance-staging/edge-cases/multi-table-metathesis-shared-representation/`, `pg-foma-backend/tests/multi_table_metathesis_shared_representation.rs` | 040, 041, 042 |
+| `conformance-staging/edge-cases/segment-natural-class-table-binding/`, `pg-foma-backend/tests/segment_natural_class_table_binding_discriminates.rs` | 010, 041 |
 | `conformance-staging/edge-cases/right-to-left-segments-environment/`, `pg-foma/src/capability.rs` unit tests | 044 |
 | `conformance-staging/edge-cases/right-to-left-cross-table-segments-environment/` | 044 |
 | `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |

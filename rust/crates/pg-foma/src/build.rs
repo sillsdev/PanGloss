@@ -269,8 +269,9 @@ fn compile_marker_material(
         src.push_str(" # ;\n");
     }
     Some(
-        foma::lexcread::fsm_lexc_parse_string(opts, None, &src)
-            .unwrap_or_else(|| panic!("marker material lexc failed to compile for {marker:?}:\n{src}")),
+        foma::lexcread::fsm_lexc_parse_string(opts, None, &src).unwrap_or_else(|| {
+            panic!("marker material lexc failed to compile for {marker:?}:\n{src}")
+        }),
     )
 }
 

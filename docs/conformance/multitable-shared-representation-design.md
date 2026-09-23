@@ -199,7 +199,7 @@ Switch-position identity therefore holds by the same argument that already cover
 `(table, cd)` pairs instead of only the rule's own table's char-defs, but the enumeration shape that
 keeps the swap identity-preserving is unchanged.
 
-Verified: `rust/crates/pg-foma/tests/multi_table_metathesis_shared_representation.rs` reproduces the
+Verified: `rust/crates/pg-foma-backend/tests/multi_table_metathesis_shared_representation.rs` reproduces the
 pre-fix loss directly (a hand-rendered, pre-fix-equivalent swap net never fires on table-A-originated
 material), confirms the fix closes it over the real production compile path, and exhaustively checks
 every combination of aliased/non-aliased candidates at both switch positions never substitutes a

@@ -14,7 +14,7 @@ Not applicable — this concerns only a Rust-only evaluation/measurement harness
 
 ## Rust site
 `pg_foma::recipe_accuracy` and `pg_foma::parity::IdentityDivergence`
-(`rust/crates/pg-foma/tests/parity_divergence_census.rs`).
+(`rust/crates/pg-foma-backend/tests/parity_divergence_census.rs`).
 
 ## What differs
 `recipe_accuracy` detects FST-proposer **undergeneration** by checking that a candidate proposed the

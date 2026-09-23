@@ -4384,7 +4384,10 @@ mod leading_insert_drop_tests {
         );
         let mut handle = apply_init(&net);
         assert_eq!(
-            apply_down(&mut handle, Some(&format!("{}{marker}{}", encode("ba"), encode("sas")))),
+            apply_down(
+                &mut handle,
+                Some(&format!("{}{marker}{}", encode("ba"), encode("sas")))
+            ),
             Some(encode("bagas")),
             "material preceding the marker must survive untouched -- proves the deletion is \
              anchored to the marker, not to `.#.`"

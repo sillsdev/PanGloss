@@ -13,8 +13,8 @@
   Modes:
     check         cargo check --all-targets. The fast inner loop: it type-checks TEST and EXAMPLE
                   code, which `build` never touches, and stops before codegen and linking. That
-                  matters because linking is where the time is -- pg-foma alone has 105 integration
-                  test targets and 32 examples, and a green `build` has twice hidden broken test
+                  matters because linking is where the time is -- pg-foma has 12 integration test
+                  targets and pg-foma-backend has 7, and a green `build` has twice hidden broken test
                   code that only a full `test` round-trip revealed. Skips comment hygiene: that is a
                   prose check, and this mode is asked exactly one question. Uses the same profile as
                   `test` so its fingerprints are the ones a later test run reuses.
@@ -98,7 +98,7 @@
     rust\tools\pg.ps1 -Mode doctor
     rust\tools\pg.ps1 -Mode gc            # dry run, reports only
     rust\tools\pg.ps1 -Mode gc -Apply     # actually deletes disposable targets
-    rust\tools\pg.ps1 -Mode run -Example predict_census -- --grammar foo.xml
+    rust\tools\pg.ps1 -Mode run -Package pg-foma-backend -Example predict_census -- --grammar foo.xml
     rust\tools\pg.ps1 -Mode run -Bin pangloss -- batch --threads 1 --word-timeout-ms 5000
     rust\tools\pg.ps1 -Mode run -Exe C:\path\to\already-built.exe -- --some-flag
     rust\tools\pg.ps1 -Mode run -Exe .\predict_census.exe -Heavy            # build slot + build-sized ceilings
@@ -108,7 +108,7 @@
   it matches TEST NAMES as a substring, never file names or test-target names, and cargo still
   compiles and links every test target in the package regardless. -TestTarget narrows COMPILATION --
   it maps to cargo's `--test <name>`, building and linking ONE test binary instead of every target in
-  the package, which for pg-foma is ~78 separate binaries and the difference between a ~10s warm run
+  the package (12 explicit targets in pg-foma, 7 in pg-foma-backend) and the difference between a ~10s warm run
   and a ~996s cold one. A zero-match -Filter fails loudly ("no tests to run", exit 4); a PARTIAL match
   is silent -- it runs some tests, exits 0, and omits the ones you meant.
 
@@ -386,7 +386,7 @@ function Test-BackendCardRegenerationScope {
         [string]$BuildPackage
     )
     return ($BuildMode -in @('build', 'release')) -and
-        ([string]::IsNullOrWhiteSpace($BuildPackage) -or $BuildPackage -eq 'pg-foma')
+        ([string]::IsNullOrWhiteSpace($BuildPackage) -or $BuildPackage -eq 'pg-foma-backend')
 }
 
 function Invoke-BackendCardRegeneration {
@@ -396,7 +396,7 @@ function Invoke-BackendCardRegeneration {
         [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$BuildPriority,
         $HostCgroupProof = $null
     )
-    $generatorArgs = @('run', '-p', 'pg-foma', '--example', 'regenerate_backend_cards', '--features', 'examples')
+    $generatorArgs = @('run', '-p', 'pg-foma-backend', '--example', 'regenerate_backend_cards', '--features', 'examples')
     if ($ReleaseBuild) { $generatorArgs += '--release' }
     Write-Host "[pg] regenerating backend capability cards ($($generatorArgs -join ' '))" -ForegroundColor Cyan
     $invokeArgs = @{

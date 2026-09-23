@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use pg_foma::plan_diagram::{build_plan_document, render_mermaid, NodeVerdict, RenderMode};
+use pg_foma_backend::plan_diagram::{build_plan_document, render_mermaid, NodeVerdict, RenderMode};
 
 pub fn run_plan_diagram(args: &[String]) -> Result<(), String> {
     let mut json = false;

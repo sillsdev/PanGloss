@@ -202,11 +202,11 @@ verified independently here against the actual test files rather than taken on t
 
 ### Aweti — `corpus-manifest.json:107-110`
 
-- **`pg-foma --test p6_templated_morphotactics_gate`** (all functions).
-  `rust/crates/pg-foma/tests/p6_templated_morphotactics_gate.rs:1-27`: module doc states "needs
+- **`pg-foma-backend --test p6_templated_morphotactics_gate`** (all functions).
+  `rust/crates/pg-foma-backend/tests/p6_templated_morphotactics_gate.rs:1-27`: module doc states "needs
   the gitignored real corpus," and imports `pg_foma::emit::{emit_underlying_templated, FomaTier}`,
   `pg_foma::replace::compile_and_compose_rules_recall_safe`, and
-  `pg_foma::templated_compile::compile_templated_morphotactics`. **This is Path B — specifically
+  `pg_foma_backend::templated_compile::compile_templated_morphotactics`. **This is Path B — specifically
   the `TemplatedUnderlyingTokens` backend, not `TunedSurfaceProbed`/hand-spun.** This file exists
   and is real; it is the ONE gate Aweti's corpus manifest declares that actually exists in the repo.
 - **`pg-foma --test compose_recall_aweti_gate`** — **confirmed not to exist anywhere in this

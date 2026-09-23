@@ -130,7 +130,7 @@ fn dispatch_investigate(args: &[String]) -> ExitCode {
 fn dispatch_compile_worker_child(_args: &[String]) -> ExitCode {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
-    match pg_foma::worker::run_worker_child(stdin.lock(), stdout.lock()) {
+    match pg_foma_backend::worker::run_worker_child(stdin.lock(), stdout.lock()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("pangloss __compile-worker-child: {e}");

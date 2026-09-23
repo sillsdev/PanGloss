@@ -11,21 +11,23 @@ use crate::backend_report::{
     BackendOptimizationReport, CandidateReport, PruningWaterfall, SearchAccounting,
     BACKEND_REPORT_SCHEMA_VERSION, DETERMINISTIC_SCORE_SCHEMA_VERSION,
 };
-use pg_foma::backend_optimizer::{
+use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
+use pg_foma::enumerate::{CandidateRole, LoweredCandidate};
+use pg_foma::grammar_semantics::GrammarSemantics;
+use pg_foma_backend::backend_optimizer::{
     choose_strategy_with_policy, optimize_with_evaluator, AdaptivePolicy, Budget, BudgetUsage,
     CandidateEvaluator, CandidateState, ConfirmationEvidence, ConstraintTopology,
     DefaultStrategyRegistry, PilotCosts, StrategyRegistry,
 };
-use pg_foma::backend_registry::{
+use pg_foma_backend::backend_registry::{
     Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION,
 };
-use pg_foma::backend_runtime::{evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget};
-use pg_foma::backend_space::StageMeasurement;
-use pg_foma::backend_space::{characterize_with_semantics, summarize_pilot};
-use pg_foma::capability::{compose_envelope, default_registry, CompileDecision};
-use pg_foma::enumerate::{CandidateRole, LoweredCandidate};
-use pg_foma::grammar_semantics::GrammarSemantics;
-use pg_foma::plan_diagram::{render_mermaid, RenderMode};
+use pg_foma_backend::backend_runtime::{
+    evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget,
+};
+use pg_foma_backend::backend_space::StageMeasurement;
+use pg_foma_backend::backend_space::{characterize_with_semantics, summarize_pilot};
+use pg_foma_backend::plan_diagram::{render_mermaid, RenderMode};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,8 +232,8 @@ impl Evaluator<'_> {
     fn append_progress(
         &mut self,
         candidate: &CandidateState,
-        certification: &pg_foma::backend_optimizer::Certification,
-        score: pg_foma::backend_optimizer::Score,
+        certification: &pg_foma_backend::backend_optimizer::Certification,
+        score: pg_foma_backend::backend_optimizer::Score,
         realized_strategy: &str,
         production_blocks_publication: bool,
     ) {
@@ -268,9 +270,10 @@ impl CandidateEvaluator for Evaluator<'_> {
             compose_envelope(self.grammar, &plan.plan, &self.capability)
         {
             return ConfirmationEvidence {
-                certification: pg_foma::backend_optimizer::Certification::CapabilityRejected {
-                    reason: format!("{diagnostics:?}"),
-                },
+                certification:
+                    pg_foma_backend::backend_optimizer::Certification::CapabilityRejected {
+                        reason: format!("{diagnostics:?}"),
+                    },
                 score: None,
                 usage: BudgetUsage::default(),
                 // No completed FST was built to assess, so "could not look" must not read as publishable.
@@ -455,15 +458,15 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         let materialize_started = Instant::now();
         let plan = match registry.materialize_with_semantics(
             &instance,
-            &pg_foma::backend_registry::MaterializerContext {
+            &pg_foma_backend::backend_registry::MaterializerContext {
                 grammar: &grammar,
                 baseline: &baseline,
             },
             &semantics,
         ) {
             Ok(plan) => plan,
-            Err(pg_foma::backend_registry::MaterializeError::Inapplicable(_))
-            | Err(pg_foma::backend_registry::MaterializeError::Invalid(_)) => {
+            Err(pg_foma_backend::backend_registry::MaterializeError::Inapplicable(_))
+            | Err(pg_foma_backend::backend_registry::MaterializeError::Invalid(_)) => {
                 materialization_rejects = materialization_rejects.saturating_add(1);
                 continue;
             }
@@ -475,7 +478,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             RecipeOptimizeError::Runtime("materialized recipe has no root".into())
         })?;
         // A plan-composed candidate keeps the bare root as its id; a whole-grammar strategy must not, since it reuses the baseline plan and a bare-root id would collide with it.
-        let id = if !pg_foma::backend::backend_for(plan.adapter).interprets_plan() {
+        let id = if !pg_foma_backend::backend::backend_for(plan.adapter).interprets_plan() {
             format!("{root}@{}", plan.strategy().label())
         } else {
             root.to_string()
@@ -515,8 +518,11 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         .min(a.budget.evaluations)
         .min(states.len() as u64)
         .min(policy.pilot_candidate_cap as u64) as usize;
-    let pilot_ids =
-        pg_foma::backend_space::deterministic_sample_indices(states.len(), pilot_limit, a.seed);
+    let pilot_ids = pg_foma_backend::backend_space::deterministic_sample_indices(
+        states.len(),
+        pilot_limit,
+        a.seed,
+    );
     for index in pilot_ids {
         let state = &states[index];
         let plan = &plans[&state.id];
@@ -644,7 +650,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let winner = outcome.winner.clone();
     fs::create_dir_all(Path::new(&a.out_dir))
         .map_err(|e| RecipeOptimizeError::Io(format!("create {}: {e}", a.out_dir)))?;
-    let base_doc = pg_foma::plan_diagram::build_plan_document_for_plan_with_semantics(
+    let base_doc = pg_foma_backend::plan_diagram::build_plan_document_for_plan_with_semantics(
         &semantics,
         &evaluator.plans[baseline_id
             .as_ref()
@@ -663,7 +669,9 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         .as_ref()
         .and_then(|id| evaluator.plans.get(id))
         .map(|p| {
-            pg_foma::plan_diagram::build_plan_document_for_plan_with_semantics(&semantics, &p.plan)
+            pg_foma_backend::plan_diagram::build_plan_document_for_plan_with_semantics(
+                &semantics, &p.plan,
+            )
         });
     let (winner_json_path, winner_mmd_path) = if let Some(d) = winner_doc {
         let j = d
@@ -692,17 +700,18 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
                 .is_some_and(|score| score.states > 0 || score.arcs > 0)
         })
         .count() as u64;
-    let all_evaluated = outcome.search.quality == pg_foma::backend_optimizer::SearchQuality::Exact
-        && outcome.search.termination == pg_foma::backend_optimizer::Termination::Complete
+    let all_evaluated = outcome.search.quality
+        == pg_foma_backend::backend_optimizer::SearchQuality::Exact
+        && outcome.search.termination == pg_foma_backend::backend_optimizer::Termination::Complete
         && outcome.evaluated.len() == states.len();
     let feasible = if all_evaluated {
-        pg_foma::backend_space::FeasibleCount::Exact {
+        pg_foma_backend::backend_space::FeasibleCount::Exact {
             value: built_count,
             overflowed: false,
         }
     } else {
         let upper = states.len() as u64;
-        pg_foma::backend_space::FeasibleCount::Estimate {
+        pg_foma_backend::backend_space::FeasibleCount::Estimate {
             lower: built_count,
             upper,
             sample_size: outcome.evaluated.len() as u64,

@@ -3,7 +3,6 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use pg_foma::analyzer::FomaProposer;
 use pg_foma::emit;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
@@ -73,7 +72,7 @@ fn a_emits_and_compiles() {
     );
 
     let t_compile = Instant::now();
-    let proposer = FomaProposer::new(&g);
+    let proposer = pg_foma::analyzer::compile_proposer(&g);
     let compile_elapsed = t_compile.elapsed();
 
     println!(
@@ -105,7 +104,7 @@ fn b_recall_first_120_words() {
         return;
     }
     let g = load_grammar();
-    let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g).expect("Sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
     let opts = ParseOptions::default();
 
@@ -209,7 +208,7 @@ fn c_mbali_covers_both_engine_sequences() {
         return;
     }
     let g = load_grammar();
-    let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g).expect("Sena compiles");
     let morpher = Morpher::new(&g, usize::MAX);
 
     let outcome = morpher.parse_word_opts("mbali", &ParseOptions::default());
@@ -258,7 +257,7 @@ fn d_nonsense_word_proposes_nothing() {
         return;
     }
     let g = load_grammar();
-    let mut proposer = FomaProposer::new(&g).expect("Sena compiles");
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g).expect("Sena compiles");
     let t0 = Instant::now();
     let candidates = proposer.propose("zzzq");
     println!(

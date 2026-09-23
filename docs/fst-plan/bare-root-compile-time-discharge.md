@@ -95,7 +95,7 @@ presently untouched by any shipped grammar in this repo's corpus. That means:
   depends on is **absent in this worktree** (no `samples/data/` directory at all) — a before/after
   states/arcs measurement against the real Sena grammar was **not attempted**, because the input
   needed to do so does not exist here. This is a corpus-availability gap, not a result.
-- A synthetic fixture (`rust/crates/pg-foma/tests/bare_root_compile_time_discharge.rs`) exercises
+- A synthetic fixture (`rust/crates/pg-foma-backend/tests/bare_root_compile_time_discharge.rs`) exercises
   the changed code path directly: one bound, single-allomorph root (`bnd`) and one ordinary free
   root (`fre`), otherwise identical (same stratum, same one suffix rule). On this fixture:
   - Before the fix (code reverted): the `Root` lexicon's bare block contains a `"#"`-continuation

@@ -43,11 +43,11 @@
       "requiring_tests": [
         "pg-foma --test p6_gate_parity indonesian_full_corpus_parity_unregressed",
         "pg-foma --test p6_gate_parity indonesian_mpr_exclusion_matches_oracle",
-        "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_first_word_runtime_phases_complete",
-        "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_registry_candidates_are_named_before_build",
-        "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_plan_composed_baseline_completes",
-        "pg-foma --test backend_runtime_net_is_queryable_gate corpus_indonesian_confirms_after_the_finish_step",
-        "pg-foma --test five_language_backend_reports_gate indonesian_backend_reports_are_complete"
+        "pg-foma-backend --test backend_runtime_net_is_queryable_gate corpus_indonesian_first_word_runtime_phases_complete",
+        "pg-foma-backend --test backend_runtime_net_is_queryable_gate corpus_indonesian_registry_candidates_are_named_before_build",
+        "pg-foma-backend --test backend_runtime_net_is_queryable_gate corpus_indonesian_plan_composed_baseline_completes",
+        "pg-foma-backend --test backend_runtime_net_is_queryable_gate corpus_indonesian_confirms_after_the_finish_step",
+        "pg-foma-backend --test five_language_backend_reports_gate indonesian_backend_reports_are_complete"
       ]
     },
     {
@@ -69,7 +69,7 @@
       ],
       "requiring_tests": [
         "pg-foma --test f1_large_lexicon_gate",
-        "pg-foma --test five_language_backend_reports_gate sena_backend_reports_are_complete"
+        "pg-foma-backend --test five_language_backend_reports_gate sena_backend_reports_are_complete"
       ]
     },
     {
@@ -93,7 +93,7 @@
       "requiring_tests": [
         "pg-foma --test f3_interdigitation_gate",
         "pg-foma --test p6_gate_parity amharic_gated_subrules_and_tuple_counts_unregressed",
-        "pg-foma --test five_language_backend_reports_gate amharic_backend_reports_are_complete"
+        "pg-foma-backend --test five_language_backend_reports_gate amharic_backend_reports_are_complete"
       ]
     },
     {
@@ -114,8 +114,8 @@
         { "path": "aweti.fwdata", "role": "grammar-fwdata", "required": true }
       ],
       "requiring_tests": [
-        "pg-foma --test p6_templated_morphotactics_gate",
-        "pg-foma --test five_language_backend_reports_gate aweti_backend_reports_are_complete"
+        "pg-foma-backend --test p6_templated_morphotactics_gate",
+        "pg-foma-backend --test five_language_backend_reports_gate aweti_backend_reports_are_complete"
       ]
     },
     {
@@ -136,7 +136,7 @@
       ],
       "requiring_tests": [
         "pg-foma --test mbugwe_corpus_smoke_gate mbugwe_grammar_compiles_and_oracle_parses_a_sample",
-        "pg-foma --test five_language_backend_reports_gate mbugwe_backend_reports_are_complete"
+        "pg-foma-backend --test five_language_backend_reports_gate mbugwe_backend_reports_are_complete"
       ]
     }
   ]

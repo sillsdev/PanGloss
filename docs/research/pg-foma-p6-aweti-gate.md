@@ -1,6 +1,6 @@
 # `p6_templated_morphotactics_gate` — the Aweti templated-morphotactics gate
 
-`rust/crates/pg-foma/tests/p6_templated_morphotactics_gate.rs` is the acceptance gate for
+`rust/crates/pg-foma-backend/tests/p6_templated_morphotactics_gate.rs` is the acceptance gate for
 templated morphotactics on Aweti, a grammar whose enumeration-based emitter (`pg_foma::emit::emit`)
 OOMs before ever reaching a compilable lexc source (855 entries, 135 mrules trip the composite
 pre-expansion stage's enumeration budget). `emit_underlying_templated` plus a replace-rule cascade

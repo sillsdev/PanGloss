@@ -35,29 +35,43 @@ $crateSpecs = @(
     @{
         Name = 'pg-foma'
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-foma'
-        MinTargets = 5
-        MaxTargets = 20
+        MinTargets = 11
+        MaxTargets = 11
+        ExpectedSourceNames = @(
+            'all_fixtures_foma_analyzer_new_no_panic.rs', 'candidate_filter_passes.rs',
+            'f0_viability.rs', 'f1_large_lexicon_gate.rs', 'f2_junction_gate.rs',
+            'f3_interdigitation_gate.rs', 'f4_composite_gate.rs', 'mbugwe_corpus_smoke_gate.rs',
+            'p6_gate_parity.rs', 'phase_c_alpha_scale.rs', 'phase_c_circumfix.rs', 'phase_c_compounding.rs',
+            'phase_c_metathesis.rs', 'phase_c_multi_table.rs', 'phase_c_partition_k.rs',
+            'phase_c_quantifier.rs', 'phase_c_right_to_left.rs', 'phase_c_simultaneous.rs',
+            'phase_c_strata_depth.rs', 'pk1_precision_recall_invariance.rs'
+        )
+    }
+    @{
+        Name = 'pg-foma-backend'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-foma-backend'
+        MinTargets = 9
+        MaxTargets = 9
         ExpectedSourceNames = @(
             'admission_single_owner_gate.rs', 'advice_catalog_contract.rs',
-            'all_fixtures_foma_analyzer_new_no_panic.rs', 'apply_path_refusal_gate.rs',
-            'atomic_template_slot_carrier_gate.rs', 'backend_accuracy_gate.rs',
-            'backend_capability_cards_contract.rs', 'backend_emission_strategy_gate.rs',
-            'backend_mechanism_graph.rs', 'backend_optimizer_calibration.rs',
-            'backend_partition_refinement_gate.rs', 'backend_promoted_fixtures.rs',
-            'backend_registry_census.rs', 'backend_runtime_cache_gate.rs',
-            'backend_runtime_net_is_queryable_gate.rs', 'backend_runtime_oracle_bound_gate.rs',
-            'backend_scoreboard_gate.rs', 'backend_seam_gate.rs', 'backend_selection_contract.rs',
+            'apply_path_refusal_gate.rs', 'atomic_template_slot_carrier_gate.rs',
+            'backend_accuracy_gate.rs', 'backend_capability_cards_contract.rs',
+            'backend_emission_strategy_gate.rs', 'backend_mechanism_graph.rs',
+            'backend_optimizer_calibration.rs', 'backend_partition_refinement_gate.rs',
+            'backend_promoted_fixtures.rs', 'backend_registry_census.rs',
+            'backend_runtime_cache_gate.rs', 'backend_runtime_net_is_queryable_gate.rs',
+            'backend_runtime_oracle_bound_gate.rs', 'backend_scoreboard_gate.rs',
+            'backend_seam_gate.rs', 'backend_selection_contract.rs',
             'bare_root_compile_time_discharge.rs',
             'bistratal_overlapping_segment_representation_foma_analyzer_compiles.rs',
             'boundary_marker_epsilon_collapse_gate.rs', 'candidate_filter_contract.rs',
             'candidate_filter_fixture_weight.rs', 'candidate_filter_model_check.rs',
-            'candidate_filter_passes.rs', 'candidate_filter_shadow_gate.rs',
-            'circumfix_candidate_selection.rs',
+            'candidate_filter_shadow_gate.rs', 'circumfix_candidate_selection.rs',
             'circumfix_cross_product_and_infix_drop_candidate_selection.rs',
             'closure_unbounded_realizational.rs', 'conformance_coverage_gate.rs',
-            'cover_bistratal_overlapping_segment_representation.rs',
-            'cover_compounding_recursive_depth_bound.rs', 'cover_compounding.rs',
-            'cover_mpr_groups.rs', 'cover_realizational_morphology_constraints.rs',
+            'cover_bistratal_overlapping_segment_representation.rs', 'cover_compounding.rs',
+            'cover_compounding_recursive_depth_bound.rs', 'cover_mpr_groups.rs',
+            'cover_realizational_morphology_constraints.rs',
             'cover_recursive_endocentric_compounding.rs',
             'cover_right_to_left_bounded_quantifier_rewrite.rs',
             'cover_subrule_morphosyntactic_gating.rs', 'cover_unordered_morph_rules.rs',
@@ -67,24 +81,19 @@ $crateSpecs = @(
             'emit_underlying_templated_recursive_compound_chain.rs',
             'emit_underlying_templated_tag_reachability_gate.rs',
             'envelope_agrees_with_compiler_gate.rs', 'epenthesis_structural_route_containment.rs',
-            'exercises_tag_liveness.rs', 'f0_viability.rs', 'f1_large_lexicon_gate.rs',
-            'f2_junction_gate.rs', 'f3_interdigitation_gate.rs', 'f3_parity.rs',
-            'f4_composite_gate.rs', 'f5_diacritics_gate.rs', 'f6_reduplication_peel_chain_depth.rs',
-            'faithfulness_coverage_gate.rs', 'five_language_backend_reports_gate.rs',
-            'flag_replace_scope.rs', 'grammar_semantics_owner_gate.rs', 'health_finding_seam.rs',
-            'late_structural_anchor_recall.rs', 'mbugwe_corpus_smoke_gate.rs',
-            'mechanism_provider_gate.rs', 'mentanukam_multiplicity_recovered_by_confirm.rs',
-            'morphology_relation_plan_gate.rs', 'morphotactics_boundary_cleanup_slice.rs',
-            'multi_table_metathesis_shared_representation.rs', 'net_dedup_gate.rs',
-            'net_dedup_sizing_census.rs', 'net_shape_gate.rs', 'oracle_step_determinism_gate.rs',
-            'orthogonal_basis_group_a.rs', 'orthogonal_basis_group_b.rs', 'p6_gate_parity.rs',
-            'p6_templated_morphotactics_gate.rs', 'parity_divergence_census.rs',
+            'exercises_tag_liveness.rs', 'f3_parity.rs', 'f5_diacritics_gate.rs',
+            'f6_reduplication_peel_chain_depth.rs', 'faithfulness_coverage_gate.rs',
+            'five_language_backend_reports_gate.rs', 'flag_replace_scope.rs',
+            'grammar_semantics_owner_gate.rs', 'health_finding_seam.rs',
+            'late_structural_anchor_recall.rs', 'mechanism_provider_gate.rs',
+            'mentanukam_multiplicity_recovered_by_confirm.rs', 'morphology_relation_plan_gate.rs',
+            'morphotactics_boundary_cleanup_slice.rs', 'multi_table_metathesis_shared_representation.rs',
+            'net_dedup_gate.rs', 'net_dedup_sizing_census.rs', 'net_shape_gate.rs',
+            'oracle_step_determinism_gate.rs', 'orthogonal_basis_group_a.rs',
+            'orthogonal_basis_group_b.rs', 'parity_divergence_census.rs',
             'partial_fst_production_admission_gate.rs', 'pattern_root_regex_route_gate.rs',
-            'pattern_root_token_route_gate.rs', 'phase_c_alpha_scale.rs', 'phase_c_chain_scale.rs',
-            'phase_c_circumfix.rs', 'phase_c_compounding.rs', 'phase_c_metathesis.rs',
-            'phase_c_multi_table.rs', 'phase_c_partition_k.rs', 'phase_c_quantifier.rs',
-            'phase_c_right_to_left.rs', 'phase_c_simultaneous.rs', 'phase_c_strata_depth.rs',
-            'pk1_precision_recall_invariance.rs', 'pk2_eliminate_flag_oracle.rs',
+            'pattern_root_token_route_gate.rs', 'pk2_eliminate_flag_oracle.rs',
+            'p6_templated_morphotactics_gate.rs', 'phase_c_chain_scale.rs',
             'plan_composed_marker_material_gate.rs', 'plan_interaction_coverage_gate.rs',
             'predicate_negative_witness_gate.rs', 'process_morphology_route_gate.rs',
             'realizational_pc_represents_gate.rs',
@@ -266,12 +275,15 @@ foreach ($spec in $crateSpecs) {
 }
 
 . "$PSScriptRoot\..\_common.ps1"
+$backendTestsRoot = Join-Path $repoRoot 'rust\crates\pg-foma-backend\tests'
 $fomaTestsRoot = Join-Path $repoRoot 'rust\crates\pg-foma\tests'
-Test-Case 'an absorbed test-file stem resolves to its harness and module; a standalone one does not' {
-    $r = Resolve-HarnessTestTarget -TestsDir $fomaTestsRoot -TestTarget 'cover_subrule_morphosyntactic_gating'
+Test-Case 'an absorbed backend test-file stem resolves to its harness and module' {
+    $r = Resolve-HarnessTestTarget -TestsDir $backendTestsRoot -TestTarget 'cover_subrule_morphosyntactic_gating'
     Assert-True ($null -ne $r) 'an absorbed stem must resolve'
     Assert-Equal 'cover_subrule_morphosyntactic_gating' $r.Module
-    Assert-True (Test-Path (Join-Path $fomaTestsRoot "harnesses\$($r.Target).rs")) 'the resolved target must be a harness'
+    Assert-True (Test-Path (Join-Path $backendTestsRoot "harnesses\$($r.Target).rs")) 'the resolved target must be a harness'
+}
+Test-Case 'a standalone compiler target still resolves to itself' {
     Assert-Equal $null (Resolve-HarnessTestTarget -TestsDir $fomaTestsRoot -TestTarget 'f0_viability') 'a standalone target stays itself'
 }
 

@@ -110,12 +110,12 @@ Test-Case '-Example builds a `cargo run --release --example NAME` command' {
 }
 
 Test-Case 'a feature-gated example adds the examples feature to cargo run' {
-    $r = Resolve-RunTarget -Example 'lab' -Package 'pg-foma'
-    Assert-Equal 'pg-foma/examples' $r.LaunchArgs[$r.LaunchArgs.IndexOf('--features') + 1]
+    $r = Resolve-RunTarget -Example 'lab' -Package 'pg-foma-backend'
+    Assert-Equal 'pg-foma-backend/examples' $r.LaunchArgs[$r.LaunchArgs.IndexOf('--features') + 1]
 }
 
 Test-Case 'the test example remains runnable without the examples feature' {
-    $r = Resolve-RunTarget -Example 'predict_census' -Package 'pg-foma'
+    $r = Resolve-RunTarget -Example 'predict_census' -Package 'pg-foma-backend'
     Assert-False (@($r.LaunchArgs) -contains '--features') 'predict_census is intentionally still a test target'
 }
 
@@ -135,9 +135,9 @@ Test-Case '-DebugProfile omits --release from the cargo run command' {
 }
 
 Test-Case '-Package selects which workspace crate to build the example/bin from' {
-    $r = Resolve-RunTarget -Example 'predict_census' -Package 'pg-foma'
+    $r = Resolve-RunTarget -Example 'predict_census' -Package 'pg-foma-backend'
     Assert-Contains $r.LaunchArgs '-p'
-    Assert-Contains $r.LaunchArgs 'pg-foma'
+    Assert-Contains $r.LaunchArgs 'pg-foma-backend'
 }
 
 Test-Case 'no -Package means no -p flag at all (cargo infers it), not an empty value' {
@@ -283,6 +283,7 @@ Test-Case 'without CaptureStdoutPath no file is produced (the default stays live
 Test-Case 'packages with an examples feature are discovered from their manifests' {
     $packages = @(Get-ExampleFeaturePackages)
     Assert-Contains $packages 'pg-foma'
+    Assert-Contains $packages 'pg-foma-backend'
     Assert-Contains $packages 'pg-cli'
     Assert-False ($packages -contains 'pg-parse') 'a crate without the feature must not be listed'
 }

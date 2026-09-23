@@ -46,9 +46,8 @@ in the engine actually shipped, not merely a missed optimization.
 ## Evidence
 `conformance-staging/edge-cases/two-table-shared-representation-recall/` (rewrite-rule case) and
 `conformance-staging/edge-cases/multi-table-metathesis-shared-representation/` (metathesis case), each
-pinned directly by a paired Rust test — `rust/crates/pg-foma/tests/
-two_table_shared_representation_recall.rs` and `rust/crates/pg-foma/tests/
-multi_table_metathesis_shared_representation.rs` — that (a) builds the pre-fix-equivalent net and
+pinned by a paired Rust test — `rust/crates/pg-foma-backend/tests/two_table_shared_representation_recall.rs`
+and `rust/crates/pg-foma-backend/tests/multi_table_metathesis_shared_representation.rs` — that (a) builds the pre-fix-equivalent net and
 shows the rule/swap silently fails to fire on the other table's material, (b) shows the current
 (fixed) compile catches it, and (c) checks end-to-end containment against `pg_parse::Morpher` for
 every word in the fixture. Fix commits: `0250853e` (rewrite-rule aliasing, task 4.4b) and `b946b401`

@@ -82,7 +82,7 @@ jobs:
           workspaces: rust
       # Examples are behind each crate's `examples` feature so test builds skip them; lint them anyway.
       - working-directory: rust
-        run: cargo clippy --workspace --all-targets --features pg-foma/examples,pg-cli/examples -- -D warnings
+        run: cargo clippy --workspace --all-targets --features pg-foma/examples,pg-foma-backend/examples,pg-cli/examples -- -D warnings
 
   test:
     name: build + test

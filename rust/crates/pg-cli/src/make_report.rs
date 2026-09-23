@@ -10,11 +10,11 @@ use crate::readiness_verdict::{
     certify_with_semantics, CapabilitySummary, CheckKind, CheckOutcome, CheckResult, CheckValue,
     Measurements, ReadinessReport, Tier, TrustStatus,
 };
-use pg_foma::backend_selection::{select_backends, BackendSelection};
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::grammar_semantics::GrammarSemantics;
-use pg_foma::health::HealthReport;
-use pg_foma::plan_diagram::{
+use pg_foma_backend::backend_selection::{select_backends, BackendSelection};
+use pg_foma_backend::health::HealthReport;
+use pg_foma_backend::plan_diagram::{
     build_plan_document_with_semantics, render_mermaid, MermaidRender, RenderMode,
 };
 use sha2::{Digest, Sha256};
@@ -830,7 +830,7 @@ mod tests {
 
     // The `&Grammar` front ends, used only by the golden-render test below; the live command drives the `_with_semantics` forms off its one shared owner.
     use crate::readiness_verdict::certify;
-    use pg_foma::plan_diagram::build_plan_document;
+    use pg_foma_backend::plan_diagram::build_plan_document;
     // Test-only: hoisting these to the module head made the production build warn on every compile.
     use crate::readiness_verdict::{CoverageAssessment, LatencyMeasurement};
 
@@ -874,10 +874,10 @@ mod tests {
             failed_predicates: Vec::new(),
             shapes: vec!["synthetic-shape".to_string()],
             cost_evidence: vec![pg_pack::BackendCostEvidence {
-                metric: pg_foma::health::Metric::CompositeRulePairCount,
-                value: pg_foma::health::MetricValue::Count(42),
-                threshold: Some(pg_foma::health::MetricValue::Count(10)),
-                provenance: pg_foma::health::ValueProvenance::ProvenBound,
+                metric: pg_foma_backend::health::Metric::CompositeRulePairCount,
+                value: pg_foma_backend::health::MetricValue::Count(42),
+                threshold: Some(pg_foma_backend::health::MetricValue::Count(10)),
+                provenance: pg_foma_backend::health::ValueProvenance::ProvenBound,
             }],
             advice_references: Vec::new(),
             status_detail: None,

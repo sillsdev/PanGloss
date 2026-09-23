@@ -9,7 +9,9 @@ members = [
     "crates/pg-featstruct",
     "crates/pg-shape",
     "crates/pg-health",
+    "crates/pg-foma-runtime",
     "crates/pg-foma",
+    "crates/pg-foma-backend",
     "crates/pg-fst",
     "crates/pg-rules",
     "crates/pg-parse",
@@ -112,7 +114,9 @@ pg-shape = { path = "crates/pg-shape" }
 # shapes, required-runtime-feature constants) -- wasm32-safe by construction (serde/serde_json
 # only), so `pg-wasm`/`pg-pack` depend on this instead of the compiler crate below.
 pg-health = { path = "crates/pg-health" }
+pg-foma-runtime = { path = "crates/pg-foma-runtime" }
 pg-foma = { path = "crates/pg-foma" }
+pg-foma-backend = { path = "crates/pg-foma-backend" }
 pg-fst = { path = "crates/pg-fst" }
 pg-rules = { path = "crates/pg-rules" }
 pg-parse = { path = "crates/pg-parse" }

@@ -123,9 +123,9 @@ All Rust commands run through `rust/tools/pg.ps1` with the managed target and co
 targets are:
 
 ```powershell
-rust/tools/pg.ps1 -Mode corpus-test -Package pg-foma -TestTarget five_language_backend_reports_gate -TestThreads 1
+rust/tools/pg.ps1 -Mode corpus-test -Package pg-foma-backend -TestTarget five_language_backend_reports_gate -TestThreads 1
 rust/tools/pg.ps1 -Mode corpus-test -Package pg-foma -TestTarget mbugwe_corpus_smoke_gate -TestThreads 1
-rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget late_structural_anchor_recall
-rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget closure_unbounded_realizational
-rust/tools/pg.ps1 -Mode test -Package pg-foma -TestTarget phase_c_chain_scale -Filter ordinary_affix_depth_five_and_ten_are_not_health_violations
+rust/tools/pg.ps1 -Mode test -Package pg-foma-backend -TestTarget late_structural_anchor_recall
+rust/tools/pg.ps1 -Mode test -Package pg-foma-backend -TestTarget closure_unbounded_realizational
+rust/tools/pg.ps1 -Mode test -Package pg-foma-backend -TestTarget phase_c_chain_scale -Filter ordinary_affix_depth_five_and_ten_are_not_health_violations
 ```

@@ -9,15 +9,16 @@ autotests = false
 [features]
 examples = []
 developer-tools = []
-test-concurrency-hook = []
+test-concurrency-hook = ["pg-foma-runtime/test-concurrency-hook"]
 # `candidate_filter::test_support` hands a caller the authority to construct a filter, and a filter
 # deletes candidates: a caller who can build one can pair a pass that rejects every witness with a
 # proof it authored itself and lose arbitrary analyses. The seam therefore must not exist in a
 # normal build of this crate; the self dev-dependency below enables it for this crate's own test
 # targets only.
-test-support = []
+test-support = ["pg-foma-runtime/test-support"]
 
 [dependencies]
+pg-foma-runtime.workspace = true
 # Pinned exact so a version bump is always deliberate and re-gated, not a silent float.
 # Originally validated at 0.1.1 by gate F0 (docs/fst-plan/foma-fst-plan.md); re-validated at
 # 0.4.0 (upstream's own wasm32 fix landed, retiring this repo's vendored patch — see the
@@ -115,10 +116,6 @@ name = "f0_viability"
 path = "tests/f0_viability.rs"
 
 [[test]]
-name = "typology_speedup"
-path = "tests/typology_speedup.rs"
-
-[[test]]
 name = "f1_large_lexicon_gate"
 path = "tests/f1_large_lexicon_gate.rs"
 
@@ -143,10 +140,6 @@ name = "p6_gate_parity"
 path = "tests/p6_gate_parity.rs"
 
 [[test]]
-name = "p6_templated_morphotactics_gate"
-path = "tests/p6_templated_morphotactics_gate.rs"
-
-[[test]]
 name = "pk1_precision_recall_invariance"
 path = "tests/pk1_precision_recall_invariance.rs"
 
@@ -154,49 +147,9 @@ path = "tests/pk1_precision_recall_invariance.rs"
 name = "phase_c"
 path = "tests/harnesses/phase_c.rs"
 
-[[test]]
-name = "backend_strategy"
-path = "tests/harnesses/backend_strategy.rs"
-
-[[test]]
-name = "backend_runtime"
-path = "tests/harnesses/backend_runtime.rs"
-
-[[test]]
-name = "evidence_contracts"
-path = "tests/harnesses/evidence_contracts.rs"
-
-[[test]]
-name = "morphology_cover"
-path = "tests/harnesses/morphology_cover.rs"
-
-[[test]]
-name = "route_template"
-path = "tests/harnesses/route_template.rs"
-
-[[test]]
-name = "fst_oracle"
-path = "tests/harnesses/fst_oracle.rs"
-
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true
-
-# `examples/predict_census.rs` pins its own memory-budget fix (2026-07-30 incident: this binary
-# committed 118GB and froze the host machine) with an in-file `#[cfg(test)] mod tests`. Example
-# targets default `test = false` (Cargo's own auto-discovery default), so without this explicit
-# override `pg.ps1 -Mode test -Package pg-foma` would silently never run that test at all --
-# `autoexamples` stays on for every other example (only listing one target does not disable
-# discovery of the rest), so this is additive, not a behavior change for any other example.
-[[example]]
-name = "predict_census"
-path = "examples/predict_census.rs"
-test = true
-
-[[example]]
-name = "lab"
-path = "examples/lab/main.rs"
-required-features = ["examples"]
 
 [[example]]
 name = "p6_templated_q3_oracle_bounds"
@@ -206,9 +159,4 @@ required-features = ["examples"]
 [[example]]
 name = "propose_parity"
 path = "examples/propose_parity.rs"
-required-features = ["examples"]
-
-[[example]]
-name = "regenerate_backend_cards"
-path = "examples/regenerate_backend_cards.rs"
 required-features = ["examples"]

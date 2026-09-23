@@ -66,41 +66,17 @@
 
 use std::sync::Mutex;
 
-use pg_grammar::model::Grammar;
-use serde::{Deserialize, Serialize};
-
 use crate::backend_selection::best_case_across_backends;
 use crate::capability::{CharacteristicsProfile, CompileDecision, ObservationDetail};
 use crate::grammar_semantics::GrammarSemantics;
 use crate::health::{
     FindingCode, HealthFinding, Metric, MetricValue, Phase, Severity, ValueProvenance,
 };
+use pg_grammar::model::Grammar;
 
-/// Default logical-work budget for TunedSurface composite closure. This counts reachable
-/// root/chain-state x rule applications, never affix depth. Ordinary selection keeps this budget
-/// frozen; characterization uses these fixed internal limits.
-pub(crate) const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
-pub(crate) const DEFAULT_TUNED_CLOSURE_DEPTH_LIMIT: usize = 64;
-const DEFAULT_TUNED_COMPOUND_CHAIN_DEPTH_LIMIT: usize = 200;
-
-/// Why a closure walk did not reach an exhausted worklist.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClosureStopReason {
-    WorkBudgetReached,
-    DepthBudgetReached,
-    ResourceBudgetReached,
-    UnboundedTransition,
-    UnsupportedTransition,
-    InternalConstructionFault,
-}
-
-/// The total terminal state of a closure characterization or production trace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ClosureTerminal {
-    Complete,
-    Incomplete(ClosureStopReason),
-    Refused(ClosureStopReason),
-}
+pub use pg_foma_runtime::emit_report::{
+    CharacterizationResult, ClosureEvidence, ClosureStopReason, ClosureTerminal,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClosureTestLimits {
@@ -114,23 +90,18 @@ pub struct ClosureTestLimits {
     pub(crate) depth_cap: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ClosureEvidence {
-    pub rule_pairs_visited: usize,
-    pub synthesized_successors: usize,
-    pub maximum_depth: usize,
-    pub per_depth_counts: Vec<usize>,
-    pub pending_successor_count: usize,
-    pub pending_rule_ordinals: Vec<u32>,
-    pub worklist_empty: bool,
-}
+/// Default logical-work budget for TunedSurface composite closure. This counts reachable
+/// root/chain-state x rule applications, never affix depth. Ordinary selection keeps this budget
+/// frozen; characterization uses these fixed internal limits.
+pub(crate) const DEFAULT_TUNED_CLOSURE_WORK_LIMIT: usize = 3_000;
+pub(crate) const DEFAULT_TUNED_CLOSURE_DEPTH_LIMIT: usize = 64;
+const DEFAULT_TUNED_COMPOUND_CHAIN_DEPTH_LIMIT: usize = 200;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CharacterizationResult {
-    pub terminal: ClosureTerminal,
-    pub evidence: ClosureEvidence,
+/// Mutable evidence sink shared by the production emitter and characterization APIs.
+pub(crate) struct ClosureTrace {
+    limits: ClosureTestLimits,
+    compound_chain_depth_cap: usize,
+    state: Mutex<TraceState>,
 }
 
 #[derive(Debug, Clone)]
@@ -143,13 +114,6 @@ struct TraceState {
     pending_rule_ordinals: Vec<u32>,
     stop: Option<ClosureStopReason>,
     terminal: Option<ClosureTerminal>,
-}
-
-/// Mutable evidence sink shared by the production emitter and characterization APIs.
-pub(crate) struct ClosureTrace {
-    limits: ClosureTestLimits,
-    compound_chain_depth_cap: usize,
-    state: Mutex<TraceState>,
 }
 
 impl ClosureTrace {

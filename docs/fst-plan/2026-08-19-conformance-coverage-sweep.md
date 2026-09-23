@@ -85,7 +85,7 @@ point for this sweep:
 | `pg-parse::conformance_fixtures_gate::all_discovered_fixtures_match_oracle` | PASS |
 | `pg-parse::conformance_fixtures_gate::w91_affix_shapes_covered_by_upstream_fixtures` | PASS |
 | `pg-parse::conformance_fixtures_gate::graduation_guard_no_duplicate_fixture_names` | PASS |
-| `pg-foma::conformance_coverage_gate::supported_construct_conformance_coverage_has_no_gaps` | PASS |
+| `pg-foma-backend::conformance_coverage_gate::supported_construct_conformance_coverage_has_no_gaps` | PASS |
 | `pg-foma::p6_gate_parity::synthetic_pos_gate_matches_oracle` | PASS |
 | `pg-foma::p6_gate_parity::ungated_cascade_would_have_missed_the_noun_entry` | PASS |
 | `pg-foma::plan_interaction_coverage_gate::plan_interaction_coverage_has_no_uncovered_required_tuples` | PASS |

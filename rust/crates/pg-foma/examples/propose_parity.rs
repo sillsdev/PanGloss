@@ -2,7 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-use pg_foma::analyzer::FomaProposer;
 use pg_foma::tags::Candidate;
 use pg_grammar::model::Grammar;
 
@@ -67,7 +66,7 @@ fn run_grammar(spec: &GrammarSpec) {
         println!("{}\tSKIPPED-no-words", spec.name);
         return;
     };
-    let mut proposer = match FomaProposer::new(&g) {
+    let mut proposer = match pg_foma::analyzer::compile_proposer(&g) {
         Ok(p) => p,
         Err(e) => {
             println!("{}\tSKIPPED-proposer-error:{}", spec.name, e);

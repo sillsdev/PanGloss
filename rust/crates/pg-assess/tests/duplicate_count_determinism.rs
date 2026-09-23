@@ -4,7 +4,6 @@
 use pg_assess::digest::{digest_projection, SEMANTIC_PROJECTION};
 use pg_assess::identity::AnalysisIdentity;
 use pg_assess::set::AnalysisSet;
-use pg_foma::composite::FomaAnalyzer;
 use pg_grammar_model::model::Grammar;
 
 /// Bare-root synthetic grammar (never modeled on a real language): one lexical entry with three allomorphs of the identical shape "kax", expected to collapse to one `AnalysisIdentity` with `duplicate_count == 3`.
@@ -67,7 +66,7 @@ fn sanity_deep_optional_affix_nesting_produces_no_identity_duplicates() {
     let fixture =
         pg_conformance_fixtures::require_fixture("edge-cases", "deep-optional-affix-nesting");
     let g = load(&fixture.load_grammar_xml());
-    let mut analyzer = FomaAnalyzer::new(&g).expect("fixture compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("fixture compiles");
 
     // k=2 leading x's: C(12,2) = 66 analyses, small enough to stay fast, large enough to make a spurious identity collision unlikely.
     let outcome = analyzer.analyze_word("xxk");
@@ -96,7 +95,7 @@ fn sanity_deep_optional_affix_nesting_produces_no_identity_duplicates() {
 #[test]
 fn dup_root_fixture_genuinely_produces_a_triple_duplicate() {
     let g = load(DUP_ROOT_FIXTURE);
-    let mut analyzer = FomaAnalyzer::new(&g).expect("fixture compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("fixture compiles");
     let outcome = analyzer.analyze_word("kax");
 
     assert_eq!(
@@ -144,7 +143,7 @@ fn duplicate_counts_and_semantic_digest_are_thread_count_invariant() {
     for &threads in &thread_counts {
         for rep in 0..repetitions {
             // A fresh analyzer per run, so the property holds for ordinary construction rather than only a reused proposer instance.
-            let mut analyzer = FomaAnalyzer::new(&g).expect("fixture compiles");
+            let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("fixture compiles");
             let outcomes = analyzer.analyze_words_with_threads(&words, threads);
             assert_eq!(outcomes.len(), words.len());
 
@@ -196,7 +195,7 @@ fn confirm_across_words_genuinely_overlaps_at_thread_count_above_one() {
     let g = load(DUP_ROOT_FIXTURE);
     let words: Vec<String> = (0..8).map(|_| "kax".to_string()).collect();
 
-    let mut analyzer = FomaAnalyzer::new(&g).expect("fixture compiles");
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("fixture compiles");
     let confirmation_concurrency = analyzer.arm_confirmation_concurrency_probe();
     let outcomes = analyzer.analyze_words_with_threads(&words, 4);
     assert_eq!(outcomes.len(), words.len());
@@ -218,7 +217,7 @@ fn observed_confirmation_concurrency_without_deadlock(
     let worker = std::thread::spawn(move || {
         let g = load(DUP_ROOT_FIXTURE);
         let words: Vec<String> = (0..word_count).map(|_| "kax".to_string()).collect();
-        let mut analyzer = FomaAnalyzer::new(&g).expect("fixture compiles");
+        let mut analyzer = pg_foma::composite::compile_analyzer(&g).expect("fixture compiles");
         let confirmation_concurrency = analyzer.arm_confirmation_concurrency_probe();
         let outcomes = analyzer.analyze_words_with_threads(&words, max_threads);
         assert_eq!(outcomes.len(), words.len());

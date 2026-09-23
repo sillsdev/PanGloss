@@ -24,13 +24,13 @@
 
 **Files:**
 
-- Modify: `rust/crates/pg-foma/tests/p6_templated_morphotactics_gate.rs`
+- Modify: `rust/crates/pg-foma-backend/tests/p6_templated_morphotactics_gate.rs`
 - Create: `docs/fst-plan/2026-08-21-aweti-templated-results.md`
 
 1. Run the current gate unchanged:
 
 ```powershell
-.\rust\tools\pg.ps1 -Mode corpus-test -Package pg-foma -TestTarget p6_templated_morphotactics_gate -TestThreads 1
+.\rust\tools\pg.ps1 -Mode corpus-test -Package pg-foma-backend -TestTarget p6_templated_morphotactics_gate -TestThreads 1
 ```
 
 2. Record the exact current result for `muʼazan`, `tsãkỹjokwaw`, `moʼazan`, `tsãn`, `moʼaza`, and `kỹjokwaw`.
@@ -44,7 +44,7 @@
 - Modify: `rust/crates/pg-foma/src/emit.rs`
 - Modify: `rust/crates/pg-foma/src/backend_runtime.rs`
 - Modify as indicated by the failing witness: `rust/crates/pg-foma/src/morphotactics.rs`
-- Test: `rust/crates/pg-foma/tests/p6_templated_morphotactics_gate.rs`
+- Test: `rust/crates/pg-foma-backend/tests/p6_templated_morphotactics_gate.rs`
 
 For each failing word, reduce the mismatch to the first missing generic construct, add the smallest synthetic test before production code, then implement it without an Aweti-specific branch. Run the synthetic test and the six-word gate after every fix. Commit each independent construct fix separately as `fix(foma): lower <construct> in templated route`.
 
@@ -55,7 +55,7 @@ For each failing word, reduce the mismatch to the first missing generic construc
 - Modify: `rust/crates/pg-foma/src/backend_selection.rs`
 - Modify: `rust/crates/pg-foma/src/capability.rs`
 - Test: `rust/crates/pg-foma/tests/strategy_aware_capability_gate.rs`
-- Test: `rust/crates/pg-foma/tests/p6_templated_morphotactics_gate.rs`
+- Test: `rust/crates/pg-foma-backend/tests/p6_templated_morphotactics_gate.rs`
 
 1. Add a test whose grammar characteristics reproduce the Aweti route choice without checking a language name or path.
 2. Preserve the eager route's 3,093,412-entry Error report; select templated only when its completeness certificate is valid and its worst severity is no higher than Warning.

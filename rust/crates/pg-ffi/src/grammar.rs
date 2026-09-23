@@ -40,11 +40,11 @@ fn native_v1_morpher(grammar: &'static Grammar) -> Morpher<'static> {
 }
 
 struct FomaState {
-    proposer: pg_foma::analyzer::FomaProposer,
-    peeler: pg_foma::peel::ReduplicationPeeler,
-    owners: Vec<Option<pg_foma::confirm::MorphemeOwner>>,
+    proposer: pg_foma_runtime::analyzer::FomaProposer,
+    peeler: pg_foma_runtime::peel::ReduplicationPeeler,
+    owners: Vec<Option<pg_foma_runtime::confirm::MorphemeOwner>>,
     /// Carried across every analyzer round trip rather than rebuilt, so nothing silently resets it.
-    filter: pg_foma::candidate_filter::CandidateFilterSettings,
+    filter: pg_foma_runtime::candidate_filter::CandidateFilterSettings,
 }
 
 enum OfficialBackend {
@@ -55,10 +55,10 @@ enum OfficialBackend {
 impl FomaState {
     fn new(grammar: &Grammar) -> Result<Self, String> {
         Ok(Self {
-            proposer: pg_foma::analyzer::FomaProposer::new(grammar).map_err(|e| e.to_string())?,
-            peeler: pg_foma::peel::ReduplicationPeeler::new(grammar),
-            owners: pg_foma::confirm::build_morpheme_owners(grammar),
-            filter: pg_foma::candidate_filter::CandidateFilterSettings::off(),
+            proposer: pg_foma::analyzer::compile_proposer(grammar).map_err(|e| e.to_string())?,
+            peeler: pg_foma_runtime::peel::ReduplicationPeeler::new(grammar),
+            owners: pg_foma_runtime::confirm::build_morpheme_owners(grammar),
+            filter: pg_foma_runtime::candidate_filter::CandidateFilterSettings::off(),
         })
     }
 }
@@ -187,7 +187,7 @@ impl GrammarHandle {
         };
         let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.test_panic_if_requested();
-            let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+            let mut analyzer = pg_foma_runtime::composite::FomaAnalyzer::from_cached(
                 &self.grammar,
                 state.proposer,
                 state.peeler,
@@ -277,7 +277,7 @@ impl GrammarHandle {
                 let state = *state;
                 let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     self.test_panic_if_requested();
-                    let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+                    let mut analyzer = pg_foma_runtime::composite::FomaAnalyzer::from_cached(
                         &self.grammar,
                         state.proposer,
                         state.peeler,
@@ -312,7 +312,7 @@ impl GrammarHandle {
             }
         };
         #[cfg(not(target_arch = "wasm32"))]
-        let official = pg_foma::composite::confirm_proposed_words_in_pool(
+        let official = pg_foma_runtime::composite::confirm_proposed_words_in_pool(
             &self.grammar,
             &owners,
             words,
@@ -320,7 +320,7 @@ impl GrammarHandle {
             &pool,
         );
         #[cfg(target_arch = "wasm32")]
-        let official = pg_foma::composite::confirm_proposed_words(
+        let official = pg_foma_runtime::composite::confirm_proposed_words(
             &self.grammar,
             &owners,
             words,
@@ -368,7 +368,7 @@ impl GrammarHandle {
                 let state = *state;
                 let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     self.test_panic_if_requested();
-                    let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+                    let mut analyzer = pg_foma_runtime::composite::FomaAnalyzer::from_cached(
                         &self.grammar,
                         state.proposer,
                         state.peeler,
@@ -402,7 +402,7 @@ impl GrammarHandle {
                 }
             }
         };
-        let official = pg_foma::composite::confirm_proposed_words(
+        let official = pg_foma_runtime::composite::confirm_proposed_words(
             &self.grammar,
             &owners,
             words,
@@ -435,7 +435,7 @@ impl GrammarHandle {
     ) -> Result<
         (
             Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>,
-            pg_foma::composite::test_confirmation_concurrency::Probe,
+            pg_foma_runtime::composite::test_confirmation_concurrency::Probe,
         ),
         (),
     > {
@@ -463,7 +463,7 @@ impl GrammarHandle {
                 let state = *state;
                 let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     self.test_panic_if_requested();
-                    let mut analyzer = pg_foma::composite::FomaAnalyzer::from_cached(
+                    let mut analyzer = pg_foma_runtime::composite::FomaAnalyzer::from_cached(
                         &self.grammar,
                         state.proposer,
                         state.peeler,
@@ -498,7 +498,7 @@ impl GrammarHandle {
                 }
             }
         };
-        let official = pg_foma::composite::confirm_proposed_words_in_pool_with_probe(
+        let official = pg_foma_runtime::composite::confirm_proposed_words_in_pool_with_probe(
             &self.grammar,
             &owners,
             words,
@@ -549,7 +549,7 @@ impl GrammarHandle {
     fn union_official_batch(
         &self,
         words: &[String],
-        official: Vec<(pg_foma::composite::FomaOutcome, std::time::Duration)>,
+        official: Vec<(pg_foma_runtime::composite::FomaOutcome, std::time::Duration)>,
         pool: &rayon::ThreadPool,
         guess_fallback: bool,
     ) -> Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)> {

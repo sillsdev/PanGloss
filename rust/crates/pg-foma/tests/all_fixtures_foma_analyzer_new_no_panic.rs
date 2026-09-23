@@ -3,7 +3,6 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use pg_conformance_fixtures::discover;
-use pg_foma::composite::FomaAnalyzer;
 
 #[test]
 fn every_fixture_reaches_foma_analyzer_new_without_panicking() {
@@ -25,7 +24,9 @@ fn every_fixture_reaches_foma_analyzer_new_without_panicking() {
             continue;
         };
 
-        let result = panic::catch_unwind(AssertUnwindSafe(|| FomaAnalyzer::new(&g).is_ok()));
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            pg_foma::composite::compile_analyzer(&g).is_ok()
+        }));
         match result {
             Ok(true) => compiled += 1,
             Ok(false) => declined += 1,

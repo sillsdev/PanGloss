@@ -48,7 +48,7 @@ The Task 4/5 traces and Task 7 release runs are distinct revisions/invocations. 
 Every candidate follows red-green-refactor and is reported with exact command, SHA, toolchain, watchdog, inputs, states/arcs, candidate multiset, confirmed-analysis multiset, and stage timings. At minimum run:
 
 ```powershell
-cargo test -p pg-foma --release --test p6_templated_morphotactics_gate -- --include-ignored --nocapture --test-threads=1
+rust/tools/pg.ps1 -Mode corpus-test -Package pg-foma-backend -TestTarget p6_templated_morphotactics_gate -TestThreads 1
 rust/tools/pg.ps1 -Mode run -Example lab -- p6_deep_truncation_chain_perf_trace
 ```
 

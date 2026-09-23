@@ -3,8 +3,6 @@
 
 #[path = "../phase_c_alpha_scale.rs"]
 mod phase_c_alpha_scale;
-#[path = "../phase_c_chain_scale.rs"]
-mod phase_c_chain_scale;
 #[path = "../phase_c_circumfix.rs"]
 mod phase_c_circumfix;
 #[path = "../phase_c_compounding.rs"]

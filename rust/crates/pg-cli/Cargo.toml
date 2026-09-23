@@ -20,7 +20,7 @@ path = "tests/recipe_optimize_timeout.rs"
 
 [features]
 examples = []
-developer-tools = ["pg-foma/developer-tools"]
+developer-tools = ["pg-foma/developer-tools", "pg-foma-backend/developer-tools"]
 # Ground-truth allocator instrumentation for docs/research/word-memory-trace.md; default off, see
 # `src/alloc_trace.rs`.
 alloc-trace = []
@@ -42,6 +42,7 @@ pg-fwdata.workspace = true
 # P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` on `batch`/`parse` routes through
 # `pg_foma::composite::FomaAnalyzer` instead of the default `pg_parse::Morpher` path.
 pg-foma.workspace = true
+pg-foma-backend.workspace = true
 pg-assess.workspace = true
 pg-pack.workspace = true
 pg-worker-containment.workspace = true
@@ -50,7 +51,7 @@ serde.workspace = true
 serde_json.workspace = true
 # `coverage.rs` (capability-coverage VISIBILITY): replays the in-repo SYNTHETIC conformance
 # fixtures (never real-language data) against `pg_parse::Morpher` to build the "passing conformance
-# construct" set `pg_foma::coverage_ledger::build_ledger` needs, mirroring
+# construct" set `pg_foma_backend::coverage_ledger::build_ledger` needs, mirroring
 # `pg-foma/tests/conformance_coverage_gate.rs`'s own dev-only helper as real (non-dev) CLI code.
 pg-conformance-fixtures.workspace = true
 # `make_report.rs` (`openspec/changes/certify-language-readiness` section 4): hashes the grammar/

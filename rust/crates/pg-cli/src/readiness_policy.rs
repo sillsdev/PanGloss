@@ -44,7 +44,7 @@
 //!   projected onto a device nobody has benchmarked.
 //! - **`pack_size_max_bytes`, `Calibration::Placeholder`**: no full-scale (10^4-10^5 entry) pack
 //!   has ever been built and measured end-to-end, so there is no real evidence to calibrate a
-//!   device-storage-appropriate cap against. Reuses [`pg_foma::health::IDEAL_MAX_BYTES`] directly
+//!   device-storage-appropriate cap against. Reuses [`pg_foma_backend::health::IDEAL_MAX_BYTES`] directly
 //!   as a starting reference point ONLY, because that is the one artifact-size policy already
 //!   declared anywhere in this repo — not itself derived from a device memory/storage budget.
 //! - **`lexicon_min_entries`, `Calibration::Placeholder`**: no full-scale reference grammar has
@@ -179,11 +179,11 @@ pub fn policy_v1() -> ThresholdPolicy {
             evidence about any other device class.)"
             .to_string(),
         pack_size_max_bytes: Threshold::new(
-            pg_foma::health::IDEAL_MAX_BYTES,
+            pg_foma_backend::health::IDEAL_MAX_BYTES,
             Calibration::placeholder(
                 "No full-scale (10^4-10^5 entry) .pgpack has been built and measured end-to-end, \
                  so there is no real evidence to calibrate a device-storage-appropriate cap \
-                 against. Reuses pg_foma::health::IDEAL_MAX_BYTES directly as a starting reference \
+                 against. Reuses pg_foma_backend::health::IDEAL_MAX_BYTES directly as a starting reference \
                  point only -- that is the one artifact-size policy already declared in this repo, \
                  not itself derived from a device memory/storage budget. Replace once a real \
                  pack-size-vs-device-capacity study exists (see calibrate-fst-resource-envelopes \

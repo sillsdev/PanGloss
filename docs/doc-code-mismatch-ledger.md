@@ -288,7 +288,7 @@ its own documentation.
 
 ### A test that asserts project state, while claiming to assert a property — **OPEN**
 
-`pg-foma/tests/subrecipe_dossier_contract.rs:241-248`. The test is named
+`pg-foma-backend/tests/subrecipe_dossier_contract.rs:241-248`. The test is named
 `subrecipe_dossier_logs_links_and_decision_triggers_are_dated` — a general property — and implements
 it as:
 

@@ -67,9 +67,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::readiness_policy::ThresholdPolicy;
 use pg_foma::analyzer::FomaProposer;
-use pg_foma::backend_selection::select_backends;
 use pg_foma::capability::{CapabilityDiagnostic, CompileDecision};
 use pg_foma::grammar_semantics::GrammarSemantics;
+use pg_foma_backend::backend_selection::select_backends;
 // Test-only: production code holds a `GrammarSemantics`, never a bare `Grammar` (see `certify`).
 #[cfg(test)]
 use pg_grammar::model::Grammar;
@@ -191,7 +191,7 @@ pub enum CheckKind {
 }
 
 /// A measured or threshold value, in whatever unit its `CheckKind` uses -- shares one shape
-/// across all six checks rather than six near-identical structs (mirrors `pg_foma::health::
+/// across all six checks rather than six near-identical structs (mirrors `pg_foma_backend::health::
 /// MetricValue`'s own closed-enum convention).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
@@ -272,7 +272,7 @@ impl From<&CapabilityDiagnostic> for RefusalCitation {
 }
 
 /// The real capability decision this report was computed from (`certify` always resolves it
-/// itself, through the gated backend's own report from `pg_foma::backend_selection::select_backends`
+/// itself, through the gated backend's own report from `pg_foma_backend::backend_selection::select_backends`
 /// -- see `certify_with_semantics`'s own doc, "Which backend the certificate is about").
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "decision", rename_all = "snake_case")]
@@ -628,7 +628,7 @@ pub fn certify(
 /// This does NOT weaken the rule that certification never accepts a caller-supplied capability
 /// verdict: a `GrammarSemantics` is a pure, deterministic function of the grammar, not a verdict,
 /// and this function still computes the `CompileDecision` itself through
-/// `pg_foma::backend_selection::select_backends`. The thing a caller cannot do — hand in a `Refuse`
+/// `pg_foma_backend::backend_selection::select_backends`. The thing a caller cannot do — hand in a `Refuse`
 /// it decided on its own — remains impossible.
 ///
 /// # Which backend the certificate is about

@@ -253,7 +253,7 @@ fn analyze_direct(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
 
 fn analyze_fst_confirm(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
     let mut analyzer =
-        pg_foma::composite::FomaAnalyzer::new(grammar).expect("fixture grammar must foma-compile");
+        pg_foma::composite::compile_analyzer(grammar).expect("fixture grammar must foma-compile");
     let outcome = analyzer.analyze_word(word);
     pg_parse::result_signature(&outcome.analyses)
 }

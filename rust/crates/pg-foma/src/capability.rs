@@ -58,6 +58,8 @@ use pg_grammar::model::{
     MprGroupMatchType, MprGroupOutput, MprSet, NatClassId, NaturalClassKind, OutputAction, PRuleId,
     PartRef, PhonRuleDef, ReduplicationHint, RewriteMode, StratumId,
 };
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::enumerate::EmissionStrategy;
 use crate::grammar_semantics::GrammarSemantics;
@@ -92,9 +94,7 @@ pub enum Disposition {
 /// `crate::backend_mechanism::MechanismNode::construct_requirements` is -- iterates
 /// deterministically. Nothing in the capability gate itself reads it.
 ///
-/// Serde is deliberately NOT derived here: `crate::coverage_ledger` already hand-writes
-/// `Serialize`/`Deserialize` over a stable snake_case wire name (`kind_wire_name`), and a derived
-/// impl would both conflict and silently change that on-disk vocabulary.
+/// Serde is hand-written over stable snake_case wire names, preserving the coverage-ledger format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CharacteristicKind {
     /// `MorphRuleDef::AffixProcess` (model.rs:543).
@@ -1643,6 +1643,115 @@ pub enum EvidenceProvenance {
     /// as `SimultaneousSubruleOverlapPredicate` does today — directly-readable model fields like
     /// `required_mpr`/`excluded_mpr`/`self_opaquing`).
     Structural,
+}
+
+fn kind_wire_name(kind: CharacteristicKind) -> &'static str {
+    use CharacteristicKind::*;
+    match kind {
+        Affixation => "affixation",
+        RealizationalMorphology => "realizational_morphology",
+        Compounding => "compounding",
+        OrderedMorphRuleApplication => "ordered_morph_rule_application",
+        UnorderedMorphRuleApplication => "unordered_morph_rule_application",
+        MprGroupAppend => "mpr_group_append",
+        MprGroupOverwrite => "mpr_group_overwrite",
+        IterativeRewrite => "iterative_rewrite",
+        SimultaneousRewrite => "simultaneous_rewrite",
+        LeftToRightRewrite => "left_to_right_rewrite",
+        RightToLeftRewrite => "right_to_left_rewrite",
+        Metathesis => "metathesis",
+        Epenthesis => "epenthesis",
+        SubruleGating => "subrule_gating",
+        CircumfixOutputAction => "circumfix_output_action",
+        Reduplication => "reduplication",
+        CoOccurrenceConstraint => "co_occurrence_constraint",
+        NaturalClassDefinition => "natural_class_definition",
+        MultiTable => "multi_table",
+        CrossTableRespelling => "cross_table_respelling",
+        QuantifierPattern => "quantifier_pattern",
+        StemName => "stem_name",
+        FreeFluctuation => "free_fluctuation",
+        ProcessMorphology => "process_morphology",
+    }
+}
+
+fn kind_from_wire_name(s: &str) -> Option<CharacteristicKind> {
+    CharacteristicKind::ALL
+        .iter()
+        .copied()
+        .find(|kind| kind_wire_name(*kind) == s)
+}
+
+impl Serialize for CharacteristicKind {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(kind_wire_name(*self))
+    }
+}
+
+impl<'de> Deserialize<'de> for CharacteristicKind {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        kind_from_wire_name(&s)
+            .ok_or_else(|| D::Error::custom(format!("unknown CharacteristicKind wire name: {s}")))
+    }
+}
+
+fn disposition_wire_name(disposition: Disposition) -> &'static str {
+    match disposition {
+        Disposition::Proven => "proven",
+        Disposition::ConfigPredicate => "config_predicate",
+        Disposition::ConfirmOnly => "confirm_only",
+    }
+}
+
+fn disposition_from_wire_name(s: &str) -> Option<Disposition> {
+    match s {
+        "proven" => Some(Disposition::Proven),
+        "config_predicate" => Some(Disposition::ConfigPredicate),
+        "confirm_only" => Some(Disposition::ConfirmOnly),
+        _ => None,
+    }
+}
+
+impl Serialize for Disposition {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(disposition_wire_name(*self))
+    }
+}
+
+impl<'de> Deserialize<'de> for Disposition {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        disposition_from_wire_name(&s)
+            .ok_or_else(|| D::Error::custom(format!("unknown Disposition wire name: {s}")))
+    }
+}
+
+fn provenance_wire_name(provenance: EvidenceProvenance) -> &'static str {
+    match provenance {
+        EvidenceProvenance::Structural => "structural",
+    }
+}
+
+fn provenance_from_wire_name(s: &str) -> Option<EvidenceProvenance> {
+    match s {
+        "structural" => Some(EvidenceProvenance::Structural),
+        _ => None,
+    }
+}
+
+impl Serialize for EvidenceProvenance {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(provenance_wire_name(*self))
+    }
+}
+
+impl<'de> Deserialize<'de> for EvidenceProvenance {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        provenance_from_wire_name(&s)
+            .ok_or_else(|| D::Error::custom(format!("unknown EvidenceProvenance wire name: {s}")))
+    }
 }
 
 /// A capability predicate's verdict for one plan node.
@@ -3368,7 +3477,7 @@ impl GrammarWideCheck for TemplatedRouteUncoveredCheck {
     }
 }
 
-/// `crate::templated_compile::rule_cascade_uncompilable_refusal`, published for
+/// `crate::capability_gate::rule_cascade_uncompilable_refusal`, published for
 /// `TemplatedUnderlyingTokens`.
 pub struct RuleCascadeUncompilableCheck;
 
@@ -3386,7 +3495,7 @@ impl GrammarWideCheck for RuleCascadeUncompilableCheck {
         EvidenceProvenance::Structural
     }
     fn evaluate(&self, semantics: &GrammarSemantics<'_>, _plan: &Plan) -> Option<CompileDecision> {
-        crate::templated_compile::rule_cascade_uncompilable_refusal(semantics.grammar())
+        crate::capability_gate::rule_cascade_uncompilable_refusal(semantics.grammar())
     }
 }
 

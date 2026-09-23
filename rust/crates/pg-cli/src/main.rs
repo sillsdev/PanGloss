@@ -52,7 +52,7 @@
 //! ## `fst-health` (see `fst_health.rs`'s own doc for the full contract)
 //! `fst-health <grammar> [<out.json>]` runs the cheap, grammar-only
 //! `pg_foma::characterization::characterization_findings` pass and writes one canonical
-//! `pg_foma::health::HealthReport`. It never compiles a backend or evaluates a corpus; corpus
+//! `pg_foma_backend::health::HealthReport`. It never compiles a backend or evaluates a corpus; corpus
 //! measurements belong to a separate post-build operation over an explicitly completed artifact.
 //! `<out.json>` omitted prints the JSON to stdout.
 //!

@@ -24,6 +24,7 @@ pg-parse.workspace = true
 pg-grammar.workspace = true
 pg-lexicon.workspace = true
 pg-foma.workspace = true
+pg-foma-runtime.workspace = true
 rayon = "1"
 serde.workspace = true
 serde_json.workspace = true

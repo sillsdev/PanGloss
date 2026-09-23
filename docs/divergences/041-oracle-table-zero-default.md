@@ -60,7 +60,7 @@ rules from `FeatureNaturalClass` only, whose lanes are table-agnostic by constru
 (`pg_rules::bridge::PatternBridge::nat_class_lanes`'s `Feature` branch never reads `self.table`), so
 none of them could ever have detected a wrong-table resolution — this fixture's own
 `SegmentNaturalClass`-based rule (raw per-table `CharDefId` members) can, and its own paired test
-`rust/crates/pg-foma/tests/segment_natural_class_table_binding_discriminates.rs` demonstrates the
+`rust/crates/pg-foma-backend/tests/segment_natural_class_table_binding_discriminates.rs` demonstrates the
 discriminating power directly (`ncK` resolved against the wrong table becomes non-unifiable with a
 real table-1 "k"). Fix commits: `84f11d69` (eleven-site sweep, `cache.rs` resolvers) and `9cfcd4c2`
 (`morph.rs`'s remaining `const TABLE` removed).

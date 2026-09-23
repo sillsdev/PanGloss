@@ -1,0 +1,243 @@
+//! The wired-up edge of `pg_foma::faithfulness_coverage`: runs the real propose+confirm pipeline over every discovered fixture with every backend the selector permits, checks proposal containment against full Rust HermitCrab, states the denominator, and prints the account -- asserting NON-VACUITY only, with the failure inventory reported rather than gated (see `REQUIREMENT`).
+
+use std::panic::{self, AssertUnwindSafe};
+
+use pg_conformance_fixtures::{claimed_scope, discover, producibility_census, SCOPE_ENV};
+use pg_foma::enumerate::EmissionStrategy;
+use pg_foma_backend::coverage_seam::collect_observations;
+use pg_foma_backend::faithfulness_coverage::{
+    build_report, containment_outcome_for_evidence, observe_fixture_containment,
+    unobservable_fixture, ContainmentOutcome, FaithfulnessReport, FaithfulnessRequirement,
+    FixtureContainmentObservation, SoundnessRequirement,
+};
+
+/// THE PLACE THIS ACCOUNT BECOMES STRICT (lower as causes are fixed; `NoFailures` at zero): 18 -> 22 re-measured at submodule pin f42d9591, where the upstream suite grew 61 -> 62 fixtures with several grammars extended -- soundness stayed 0, a larger denominator rather than a regression. 22 -> 23 when HC-Rust started matching hc.dll on cross-table natural-class membership: MultiTable x tuned-surface-probed now misses the second analysis of segment-natural-class-table-binding "g" that the oracle requires, a proposer gap the corrected ground truth exposed. 23 -> 17 once `crate::tags::collapse_adjacent_repeats` fixed the `multipleApplication > 1` candidate-decode gap that `morphotactic-attribute-breadth` exhibited; six (construct, backend) pairs stopped failing, some others' printed example fixture shifted to a still-failing one exhibiting the same construct. 17 -> 14 once `backend_runtime::word_proposal_containment` was measured (`mentanukam_multiplicity_recovered_by_confirm.rs`) to be checking a question `crate::confirm::confirm_all`'s own D4 multiplicity recovery already answers pre-confirm: an oracle identity reached by two derivation orders under an unordered stratum (e.g. `mpr-gated-exception`'s "mentanukam") is deduplicated to one candidate before confirm, then expanded back to the oracle's own multiplicity AT confirm time, so the pipeline's own output was already oracle-exact (`docs/adr/0001-honest-capability-boundary.md`'s own "faithful" is about the pipeline's output, not pre-confirm proposal multiplicity) -- the containment check now asks presence (was every distinct identity offered at least once?) rather than multiplicity, and the three pairs whose only gap was multiplicity-of-an-already-offered-identity stopped failing. 14 -> 11 once `crate::emit::build_unordered_powerset_chain` gave the templated route every ordering of a small `Unordered`-stratum standalone rule set instead of one fixed document order, fixing `mpr-overwrite-order-dependence` and `strrep-identity`. 11 -> 5 once `crate::lower::resolve_alpha_tuples`'s joint-polarity filter implemented disagree (not agree-only), fixing `feature-system-breadth`'s "isk"; every remaining failure is "g" (segment-natural-class-table-binding, tuned-surface-probed), still open. Held at 5 through `crate::build::unbuildable_marker_material`'s non-empty+`crate::emit::marker_admission_is_complete` admission criterion (`tests/backend_scoreboard_gate.rs`'s own PC ratchet note): every fixture it newly admits was measured to introduce zero new containment failures and zero soundness violations. 5 -> 6 when `conformance-staging/edge-cases/final-template-partial-discriminators` was added: all six failures are the SAME word, "daknagafa" (`DAK+NONFINTAGA+GATE1+FINTAGA`), across three constructs x two backends, and the five this ratchet previously held (`segment-natural-class-table-binding` x tuned-surface-probed, word "g") are gone from the inventory because `main` changed that fixture's own ground truth -- so the membership turned over rather than growing. The new failure is an ordinary rule applied after a NON-final template and then closed by a final template: HermitCrab accepts it, the C# founding oracle confirms it, and `plan-composed` proposes it, so the construct IS representable and this is a per-backend emitter gap in the tuned-surface and templated routes, not a limit. Soundness stayed 0. Raised deliberately and under protest rather than by absorbing a fixture that was written to expose exactly this; the next move is to fix those two emitters and bring this back down. 6 -> 14 at submodule pin d3079da4, which added four oracle-verified fixtures pinning HC-Rust fixes 006/014/016: `discontinuous-morph-environment` "zuaubu" fails plan-composed on Affixation, UnorderedMorphRuleApplication and NaturalClassDefinition (the proposer has no per-piece environment check), and `iterative-epenthesis-cascade` "uotaa" fails templated-underlying-tokens on OrderedMorphRuleApplication, IterativeRewrite, LeftToRightRewrite, Epenthesis and SubruleGating (the templated route models epenthesis as collect-all, the same divergence 014 removed from the confirm engine). Soundness stayed 0. Both are emitter gaps against constructs the confirm engine now gets right; the fixtures were added to pin the engine, and the proposer gaps they expose are the FST work queue, not a reason to hide them.
+const REQUIREMENT: FaithfulnessRequirement = FaithfulnessRequirement::NoMoreThan { failures: 14 };
+
+// The SOUNDNESS gate (candidate-only identities), the direction `REQUIREMENT` cannot see; measured 0 across all 61 fixtures / 3 backends, so this is a strict floor, not a backlog ratchet -- see `docs/research/backend-measurement-instruments.md` defect 3.
+const SOUNDNESS_REQUIREMENT: SoundnessRequirement = SoundnessRequirement::NoOverGeneration;
+
+/// A fixture that fails to load, is `skip_in_generic_replay`, or panics mid-evaluation contributes an `unobservable_fixture` row rather than aborting the sweep -- via the shared `crate::coverage_seam` walk, with the panic guard staying this instrument's own (see that module's doc for why).
+fn collect() -> (usize, Vec<FixtureContainmentObservation>) {
+    let fixtures = discover();
+    collect_observations(
+        &fixtures,
+        |fixture| pg_grammar::load(&fixture.load_grammar_xml()).ok(),
+        |fixture, grammar| {
+            let label = fixture.label();
+            let words_yaml = fixture.load_words_yaml();
+            if let Some(reason) = words_yaml.skip_in_generic_replay() {
+                return unobservable_fixture(&label, Vec::new(), reason.to_string());
+            }
+            let words: Vec<String> = words_yaml.words.into_iter().map(|w| w.word).collect();
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                observe_fixture_containment(&label, grammar, &words)
+            }))
+            .unwrap_or_else(|payload| {
+                let reason = payload
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "<non-string panic payload>".to_string());
+                unobservable_fixture(&label, Vec::new(), format!("panicked: {reason}"))
+            })
+        },
+    )
+}
+
+fn report() -> FaithfulnessReport {
+    let (discovered, observations) = collect();
+    build_report(claimed_scope().label(), discovered, &observations)
+}
+
+#[test]
+fn report_faithfulness_coverage() {
+    let report = report();
+    println!("{}", report.render());
+    // "fixtures discovered" is not one FieldWorks-facing population; report the three separately.
+    let census = producibility_census(&discover());
+    println!("fieldworks_producible -- {}", census.summary_line());
+
+    if let Err(violations) = report.check(REQUIREMENT) {
+        panic!(
+            "the faithfulness-coverage collection measured nothing usable ({SCOPE_ENV}={}): {:#?}",
+            report.scope, violations
+        );
+    }
+    if let Err(violations) = report.check_soundness(SOUNDNESS_REQUIREMENT) {
+        panic!(
+            "a backend over-generated something confirm should have pruned ({SCOPE_ENV}={}): {:#?}",
+            report.scope, violations
+        );
+    }
+
+    // Pins that the non-default backends are among the exercised ones, not just the shipping one.
+    for strategy in [
+        EmissionStrategy::PlanComposed,
+        EmissionStrategy::TemplatedUnderlyingTokens,
+    ] {
+        assert!(
+            report.backends_exercised.contains(&strategy),
+            "{strategy:?} had no containment comparison attempted on any discovered fixture, so \
+             every one of its rows would be not-attempted by construction rather than by measurement"
+        );
+    }
+}
+
+/// Every real containment FAILURE this run finds is printed loudly, never smoothed into the totals.
+#[test]
+fn any_containment_failure_is_printed_with_its_missing_analysis() {
+    let report = report();
+    if report.failed.is_empty() {
+        println!("faithfulness-coverage: no containment failures on this run");
+        return;
+    }
+    // A floor, not a total: `not_attempted` pairs were never compared, so printing the failure count alone invites reading it as the whole recall surface.
+    println!(
+        "faithfulness-coverage: {} (construct, backend) pair(s) FAILED containment \
+         ({} pair(s) NOT ATTEMPTED and therefore unmeasured -- this count is a floor):",
+        report.failed.len(),
+        report.not_attempted.len()
+    );
+    for (kind, strategy, fixture, detail) in &report.failure_examples {
+        println!(
+            "  FAILED {kind:?} x {} -- {fixture}: {detail}",
+            strategy.label()
+        );
+    }
+}
+
+/// FALSIFICATION: dropping a real oracle-required candidate from one backend's evidence must fail containment for exactly that backend and no other.
+#[test]
+fn dropping_a_candidate_fails_containment_for_exactly_that_backends_evidence() {
+    use pg_foma::enumerate::{enumerate_default, CandidateRole, LoweredCandidate};
+    use pg_foma::junctions::PhonologyProbe;
+    use pg_foma_backend::backend_runtime::{
+        evaluate_plans_observed_with_cache, RunEvaluationCache, RuntimeBudget,
+    };
+
+    const FIXTURE: &str = "template-category-sharing";
+    const STRATEGIES: [EmissionStrategy; 3] = [
+        EmissionStrategy::PlanComposed,
+        EmissionStrategy::TunedSurfaceProbed,
+        EmissionStrategy::TemplatedUnderlyingTokens,
+    ];
+
+    // By name, not by root: graduation deletes the staged copy, so keying on `Staging` breaks then.
+    let fixture = pg_conformance_fixtures::require_fixture("edge-cases", FIXTURE);
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture must load");
+    let words: Vec<String> = fixture
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|w| w.word)
+        .collect();
+    assert!(
+        words.iter().any(|w| w == "pakolosa"),
+        "the falsification needs the fixture's known-positive word"
+    );
+
+    let prules: Vec<&pg_grammar::model::PhonRuleDef> = grammar
+        .strata
+        .iter()
+        .flat_map(|stratum| {
+            stratum
+                .prules
+                .iter()
+                .map(|id| &grammar.prules[id.0 as usize])
+        })
+        .collect();
+    let baseline_plan =
+        enumerate_default(&grammar, &prules, PhonologyProbe::new(&grammar).as_ref());
+    let plans: Vec<LoweredCandidate> = STRATEGIES
+        .iter()
+        .map(|&strategy| LoweredCandidate {
+            label: "faithfulness-falsification",
+            plan: baseline_plan.clone(),
+            adapter: strategy,
+            role: if strategy == EmissionStrategy::PlanComposed {
+                CandidateRole::Baseline
+            } else {
+                CandidateRole::Alternative
+            },
+        })
+        .collect();
+
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+        .expect("oracle preparation must succeed for this fixture");
+    let observed = evaluate_plans_observed_with_cache(
+        &grammar,
+        &plans,
+        &words,
+        RuntimeBudget::default(),
+        &mut cache,
+    );
+
+    // Honest baseline, checked before any sabotage so the falsification below cannot be vacuous.
+    let mut honest_evidence: Vec<(
+        EmissionStrategy,
+        Vec<pg_foma_backend::backend_runtime::WordEvidence>,
+    )> = Vec::new();
+    for (plan, observation) in plans.iter().zip(&observed) {
+        let evidence = observation
+            .words
+            .clone()
+            .unwrap_or_else(|| panic!("{:?} evaluation failed outright", plan.strategy()));
+        assert_eq!(
+            containment_outcome_for_evidence(&evidence),
+            ContainmentOutcome::Held,
+            "{:?} must hold containment before sabotage, or this falsification is vacuous",
+            plan.strategy()
+        );
+        honest_evidence.push((plan.strategy(), evidence));
+    }
+
+    let sabotaged_backend = EmissionStrategy::TunedSurfaceProbed;
+    let mut sabotaged_word = None;
+    let sabotaged_evidence: Vec<(
+        EmissionStrategy,
+        Vec<pg_foma_backend::backend_runtime::WordEvidence>,
+    )> = honest_evidence
+        .iter()
+        .map(|(strategy, evidence)| {
+            let mut evidence = evidence.clone();
+            if *strategy == sabotaged_backend {
+                let word = evidence
+                    .iter_mut()
+                    .find(|word| !word.expected.is_empty())
+                    .expect("the fixture must have at least one word with oracle analyses");
+                assert!(
+                    !word.proposals.is_empty(),
+                    "the word being sabotaged must have started with real proposals"
+                );
+                sabotaged_word = Some(word.word.clone());
+                // Simulates an emitter silently skipping this occurrence's construct material.
+                word.proposals.clear();
+            }
+            (*strategy, evidence)
+        })
+        .collect();
+
+    for (strategy, evidence) in &sabotaged_evidence {
+        let outcome = containment_outcome_for_evidence(evidence);
+        if *strategy == sabotaged_backend {
+            match &outcome {
+                ContainmentOutcome::Failed { word, detail } => {
+                    assert_eq!(Some(word.clone()), sabotaged_word);
+                    println!(
+                        "falsification: {strategy:?} containment now FAILS as expected -- {detail}"
+                    );
+                }
+                other => panic!(
+                    "sabotaging {strategy:?}'s proposals must fail containment, got {other:?}"
+                ),
+            }
+        } else {
+            assert_eq!(
+                outcome,
+                ContainmentOutcome::Held,
+                "sabotaging {sabotaged_backend:?} must not disturb {strategy:?}'s containment"
+            );
+        }
+    }
+}

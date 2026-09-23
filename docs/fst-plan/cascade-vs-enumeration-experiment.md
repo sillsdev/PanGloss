@@ -46,7 +46,7 @@ verification was run (not merely claimed):
 
 ## What it took to drive the cascade as an analysis engine
 
-**Nothing.** `pg_foma::templated_compile::compile_templated_morphotactics(&Grammar) -> Result<TemplatedCompileOutput, _>`
+**Nothing.** `pg_foma_backend::templated_compile::compile_templated_morphotactics(&Grammar) -> Result<TemplatedCompileOutput, _>`
 already exists, is `pub`, and already returns an ordinary `pg_foma::analyzer::FomaProposer`
 (`TemplatedCompileOutput::proposer`, built internally via `FomaProposer::from_precompiled_network` +
 `.with_segment_query_encoder`) — the exact same type `FomaProposer::new` (the shipped enumeration

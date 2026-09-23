@@ -4,7 +4,7 @@
 use std::fs;
 
 use pg_foma::characterization::characterization_findings;
-use pg_foma::health::HealthReport;
+use pg_foma_backend::health::HealthReport;
 use pg_grammar::model::Grammar;
 
 /// Builds a report from grammar characterization only; no backend compiler or corpus is run.

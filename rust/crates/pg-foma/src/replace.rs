@@ -970,7 +970,7 @@ pub fn compile_rewrite_rule(
 /// ever builds an `Fsm` -- so a capability-envelope caller reads one computation with the real
 /// compiler rather than re-deriving an equivalent-looking check (this repo's own CLAUDE.md names
 /// three past attempts that failed exactly that way).
-pub(crate) fn rewrite_rule_is_lowerable(g: &Grammar, rule: &RewriteRuleDef) -> bool {
+pub fn rewrite_rule_is_lowerable(g: &Grammar, rule: &RewriteRuleDef) -> bool {
     if !is_fully_supported_shape(g, rule) {
         return false;
     }

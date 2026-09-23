@@ -731,6 +731,7 @@ version = "0.3.3"
 dependencies = [
  "pg-conformance-fixtures",
  "pg-foma",
+ "pg-foma-runtime",
  "pg-grammar",
  "pg-grammar-model",
  "pg-parse",
@@ -747,6 +748,7 @@ dependencies = [
  "pg-conformance-fixtures",
  "pg-featstruct",
  "pg-foma",
+ "pg-foma-backend",
  "pg-fst",
  "pg-fwdata",
  "pg-grammar",
@@ -800,6 +802,7 @@ version = "0.3.3"
 dependencies = [
  "cc",
  "pg-foma",
+ "pg-foma-runtime",
  "pg-grammar",
  "pg-lexicon",
  "pg-parse",
@@ -817,6 +820,7 @@ dependencies = [
  "pg-conformance-fixtures",
  "pg-featstruct",
  "pg-foma",
+ "pg-foma-runtime",
  "pg-fst",
  "pg-fwdata",
  "pg-grammar",
@@ -832,6 +836,51 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "pg-foma-backend"
+version = "0.3.3"
+dependencies = [
+ "foma",
+ "getrandom 0.3.4",
+ "pg-conformance-fixtures",
+ "pg-featstruct",
+ "pg-foma",
+ "pg-foma-backend",
+ "pg-foma-runtime",
+ "pg-fst",
+ "pg-fwdata",
+ "pg-grammar",
+ "pg-grammar-gen",
+ "pg-health",
+ "pg-parse",
+ "pg-rules",
+ "pg-shape",
+ "pg-snapshot",
+ "pg-worker-containment",
+ "rayon",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "pg-foma-runtime"
+version = "0.3.3"
+dependencies = [
+ "foma",
+ "pg-featstruct",
+ "pg-foma-runtime",
+ "pg-grammar",
+ "pg-health",
+ "pg-parse",
+ "pg-rules",
+ "pg-shape",
+ "rayon",
+ "rustc-hash",
+ "serde",
 ]
 
 [[package]]

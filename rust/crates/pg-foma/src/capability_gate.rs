@@ -26,7 +26,7 @@
 //! unconditional reason is counted at all. The remaining 3 `TemplatedUnderlyingTokens` rows are
 //! real, open compiler defects.
 
-use pg_grammar::model::Grammar;
+use pg_grammar::model::{Grammar, PhonRuleDef};
 
 use crate::backend_selection::{select_backends, BackendSelection};
 use crate::capability::{CapabilityDiagnostic, CompileDecision};
@@ -76,4 +76,34 @@ pub fn render_refusal(diagnostics: &[CapabilityDiagnostic]) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+/// The authoritative preflight refusal for an entirely unlowerable phonological rule cascade.
+pub fn rule_cascade_uncompilable_refusal(g: &Grammar) -> Option<CompileDecision> {
+    let rules_in_order: Vec<&PhonRuleDef> = g
+        .strata
+        .iter()
+        .flat_map(|stratum| stratum.prules.iter().map(|id| &g.prules[id.0 as usize]))
+        .collect();
+    if rules_in_order.is_empty() {
+        return None;
+    }
+    let all_confirmed_unlowerable = rules_in_order.iter().all(|pr| match pr {
+        PhonRuleDef::Rewrite(rule) => !crate::replace::rewrite_rule_is_lowerable(g, rule),
+        PhonRuleDef::Metathesis(_) => false,
+    });
+    if !all_confirmed_unlowerable {
+        return None;
+    }
+    Some(CompileDecision::Refuse(vec![CapabilityDiagnostic {
+        predicate: "templated-route.rule-cascade-uncompilable",
+        construct: "grammar (phonological rule cascade)".to_string(),
+        witness: format!(
+            "every one of this grammar's {} phonological rewrite rule(s) fails the same shape \
+             checks compile_rewrite_rule_subset runs before building an Fsm, so \
+             compile_and_compose_rules_recall_safe returns no compiled rule and \
+             compile_templated_morphotactics fails with NoCompiledRules",
+            rules_in_order.len()
+        ),
+    }]))
 }
