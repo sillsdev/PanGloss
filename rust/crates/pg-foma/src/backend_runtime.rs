@@ -102,20 +102,16 @@ impl std::error::Error for OraclePreparationFault {}
 
 /// Samples this process's RSS; `None` means "could not look", never "fine" — two cfg'd shapes share one signature so the preparation loop has no cfg in it.
 #[cfg(not(target_arch = "wasm32"))]
-struct RssSampler(sysinfo::System);
+struct RssSampler;
 
 #[cfg(not(target_arch = "wasm32"))]
 impl RssSampler {
     fn new() -> Self {
-        Self(sysinfo::System::new())
+        Self
     }
 
-    /// Refreshes only this pid, never a system-wide scan, matching worker.rs's compile-child guardrail.
     fn sample(&mut self) -> Option<u64> {
-        let pid = sysinfo::get_current_pid().ok()?;
-        self.0
-            .refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-        self.0.process(pid).map(|process| process.memory())
+        pg_worker_containment::current_process_rss_bytes()
     }
 }
 

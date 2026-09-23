@@ -87,9 +87,6 @@ sha2 = "0.10"
 # "Publisher signatures are optional offline provenance"). Not previously in the workspace lockfile
 # for any crate; added here, pinned once, synced to Cargo.lock by this change.
 ed25519-dalek = "2"
-# Native process-memory observation used by backend runtime diagnostics and the CLI recipe
-# optimizer. Compile-worker execution limits are enforced independently of this dependency.
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 libc = "0.2"
 # `.fwbackup` is a zip archive holding a `.fwdata` plus per-writing-system LDML; deflate is the
 # only compression method FieldWorks itself writes.

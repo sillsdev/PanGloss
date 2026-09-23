@@ -895,7 +895,6 @@ fn run_recipe_optimize_supervised(args: &[String]) -> Result<(), RecipeOptimizeE
         .spawn()
         .map_err(|e| RecipeOptimizeError::Runtime(format!("spawn recipe worker: {e}")))?;
     let started = Instant::now();
-    let mut system = sysinfo::System::new();
     let memory_limit = parsed.budget.memory;
     let mut observed_peak = 0u64;
     loop {
@@ -925,10 +924,7 @@ fn run_recipe_optimize_supervised(args: &[String]) -> Result<(), RecipeOptimizeE
             )));
         }
         if memory_limit > 0 {
-            let pid = sysinfo::Pid::from_u32(child.id());
-            system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), false);
-            if let Some(process) = system.process(pid) {
-                let bytes = process.memory();
+            if let Some(bytes) = pg_worker_containment::process_rss_bytes(child.id()) {
                 observed_peak = observed_peak.max(bytes);
                 if bytes > memory_limit {
                     let _ = child.kill();

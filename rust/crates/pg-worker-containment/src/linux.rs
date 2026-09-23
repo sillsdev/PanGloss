@@ -13,6 +13,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+pub(crate) fn process_rss_bytes(pid: u32) -> Option<u64> {
+    let statm = fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
+    let resident_pages = statm.split_whitespace().nth(1)?.parse::<u64>().ok()?;
+    resident_pages.checked_mul(4096)
+}
+
 const CLONE_PIDFD: u64 = 0x0000_1000;
 const CLONE_INTO_CGROUP: u64 = 1u64 << 33;
 const O_NOFOLLOW: c_int = 0o00400000;

@@ -25,17 +25,40 @@ use windows_sys::Win32::System::JobObjects::{
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows_sys::Win32::System::Pipes::CreatePipe;
+use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
 use windows_sys::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
-    InitializeProcThreadAttributeList, UpdateProcThreadAttribute, WaitForSingleObject,
+    InitializeProcThreadAttributeList, OpenProcess, UpdateProcThreadAttribute, WaitForSingleObject,
     CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION,
-    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTF_USESTDHANDLES,
-    STARTUPINFOEXW,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+    PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
 use windows_sys::Win32::System::IO::{CreateIoCompletionPort, GetQueuedCompletionStatus};
 
 const JOB_OBJECT_MSG_NOTIFICATION_LIMIT: u32 = 11;
 const MAX_NOTIFICATION_RESERVE_BYTES: usize = 64 * 1024 * 1024;
+
+pub(crate) fn process_rss_bytes(pid: u32) -> Option<u64> {
+    let counters_size = u32::try_from(size_of::<PROCESS_MEMORY_COUNTERS>()).ok()?;
+    // SAFETY: the requested access is read-only and the pid is supplied by the caller.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return None;
+    }
+    let mut counters = PROCESS_MEMORY_COUNTERS {
+        cb: counters_size,
+        ..Default::default()
+    };
+    // SAFETY: the process handle is open and the counters pointer and size describe live storage.
+    let succeeded = unsafe { K32GetProcessMemoryInfo(process, &mut counters, counters_size) } != 0;
+    // SAFETY: the handle came from OpenProcess and is closed exactly once here.
+    let _ = unsafe { CloseHandle(process) };
+    if succeeded {
+        u64::try_from(counters.WorkingSetSize).ok()
+    } else {
+        None
+    }
+}
 
 struct PipePair {
     read: OwnedHandle,

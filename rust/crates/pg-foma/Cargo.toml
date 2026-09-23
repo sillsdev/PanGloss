@@ -68,9 +68,6 @@ pg-parse.workspace = true
 # Native-only dependencies for FST construction and the supervised compile-worker protocol are
 # absent from the analysis-only wasm dependency graph.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# The production oracle preparation path samples its own process RSS. Pinned once at the workspace
-# root; see `backend_runtime.rs`'s own docs.
-sysinfo.workspace = true
 # The worker child's own `.xml`/`.json`/`.fwdata` grammar-source dispatch (`worker.rs`'s
 # `load_grammar_for_worker`, mirroring `pg-cli::load_grammar`'s three-way extension dispatch so the
 # worker protocol can name any of the three grammar-path shapes the CLI already accepts). Promoted

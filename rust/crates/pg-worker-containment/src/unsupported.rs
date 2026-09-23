@@ -6,6 +6,10 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::Instant;
 
+pub(crate) fn process_rss_bytes(_pid: u32) -> Option<u64> {
+    None
+}
+
 /// Fails closed on targets whose containment adapter is unavailable.
 pub(crate) struct ContainedWorkerProcess;
 

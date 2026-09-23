@@ -38,6 +38,7 @@ pg-fwdata.workspace = true
 pg-foma.workspace = true
 pg-assess.workspace = true
 pg-pack.workspace = true
+pg-worker-containment.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -51,7 +52,6 @@ pg-conformance-fixtures.workspace = true
 # dependency of `pg-pack` (its own `.pgpack` container digest) -- reused here rather than a second,
 # independently-pinned copy.
 sha2.workspace = true
-sysinfo.workspace = true
 # `stats_cmd.rs`: `batch --stats` and the `stats` subcommand read/write the per-project cache this
 # crate owns.
 pg-stats.workspace = true

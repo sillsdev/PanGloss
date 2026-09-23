@@ -15,6 +15,27 @@ mod linux;
 #[cfg(all(not(windows), not(target_os = "linux")))]
 mod unsupported;
 
+/// Resident set size of `pid` in bytes, or None when it cannot be read (process gone, access denied, unsupported OS).
+pub fn process_rss_bytes(pid: u32) -> Option<u64> {
+    #[cfg(windows)]
+    {
+        windows::process_rss_bytes(pid)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        linux::process_rss_bytes(pid)
+    }
+    #[cfg(all(not(windows), not(target_os = "linux")))]
+    {
+        unsupported::process_rss_bytes(pid)
+    }
+}
+
+/// Resident set size of the current process in bytes, or None when it cannot be read.
+pub fn current_process_rss_bytes() -> Option<u64> {
+    process_rss_bytes(std::process::id())
+}
+
 /// Finite limits for one worker attempt. The serialized-payload limit is carried here so the
 /// containment seam remains the single caller-facing execution configuration; the Windows
 /// adapter enforces the committed-memory and lifecycle dimensions.
@@ -418,6 +439,21 @@ mod tests {
             ExecutionLimits::try_new(1, 1, Duration::ZERO),
             Err(ExecutionLimitError::ZeroWallTime)
         );
+    }
+
+    #[cfg(any(windows, target_os = "linux"))]
+    #[test]
+    fn current_process_rss_is_positive() {
+        let rss = current_process_rss_bytes();
+        assert!(
+            matches!(rss, Some(bytes) if bytes > 0),
+            "current process RSS: {rss:?}"
+        );
+    }
+
+    #[test]
+    fn nonexistent_process_rss_is_none() {
+        assert_eq!(process_rss_bytes(u32::MAX), None);
     }
 
     #[cfg(windows)]
