@@ -135,6 +135,62 @@ $crateSpecs = @(
             'type_lane_gate.rs', 'unapplied_rule_counts_reader_gate.rs', 'validity_gate.rs'
         )
     }
+    @{
+        Name = 'pg-assess'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-assess'
+        MinTargets = 1
+        MaxTargets = 1
+        ExpectedSourceNames = @('certification_ledger.rs', 'duplicate_count_determinism.rs', 'identity_projection.rs', 'schema_conformance.rs')
+    }
+    @{
+        Name = 'pg-cli'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-cli'
+        MinTargets = 2
+        MaxTargets = 2
+        ExpectedSourceNames = @('agent_docs_resolve_gate.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'skills_never_instruct_bare_cargo.rs')
+    }
+    @{
+        Name = 'pg-conformance-fixtures'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-conformance-fixtures'
+        MinTargets = 1
+        MaxTargets = 1
+        ExpectedSourceNames = @('build_command_contract.rs', 'case_set_schema.rs', 'producibility_marking_gate.rs', 'three_language_case_set_lock.rs')
+    }
+    @{
+        Name = 'pg-ffi'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-ffi'
+        MinTargets = 2
+        MaxTargets = 2
+        ExpectedSourceNames = @('abort_safety.rs', 'ffi_transport_parity.rs', 'generate_round_trip.rs', 'header_abi.rs', 'json_api.rs', 'parse_opts_gate.rs')
+    }
+    @{
+        Name = 'pg-fwdata'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-fwdata'
+        MinTargets = 1
+        MaxTargets = 1
+        ExpectedSourceNames = @('compile_real_projects_gate.rs', 'fixture_tests.rs', 'fwbackup_tests.rs', 'measured_import_parity.rs', 'real_projects.rs')
+    }
+    @{
+        Name = 'pg-grammar'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-grammar'
+        MinTargets = 1
+        MaxTargets = 1
+        ExpectedSourceNames = @('circumfix_conditioning_parity.rs', 'compile_refusal_gate.rs', 'conversion_inventory_gate.rs', 'lossless_conversion_gate.rs', 'measure_only_confinement_gate.rs', 'p5_closure_property.rs')
+    }
+    @{
+        Name = 'pg-lexicon'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-lexicon'
+        MinTargets = 1
+        MaxTargets = 1
+        ExpectedSourceNames = @('analysis_orchestration.rs', 'class_catalog.rs', 'classification.rs', 'persistence_runtime.rs', 'supplied_store.rs')
+    }
+    @{
+        Name = 'pg-realize'
+        PackageRoot = Join-Path $repoRoot 'rust\crates\pg-realize'
+        MinTargets = 1
+        MaxTargets = 1
+        ExpectedSourceNames = @('n0_gloss_gate.rs', 'n1_ir_gate.rs', 'n2_realize_gate.rs')
+    }
 )
 
 foreach ($spec in $crateSpecs) {
