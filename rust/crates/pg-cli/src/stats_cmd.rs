@@ -2449,6 +2449,36 @@ mod tests {
     }
 
     #[test]
+    fn batch_stats_cache_refusal_leaves_the_previous_tsv_intact() {
+        let (grammar_xml, word) = primary_fixture();
+        let dir = scratch_dir("cache-refusal-keeps-tsv");
+        let cache_path = dir.join("cache.sqlite3");
+        let cache = cache_path.to_str().unwrap();
+        let (first, out_path) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--step-cap", "1000", "--cache", cache],
+        );
+        crate::run_batch(&first).expect("first stats batch run");
+        let before = fs::read_to_string(&out_path).expect("read first tsv");
+        assert!(!before.is_empty(), "first run must write a TSV row");
+
+        let (second, _) = run_batch_args(
+            &dir,
+            &grammar_xml,
+            &format!("{word}\n"),
+            &["--stats", "--step-cap", "2000", "--cache", cache],
+        );
+        crate::run_batch(&second).expect_err("a step-cap mismatch must refuse the cache");
+        assert_eq!(
+            fs::read_to_string(&out_path).expect("read tsv after refusal"),
+            before,
+            "a refused stats cache must not truncate the previous TSV"
+        );
+    }
+
+    #[test]
     fn batch_stats_run_twice_skips_already_cached_words() {
         let (grammar_xml, word) = primary_fixture();
         let words_text = format!("{word}\n");

@@ -945,6 +945,21 @@ fn run_batch_with_counter(
         .filter(|w| !w.is_empty())
         .collect();
 
+    // A cache refusal (e.g. step-cap mismatch) must fire before the TSV below is truncated.
+    let stats_cache = if stats_requested {
+        Some(stats_cmd::prepare_batch_stats_hc(
+            grammar_path,
+            &words,
+            step_cap,
+            word_timeout_ms,
+            guess,
+            always_enforce_final_templates,
+            cache_path_arg.as_deref(),
+        )?)
+    } else {
+        None
+    };
+
     // start_idx=0 is a fresh run (truncate); >0 is a resume (append to the prior partial TSV).
     let file = if start_idx == 0 {
         fs::File::create(out_path).map_err(|e| format!("create {out_path}: {e}"))?
@@ -982,19 +997,6 @@ fn run_batch_with_counter(
     // --guess omitted is exactly ParseOptions::default(), so parse_word_opts below is byte-identical to parse_word(word).
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
     let mut stats_words = Vec::new();
-    let stats_cache = if stats_requested {
-        Some(stats_cmd::prepare_batch_stats_hc(
-            grammar_path,
-            &words,
-            step_cap,
-            word_timeout_ms,
-            guess,
-            always_enforce_final_templates,
-            cache_path_arg.as_deref(),
-        )?)
-    } else {
-        None
-    };
 
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
     let t_parse = Instant::now();
