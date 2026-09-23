@@ -67,7 +67,7 @@ $ErrorActionPreference = 'Stop'
 $script:SsdCacheRoot = if ($env:PANGLOSS_SSD_CACHE_ROOT) { $env:PANGLOSS_SSD_CACHE_ROOT } else { 'C:\cargo-targets' }
 $script:HddCacheRoot = if ($env:PANGLOSS_CARGO_CACHE_ROOT) { $env:PANGLOSS_CARGO_CACHE_ROOT } else { 'G:\cargo-build-cache' }
 # The guard against refilling the disk-space crisis that motivated moving target-dirs off C: at all.
-$script:MinFreeGBOnSsd = if ($env:PANGLOSS_MIN_FREE_SSD_GB) { [double]$env:PANGLOSS_MIN_FREE_SSD_GB } else { 50 }
+$script:MinFreeGBOnSsd = if ($env:PANGLOSS_MIN_FREE_SSD_GB) { [double]$env:PANGLOSS_MIN_FREE_SSD_GB } else { 35 }
 $script:BuildSemaphoreName = 'Global\PanGlossCargoBuild'
 
 function Import-PanGlossPlatformAdapter {

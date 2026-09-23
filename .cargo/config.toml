@@ -29,3 +29,10 @@
 # compute one. On a smaller machine it is simply not binding; the managed path adapts.
 [build]
 jobs = 8
+
+# ---------------------------------------------------------------------------------------------
+# Link with the LLD that ships inside every rustup MSVC toolchain (lib/rustlib/<host>/bin), not
+# MSVC link.exe. rustc finds it on its own and passes `-flavor link`; target-scoped, so non-Windows
+# hosts are untouched. A personal rust/.cargo/config.toml or CARGO_TARGET_*_LINKER still overrides.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"

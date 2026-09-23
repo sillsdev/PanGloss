@@ -89,7 +89,7 @@ sha2 = "0.10"
 ed25519-dalek = "2"
 # Native process-memory observation used by backend runtime diagnostics and the CLI recipe
 # optimizer. Compile-worker execution limits are enforced independently of this dependency.
-sysinfo = "0.32"
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 libc = "0.2"
 # `.fwbackup` is a zip archive holding a `.fwdata` plus per-writing-system LDML; deflate is the
 # only compression method FieldWorks itself writes.
@@ -150,6 +150,21 @@ proptest = "1"
 [profile.dev]
 debug = "line-tables-only"
 
+# The comment-hygiene checker runs before every managed build and is bootstrapped with the dev
+# profile; unoptimized, its regex scan of the tree took ~4s.
+[profile.dev.package.pg-comment-hygiene]
+opt-level = 3
+[profile.dev.package.regex]
+opt-level = 3
+[profile.dev.package.regex-automata]
+opt-level = 3
+[profile.dev.package.regex-syntax]
+opt-level = 3
+[profile.dev.package.aho-corasick]
+opt-level = 3
+[profile.dev.package.memchr]
+opt-level = 3
+
 # Release profile tuned for the FFI cdylib and CLI: max optimization, single codegen unit,
 # fat LTO. panic = "unwind" is REQUIRED — pg-ffi relies on catch_unwind at the C boundary
 # (rust-conversion.md §4.2, §8 layer 7); "abort" would break abort-safety.
@@ -171,9 +186,12 @@ codegen-units = 16
 # `--cargo-profile pg-test-opt`) by default; only `-Mode release` uses [profile.release] itself, so
 # actual deliverables and production-equivalent perf measurements keep fat LTO/codegen-units=1
 # untouched above.
+#
+# No cross-crate LTO either: ThinLTO reruns across every dependency for each test executable, and
+# measured 22.4s of a 23.6s one-test-file relink; with `lto = false` the same relink takes 1.3s.
 [profile.pg-test-opt]
 inherits = "release"
-lto = "thin"
+lto = false
 codegen-units = 16
 # Line tables, not full DWARF: keeps panic/backtrace locations useful for a failing corpus or perf
 # gate without paying release's usual full debug-info cost across hundreds of test binaries.

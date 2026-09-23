@@ -1442,7 +1442,6 @@ dependencies = [
  "libc",
  "memchr",
  "ntapi",
- "rayon",
  "windows",
 ]
 
