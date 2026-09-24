@@ -42,6 +42,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `Stratum.cs` (`CharacterDefinitionTable` property) | 041 |
 | `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
+| FieldWorks `HCLoader.cs` (`UniqueStemMSAs`, `LoadLexEntries`); liblcm `OverridesLing_MoClasses.cs` (`MoStemMsa.EqualsMsa`) | 046 |
 
 ## By Rust module
 
@@ -89,6 +90,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
 | `pg-cli/src/main.rs` (`run_batch`, `parse_batch_with_stats`) | 048 |
 | `pg-cli/src/stats_cmd.rs` (`prepare_batch_stats_hc`, `finish_batch_stats_hc`) | 048 |
+| `pg-grammar/src/compile/lexicon.rs` (entry-local stem MSA selection) | 046 |
 
 ## By fixture / test file
 
@@ -115,6 +117,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/right-to-left-segments-environment/`, `pg-foma/src/capability.rs` unit tests | 044 |
 | `conformance-staging/edge-cases/right-to-left-cross-table-segments-environment/` | 044 |
 | `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |
+| `pg-grammar/src/compile/tests/unique_stem_msas.rs`, `pg-grammar/src/compile/lexicon/unique_stem_tests.rs` | 046 |
 
 ## Optimization and shared-correctness follow-up
 
