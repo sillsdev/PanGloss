@@ -324,4 +324,4 @@ pub enum EntryRef {
 }
 
 #[cfg(test)]
-mod v2_port_tests;
+mod msa_class_tests;
