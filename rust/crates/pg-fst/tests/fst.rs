@@ -302,6 +302,179 @@ fn capture_group_in_quantifier_last_iteration() {
     assert_eq!(fst.get_offsets("g", &res.registers), Some((2, 3)));
 }
 
+fn longest_capture_alternation() -> Vec<CompileNode> {
+    vec![CompileNode::Alternation(vec![
+        vec![CompileNode::Group {
+            name: "g0".into(),
+            children: vec![CompileNode::Constraint(sym(A))],
+        }],
+        vec![
+            CompileNode::Constraint(sym(A)),
+            CompileNode::Group {
+                name: "g1".into(),
+                children: vec![CompileNode::Constraint(sym(B))],
+            },
+        ],
+    ])]
+}
+
+#[test]
+fn first_match_keeps_register_identity_and_longest_selection() {
+    for deterministic in [true, false] {
+        let fst = CompileInput::new(longest_capture_alternation())
+            .deterministic(deterministic)
+            .compile();
+        let first = Transduce::new(&fst, input(&[A, B]))
+            .anchored(true, false)
+            .first_match()
+            .expect("longer alternative should match");
+        let all = Transduce::new(&fst, input(&[A, B]))
+            .anchored(true, false)
+            .all_matches();
+        let reference = all.first().expect("all_matches should retain the result");
+
+        assert_eq!(first.id, reference.id);
+        assert_eq!(first.priority, reference.priority);
+        assert_eq!(first.is_lazy, reference.is_lazy);
+        assert_eq!(first.next_ann, reference.next_ann);
+        assert_eq!(first.order, reference.order);
+        assert_eq!(first.registers.len(), reference.registers.len());
+        assert!(
+            first
+                .registers
+                .iter()
+                .zip(&reference.registers)
+                .all(|(left, right)| left.value_eq(right)),
+            "first_match and all_matches must preserve the same register values"
+        );
+        assert_eq!(
+            fst.get_offsets(ENTIRE_MATCH, &first.registers),
+            Some((0, 2))
+        );
+        assert_eq!(fst.get_offsets("g0", &first.registers), None);
+        assert_eq!(fst.get_offsets("g1", &first.registers), Some((1, 2)));
+    }
+}
+
+#[test]
+fn all_matches_keeps_register_variants_at_one_state() {
+    let nodes = vec![CompileNode::Alternation(vec![
+        vec![CompileNode::Group {
+            name: "g0".into(),
+            children: vec![CompileNode::Constraint(sym(A))],
+        }],
+        vec![CompileNode::Group {
+            name: "g1".into(),
+            children: vec![CompileNode::Constraint(sym(A))],
+        }],
+    ])];
+    let fst = CompileInput::new(nodes).deterministic(false).compile();
+    let results = Transduce::new(&fst, input(&[A]))
+        .anchored(true, true)
+        .all_matches();
+    let captures: std::collections::BTreeSet<_> = results
+        .iter()
+        .map(|r| {
+            (
+                fst.get_offsets("g0", &r.registers),
+                fst.get_offsets("g1", &r.registers),
+            )
+        })
+        .collect();
+    assert_eq!(
+        captures,
+        [(Some((0, 1)), None), (None, Some((0, 1))),]
+            .into_iter()
+            .collect()
+    );
+}
+
+#[test]
+fn accepts_uses_state_position_dedup_when_registers_are_unobservable() {
+    // Two captured A* paths are ambiguous at each split before the required B.
+    let nodes = vec![
+        CompileNode::Group {
+            name: "left".into(),
+            children: vec![CompileNode::Quantifier {
+                min: 0,
+                max: None,
+                children: vec![CompileNode::Constraint(sym(A))],
+            }],
+        },
+        CompileNode::Group {
+            name: "right".into(),
+            children: vec![CompileNode::Quantifier {
+                min: 0,
+                max: None,
+                children: vec![CompileNode::Constraint(sym(A))],
+            }],
+        },
+        CompileNode::Constraint(sym(B)),
+    ];
+    let fst = CompileInput::new(nodes).deterministic(false).compile();
+
+    let accepts_before = pg_fst::profile::snapshot();
+    let existence_before = pg_fst::profile::existence_snapshot();
+    assert!(Transduce::new(&fst, input(&[A, A, A, A, B]))
+        .anchored(true, true)
+        .accepts());
+    let accepts_after = pg_fst::profile::snapshot();
+    let existence_after = pg_fst::profile::existence_snapshot();
+
+    let first_before = pg_fst::profile::snapshot();
+    assert!(Transduce::new(&fst, input(&[A, A, A, A, B]))
+        .anchored(true, true)
+        .first_match()
+        .is_some());
+    let first_after = pg_fst::profile::snapshot();
+
+    let accepts_traversed = accepts_after.6 - accepts_before.6;
+    let first_traversed = first_after.6 - first_before.6;
+    assert!(
+        accepts_traversed < first_traversed,
+        "existence traversal should visit fewer nondet states: accepts={accepts_traversed}, first_match={first_traversed}"
+    );
+    assert!(
+        existence_after.1 - existence_before.1 > 0,
+        "existence traversal should report actual duplicate suppression"
+    );
+}
+
+#[test]
+fn deterministic_accepts_deduplicates_optional_segment_convergence() {
+    // A*B can reach the same deterministic state and annotation position through
+    // different skip/consume paths when adjacent input segments are optional.
+    let nodes = vec![
+        CompileNode::Quantifier {
+            min: 0,
+            max: None,
+            children: vec![CompileNode::Constraint(sym(A))],
+        },
+        CompileNode::Constraint(sym(B)),
+    ];
+    let fst = CompileInput::new(nodes).deterministic(true).compile();
+    let segs = vec![Segment::optional(sym(A)), Segment::optional(sym(A)), seg(B)];
+
+    let before = pg_fst::profile::existence_snapshot();
+    assert!(Transduce::new(&fst, segs.clone())
+        .anchored(true, true)
+        .accepts());
+    let after = pg_fst::profile::existence_snapshot();
+    assert!(
+        after.1 - before.1 > 0,
+        "deterministic existence traversal should report optional-path duplicate suppression"
+    );
+
+    let first = Transduce::new(&fst, segs)
+        .anchored(true, true)
+        .first_match()
+        .expect("A*B should retain its first match");
+    assert_eq!(
+        fst.get_offsets(ENTIRE_MATCH, &first.registers),
+        Some((0, 3))
+    );
+}
+
 // Class 4: result ordering — ResultCompare on both determinism branches and both directions.
 
 /// A trivial FST just to get a `Transduce` with the desired determinism/direction for isolated ordering checks.

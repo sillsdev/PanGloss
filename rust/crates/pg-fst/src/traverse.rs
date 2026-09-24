@@ -28,6 +28,8 @@ pub mod profile {
         static DISTINCT_NANOS: Cell<u128> = const { Cell::new(0) };
         static DISTINCT_MAX_INPUT_LEN: Cell<usize> = const { Cell::new(0) };
         static DISTINCT_TOTAL_INPUT_LEN: Cell<u64> = const { Cell::new(0) };
+        static EXISTENCE_CALLS: Cell<u64> = const { Cell::new(0) };
+        static EXISTENCE_DUPLICATES_SUPPRESSED: Cell<u64> = const { Cell::new(0) };
     }
 
     pub(super) fn record_run(elapsed_nanos: u128) {
@@ -53,6 +55,14 @@ pub mod profile {
         DISTINCT_NANOS.with(|c| c.set(c.get() + elapsed_nanos));
         DISTINCT_MAX_INPUT_LEN.with(|c| c.set(c.get().max(input_len)));
         DISTINCT_TOTAL_INPUT_LEN.with(|c| c.set(c.get() + input_len as u64));
+    }
+
+    pub(super) fn record_existence_call() {
+        EXISTENCE_CALLS.with(|c| c.set(c.get() + 1));
+    }
+
+    pub(super) fn record_existence_suppressed(count: u64) {
+        EXISTENCE_DUPLICATES_SUPPRESSED.with(|c| c.set(c.get() + count));
     }
 
     /// (run_calls, run_total_ns, run_max_ns, nondet_calls, nondet_total_ns, nondet_max_traversed, nondet_total_traversed, det_calls, det_total_ns, distinct_calls, distinct_total_ns, distinct_max_input_len, distinct_total_input_len) -- snapshot only, never reset.
@@ -86,6 +96,14 @@ pub mod profile {
             DISTINCT_NANOS.with(|c| c.get()),
             DISTINCT_MAX_INPUT_LEN.with(|c| c.get()),
             DISTINCT_TOTAL_INPUT_LEN.with(|c| c.get()),
+        )
+    }
+
+    /// (existence_calls, existence_duplicates_suppressed) -- snapshot only, never reset.
+    pub fn existence_snapshot() -> (u64, u64) {
+        (
+            EXISTENCE_CALLS.with(|c| c.get()),
+            EXISTENCE_DUPLICATES_SUPPRESSED.with(|c| c.get()),
         )
     }
 }
@@ -463,14 +481,17 @@ impl<'f> Transduce<'f> {
         init_registers: &mut [Register],
         cmds: &[Cmd],
         init_anns: &mut HashSet<usize>,
+        dedupe_by_state: bool,
     ) -> Vec<FstResult> {
         let deterministic = self.fst.is_deterministic();
         let seeds = self.initialize(ann_index, init_registers, cmds, init_anns);
         let mut stack: Vec<Inst> = seeds;
         let mut cur_results: Vec<FstResult> = Vec::new();
+        let mut existence_suppressed = 0u64;
 
         if deterministic {
             let __o2_det_start = Instant::now();
+            let mut traversed_positions: HashSet<(usize, usize)> = HashSet::new();
             while let Some(inst) = stack.pop() {
                 // `Arc` is `Copy` and `state_arcs` borrows straight from the frozen `Fst`'s CSR pool, so the slice is iterated in place instead of cloned into a fresh `Vec` every pop.
                 let arcs = self.state_arcs(inst.state);
@@ -478,6 +499,12 @@ impl<'f> Transduce<'f> {
                 for arc in arcs {
                     if self.check_input_match(arc, inst.ann_index) {
                         for ni in self.advance(inst, arc, false, &mut cur_results) {
+                            if dedupe_by_state
+                                && !traversed_positions.insert((ni.state, ni.ann_index))
+                            {
+                                existence_suppressed += 1;
+                                continue;
+                            }
                             stack.push(ni);
                         }
                         advanced = true;
@@ -489,8 +516,10 @@ impl<'f> Transduce<'f> {
             profile::record_det(__o2_det_start.elapsed().as_nanos());
         } else {
             let __o2_nondet_start = Instant::now();
-            // Same visited-set key as before: the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
+            // Result-producing queries keep register state; existence queries only need state and position.
             let mut traversed: HashSet<(usize, usize, RegKey)> = HashSet::new();
+            let mut traversed_positions: HashSet<(usize, usize)> = HashSet::new();
+            let mut traversed_count = 0usize;
             let n = self.n();
             let min_hops = self.fst.min_hops_to_accept();
             while let Some(inst) = stack.pop() {
@@ -506,19 +535,31 @@ impl<'f> Transduce<'f> {
                             continue;
                         }
                         for new_inst in self.advance(inst.clone(), arc, false, &mut cur_results) {
-                            let key = (
-                                new_inst.state,
-                                new_inst.ann_index,
-                                RegKey(Rc::clone(&new_inst.registers)),
-                            );
-                            if traversed.insert(key) {
+                            let position = (new_inst.state, new_inst.ann_index);
+                            let is_new = if dedupe_by_state {
+                                traversed_positions.insert(position)
+                            } else {
+                                traversed.insert((
+                                    new_inst.state,
+                                    new_inst.ann_index,
+                                    RegKey(Rc::clone(&new_inst.registers)),
+                                ))
+                            };
+                            if !is_new && dedupe_by_state {
+                                existence_suppressed += 1;
+                            }
+                            if is_new {
+                                traversed_count += 1;
                                 stack.push(new_inst);
                             }
                         }
                     }
                 }
             }
-            profile::record_nondet(__o2_nondet_start.elapsed().as_nanos(), traversed.len());
+            profile::record_nondet(__o2_nondet_start.elapsed().as_nanos(), traversed_count);
+        }
+        if dedupe_by_state {
+            profile::record_existence_suppressed(existence_suppressed);
         }
 
         self.check_accepting_start_state(init_anns, init_registers, &mut cur_results);
@@ -527,14 +568,14 @@ impl<'f> Transduce<'f> {
 
     // --- Transduce (Fst.cs:304-414) -----------------------------------------------------------
 
-    fn run(&self, all_matches: bool) -> Vec<FstResult> {
+    fn run(&self, all_matches: bool, dedupe_by_state: bool) -> Vec<FstResult> {
         let __o2_start = Instant::now();
-        let __o2_result = self.run_inner(all_matches);
+        let __o2_result = self.run_inner(all_matches, dedupe_by_state);
         profile::record_run(__o2_start.elapsed().as_nanos());
         __o2_result
     }
 
-    fn run_inner(&self, all_matches: bool) -> Vec<FstResult> {
+    fn run_inner(&self, all_matches: bool, dedupe_by_state: bool) -> Vec<FstResult> {
         if self.n() == 0 {
             return Vec::new();
         }
@@ -556,8 +597,13 @@ impl<'f> Transduce<'f> {
                 }
             }
 
-            let mut cur =
-                self.traverse_from(&mut ann_index, &mut init_registers, &cmds, &mut init_anns);
+            let mut cur = self.traverse_from(
+                &mut ann_index,
+                &mut init_registers,
+                &cmds,
+                &mut init_anns,
+                dedupe_by_state,
+            );
             if !cur.is_empty() {
                 cur.sort_by(|a, b| self.result_compare(a, b));
                 result_list.append(&mut cur);
@@ -587,17 +633,18 @@ impl<'f> Transduce<'f> {
 
     /// All matches (C# `Transduce(..., out IEnumerable results)` / `Matcher.AllMatches`).
     pub fn all_matches(&self) -> Vec<FstResult> {
-        self.run(true)
+        self.run(true, false)
     }
 
     /// The single best match (C# `Transduce(..., out FstResult)` → `results.First()`).
     pub fn first_match(&self) -> Option<FstResult> {
-        self.run(false).into_iter().next()
+        self.run(false, false).into_iter().next()
     }
 
     /// Does the automaton accept? (any match exists).
     pub fn accepts(&self) -> bool {
-        self.first_match().is_some()
+        profile::record_existence_call();
+        self.run(false, true).into_iter().next().is_some()
     }
 
     /// C# `ResultCompare` (Fst.cs:416-441), minus the `Priorities` zip tiebreak: byte-parity-only machinery, removed after verifying order-invariance by A/B diffing under step-caps low enough to force the code path it existed for.

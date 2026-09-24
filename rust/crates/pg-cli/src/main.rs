@@ -870,6 +870,11 @@ fn run_batch(args: &[String]) -> Result<(), String> {
                     det_ns as f64 / 1e6,
                     distinct_ns as f64 / 1e6,
                 );
+                let (existence_calls, existence_duplicates_suppressed) =
+                    pg_fst::profile::existence_snapshot();
+                eprintln!(
+                    "FSTEXISTPROF\t{i}\t{word}\tcalls={existence_calls}\tduplicates_suppressed={existence_duplicates_suppressed}"
+                );
                 let (dedup_calls, dedup_ns, dedup_max_out_len, dedup_total_out_len) =
                     pg_rules::morph::dedup_profile::snapshot();
                 eprintln!(
