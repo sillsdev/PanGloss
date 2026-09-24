@@ -6,6 +6,7 @@ use pg_shape::NodeKind;
 fn seg(xml_id: &str, reps: &[&str]) -> RawCharDef {
     RawCharDef {
         xml_id: xml_id.to_string(),
+        source_guid: None,
         kind: CharDefKind::Segment,
         representations: reps.iter().map(|s| s.to_string()).collect(),
         feature_values: Vec::<RawFeatureValue>::new(),
@@ -15,6 +16,7 @@ fn seg(xml_id: &str, reps: &[&str]) -> RawCharDef {
 fn bnd(xml_id: &str, reps: &[&str]) -> RawCharDef {
     RawCharDef {
         xml_id: xml_id.to_string(),
+        source_guid: None,
         kind: CharDefKind::Boundary,
         representations: reps.iter().map(|s| s.to_string()).collect(),
         feature_values: vec![],

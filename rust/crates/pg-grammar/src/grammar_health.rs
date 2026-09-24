@@ -10,9 +10,9 @@
 //! These checks ask "is this grammar well-formed for its author" -- an authoring-correctness
 //! question with no publication-blocking tier and no representability/containment axis, so a
 //! separate, smaller vocabulary lives here rather than contorting the FST schema's severity/class
-//! pair to fit it. Wire codes are the stable C# strings (`hc-undeclared-segment`,
-//! `hc-duplicate-feature-bundle`, `hc-partial-morpheme`) so the two implementations' output can be
-//! compared directly.
+//! pair to fit it. `hc-undeclared-segment` and `hc-duplicate-feature-bundle` are the stable C#
+//! strings; C#'s single `hc-partial-morpheme` is split here into `hc-stem-no-grammatical-category`
+//! and `hc-inflectional-affix-missing-template-slot`, so compare partial findings by subject.
 //!
 //! Lives in `pg-grammar`, not `pg-health`, because the checks read [`Grammar`] directly.
 //! `pg-health` is a leaf crate whose only dependencies are `serde`/`serde_json`, kept that way so
@@ -33,12 +33,15 @@
 //! change out of scope for this port.
 
 use crate::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
-use crate::grammar_health_presentation::{fieldworks_link, FieldWorksSource};
+use crate::grammar_health_presentation::{
+    fieldworks_identity, fieldworks_link_from_identity, FieldWorksSource,
+};
 use crate::model::{
     Grammar, LexEntryId, MRuleId, MorphRuleDef, OutputAction, PartialMorphemeFacts,
-    PartialMorphemeIdentity, TableId,
+    PartialMorphemeIdentity, PartialMorphemeReason, TableId,
 };
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
+use pg_snapshot::{Audience, FwClass, FwObjectRef, ImportWarningCode, Warning};
 
 /// How serious a [`GrammarHealthCheckFinding`] is. Mirrors C# `GrammarHealthSeverity`: `Error` means
 /// the engine behaves incorrectly (or refuses the word outright) whenever the offending construct
@@ -64,14 +67,14 @@ impl GrammarHealthSeverity {
 /// [`GrammarHealthCode::wire`], not [`GrammarHealthCheckFinding::message`], as the identifier a host
 /// filters/suppresses/tests on -- the message text is free to change. Serializes as the bare wire
 /// string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GrammarHealthCode {
-    #[serde(rename = "hc-undeclared-segment")]
     UndeclaredSegment,
-    #[serde(rename = "hc-duplicate-feature-bundle")]
     DuplicateFeatureBundle,
-    #[serde(rename = "hc-partial-morpheme")]
-    PartialMorpheme,
+    StemWithoutCategory,
+    InflectionalAffixWithoutTemplateSlot,
+    UnclassifiedAffix,
+    ImportWarning(String),
 }
 
 impl GrammarHealthCode {
@@ -79,46 +82,99 @@ impl GrammarHealthCode {
     pub const ALL: &'static [Self] = &[
         Self::UndeclaredSegment,
         Self::DuplicateFeatureBundle,
-        Self::PartialMorpheme,
+        Self::StemWithoutCategory,
+        Self::InflectionalAffixWithoutTemplateSlot,
+        Self::UnclassifiedAffix,
     ];
 
     /// The stable C# wire string this code shares with `GrammarHealthCodes`.
-    pub const fn wire(self) -> &'static str {
+    pub fn wire(&self) -> &str {
         match self {
             Self::UndeclaredSegment => "hc-undeclared-segment",
             Self::DuplicateFeatureBundle => "hc-duplicate-feature-bundle",
-            Self::PartialMorpheme => "hc-partial-morpheme",
+            Self::StemWithoutCategory => "hc-stem-no-grammatical-category",
+            Self::InflectionalAffixWithoutTemplateSlot => {
+                "hc-inflectional-affix-missing-template-slot"
+            }
+            Self::UnclassifiedAffix => "hc-unclassified-affix",
+            Self::ImportWarning(code) => code,
         }
     }
 
-    /// Stable plain-language sidebar/log grouping label. Keep these short and linguist-facing.
-    pub const fn group_name(self) -> &'static str {
+    /// Stable group label for a finding code.
+    pub fn group_name(&self) -> String {
         match self {
-            Self::UndeclaredSegment => "Missing segment definition",
-            Self::DuplicateFeatureBundle => "Duplicate segment features",
-            Self::PartialMorpheme => "Partial morpheme analysis",
+            Self::UndeclaredSegment => "Missing segment definition".to_string(),
+            Self::DuplicateFeatureBundle => "Duplicate segment features".to_string(),
+            Self::StemWithoutCategory => "Stem has no category".to_string(),
+            Self::InflectionalAffixWithoutTemplateSlot => {
+                "Inflectional affix has no slot".to_string()
+            }
+            Self::UnclassifiedAffix => "Affix is unclassified".to_string(),
+            Self::ImportWarning(code) => ImportWarningCode::from_wire(code)
+                .map(|code| {
+                    pg_snapshot::import_warning_metadata(code)
+                        .group_name
+                        .to_string()
+                })
+                .unwrap_or_else(|| "Import warning".to_string()),
         }
     }
 }
 
-/// The subject kind used by every grammar-health renderer. This is deliberately separate from
-/// the finding code: a finding can name several kinds of model object.
+impl serde::Serialize for GrammarHealthCode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.wire())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = String::deserialize(deserializer)?;
+        Ok(match wire.as_str() {
+            "hc-undeclared-segment" => Self::UndeclaredSegment,
+            "hc-duplicate-feature-bundle" => Self::DuplicateFeatureBundle,
+            "hc-stem-no-grammatical-category" => Self::StemWithoutCategory,
+            "hc-inflectional-affix-missing-template-slot" => {
+                Self::InflectionalAffixWithoutTemplateSlot
+            }
+            "hc-unclassified-affix" => Self::UnclassifiedAffix,
+            _ => Self::ImportWarning(wire),
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum GrammarHealthSubjectKind {
-    Table,
-    CharDef,
-    LexEntry,
-    MorphRule,
+pub enum FindingOrigin {
+    Check,
+    Import,
 }
 
-impl GrammarHealthSubjectKind {
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Table => "character-definition table",
-            Self::CharDef => "character definition",
-            Self::LexEntry => "lexical entry",
-            Self::MorphRule => "morphological rule",
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldWorksProjectSource {
+    Argument,
+    FwdataPath,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FieldWorksProject {
+    pub name: Option<String>,
+    pub source: Option<FieldWorksProjectSource>,
+}
+
+impl Default for FieldWorksProject {
+    fn default() -> Self {
+        Self {
+            name: None,
+            source: None,
         }
     }
 }
@@ -128,22 +184,18 @@ impl GrammarHealthSubjectKind {
 #[serde(rename_all = "snake_case")]
 pub enum FieldWorksUnavailableReason {
     MissingProject,
-    MissingGuid,
+    GuidNotRecorded,
     InvalidGuid,
-    UnverifiedGuidKind,
-    UnverifiedTool,
+    UnsupportedKind,
 }
 
 impl FieldWorksUnavailableReason {
     pub const fn message(self) -> &'static str {
         match self {
             Self::MissingProject => "no FieldWorks project name supplied",
-            Self::MissingGuid => "source item has no FieldWorks GUID",
+            Self::GuidNotRecorded => "source item has no FieldWorks GUID",
             Self::InvalidGuid => "source item has an invalid FieldWorks GUID",
-            Self::UnverifiedGuidKind => {
-                "source item GUID kind is not proven to navigate to its owning record"
-            }
-            Self::UnverifiedTool => "source item has no verified FieldWorks tool",
+            Self::UnsupportedKind => "source item has no verified FieldWorks tool",
         }
     }
 }
@@ -176,10 +228,11 @@ impl FieldWorksLink {
 /// report should display; `internal_id` is retained solely for tooling and navigation joins.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GrammarHealthSubject {
-    pub kind: GrammarHealthSubjectKind,
+    pub kind: FwClass,
     pub title: String,
     pub subtitle: Option<String>,
-    pub internal_id: String,
+    pub guid: Option<String>,
+    pub internal_id: Option<String>,
     pub fieldworks: FieldWorksLink,
 }
 
@@ -194,6 +247,25 @@ fn is_internal_subject_label(title: &str) -> bool {
 }
 
 impl GrammarHealthSubject {
+    fn from_source(source: FwObjectRef) -> Self {
+        let title = source
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map_or_else(|| unnamed_subject_title(source.class), str::to_string);
+        let guid = source.guid;
+        let fieldworks = fieldworks_link_from_identity(source.class, guid.as_deref(), None);
+        Self {
+            kind: source.class,
+            title,
+            subtitle: None,
+            fieldworks,
+            guid,
+            internal_id: None,
+        }
+    }
+
     fn render_location(&self, include_guid: bool) -> String {
         let mut text = self.title.clone();
         if let Some(subtitle) = self.subtitle.as_deref().filter(|text| !text.is_empty()) {
@@ -227,13 +299,49 @@ impl GrammarHealthSubject {
     }
 }
 
-/// One problem found by check_grammar_health. JSON uses `problem` for the human message while
-/// the Rust field remains `message` for the diagnostic API.
+/// A FieldWorks item left unnamed there is still reported, as "Unnamed affix template" etc.
+fn unnamed_subject_title(kind: FwClass) -> String {
+    format!("Unnamed {}", subject_kind_label(kind))
+}
+
+fn subject_kind_label(kind: FwClass) -> &'static str {
+    match kind {
+        FwClass::LexEntry => "lexical entry",
+        FwClass::LexSense => "sense",
+        FwClass::MoForm => "form",
+        FwClass::MoStemMsa
+        | FwClass::MoInflAffMsa
+        | FwClass::MoDerivAffMsa
+        | FwClass::MoUnclassifiedAffixMsa => "grammatical analysis",
+        FwClass::LexEntryInflType => "entry inflection type",
+        FwClass::MoStemName => "stem name",
+        FwClass::MoInflAffixTemplate => "affix template",
+        FwClass::MoInflAffixSlot => "affix template slot",
+        FwClass::MoCompoundRule => "compound rule",
+        FwClass::MoAdhocProhib => "ad-hoc prohibition",
+        FwClass::PhPhonemeSet => "phoneme set",
+        FwClass::PhPhoneme => "phoneme",
+        FwClass::PhBdryMarker => "boundary marker",
+        FwClass::PhNaturalClass => "natural class",
+        FwClass::PhEnvironment => "phonological environment",
+        FwClass::PhRegularRule => "phonological rule",
+        FwClass::PhMetathesisRule => "metathesis rule",
+        FwClass::FsFeatureSystem => "feature system",
+        FwClass::FsComplexFeature => "complex phonological feature",
+        FwClass::Project => "project",
+    }
+}
+
+/// One grammar-health finding. JSON uses `description` for its human-readable message.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrammarHealthCheckFinding {
     pub severity: GrammarHealthSeverity,
     pub code: GrammarHealthCode,
+    pub group_name: String,
+    pub origin: FindingOrigin,
+    pub audience: Audience,
     pub message: String,
+    pub guidance: Option<String>,
     pub subjects: Vec<GrammarHealthSubject>,
 }
 
@@ -246,17 +354,23 @@ impl serde::Serialize for GrammarHealthCheckFinding {
         struct Wire<'a> {
             severity: GrammarHealthSeverity,
             code: GrammarHealthCode,
-            group_name: &'static str,
-            #[serde(rename = "problem")]
-            message: &'a str,
+            group_name: &'a str,
+            origin: FindingOrigin,
+            audience: Audience,
+            description: &'a str,
+            guidance: &'a Option<String>,
+            #[serde(borrow)]
             subjects: &'a [GrammarHealthSubject],
         }
 
         Wire {
             severity: self.severity,
-            code: self.code,
-            group_name: self.code.group_name(),
-            message: &self.message,
+            code: self.code.clone(),
+            group_name: &self.group_name,
+            origin: self.origin,
+            audience: self.audience,
+            description: &self.message,
+            guidance: &self.guidance,
             subjects: &self.subjects,
         }
         .serialize(serializer)
@@ -264,11 +378,61 @@ impl serde::Serialize for GrammarHealthCheckFinding {
 }
 
 impl GrammarHealthCheckFinding {
+    pub fn from_import_warning(warning: &Warning) -> Self {
+        let import_code = ImportWarningCode::from_wire(&warning.code).unwrap_or_else(|| {
+            panic!(
+                "import warning code '{}' is missing grammar-health metadata",
+                warning.code
+            )
+        });
+        let metadata = pg_snapshot::import_warning_metadata(import_code);
+        let code = GrammarHealthCode::ImportWarning(warning.code.to_owned());
+        let group_name = metadata.group_name.to_string();
+        Self {
+            severity: GrammarHealthSeverity::Warning,
+            code,
+            group_name,
+            origin: FindingOrigin::Import,
+            audience: metadata.audience,
+            message: warning.message.clone(),
+            guidance: metadata.guidance_for_subject(
+                warning
+                    .subjects
+                    .first()
+                    .and_then(|subject| subject.name.as_deref()),
+            ),
+            subjects: warning
+                .subjects
+                .iter()
+                .cloned()
+                .map(GrammarHealthSubject::from_source)
+                .collect(),
+        }
+    }
+
+    fn checked(
+        severity: GrammarHealthSeverity,
+        code: GrammarHealthCode,
+        message: String,
+        subjects: Vec<GrammarHealthSubject>,
+    ) -> Self {
+        Self {
+            severity,
+            group_name: code.group_name(),
+            code,
+            origin: FindingOrigin::Check,
+            audience: Audience::Linguist,
+            message,
+            guidance: None,
+            subjects,
+        }
+    }
+
     fn log_line(&self, include_guids: bool) -> String {
         let kinds = self
             .subjects
             .iter()
-            .map(|subject| subject.kind.label())
+            .map(|subject| subject_kind_label(subject.kind))
             .collect::<Vec<_>>();
         let titles = self
             .subjects
@@ -278,7 +442,7 @@ impl GrammarHealthCheckFinding {
         format!(
             "{} [{}] {}: {} - {}",
             self.severity.wire(),
-            self.code.group_name(),
+            self.group_name,
             kinds.join(", "),
             titles.join(", "),
             self.message.trim()
@@ -286,7 +450,7 @@ impl GrammarHealthCheckFinding {
     }
 }
 
-pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 1;
+pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GrammarHealthReportErrorCode {
@@ -336,6 +500,7 @@ impl std::fmt::Display for GrammarHealthReportErrorCode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrammarHealthReport {
     findings: Vec<GrammarHealthCheckFinding>,
+    fieldworks_project: FieldWorksProject,
 }
 
 impl GrammarHealthReport {
@@ -343,7 +508,24 @@ impl GrammarHealthReport {
         for (finding_index, finding) in findings.iter().enumerate() {
             validate_finding(finding, finding_index)?;
         }
-        Ok(Self { findings })
+        Ok(Self {
+            findings,
+            fieldworks_project: FieldWorksProject::default(),
+        })
+    }
+
+    pub fn with_fieldworks_project(mut self, fieldworks_project: FieldWorksProject) -> Self {
+        for finding in &mut self.findings {
+            for subject in &mut finding.subjects {
+                subject.fieldworks = fieldworks_link_from_identity(
+                    subject.kind,
+                    subject.guid.as_deref(),
+                    fieldworks_project.name.as_deref(),
+                );
+            }
+        }
+        self.fieldworks_project = fieldworks_project;
+        self
     }
 
     pub fn findings(&self) -> &[GrammarHealthCheckFinding] {
@@ -395,13 +577,39 @@ impl GrammarHealthReport {
                 ),
             ));
         }
+        let fieldworks_project = required_field(object, "fieldworks_project", None)?;
         let finding_values = required_field::<Vec<serde_json::Value>>(object, "findings", None)?;
         let mut findings = Vec::with_capacity(finding_values.len());
         for (finding_index, value) in finding_values.into_iter().enumerate() {
             findings.push(decode_finding(value, finding_index)?);
         }
-        Self::new(findings)
+        Self::new(findings).map(|report| report.with_fieldworks_project(fieldworks_project))
     }
+
+    fn summary(&self) -> Vec<GrammarHealthSummaryRow> {
+        let mut rows = std::collections::BTreeMap::<String, GrammarHealthSummaryRow>::new();
+        for finding in &self.findings {
+            rows.entry(finding.code.wire().to_string())
+                .and_modify(|row| row.count += 1)
+                .or_insert_with(|| GrammarHealthSummaryRow {
+                    code: finding.code.wire().to_string(),
+                    group_name: finding.group_name.clone(),
+                    severity: finding.severity,
+                    audience: finding.audience,
+                    count: 1,
+                });
+        }
+        rows.into_values().collect()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GrammarHealthSummaryRow {
+    pub code: String,
+    pub group_name: String,
+    pub severity: GrammarHealthSeverity,
+    pub audience: Audience,
+    pub count: usize,
 }
 
 impl std::ops::Deref for GrammarHealthReport {
@@ -420,11 +628,15 @@ impl serde::Serialize for GrammarHealthReport {
         #[derive(serde::Serialize)]
         struct Wire<'a> {
             schema_version: u32,
+            fieldworks_project: &'a FieldWorksProject,
+            summary: Vec<GrammarHealthSummaryRow>,
             findings: &'a [GrammarHealthCheckFinding],
         }
 
         Wire {
             schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
+            fieldworks_project: &self.fieldworks_project,
+            summary: self.summary(),
             findings: &self.findings,
         }
         .serialize(serializer)
@@ -482,21 +694,20 @@ fn decode_finding(
     })?;
     let severity: GrammarHealthSeverity = required_field(object, "severity", Some(finding_index))?;
     let code: GrammarHealthCode = required_field(object, "code", Some(finding_index))?;
-    let group_name: String = required_field(object, "group_name", Some(finding_index))?;
-    if group_name != code.group_name() {
-        return Err(report_error(
-            GrammarHealthReportErrorCode::InvalidField,
-            Some(finding_index),
-            Some("group_name"),
-            format!("group_name does not match code-owned label {}", code.wire()),
-        ));
-    }
-    let message = required_field(object, "problem", Some(finding_index))?;
+    let group_name = required_field(object, "group_name", Some(finding_index))?;
+    let origin = required_field(object, "origin", Some(finding_index))?;
+    let audience = required_field(object, "audience", Some(finding_index))?;
+    let message = required_field(object, "description", Some(finding_index))?;
+    let guidance = required_field(object, "guidance", Some(finding_index))?;
     let subjects = required_field(object, "subjects", Some(finding_index))?;
     Ok(GrammarHealthCheckFinding {
         severity,
         code,
+        group_name,
+        origin,
+        audience,
         message,
+        guidance,
         subjects,
     })
 }
@@ -518,22 +729,21 @@ fn validate_finding(
         ))
     };
     if finding.message.trim().is_empty() {
-        return missing("problem", format!("{prefix}: missing problem"));
+        return missing("description", format!("{prefix}: missing description"));
     }
-    if finding.subjects.is_empty() {
-        return Err(report_error(
-            GrammarHealthReportErrorCode::MissingSubjects,
-            Some(finding_index),
-            Some("subjects"),
-            format!("{prefix}: missing subjects"),
-        ));
+    if finding.group_name.trim().is_empty() {
+        return missing("group_name", format!("{prefix}: missing group_name"));
     }
     for (subject_index, subject) in finding.subjects.iter().enumerate() {
         let subject_prefix = format!("{prefix} subject {subject_index}");
         if subject.title.trim().is_empty() {
             return missing("title", format!("{subject_prefix}: missing title"));
         }
-        if subject.internal_id.trim().is_empty() {
+        if subject
+            .internal_id
+            .as_deref()
+            .is_some_and(|internal_id| internal_id.trim().is_empty())
+        {
             return missing(
                 "internal_id",
                 format!("{subject_prefix}: missing internal_id"),
@@ -586,13 +796,47 @@ pub fn check_grammar_health(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
 ) -> Result<GrammarHealthReport, crate::GrammarError> {
+    let name = fieldworks_project
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string);
+    check_grammar_health_with_project(
+        grammar,
+        FieldWorksProject {
+            source: name.as_ref().map(|_| FieldWorksProjectSource::Argument),
+            name,
+        },
+    )
+}
+
+/// Runs every registered check with the caller's project name and its source.
+pub fn check_grammar_health_with_project(
+    grammar: &Grammar,
+    fieldworks_project: FieldWorksProject,
+) -> Result<GrammarHealthReport, crate::GrammarError> {
+    let name = fieldworks_project
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string);
+    let fieldworks_project = FieldWorksProject {
+        name: name.clone(),
+        source: name.as_ref().map(|_| {
+            fieldworks_project
+                .source
+                .unwrap_or(FieldWorksProjectSource::Argument)
+        }),
+    };
+    let project_name = fieldworks_project.name.as_deref();
     let partial_facts = grammar.partial_morpheme_facts()?;
     let mut findings = Vec::new();
-    check_duplicate_feature_bundles(grammar, fieldworks_project, &mut findings)?;
-    check_undeclared_segments(grammar, fieldworks_project, &mut findings)?;
-    check_partial_morphemes(grammar, fieldworks_project, &partial_facts, &mut findings)?;
+    check_duplicate_feature_bundles(grammar, project_name, &mut findings)?;
+    check_undeclared_segments(grammar, project_name, &mut findings)?;
+    check_partial_morphemes(grammar, project_name, &partial_facts, &mut findings)?;
     let report = GrammarHealthReport::new(findings)
-        .map_err(|error| crate::GrammarError::Semantic(error.to_string()))?;
+        .map_err(|error| crate::GrammarError::Semantic(error.to_string()))?
+        .with_fieldworks_project(fieldworks_project);
     Ok(report)
 }
 
@@ -638,19 +882,20 @@ fn check_duplicate_feature_bundles(
             subjects.extend(group.iter().map(|(id, cd)| {
                 char_def_subject(grammar, fieldworks_project, table_id, *id, cd, table)
             }));
-            findings.push(GrammarHealthCheckFinding {
-                severity: GrammarHealthSeverity::Warning,
-                code: GrammarHealthCode::DuplicateFeatureBundle,
-                message: format!(
-                    "Character definition table '{}' has {} segments with an identical \
-                     phonological feature bundle, so a segment-changing rule cannot reliably \
-                     tell them apart: {}.",
-                    table_display_name(table),
-                    group.len(),
+            let mut finding = GrammarHealthCheckFinding::checked(
+                GrammarHealthSeverity::Warning,
+                GrammarHealthCode::DuplicateFeatureBundle,
+                format!(
+                    "Phonemes {} have identical feature values and cannot be distinguished by FieldWorks rules.",
                     names.join(", ")
                 ),
                 subjects,
-            });
+            );
+            finding.guidance = Some(
+                "In Grammar > Phonemes, assign distinct feature values to these phonemes."
+                    .to_string(),
+            );
+            findings.push(finding);
         }
     }
     Ok(())
@@ -675,21 +920,25 @@ fn table_display_name(table: &CharDefTable) -> &str {
         .name()
         .map(str::trim)
         .filter(|name| !name.is_empty())
-        .unwrap_or("unnamed character-definition table")
+        .unwrap_or("Phonemes")
 }
 
 fn make_subject(
-    kind: GrammarHealthSubjectKind,
+    source: FwObjectRef,
     title: String,
     subtitle: Option<String>,
     internal_id: String,
-    fieldworks: FieldWorksLink,
+    fieldworks_project: Option<&str>,
 ) -> GrammarHealthSubject {
+    let source = source.name(title.clone());
+    let fieldworks =
+        fieldworks_link_from_identity(source.class, source.guid.as_deref(), fieldworks_project);
     GrammarHealthSubject {
-        kind,
+        kind: source.class,
         title,
         subtitle,
-        internal_id,
+        guid: source.guid,
+        internal_id: Some(internal_id),
         fieldworks,
     }
 }
@@ -701,11 +950,11 @@ fn table_subject(
     table: &CharDefTable,
 ) -> GrammarHealthSubject {
     make_subject(
-        GrammarHealthSubjectKind::Table,
+        fieldworks_identity(grammar, &FieldWorksSource::Table),
         table_display_name(table).to_string(),
         None,
         format!("table#{}:{}", id.0, table.xml_id()),
-        fieldworks_link(grammar, FieldWorksSource::Table, fieldworks_project),
+        fieldworks_project,
     )
 }
 
@@ -718,12 +967,28 @@ fn char_def_subject(
     table: &CharDefTable,
 ) -> GrammarHealthSubject {
     make_subject(
-        GrammarHealthSubjectKind::CharDef,
+        fieldworks_identity(grammar, &FieldWorksSource::CharDef(table_id, id)),
         first_representation(cd).to_string(),
         Some(format!("in {}", table_display_name(table))),
         format!("table#{}:char_def#{}:{}", table_id.0, id.0, cd.xml_id()),
-        fieldworks_link(grammar, FieldWorksSource::CharDef, fieldworks_project),
+        fieldworks_project,
     )
+}
+
+fn partial_stem_subject(
+    grammar: &Grammar,
+    fieldworks_project: Option<&str>,
+    id: LexEntryId,
+) -> Result<GrammarHealthSubject, crate::GrammarError> {
+    let (title, subtitle) = grammar.lex_entry_display_parts(id)?;
+    let internal_id = grammar.lex_entry_internal_id(id)?;
+    Ok(make_subject(
+        fieldworks_identity(grammar, &FieldWorksSource::LexEntry(id)),
+        title,
+        subtitle,
+        internal_id,
+        fieldworks_project,
+    ))
 }
 
 fn lex_entry_subject(
@@ -731,29 +996,15 @@ fn lex_entry_subject(
     fieldworks_project: Option<&str>,
     id: LexEntryId,
 ) -> Result<GrammarHealthSubject, crate::GrammarError> {
-    Ok(lex_entry_subject_named(
-        grammar,
-        fieldworks_project,
-        id,
-        grammar.lex_entry_display_name(id)?,
-        grammar.lex_entry_internal_id(id)?,
-    ))
-}
-
-fn lex_entry_subject_named(
-    grammar: &Grammar,
-    fieldworks_project: Option<&str>,
-    id: LexEntryId,
-    title: String,
-    internal_id: String,
-) -> GrammarHealthSubject {
-    make_subject(
-        GrammarHealthSubjectKind::LexEntry,
+    let (title, subtitle) = grammar.lex_entry_display_parts(id)?;
+    let internal_id = grammar.lex_entry_internal_id(id)?;
+    Ok(make_subject(
+        fieldworks_identity(grammar, &FieldWorksSource::LexEntry(id)),
         title,
-        None,
+        subtitle,
         internal_id,
-        fieldworks_link(grammar, FieldWorksSource::LexEntry(id), fieldworks_project),
-    )
+        fieldworks_project,
+    ))
 }
 
 fn morph_rule_subject(
@@ -761,34 +1012,15 @@ fn morph_rule_subject(
     fieldworks_project: Option<&str>,
     id: MRuleId,
 ) -> Result<GrammarHealthSubject, crate::GrammarError> {
-    let rule = grammar.mrules.get(id.0 as usize).ok_or_else(|| {
-        crate::GrammarError::Semantic(format!("morphological rule id {} is out of range", id.0))
-    })?;
-    Ok(morph_rule_subject_named(
-        grammar,
-        fieldworks_project,
-        id,
-        rule.health_kind_label(),
-        grammar.morph_rule_display_name(id)?,
-        grammar.morph_rule_internal_id(id)?,
-    ))
-}
-
-fn morph_rule_subject_named(
-    grammar: &Grammar,
-    fieldworks_project: Option<&str>,
-    id: MRuleId,
-    kind: &str,
-    title: String,
-    internal_id: String,
-) -> GrammarHealthSubject {
-    make_subject(
-        GrammarHealthSubjectKind::MorphRule,
+    let (title, subtitle) = grammar.morph_rule_display_parts(id)?;
+    let internal_id = grammar.morph_rule_internal_id(id)?;
+    Ok(make_subject(
+        fieldworks_identity(grammar, &FieldWorksSource::MorphRule(id)),
         title,
-        Some(kind.to_string()),
+        subtitle,
         internal_id,
-        fieldworks_link(grammar, FieldWorksSource::MorphRule(id), fieldworks_project),
-    )
+        fieldworks_project,
+    ))
 }
 
 // --- hc-undeclared-segment ---------------------------------------------------------------------
@@ -823,16 +1055,11 @@ fn check_undeclared_segments(
                     continue;
                 }
                 let subject = owner.get(grammar, fieldworks_project)?;
-                let where_desc = format!(
-                    "Lexical entry '{}' allomorph '{}'",
-                    subject.title, allomorph.shape.text
-                );
                 push_undeclared_segments(
                     grammar,
                     fieldworks_project,
                     table,
                     stratum.table,
-                    &where_desc,
                     subject,
                     undeclared,
                     findings,
@@ -856,7 +1083,6 @@ fn check_undeclared_segments(
                                 grammar,
                                 fieldworks_project,
                                 action,
-                                "Morphological rule",
                                 &mut owner,
                                 findings,
                             )?;
@@ -870,7 +1096,6 @@ fn check_undeclared_segments(
                                 grammar,
                                 fieldworks_project,
                                 action,
-                                "Compounding rule",
                                 &mut owner,
                                 findings,
                             )?;
@@ -889,7 +1114,6 @@ fn check_insert_segments(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
     action: &OutputAction,
-    kind_label: &str,
     owner: &mut LazySubject,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) -> Result<(), crate::GrammarError> {
@@ -914,16 +1138,11 @@ fn check_insert_segments(
         return Ok(());
     }
     let subject = owner.get(grammar, fieldworks_project)?;
-    let where_desc = format!(
-        "{kind_label} '{}' inserted segments '{}'",
-        subject.title, shape.text
-    );
     push_undeclared_segments(
         grammar,
         fieldworks_project,
         table,
         *table_id,
-        &where_desc,
         subject,
         undeclared,
         findings,
@@ -984,24 +1203,62 @@ fn push_undeclared_segments(
     fieldworks_project: Option<&str>,
     table: &CharDefTable,
     table_id: TableId,
-    where_desc: &str,
     owner_subject: &GrammarHealthSubject,
     count: usize,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) {
+    let (kind, guidance) = undeclared_segment_guidance(owner_subject.kind);
+    let description = format!(
+        "{kind} '{}' uses a phoneme that is missing from the phoneme inventory.",
+        owner_subject.title
+    );
     for _ in 0..count {
-        findings.push(GrammarHealthCheckFinding {
-            severity: GrammarHealthSeverity::Error,
-            code: GrammarHealthCode::UndeclaredSegment,
-            message: format!(
-                "{where_desc} contains an undeclared segment; character definition table '{}' does not declare it.",
-                table_display_name(table)
-            ),
-            subjects: vec![
+        let mut finding = GrammarHealthCheckFinding::checked(
+            GrammarHealthSeverity::Error,
+            GrammarHealthCode::UndeclaredSegment,
+            description.clone(),
+            vec![
                 table_subject(grammar, fieldworks_project, table_id, table),
                 owner_subject.clone(),
             ],
-        });
+        );
+        finding.guidance = Some(guidance.to_string());
+        findings.push(finding);
+    }
+}
+
+fn undeclared_segment_guidance(kind: FwClass) -> (&'static str, String) {
+    use pg_snapshot::fieldworks_paths::{GRAMMAR_COMPOUND_RULES, GRAMMAR_PHONEMES, LEXICON_EDIT};
+    match kind {
+        FwClass::MoForm => (
+            "Lexical entry",
+            format!("In {LEXICON_EDIT}, correct the form or add the missing phoneme in {GRAMMAR_PHONEMES}."),
+        ),
+        FwClass::MoStemMsa => (
+            "Stem",
+            format!("In {LEXICON_EDIT}, correct the form or add the missing phoneme in {GRAMMAR_PHONEMES}."),
+        ),
+        FwClass::MoInflAffMsa | FwClass::MoDerivAffMsa | FwClass::MoUnclassifiedAffixMsa => (
+            affix_kind_label(kind),
+            format!("In {LEXICON_EDIT}, correct the affix form or add the missing phoneme in {GRAMMAR_PHONEMES}."),
+        ),
+        FwClass::MoCompoundRule => (
+            "Compound rule",
+            format!("In {GRAMMAR_COMPOUND_RULES}, correct the rule or add the missing phoneme in {GRAMMAR_PHONEMES}."),
+        ),
+        _ => (
+            "Grammar item",
+            format!("In {GRAMMAR_PHONEMES}, add the missing phoneme to the inventory."),
+        ),
+    }
+}
+
+fn affix_kind_label(kind: FwClass) -> &'static str {
+    match kind {
+        FwClass::MoInflAffMsa => "Inflectional affix",
+        FwClass::MoDerivAffMsa => "Derivational affix",
+        FwClass::MoUnclassifiedAffixMsa => "Unclassified affix",
+        _ => "Affix",
     }
 }
 
@@ -1016,60 +1273,66 @@ fn check_partial_morphemes(
 ) -> Result<(), crate::GrammarError> {
     for identity in facts.identities() {
         match identity {
-            PartialMorphemeIdentity::LexicalEntry {
-                id,
-                display_name,
-                internal_id,
-                ..
-            } => findings.push(partial_finding(
-                "Lexical entry",
-                display_name,
-                lex_entry_subject_named(
-                    grammar,
-                    fieldworks_project,
-                    *id,
-                    display_name.clone(),
-                    internal_id.clone(),
-                ),
-            )),
-            PartialMorphemeIdentity::MorphologicalRule {
-                id,
-                display_name,
-                internal_id,
-                rule_kind,
-                ..
-            } => findings.push(partial_finding(
-                "Morphological rule",
-                display_name,
-                morph_rule_subject_named(
-                    grammar,
-                    fieldworks_project,
-                    *id,
-                    rule_kind,
-                    display_name.clone(),
-                    internal_id.clone(),
-                ),
-            )),
+            PartialMorphemeIdentity::LexicalEntry { id, reason, .. } => {
+                let subject = partial_stem_subject(grammar, fieldworks_project, *id)?;
+                findings.push(partial_finding(*reason, subject));
+            }
+            PartialMorphemeIdentity::MorphologicalRule { id, reason, .. } => {
+                let subject = morph_rule_subject(grammar, fieldworks_project, *id)?;
+                findings.push(partial_finding(*reason, subject));
+            }
         }
     }
     Ok(())
 }
 
 fn partial_finding(
-    kind_label: &str,
-    name: &str,
+    reason: PartialMorphemeReason,
     subject: GrammarHealthSubject,
 ) -> GrammarHealthCheckFinding {
-    GrammarHealthCheckFinding {
-        severity: GrammarHealthSeverity::Warning,
-        code: GrammarHealthCode::PartialMorpheme,
-        message: format!(
-            "{kind_label} '{name}' is partially analyzed. Supply its missing category or \
-             template/slot analysis; leaving it partial can broaden analysis and disable safe \
-             final-template pruning."
+    let name = subject
+        .subtitle
+        .as_deref()
+        .filter(|subtitle| !subtitle.trim().is_empty())
+        .map(|subtitle| format!("'{}' ({subtitle})", subject.title))
+        .unwrap_or_else(|| format!("'{}'", subject.title));
+    let (code, message, guidance) = match reason {
+        PartialMorphemeReason::StemWithoutCategory => (
+            GrammarHealthCode::StemWithoutCategory,
+            format!("Lexical entry {name} has no grammatical category."),
+            format!(
+                "In {}, open the entry and set Grammatical Info. > Category.",
+                pg_snapshot::fieldworks_paths::LEXICON_EDIT
+            ),
         ),
-        subjects: vec![subject],
-    }
+        PartialMorphemeReason::InflectionalAffixWithoutTemplateSlot => (
+            GrammarHealthCode::InflectionalAffixWithoutTemplateSlot,
+            format!(
+                "{} {name} has no template slot.",
+                affix_kind_label(subject.kind)
+            ),
+            format!(
+                "In {}, assign the affix to a template slot.",
+                pg_snapshot::fieldworks_paths::GRAMMAR_CATEGORY_AFFIX_TEMPLATES
+            ),
+        ),
+        PartialMorphemeReason::UnclassifiedAffix => (
+            GrammarHealthCode::UnclassifiedAffix,
+            format!("Affix {name} is unclassified, so it can attach anywhere."),
+            format!(
+                "In {}, set the affix's Grammatical Info. to an inflectional or derivational affix.",
+                pg_snapshot::fieldworks_paths::LEXICON_EDIT
+            ),
+        ),
+    };
+    let mut finding = GrammarHealthCheckFinding::checked(
+        GrammarHealthSeverity::Warning,
+        code,
+        message,
+        vec![subject],
+    );
+    finding.guidance = Some(guidance.to_string());
+    finding
 }
 
 #[cfg(test)]

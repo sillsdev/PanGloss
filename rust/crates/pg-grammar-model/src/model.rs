@@ -498,6 +498,8 @@ pub struct MorphemeInfo {
     pub xml_key: String,
     /// Authored MSA identity, when this morpheme came from a source model with one.
     pub source_msa_guid: Option<String>,
+    /// FieldWorks class for `source_msa_guid`, retained for source navigation.
+    pub source_msa_class: Option<pg_snapshot::FwClass>,
     /// Authored lexical-entry inflection-type identity for variant-specific morphemes.
     pub source_infl_type_guid: Option<String>,
     pub morph_id: Option<String>,
@@ -669,7 +671,7 @@ pub struct AffixProcessRuleDef {
     pub morpheme: MorphemeId,
     pub name: Option<String>,
     pub blockable: bool,
-    pub partial: bool,
+    pub partial_reason: Option<PartialMorphemeReason>,
     /// `multipleApplication` attr; C# default `MaxApplicationCount = 1`.
     pub max_apps: u16,
     /// `{POS, head, foot}` requirement FS (interned; empty FS if nothing declared).
@@ -700,6 +702,12 @@ pub struct AffixProcessRuleDef {
     /// affix rule collides with a template's final/partial flags in a way that would show the
     /// difference).
     pub is_template_rule: bool,
+}
+
+impl AffixProcessRuleDef {
+    pub fn is_partial(&self) -> bool {
+        self.partial_reason.is_some()
+    }
 }
 
 /// `<MorphologicalSubrule>` → C# `AffixProcessAllomorph`.
@@ -819,11 +827,17 @@ pub struct LexEntryDef {
     pub morpheme: MorphemeId,
     pub syn_fs: FsId,
     pub mpr: MprSet,
-    pub partial: bool,
+    pub partial_reason: Option<PartialMorphemeReason>,
     pub allomorphs: Vec<RootAllomorphDef>,
     /// `LexicalEntry@family` (W5): the `<Family>` this entry belongs to, if any (C# `LexEntry.
     /// Family`). `None` for every entry the DTD's `family` IDREF attribute omits.
     pub family: Option<FamilyId>,
+}
+
+impl LexEntryDef {
+    pub fn is_partial(&self) -> bool {
+        self.partial_reason.is_some()
+    }
 }
 
 /// `<Allomorph>` → C# `RootAllomorph`.
@@ -1104,17 +1118,27 @@ impl FinalTemplatePruneFacts {
     }
 }
 
+/// Why FieldWorks marked a source analysis partial.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartialMorphemeReason {
+    StemWithoutCategory,
+    InflectionalAffixWithoutTemplateSlot,
+    UnclassifiedAffix,
+}
+
 /// One typed member of the canonical partial-morpheme inventory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PartialMorphemeIdentity {
     LexicalEntry {
         id: LexEntryId,
+        reason: PartialMorphemeReason,
         authored_id: String,
         display_name: String,
         internal_id: String,
     },
     MorphologicalRule {
         id: MRuleId,
+        reason: PartialMorphemeReason,
         authored_id: String,
         display_name: String,
         internal_id: String,
@@ -1148,6 +1172,14 @@ impl PartialMorphemeIdentity {
         match self {
             Self::LexicalEntry { .. } => None,
             Self::MorphologicalRule { rule_kind, .. } => Some(*rule_kind),
+        }
+    }
+}
+
+impl PartialMorphemeIdentity {
+    pub fn reason(&self) -> PartialMorphemeReason {
+        match self {
+            Self::LexicalEntry { reason, .. } | Self::MorphologicalRule { reason, .. } => *reason,
         }
     }
 }
@@ -1201,6 +1233,38 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
+fn human_title_parts(
+    primary: Option<&str>,
+    secondary: Option<&str>,
+    fallback: &str,
+) -> (String, Option<String>) {
+    let primary = nonempty(primary);
+    let secondary = nonempty(secondary).filter(|value| Some(*value) != primary);
+    (
+        primary.or(secondary).unwrap_or(fallback).to_string(),
+        primary.and(secondary).map(str::to_string),
+    )
+}
+
+fn morpheme_title_parts(
+    grammar: &Grammar,
+    morpheme: MorphemeId,
+    primary: Option<&str>,
+    fallback: &str,
+) -> Result<(String, Option<String>), crate::ModelError> {
+    let info = grammar.morphemes.get(morpheme.0 as usize).ok_or_else(|| {
+        crate::ModelError::Semantic(format!(
+            "morpheme id {} is out of range while naming a subject",
+            morpheme.0
+        ))
+    })?;
+    Ok(human_title_parts(
+        primary.or_else(|| nonempty(info.morph_id.as_deref())),
+        nonempty(info.gloss.as_deref()),
+        fallback,
+    ))
+}
+
 fn human_title(primary: Option<&str>, secondary: Option<&str>, fallback: &str) -> String {
     let primary = nonempty(primary);
     let secondary = nonempty(secondary).filter(|value| Some(*value) != primary);
@@ -1232,6 +1296,56 @@ fn morpheme_title(
 }
 
 impl Grammar {
+    pub fn lex_entry_display_parts(
+        &self,
+        id: LexEntryId,
+    ) -> Result<(String, Option<String>), crate::ModelError> {
+        let entry = self.entries.get(id.0 as usize).ok_or_else(|| {
+            crate::ModelError::Semantic(format!("lexical entry id {} is out of range", id.0))
+        })?;
+        let info = self
+            .morphemes
+            .get(entry.morpheme.0 as usize)
+            .ok_or_else(|| {
+                crate::ModelError::Semantic(format!(
+                    "morpheme id {} is out of range while naming a subject",
+                    entry.morpheme.0
+                ))
+            })?;
+        let citation = entry
+            .allomorphs
+            .iter()
+            .map(|allomorph| allomorph.shape.text.trim())
+            .find(|text| !text.is_empty());
+        Ok(human_title_parts(
+            citation.or_else(|| nonempty(info.morph_id.as_deref())),
+            nonempty(info.gloss.as_deref()),
+            "unnamed lexical entry",
+        ))
+    }
+
+    pub fn morph_rule_display_parts(
+        &self,
+        id: MRuleId,
+    ) -> Result<(String, Option<String>), crate::ModelError> {
+        let def = self.mrules.get(id.0 as usize).ok_or_else(|| {
+            crate::ModelError::Semantic(format!("morphological rule id {} is out of range", id.0))
+        })?;
+        match def.morpheme() {
+            Some(morpheme) => morpheme_title_parts(
+                self,
+                morpheme,
+                def.authored_name(),
+                "unnamed morphological rule",
+            ),
+            None => Ok(human_title_parts(
+                def.authored_name(),
+                None,
+                "unnamed morphological rule",
+            )),
+        }
+    }
+
     pub fn lex_entry_display_name(&self, id: LexEntryId) -> Result<String, crate::ModelError> {
         let entry = self.entries.get(id.0 as usize).ok_or_else(|| {
             crate::ModelError::Semantic(format!("lexical entry id {} is out of range", id.0))
@@ -1334,12 +1448,14 @@ impl Grammar {
     }
 
     /// C# PORT NOTE: partial affix rules use dense mrule ids and owning morphemes; Realizational rules have no `IsPartial` field.
-    fn partial_affix_process_rules(&self) -> impl Iterator<Item = (usize, MorphemeId)> + '_ {
+    fn partial_affix_process_rules(
+        &self,
+    ) -> impl Iterator<Item = (usize, MorphemeId, PartialMorphemeReason)> + '_ {
         self.mrules.iter().enumerate().filter_map(|(id, rule)| {
             let MorphRuleDef::AffixProcess(def) = rule else {
                 return None;
             };
-            def.partial.then_some((id, def.morpheme))
+            def.partial_reason.map(|reason| (id, def.morpheme, reason))
         })
     }
 
@@ -1350,11 +1466,12 @@ impl Grammar {
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, entry)| entry.partial)
+            .filter(|(_, entry)| entry.is_partial())
             .map(|(id, entry)| {
                 let id = LexEntryId(id as u32);
                 Ok(PartialMorphemeIdentity::LexicalEntry {
                     id,
+                    reason: entry.partial_reason.expect("partial entries have a reason"),
                     authored_id: entry.authored_id.clone(),
                     display_name: self.lex_entry_display_name(id)?,
                     internal_id: self.lex_entry_internal_id(id)?,
@@ -1363,10 +1480,11 @@ impl Grammar {
             .collect::<Result<Vec<_>, crate::ModelError>>()?;
         let partial_rules = self
             .partial_affix_process_rules()
-            .map(|(id, morpheme)| {
+            .map(|(id, morpheme, reason)| {
                 let id = MRuleId(id as u32);
                 Ok(PartialMorphemeIdentity::MorphologicalRule {
                     id,
+                    reason,
                     authored_id: self.morphemes[morpheme.0 as usize].xml_key.clone(),
                     display_name: self.morph_rule_display_name(id)?,
                     internal_id: self.morph_rule_internal_id(id)?,
@@ -1439,7 +1557,7 @@ impl Grammar {
 
         let mut first_partial = None;
         let partial_rule_count = self.partial_morpheme_facts()?.partial_rule_count();
-        for (id, _) in self.partial_affix_process_rules() {
+        for (id, _, _) in self.partial_affix_process_rules() {
             let Some(owner) = rule_owner[id] else {
                 continue;
             };

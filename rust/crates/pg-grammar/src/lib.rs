@@ -449,6 +449,7 @@ fn parse_definitions_block(
                         parse_definition_body(reader, item_tag)?;
                     out.push(RawCharDef {
                         xml_id,
+                        source_guid: None,
                         kind,
                         representations,
                         feature_values,
@@ -462,6 +463,7 @@ fn parse_definitions_block(
                     let xml_id = get_attr(&e, "id")?.unwrap_or_default();
                     out.push(RawCharDef {
                         xml_id,
+                        source_guid: None,
                         kind,
                         representations: Vec::new(),
                         feature_values: Vec::new(),

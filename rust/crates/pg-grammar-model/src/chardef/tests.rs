@@ -8,6 +8,7 @@ fn table_with(defs: Vec<RawCharDef>) -> Result<CharDefTable, ModelError> {
 fn seg(xml_id: &str, reps: &[&str]) -> RawCharDef {
     RawCharDef {
         xml_id: xml_id.to_string(),
+        source_guid: None,
         kind: CharDefKind::Segment,
         representations: reps.iter().map(|s| s.to_string()).collect(),
         feature_values: vec![],
@@ -17,6 +18,7 @@ fn seg(xml_id: &str, reps: &[&str]) -> RawCharDef {
 fn bnd(xml_id: &str, reps: &[&str]) -> RawCharDef {
     RawCharDef {
         xml_id: xml_id.to_string(),
+        source_guid: None,
         kind: CharDefKind::Boundary,
         representations: reps.iter().map(|s| s.to_string()).collect(),
         feature_values: vec![],
@@ -78,6 +80,7 @@ fn feature_lanes_default_to_full_mask_and_override_on_explicit_value() {
     .unwrap();
     let raw = vec![RawCharDef {
         xml_id: "char1".to_string(),
+        source_guid: None,
         kind: CharDefKind::Segment,
         representations: vec!["p".to_string()],
         feature_values: vec![RawFeatureValue {

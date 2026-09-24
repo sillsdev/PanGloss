@@ -46,6 +46,8 @@ pub struct RawFeatureValue {
 #[derive(Clone)]
 pub struct RawCharDef {
     pub xml_id: String,
+    /// The owning FieldWorks phoneme GUID, when compiled from a FieldWorks snapshot.
+    pub source_guid: Option<String>,
     pub kind: CharDefKind,
     /// `<Representation>` text, in document order, unescaped but *not yet* NFD-normalized.
     pub representations: Vec<String>,
@@ -60,6 +62,7 @@ pub struct RawCharDef {
 #[derive(Debug)]
 pub struct CharDef {
     xml_id: String,
+    source_guid: Option<String>,
     kind: CharDefKind,
     /// Original (as-authored) representations, document order.
     representations: Vec<String>,
@@ -70,6 +73,11 @@ pub struct CharDef {
 }
 
 impl CharDef {
+    #[inline]
+    pub fn source_guid(&self) -> Option<&str> {
+        self.source_guid.as_deref()
+    }
+
     #[inline]
     pub fn xml_id(&self) -> &str {
         &self.xml_id
@@ -158,6 +166,7 @@ impl CharDefTable {
             }
             defs.push(CharDef {
                 xml_id: raw.xml_id,
+                source_guid: raw.source_guid,
                 kind: raw.kind,
                 representations: raw.representations,
                 representations_nfd,
