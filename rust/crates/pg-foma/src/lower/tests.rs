@@ -1,5 +1,4 @@
-//! Synthetic, delanguaged fixtures only (no natural-language names), mirroring
-//! `capability.rs`'s own test-module convention.
+//! Tests lowering behavior with synthetic rules.
 
 use pg_grammar::model::{PhonRuleDef, RewriteMode};
 

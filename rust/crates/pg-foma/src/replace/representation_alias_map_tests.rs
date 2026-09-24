@@ -1,8 +1,4 @@
-//! Unit-level proof for `RepresentationAliasMap`/`SegAlphabet::render_tokens` --
-//! narrower and faster than the full
-//! grammar-level containment gate (`tests/two_table_shared_representation_recall.rs`), pinning
-//! the aliasing MECHANISM directly: the multimap's own contents, and `render_tokens`' union/
-//! degenerate-singleton contract.
+//! Tests the representation-alias map and token-rendering contract.
 use super::*;
 
 fn two_table_shared_repr_grammar() -> Grammar {

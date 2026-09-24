@@ -1865,8 +1865,7 @@ function Write-Preflight {
     foreach ($pool in @('build', 'run')) {
         $slotHolders = @(Get-SlotHolders -Pool $pool)
         if ($slotHolders.Count -eq 0) { continue }
-        # Lazy: a process snapshot is not cheap, and the common preflight has no holders to describe.
-        # Get-ProcessSnapshot is Windows CIM; on Linux holders are listed without a staleness verdict.
+        # Defer process snapshots until a caller has slot holders to report.
         if ($null -eq $slotSnapshot -and -not $IsLinux) { $slotSnapshot = Get-ProcessSnapshot }
         Write-Host "$pool slots in use:"
         foreach ($h in $slotHolders) {

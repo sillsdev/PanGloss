@@ -1,15 +1,4 @@
-//! What `reroute_null_shaped_affix_chains` does and does NOT cover, asserted rather than left
-//! to its doc comment -- because the gap between the two is exactly how the epsilon-loop defect
-//! regressed a second time (that function's own "This function is NAME-SCOPED" section).
-//!
-//! The claim pinned here: on a grammar whose bounded compound loop is genuinely emitted and
-//! genuinely carries a null-shaped prefix allomorph, this rewriter is a **complete no-op on every
-//! compound-loop lexicon** -- every `UCmp*` lexicon body comes out of it byte-identical -- while
-//! the top-level `PrefixChain` body it DOES know by name is genuinely rewritten. Both halves
-//! matter: the first is what makes `crate::uflexc`'s emission-time discipline the load-bearing
-//! mechanism for the compound levels (so nobody "simplifies" it away believing this rewriter has
-//! them covered), and the second is what proves the fixture reaches this rewriter at all rather
-//! than the whole test passing because nothing matched anywhere.
+//! Pins the lexicon scope of null-shaped affix-chain rerouting.
 
 use super::*;
 use crate::replace::SegAlphabet;

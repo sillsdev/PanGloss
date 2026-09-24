@@ -1,6 +1,4 @@
-//! Pins `metathesis_mirror_switch_indices`'s exact arithmetic against an off-by-one in either
-//! direction (`n - left_idx` / `n - 2 - left_idx` instead of the correct `n - 1 - left_idx`) —
-//! see the module doc's "switch-index remap, worked out" derivation.
+//! Tests the metathesis mirror index mapping against off-by-one errors.
 use super::metathesis_mirror_switch_indices;
 
 /// Asymmetric placement, chosen so an off-by-one in either direction lands on a different, still in-bounds pair rather than masking a bug.

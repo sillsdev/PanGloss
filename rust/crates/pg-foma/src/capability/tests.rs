@@ -1,7 +1,4 @@
-//! Synthetic, delanguaged fixtures only (no natural-language names) -- built via
-//! `pg_grammar::load` from hand-authored XML, mirroring `gate.rs`'s own test-module style
-//! rather than hand-constructing a `Grammar` (which would require standing up every interner
-//! field by hand; `load` is this workspace's own supported entry point for exactly this).
+//! Tests capability classification with synthetic grammars.
 
 use pg_grammar::model::{MorphRuleDef, MprGroupOutput, PRuleId, PhonRuleDef};
 

@@ -1,10 +1,4 @@
-//! The parity relation, exercised at the certification seam.
-//!
-//! These used to run against hand-built `WordAnalysis` values with no grammar at all, because
-//! full structural equality needs no model. Deduplicated identity comparison DOES need one --
-//! the whole point is that dense ordinals are projected to stable source keys -- so they now
-//! compile `test_support::PARITY_FIXTURE_XML`, three unrelated entries whose only job is to give
-//! three morpheme ordinals something to resolve to.
+//! Tests parse parity by stable source identity at the certification seam.
 
 use super::*;
 use crate::test_support::{parity_analysis, parity_fixture_grammar};

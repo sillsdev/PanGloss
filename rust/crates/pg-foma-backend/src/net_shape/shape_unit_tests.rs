@@ -1,6 +1,4 @@
-//! Hand-built nets, compiled from foma regexes, so each assertion pins ONE property of the walk
-//! with no grammar, no lexc, and no compile pipeline in the way. A screen whose graph walk is
-//! only ever exercised through a full grammar compile cannot be debugged when it disagrees.
+//! Tests the Foma network walk on hand-built nets.
 
 use super::*;
 use foma::options::FomaOptions;

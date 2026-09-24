@@ -1,6 +1,4 @@
-//! Unit tests rather than integration ones: `is_word_valid_traced` never reads
-//! `Grammar::strata`, so a hand-built `Word` against a zero-stratum grammar drives the gate
-//! directly, where a natural repro would need a multi-stratum/template scenario.
+//! Tests word-validity tracing with a minimal grammar and word.
 
 use super::*;
 use pg_rules::trace::{FailureReason, TraceType, TreeTraceSink};

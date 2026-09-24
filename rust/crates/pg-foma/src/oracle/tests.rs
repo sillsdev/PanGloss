@@ -1,12 +1,4 @@
-//! Three outcomes the task requires, in this order: (1) two genuinely distinct SAME-relation
-//! plans (`enumerate_default` vs. `permute_gate_groups` of it) -> `Agree`; (2) a deliberately
-//! WRONG second plan (one gate group dropped, module doc's `drop_last_gate_group`) -> a real
-//! `Disagree` naming a concrete word and a non-empty symmetric difference, proving the oracle is
-//! not vacuous; (3) the shortest-witness tie-break, tested directly against
-//! `resolve_verdict` with synthetic multi-length word data (this repo's tiny synthetic
-//! fixtures only ever recognize single-segment surface forms, so exercising the length tie-break
-//! through a real grammar+build would need a needlessly elaborate fixture -- testing the pure
-//! selection function directly is the more direct proof of this specific claim).
+//! Tests agreement, disagreement, and shortest-witness selection in the plan oracle.
 
 use std::collections::HashSet;
 

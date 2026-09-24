@@ -1,6 +1,4 @@
-//! Measurement-only census of Aweti's composite enumeration and where entries come from
-//! (builder, chain depth, rule, root). Both tests are `#[ignore]`d corpus measurements, run
-//! via `pg.ps1 -Mode corpus-test -Package pg-foma -Filter aweti_enum_census`.
+//! Measures Aweti enumeration breadth across builders, depths, rules, and roots.
 
 use super::*;
 use crate::morphotactics::{ExploreMode, MorphotacticIndex};

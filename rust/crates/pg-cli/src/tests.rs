@@ -1,10 +1,4 @@
-//! `--word-timeout-ms` end-to-end plumbing: flag parsing, `Morpher` wiring, and the TSV row
-//! shape, exercised through `run_batch` itself (not just `Morpher::parse_word` --
-//! `pg-parse/tests/word_timeout_gate.rs` already covers the engine-level behavior) so a bug in
-//! this file's own flag parsing or row-writing can't hide behind a lower-level test passing.
-//! Covers both `--threads` writer paths per the task brief -- the sequential (`STARTED` +
-//! per-line flush) and rayon-parallel (buffered, no `STARTED`) modes have genuinely different
-//! code paths in `run_batch` and each needed its own bug fixed above.
+//! Tests the CLI parser and batch command integration.
 use super::{
     deduplicate_warnings, load_grammar, run_batch, write_parse_analysis_row, StepCap,
     DEFAULT_STEP_CAP,

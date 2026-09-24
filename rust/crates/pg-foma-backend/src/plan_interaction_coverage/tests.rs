@@ -1,7 +1,4 @@
-//! Synthetic, delanguaged fixtures only (this repo's own conformance-grammar convention),
-//! hand-authored XML duplicated per test module rather than shared across files — the same
-//! convention `enumerate.rs`/`capability.rs`/`oracle.rs`'s own test modules already hold
-//! themselves to.
+//! Tests plan interaction coverage with synthetic grammars.
 
 use super::*;
 

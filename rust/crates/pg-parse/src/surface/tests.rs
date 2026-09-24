@@ -1,7 +1,4 @@
-//! Closure-aware `matching_str_reps` unit tests. `char_x`/`char_y` are a closure-sibling pair
-//! (both `voi+`, no other authored constraint, so their `FeatureStruct`s are identical -- a
-//! feature-bearing char-def carries no `StrRep`, so two distinct concrete char-defs whose
-//! features unify legitimately cross-match); `char_z` (`voi-`) does not unify with either.
+//! Tests closure-aware representation matching for feature-equivalent char defs.
 use super::*;
 use pg_grammar_model::chardef::CharDefId;
 use pg_shape::ShapeBuilder;

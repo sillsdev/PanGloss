@@ -1,12 +1,4 @@
-//! The correctness argument for this module's equivalence claim, made semantically meaningful
-//! rather than trivial. For an in-crate gated synthetic fixture, builds BOTH (a)
-//! `compile_gated_grammar` (today's direct-compile path) and (b)
-//! `build_controllable(enumerate_default(...))` (this module's plan-walk), then asserts the two
-//! resulting networks are EQUIVALENT BY APPLY -- `apply_up` on every distinguishing query word
-//! must yield IDENTICAL result sets. This is exactly the predicate a future differential oracle
-//! would use; the module doc explains why it -- not a structural/byte-identity
-//! claim -- is the one that matters. Minimized state/arc counts are ALSO asserted equal, as a
-//! cheap and (here) meaningful extra signal, never a substitute for the apply comparison.
+//! Tests that direct and planned builds produce equivalent apply results.
 
 use std::collections::HashSet;
 
