@@ -173,6 +173,7 @@ fn push_root_entry(g: &mut Grammar, partial: bool) -> AllomorphId {
     let shape = pg_grammar_model::segment::segment(&g.char_tables[0], "a").expect("segments");
     g.entries.push(LexEntryDef {
         authored_id: format!("test-entry-{}", lex_id.0),
+        source_guid: None,
         morpheme: MorphemeId(900),
         syn_fs: pg_featstruct::FsId(0),
         mpr: MprSet::EMPTY,

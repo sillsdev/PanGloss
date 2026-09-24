@@ -22,7 +22,10 @@ pub mod stats_identity;
 
 pub use pg_grammar_model::{chardef, featsys, model, nfd, segment};
 
-pub use compile::{compile_project, compile_project_measured, compile_project_with};
+pub use compile::{
+    compile_project, compile_project_measured, compile_project_with,
+    compile_project_with_import_warnings,
+};
 pub use load::load;
 
 use quick_xml::events::{BytesEnd, BytesStart, Event};

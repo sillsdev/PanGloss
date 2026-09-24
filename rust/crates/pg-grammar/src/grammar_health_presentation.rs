@@ -33,7 +33,7 @@ pub(crate) fn fieldworks_link_from_identity(
             guid: Some(raw_guid.to_string()),
         };
     };
-    let Some(project_name) = project.map(str::trim).filter(|value| !value.is_empty()) else {
+    let Some(project_name) = project.filter(|value| !value.is_empty()) else {
         return FieldWorksLink::Unavailable {
             reason: FieldWorksUnavailableReason::MissingProject,
             guid: Some(guid),
@@ -77,22 +77,11 @@ pub(crate) fn fieldworks_identity(grammar: &Grammar, source: &FieldWorksSource) 
                 }),
         ),
         FieldWorksSource::LexEntry(id) => (
-            FwClass::MoForm,
+            FwClass::LexEntry,
             grammar
                 .entries
                 .get(id.0 as usize)
-                .into_iter()
-                .flat_map(|entry| entry.allomorphs.iter())
-                .flat_map(|allomorph| {
-                    grammar
-                        .allomorph_sources
-                        .get(allomorph.id.0 as usize)
-                        .into_iter()
-                        .flat_map(|source| source.form_guids.iter())
-                })
-                .flatten()
-                .next()
-                .map(String::as_str),
+                .and_then(|entry| entry.source_guid.as_deref()),
         ),
         FieldWorksSource::MorphRule(id) => {
             if matches!(

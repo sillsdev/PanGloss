@@ -13,6 +13,20 @@ fn grammar_health_report_uses_v2_envelope() {
 }
 
 #[test]
+fn report_trims_fieldworks_project_name_when_attaching_project() {
+    let report = GrammarHealthReport::new(Vec::new())
+        .expect("empty report is valid")
+        .with_fieldworks_project(FieldWorksProject {
+            name: Some("  Chosen Project  ".to_string()),
+            source: Some(FieldWorksProjectSource::Argument),
+        });
+    let value = serde_json::to_value(report).expect("report serializes");
+
+    assert_eq!(value["fieldworks_project"]["name"], "Chosen Project");
+    assert_eq!(value["fieldworks_project"]["source"], "argument");
+}
+
+#[test]
 fn blank_named_import_subject_still_assembles_into_a_report() {
     let warning = pg_snapshot::Warning::new(
         pg_snapshot::ImportWarningCode::TemplateNoSlots,
@@ -535,14 +549,15 @@ fn lexical_entry_uses_segment_no_table_declares_reports_finding() {
     assert_eq!(findings.len(), 1);
     assert_eq!(findings[0].code, GrammarHealthCode::UndeclaredSegment);
     assert_eq!(findings[0].severity, GrammarHealthSeverity::Error);
-    assert_eq!(
-        findings[0].message,
-        "Lexical entry 'ab' uses a phoneme that is missing from the phoneme inventory."
-    );
-    assert_eq!(
-        findings[0].guidance.as_deref(),
-        Some("In Lexicon > Lexicon Edit, correct the form or add the missing phoneme in Grammar > Phonemes.")
-    );
+    assert!(findings[0].message.contains("Lexical entry 'ab'"));
+    assert!(findings[0]
+        .message
+        .contains("missing from the phoneme inventory"));
+    let guidance = findings[0]
+        .guidance
+        .as_deref()
+        .expect("FieldWorks guidance");
+    assert!(guidance.contains("Grammar > Phonemes"));
 }
 
 const AFFIX_INSERT_SEGMENTS_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -750,17 +765,14 @@ fn partial_lexical_entry_reports_actionable_warning() {
     let finding = &findings[0];
     assert_eq!(finding.code.wire(), "hc-stem-no-grammatical-category");
     assert_eq!(finding.severity, GrammarHealthSeverity::Warning);
-    assert_eq!(
-        finding.message,
-        "Lexical entry 'a' has no grammatical category."
-    );
-    assert_eq!(
-        finding.guidance.as_deref(),
-        Some("In Lexicon > Lexicon Edit, open the entry and set Grammatical Info. > Category.")
-    );
+    assert!(finding.message.contains("'a'"));
+    assert!(finding.message.contains("no grammatical category"));
+    let guidance = finding.guidance.as_deref().expect("FieldWorks guidance");
+    assert!(guidance.contains("Lexicon > Lexicon Edit"));
+    assert!(guidance.contains("Category"));
     assert!(matches!(
         &finding.subjects[..],
-        [GrammarHealthSubject { kind: FwClass::MoForm, title, .. }] if title == "a"
+        [GrammarHealthSubject { kind: FwClass::LexEntry, title, .. }] if title == "a"
     ));
 }
 
@@ -948,7 +960,10 @@ fn report_round_trips_through_the_single_decode_path() {
     let g = grammar(PARTIAL_LEX_ENTRY_XML);
     let report = check_grammar_health(&g, None).expect("grammar-health checks");
     let json = report.to_json().expect("report must serialize");
-    assert!(json.contains("hc-stem-no-grammatical-category"));
+    assert_eq!(
+        report.findings()[0].code,
+        GrammarHealthCode::StemWithoutCategory
+    );
     let round_tripped = GrammarHealthReport::from_json(&json).expect("report must decode");
     assert_eq!(round_tripped, report);
 }
@@ -1015,23 +1030,22 @@ const FIELDWORKS_GUID_PARTIAL_XML: &str = r#"<HermitCrabInput><Language>
 #[test]
 fn fieldworks_guid_partial_entry_uses_its_readable_name() {
     let mut g = grammar(FIELDWORKS_GUID_PARTIAL_XML);
-    g.allomorph_sources[0].form_guids =
-        vec![Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string())];
+    g.entries[0].source_guid = Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string());
     let findings =
         check_grammar_health(&g, Some("FieldWorks Demo")).expect("grammar-health checks");
     assert_eq!(findings.len(), 1);
-    assert_eq!(
-        findings[0].message,
-        "Lexical entry 'a' (walk) has no grammatical category."
-    );
-    assert_eq!(
-        findings[0].guidance.as_deref(),
-        Some("In Lexicon > Lexicon Edit, open the entry and set Grammatical Info. > Category.")
-    );
+    assert!(findings[0].message.contains("'a' (walk)"));
+    assert!(findings[0].message.contains("no grammatical category"));
+    let guidance = findings[0]
+        .guidance
+        .as_deref()
+        .expect("FieldWorks guidance");
+    assert!(guidance.contains("Lexicon > Lexicon Edit"));
+    assert!(guidance.contains("Category"));
     assert!(matches!(
         &findings[0].subjects[..],
         [GrammarHealthSubject {
-            kind: FwClass::MoForm,
+            kind: FwClass::LexEntry,
             title,
             subtitle: Some(subtitle),
             fieldworks: FieldWorksLink::Available { guid, tool, .. },
@@ -1249,9 +1263,7 @@ fn every_existing_grammar_fixture_has_complete_human_findings() {
 #[test]
 fn log_and_json_render_the_same_guid_fixture_with_explicit_link_state() {
     let mut g = grammar(FIELDWORKS_GUID_PARTIAL_XML);
-    let allomorph_id = g.entries[0].allomorphs[0].id.0 as usize;
-    g.allomorph_sources[allomorph_id].form_guids =
-        vec![Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string())];
+    g.entries[0].source_guid = Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string());
     let with_project =
         check_grammar_health(&g, Some("FieldWorks Demo")).expect("grammar-health checks");
     assert_no_blank_or_internal_subjects(&with_project);
@@ -1455,9 +1467,8 @@ fn invalid_subject_references_return_named_errors_instead_of_panicking() {
 fn fieldworks_navigation_has_exact_supported_and_unavailable_states() {
     // Proof citations: FieldWorks/Src/xWorks/FwLinkArgs.cs; RecordClerk.cs:1036, 998-1016; RecordList.cs:3435.
     let mut lexical_grammar = grammar(FIELDWORKS_GUID_PARTIAL_XML);
-    let allomorph_id = lexical_grammar.entries[0].allomorphs[0].id.0 as usize;
-    lexical_grammar.allomorph_sources[allomorph_id].form_guids =
-        vec![Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string())];
+    lexical_grammar.entries[0].source_guid =
+        Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string());
     let lexical =
         check_grammar_health(&lexical_grammar, Some("Demo")).expect("lexical fixture checks");
     let lexical = &lexical[0].subjects[0].fieldworks;

@@ -260,18 +260,22 @@ pub enum FieldWorksProjectSource {
     FwdataPath,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FieldWorksProject {
     pub name: Option<String>,
     pub source: Option<FieldWorksProjectSource>,
 }
 
-impl Default for FieldWorksProject {
-    fn default() -> Self {
-        Self {
-            name: None,
-            source: None,
-        }
+impl FieldWorksProject {
+    fn normalized(self) -> Self {
+        let name = self
+            .name
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty());
+        let source = name
+            .as_ref()
+            .map(|_| self.source.unwrap_or(FieldWorksProjectSource::Argument));
+        Self { name, source }
     }
 }
 
@@ -584,6 +588,7 @@ impl GrammarHealthReport {
     }
 
     pub fn with_fieldworks_project(mut self, fieldworks_project: FieldWorksProject) -> Self {
+        let fieldworks_project = fieldworks_project.normalized();
         for finding in &mut self.findings {
             for subject in &mut finding.subjects {
                 subject.fieldworks = fieldworks_link_from_identity(
@@ -865,10 +870,7 @@ pub fn check_grammar_health(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
 ) -> Result<GrammarHealthReport, crate::GrammarError> {
-    let name = fieldworks_project
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_string);
+    let name = fieldworks_project.map(str::to_string);
     check_grammar_health_with_project(
         grammar,
         FieldWorksProject {
@@ -883,30 +885,24 @@ pub fn check_grammar_health_with_project(
     grammar: &Grammar,
     fieldworks_project: FieldWorksProject,
 ) -> Result<GrammarHealthReport, crate::GrammarError> {
-    let name = fieldworks_project
-        .name
-        .as_deref()
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_string);
-    let fieldworks_project = FieldWorksProject {
-        name: name.clone(),
-        source: name.as_ref().map(|_| {
-            fieldworks_project
-                .source
-                .unwrap_or(FieldWorksProjectSource::Argument)
-        }),
-    };
-    let project_name = fieldworks_project.name.as_deref();
-    let partial_facts = grammar.partial_morpheme_facts()?;
-    let mut findings = Vec::new();
-    check_duplicate_feature_bundles(grammar, project_name, &mut findings)?;
-    check_undeclared_segments(grammar, project_name, &mut findings)?;
-    check_partial_morphemes(grammar, project_name, &partial_facts, &mut findings)?;
+    let findings = check_grammar_health_findings(grammar)?;
     let report = GrammarHealthReport::new(findings)
         .map_err(|error| crate::GrammarError::Semantic(error.to_string()))?
         .with_fieldworks_project(fieldworks_project);
     Ok(report)
+}
+
+/// Runs every registered check and returns the findings without assembling a report.
+/// Callers that combine check findings with import findings can build one report after merging.
+pub fn check_grammar_health_findings(
+    grammar: &Grammar,
+) -> Result<Vec<GrammarHealthCheckFinding>, crate::GrammarError> {
+    let partial_facts = grammar.partial_morpheme_facts()?;
+    let mut findings = Vec::new();
+    check_duplicate_feature_bundles(grammar, None, &mut findings)?;
+    check_undeclared_segments(grammar, None, &mut findings)?;
+    check_partial_morphemes(grammar, None, &partial_facts, &mut findings)?;
+    Ok(findings)
 }
 
 // --- hc-duplicate-feature-bundle -------------------------------------------------------------
@@ -1293,7 +1289,7 @@ fn push_undeclared_segments(
 
 fn undeclared_segment_subject_label(kind: FwClass) -> &'static str {
     match kind {
-        FwClass::MoForm => "Lexical entry",
+        FwClass::LexEntry | FwClass::MoForm => "Lexical entry",
         FwClass::MoStemMsa => "Stem",
         FwClass::MoInflAffMsa | FwClass::MoDerivAffMsa | FwClass::MoUnclassifiedAffixMsa => {
             affix_kind_label(kind)

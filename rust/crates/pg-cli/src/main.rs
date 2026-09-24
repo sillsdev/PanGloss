@@ -426,13 +426,13 @@ fn load_grammar_impl(
         _ if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") => {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
-            let mut warnings = report.warnings;
-            warnings.extend(snapshot.validate());
+            let mut import_warnings = report.warnings;
+            import_warnings.extend(snapshot.validate());
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "fwdata"));
-            let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
-                .map_err(|e| format!("compile {path}: {e:?}"))?;
-            warnings.extend(compile_warnings);
+            let (grammar, warnings) =
+                pg_grammar::compile_project_with_import_warnings(&snapshot, import_warnings)
+                    .map_err(|e| format!("compile {path}: {e:?}"))?;
             Ok((grammar, warnings, metadata))
         }
         _ => {

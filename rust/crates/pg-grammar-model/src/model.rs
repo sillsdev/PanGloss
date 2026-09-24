@@ -824,6 +824,9 @@ pub struct LexEntryDef {
     /// snapshot compilation it is the source `LexEntry.Guid`, not the MSA guid used by the
     /// morpheme registry.
     pub authored_id: String,
+    /// Original FieldWorks `LexEntry.Guid` when compiled from a project snapshot. HC XML IDs are
+    /// grammar-local and therefore leave this unset.
+    pub source_guid: Option<String>,
     pub morpheme: MorphemeId,
     pub syn_fs: FsId,
     pub mpr: MprSet,

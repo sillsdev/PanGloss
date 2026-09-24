@@ -132,6 +132,7 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
     let id = LexEntryId(g.entries.len() as u32);
     g.entries.push(LexEntryDef {
         authored_id: format!("test-entry-{}", id.0),
+        source_guid: None,
         morpheme,
         syn_fs,
         mpr,

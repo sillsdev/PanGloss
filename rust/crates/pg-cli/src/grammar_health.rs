@@ -13,7 +13,7 @@ use std::fs;
 use std::path::Path;
 
 use pg_grammar::grammar_health::{
-    check_grammar_health_with_project, render_json, render_log, FieldWorksProject,
+    check_grammar_health_findings, render_json, render_log, FieldWorksProject,
     FieldWorksProjectSource, GrammarHealthCheckFinding, GrammarHealthReport, GrammarHealthSeverity,
 };
 
@@ -71,9 +71,8 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
 
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     let project = fieldworks_project_for_path(grammar_path, fieldworks_project);
-    let checked_report = check_grammar_health_with_project(&grammar, project.clone())
+    let mut findings = check_grammar_health_findings(&grammar)
         .map_err(|error| format!("run grammar health checks: {error}"))?;
-    let mut findings = checked_report.findings().to_vec();
     findings.extend(
         warnings
             .iter()
@@ -108,10 +107,7 @@ fn fieldworks_project_for_path(
     grammar_path: &str,
     fieldworks_project: Option<&str>,
 ) -> FieldWorksProject {
-    if let Some(name) = fieldworks_project
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-    {
+    if let Some(name) = fieldworks_project {
         return FieldWorksProject {
             name: Some(name.to_string()),
             source: Some(FieldWorksProjectSource::Argument),
@@ -124,9 +120,7 @@ fn fieldworks_project_for_path(
         .is_some_and(|extension| extension.eq_ignore_ascii_case("fwdata"));
     let name = is_fwdata
         .then(|| path.file_stem().and_then(|stem| stem.to_str()))
-        .flatten()
-        .map(str::trim)
-        .filter(|name| !name.is_empty());
+        .flatten();
     FieldWorksProject {
         name: name.map(str::to_string),
         source: name.map(|_| FieldWorksProjectSource::FwdataPath),

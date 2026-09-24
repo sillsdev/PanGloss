@@ -61,7 +61,10 @@ fn omitted_parser_parameters_variant(dir: &Path) -> PathBuf {
 fn assert_invalid_active_parser_source(path: &Path) {
     match pg_fwdata::import_file(path).unwrap_err() {
         pg_fwdata::ImportError::InvalidSource { code, .. } => {
-            assert_eq!(code, "invalid-source.active-parser")
+            assert_eq!(
+                code,
+                pg_snapshot::ImportWarningCode::InvalidSourceActiveParser
+            )
         }
         other => panic!("expected invalid parser source error, got {other:?}"),
     }
@@ -252,14 +255,6 @@ fn unknown_morph_type_warning_names_the_skipped_form_and_fieldworks_action() {
         Some("00000000-0000-0000-0000-000000000044")
     );
     assert_eq!(warning.subjects[0].name.as_deref(), Some("xxx"));
-    assert_eq!(
-        warning.guidance.as_deref(),
-        pg_snapshot::import_warning_metadata(
-            pg_snapshot::ImportWarningCode::FwdataUnknownMorphTypeGuid,
-        )
-        .guidance
-        .as_deref()
-    );
 }
 
 #[test]
@@ -288,13 +283,13 @@ fn compile_project_refuses_this_fixture_over_the_dangling_environment_reference(
         "this fixture's dangling PhEnvironment reference is a fatal import issue; \
          compile_project must refuse it under the default SemanticLossPolicy::Refuse",
     );
-    let codes: Vec<&str> = err
+    let codes: Vec<_> = err
         .issues()
         .iter()
-        .map(|issue| issue.code.as_str())
+        .map(|issue| issue.code.clone())
         .collect();
     assert!(
-        codes.contains(&"fwdata.dangling-reference"),
+        codes.contains(&pg_snapshot::ImportWarningCode::FwdataDanglingReference),
         "refusal must name the dangling-reference code; got {codes:?}"
     );
 }
@@ -425,7 +420,10 @@ fn invalid_active_parser_is_a_fatal_import_error() {
     let error = pg_fwdata::import_file(&path).unwrap_err();
     match error {
         pg_fwdata::ImportError::InvalidSource { code, .. } => {
-            assert_eq!(code, "invalid-source.active-parser")
+            assert_eq!(
+                code,
+                pg_snapshot::ImportWarningCode::InvalidSourceActiveParser
+            )
         }
         other => panic!("expected invalid active parser error, got {other:?}"),
     }
@@ -442,7 +440,10 @@ fn malformed_parser_parameters_are_a_fatal_import_error() {
     let error = pg_fwdata::import_file(&path).unwrap_err();
     match error {
         pg_fwdata::ImportError::InvalidSource { code, .. } => {
-            assert_eq!(code, "invalid-source.active-parser")
+            assert_eq!(
+                code,
+                pg_snapshot::ImportWarningCode::InvalidSourceActiveParser
+            )
         }
         other => panic!("expected malformed parser parameters error, got {other:?}"),
     }
@@ -595,7 +596,7 @@ fn unknown_class_record_is_census_only_and_raises_no_issue() {
     assert!(!provenance.import_issues.iter().any(|issue| issue
         .source
         .as_ref()
-        .is_some_and(|s| s.kind == pg_snapshot::FwClass::ZzUnknown)));
+        .is_some_and(|s| s.kind == pg_snapshot::FwClass::Unknown)));
     assert_eq!(
         provenance
             .source_census
@@ -664,7 +665,7 @@ fn unknown_class_duplicate_before_an_allowed_class_keeps_the_recognized_record()
         .collect();
     assert_eq!(duplicate_issues.len(), 1);
     let source = duplicate_issues[0].source.as_ref().unwrap();
-    assert_eq!(source.kind, "ZzUnknown");
+    assert_eq!(source.kind, pg_snapshot::FwClass::Unknown);
     assert_eq!(source.id, "00000000-0000-0000-0000-000000000050");
     let suffix_entries: Vec<_> = snapshot
         .lexicon

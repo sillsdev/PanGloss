@@ -2082,6 +2082,7 @@ fn try_load_lex_entry(
 
     acc.entries.push(LexEntryDef {
         authored_id: entry.attr("id").unwrap_or("").to_string(),
+        source_guid: None,
         morpheme,
         syn_fs,
         mpr,

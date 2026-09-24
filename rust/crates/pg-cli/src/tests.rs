@@ -527,7 +527,7 @@ fn fwdata_load_keeps_structured_warnings_and_collapses_import_compile_duplicates
         .filter(|warning| warning.code == "fwdata.unknown-morph-type-guid")
         .collect();
 
-    assert_eq!(unknown_morph_type.len(), 1);
+    assert_eq!(unknown_morph_type.len(), 1, "{unknown_morph_type:#?}");
     assert_eq!(
         unknown_morph_type[0].message,
         "Allomorph 'xxx' has an unknown morph type and was skipped."

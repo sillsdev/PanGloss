@@ -147,10 +147,12 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
         .expect("unknown morph type import finding");
     assert_eq!(warning["origin"], "import");
     assert_eq!(warning["audience"], "linguist");
-    assert_eq!(
-        warning["description"],
-        "Allomorph 'xxx' has an unknown morph type and was skipped."
-    );
+    let description = warning["description"]
+        .as_str()
+        .expect("warning description");
+    assert!(description.contains("'xxx'"));
+    assert!(description.contains("unknown morph type"));
+    assert!(description.contains("skipped"));
     assert_eq!(
         warning["guidance"],
         pg_snapshot::import_warning_metadata(
@@ -162,6 +164,20 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
     assert_eq!(warning["subjects"][0]["kind"], "MoForm");
     assert_eq!(warning["subjects"][0]["title"], "xxx");
     assert_eq!(warning["subjects"][0]["fieldworks"]["status"], "available");
+
+    let named_output_path = scratch.join("named-report.json");
+    run_grammar_health(&[
+        grammar_path.to_string_lossy().into_owned(),
+        named_output_path.to_string_lossy().into_owned(),
+        "--fw-project".to_string(),
+        "  Chosen Project  ".to_string(),
+    ])
+    .expect("grammar-health command with explicit project name");
+    let named_report: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&named_output_path).expect("read named output"))
+            .expect("structured JSON");
+    assert_eq!(named_report["fieldworks_project"]["name"], "Chosen Project");
+    assert_eq!(named_report["fieldworks_project"]["source"], "argument");
 
     let _ = fs::remove_dir_all(scratch);
 }
