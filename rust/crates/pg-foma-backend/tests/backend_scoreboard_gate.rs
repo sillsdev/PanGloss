@@ -43,14 +43,14 @@ impl Bucket {
     }
 }
 
-/// A ratchet, not a target, over 66 scored fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route); the one miss is `final-template-partial-discriminators` "daknagafa" (template -> loose rule -> template), the lexc-skeleton one-template-application-per-word limit recorded in the reconciliation doc this module's header names -- not a partiality effect (that fixture's partial-dependent words are contained on every backend). TUT: the same "daknagafa" miss is its one miss (its templated skeleton shares the one-application limit); otherwise none left after the order lattice, flip-polarity alpha variables and the marker-adjacent leading drop; the token-space pattern-root route turned four more refusals exact; both bistratal-root fixtures refuse. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 31 typed refusals; `final-template-partial-discriminators` is oracle-exact here -- see this module's own doc for how each figure was reproduced.
+/// A ratchet, not a target, over 66 scored fixtures. TSP: `pattern-root-required-environment` is the one deliberate refusal (an unbounded root with required environments, outside the regex route); the misses are `final-template-partial-discriminators` "daknagafa" and "hasaasa" (copy altered by h-deletion) in `metathesis-phase-isolation` and its staging clone; the "daknagafa" miss is (template -> loose rule -> template), the lexc-skeleton one-template-application-per-word limit recorded in the reconciliation doc this module's header names -- not a partiality effect (that fixture's partial-dependent words are contained on every backend). TUT: the same "daknagafa" miss is its one miss (its templated skeleton shares the one-application limit); otherwise none left after the order lattice, flip-polarity alpha variables and the marker-adjacent leading drop; the token-space pattern-root route turned four more refusals exact; both bistratal-root fixtures refuse. PC: realizational allomorphs emitted like any affix rule's, and composite marker subtrees built whenever their material is complete, leave zero misses and 31 typed refusals; `final-template-partial-discriminators` is oracle-exact here -- see this module's own doc for how each figure was reproduced.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
     (
         EmissionStrategy::TunedSurfaceProbed,
         Bucket {
             // 64 -> 65 (exact-inverse analysis fold), 65 -> 66 (seven staged fixtures rewritten into the FieldWorks shape).
-            oracle_exact: 71, // 66 -> 71: four upstream fixtures pinning 006/014/016
-            compiles_but_misses: 1,
+            oracle_exact: 69, // 66 -> 71: four upstream fixtures pinning 006/014/016; 71 -> 69 at pin 34215889: "hasaasa" (copy then h-deletion in the second copy) misses in metathesis-phase-isolation and its staging clone backend-ordered-generic
+            compiles_but_misses: 3,
             refused: 1,
             unmeasurable: 0,
         },

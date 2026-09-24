@@ -173,9 +173,7 @@ material. Recovering this identity requires a broader relation between copied sp
 phonology, so this pass did not attempt an emitter change.
 
 The same work synchronized `staging:edge-cases/backend-ordered-generic` to the Machine grammar and
-ordered word inputs, changing only the language name. That clone will be another scored fixture cell
-with the same TSP outcome. The post-sync scoreboard count and the post-sync faithfulness report were
-not rerun because the managed target preflight selected a denied `G:\cargo-build-cache` when C: had
-14.4 GB free against the required 15 GB reserve. Thus 69 exact / 3 misses and an unchanged total of
-20 faithfulness pairs are expectations from the clone's identical inputs, not measured post-change
-values; the gate ratchets were left untouched pending an allowed managed verification run.
+ordered word inputs, changing only the language name. The clone is another scored fixture cell with
+the same TSP outcome. Measured after the sync: TunedSurfaceProbed 69 exact / 3 misses / 1 refusal,
+and 20 failed (kind, backend) faithfulness pairs (the clone repeats the same six pairs), with
+soundness still 0. Both ratchets were set to those values.

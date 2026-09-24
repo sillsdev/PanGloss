@@ -42,8 +42,7 @@ const GATE_SUBRULE_POS: Fixture = Fixture::upstream("edge-cases", "subrule-morph
 /// Unbounded-peeled-copy exercise 1: the peel's SUFFIX scan (`redupMorphType="suffix"`).
 const PEELED_COPY_SUFFIX_SCAN: Fixture =
     Fixture::upstream("languages", "suffixing-extension-slot-ordering");
-/// Unbounded-peeled-copy exercise 2 and two bounded-copy exercises: the grammar carries a finite
-/// CV copy, a fixed-I copy, and an unbounded copy.
+/// Unbounded-peeled-copy exercise 2 and both bounded-copy exercises (CV copy, fixed-I copy).
 const COPY_BOUNDED_AND_UNBOUNDED: Fixture =
     Fixture::upstream("languages", "metathesis-phase-isolation");
 
@@ -1097,8 +1096,7 @@ fn bounded_copy_exercise_fixed_width_reduplicant_recalls_exactly_one_reading() {
     );
 }
 
-/// Bounded-copy exercise 2: `mrRedupHi` copies a one-segment consonant part and modifies the
-/// vowel, so this witness checks a distinct finite-copy path from `mrRedupCV`.
+/// Bounded-copy exercise 2: `mrRedupHi` copies one consonant and modifies the vowel, unlike `mrRedupCV`.
 #[test]
 fn bounded_copy_exercise_fixed_i_reduplicant_recalls_exactly_one_reading() {
     let (label, grammar, words) = COPY_BOUNDED_AND_UNBOUNDED.open();
@@ -1122,9 +1120,7 @@ fn bounded_copy_exercise_fixed_i_reduplicant_recalls_exactly_one_reading() {
     );
 }
 
-/// Bounded-copy MODEL level: the bounded/unbounded line is a computed property of the loaded
-/// grammar (finite vs. no width bound on the copied part), not a label this file applied; also
-/// checks the corpus still contains examples of both shapes.
+/// Bounded vs unbounded is computed from the copied part's width bound, and both shapes must exist.
 #[test]
 fn the_bounded_unbounded_copy_line_is_a_property_of_the_grammar() {
     let (label, grammar, _words) = COPY_BOUNDED_AND_UNBOUNDED.open();
