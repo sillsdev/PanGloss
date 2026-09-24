@@ -293,15 +293,15 @@ pub(crate) fn feature_rule_migration_issues(
             issues.push(ConversionIssue {
                 code: issues::SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE.to_string(),
                 class: IssueClass::MigrationDifference,
-                source: None,
+                source: Some(SourceRef {
+                    kind: "PhPhoneme".to_string(),
+                    id: format!("inferred:{}", inferred.representation),
+                }),
                 fatal: false,
                 audience: pg_snapshot::Audience::Linguist,
                 message: format!(
-                    "inferred segment {:?} carries no authored feature values, so it satisfies \
-                     every feature-based natural class under HC's unspecified-lane-matches-anything \
-                     default; the FieldWorks XAMPLE source never declared any feature system to \
-                     check this against",
-                    inferred.representation
+                    "Inferred segment '{}' has no authored feature values; check its phonological features and matching feature-based natural classes.",
+                    inferred.representation,
                 ),
             });
         }
