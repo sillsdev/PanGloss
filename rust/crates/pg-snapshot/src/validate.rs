@@ -36,16 +36,17 @@ use crate::feature::{FeatureStructure, FeatureSystem, FeatureValueKind};
 use crate::lexicon::Msa;
 use crate::morphology::{InflectionClass, PartOfSpeech};
 use crate::phonology::PhonContext;
-use crate::{Snapshot, Warning};
+use crate::{ImportWarningCode, Snapshot, Warning};
 
 /// Shared by every plain "does this reference resolve to a definition of the expected kind" check.
-const DANGLING_REFERENCE: &str = "snapshot.dangling-reference";
+const DANGLING_REFERENCE: &str = ImportWarningCode::SnapshotDanglingReference.wire();
 /// `check_feature_structure`'s recursive closed/complex feature-or-value resolution.
-const FEATURE_STRUCTURE_UNRESOLVED: &str = "snapshot.feature-structure-unresolved";
+const FEATURE_STRUCTURE_UNRESOLVED: &str =
+    ImportWarningCode::SnapshotFeatureStructureUnresolved.wire();
 /// `check_rule_feature_ref` legitimately resolves against either registry; see that function's doc.
-const RULE_FEATURE_UNRESOLVED: &str = "snapshot.rule-feature-unresolved";
+const RULE_FEATURE_UNRESOLVED: &str = ImportWarningCode::SnapshotRuleFeatureUnresolved.wire();
 /// Resolves to a real definition elsewhere in the snapshot, but outside the required local scope.
-const REFERENCE_OUT_OF_SCOPE: &str = "snapshot.reference-out-of-scope";
+const REFERENCE_OUT_OF_SCOPE: &str = ImportWarningCode::SnapshotReferenceOutOfScope.wire();
 
 /// Registries of every GUID this snapshot *defines*, checked against every GUID it *references*.
 struct Registries {

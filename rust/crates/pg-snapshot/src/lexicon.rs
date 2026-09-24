@@ -10,6 +10,7 @@ use crate::common::{Guid, WsForm};
 use crate::feature::FeatureStructure;
 use crate::morphology::MorphType;
 use crate::phonology::PhonContext;
+use crate::warning::FwClass;
 
 /// The `lexicon` snapshot section.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -256,6 +257,15 @@ impl Msa {
             | Msa::Unclassified { guid, .. } => guid,
         }
     }
+
+    pub fn fw_class(&self) -> FwClass {
+        match self {
+            Msa::Stem { .. } => FwClass::MoStemMsa,
+            Msa::Inflectional { .. } => FwClass::MoInflAffMsa,
+            Msa::Derivational { .. } => FwClass::MoDerivAffMsa,
+            Msa::Unclassified { .. } => FwClass::MoUnclassifiedAffixMsa,
+        }
+    }
 }
 
 /// A word sense. ← `LexSense`.
@@ -312,3 +322,6 @@ pub enum EntryRef {
         complex_entry_types: Vec<Guid>,
     },
 }
+
+#[cfg(test)]
+mod v2_port_tests;

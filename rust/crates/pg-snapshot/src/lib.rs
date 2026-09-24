@@ -47,12 +47,14 @@
 pub mod common;
 pub mod conversion;
 pub mod feature;
+pub mod fieldworks_paths;
 pub mod lexicon;
 pub mod morphology;
 pub mod phonology;
 pub mod project;
 pub mod validate;
 mod warning;
+pub mod warning_metadata;
 
 pub use common::{Guid, WsForm};
 pub use conversion::{
@@ -76,7 +78,8 @@ pub use phonology::{
     Phoneme, PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection,
 };
 pub use project::Project;
-pub use warning::Warning;
+pub use warning::{Audience, FwClass, FwObjectRef, ImportWarningCode, Warning};
+pub use warning_metadata::{import_warning_metadata, ImportWarningMetadata};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

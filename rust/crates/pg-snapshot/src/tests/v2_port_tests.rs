@@ -1,6 +1,4 @@
-use super::*;
-
-mod v2_port_tests;
+use super::super::*;
 use crate::common::WsForm;
 use crate::feature::{
     ClosedFeature, FeatureStructure, FeatureSystem, FeatureValue, FeatureValueKind,

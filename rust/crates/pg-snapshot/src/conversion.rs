@@ -175,6 +175,11 @@ impl SelectionRecorder {
         self.issues.push(issue);
     }
 
+    /// Records an issue about retained output without changing its inventory status.
+    pub fn noted(&mut self, issue: ConversionIssue) {
+        self.issues.push(issue);
+    }
+
     pub fn is_represented(&self, key: &InventoryKey) -> bool {
         self.inventory.represented.contains(key)
     }
@@ -335,6 +340,10 @@ pub struct ConversionIssue {
     pub class: IssueClass,
     pub source: Option<SourceRef>,
     pub fatal: bool,
+    /// Audience was chosen by the producer that raised this issue. Older provenance records
+    /// omit it and are read as linguist-facing.
+    #[serde(default)]
+    pub audience: crate::Audience,
     pub message: String,
 }
 

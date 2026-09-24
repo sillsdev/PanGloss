@@ -1,5 +1,7 @@
 use super::*;
 
+mod v2_port_tests;
+
 #[test]
 fn display_is_exactly_the_message() {
     let w = Warning::new(

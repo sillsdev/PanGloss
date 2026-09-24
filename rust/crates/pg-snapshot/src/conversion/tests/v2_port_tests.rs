@@ -1,6 +1,4 @@
-use super::*;
-
-mod v2_port_tests;
+use super::super::*;
 
 #[test]
 fn object_identity_carries_the_given_guid() {
@@ -273,6 +271,27 @@ fn record_text_use_is_independent_of_the_stage_invariants() {
     );
     // Recording usage touches no stage set, so an otherwise-empty recorder still satisfies its own invariants.
     assert!(r.check_invariants().is_ok());
+}
+
+#[test]
+fn noted_issue_does_not_mark_a_retained_source_object_rejected() {
+    let mut r = SelectionRecorder::default();
+    r.noted(ConversionIssue {
+        code: "test.retained-object-note".to_string(),
+        class: IssueClass::MigrationDifference,
+        source: Some(SourceRef {
+            kind: "PhPhoneme".to_string(),
+            id: "phoneme-1".to_string(),
+        }),
+        fatal: false,
+        audience: crate::Audience::Linguist,
+        message: "a retained phoneme has an ignored feature value".to_string(),
+    });
+
+    assert!(r.check_invariants().is_ok());
+    let (inventory, issues) = r.finish();
+    assert!(inventory.rejected.is_empty());
+    assert_eq!(issues.len(), 1);
 }
 
 #[test]
