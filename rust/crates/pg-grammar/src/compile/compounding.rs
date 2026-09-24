@@ -77,13 +77,7 @@ pub(crate) fn build(
                         morphology_mrules.push(id);
                         ctx.represent_via(LineageTarget::MRule(id.0), key);
                     }
-                    // `build_endo` already pushed its own warning on failure; recording must not add a second one.
-                    None => ctx.reject_quietly(
-                        key,
-                        issue_codes::COMPOUND_RULE_BUILD_FAILED,
-                        IssueClass::UnrepresentableForHc,
-                        format!("compound rule {name:?}: build failed; skipped"),
-                    ),
+                    None => {}
                 }
             }
             CompoundRule::Exocentric {
@@ -105,13 +99,7 @@ pub(crate) fn build(
                     warnings,
                 )?;
                 if ids.is_empty() {
-                    // `build_exo` already pushed its own warning on failure; recording must not add a second one.
-                    ctx.reject_quietly(
-                        key,
-                        issue_codes::COMPOUND_RULE_BUILD_FAILED,
-                        IssueClass::UnrepresentableForHc,
-                        format!("compound rule {name:?}: build failed; skipped"),
-                    );
+                    // `build_exo` records the issue at the failed requirement.
                 } else {
                     // Both ids are always pushed to the same stratum list, so they survive/die together; the shared key rides on either one's lineage.
                     ctx.represent_via(LineageTarget::MRule(ids[0].0), key.clone());
@@ -242,13 +230,19 @@ fn build_endo(
         (left, right, roles::LEFT, roles::RIGHT)
     };
     let Some(head_required_syn_fs) =
-        side_required_fs(rule_guid, head_role, head_side, ctx, acc, warnings)
+        side_required_fs(rule_guid, name, head_role, head_side, ctx, acc, warnings)
     else {
         return Ok(None);
     };
-    let Some(non_head_required_syn_fs) =
-        side_required_fs(rule_guid, non_head_role, non_head_side, ctx, acc, warnings)
-    else {
+    let Some(non_head_required_syn_fs) = side_required_fs(
+        rule_guid,
+        name,
+        non_head_role,
+        non_head_side,
+        ctx,
+        acc,
+        warnings,
+    ) else {
         return Ok(None);
     };
     let out_pos = overriding.part_of_speech.as_deref().and_then(|p| {
@@ -270,8 +264,16 @@ fn build_endo(
     });
     let out_syn_fs = match super::features::build_syn_fs(ctx.syn, out_pos, None) {
         Ok(fs) => acc.fs_interner.intern(fs),
-        Err(e) => {
-            warnings.push(format!("compound rule {name:?}: {e}; skipped"));
+        Err(_) => {
+            ctx.reject(
+                warnings,
+                InventoryKey::object(InventoryKind::CompoundRule, rule_guid.to_string()),
+                issue_codes::COMPOUND_RULE_BUILD_FAILED,
+                IssueClass::UnrepresentableForHc,
+                format!(
+                    "Compound rule '{name}' could not be built; check its constituent categories."
+                ),
+            );
             return Ok(None);
         }
     };
@@ -330,10 +332,11 @@ fn build_exo(
     acc: &mut Acc,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<MRuleId>, GrammarError> {
-    let Some(left_fs) = side_required_fs(rule_guid, roles::LEFT, left, ctx, acc, warnings) else {
+    let Some(left_fs) = side_required_fs(rule_guid, name, roles::LEFT, left, ctx, acc, warnings)
+    else {
         return Ok(Vec::new());
     };
-    let Some(right_fs) = side_required_fs(rule_guid, roles::RIGHT, right, ctx, acc, warnings)
+    let Some(right_fs) = side_required_fs(rule_guid, name, roles::RIGHT, right, ctx, acc, warnings)
     else {
         return Ok(Vec::new());
     };
@@ -356,8 +359,16 @@ fn build_exo(
     });
     let out_syn_fs = match super::features::build_syn_fs(ctx.syn, out_pos, None) {
         Ok(fs) => acc.fs_interner.intern(fs),
-        Err(e) => {
-            warnings.push(format!("compound rule {name:?}: {e}; skipped"));
+        Err(_) => {
+            ctx.reject(
+                warnings,
+                InventoryKey::object(InventoryKind::CompoundRule, rule_guid.to_string()),
+                issue_codes::COMPOUND_RULE_BUILD_FAILED,
+                IssueClass::UnrepresentableForHc,
+                format!(
+                    "Compound rule '{name}' could not be built; check its constituent categories."
+                ),
+            );
             return Ok(Vec::new());
         }
     };
@@ -435,6 +446,7 @@ fn build_exo(
 
 fn side_required_fs(
     rule_guid: &str,
+    rule_name: &str,
     role: &str,
     side: &CompoundConstituentRequirement,
     ctx: &Ctx,
@@ -460,8 +472,14 @@ fn side_required_fs(
     });
     match super::features::build_syn_fs(ctx.syn, pos_bits, None) {
         Ok(fs) => Some(acc.fs_interner.intern(fs)),
-        Err(e) => {
-            warnings.push(format!("compound rule: {e}; skipped"));
+        Err(_) => {
+            ctx.reject(
+                warnings,
+                InventoryKey::object(InventoryKind::CompoundRule, rule_guid.to_string()),
+                issue_codes::COMPOUND_RULE_BUILD_FAILED,
+                IssueClass::UnrepresentableForHc,
+                format!("Compound rule '{rule_name}' could not be built; check its constituent categories."),
+            );
             None
         }
     }

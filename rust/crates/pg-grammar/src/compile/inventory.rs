@@ -5,7 +5,8 @@ use hashbrown::HashMap;
 use pg_snapshot::morphology::{AdhocProhibition, PartOfSpeech};
 use pg_snapshot::phonology::{NaturalClass, PhonologicalRule};
 use pg_snapshot::{
-    ConversionIssue, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot,
+    Audience, ConversionIssue, InventoryIdentity, InventoryKey, InventoryKind, IssueClass,
+    SelectionRecorder, Snapshot, SourceRef,
 };
 
 /// Which owner an [`InventoryKey`] was published as representing, at the moment that owner pushed
@@ -71,6 +72,7 @@ pub(crate) fn represent_via(
 /// from `lineage` is a bug in the owner that pushed it (represented a key without publishing it),
 /// so this panics rather than silently leaving the stale key represented.
 pub(crate) fn finalize(
+    snapshot: &Snapshot,
     recorder: &mut SelectionRecorder,
     lineage: &Lineage,
     removed_mrules: Vec<u32>,
@@ -83,13 +85,15 @@ pub(crate) fn finalize(
             panic!("mrule {id} removed by reachability compaction but published no lineage")
         });
         for key in keys.clone() {
+            let source = super::warnings::source_for_key(snapshot, &key);
             recorder.revoke_represented(
                 key,
                 ConversionIssue {
                     code: super::issue_codes::MRULE_UNREACHABLE_COMPACTED.to_string(),
                     class: IssueClass::UnreachableInGrammar,
-                    source: None,
+                    source,
                     fatal: false,
+                    audience: pg_snapshot::Audience::Developer,
                     message: format!("mrule {id} unreachable after reachability compaction"),
                 },
             );
@@ -100,13 +104,15 @@ pub(crate) fn finalize(
             panic!("allomorph co-occurrence rule {target:?} removed by reachability compaction but published no lineage")
         });
         for key in keys.clone() {
+            let source = super::warnings::source_for_key(snapshot, &key);
             recorder.revoke_represented(
                 key,
                 ConversionIssue {
                     code: super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE.to_string(),
                     class: IssueClass::UnreachableInGrammar,
-                    source: None,
+                    source,
                     fatal: false,
+                    audience: pg_snapshot::Audience::Developer,
                     message: format!(
                         "allomorph co-occurrence rule (owner {}, index {}) unreachable after \
                          mrule reachability compaction",
@@ -121,13 +127,15 @@ pub(crate) fn finalize(
             panic!("morpheme co-occurrence rule {target:?} removed by reachability compaction but published no lineage")
         });
         for key in keys.clone() {
+            let source = super::warnings::source_for_key(snapshot, &key);
             recorder.revoke_represented(
                 key,
                 ConversionIssue {
                     code: super::issue_codes::COOCCURRENCE_TARGET_UNREACHABLE.to_string(),
                     class: IssueClass::UnreachableInGrammar,
-                    source: None,
+                    source,
                     fatal: false,
+                    audience: pg_snapshot::Audience::Developer,
                     message: format!(
                         "morpheme co-occurrence rule {target:?} unreachable after reachability compaction"
                     ),
@@ -140,13 +148,15 @@ pub(crate) fn finalize(
             panic!("natural class {id} removed by reachability compaction but published no lineage")
         });
         for key in keys.clone() {
+            let source = super::warnings::source_for_key(snapshot, &key);
             recorder.revoke_represented(
                 key,
                 ConversionIssue {
                     code: super::issue_codes::NATURAL_CLASS_UNREFERENCED_COMPACTED.to_string(),
                     class: IssueClass::UnreachableInGrammar,
-                    source: None,
+                    source,
                     fatal: false,
+                    audience: pg_snapshot::Audience::Developer,
                     message: format!("natural class {id} unreferenced after compaction"),
                 },
             );
@@ -165,13 +175,15 @@ pub(crate) fn reject(
 ) {
     let msg = msg.into();
     warnings.push(msg.clone());
+    let source = source_for_key(&key);
     recorder.rejected(
         key,
         ConversionIssue {
             code: code.to_string(),
             class,
-            source: None,
+            source,
             fatal: false,
+            audience: pg_snapshot::Audience::Linguist,
             message: msg,
         },
     );
@@ -185,16 +197,67 @@ pub(crate) fn reject_quietly(
     class: IssueClass,
     msg: impl Into<String>,
 ) {
+    let source = source_for_key(&key);
     recorder.rejected(
         key,
         ConversionIssue {
             code: code.to_string(),
             class,
-            source: None,
+            source,
             fatal: false,
+            audience: pg_snapshot::Audience::Linguist,
             message: msg.into(),
         },
     );
+}
+
+/// Records a warning about an object or value that remains represented in the grammar.
+pub(crate) fn note(
+    recorder: &mut SelectionRecorder,
+    warnings: &mut Vec<String>,
+    code: &'static str,
+    class: IssueClass,
+    source: SourceRef,
+    audience: Audience,
+    msg: impl Into<String>,
+) {
+    let msg = msg.into();
+    warnings.push(msg.clone());
+    recorder.noted(ConversionIssue {
+        code: code.to_string(),
+        class,
+        source: Some(source),
+        fatal: false,
+        audience,
+        message: msg,
+    });
+}
+
+fn source_for_key(key: &InventoryKey) -> Option<SourceRef> {
+    let InventoryIdentity::Object { guid } = &key.identity else {
+        return None;
+    };
+    let kind = match key.kind {
+        InventoryKind::Entry => "LexEntry",
+        InventoryKind::Sense => "LexSense",
+        InventoryKind::Allomorph | InventoryKind::AffixProcess => "MoForm",
+        InventoryKind::Environment => "PhEnvironment",
+        InventoryKind::Phoneme => "PhPhoneme",
+        InventoryKind::BoundaryMarker => "PhBdryMarker",
+        InventoryKind::NaturalClass => "PhNaturalClass",
+        InventoryKind::FeatureDefinition => "FsComplexFeature",
+        InventoryKind::CompoundRule => "MoCompoundRule",
+        InventoryKind::AllomorphCoOccurrence | InventoryKind::MorphemeCoOccurrence => {
+            "MoAdhocProhib"
+        }
+        InventoryKind::Template => "MoInflAffixTemplate",
+        InventoryKind::TemplateSlot => "MoInflAffixSlot",
+        _ => return None,
+    };
+    Some(SourceRef {
+        kind: kind.to_string(),
+        id: guid.clone(),
+    })
 }
 
 /// Every snapshot object of a tracked kind becomes one `object(kind, guid)` authored key; parser settings this compiler actually reads and the custom-Strata setting (when present) round out the set.

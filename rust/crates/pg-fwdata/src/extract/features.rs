@@ -102,6 +102,7 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
                         id: value_guid.clone(),
                     }),
                     fatal: true,
+                    audience: pg_snapshot::Audience::Linguist,
                     message: format!(
                         "closedFeature.values: feature {} references value {value_guid}, \
                          which does not resolve to a FsSymFeatVal",

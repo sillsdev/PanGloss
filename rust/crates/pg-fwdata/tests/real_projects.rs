@@ -173,12 +173,11 @@ fn amharic_imports_with_expected_counts_and_adhoc_warning() {
         "LexEntryInflType count"
     );
 
-    // A stale MoMorphAdhocProhib crashes FieldWorks' own C# exporter; pg-fwdata must import successfully and still surface a warning about it.
+    // The stale prohibition must remain visible after the project imports.
     assert!(
-        report
-            .warnings
-            .iter()
-            .any(|w| w.contains("adhocProhibitions") || w.contains("ad-hoc")),
+        report.warnings.iter().any(|warning| {
+            warning.code == pg_snapshot::ImportWarningCode::FwdataStaleAdhocProhibition.wire()
+        }),
         "expected a warning about the stale ad-hoc rule; warnings were: {:#?}",
         report.warnings
     );

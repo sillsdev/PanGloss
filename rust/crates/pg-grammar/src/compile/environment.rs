@@ -1,6 +1,6 @@
 //! Environment-string tokenization and pattern building (`TokenizeContext`/`LoadPatternNodes`/`LoadEnvironmentPattern`/`SplitEnvironment`, HCLoader.cs:2260-2457): re-tokenizes and validates a hand-authored string like `/_[UnVDent]` at compile time exactly as HCLoader does at load time -- lazily and tolerantly, since a malformed environment is a warning, never a hard failure.
 
-use pg_snapshot::{InventoryKey, InventoryKind, IssueClass};
+use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SourceRef};
 
 use crate::model::{AnchorSide, EnvironmentDef, Pattern, PatternNode, SimpleContext};
 
@@ -48,22 +48,27 @@ pub(crate) fn resolve_environment_defs<'a>(
                 ctx.represented(attachment);
                 ctx.represented(env_object);
             }
-            Err(e) => {
-                ctx.reject(
+            Err(_) => {
+                let source = Some(SourceRef {
+                    kind: "PhEnvironment".to_string(),
+                    id: env.guid.clone(),
+                });
+                ctx.reject_with_source(
                     warnings,
                     attachment,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,
+                    source.clone(),
                     format!(
-                        "allomorph {allo_guid:?}: invalid environment {:?} ({}): {e}; treated as \
-                         absent",
-                        env.guid, env.representation
+                        "Environment '{}' is invalid and was ignored.",
+                        env.representation
                     ),
                 );
-                ctx.reject_quietly(
+                ctx.reject_quietly_with_source(
                     env_object,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,
+                    source,
                     "environment representation failed to parse",
                 );
             }
@@ -347,11 +352,4 @@ fn collect_literal_tokens(s: &str, out: &mut Vec<String>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::literal_text_elements;
-
-    #[test]
-    fn literal_text_elements_excludes_natural_classes_stem_placeholder_and_anchors() {
-        assert_eq!(literal_text_elements("/[V]q_#"), vec!["q".to_string()]);
-    }
-}
+mod tests;

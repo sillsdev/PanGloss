@@ -205,10 +205,12 @@ fn unknown_morph_type_allomorph_is_skipped_with_a_warning() {
         .expect("the run entry must be present");
     // Only the valid lexeme-form allomorph should have survived; the extra alternate form with an unrecognized morph-type guid must have been dropped.
     assert_eq!(run_entry.allomorphs.len(), 1);
-    assert!(report
-        .warnings
-        .iter()
-        .any(|w| w.contains("00000000-0000-0000-0000-00000000abcd")));
+    assert!(report.warnings.iter().any(|warning| {
+        warning.code == pg_snapshot::ImportWarningCode::FwdataUnknownMorphTypeGuid.wire()
+            && warning.subjects.iter().any(|subject| {
+                subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000044")
+            })
+    }));
 }
 
 /// The unrecognized-morph-type-guid warning carries a specific, stable code, so a future reword of the message is never itself a code change.
@@ -218,9 +220,46 @@ fn unknown_morph_type_warning_carries_its_stable_code() {
     let hit = report
         .warnings
         .iter()
-        .find(|w| w.contains("00000000-0000-0000-0000-00000000abcd"))
+        .find(|warning| {
+            warning.subjects.iter().any(|subject| {
+                subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000044")
+            })
+        })
         .expect("the unrecognized-morph-type warning must be present");
-    assert_eq!(hit.code, "fwdata.unknown-morph-type-guid");
+    assert_eq!(
+        hit.code,
+        pg_snapshot::ImportWarningCode::FwdataUnknownMorphTypeGuid.wire()
+    );
+}
+
+#[test]
+fn unknown_morph_type_warning_names_the_skipped_form_and_fieldworks_action() {
+    let (_, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "fwdata.unknown-morph-type-guid")
+        .expect("the unrecognized-morph-type warning must be present");
+
+    assert_eq!(
+        warning.message,
+        "Allomorph 'xxx' has an unknown morph type and was skipped."
+    );
+    assert_eq!(warning.subjects.len(), 1);
+    assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::MoForm);
+    assert_eq!(
+        warning.subjects[0].guid.as_deref(),
+        Some("00000000-0000-0000-0000-000000000044")
+    );
+    assert_eq!(warning.subjects[0].name.as_deref(), Some("xxx"));
+    assert_eq!(
+        warning.guidance.as_deref(),
+        pg_snapshot::import_warning_metadata(
+            pg_snapshot::ImportWarningCode::FwdataUnknownMorphTypeGuid,
+        )
+        .guidance
+        .as_deref()
+    );
 }
 
 #[test]
@@ -267,7 +306,11 @@ fn structurally_different_warnings_get_different_codes() {
     let morph_type_warning = report
         .warnings
         .iter()
-        .find(|w| w.contains("00000000-0000-0000-0000-00000000abcd"))
+        .find(|warning| {
+            warning.subjects.iter().any(|subject| {
+                subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000044")
+            })
+        })
         .expect("the unrecognized-morph-type warning must be present");
     let validate_warnings = snap.validate();
     let dangling_env_warning = validate_warnings
@@ -279,19 +322,22 @@ fn structurally_different_warnings_get_different_codes() {
     assert_eq!(dangling_env_warning.code, "snapshot.dangling-reference");
 }
 
-/// This warning's exact prose is pinned here (not just a substring, as the tests above check).
+/// The warning keeps linguist-facing prose instead of exposing the raw morph-type identifier.
 #[test]
-fn import_warning_prose_is_unchanged() {
+fn unknown_morph_type_warning_uses_linguist_facing_prose() {
     let (_, report) = pg_fwdata::import_file(&fixture_path()).unwrap();
     let hit = report
         .warnings
         .iter()
-        .find(|w| w.contains("00000000-0000-0000-0000-00000000abcd"))
+        .find(|warning| {
+            warning.subjects.iter().any(|subject| {
+                subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000044")
+            })
+        })
         .expect("the unrecognized-morph-type warning must be present");
     assert_eq!(
         hit.message,
-        "lexicon.entries.allomorphs: 00000000-0000-0000-0000-000000000044 has unrecognized \
-         morph-type guid 00000000-0000-0000-0000-00000000abcd; skipping"
+        "Allomorph 'xxx' has an unknown morph type and was skipped."
     );
 }
 

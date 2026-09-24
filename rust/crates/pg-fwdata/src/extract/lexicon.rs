@@ -1,8 +1,8 @@
 //! `lexicon` snapshot section — see `docs/snapshot-format.md` §6.
 
 use pg_snapshot::{
-    AffixProcess, Allomorph, EntryRef, FeatureSystems, InventoryKey, InventoryKind, IssueClass,
-    LexEntry, Lexicon, Morphology, Msa, RuleMapping, Sense, SourceRef,
+    AffixProcess, Allomorph, EntryRef, FeatureSystems, FwClass, FwObjectRef, InventoryKey,
+    InventoryKind, IssueClass, LexEntry, Lexicon, Morphology, Msa, RuleMapping, Sense, SourceRef,
 };
 
 use super::features::extract_feature_structure;
@@ -118,16 +118,25 @@ fn resolve_morph_type(
             None
         }
         MorphTypeLookup::Unknown => {
-            ctx.reject(
-                key.clone(),
+            let name = ctx.best_vernacular(&rec.node.ws_forms("Form"));
+            let warning = pg_snapshot::Warning::new(
                 super::codes::UNKNOWN_MORPH_TYPE_GUID,
+                format!("Allomorph '{name}' has an unknown morph type and was skipped."),
+            )
+            .with_subject(
+                FwObjectRef::new(FwClass::MoForm)
+                    .guid(rec.guid.clone())
+                    .name(name.clone()),
+            );
+            ctx.reject_with_warning(
+                key.clone(),
                 IssueClass::UnrepresentableForHc,
                 false,
-                None,
-                format!(
-                    "{label}: {} has unrecognized morph-type guid {mt_guid}; skipping",
-                    rec.guid
-                ),
+                Some(SourceRef {
+                    kind: rec.class.clone(),
+                    id: rec.guid.clone(),
+                }),
+                warning,
             );
             None
         }

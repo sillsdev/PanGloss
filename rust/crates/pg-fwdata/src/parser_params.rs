@@ -84,10 +84,7 @@ pub fn parse_with_issues(
             Err(_) => {
                 issues.push(Warning::new(
                     codes::INVALID_PARSER_PARAMETER,
-                    format!(
-                        "ParserParameters XAmple {tag} has invalid value {:?}",
-                        child.text.trim()
-                    ),
+                    format!("Parser parameter '{tag}' has an invalid numeric value."),
                 ));
                 presence.push((tag, false));
                 None

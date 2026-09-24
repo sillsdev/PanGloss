@@ -3,7 +3,9 @@
 use hashbrown::HashMap;
 
 use pg_snapshot::phonology::{BoundaryMarker, Phoneme};
-use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot};
+use pg_snapshot::{
+    Audience, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot, SourceRef,
+};
 
 use crate::chardef::{CharDefId, CharDefKind, CharDefTable, RawCharDef, RawFeatureValue};
 use crate::featsys::PhonFeatureSystem;
@@ -82,7 +84,7 @@ pub(crate) fn build_raw(
             );
             continue;
         }
-        let feature_values = phoneme_feature_values(ph, phon, warnings);
+        let feature_values = phoneme_feature_values(ph, phon, warnings, recorder);
         for n in &norm {
             seen_nfd.insert(n.clone());
         }
@@ -90,6 +92,7 @@ pub(crate) fn build_raw(
         phoneme_of.insert(ph.guid.clone(), CharDefId(idx as u32));
         raw_defs.push(RawCharDef {
             xml_id: ph.guid.clone(),
+            source_guid: Some(ph.guid.clone()),
             kind: CharDefKind::Segment,
             representations: reps.into_iter().map(str::to_string).collect(),
             feature_values,
@@ -137,6 +140,7 @@ pub(crate) fn build_raw(
         boundary_of.insert(bd.guid.clone(), CharDefId(idx as u32));
         raw_defs.push(RawCharDef {
             xml_id: bd.guid.clone(),
+            source_guid: None,
             kind: CharDefKind::Boundary,
             representations: reps,
             feature_values: Vec::new(),
@@ -261,6 +265,7 @@ fn push_synthetic_boundary(
     }
     raw_defs.push(RawCharDef {
         xml_id: xml_id.to_string(),
+        source_guid: None,
         kind: CharDefKind::Boundary,
         representations: free,
         feature_values: Vec::new(),
@@ -280,6 +285,7 @@ fn phoneme_feature_values(
     ph: &Phoneme,
     phon: &PhonFeatureSystem,
     warnings: &mut Vec<String>,
+    recorder: &mut SelectionRecorder,
 ) -> Vec<RawFeatureValue> {
     let Some(fs) = &ph.features else {
         return Vec::new();
@@ -287,19 +293,41 @@ fn phoneme_feature_values(
     let mut out = Vec::new();
     for v in &fs.values {
         let Some(flat) = phon.flat_index(&v.feature) else {
-            warnings.push(format!(
-                "phoneme {:?}: unknown phonological feature {:?}; value ignored",
-                ph.guid, v.feature
-            ));
+            inventory::note(
+                recorder,
+                warnings,
+                issue_codes::PHONEME_FEATURE_UNRESOLVED,
+                IssueClass::InvalidSource,
+                SourceRef {
+                    kind: "PhPhoneme".to_string(),
+                    id: ph.guid.clone(),
+                },
+                Audience::Linguist,
+                format!(
+                    "Phoneme '{}' refers to a phonological feature that is not defined.",
+                    ph.name
+                ),
+            );
             continue;
         };
         match &v.value {
             pg_snapshot::feature::FeatureValueKind::Closed { value } => {
                 if phon.symbol_index(flat, value).is_none() {
-                    warnings.push(format!(
-                        "phoneme {:?}: unknown feature value {value:?} on feature {:?}; ignored",
-                        ph.guid, v.feature
-                    ));
+                    inventory::note(
+                        recorder,
+                        warnings,
+                        issue_codes::PHONEME_FEATURE_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        SourceRef {
+                            kind: "PhPhoneme".to_string(),
+                            id: ph.guid.clone(),
+                        },
+                        Audience::Linguist,
+                        format!(
+                            "Phoneme '{}' refers to a phonological feature value that is not defined.",
+                            ph.name
+                        ),
+                    );
                     continue;
                 }
                 out.push(RawFeatureValue {
@@ -308,10 +336,21 @@ fn phoneme_feature_values(
                 });
             }
             pg_snapshot::feature::FeatureValueKind::Complex { .. } => {
-                warnings.push(format!(
-                    "phoneme {:?}: complex feature value on {:?} not supported; ignored",
-                    ph.guid, v.feature
-                ));
+                inventory::note(
+                    recorder,
+                    warnings,
+                    issue_codes::PHONEME_COMPLEX_FEATURE_UNSUPPORTED,
+                    IssueClass::UnrepresentableForHc,
+                    SourceRef {
+                        kind: "PhPhoneme".to_string(),
+                        id: ph.guid.clone(),
+                    },
+                    Audience::Linguist,
+                    format!(
+                        "Phoneme '{}' has a complex feature value that the importer cannot represent.",
+                        ph.name
+                    ),
+                );
             }
         }
     }

@@ -51,6 +51,29 @@ impl<'a> Ctx<'a> {
         self.warnings.push(Warning::new(code, msg));
     }
 
+    pub(crate) fn reject_with_warning(
+        &mut self,
+        key: InventoryKey,
+        class: IssueClass,
+        fatal: bool,
+        source: Option<SourceRef>,
+        warning: Warning,
+    ) {
+        self.warnings.push(warning.clone());
+        let audience = warning.audience;
+        self.recorder.rejected(
+            key,
+            pg_snapshot::ConversionIssue {
+                code: warning.code.to_string(),
+                class,
+                source,
+                fatal,
+                audience,
+                message: warning.message,
+            },
+        );
+    }
+
     pub fn get(&self, guid: &str) -> Option<&'a Record> {
         self.graph.get(guid)
     }
@@ -99,6 +122,7 @@ impl<'a> Ctx<'a> {
                 class,
                 source,
                 fatal,
+                audience: pg_snapshot::Audience::Linguist,
                 message: msg,
             },
         );
@@ -170,14 +194,16 @@ pub(crate) fn extract_recording(
 ) -> Result<(Snapshot, Vec<Warning>, SelectionRecorder), ImportError> {
     let mut ctx = Ctx::new(graph);
 
-    let lang_project = project::find_lang_project(&mut ctx);
+    let lang_project = project::find_lang_project(&mut ctx, filename_stem);
     let project = project::extract_project(&mut ctx, lang_project, filename_stem);
     ctx.analysis_ws = project.analysis_writing_systems.clone();
     ctx.vernacular_ws = project.vernacular_writing_systems.clone();
 
     let feature_systems = features::extract_feature_systems(&mut ctx, lang_project);
-    let phonology = phonology::extract_phonology(&mut ctx, lang_project, &feature_systems);
-    let morphology = morphology::extract_morphology(&mut ctx, lang_project, &feature_systems)?;
+    let phonology =
+        phonology::extract_phonology(&mut ctx, lang_project, &feature_systems, &project.name);
+    let morphology =
+        morphology::extract_morphology(&mut ctx, lang_project, &feature_systems, &project.name)?;
     let lexicon = lexicon::extract_lexicon(&mut ctx, &feature_systems, &morphology);
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);

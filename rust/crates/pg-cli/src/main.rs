@@ -400,7 +400,14 @@ fn run_import(args: &[String]) -> Result<(), String> {
 fn load_grammar_impl(
     path: &str,
     capture_metadata: bool,
-) -> Result<(Grammar, Vec<String>, Option<rich_trace::TraceMetadata>), String> {
+) -> Result<
+    (
+        Grammar,
+        Vec<pg_snapshot::Warning>,
+        Option<rich_trace::TraceMetadata>,
+    ),
+    String,
+> {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -419,15 +426,14 @@ fn load_grammar_impl(
         _ if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") => {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .map_err(|e| format!("import {path}: {e}"))?;
-            let mut warnings: Vec<String> =
-                report.warnings.into_iter().map(|w| w.to_string()).collect();
-            warnings.extend(snapshot.validate().into_iter().map(|w| w.to_string()));
+            let mut warnings = report.warnings;
+            warnings.extend(snapshot.validate());
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "fwdata"));
             let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
             warnings.extend(compile_warnings);
-            Ok((grammar, warnings, metadata))
+            Ok((grammar, deduplicate_warnings(warnings), metadata))
         }
         _ => {
             let (xml, hash) = if capture_metadata {
@@ -455,23 +461,47 @@ fn load_grammar_impl(
     }
 }
 
-pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<String>), String> {
+pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
     let (grammar, warnings, _) = load_grammar_impl(path, false)?;
     Ok((grammar, warnings))
 }
 
 pub(crate) fn load_grammar_with_trace_metadata(
     path: &str,
-) -> Result<(Grammar, Vec<String>, rich_trace::TraceMetadata), String> {
+) -> Result<
+    (
+        Grammar,
+        Vec<pg_snapshot::Warning>,
+        rich_trace::TraceMetadata,
+    ),
+    String,
+> {
     let (grammar, warnings, metadata) = load_grammar_impl(path, true)?;
     let metadata = metadata.ok_or_else(|| "rich trace metadata was not captured".to_string())?;
     Ok((grammar, warnings, metadata))
 }
 /// Print grammar warnings to stderr so parser stdout remains machine-readable.
-pub(crate) fn print_grammar_warnings(warnings: &[String]) {
+pub(crate) fn print_grammar_warnings(warnings: &[pg_snapshot::Warning]) {
     for w in warnings {
         eprintln!("warning: {w}");
     }
+}
+
+fn deduplicate_warnings(warnings: Vec<pg_snapshot::Warning>) -> Vec<pg_snapshot::Warning> {
+    let mut unique = Vec::with_capacity(warnings.len());
+    for warning in warnings {
+        if !unique
+            .iter()
+            .any(|existing| same_warning_fact(existing, &warning))
+        {
+            unique.push(warning);
+        }
+    }
+    unique
+}
+
+fn same_warning_fact(left: &pg_snapshot::Warning, right: &pg_snapshot::Warning) -> bool {
+    left.same_fact_as(right)
 }
 
 /// `parse <grammar> <word> [flags...]`: traces, glosses, and/or realizes exactly one word's analyses. Flag semantics are detailed in the top-level usage banner; `--gloss`/`--natural-gloss` never touch the `word\tsignature` parity line, and a missing default-resolved realize-map sidecar degrades to empty while an explicitly named one failing is a hard error.

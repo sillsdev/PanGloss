@@ -272,6 +272,7 @@ fn missing_guid_issue(class: &str, ordinal: u64) -> ConversionIssue {
             id: format!("rt#{ordinal}"),
         }),
         fatal: true,
+        audience: pg_snapshot::Audience::Linguist,
         message: format!("{class} record at rt#{ordinal} has no guid; dropped"),
     }
 }
@@ -310,6 +311,7 @@ fn push_duplicate_guid_issues(graph: &mut RawGraph) {
                 id: guid.clone(),
             }),
             fatal: true,
+            audience: pg_snapshot::Audience::Linguist,
             message: format!(
                 "guid {guid} appears on {} records: {detail}",
                 occurrences.len()

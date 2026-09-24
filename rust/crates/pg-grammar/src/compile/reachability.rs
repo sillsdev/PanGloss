@@ -11,10 +11,7 @@ use crate::model::{
 };
 
 /// Compact `grammar.mrules` to exactly the set HCLoader's own exporter would ever visit, remapping every surviving `MRuleId` to a dense index, then cascade the same treatment to `grammar.allomorph_owners` and every surviving allomorph's own `id`/`co_occurrence` (see module doc for why the cascade is required). Returns the OLD ids this pass removed: the mrules, then the `(owner allomorph id, index)` identity of every `AllomorphCoOccurrenceRuleDef` dropped alongside them -- either because its owner allomorph went with a removed mrule, or because every one of its `others` targets did.
-pub(crate) fn compact_mrules(
-    grammar: &mut Grammar,
-    warnings: &mut Vec<String>,
-) -> (Vec<u32>, Vec<(u32, usize)>) {
+pub(crate) fn compact_mrules(grammar: &mut Grammar) -> (Vec<u32>, Vec<(u32, usize)>) {
     // --- 1. Every mrule a stratum or an (enabled) template slot actually names. ---
     let mut used_mrules: HashSet<u32> = HashSet::new();
     for s in &grammar.strata {
@@ -107,7 +104,6 @@ pub(crate) fn compact_mrules(
                 &mut a.id,
                 &mut a.co_occurrence,
                 &old_to_new_allo,
-                warnings,
             ));
         }
     }
@@ -122,7 +118,6 @@ pub(crate) fn compact_mrules(
                 &mut a.id,
                 &mut a.co_occurrence,
                 &old_to_new_allo,
-                warnings,
             ));
         }
     }
@@ -143,7 +138,6 @@ fn remap_allomorph_id_and_coocc(
     id: &mut AllomorphId,
     coocc: &mut Vec<AllomorphCoOccurrenceRuleDef>,
     old_to_new: &StdHashMap<u32, u32>,
-    warnings: &mut Vec<String>,
 ) -> Vec<(u32, usize)> {
     let owner_old_id = id.0;
     id.0 = *old_to_new
@@ -152,19 +146,11 @@ fn remap_allomorph_id_and_coocc(
     let mut dropped = Vec::new();
     let mut idx = 0usize;
     coocc.retain_mut(|rule| {
-        let before = rule.others.len();
         rule.others = rule
             .others
             .iter()
             .filter_map(|o| old_to_new.get(&o.0).map(|&nid| AllomorphId(nid)))
             .collect();
-        if rule.others.len() < before {
-            warnings.push(
-                "allomorph co-occurrence rule: an 'others' target was dropped by mrule \
-                 reachability compaction; reference removed"
-                    .to_string(),
-            );
-        }
         let keep = !rule.others.is_empty();
         if !keep {
             dropped.push((owner_old_id, idx));

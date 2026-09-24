@@ -248,20 +248,30 @@ fn import_and_compile(fwdata_path: &Path) -> (Grammar, HashMap<&'static str, Vec
     let (grammar, compile_warnings) =
         pg_grammar::compile_project(&snapshot).expect("compile_project must succeed");
 
-    // `report.warnings`/`validate_warnings` are `pg_snapshot::Warning` (stable code + prose); `compile_warnings` is still plain `String`. Flattened to prose to keep this test's `HashMap<&str, Vec<String>>` shape.
+    // Keep this legacy conformance map prose-only; production callers carry the typed warnings.
     let mut warnings = HashMap::new();
     warnings.insert(
         "import",
-        report.warnings.into_iter().map(|w| w.to_string()).collect(),
+        report
+            .warnings
+            .into_iter()
+            .map(|warning| warning.message)
+            .collect(),
     );
     warnings.insert(
         "validate",
         validate_warnings
             .into_iter()
-            .map(|w| w.to_string())
+            .map(|warning| warning.message)
             .collect(),
     );
-    warnings.insert("compile", compile_warnings);
+    warnings.insert(
+        "compile",
+        compile_warnings
+            .into_iter()
+            .map(|warning| warning.message)
+            .collect(),
+    );
     (grammar, warnings)
 }
 

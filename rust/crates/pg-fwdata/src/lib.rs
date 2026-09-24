@@ -31,7 +31,7 @@ mod xml;
 
 use std::path::Path;
 
-use pg_snapshot::{ConversionProvenance, InventoryDelta, Snapshot, Warning};
+use pg_snapshot::{ConversionProvenance, FwClass, FwObjectRef, InventoryDelta, Snapshot, Warning};
 use thiserror::Error;
 
 /// Hard errors from `import_file`: I/O failures, invalid XML or non-`.fwdata` input, and source
@@ -136,17 +136,15 @@ fn read_sibling_writing_system_store(
     let Some(parent) = fwdata_path.parent() else {
         return (Vec::new(), None);
     };
+    let project_name = file_stem(fwdata_path);
     let dir = parent.join("WritingSystemStore");
     let entries = match std::fs::read_dir(&dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Vec::new(), None),
-        Err(e) => {
+        Err(_) => {
             return (
                 Vec::new(),
-                Some(Warning::new(
-                    extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
-                    format!("{}: {e}", dir.display()),
-                )),
+                Some(writing_system_store_warning(&project_name)),
             )
         }
     };
@@ -155,13 +153,8 @@ fn read_sibling_writing_system_store(
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
-            Err(e) => {
-                warning.get_or_insert_with(|| {
-                    Warning::new(
-                        extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
-                        format!("{}: {e}", dir.display()),
-                    )
-                });
+            Err(_) => {
+                warning.get_or_insert_with(|| writing_system_store_warning(&project_name));
                 continue;
             }
         };
@@ -178,17 +171,20 @@ fn read_sibling_writing_system_store(
         };
         match std::fs::read_to_string(&entry_path) {
             Ok(text) => pairs.push((tag, text)),
-            Err(e) => {
-                warning.get_or_insert_with(|| {
-                    Warning::new(
-                        extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
-                        format!("{}: {e}", entry_path.display()),
-                    )
-                });
+            Err(_) => {
+                warning.get_or_insert_with(|| writing_system_store_warning(&project_name));
             }
         }
     }
     (pairs, warning)
+}
+
+fn writing_system_store_warning(project_name: &str) -> Warning {
+    Warning::new(
+        extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
+        format!("Writing-system data for FieldWorks project '{project_name}' could not be read."),
+    )
+    .with_subject(FwObjectRef::new(FwClass::Project).name(project_name))
 }
 
 pub(crate) fn file_stem(path: &Path) -> String {

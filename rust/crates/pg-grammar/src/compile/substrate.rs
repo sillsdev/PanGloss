@@ -39,6 +39,7 @@ fn inferred_raw_def(original_representation: &str, kind: CharDefKind) -> RawChar
     let normalized_representation = nfd(original_representation);
     RawCharDef {
         xml_id: inferred_id(&normalized_representation),
+        source_guid: None,
         kind,
         representations: vec![original_representation.to_string()],
         feature_values: Vec::new(),
@@ -102,6 +103,7 @@ fn unsegmentable_issue(
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
         fatal: false,
+        audience: pg_snapshot::Audience::Linguist,
         message: format!(
             "cannot segment {text:?}: no character definition matches {ch:?} at position \
              {position}, and this project's resolved substrate policy does not complete a \
@@ -117,6 +119,7 @@ fn ambiguous_issue(source: &SourceRef, text: &str, ch: char, position: usize) ->
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
         fatal: false,
+        audience: pg_snapshot::Audience::Linguist,
         message: format!(
             "cannot segment {text:?}: {ch:?} at position {position} is neither a vernacular \
              exemplar, an authored boundary, nor in the safe boundary table; refusing rather than \
@@ -141,6 +144,7 @@ fn unmapped_position_issue(
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
         fatal: false,
+        audience: pg_snapshot::Audience::Linguist,
         message: format!(
             "cannot segment {text:?}: the failure position {position} {detail}; the true failing \
              element is likely a standalone combining mark from a decomposed character with no \
@@ -291,6 +295,7 @@ pub(crate) fn feature_rule_migration_issues(
                 class: IssueClass::MigrationDifference,
                 source: None,
                 fatal: false,
+                audience: pg_snapshot::Audience::Linguist,
                 message: format!(
                     "inferred segment {:?} carries no authored feature values, so it satisfies \
                      every feature-based natural class under HC's unspecified-lane-matches-anything \

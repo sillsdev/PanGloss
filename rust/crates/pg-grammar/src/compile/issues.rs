@@ -3,40 +3,42 @@
 //! fatal issue is found under `Refuse`. `IssueClass`/`SourceRef`/`ConversionIssue` themselves live
 //! in `pg_snapshot::conversion`; only the compiler-specific constructors and error live here.
 
-use pg_snapshot::{ConversionIssue, InventoryDelta, SourceRef};
+use pg_snapshot::ImportWarningCode;
+use pg_snapshot::{ConversionIssue, InventoryDelta, SourceRef, Warning};
 
 use crate::chardef::CharDefKind;
 use crate::model::Grammar;
 
-/// Shared code for a compile-stage warning not yet given its own per-site code/class.
-pub(crate) const LEGACY_WARNING: &str = "grammar.legacy-warning";
-
 /// `source_inventory_status == Unknown`'s fatal-under-`Refuse` code.
-pub(crate) const SOURCE_PROVENANCE_UNKNOWN: &str = "conversion.source-provenance-unknown";
+pub(crate) const SOURCE_PROVENANCE_UNKNOWN: &str =
+    ImportWarningCode::SourceProvenanceUnknown.wire();
 
 /// `substrate::complete`'s `Strict`-policy code: a recorded usage cannot segment and the project
 /// declared no closed-inventory-completion policy to fix it. Non-fatal and per-allomorph -- see
 /// `substrate`'s module doc.
-pub(crate) const SUBSTRATE_UNSEGMENTABLE_FORM: &str = "conversion.unsegmentable-form";
+pub(crate) const SUBSTRATE_UNSEGMENTABLE_FORM: &str =
+    ImportWarningCode::SubstrateUnsegmentableForm.wire();
 
 /// `substrate::complete`'s ambiguous-classification code: a failing character is neither an
 /// exemplar, an authored boundary, nor in the versioned safe-boundary table. Non-fatal and
 /// per-allomorph -- see `substrate`'s module doc.
-pub(crate) const SUBSTRATE_CLASSIFICATION_AMBIGUOUS: &str = "substrate.classification-ambiguous";
+pub(crate) const SUBSTRATE_CLASSIFICATION_AMBIGUOUS: &str =
+    ImportWarningCode::SubstrateClassificationAmbiguous.wire();
 
 /// `substrate::feature_rule_migration_issues`'s code: an inferred (featureless) segment satisfies
 /// a `Feature`-kind natural class purely via HC's unspecified-lane-matches-anything default.
 pub(crate) const SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE: &str =
-    "migration.inferred-segment-with-feature-rule";
+    ImportWarningCode::MigrationInferredSegmentWithFeatureRule.wire();
 
 /// A text-use collector's code: the owner selected a construct (a bracket-pattern/reduplication
 /// affix form) but that construct is not literal text, so it cannot publish a usage for it.
-pub(crate) const UNSUPPORTED_CONSTRUCT: &str = "conversion.unsupported-construct";
+pub(crate) const UNSUPPORTED_CONSTRUCT: &str = ImportWarningCode::UnsupportedConstruct.wire();
 
 /// `substrate::complete`'s code when a failure position remaps to an already-registered character
 /// (a decomposed-diacritic artifact of `segment::remap_error_position`'s own documented heuristic).
 /// Non-fatal and per-allomorph -- see `substrate`'s module doc.
-pub(crate) const SUBSTRATE_POSITION_UNMAPPED: &str = "substrate.position-unmapped";
+pub(crate) const SUBSTRATE_POSITION_UNMAPPED: &str =
+    ImportWarningCode::SubstratePositionUnmapped.wire();
 
 /// What the compiler had to infer about the phonological substrate rather than read off a closed
 /// declaration, plus what it could not resolve at all. Populated by `substrate::complete` under
@@ -75,13 +77,14 @@ pub enum InferenceEvidence {
 /// [`super::compile_project_with`]'s successful result: the compiled `Grammar`, the substrate
 /// inference report, and the same measurement [`super::compile_project_measured`] returns (`inventory`,
 /// not merged with the import stage's own inventory). `issues` is every conversion issue collected
-/// across the import and compile stages -- import-stage issues, every owner's own recorder issue
-/// (real code, not a generic mirror), any `warnings`-only site's `LEGACY_WARNING`, and substrate
-/// issues; `inventory.issues` carries the recorder's own subset again, unmerged with the other two.
+/// across the import and compile stages -- import-stage issues, every owner's own recorder issue,
+/// and substrate issues; `inventory.issues` carries the recorder's own subset again, unmerged with
+/// the other two.
 #[derive(Debug)]
 pub struct CompileOutput {
     pub grammar: Grammar,
     pub issues: Vec<ConversionIssue>,
+    pub warnings: Vec<Warning>,
     pub substrate: SubstrateReport,
     pub inventory: InventoryDelta,
 }

@@ -10,7 +10,7 @@ use pg_grammar::model::Grammar;
 use pg_parse::{hc_parse_batch, Morpher, WordAnalysis};
 
 /// Mirrors `pg-cli`'s `load_grammar` dispatch exactly (`src/main.rs`) so this harness accepts the same three grammar-path shapes.
-fn load_grammar(path: &str) -> (Grammar, Vec<String>) {
+fn load_grammar(path: &str) -> (Grammar, Vec<pg_snapshot::Warning>) {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -28,13 +28,12 @@ fn load_grammar(path: &str) -> (Grammar, Vec<String>) {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
                 .unwrap_or_else(|e| panic!("import {path}: {e}"));
             // Flattens coded `pg_snapshot::Warning`s to prose alongside plain-`String` compile warnings; see docs/research/predict-census-design-notes.md.
-            let mut warnings: Vec<String> =
-                report.warnings.into_iter().map(|w| w.to_string()).collect();
-            warnings.extend(snapshot.validate().into_iter().map(|w| w.to_string()));
+            let mut warnings = report.warnings;
+            warnings.extend(snapshot.validate());
             let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
                 .unwrap_or_else(|e| panic!("compile {path}: {e:?}"));
             warnings.extend(compile_warnings);
-            (grammar, warnings)
+            (grammar, deduplicate_warnings(warnings))
         }
         _ => {
             let xml = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
@@ -42,6 +41,19 @@ fn load_grammar(path: &str) -> (Grammar, Vec<String>) {
             (grammar, Vec::new())
         }
     }
+}
+
+fn deduplicate_warnings(warnings: Vec<pg_snapshot::Warning>) -> Vec<pg_snapshot::Warning> {
+    let mut unique = Vec::with_capacity(warnings.len());
+    for warning in warnings {
+        if !unique
+            .iter()
+            .any(|existing: &pg_snapshot::Warning| existing.same_fact_as(&warning))
+        {
+            unique.push(warning);
+        }
+    }
+    unique
 }
 
 fn main() {

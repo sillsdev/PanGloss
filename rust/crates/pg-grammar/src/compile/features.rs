@@ -280,22 +280,19 @@ pub(crate) fn build_phon_features(
         ));
     }
     if !fs.complex_features.is_empty() {
-        warnings.push(format!(
-            "unsupported: {} phonological complex feature(s) ignored (the Rust engine's \
-             phonological feature system only supports closed/symbolic features)",
-            fs.complex_features.len()
-        ));
-        // One combined warning covers every complex feature, so each is recorded rejected without pushing a second warning per feature.
         for cf in &fs.complex_features {
             let key = InventoryKey::object(InventoryKind::FeatureDefinition, cf.guid.clone());
             recorder.selected(key.clone());
-            super::inventory::reject_quietly(
+            super::inventory::reject(
                 recorder,
+                warnings,
                 key,
                 issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED,
                 IssueClass::UnrepresentableForHc,
-                "unsupported: phonological complex feature ignored (the Rust engine's \
-                 phonological feature system only supports closed/symbolic features)",
+                format!(
+                    "Complex phonological feature '{}' is not supported and was ignored.",
+                    cf.name
+                ),
             );
         }
     }
@@ -330,7 +327,7 @@ pub(crate) fn build_phon_features(
             recorder.represented(vkey);
         }
     }
-    PhonFeatureSystem::from_raw(raw).map_err(Into::into)
+    Ok(PhonFeatureSystem::from_raw(raw)?)
 }
 
 /// Builds a `{POS, head}` feature struct for the syntactic domain from a resolved POS symbol set and an optional, already-resolved morphosyntactic `FeatureStructure`.

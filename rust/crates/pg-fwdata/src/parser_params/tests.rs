@@ -50,9 +50,9 @@ fn active_parser_with_nested_element_is_fatal() {
 fn xample_block_is_read_field_by_field() {
     let p = parse_with_issues(Some(
         "<ParserParameters><XAmple><MaxNulls>0</MaxNulls><MaxPrefixes>1</MaxPrefixes>\
-             <MaxInfixes>0</MaxInfixes><MaxRoots>1</MaxRoots><MaxSuffixes>0</MaxSuffixes>\
-             <MaxInterfixes>0</MaxInterfixes><MaxAnalysesToReturn>20</MaxAnalysesToReturn></XAmple>\
-             <ActiveParser>XAmple</ActiveParser></ParserParameters>",
+         <MaxInfixes>0</MaxInfixes><MaxRoots>1</MaxRoots><MaxSuffixes>0</MaxSuffixes>\
+         <MaxInterfixes>0</MaxInterfixes><MaxAnalysesToReturn>20</MaxAnalysesToReturn></XAmple>\
+         <ActiveParser>XAmple</ActiveParser></ParserParameters>",
     ))
     .unwrap()
     .0;
@@ -103,7 +103,7 @@ fn malformed_xample_cap_is_none_and_reported() {
 fn presence_reports_parsed_ok_per_xample_field() {
     let (_, _, presence) = parse_with_issues(Some(
         "<ParserParameters><XAmple><MaxPrefixes>many</MaxPrefixes>\
-             <MaxRoots>2</MaxRoots></XAmple></ParserParameters>",
+         <MaxRoots>2</MaxRoots></XAmple></ParserParameters>",
     ))
     .unwrap();
     assert_eq!(
@@ -115,9 +115,9 @@ fn presence_reports_parsed_ok_per_xample_field() {
 #[test]
 fn every_xample_field_tag_appears_in_the_presence_list_exactly_once() {
     let uni = "<ParserParameters><XAmple><MaxNulls>0</MaxNulls><MaxPrefixes>1</MaxPrefixes>\
-             <MaxInfixes>0</MaxInfixes><MaxSuffixes>0</MaxSuffixes><MaxInterfixes>0</MaxInterfixes>\
-             <MaxRoots>1</MaxRoots><MaxAnalysesToReturn>20</MaxAnalysesToReturn></XAmple>\
-             </ParserParameters>";
+         <MaxInfixes>0</MaxInfixes><MaxSuffixes>0</MaxSuffixes><MaxInterfixes>0</MaxInterfixes>\
+         <MaxRoots>1</MaxRoots><MaxAnalysesToReturn>20</MaxAnalysesToReturn></XAmple>\
+         </ParserParameters>";
     let (_, _, presence) = parse_with_issues(Some(uni)).unwrap();
     for tag in XAMPLE_FIELD_TAGS {
         assert_eq!(

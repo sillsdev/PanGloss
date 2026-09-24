@@ -5,7 +5,10 @@
 //! Covers both `--threads` writer paths per the task brief -- the sequential (`STARTED` +
 //! per-line flush) and rayon-parallel (buffered, no `STARTED`) modes have genuinely different
 //! code paths in `run_batch` and each needed its own bug fixed above.
-use super::{load_grammar, run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP};
+use super::{
+    deduplicate_warnings, load_grammar, run_batch, write_parse_analysis_row, StepCap,
+    DEFAULT_STEP_CAP,
+};
 use std::fs;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -514,6 +517,61 @@ fn step_cap_unbounded_parses_and_batch_completes_ok() {
     let result_line = lines.last().expect("at least one line");
     let fields: Vec<&str> = result_line.split('\t').collect();
     assert_eq!(fields[3], "ok", "{fields:?}");
+}
+
+#[test]
+fn fwdata_load_keeps_structured_warnings_and_collapses_import_compile_duplicates() {
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    let xml = fs::read_to_string(&fixture).expect("read synthetic fixture");
+    let xml = xml.replace(
+        "guid=\"00000000-0000-0000-0000-0000000000ff\"",
+        "guid=\"00000000-0000-0000-0000-000000000017\"",
+    );
+    let fixture_copy = scratch_dir("structured-fwdata-warnings").join("fixture.fwdata");
+    fs::write(&fixture_copy, xml).expect("write adjusted synthetic fixture");
+    let (_, warnings) = load_grammar(&fixture_copy.to_string_lossy()).expect("fixture loads");
+    let unknown_morph_type: Vec<_> = warnings
+        .iter()
+        .filter(|warning| warning.code == "fwdata.unknown-morph-type-guid")
+        .collect();
+
+    assert_eq!(unknown_morph_type.len(), 1);
+    assert_eq!(
+        unknown_morph_type[0].message,
+        "Allomorph 'xxx' has an unknown morph type and was skipped."
+    );
+    assert_eq!(
+        unknown_morph_type[0].subjects[0].name.as_deref(),
+        Some("xxx")
+    );
+    assert_eq!(
+        unknown_morph_type[0].subjects[0].guid.as_deref(),
+        Some("00000000-0000-0000-0000-000000000044")
+    );
+}
+
+#[test]
+fn warning_deduplication_uses_code_and_source_identity() {
+    use pg_snapshot::{FwClass, FwObjectRef, Warning};
+
+    let same_fact = || {
+        Warning::new("fwdata.example", "different layer wording").with_subject(
+            FwObjectRef::new(FwClass::MoForm)
+                .guid("00000000-0000-0000-0000-000000000044")
+                .name("xxx"),
+        )
+    };
+    let other_object = Warning::new("fwdata.example", "other allomorph").with_subject(
+        FwObjectRef::new(FwClass::MoForm).guid("00000000-0000-0000-0000-000000000045"),
+    );
+    let other_code = Warning::new("fwdata.other", "different issue").with_subject(
+        FwObjectRef::new(FwClass::MoForm).guid("00000000-0000-0000-0000-000000000044"),
+    );
+
+    let unique = deduplicate_warnings(vec![same_fact(), same_fact(), other_object, other_code]);
+    assert_eq!(unique.len(), 3);
+    assert_eq!(unique[0].message, "different layer wording");
 }
 
 /// End-to-end `--guess` gate through `run_batch` itself, covering both `--threads` writer paths, using the same synthetic lexical-pattern grammar shape as the engine-level guesser conformance gate.

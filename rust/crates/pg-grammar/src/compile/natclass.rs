@@ -8,7 +8,9 @@ use hashbrown::HashMap;
 use pg_featstruct::SymbolBits;
 
 use pg_snapshot::phonology::NaturalClass as SnapNaturalClass;
-use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot};
+use pg_snapshot::{
+    Audience, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot, SourceRef,
+};
 
 use crate::chardef::CharDefId;
 use crate::featsys::{FlatIndex, PhonFeatureSystem, TYPE_SEGMENT_SYMBOL};
@@ -100,7 +102,8 @@ pub(crate) fn build(
                 let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
                 recorder.considered(key.clone());
                 recorder.selected(key.clone());
-                let pairs = feature_constraint_pairs(features, phon, warnings, guid);
+                let pairs =
+                    feature_constraint_pairs(features, phon, warnings, recorder, guid, name);
                 let id = NatClassId(defs.len() as u32);
                 by_guid.insert(guid.clone(), id);
                 by_name.entry(name.clone()).or_insert(id);
@@ -152,31 +155,68 @@ fn feature_constraint_pairs(
     fs: &pg_snapshot::feature::FeatureStructure,
     phon: &PhonFeatureSystem,
     warnings: &mut Vec<String>,
+    recorder: &mut SelectionRecorder,
     nc_guid: &str,
+    nc_name: &str,
 ) -> Vec<(FlatIndex, SymbolBits)> {
     let mut map: HashMap<u32, u64> = HashMap::new();
     for v in &fs.values {
         let Some(flat) = phon.flat_index(&v.feature) else {
-            warnings.push(format!(
-                "natural class {nc_guid:?}: unknown phonological feature {:?}; value ignored",
-                v.feature
-            ));
+            inventory::note(
+                recorder,
+                warnings,
+                issue_codes::NATCLASS_FEATURE_CONSTRAINT_UNRESOLVED,
+                IssueClass::InvalidSource,
+                SourceRef {
+                    kind: "PhNaturalClass".to_string(),
+                    id: nc_guid.to_string(),
+                },
+                Audience::Linguist,
+                format!(
+                    "Natural class '{}' refers to a phonological feature that is not defined.",
+                    display_natural_class_name(nc_name)
+                ),
+            );
             continue;
         };
         match &v.value {
             pg_snapshot::feature::FeatureValueKind::Closed { value } => {
                 let Some(idx) = phon.symbol_index(flat, value) else {
-                    warnings.push(format!(
-                        "natural class {nc_guid:?}: unknown feature value {value:?}; ignored"
-                    ));
+                    inventory::note(
+                        recorder,
+                        warnings,
+                        issue_codes::NATCLASS_FEATURE_CONSTRAINT_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        SourceRef {
+                            kind: "PhNaturalClass".to_string(),
+                            id: nc_guid.to_string(),
+                        },
+                        Audience::Linguist,
+                        format!(
+                            "Natural class '{}' refers to a phonological feature value that is not defined.",
+                            display_natural_class_name(nc_name)
+                        ),
+                    );
                     continue;
                 };
                 *map.entry(flat.0).or_insert(0) |= 1u64 << idx;
             }
             pg_snapshot::feature::FeatureValueKind::Complex { .. } => {
-                warnings.push(format!(
-                    "natural class {nc_guid:?}: complex feature value not supported; ignored"
-                ));
+                inventory::note(
+                    recorder,
+                    warnings,
+                    issue_codes::NATCLASS_COMPLEX_FEATURE_UNSUPPORTED,
+                    IssueClass::UnrepresentableForHc,
+                    SourceRef {
+                        kind: "PhNaturalClass".to_string(),
+                        id: nc_guid.to_string(),
+                    },
+                    Audience::Linguist,
+                    format!(
+                        "Natural class '{}' has a complex phonological feature value that the importer cannot represent.",
+                        display_natural_class_name(nc_name)
+                    ),
+                );
             }
         }
     }
@@ -187,6 +227,14 @@ fn feature_constraint_pairs(
         .collect();
     out.sort_by_key(|(f, _)| f.0);
     out
+}
+
+fn display_natural_class_name(name: &str) -> &str {
+    if name.is_empty() {
+        "unnamed natural class"
+    } else {
+        name
+    }
 }
 
 // Post-hoc reachability compaction (see this module's top doc).

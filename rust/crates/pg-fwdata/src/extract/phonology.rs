@@ -1,9 +1,9 @@
 //! `phonology` snapshot section — see `docs/snapshot-format.md` §4.
 
 use pg_snapshot::{
-    BoundaryMarker, Environment, FeatureConstraint, FeatureSystems, InventoryKey, InventoryKind,
-    IssueClass, MetathesisRule, NaturalClass, PhonContext, Phoneme, PhonologicalRule, Phonology,
-    RewriteRhs, RewriteRule, RuleDirection,
+    BoundaryMarker, Environment, FeatureConstraint, FeatureSystems, FwClass, FwObjectRef,
+    InventoryKey, InventoryKind, IssueClass, MetathesisRule, NaturalClass, PhonContext, Phoneme,
+    PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection, Warning,
 };
 
 use super::features::extract_feature_structure;
@@ -15,6 +15,7 @@ pub fn extract_phonology(
     ctx: &mut Ctx,
     lang_project: Option<&Record>,
     feature_systems: &FeatureSystems,
+    project_name: &str,
 ) -> Phonology {
     let _ = feature_systems; // feature guids are resolved lazily by `extract_feature_structure`.
     let Some(lang_project) = lang_project else {
@@ -27,7 +28,7 @@ pub fn extract_phonology(
         return Phonology::default();
     };
 
-    let (phonemes, boundary_markers) = extract_phoneme_set(ctx, phon_data);
+    let (phonemes, boundary_markers) = extract_phoneme_set(ctx, phon_data, project_name);
     let natural_classes = extract_natural_classes(ctx, phon_data);
     let environments = extract_environments(ctx, phon_data);
     let feature_constraints = extract_feature_constraints(ctx, phon_data);
@@ -44,15 +45,22 @@ pub fn extract_phonology(
 }
 
 /// `HCLoader` only ever loads the first phoneme set (HCLoader.cs:204); this does the same, warning if there is more than one.
-fn extract_phoneme_set(ctx: &mut Ctx, phon_data: &Record) -> (Vec<Phoneme>, Vec<BoundaryMarker>) {
+fn extract_phoneme_set(
+    ctx: &mut Ctx,
+    phon_data: &Record,
+    project_name: &str,
+) -> (Vec<Phoneme>, Vec<BoundaryMarker>) {
     let set_guids = phon_data.node.objsur_list("PhonemeSets");
     if set_guids.len() > 1 {
-        ctx.warn(
-            super::codes::ONLY_FIRST_USED,
-            format!(
-                "phonology: {} phoneme sets present; only the first is used (matches HCLoader)",
-                set_guids.len()
-            ),
+        ctx.warnings.push(
+            Warning::new(
+                super::codes::ONLY_FIRST_USED,
+                format!(
+                    "FieldWorks project '{project_name}' has {} phoneme sets; only the first is used.",
+                    set_guids.len()
+                ),
+            )
+            .with_subject(FwObjectRef::new(FwClass::Project).name(project_name)),
         );
     }
     // Every set beyond the first is looked at only to record it as considered, never selected.

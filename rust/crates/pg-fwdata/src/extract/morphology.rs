@@ -2,9 +2,9 @@
 
 use pg_snapshot::{
     AdhocProhibition, Adjacency, AffixSlot, AffixTemplate, CompoundConstituentRequirement,
-    CompoundOutcome, CompoundRule, ConversionIssue, ExceptionFeature, FeatureSystems,
-    InflectionClass, InventoryKey, InventoryKind, IssueClass, LexEntryInflType, Lexicon,
-    Morphology, ParserParameters, PartOfSpeech, SourceRef, StemName,
+    CompoundOutcome, CompoundRule, ConversionIssue, ExceptionFeature, FeatureSystems, FwClass,
+    FwObjectRef, InflectionClass, InventoryKey, InventoryKind, IssueClass, LexEntryInflType,
+    Lexicon, Morphology, ParserParameters, PartOfSpeech, SourceRef, StemName,
 };
 
 use super::features::extract_feature_structure;
@@ -16,6 +16,7 @@ pub fn extract_morphology(
     ctx: &mut Ctx,
     lang_project: Option<&Record>,
     _feature_systems: &FeatureSystems,
+    project_name: &str,
 ) -> Result<Morphology, ImportError> {
     let parts_of_speech = lang_project
         .and_then(|lp| lp.node.objsur_one("PartsOfSpeech"))
@@ -59,7 +60,10 @@ pub fn extract_morphology(
     let (parser_parameters, parser_issues, settings_presence) =
         parser_params::parse_with_issues(parser_raw.as_deref())?;
     record_parser_settings(ctx, &parser_parameters, &settings_presence);
-    ctx.warnings.extend(parser_issues);
+    ctx.warnings
+        .extend(parser_issues.into_iter().map(|warning| {
+            warning.with_subject(FwObjectRef::new(FwClass::Project).name(project_name))
+        }));
 
     Ok(Morphology {
         parts_of_speech,
@@ -99,6 +103,7 @@ fn record_parser_settings(
                     class: IssueClass::MalformedSource,
                     source: None,
                     fatal: false,
+                    audience: pg_snapshot::Audience::Linguist,
                     message: format!(
                         "morphology.parserParameters: XAmple {field} is present but malformed"
                     ),
@@ -459,6 +464,7 @@ fn record_compound_side_attachment(
                     id: target_guid.to_string(),
                 }),
                 fatal: !rule_disabled,
+                audience: pg_snapshot::Audience::Linguist,
                 message: format!(
                     "morphology.compoundRules: compound rule {owner_guid} references {role} \
                      MSA {target_guid}, which does not resolve to a MoStemMsa"
@@ -607,12 +613,11 @@ pub fn check_stale_adhoc_morpheme_rules(ctx: &mut Ctx, morphology: &Morphology, 
     }
     collect_slots(&morphology.parts_of_speech, &mut enabled_slots);
 
-    let find_msa = |guid: &str| -> Option<&Msa> {
+    let find_msa_entry = |guid: &str| -> Option<&pg_snapshot::lexicon::LexEntry> {
         lexicon
             .entries
             .iter()
-            .flat_map(|e| &e.msas)
-            .find(|m| m.guid() == guid)
+            .find(|entry| entry.msas.iter().any(|msa| msa.guid() == guid))
     };
 
     for prohib in &morphology.adhoc_prohibitions {
@@ -630,16 +635,36 @@ pub fn check_stale_adhoc_morpheme_rules(ctx: &mut Ctx, morphology: &Morphology, 
             continue;
         }
         for msa_guid in std::iter::once(primary).chain(others.iter()) {
-            if let Some(Msa::Inflectional { slots, .. }) = find_msa(msa_guid) {
+            if let Some(entry) = find_msa_entry(msa_guid) {
+                let Some(Msa::Inflectional { slots, .. }) =
+                    entry.msas.iter().find(|msa| msa.guid() == msa_guid)
+                else {
+                    continue;
+                };
                 if !slots.is_empty() && !slots.iter().any(|s| enabled_slots.contains(s.as_str())) {
-                    ctx.warn(
+                    let affix_name = entry
+                        .citation_form
+                        .first()
+                        .map(|form| form.form.as_str())
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or("unnamed inflectional affix");
+                    let warning = pg_snapshot::Warning::new(
                         super::codes::STALE_ADHOC_PROHIBITION,
                         format!(
-                            "morphology.adhocProhibitions: ad-hoc prohibition {guid} references \
-                             inflectional affix {msa_guid}, whose slot(s) are not part of any \
-                             enabled affix template (stale/unreachable rule)"
+                            "Ad hoc prohibition for '{affix_name}' refers to an inflectional affix whose slot is not part of an enabled template."
                         ),
+                    )
+                    .with_subject(
+                        pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoAdhocProhib)
+                            .guid(guid.clone())
+                            .name(format!("Ad hoc prohibition for '{affix_name}'")),
+                    )
+                    .with_subject(
+                        pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoInflAffMsa)
+                            .guid(msa_guid.clone())
+                            .name(affix_name),
                     );
+                    ctx.warnings.push(warning);
                 }
             }
         }

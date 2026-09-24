@@ -1,17 +1,20 @@
 //! `project` snapshot section — see `docs/snapshot-format.md` §2.
 
-use pg_snapshot::Project;
+use pg_snapshot::{FwClass, FwObjectRef, Project, Warning};
 
 use super::Ctx;
 use crate::xml::Record;
 
 /// A missing `LangProject` record warns rather than hard-errors: every downstream section already treats it as "resolve nothing, warn", so a warning plus an all-defaults `Snapshot` is more useful than a crash on truncated-but-parseable XML.
-pub fn find_lang_project<'a>(ctx: &mut Ctx<'a>) -> Option<&'a Record> {
+pub fn find_lang_project<'a>(ctx: &mut Ctx<'a>, project_name: &str) -> Option<&'a Record> {
     let rec = ctx.graph.by_class("LangProject").next();
     if rec.is_none() {
-        ctx.warn(
-            super::codes::MISSING_LANG_PROJECT,
-            "no <rt class=\"LangProject\"> record found in this .fwdata file".to_string(),
+        ctx.warnings.push(
+            Warning::new(
+                super::codes::MISSING_LANG_PROJECT,
+                format!("FieldWorks project '{project_name}' has no language project data."),
+            )
+            .with_subject(FwObjectRef::new(FwClass::Project).name(project_name)),
         );
     }
     rec
