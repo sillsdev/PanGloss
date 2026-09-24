@@ -737,7 +737,7 @@ impl<'g> Morpher<'g> {
         w.stratum = root_stratum;
         w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
         w.mpr = entry.mpr;
-        w.flags.is_partial = entry.partial;
+        w.flags.is_partial = entry.is_partial();
         w.root_allomorph = Some(allo);
         // MarkMorph(shape, rootAllomorph, RootMorphID): the root is the base morph at order 0.
         w.root_runtime_id = None;
@@ -1428,7 +1428,7 @@ impl<'g> Morpher<'g> {
         let mut w = Word::new(shape, stratum);
         w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
         w.mpr = entry.mpr;
-        w.flags.is_partial = entry.partial;
+        w.flags.is_partial = entry.is_partial();
         w.root_allomorph = Some(allo.id);
         w.real_fs = real_fs;
         w.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];

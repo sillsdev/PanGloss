@@ -76,7 +76,9 @@ fn plan_composed_has_no_production_compile_arm() {
 #[test]
 fn a_partial_grammar_compiles_under_containment_and_is_then_refused_publication() {
     let mut grammar = pg_grammar::load(MINIMAL_XML).expect("fixture must load");
-    grammar.entries[0].partial = true;
+    grammar.entries[0].partial_reason = Some(
+        pg_grammar::model::PartialMorphemeReason::StemWithoutCategory,
+    );
     let strategy = EmissionStrategy::TunedSurfaceProbed;
     let attempt = CompileAttempt::try_new().expect("attempt id must construct");
     let selection = crate::backend_selection::select_backends_for_grammar(&grammar);

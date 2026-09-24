@@ -804,7 +804,7 @@ pub(crate) fn seed_from_entry(g: &Grammar, le: LexEntryId, real_fs: FeatureStruc
     let mut w = Word::new(shape, stratum);
     w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
     w.mpr = entry.mpr;
-    w.flags.is_partial = entry.partial;
+    w.flags.is_partial = entry.is_partial();
     w.root_allomorph = Some(allo.id);
     w.real_fs = real_fs;
     w.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
@@ -1556,7 +1556,7 @@ fn synth_affix(
     // Gate order matches C#: template prohibitions, then `RequiredStemName`, then the syn-FS unify; independent gates, so order only picks which `FailureReason` is reported first. Both template checks are guarded on `!is_template_rule`, since a template's own slot rules are never subject to them.
 
     // After a *final* template, prohibit a non-partial rule.
-    if final_template_prohibits(role, word, rule.partial, policy) {
+    if final_template_prohibits(role, word, rule.is_partial(), policy) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -1564,7 +1564,7 @@ fn synth_affix(
     if ordinary_invocation(role)
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
         && !word.flags.is_partial
-        && rule.partial
+        && rule.is_partial()
     {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
@@ -1602,7 +1602,7 @@ fn synth_affix(
             word,
             rule.morpheme,
             &rule.obligatory_features,
-            Some(rule.partial),
+            Some(rule.is_partial()),
             true,
             allo,
             &segs,
@@ -1666,14 +1666,14 @@ fn synth_affix_cached(
     // Gate order and `!is_template_rule` guards mirror `synth_affix`; order matters only because the first failing gate is the reported reason.
 
     // Final-template prohibition.
-    if final_template_prohibits(role, word, rule.partial, policy) {
+    if final_template_prohibits(role, word, rule.is_partial(), policy) {
         not_applied!(FailureReason::NonPartialRuleProhibitedAfterFinalTemplate);
     }
     // (b) Non-final-template prohibition.
     if ordinary_invocation(role)
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
         && !word.flags.is_partial
-        && rule.partial
+        && rule.is_partial()
     {
         not_applied!(FailureReason::NonPartialRuleRequiredAfterNonFinalTemplate);
     }
@@ -1708,7 +1708,7 @@ fn synth_affix_cached(
             word,
             rule.morpheme,
             &rule.obligatory_features,
-            Some(rule.partial),
+            Some(rule.is_partial()),
             true,
             allo,
             &segs,
@@ -3484,7 +3484,7 @@ fn resolve_non_head_roots(
         let mut nh = Word::new(shape, root_stratum);
         nh.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
         nh.mpr = entry.mpr;
-        nh.flags.is_partial = entry.partial;
+        nh.flags.is_partial = entry.is_partial();
         nh.root_allomorph = Some(allo_id);
         nh.morphs = vec![MorphRecord::new(allo_id, entry.morpheme, 0)];
         out.push(nh);

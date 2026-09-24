@@ -665,7 +665,7 @@ fn process_root_work(
             closure_trace,
         };
         // Seeds the chain's automaton state at the root's own stratum, disabling template entry forever if the root is partial.
-        let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
+        let seed_state = ChainState::seed(g, root_stratum.0, entry.is_partial());
         extend(
             &root_ctx,
             &word,

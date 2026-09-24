@@ -254,7 +254,7 @@ fn loads_hand_built_minimal_grammar() {
 
     let mut facts_grammar = g;
     if let MorphRuleDef::AffixProcess(def) = &mut facts_grammar.mrules[0] {
-        def.partial = true;
+        def.partial_reason = Some(PartialMorphemeReason::InflectionalAffixWithoutTemplateSlot);
     }
     facts_grammar.morphemes[0].stratum = StratumId(1);
     let table = facts_grammar.strata[0].table;
@@ -289,7 +289,7 @@ fn loads_hand_built_minimal_grammar() {
     assert_eq!(facts.disabled_strata(), &[StratumId(1), StratumId(2)]);
 
     let mut entry_only = load(XML).unwrap();
-    entry_only.entries[0].partial = true;
+    entry_only.entries[0].partial_reason = Some(PartialMorphemeReason::StemWithoutCategory);
     let entry_only_facts = entry_only.final_template_prune_facts().unwrap();
     assert_eq!(entry_only_facts.partial_rule_count(), 0);
     assert_eq!(entry_only_facts.partial_rule_at_or_below(), &[false]);
@@ -716,7 +716,7 @@ fn dtd_attribute_defaults_match_spec() {
         "MorphologicalRule blockable defaults to true per DTD"
     );
     assert!(
-        !mr1.partial,
+        !mr1.is_partial(),
         "MorphologicalRule partial defaults to false per DTD"
     );
     assert_eq!(

@@ -113,7 +113,7 @@ fn affix_rule(morpheme: u32, allomorphs: Vec<AffixAllomorphDef>) -> MorphRuleDef
         morpheme: MorphemeId(morpheme),
         name: None,
         blockable: false,
-        partial: false,
+        partial_reason: None,
         max_apps: 1,
         required_syn_fs: pg_featstruct::FsId(0),
         out_syn_fs: pg_featstruct::FsId(0),

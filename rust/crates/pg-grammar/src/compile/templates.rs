@@ -143,13 +143,23 @@ fn build_template(
                 slot_key,
                 issue_codes::TEMPLATE_SLOT_NO_RULES,
                 IssueClass::UnrepresentableForHc,
-                "template slot has no loaded affix rules",
+                format!(
+                    "Affix template slot '{}' has no loaded inflectional affixes.",
+                    affix_slot.name
+                ),
             );
-            ctx.reject_quietly(
+            ctx.reject_quietly_with_source(
                 attachment,
                 issue_codes::TEMPLATE_SLOT_NO_RULES,
                 IssueClass::UnrepresentableForHc,
-                "template-slot attachment: slot has no loaded affix rules",
+                Some(pg_snapshot::SourceRef {
+                    kind: "MoInflAffixSlot".to_string(),
+                    id: slot_guid.to_string(),
+                }),
+                format!(
+                    "Affix template slot '{}' has no loaded inflectional affixes.",
+                    affix_slot.name
+                ),
             );
             continue;
         }
@@ -256,11 +266,15 @@ fn build_null_affix_rule(
     ctx.considered(key.clone());
     let Some(required_mpr) = ctx.mpr.lex_entry_infl_type(&it.guid) else {
         ctx.selected(key.clone());
-        ctx.reject(
+        ctx.reject_with_source(
             warnings,
             key,
             issue_codes::NULL_AFFIX_MPR_UNRESOLVED,
             IssueClass::InvalidSource,
+            Some(pg_snapshot::SourceRef {
+                kind: "LexEntryInflType".to_string(),
+                id: it.guid.clone(),
+            }),
             format!(
                 "lexEntryInflType {:?}: does not resolve in the MPR registry; null-affix rule skipped",
                 it.guid
@@ -275,11 +289,15 @@ fn build_null_affix_rule(
             match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
                 Ok(v) => acc.fs_interner.intern(v),
                 Err(e) => {
-                    ctx.reject(
+                    ctx.reject_with_source(
                         warnings,
                         key,
                         issue_codes::NULL_AFFIX_SYN_FS_FAILED,
                         IssueClass::UnrepresentableForHc,
+                        Some(pg_snapshot::SourceRef {
+                            kind: "LexEntryInflType".to_string(),
+                            id: it.guid.clone(),
+                        }),
                         format!(
                             "lexEntryInflType {:?}: {e}; null-affix rule skipped",
                             it.guid
@@ -297,11 +315,15 @@ fn build_null_affix_rule(
     };
     let null_ins = if is_prefix { "^0+" } else { "+^0" };
     let Ok(insert) = insert_segments(null_ins, ctx) else {
-        ctx.reject(
+        ctx.reject_with_source(
             warnings,
             key,
             issue_codes::NULL_AFFIX_SEGMENT_FAILED,
             IssueClass::UnrepresentableForHc,
+            Some(pg_snapshot::SourceRef {
+                kind: "LexEntryInflType".to_string(),
+                id: it.guid.clone(),
+            }),
             format!(
                 "lexEntryInflType {:?}: cannot segment null-affix marker {null_ins:?}; rule skipped",
                 it.guid
@@ -344,6 +366,7 @@ fn build_null_affix_rule(
     acc.morphemes.push(MorphemeInfo {
         xml_key: format!("null-affix#{}", it.guid),
         source_msa_guid: None,
+        source_msa_class: None,
         source_infl_type_guid: Some(it.guid.clone()),
         morph_id: None,
         gloss: None,
@@ -357,7 +380,7 @@ fn build_null_affix_rule(
             morpheme,
             name: Some("Null".to_string()),
             blockable: true,
-            partial: false,
+            partial_reason: None,
             max_apps: 1,
             required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
             out_syn_fs,

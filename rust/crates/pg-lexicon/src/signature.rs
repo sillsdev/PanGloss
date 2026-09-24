@@ -127,7 +127,7 @@ impl ClassCatalog {
     ) -> Result<Self, String> {
         let mut resolved: Vec<ResolvedSignature> = Vec::new();
         for entry in &grammar.entries {
-            if entry.partial
+            if entry.is_partial()
                 || entry.family.is_some()
                 || !grammar.morphemes[entry.morpheme.0 as usize]
                     .co_occurrence

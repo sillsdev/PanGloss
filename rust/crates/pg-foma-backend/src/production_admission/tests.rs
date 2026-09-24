@@ -34,7 +34,9 @@ fn a_grammar_with_no_partials_is_production_admissible_for_every_strategy() {
 #[test]
 fn a_partial_entry_blocks_publication_as_readiness_only() {
     let mut grammar = pg_grammar::load(NO_PARTIAL_XML).expect("fixture must load");
-    grammar.entries[0].partial = true;
+    grammar.entries[0].partial_reason = Some(
+        pg_grammar::model::PartialMorphemeReason::StemWithoutCategory,
+    );
     for &strategy in crate::strategy_coverage::ALL_STRATEGIES {
         let admission = assess_completed_fst(&grammar, strategy).expect("valid grammar facts");
         assert_eq!(admission.health().admission(), Severity::NotProductionReady);
@@ -57,7 +59,9 @@ fn a_partial_entry_blocks_publication_as_readiness_only() {
 #[test]
 fn the_diagnostic_names_both_kinds_separately() {
     let mut grammar = pg_grammar::load(NO_PARTIAL_XML).expect("fixture must load");
-    grammar.entries[0].partial = true;
+    grammar.entries[0].partial_reason = Some(
+        pg_grammar::model::PartialMorphemeReason::StemWithoutCategory,
+    );
     let admission = assess_completed_fst(&grammar, EmissionStrategy::TunedSurfaceProbed)
         .expect("valid grammar facts");
     let explanation = &admission.health().findings[0].explanation;

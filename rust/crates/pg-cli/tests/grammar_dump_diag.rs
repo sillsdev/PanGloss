@@ -34,7 +34,7 @@ fn rule_label(g: &Grammar, mid: pg_grammar::model::MRuleId) -> String {
                 d.name.as_deref().unwrap_or(""),
                 gloss,
                 d.allomorphs.len(),
-                d.partial,
+                d.is_partial(),
                 d.is_template_rule
             )
         }

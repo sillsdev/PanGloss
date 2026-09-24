@@ -15,6 +15,7 @@ fn grammar(msa: Option<&str>, infl_type: Option<&str>, forms: Vec<Vec<Option<&st
     grammar.morphemes.push(MorphemeInfo {
         xml_key: "morpheme-key".to_string(),
         source_msa_guid: msa.map(str::to_string),
+        source_msa_class: None,
         source_infl_type_guid: infl_type.map(str::to_string),
         morph_id: None,
         gloss: None,
@@ -146,6 +147,7 @@ fn sorts_multiple_morphs_by_annotation_order() {
     grammar.morphemes.push(MorphemeInfo {
         xml_key: "morpheme-key-2".to_string(),
         source_msa_guid: Some("11111111-1111-4111-8111-111111111111".to_string()),
+        source_msa_class: None,
         source_infl_type_guid: None,
         morph_id: None,
         gloss: None,
@@ -374,6 +376,7 @@ fn infix_source_is_inserted_before_the_last_fieldworks_morph() {
         grammar.morphemes.push(MorphemeInfo {
             xml_key: format!("morpheme-key-{index}"),
             source_msa_guid: Some("11111111-1111-4111-8111-111111111111".to_string()),
+            source_msa_class: None,
             source_infl_type_guid: None,
             morph_id: None,
             gloss: None,

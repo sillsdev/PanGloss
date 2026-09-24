@@ -263,11 +263,11 @@ fn every_backend_proposes_the_analyses_that_exist_only_because_a_rule_is_partial
     let mut cleared = load(&fixture.load_grammar_xml());
     for rule in &mut cleared.mrules {
         if let pg_grammar::model::MorphRuleDef::AffixProcess(def) = rule {
-            def.partial = false;
+            def.partial_reason = None;
         }
     }
     for entry in &mut cleared.entries {
-        entry.partial = false;
+        entry.partial_reason = None;
     }
 
     let oracle = pg_parse::Morpher::new(&grammar, usize::MAX);

@@ -9,9 +9,9 @@ use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AffixTemplateDef, AllomorphId, AllomorphOwner, Grammar,
     LexEntryDef, LexEntryId, MRuleId, MorphRuleDef, MorphRuleOrder, MorphemeId, MprSet,
-    OutputAction, PartRef, Pattern, PatternNode, ReduplicationHint, RootAllomorphDef,
-    SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId, TemplateId,
-    TemplateSlotZone, VarTable,
+    OutputAction, PartRef, PartialMorphemeReason, Pattern, PatternNode, ReduplicationHint,
+    RootAllomorphDef, SegmentedText, SimpleContext, SlotDef, StratumDef, StratumId, TableId,
+    TemplateId, TemplateSlotZone, VarTable,
 };
 use pg_rules::cache::RuleCache;
 use pg_rules::stratum::synthesize_stratum;
@@ -100,7 +100,8 @@ fn push_suffix_rule(g: &mut Grammar, morpheme: u32, seg: &str, partial: bool) ->
         morpheme: MorphemeId(morpheme),
         name: None,
         blockable: false,
-        partial,
+        partial_reason: partial
+            .then_some(pg_grammar_model::model::PartialMorphemeReason::UnclassifiedAffix),
         max_apps: 1,
         required_syn_fs: pg_featstruct::FsId(0),
         out_syn_fs: pg_featstruct::FsId(0),
@@ -175,7 +176,7 @@ fn push_root_entry(g: &mut Grammar, partial: bool) -> AllomorphId {
         morpheme: MorphemeId(900),
         syn_fs: pg_featstruct::FsId(0),
         mpr: MprSet::EMPTY,
-        partial,
+        partial_reason: partial.then_some(PartialMorphemeReason::StemWithoutCategory),
         allomorphs: vec![RootAllomorphDef {
             id: allo_id,
             shape: SegmentedText {

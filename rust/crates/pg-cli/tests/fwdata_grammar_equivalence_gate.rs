@@ -530,7 +530,7 @@ impl<'g> GV<'g> {
                     self.stratum_of(d.morpheme).0,
                     self.canon_fs(d.required_syn_fs),
                     self.canon_fs(d.out_syn_fs),
-                    d.partial,
+                    d.is_partial(),
                     d.blockable,
                     d.max_apps,
                     oblig.join(","),
@@ -592,7 +592,7 @@ impl<'g> GV<'g> {
             stratum: self.stratum_of(e.morpheme).0,
             syn_fs: self.canon_fs(e.syn_fs),
             mpr: self.canon_mpr(e.mpr),
-            partial: e.partial,
+            partial: e.is_partial(),
         }
     }
 

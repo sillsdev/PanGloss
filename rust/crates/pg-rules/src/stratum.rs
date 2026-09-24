@@ -1764,12 +1764,12 @@ fn root_is_partial(g: &Grammar, word: &Word) -> bool {
     match word.root_allomorph {
         Some(allo) if allo == AllomorphId::GUESSED => match word.root_runtime() {
             Some(crate::word::RuntimeRoot::Guessed(gr)) => {
-                g.entries[gr.pattern_entry.0 as usize].partial
+                g.entries[gr.pattern_entry.0 as usize].is_partial()
             }
             Some(crate::word::RuntimeRoot::Supplied(_)) | None => false,
         },
         Some(allo) => match g.allomorph_owners[allo.0 as usize] {
-            AllomorphOwner::Root(le, _) => g.entries[le.0 as usize].partial,
+            AllomorphOwner::Root(le, _) => g.entries[le.0 as usize].is_partial(),
             AllomorphOwner::Affix(..) => false,
         },
         None => false,

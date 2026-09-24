@@ -121,6 +121,7 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
     g.morphemes.push(MorphemeInfo {
         xml_key: format!("m{}", morpheme.0),
         source_msa_guid: None,
+        source_msa_class: None,
         source_infl_type_guid: None,
         morph_id: None,
         gloss: None,
@@ -134,7 +135,7 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
         morpheme,
         syn_fs,
         mpr,
-        partial: false,
+        partial_reason: None,
         allomorphs: vec![],
         family: None,
     });

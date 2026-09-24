@@ -92,7 +92,7 @@ fn self_matching_suffix_rule(g: &Grammar, morpheme: u32, seg: &str, max_apps: u1
         morpheme: MorphemeId(morpheme),
         name: None,
         blockable: false,
-        partial: false,
+        partial_reason: None,
         max_apps,
         required_syn_fs: pg_featstruct::FsId(0),
         out_syn_fs: pg_featstruct::FsId(0),

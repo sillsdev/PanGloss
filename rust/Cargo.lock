@@ -946,6 +946,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "pg-featstruct",
  "pg-shape",
+ "pg-snapshot",
  "serde",
  "thiserror",
  "unicode-normalization",

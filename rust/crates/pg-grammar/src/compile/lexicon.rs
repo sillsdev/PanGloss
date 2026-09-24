@@ -8,7 +8,9 @@ use pg_snapshot::{
     InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot, SourceRef,
 };
 
-use crate::model::{LexEntryDef, LexEntryId, MRuleId, RootAllomorphDef, StratumId};
+use crate::model::{
+    LexEntryDef, LexEntryId, MRuleId, PartialMorphemeReason, RootAllomorphDef, StratumId,
+};
 use crate::GrammarError;
 
 use super::{affixes, issue_codes, roles, Acc, Ctx};
@@ -279,7 +281,9 @@ fn build_stem_entry(
             return None;
         }
     };
-    let partial = part_of_speech.is_none();
+    let partial_reason = part_of_speech
+        .is_none()
+        .then_some(PartialMorphemeReason::StemWithoutCategory);
 
     // Explicit inflection class, else the owning POS's default walked up the ownership chain.
     let infl_class_guid = inflection_class.clone().or_else(|| {
@@ -389,11 +393,17 @@ fn build_stem_entry(
         }
     }
     if allomorphs.is_empty() {
-        ctx.reject_quietly(
+        let entry_name = super::best_ws(&entry.citation_form, ctx.default_vernacular_ws.as_deref())
+            .unwrap_or("unnamed lexical entry");
+        ctx.reject_quietly_with_source(
             msa_key,
             issue_codes::MSA_NO_ALLOMORPHS,
             IssueClass::UnrepresentableForHc,
-            "MSA has zero loadable allomorphs for this stratum bucket",
+            Some(pg_snapshot::SourceRef {
+                kind: "LexEntry".to_string(),
+                id: entry.guid.clone(),
+            }),
+            format!("Lexical entry '{entry_name}' has no loadable allomorphs."),
         );
         return None;
     }
@@ -404,13 +414,14 @@ fn build_stem_entry(
         morpheme: crate::model::MorphemeId(acc.morphemes.len() as u32),
         syn_fs,
         mpr,
-        partial,
+        partial_reason,
         allomorphs,
         family: None,
     });
     acc.morphemes.push(crate::model::MorphemeInfo {
         xml_key: guid.clone(),
         source_msa_guid: Some(guid.clone()),
+        source_msa_class: Some(msa.fw_class()),
         source_infl_type_guid: infl_type.map(|it| it.guid.clone()),
         morph_id: None,
         gloss: sense_gloss(entry, guid, ctx).map(str::to_string),
@@ -680,7 +691,9 @@ fn build_variant_stem_entry(
             return None;
         }
     };
-    let partial = part_of_speech.is_none();
+    let partial_reason = part_of_speech
+        .is_none()
+        .then_some(PartialMorphemeReason::StemWithoutCategory);
 
     let infl_class_guid = inflection_class.clone().or_else(|| {
         part_of_speech
@@ -741,11 +754,20 @@ fn build_variant_stem_entry(
         }
     }
     if allomorphs.is_empty() {
-        ctx.reject_quietly(
+        let variant_name = super::best_ws(
+            &variant_entry.citation_form,
+            ctx.default_vernacular_ws.as_deref(),
+        )
+        .unwrap_or("unnamed variant entry");
+        ctx.reject_quietly_with_source(
             variant_key,
             issue_codes::MSA_NO_ALLOMORPHS,
             IssueClass::UnrepresentableForHc,
-            "variant entry has zero loadable allomorphs",
+            Some(pg_snapshot::SourceRef {
+                kind: "LexEntry".to_string(),
+                id: variant_entry.guid.clone(),
+            }),
+            format!("Lexical entry '{variant_name}' has no loadable allomorphs."),
         );
         return None;
     }
@@ -771,13 +793,14 @@ fn build_variant_stem_entry(
         morpheme: crate::model::MorphemeId(acc.morphemes.len() as u32),
         syn_fs,
         mpr,
-        partial,
+        partial_reason,
         allomorphs,
         family: None,
     });
     acc.morphemes.push(crate::model::MorphemeInfo {
         xml_key: format!("{}#{}", variant_entry.guid, guid),
         source_msa_guid: Some(guid.clone()),
+        source_msa_class: Some(msa.fw_class()),
         source_infl_type_guid: infl_type.map(|it| it.guid.clone()),
         morph_id: None,
         gloss: (!gloss.is_empty()).then_some(gloss),

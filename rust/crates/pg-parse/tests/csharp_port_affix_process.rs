@@ -830,7 +830,8 @@ fn partial_rule() {
     let nonpartial_rules = mrules.replace(" partial=\"true\"", "");
     let mut nonpartial = build_grammar("", "", &nonpartial_rules, "mrS mrNom mrU", templates_final);
     for entry in &mut nonpartial.entries {
-        entry.partial = true;
+        entry.partial_reason =
+            Some(pg_grammar_model::model::PartialMorphemeReason::StemWithoutCategory);
     }
     let nonpartial_morpher = Morpher::new(&nonpartial, usize::MAX);
     let parsed = nonpartial_morpher.parse_word("sagds");

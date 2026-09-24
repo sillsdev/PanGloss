@@ -1530,6 +1530,7 @@ fn try_load_affix_process_rule(
     acc.morphemes.push(MorphemeInfo {
         xml_key: mr.attr("id").unwrap_or("").to_string(),
         source_msa_guid: None,
+        source_msa_class: None,
         source_infl_type_guid: None,
         morph_id: mr.text_of("MorphemeId").map(str::to_string),
         gloss: mr.text_of("Gloss").map(str::to_string),
@@ -1556,12 +1557,14 @@ fn try_load_affix_process_rule(
         None => None,
     };
 
+    let partial_reason = parse_bool(mr.attr("partial"), false)
+        .then_some(PartialMorphemeReason::InflectionalAffixWithoutTemplateSlot);
     acc.mrules
         .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
             morpheme,
             name: mr.text_of("Name").map(str::to_string),
             blockable: parse_bool(mr.attr("blockable"), true),
-            partial: parse_bool(mr.attr("partial"), false),
+            partial_reason,
             max_apps,
             required_syn_fs,
             out_syn_fs,
@@ -1638,6 +1641,7 @@ fn try_load_realizational_rule(
     acc.morphemes.push(MorphemeInfo {
         xml_key: real.attr("id").unwrap_or("").to_string(),
         source_msa_guid: None,
+        source_msa_class: None,
         source_infl_type_guid: None,
         morph_id: real.text_of("MorphemeId").map(str::to_string),
         gloss: real.text_of("Gloss").map(str::to_string),
@@ -2066,6 +2070,7 @@ fn try_load_lex_entry(
     acc.morphemes.push(MorphemeInfo {
         xml_key: entry.attr("id").unwrap_or("").to_string(),
         source_msa_guid: None,
+        source_msa_class: None,
         source_infl_type_guid: None,
         morph_id: entry.text_of("MorphemeId").map(str::to_string),
         gloss: entry.text_of("Gloss").map(str::to_string),
@@ -2080,7 +2085,7 @@ fn try_load_lex_entry(
         morpheme,
         syn_fs,
         mpr,
-        partial,
+        partial_reason: partial.then_some(PartialMorphemeReason::StemWithoutCategory),
         allomorphs,
         family,
     });

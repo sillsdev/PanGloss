@@ -3971,7 +3971,7 @@ fn build_structural_composites_on_current_stack(
                     closure_trace,
                 };
                 // Seeded the same way `crate::preexpand::process_root_work` seeds pruning.
-                let seed_state = ChainState::seed(g, root_stratum.0, entry.partial);
+                let seed_state = ChainState::seed(g, root_stratum.0, entry.is_partial());
                 struct_extend(
                     &ctx,
                     &word,

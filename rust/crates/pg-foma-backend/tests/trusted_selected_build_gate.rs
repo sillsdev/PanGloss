@@ -122,7 +122,8 @@ fn selected_templated_underlying_tokens_payload_reconstructs_exact_analysis_pipe
 #[test]
 fn a_partial_bearing_grammar_yields_no_selectable_build() {
     let mut grammar = pg_grammar::load(TUNED_FIXTURE).expect("synthetic fixture must load");
-    grammar.entries[0].partial = true;
+    grammar.entries[0].partial_reason =
+        Some(pg_grammar::model::PartialMorphemeReason::StemWithoutCategory);
     let request = CompileAttempt::try_new().expect("compile attempt");
 
     let error = compile_completed_backend(&grammar, EmissionStrategy::TunedSurfaceProbed, &request)

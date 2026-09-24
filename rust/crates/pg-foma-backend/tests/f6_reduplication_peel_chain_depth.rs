@@ -96,7 +96,7 @@ fn minimal_redup_grammar() -> Grammar {
             morpheme: MorphemeId(0),
             name: Some("redupChainDepthBoundaryFixture".to_string()),
             blockable: false,
-            partial: false,
+            partial_reason: None,
             max_apps: 1,
             required_syn_fs: pg_featstruct::FsId(0),
             out_syn_fs: pg_featstruct::FsId(0),

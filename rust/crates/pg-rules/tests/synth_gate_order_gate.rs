@@ -103,7 +103,7 @@ fn push_suffix_rule_with_syn_fs(
         morpheme: MorphemeId(morpheme),
         name: None,
         blockable: false,
-        partial: false,
+        partial_reason: None,
         max_apps: 1,
         required_syn_fs,
         out_syn_fs: FsId(0),
@@ -279,7 +279,8 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
 
     let (mut g, s, r, mut input, cache) = build_fixture();
     if let MorphRuleDef::AffixProcess(def) = &mut g.mrules[r.0 as usize] {
-        def.partial = true;
+        def.partial_reason =
+            Some(pg_grammar_model::model::PartialMorphemeReason::UnclassifiedAffix);
     }
     input.syn_fs = one_feature_fs(0b01);
     input.flags.is_partial = false;
