@@ -910,6 +910,7 @@ fn sena_analysis_stratum_terminates_on_short_words() {
         merge_equivalent: true,
         max_unapplications: 0,
         max_stem_count: 2,
+        prune_disagreeing_copies: false,
     };
     for text in ["leka", "kuti", "wace", "anthu", "mbuto"] {
         if pg_grammar_model::segment::segment(&g.char_tables[0], text).is_err() {
@@ -951,6 +952,7 @@ fn merge_equivalent_analyses_keeps_distinct_rule_histories_as_siblings() {
         merge_equivalent: true,
         max_unapplications: 0,
         max_stem_count: 2,
+        prune_disagreeing_copies: false,
     };
 
     let input0 = word(&g, "agn", s0);
@@ -1006,6 +1008,7 @@ fn merge_equivalent_analyses_folds_same_rule_multiset_in_either_order_and_expand
         merge_equivalent: true,
         max_unapplications: 0,
         max_stem_count: 2,
+        prune_disagreeing_copies: false,
     };
 
     // Stratum 0: "pagn" -- unapplying P then S ("agn" -> "ag") and S then P ("pag" -> "ag") both reach "ag".
@@ -1113,6 +1116,7 @@ fn cascade_diamond_never_holds_more_live_words_than_distinct_outputs_plus_depth(
         merge_equivalent: true,
         max_unapplications: 0,
         max_stem_count: 2,
+        prune_disagreeing_copies: false,
     };
     let input = word(&g, "pkagn", s0);
     let out = analyze_stratum(&g, s0, input, &cfg, &StepBudget::new(100_000));
@@ -1150,6 +1154,7 @@ fn merge_generalizes_canonical_syntactic_fs_over_folded_alternative() {
         merge_equivalent: true,
         max_unapplications: 0,
         max_stem_count: 2,
+        prune_disagreeing_copies: false,
     };
     let input = word(&g, "pagn", s0);
     let out = analyze_stratum(&g, s0, input, &cfg, &StepBudget::new(10_000));

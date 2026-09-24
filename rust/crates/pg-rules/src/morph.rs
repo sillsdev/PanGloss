@@ -23,7 +23,7 @@
 //! `ModifyFromInput` inversion widens the changed feature lanes back to `full_mask` and no further:
 //! the general nested/variable anti-feature-structure cases are not ported.
 
-use pg_featstruct::{is_unifiable, priority_union, unify, FeatureStruct};
+use pg_featstruct::{flat_unifiable, is_unifiable, priority_union, unify, FeatureStruct};
 use pg_fst::{CompileInput, CompileNode, Direction, Fst, FstResult, Segment, Transduce};
 use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::featsys::FlatIndex;
@@ -296,7 +296,7 @@ fn mpr_gate_reason(
 /// Un-apply `rule` to `word` (analysis); empty if it cannot be un-applied. Recompiles on every
 /// call — see `synthesize`'s doc for why. The real pipeline calls `analyze_cached`.
 pub fn analyze(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
-    analyze_stats(g, word, rule, None)
+    analyze_stats(g, word, rule, None, false)
 }
 
 /// `analyze`'s `--stats`-carrying sibling; `pub(crate)` since only `crate::stratum` needs the ctx.
@@ -305,11 +305,16 @@ pub(crate) fn analyze_stats(
     word: &Word,
     rule: &MorphRuleDef,
     mstats: Option<MRuleStatsCtx>,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix(g, word, def, mstats),
+        MorphRuleDef::AffixProcess(def) => {
+            ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+        }
         MorphRuleDef::Compounding(def) => ana_compound(g, word, def, None, mstats),
-        MorphRuleDef::Realizational(def) => ana_realizational(g, word, def, mstats),
+        MorphRuleDef::Realizational(def) => {
+            ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+        }
     }
 }
 
@@ -322,13 +327,18 @@ pub(crate) fn analyze_cached(
     rule: &MorphRuleDef,
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix_cached(g, word, def, cache, mstats),
+        MorphRuleDef::AffixProcess(def) => {
+            ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+        }
         MorphRuleDef::Compounding(def) => {
             ana_compound_cached(g, word, def, mrid, cache, None, mstats)
         }
-        MorphRuleDef::Realizational(def) => ana_realizational_cached(g, word, def, cache, mstats),
+        MorphRuleDef::Realizational(def) => {
+            ana_realizational_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+        }
     }
 }
 
@@ -345,13 +355,18 @@ pub(crate) fn analyze_cached_with_root_filter(
     cache: &crate::cache::RuleCache,
     root_filter: NonHeadRootFilter,
     mstats: Option<MRuleStatsCtx>,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix_cached(g, word, def, cache, mstats),
+        MorphRuleDef::AffixProcess(def) => {
+            ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+        }
         MorphRuleDef::Compounding(def) => {
             ana_compound_cached(g, word, def, mrid, cache, Some(root_filter), mstats)
         }
-        MorphRuleDef::Realizational(def) => ana_realizational_cached(g, word, def, cache, mstats),
+        MorphRuleDef::Realizational(def) => {
+            ana_realizational_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+        }
     }
 }
 
@@ -363,7 +378,7 @@ pub fn analyze_with_root_filter(
     rule: &MorphRuleDef,
     root_filter: NonHeadRootFilter,
 ) -> Vec<Word> {
-    analyze_with_root_filter_stats(g, word, rule, root_filter, None)
+    analyze_with_root_filter_stats(g, word, rule, root_filter, None, false)
 }
 
 /// `analyze_with_root_filter`'s `--stats`-carrying sibling; `pub(crate)` since only `crate::stratum` needs the ctx.
@@ -373,11 +388,16 @@ pub(crate) fn analyze_with_root_filter_stats(
     rule: &MorphRuleDef,
     root_filter: NonHeadRootFilter,
     mstats: Option<MRuleStatsCtx>,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix(g, word, def, mstats),
+        MorphRuleDef::AffixProcess(def) => {
+            ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+        }
         MorphRuleDef::Compounding(def) => ana_compound(g, word, def, Some(root_filter), mstats),
-        MorphRuleDef::Realizational(def) => ana_realizational(g, word, def, mstats),
+        MorphRuleDef::Realizational(def) => {
+            ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+        }
     }
 }
 
@@ -395,20 +415,37 @@ pub(crate) fn analyze_cached_traced(
     mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     if !trace.is_tracing() {
-        return analyze_cached(g, mrid, word, rule, cache, mstats);
+        return analyze_cached(g, mrid, word, rule, cache, mstats, prune_disagreeing_copies);
     }
     match rule {
-        MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached_traced(g, word, def, mrid, cache, mstats, trace, parent)
-        }
+        MorphRuleDef::AffixProcess(def) => ana_affix_cached_traced(
+            g,
+            word,
+            def,
+            mrid,
+            cache,
+            mstats,
+            trace,
+            parent,
+            prune_disagreeing_copies,
+        ),
         MorphRuleDef::Compounding(def) => {
             ana_compound_cached_traced(g, word, def, mrid, cache, None, mstats, trace, parent)
         }
-        MorphRuleDef::Realizational(def) => {
-            ana_realizational_cached_traced(g, word, def, mrid, cache, mstats, trace, parent)
-        }
+        MorphRuleDef::Realizational(def) => ana_realizational_cached_traced(
+            g,
+            word,
+            def,
+            mrid,
+            cache,
+            mstats,
+            trace,
+            parent,
+            prune_disagreeing_copies,
+        ),
     }
 }
 
@@ -424,14 +461,32 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
     mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     if !trace.is_tracing() {
-        return analyze_cached_with_root_filter(g, mrid, word, rule, cache, root_filter, mstats);
+        return analyze_cached_with_root_filter(
+            g,
+            mrid,
+            word,
+            rule,
+            cache,
+            root_filter,
+            mstats,
+            prune_disagreeing_copies,
+        );
     }
     match rule {
-        MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached_traced(g, word, def, mrid, cache, mstats, trace, parent)
-        }
+        MorphRuleDef::AffixProcess(def) => ana_affix_cached_traced(
+            g,
+            word,
+            def,
+            mrid,
+            cache,
+            mstats,
+            trace,
+            parent,
+            prune_disagreeing_copies,
+        ),
         MorphRuleDef::Compounding(def) => ana_compound_cached_traced(
             g,
             word,
@@ -443,9 +498,17 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
             trace,
             parent,
         ),
-        MorphRuleDef::Realizational(def) => {
-            ana_realizational_cached_traced(g, word, def, mrid, cache, mstats, trace, parent)
-        }
+        MorphRuleDef::Realizational(def) => ana_realizational_cached_traced(
+            g,
+            word,
+            def,
+            mrid,
+            cache,
+            mstats,
+            trace,
+            parent,
+            prune_disagreeing_copies,
+        ),
     }
 }
 
@@ -459,6 +522,7 @@ fn ana_affix_cached_traced(
     mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
         trace.morphological_rule_not_unapplied(
@@ -482,7 +546,18 @@ fn ana_affix_cached_traced(
         let before = output.len();
         let matches = {
             let _allo_time = mstats.map(|m| m.time_allomorph(i));
-            ana_affix_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn)
+            ana_affix_allomorph(
+                g,
+                table,
+                word,
+                allo,
+                lhs,
+                fst,
+                &segs,
+                &node_of,
+                &new_syn,
+                prune_disagreeing_copies,
+            )
         };
         for mut w in matches {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
@@ -514,6 +589,7 @@ fn ana_realizational_cached_traced(
     mstats: Option<MRuleStatsCtx>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
         trace.morphological_rule_not_unapplied(
@@ -537,7 +613,18 @@ fn ana_realizational_cached_traced(
         let before = output.len();
         let matches = {
             let _allo_time = mstats.map(|m| m.time_allomorph(i));
-            ana_realizational_allomorph(g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs)
+            ana_realizational_allomorph(
+                g,
+                table,
+                word,
+                allo,
+                lhs,
+                fst,
+                &segs,
+                &node_of,
+                &real_fs,
+                prune_disagreeing_copies,
+            )
         };
         for mut w in matches {
             w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
@@ -1892,20 +1979,26 @@ fn redup_part_ref(action: &OutputAction) -> Option<u16> {
     }
 }
 
+/// RHS indices of each `Input` part copied or modified two or more times.
+fn repeated_part_action_groups(rhs: &[OutputAction]) -> HashMap<u16, Vec<usize>> {
+    let mut groups: HashMap<u16, Vec<usize>> = HashMap::default();
+    for (i, action) in rhs.iter().enumerate() {
+        if let Some(part) = redup_part_ref(action) {
+            groups.entry(part).or_default().push(i);
+        }
+    }
+    groups.retain(|_, actions| actions.len() > 1);
+    groups
+}
+
 /// For every RHS index inside a reduplication group (an `Input` part referenced 2+ times), reports whether that occurrence is the existing echo or new affix material; indices outside any group are absent, keeping default attribution.
 fn classify_redup(
     lhs_len: u16,
     rhs: &[OutputAction],
     hint: ReduplicationHint,
 ) -> HashMap<usize, bool> {
-    // Group RHS indices by referenced `Input` part.
-    let mut groups: HashMap<u16, Vec<usize>> = HashMap::default();
-    for (i, action) in rhs.iter().enumerate() {
-        if let Some(p) = redup_part_ref(action) {
-            groups.entry(p).or_default().push(i);
-        }
-    }
-    let mut redup_parts: Vec<&Vec<usize>> = groups.values().filter(|v| v.len() > 1).collect();
+    let groups = repeated_part_action_groups(rhs);
+    let mut redup_parts: Vec<&Vec<usize>> = groups.values().collect();
     if redup_parts.is_empty() {
         return HashMap::default();
     }
@@ -2369,6 +2462,7 @@ fn ana_affix(
     word: &Word,
     rule: &AffixProcessRuleDef,
     mstats: Option<MRuleStatsCtx>,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2385,7 +2479,16 @@ fn ana_affix(
         };
         let before = output.len();
         output.extend(ana_affix_allomorph(
-            g, table, word, allo, &lhs, &fst, &segs, &node_of, &new_syn,
+            g,
+            table,
+            word,
+            allo,
+            &lhs,
+            &fst,
+            &segs,
+            &node_of,
+            &new_syn,
+            prune_disagreeing_copies,
         ));
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2401,6 +2504,7 @@ fn ana_affix_cached(
     rule: &AffixProcessRuleDef,
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2418,7 +2522,16 @@ fn ana_affix_cached(
         // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
         output.extend(ana_affix_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &new_syn,
+            g,
+            table,
+            word,
+            allo,
+            lhs,
+            fst,
+            &segs,
+            &node_of,
+            &new_syn,
+            prune_disagreeing_copies,
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
@@ -2426,6 +2539,87 @@ fn ana_affix_cached(
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
+}
+
+/// True when two copies of an unmodified part differ in length or fail to unify; unsure cases keep the match.
+fn copy_agreement_refuses_match(
+    shape: &Shape,
+    node_of: &[usize],
+    fst: &Fst,
+    result: &FstResult,
+    rhs: &[OutputAction],
+    repeated_parts: &HashMap<u16, Vec<usize>>,
+) -> bool {
+    for (&part, occurrences) in repeated_parts {
+        // A modified copy can legitimately differ, so its part is undecidable.
+        if occurrences.iter().any(|&rhs_idx| {
+            !matches!(&rhs[rhs_idx], OutputAction::Copy(PartRef::Input(index)) if *index == part)
+        }) {
+            continue;
+        }
+
+        let name = format!("p{part}");
+        let mut copies: Vec<Vec<usize>> = Vec::with_capacity(occurrences.len());
+        let mut undecidable = false;
+        for capture_idx in 0..occurrences.len() {
+            let Some((start, end)) =
+                fst.get_offsets(&group_name(&name, capture_idx), &result.registers)
+            else {
+                undecidable = true;
+                break;
+            };
+            if start < 0 || end < 0 || start >= end || end as usize > node_of.len() {
+                undecidable = true;
+                break;
+            }
+            let copied_segments = node_of[start as usize..end as usize].to_vec();
+            let Some(&first) = copied_segments.first() else {
+                undecidable = true;
+                break;
+            };
+            let last = *copied_segments
+                .last()
+                .expect("first segment implies a last segment");
+            if last >= shape.len() {
+                undecidable = true;
+                break;
+            }
+
+            // Like `copy_part`, count a leading optional run that reaches the word start as part of the copy.
+            let mut optional_prefix_start = first;
+            while optional_prefix_start > 1 && shape.flags(optional_prefix_start - 1).is_optional()
+            {
+                optional_prefix_start -= 1;
+            }
+            let capture_start = if optional_prefix_start == 1 {
+                optional_prefix_start
+            } else {
+                first
+            };
+            if (capture_start..=last).any(|node| shape.flags(node).is_optional()) {
+                undecidable = true;
+                break;
+            }
+            copies.push(copied_segments);
+        }
+        if undecidable {
+            continue;
+        }
+
+        for left in 0..copies.len() {
+            for right in (left + 1)..copies.len() {
+                if copies[left].len() != copies[right].len() {
+                    return true;
+                }
+                for (&left_node, &right_node) in copies[left].iter().zip(&copies[right]) {
+                    if !flat_unifiable(shape.node_lanes(left_node), shape.node_lanes(right_node)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 /// One allomorph's analysis-side match, `GenerateShape`, and dedup; `carry` writes whichever feature structure the rule kind propagates, and the dedup scope resets per allomorph, never shared across the rule.
@@ -2440,6 +2634,7 @@ fn ana_allomorph_matches(
     segs: &[Segment],
     node_of: &[usize],
     carry: impl Fn(&mut Word),
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     let parts: Vec<(String, &Pattern)> = allo
         .lhs
@@ -2448,10 +2643,16 @@ fn ana_allomorph_matches(
         .map(|(i, p)| (format!("p{i}"), p))
         .collect();
     let mut allo_out: Vec<Word> = Vec::new();
+    let repeated_parts = prune_disagreeing_copies.then(|| repeated_part_action_groups(&allo.rhs));
     let matches = Transduce::new(fst, segs.to_vec())
         .anchored(true, true)
         .all_matches();
     for result in matches {
+        if repeated_parts.as_ref().is_some_and(|groups| {
+            copy_agreement_refuses_match(&word.shape, node_of, fst, &result, &allo.rhs, groups)
+        }) {
+            continue;
+        }
         let out = generate_shape(g, table, &parts, lhs, fst, &result, node_of, &word.shape);
         let mut w = word.clone();
         w.shape = freeze_out(g, &out);
@@ -2472,10 +2673,20 @@ fn ana_affix_allomorph(
     segs: &[Segment],
     node_of: &[usize],
     new_syn: &FeatureStruct,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, |w| {
-        w.syn_fs = new_syn.clone()
-    })
+    ana_allomorph_matches(
+        g,
+        table,
+        word,
+        allo,
+        lhs,
+        fst,
+        segs,
+        node_of,
+        |w| w.syn_fs = new_syn.clone(),
+        prune_disagreeing_copies,
+    )
 }
 
 // Realizational affix process — analysis.
@@ -2486,6 +2697,7 @@ fn ana_realizational(
     word: &Word,
     rule: &RealizationalRuleDef,
     mstats: Option<MRuleStatsCtx>,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2502,7 +2714,16 @@ fn ana_realizational(
         };
         let before = output.len();
         output.extend(ana_realizational_allomorph(
-            g, table, word, allo, &lhs, &fst, &segs, &node_of, &real_fs,
+            g,
+            table,
+            word,
+            allo,
+            &lhs,
+            &fst,
+            &segs,
+            &node_of,
+            &real_fs,
+            prune_disagreeing_copies,
         ));
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2518,6 +2739,7 @@ fn ana_realizational_cached(
     rule: &RealizationalRuleDef,
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2535,7 +2757,16 @@ fn ana_realizational_cached(
         // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
         output.extend(ana_realizational_allomorph(
-            g, table, word, allo, lhs, fst, &segs, &node_of, &real_fs,
+            g,
+            table,
+            word,
+            allo,
+            lhs,
+            fst,
+            &segs,
+            &node_of,
+            &real_fs,
+            prune_disagreeing_copies,
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
@@ -2557,10 +2788,20 @@ fn ana_realizational_allomorph(
     segs: &[Segment],
     node_of: &[usize],
     real_fs: &FeatureStruct,
+    prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    ana_allomorph_matches(g, table, word, allo, lhs, fst, segs, node_of, |w| {
-        w.real_fs = real_fs.clone()
-    })
+    ana_allomorph_matches(
+        g,
+        table,
+        word,
+        allo,
+        lhs,
+        fst,
+        segs,
+        node_of,
+        |w| w.real_fs = real_fs.clone(),
+        prune_disagreeing_copies,
+    )
 }
 
 /// C# `RemoveDuplicates`: inserts `w` unless `out` holds a candidate with an identical **non-Optional** sequence, keeping the longer shape — not cosmetic, since Optional-segment proliferation is otherwise a combinatorial blow-up nothing downstream ever unifies away.

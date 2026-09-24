@@ -429,6 +429,9 @@ pub struct AnalyzerConfig {
     /// are "1+ of any segment" matches every split of every substring at every depth — a
     /// Catalan-scale blowup that burns the whole step budget.
     pub max_stem_count: u32,
+    /// When enabled, reject an allomorph analysis match if repeated copies of an input part
+    /// disagree in segment count or feature unifiability. Indeterminate captures are retained.
+    pub prune_disagreeing_copies: bool,
 }
 
 impl Default for AnalyzerConfig {
@@ -437,6 +440,7 @@ impl Default for AnalyzerConfig {
             merge_equivalent: true,
             max_unapplications: 0,
             max_stem_count: 2,
+            prune_disagreeing_copies: false,
         }
     }
 }
@@ -751,8 +755,16 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     mstats,
                     self.trace,
                     node_parent,
+                    self.cfg.prune_disagreeing_copies,
                 ),
-                None => morph::analyze_with_root_filter_stats(self.g, w, rule, filter, mstats),
+                None => morph::analyze_with_root_filter_stats(
+                    self.g,
+                    w,
+                    rule,
+                    filter,
+                    mstats,
+                    self.cfg.prune_disagreeing_copies,
+                ),
             },
             _ => match self.cache {
                 Some(cache) => morph::analyze_cached_traced(
@@ -764,8 +776,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     mstats,
                     self.trace,
                     node_parent,
+                    self.cfg.prune_disagreeing_copies,
                 ),
-                None => morph::analyze_stats(self.g, w, rule, mstats),
+                None => {
+                    morph::analyze_stats(self.g, w, rule, mstats, self.cfg.prune_disagreeing_copies)
+                }
             },
         };
         drop(_obj_time);

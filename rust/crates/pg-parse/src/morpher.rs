@@ -46,6 +46,8 @@ pub struct Morpher<'g> {
     cache: RuleCache,
     /// C#'s settable `Morpher.MaxStemCount`; default `2`, and raising it stays bounded by the shared step/timeout budget.
     max_stem_count: u32,
+    /// Opt-in C# `Morpher.PruneDisagreeingCopies`; default `false` to preserve existing analyses.
+    prune_disagreeing_copies: bool,
 }
 
 /// Shared instrumentation and hard limits for bounded synthesis across multiple derivations.
@@ -192,6 +194,7 @@ impl<'g> Morpher<'g> {
             word_timeout: None,
             cache: RuleCache::build(g),
             max_stem_count: 2, // C# `Morpher.MaxStemCount` ctor default (Morpher.cs:56)
+            prune_disagreeing_copies: false,
         }
     }
 
@@ -261,6 +264,12 @@ impl<'g> Morpher<'g> {
     /// Raising it cannot turn into an unbounded search — see `Self::max_stem_count`.
     pub fn with_max_stem_count(mut self, max_stem_count: u32) -> Self {
         self.max_stem_count = max_stem_count;
+        self
+    }
+
+    /// Enable C# `Morpher.PruneDisagreeingCopies` behavior for repeated affix-process copies.
+    pub fn with_prune_disagreeing_copies(mut self, prune: bool) -> Self {
+        self.prune_disagreeing_copies = prune;
         self
     }
 
@@ -417,6 +426,7 @@ impl<'g> Morpher<'g> {
             merge_equivalent: !trace.is_tracing(),
             max_unapplications: 0,
             max_stem_count: self.max_stem_count,
+            prune_disagreeing_copies: self.prune_disagreeing_copies,
         };
         // One step budget shared by reference across every stratum × candidate; a per-instance counter would let one word explore `cap` steps per call.
         let budget = pg_rules::stratum::StepBudget::new(self.cap).with_timeout(self.word_timeout);

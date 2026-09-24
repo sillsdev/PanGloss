@@ -7,6 +7,7 @@ use pg_featstruct::{FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBit
 use pg_grammar_model::model::{Grammar, MorphRuleDef};
 use pg_parse::identity::AnalysisIdentity;
 use pg_parse::{GenMorpheme, Morpher, ParseOptions};
+use pg_rules::stratum::{AnalyzerConfig, StepBudget};
 use pg_rules::trace::TreeTraceSink;
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
@@ -20,6 +21,127 @@ fn identity_multiset(g: &Grammar, outcome: &pg_parse::ParseOutcome) -> Vec<Analy
         .collect();
     ids.sort();
     ids
+}
+
+fn copy_rule_grammar() -> Grammar {
+    let rule = r#"
+      <MorphologicalRule id="mrRed"><Name>full_copy</Name><MorphemeId>RED</MorphemeId>
+        <MorphologicalSubrules><MorphologicalSubrule id="sub1">
+          <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+          <MorphologicalOutput><CopyFromInput index="1" /><CopyFromInput index="1" /></MorphologicalOutput>
+        </MorphologicalSubrule></MorphologicalSubrules>
+      </MorphologicalRule>
+    "#;
+    build_grammar("", "", rule, "mrRed", "")
+}
+
+fn analyze_copy_shape(
+    g: &Grammar,
+    shape: pg_shape::Shape,
+    prune_disagreeing_copies: bool,
+) -> Vec<Word> {
+    let stratum = pg_grammar_model::model::StratumId(0);
+    let mut config = AnalyzerConfig::default();
+    config.prune_disagreeing_copies = prune_disagreeing_copies;
+    pg_rules::stratum::analyze_stratum(
+        &g,
+        stratum,
+        Word::new(shape, stratum),
+        &config,
+        &StepBudget::new(usize::MAX),
+    )
+    .words
+    .into_iter()
+    .filter(|word| !word.mrule_apps.is_empty())
+    .collect()
+}
+
+fn copy_rule_analysis_outputs(input: &str, prune_disagreeing_copies: bool) -> Vec<Word> {
+    let g = copy_rule_grammar();
+    let shape = pg_rules::shape_feat::segment_with_features(&g, &g.char_tables[0], input)
+        .expect("copy-agreement input should segment");
+    analyze_copy_shape(&g, shape, prune_disagreeing_copies)
+}
+
+/// Ports C# `CopyAgreementPruneTests.FullCopyKeepsOnlyTheSplitWhoseCopiesAgree`.
+#[test]
+fn full_copy_keeps_only_the_split_whose_copies_agree() {
+    let outputs_off = copy_rule_analysis_outputs("papa", false);
+    let outputs_on = copy_rule_analysis_outputs("papa", true);
+    assert_eq!(outputs_off.len(), 3);
+    assert_eq!(outputs_on.len(), 1);
+    assert_eq!(outputs_on[0].shape.len() - 2, 2);
+}
+
+/// Ports C# `CopyAgreementPruneTests.DisagreeingCopiesAreRemovedOnlyWhenPruning`.
+#[test]
+fn disagreeing_copies_are_removed_only_when_pruning() {
+    let outputs_off = copy_rule_analysis_outputs("pa", false);
+    let outputs_on = copy_rule_analysis_outputs("pa", true);
+    assert_eq!(outputs_off.len(), 1);
+    assert_eq!(outputs_on.len(), 0);
+}
+
+/// Unifiable copies survive even when their character definitions differ.
+#[test]
+fn unifiable_distinct_segments_survive_copy_agreement_pruning() {
+    let g = copy_rule_grammar();
+    let table = &g.char_tables[0];
+    let pair = table
+        .iter()
+        .filter(|(_, cd)| cd.kind() == pg_grammar_model::chardef::CharDefKind::Segment)
+        .flat_map(|(_, left)| {
+            table
+                .iter()
+                .filter(|(_, right)| {
+                    right.kind() == pg_grammar_model::chardef::CharDefKind::Segment
+                })
+                .filter(move |(_, right)| {
+                    left.feature_lanes() != right.feature_lanes()
+                        && pg_featstruct::flat_unifiable(
+                            left.feature_lanes(),
+                            right.feature_lanes(),
+                        )
+                })
+                .map(move |(_, right)| {
+                    (
+                        left.representations()[0].clone(),
+                        right.representations()[0].clone(),
+                    )
+                })
+        })
+        .next()
+        .expect("shared character table contains distinct unifiable segments");
+    let input = format!("{}{}", pair.0, pair.1);
+    let shape = pg_rules::shape_feat::segment_with_features(&g, table, &input)
+        .expect("unifiable segment pair should segment");
+    assert_eq!(analyze_copy_shape(&g, shape.clone(), false).len(), 1);
+    assert_eq!(analyze_copy_shape(&g, shape, true).len(), 1);
+}
+
+/// A copy with an optional node, including a leading one at the word start, is never pruned.
+#[test]
+fn optional_left_prefix_keeps_copy_agreement_undecidable() {
+    let g = copy_rule_grammar();
+    let shape = pg_rules::shape_feat::segment_with_features(&g, &g.char_tables[0], "papa")
+        .expect("copy-agreement input should segment");
+    let mut optional = pg_shape::ShapeBuilder::from_shape(&shape);
+    let index = 1; // first shape node after the left anchor
+    let char_def = shape.char_def(index);
+    let lanes = shape.node_lanes(index).to_vec();
+    optional.delete(index);
+    optional.insert(
+        index,
+        pg_shape::NodeKind::Segment,
+        char_def,
+        pg_shape::NodeFlags(pg_shape::NodeFlags::OPTIONAL),
+        &lanes,
+    );
+    let shape = optional.freeze();
+
+    let outputs_off = analyze_copy_shape(&g, shape.clone(), false);
+    let outputs_on = analyze_copy_shape(&g, shape, true);
+    assert_eq!(outputs_on.len(), outputs_off.len());
 }
 
 /// Asserts `outcome`'s identity multiset equals `expected`, order-insensitive but duplicate-sensitive.
@@ -476,8 +598,10 @@ fn reduplication_rules() {
         </MorphologicalSubrule></MorphologicalSubrules></MorphologicalRule>
     "#;
     let g1 = build_grammar("", "", mrules, "mrRed", "");
-    let m1 = Morpher::new(&g1, usize::MAX);
-    assert_morphs_eq(&m1.parse_word("sasag"), &["RED 32"]);
+    for prune in [false, true] {
+        let m1 = Morpher::new(&g1, usize::MAX).with_prune_disagreeing_copies(prune);
+        assert_morphs_eq(&m1.parse_word("sasag"), &["RED 32"]);
+    }
 
     let prules = r#"
       <PhonologicalRule id="pr_voi"><Name>voicing</Name>
@@ -494,8 +618,10 @@ fn reduplication_rules() {
       </PhonologicalRule>
     "#;
     let g2 = build_grammar(prules, "pr_voi", mrules, "mrRed", "");
-    let m2 = Morpher::new(&g2, usize::MAX);
-    assert_morphs_eq(&m2.parse_word("sazag"), &["RED 32"]);
+    for prune in [false, true] {
+        let m2 = Morpher::new(&g2, usize::MAX).with_prune_disagreeing_copies(prune);
+        assert_morphs_eq(&m2.parse_word("sazag"), &["RED 32"]);
+    }
 }
 
 /// Ports `AffixProcessRuleTests.BoundaryRules` (cs:1475-1527): an affix-process `Lhs` explicitly matching a boundary marker (`+`) followed by a consonant then a vowel.
@@ -876,8 +1002,10 @@ fn modify_from_input_rules() {
       </MorphologicalRule>
     "#;
     let g = build_grammar("", "", mrules, "mrS", "");
-    let m = Morpher::new(&g, usize::MAX);
-    assert_morphs_eq(&m.parse_word("puso"), &["52 PL"]);
+    for prune in [false, true] {
+        let m = Morpher::new(&g, usize::MAX).with_prune_disagreeing_copies(prune);
+        assert_morphs_eq(&m.parse_word("puso"), &["52 PL"]);
+    }
 }
 
 /// Ports `AffixProcessRuleTests.InfixRules` (cs:695-853): four Arabic-templatic-style `AffixProcessRule`s discontiguously interleaving the consonantal root "ktb" with vowels, plus a trailing aspiration-neutralization rule.
