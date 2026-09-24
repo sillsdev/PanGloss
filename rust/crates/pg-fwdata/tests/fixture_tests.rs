@@ -473,7 +473,7 @@ fn fixture_conversion_provenance_reports_its_two_known_issues() {
     let env_issue = provenance
         .import_issues
         .iter()
-        .find(|i| i.code == "fwdata.dangling-reference")
+        .find(|i| i.code == pg_snapshot::ImportWarningCode::FwdataDanglingReference)
         .expect("the dangling environment issue must be present");
     assert!(env_issue.fatal);
     assert_eq!(env_issue.class, pg_snapshot::IssueClass::InvalidSource);
@@ -488,7 +488,7 @@ fn fixture_conversion_provenance_reports_its_two_known_issues() {
     let morph_type_issue = provenance
         .import_issues
         .iter()
-        .find(|i| i.code == "fwdata.unknown-morph-type-guid")
+        .find(|i| i.code == pg_snapshot::ImportWarningCode::FwdataUnknownMorphTypeGuid)
         .expect("the unknown-morph-type issue must be present");
     assert!(!morph_type_issue.fatal);
     assert_eq!(
@@ -550,7 +550,7 @@ fn duplicating_an_allowed_class_guid_yields_one_fatal_issue_and_the_first_conten
     let duplicate_issues: Vec<_> = provenance
         .import_issues
         .iter()
-        .filter(|issue| issue.code == "invalid-source.duplicate-guid")
+        .filter(|issue| issue.code == pg_snapshot::ImportWarningCode::InvalidSourceDuplicateGuid)
         .collect();
     assert_eq!(duplicate_issues.len(), 1);
     assert!(duplicate_issues[0].fatal);
@@ -592,10 +592,10 @@ fn unknown_class_record_is_census_only_and_raises_no_issue() {
 
     let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
     let provenance = &snapshot.conversion_provenance;
-    assert!(!provenance
-        .import_issues
-        .iter()
-        .any(|issue| issue.source.as_ref().is_some_and(|s| s.kind == "ZzUnknown")));
+    assert!(!provenance.import_issues.iter().any(|issue| issue
+        .source
+        .as_ref()
+        .is_some_and(|s| s.kind == pg_snapshot::FwClass::ZzUnknown)));
     assert_eq!(
         provenance
             .source_census
@@ -627,7 +627,7 @@ fn missing_guid_on_an_allowed_class_is_a_fatal_issue_and_drops_the_record() {
     let missing_issues: Vec<_> = provenance
         .import_issues
         .iter()
-        .filter(|issue| issue.code == "invalid-source.missing-guid")
+        .filter(|issue| issue.code == pg_snapshot::ImportWarningCode::InvalidSourceMissingGuid)
         .collect();
     assert_eq!(missing_issues.len(), 1);
     assert!(missing_issues[0].fatal);
@@ -660,7 +660,7 @@ fn unknown_class_duplicate_before_an_allowed_class_keeps_the_recognized_record()
     let duplicate_issues: Vec<_> = provenance
         .import_issues
         .iter()
-        .filter(|issue| issue.code == "invalid-source.duplicate-guid")
+        .filter(|issue| issue.code == pg_snapshot::ImportWarningCode::InvalidSourceDuplicateGuid)
         .collect();
     assert_eq!(duplicate_issues.len(), 1);
     let source = duplicate_issues[0].source.as_ref().unwrap();
@@ -1288,7 +1288,7 @@ fn malformed_xample_cap_yields_a_rejected_setting_and_the_unchanged_warning() {
         .conversion_provenance
         .import_issues
         .iter()
-        .find(|i| i.code == "fwdata.invalid-parser-parameter")
+        .find(|i| i.code == pg_snapshot::ImportWarningCode::FwdataInvalidParserParameter)
         .expect("the rejected setting's issue must be present");
     assert!(!issue.fatal);
     assert_eq!(issue.class, pg_snapshot::IssueClass::MalformedSource);

@@ -56,7 +56,7 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
     for issue in out
         .issues
         .iter()
-        .filter(|i| i.code == "substrate.classification-ambiguous")
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous)
     {
         eprintln!("  ambiguous: {}", issue.message);
     }
@@ -64,7 +64,7 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
     let unexpected: Vec<&str> = out
         .issues
         .iter()
-        .filter(|i| i.code == "substrate.classification-ambiguous")
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous)
         .map(|i| i.message.as_str())
         .filter(|m| unexpected_ambiguous_char(m))
         .collect();

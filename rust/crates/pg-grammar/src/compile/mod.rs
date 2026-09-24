@@ -62,8 +62,8 @@ use crate::model::*;
 use crate::GrammarError;
 
 use pg_snapshot::{
-    Audience, ConversionIssue, InventoryDelta, InventoryKey, IssueClass, SelectionRecorder,
-    Snapshot, SourceInventoryStatus, SourceRef,
+    ConversionIssue, ImportWarningCode, InventoryDelta, InventoryKey, IssueClass,
+    SelectionRecorder, Snapshot, SourceInventoryStatus, SourceRef,
 };
 
 use inventory::{Lineage, LineageTarget};
@@ -130,29 +130,33 @@ pub fn compile_project_with(
     snapshot: &Snapshot,
     options: CompileOptions,
 ) -> Result<CompileOutput, GrammarError> {
-    let mut issues: Vec<ConversionIssue> = snapshot.conversion_provenance.import_issues.clone();
+    let mut external_issues: Vec<ConversionIssue> =
+        snapshot.conversion_provenance.import_issues.clone();
     if snapshot.conversion_provenance.source_inventory_status == SourceInventoryStatus::Unknown {
-        issues.push(ConversionIssue {
-            code: issues::SOURCE_PROVENANCE_UNKNOWN.to_string(),
+        external_issues.push(ConversionIssue {
+            code: issues::SOURCE_PROVENANCE_UNKNOWN,
             class: IssueClass::AmbiguousSource,
             source: None,
             fatal: true,
-            audience: pg_snapshot::Audience::Linguist,
             message: "conversion provenance is unknown; cannot certify this conversion's \
                       completeness"
                 .to_string(),
         });
     }
+    let mut issues = external_issues.clone();
 
-    let (grammar, _warning_messages, recorder, substrate, substrate_issues) =
+    let (grammar, recorder, substrate, substrate_issues, compile_warnings) =
         compile_project_recording(snapshot, options.substrate)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
     let (recorded_inventory, recorded_issues) = recorder.finish();
     issues.extend(recorded_issues.iter().cloned());
-    issues.extend(substrate_issues);
-    let warnings = warnings::from_issues(snapshot, &issues);
+    issues.extend(substrate_issues.iter().cloned());
+    let mut warnings = warnings::from_issues(snapshot, &external_issues);
+    warnings.extend(warnings::from_issues(snapshot, &substrate_issues));
+    warnings.extend(compile_warnings);
+    let warnings = warnings::deduplicate(warnings);
     let inventory = InventoryDelta::from_stage(recorded_inventory, recorded_issues);
 
     let refuses = options.semantic_loss == SemanticLossPolicy::Refuse
@@ -173,13 +177,13 @@ pub fn compile_project_with(
     })
 }
 
-/// What [`compile_project_recording`] yields: the grammar, its warnings, and the three recording seams.
+/// What [`compile_project_recording`] yields: the grammar, three recording seams, and structured warnings from loud compiler sites.
 pub(crate) type CompiledProject = (
     Grammar,
-    Vec<String>,
     SelectionRecorder,
     SubstrateReport,
     Vec<ConversionIssue>,
+    Vec<pg_snapshot::Warning>,
 );
 
 /// As [`compile_project`], but also returns the [`SelectionRecorder`], [`SubstrateReport`], and
@@ -192,19 +196,19 @@ pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
     substrate_policy: SubstratePolicy,
 ) -> Result<CompiledProject, GrammarError> {
-    let mut warnings: Vec<String> = Vec::new();
     let mut recorder = SelectionRecorder::default();
+    let mut warnings = Vec::new();
     let mut lineage = Lineage::default();
     inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
 
     // --- MPR feature groups: inflection classes, exception features, lexEntryInflTypes --------
-    let mpr = mpr::build(snapshot, &mut warnings, &mut recorder)?;
+    let mpr = mpr::build(snapshot, &mut recorder)?;
 
     // --- POS + syntactic feature system (POS = feature 0; head = feature 1, always present) ---
     let (syn, pos) = features::build_syn_features(snapshot, &mut recorder)?;
 
     // --- phonological feature system -----------------------------------------------------------
-    let phon_features = features::build_phon_features(snapshot, &mut warnings, &mut recorder)?;
+    let phon_features = features::build_phon_features(snapshot, &mut recorder, &mut warnings)?;
 
     // --- text usage: owners publish literal text they already selected, for substrate inference -
     let mut substrate_issues: Vec<ConversionIssue> = Vec::new();
@@ -212,7 +216,7 @@ pub(crate) fn compile_project_recording(
     affixes::collect_text_uses(snapshot, &mut recorder, &mut substrate_issues);
 
     // --- character-definition table, completed from usage under a resolved CompleteFromUsage ---
-    let raw = chardef::build_raw(snapshot, &phon_features, &mut warnings, &mut recorder)?;
+    let raw = chardef::build_raw(snapshot, &phon_features, &mut recorder, &mut warnings)?;
     let resolved_substrate = substrate_policy.resolve(
         snapshot.morphology.parser_parameters.active_parser,
         snapshot
@@ -245,7 +249,13 @@ pub(crate) fn compile_project_recording(
         boundary_of,
         null_bdry,
         morph_bdry,
-    } = chardef::finalize(completed_raw, &phon_features, &mut warnings, &mut recorder)?;
+    } = chardef::finalize(
+        snapshot,
+        completed_raw,
+        &phon_features,
+        &mut recorder,
+        &mut warnings,
+    )?;
     let table_id = TableId(0);
 
     // --- natural classes (+ synthetic "Any") ----------------------------------------------------
@@ -259,9 +269,9 @@ pub(crate) fn compile_project_recording(
         snapshot,
         &phon_features,
         &phoneme_of,
-        &mut warnings,
         &mut recorder,
         &mut lineage,
+        &mut warnings,
     );
 
     // A migration difference, never fatal: see `substrate::feature_rule_migration_issues`'s own doc.
@@ -282,8 +292,8 @@ pub(crate) fn compile_project_recording(
         &syn,
         &pos,
         &mut fs_interner,
-        &mut warnings,
         &mut recorder,
+        &mut warnings,
     );
 
     let mut env_by_guid = HashMap::new();
@@ -312,6 +322,7 @@ pub(crate) fn compile_project_recording(
         default_vernacular_ws: snapshot.project.vernacular_writing_systems.first().cloned(),
         default_analysis_ws: snapshot.project.analysis_writing_systems.first().cloned(),
         recorder: RefCell::new(recorder),
+        warnings: RefCell::new(warnings),
         lineage: RefCell::new(lineage),
         pending_cooccurrence_refusals: RefCell::new(Vec::new()),
     };
@@ -341,7 +352,6 @@ pub(crate) fn compile_project_recording(
         ctx.considered(key.clone());
         ctx.selected(key.clone());
         ctx.reject(
-            &mut warnings,
             key,
             issue_codes::STRATA_CUSTOM_UNSUPPORTED,
             IssueClass::UnrepresentableForHc,
@@ -369,13 +379,7 @@ pub(crate) fn compile_project_recording(
 
     // --- compound rules (defaults if none authored) ----------------------------------------------
     let mut morphology_mrules: Vec<MRuleId> = Vec::new();
-    compounding::build(
-        snapshot,
-        &ctx,
-        &mut acc,
-        &mut morphology_mrules,
-        &mut warnings,
-    )?;
+    compounding::build(snapshot, &ctx, &mut acc, &mut morphology_mrules)?;
 
     // --- lexicon: stems + variants + affix rules -------------------------------------------------
     let mut clitic_mrules: Vec<MRuleId> = Vec::new();
@@ -389,23 +393,23 @@ pub(crate) fn compile_project_recording(
         &mut clitic_mrules,
         &mut morphology_entries,
         &mut clitic_entries,
-        &mut warnings,
     )?;
 
     // --- affix templates (+ null-affix synthesis for irregular-form slots) ---------------------
-    let morphology_templates = templates::build(snapshot, &ctx, &mut acc, &mut warnings)?;
+    let morphology_templates = templates::build(snapshot, &ctx, &mut acc)?;
 
     // --- phonological rules ----------------------------------------------------------------------
-    let (prules, morphology_prules, clitic_prules) = rules::build(snapshot, &ctx, &mut warnings)?;
+    let (prules, morphology_prules, clitic_prules) = rules::build(snapshot, &ctx)?;
 
     // Ad-hoc co-occurrence rules: post-hoc, run after every entry/rule is loaded so the guid -> registry maps are fully populated; `xml_key` doubles as the MSA/entry guid this morpheme was built from.
     for (i, m) in acc.morphemes.iter().enumerate() {
         acc.msa_guid_index
             .insert(m.xml_key.clone(), MorphemeId(i as u32));
     }
-    strata_assign_co_occurrence(snapshot, &ctx, &mut acc, &mut warnings);
+    strata_assign_co_occurrence(snapshot, &ctx, &mut acc);
     // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
     let mut recorder = ctx.recorder.into_inner();
+    let warnings = ctx.warnings.into_inner();
     let lineage = ctx.lineage.into_inner();
     let pending_cooccurrence_refusals = ctx.pending_cooccurrence_refusals.into_inner();
 
@@ -506,20 +510,15 @@ pub(crate) fn compile_project_recording(
 
     Ok((
         grammar,
-        warnings,
         recorder,
         substrate_report,
         substrate_issues,
+        warnings,
     ))
 }
 
 /// Ad-hoc co-occurrence rules resolved against the now-complete `acc.allomorph_guid_index`/`acc.msa_guid_index` registries; a dangling reference is a warning, never a hard failure.
-fn strata_assign_co_occurrence(
-    snapshot: &Snapshot,
-    ctx: &Ctx,
-    acc: &mut Acc,
-    warnings: &mut Vec<String>,
-) {
+fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
     use pg_snapshot::morphology::AdhocProhibition;
     use pg_snapshot::morphology::Adjacency as SnapAdjacency;
     use pg_snapshot::InventoryKind::{AllomorphCoOccurrence, MorphemeCoOccurrence};
@@ -562,7 +561,6 @@ fn strata_assign_co_occurrence(
                 ctx.selected(key.clone());
                 let Some(&primary_id) = acc.allomorph_guid_index.get(primary) else {
                     ctx.reject(
-                        warnings,
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                         IssueClass::InvalidSource,
@@ -658,7 +656,6 @@ fn strata_assign_co_occurrence(
                 ctx.selected(key.clone());
                 let Some(&primary_id) = acc.msa_guid_index.get(primary) else {
                     ctx.reject(
-                        warnings,
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                         IssueClass::InvalidSource,
@@ -740,11 +737,10 @@ fn resolve_pending_cooccurrence_refusals(
             recorder.rejected(
                 p.key,
                 ConversionIssue {
-                    code: p.code.to_string(),
+                    code: p.code,
                     class: IssueClass::UnreachableInGrammar,
                     source: None,
                     fatal: false,
-                    audience: pg_snapshot::Audience::Developer,
                     message: format!(
                         "{}; the primary's own mrule is unreachable after reachability \
                          compaction, so this would have been dropped as dead code regardless",
@@ -756,11 +752,10 @@ fn resolve_pending_cooccurrence_refusals(
             recorder.rejected(
                 p.key,
                 ConversionIssue {
-                    code: p.code.to_string(),
+                    code: p.code,
                     class: p.class,
                     source: None,
                     fatal: true,
-                    audience: pg_snapshot::Audience::Linguist,
                     message: p.message,
                 },
             );
@@ -808,6 +803,9 @@ pub(crate) struct Ctx<'a> {
     pub default_analysis_ws: Option<String>,
     /// The snapshot-to-grammar selection recorder every owner below writes its considered/selected/represented/rejected/synthesized calls into; behind a `RefCell` since `Ctx` itself is shared by shared reference everywhere.
     pub recorder: RefCell<SelectionRecorder>,
+    /// Linguist-facing warnings emitted at compiler sites that explicitly report a dropped or
+    /// adjusted construct. Quiet inventory bookkeeping never enters this collection.
+    pub warnings: RefCell<Vec<pg_snapshot::Warning>>,
     /// Which owner published which `represented` keys, read only by `inventory::finalize`.
     pub lineage: RefCell<Lineage>,
     /// Co-occurrence refusals whose primary is affix-owned, so reachability (running after this
@@ -821,7 +819,7 @@ pub(crate) struct Ctx<'a> {
 /// real drop) vs. non-fatal (reachability would have pruned it as dead code regardless).
 pub(crate) struct PendingCooccurrenceRefusal {
     key: InventoryKey,
-    code: &'static str,
+    code: ImportWarningCode,
     class: IssueClass,
     message: String,
     mrule: MRuleId,
@@ -863,65 +861,60 @@ impl Ctx<'_> {
     /// Delegates to `inventory::reject` so the `ConversionIssue` construction exists in exactly one place, shared with the phases that run before `Ctx` exists.
     pub(crate) fn reject(
         &self,
-        warnings: &mut Vec<String>,
         key: InventoryKey,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         msg: impl Into<String>,
     ) {
-        self.reject_with_source(warnings, key, code, class, None, msg);
+        self.reject_with_source(key, code, class, None, msg);
     }
 
     pub(crate) fn reject_with_source(
         &self,
-        warnings: &mut Vec<String>,
         key: InventoryKey,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         source: Option<pg_snapshot::SourceRef>,
         msg: impl Into<String>,
     ) {
         let msg = msg.into();
-        warnings.push(msg.clone());
         let source = source.or_else(|| warnings::source_for_key(self.snapshot, &key));
-        self.recorder.borrow_mut().rejected(
-            key,
-            ConversionIssue {
-                code: code.to_string(),
-                class,
-                source,
-                fatal: false,
-                audience: pg_snapshot::Audience::Linguist,
-                message: msg,
-            },
-        );
+        let issue = ConversionIssue {
+            code,
+            class,
+            source,
+            fatal: false,
+            message: msg,
+        };
+        self.warnings
+            .borrow_mut()
+            .push(warnings::from_issue(self.snapshot, &issue));
+        self.recorder.borrow_mut().rejected(key, issue);
     }
 
     pub(crate) fn note(
         &self,
-        warnings: &mut Vec<String>,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         source: SourceRef,
-        audience: Audience,
         msg: impl Into<String>,
     ) {
         inventory::note(
             &mut self.recorder.borrow_mut(),
-            warnings,
+            self.snapshot,
+            &mut self.warnings.borrow_mut(),
             code,
             class,
             source,
-            audience,
             msg,
         );
     }
 
-    /// As [`Ctx::reject`], but fatal -- for a construct attached to something already active, where dropping it would change what the grammar accepts. Unlike [`Ctx::reject`], never touches the legacy `warnings` channel: it carries its own real code into `compile_project_with`'s top-level result already.
+    /// As [`Ctx::reject`], but fatal -- for a construct attached to something already active, where dropping it would change what the grammar accepts. Fatal refusals are reported through the structured issue result.
     pub(crate) fn refuse(
         &self,
         key: InventoryKey,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         msg: impl Into<String>,
     ) {
@@ -929,11 +922,10 @@ impl Ctx<'_> {
         self.recorder.borrow_mut().rejected(
             key,
             ConversionIssue {
-                code: code.to_string(),
+                code,
                 class,
                 source,
                 fatal: true,
-                audience: pg_snapshot::Audience::Linguist,
                 message: msg.into(),
             },
         );
@@ -946,7 +938,7 @@ impl Ctx<'_> {
     pub(crate) fn defer_cooccurrence_refusal(
         &self,
         key: InventoryKey,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         message: String,
         mrule: MRuleId,
@@ -966,7 +958,7 @@ impl Ctx<'_> {
     pub(crate) fn reject_quietly(
         &self,
         key: InventoryKey,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         msg: impl Into<String>,
     ) {
@@ -976,7 +968,7 @@ impl Ctx<'_> {
     pub(crate) fn reject_quietly_with_source(
         &self,
         key: InventoryKey,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         source: Option<pg_snapshot::SourceRef>,
         msg: impl Into<String>,
@@ -985,11 +977,10 @@ impl Ctx<'_> {
         self.recorder.borrow_mut().rejected(
             key,
             ConversionIssue {
-                code: code.to_string(),
+                code,
                 class,
                 source,
                 fatal: false,
-                audience: pg_snapshot::Audience::Linguist,
                 message: msg.into(),
             },
         );
@@ -998,10 +989,9 @@ impl Ctx<'_> {
     /// The `authored → considered → selected → represented|rejected` sequence every attachment-resolution site repeats; `resolved` picks the branch, with the loud (warning-pushing) rejection path.
     pub(crate) fn record_attachment(
         &self,
-        warnings: &mut Vec<String>,
         key: InventoryKey,
         resolved: bool,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         msg: impl Into<String>,
     ) {
@@ -1011,7 +1001,7 @@ impl Ctx<'_> {
         if resolved {
             self.represented(key);
         } else {
-            self.reject(warnings, key, code, class, msg);
+            self.reject(key, code, class, msg);
         }
     }
 
@@ -1020,7 +1010,7 @@ impl Ctx<'_> {
         &self,
         key: InventoryKey,
         resolved: bool,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         msg: impl Into<String>,
     ) {

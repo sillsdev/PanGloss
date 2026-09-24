@@ -17,7 +17,6 @@ pub(crate) fn build(
     ctx: &Ctx,
     acc: &mut Acc,
     morphology_mrules: &mut Vec<MRuleId>,
-    warnings: &mut Vec<String>,
 ) -> Result<(), GrammarError> {
     for r in &snapshot.morphology.compound_rules {
         ctx.considered(InventoryKey::object(
@@ -71,7 +70,6 @@ pub(crate) fn build(
                     max_apps,
                     ctx,
                     acc,
-                    warnings,
                 )? {
                     Some(id) => {
                         morphology_mrules.push(id);
@@ -87,17 +85,7 @@ pub(crate) fn build(
                 to,
                 ..
             } => {
-                let ids = build_exo(
-                    rule.guid(),
-                    name,
-                    left,
-                    right,
-                    to,
-                    max_apps,
-                    ctx,
-                    acc,
-                    warnings,
-                )?;
+                let ids = build_exo(rule.guid(), name, left, right, to, max_apps, ctx, acc)?;
                 if ids.is_empty() {
                     // `build_exo` records the issue at the failed requirement.
                 } else {
@@ -222,7 +210,6 @@ fn build_endo(
     max_apps: u16,
     ctx: &Ctx,
     acc: &mut Acc,
-    warnings: &mut Vec<String>,
 ) -> Result<Option<MRuleId>, GrammarError> {
     let (head_side, non_head_side, head_role, non_head_role) = if head_last {
         (right, left, roles::RIGHT, roles::LEFT)
@@ -230,19 +217,13 @@ fn build_endo(
         (left, right, roles::LEFT, roles::RIGHT)
     };
     let Some(head_required_syn_fs) =
-        side_required_fs(rule_guid, name, head_role, head_side, ctx, acc, warnings)
+        side_required_fs(rule_guid, name, head_role, head_side, ctx, acc)
     else {
         return Ok(None);
     };
-    let Some(non_head_required_syn_fs) = side_required_fs(
-        rule_guid,
-        name,
-        non_head_role,
-        non_head_side,
-        ctx,
-        acc,
-        warnings,
-    ) else {
+    let Some(non_head_required_syn_fs) =
+        side_required_fs(rule_guid, name, non_head_role, non_head_side, ctx, acc)
+    else {
         return Ok(None);
     };
     let out_pos = overriding.part_of_speech.as_deref().and_then(|p| {
@@ -266,7 +247,6 @@ fn build_endo(
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(_) => {
             ctx.reject(
-                warnings,
                 InventoryKey::object(InventoryKind::CompoundRule, rule_guid.to_string()),
                 issue_codes::COMPOUND_RULE_BUILD_FAILED,
                 IssueClass::UnrepresentableForHc,
@@ -296,14 +276,8 @@ fn build_endo(
             head_required_syn_fs,
             non_head_required_syn_fs,
             out_syn_fs,
-            head_prod_restrictions_mpr: side_mpr(rule_guid, head_role, head_side, ctx, warnings),
-            non_head_prod_restrictions_mpr: side_mpr(
-                rule_guid,
-                non_head_role,
-                non_head_side,
-                ctx,
-                warnings,
-            ),
+            head_prod_restrictions_mpr: side_mpr(rule_guid, head_role, head_side, ctx),
+            non_head_prod_restrictions_mpr: side_mpr(rule_guid, non_head_role, non_head_side, ctx),
             output_prod_restrictions_mpr: crate::model::MprSet::EMPTY,
             obligatory_features: Vec::new(),
             subrules: vec![CompoundingSubruleDef {
@@ -330,14 +304,11 @@ fn build_exo(
     max_apps: u16,
     ctx: &Ctx,
     acc: &mut Acc,
-    warnings: &mut Vec<String>,
 ) -> Result<Vec<MRuleId>, GrammarError> {
-    let Some(left_fs) = side_required_fs(rule_guid, name, roles::LEFT, left, ctx, acc, warnings)
-    else {
+    let Some(left_fs) = side_required_fs(rule_guid, name, roles::LEFT, left, ctx, acc) else {
         return Ok(Vec::new());
     };
-    let Some(right_fs) = side_required_fs(rule_guid, name, roles::RIGHT, right, ctx, acc, warnings)
-    else {
+    let Some(right_fs) = side_required_fs(rule_guid, name, roles::RIGHT, right, ctx, acc) else {
         return Ok(Vec::new());
     };
     let out_pos = to.part_of_speech.as_deref().and_then(|p| {
@@ -361,7 +332,6 @@ fn build_exo(
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(_) => {
             ctx.reject(
-                warnings,
                 InventoryKey::object(InventoryKind::CompoundRule, rule_guid.to_string()),
                 issue_codes::COMPOUND_RULE_BUILD_FAILED,
                 IssueClass::UnrepresentableForHc,
@@ -377,8 +347,8 @@ fn build_exo(
         .as_deref()
         .and_then(|ic| ctx.mpr.infl_class_single(ic))
         .unwrap_or(crate::model::MprSet::EMPTY);
-    let left_mpr = side_mpr(rule_guid, roles::LEFT, left, ctx, warnings);
-    let right_mpr = side_mpr(rule_guid, roles::RIGHT, right, ctx, warnings);
+    let left_mpr = side_mpr(rule_guid, roles::LEFT, left, ctx);
+    let right_mpr = side_mpr(rule_guid, roles::RIGHT, right, ctx);
 
     let mut out = Vec::new();
     // "right compound rule": head = right, non-head = left, output = nonhead+"+"+head.
@@ -451,7 +421,6 @@ fn side_required_fs(
     side: &CompoundConstituentRequirement,
     ctx: &Ctx,
     acc: &mut Acc,
-    warnings: &mut Vec<String>,
 ) -> Option<pg_featstruct::FsId> {
     let pos_bits = side.part_of_speech.as_deref().map(|p| {
         let attachment = InventoryKey::attachment(
@@ -474,7 +443,6 @@ fn side_required_fs(
         Ok(fs) => Some(acc.fs_interner.intern(fs)),
         Err(_) => {
             ctx.reject(
-                warnings,
                 InventoryKey::object(InventoryKind::CompoundRule, rule_guid.to_string()),
                 issue_codes::COMPOUND_RULE_BUILD_FAILED,
                 IssueClass::UnrepresentableForHc,
@@ -490,7 +458,6 @@ fn side_mpr(
     role: &str,
     side: &CompoundConstituentRequirement,
     ctx: &Ctx,
-    warnings: &mut Vec<String>,
 ) -> crate::model::MprSet {
     let mut set = crate::model::MprSet::EMPTY;
     for f in &side.exception_features {
@@ -502,7 +469,6 @@ fn side_mpr(
         );
         let resolved = ctx.mpr.exception_feature(f);
         ctx.record_attachment(
-            warnings,
             attachment,
             resolved.is_some(),
             issue_codes::COMPOUND_SIDE_EXCEPTION_FEATURE_UNRESOLVED,

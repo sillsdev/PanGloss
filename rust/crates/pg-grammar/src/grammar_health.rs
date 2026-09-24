@@ -106,24 +106,115 @@ impl GrammarHealthCode {
 
     /// Stable group label for a finding code.
     pub fn group_name(&self) -> String {
-        match self {
-            Self::UndeclaredSegment => "Missing segment definition".to_string(),
-            Self::DuplicateFeatureBundle => "Duplicate segment features".to_string(),
-            Self::StemWithoutCategory => "Stem has no category".to_string(),
-            Self::InflectionalAffixWithoutTemplateSlot => {
-                "Inflectional affix has no slot".to_string()
-            }
-            Self::UnclassifiedAffix => "Affix is unclassified".to_string(),
-            Self::PartialReasonUnspecified => "Partial reason is unknown".to_string(),
-            Self::ImportWarning(code) => {
-                let code =
-                    ImportWarningCode::from_wire(code).unwrap_or(ImportWarningCode::Unregistered);
-                pg_snapshot::import_warning_metadata(code)
-                    .group_name
-                    .to_string()
-            }
-        }
+        check_finding_metadata(self).map_or_else(
+            || match self {
+                Self::ImportWarning(code) => {
+                    let code = ImportWarningCode::from_wire_or_unregistered(code);
+                    pg_snapshot::import_warning_metadata(code)
+                        .group_name
+                        .to_string()
+                }
+                _ => unreachable!("every check code has check-finding metadata"),
+            },
+            |metadata| metadata.group_name.to_string(),
+        )
     }
+}
+
+#[derive(Clone, Copy)]
+enum CheckGuidance {
+    UndeclaredSegment,
+    DuplicateFeatureBundle,
+    StemWithoutCategory,
+    InflectionalAffixWithoutTemplateSlot,
+    UnclassifiedAffix,
+    PartialReasonUnspecified,
+}
+
+struct CheckFindingMetadata {
+    group_name: &'static str,
+    guidance: CheckGuidance,
+}
+
+fn check_finding_metadata(code: &GrammarHealthCode) -> Option<CheckFindingMetadata> {
+    let (group_name, guidance) = match code {
+        GrammarHealthCode::UndeclaredSegment => (
+            "Missing segment definition",
+            CheckGuidance::UndeclaredSegment,
+        ),
+        GrammarHealthCode::DuplicateFeatureBundle => (
+            "Duplicate segment features",
+            CheckGuidance::DuplicateFeatureBundle,
+        ),
+        GrammarHealthCode::StemWithoutCategory => {
+            ("Stem has no category", CheckGuidance::StemWithoutCategory)
+        }
+        GrammarHealthCode::InflectionalAffixWithoutTemplateSlot => (
+            "Inflectional affix has no slot",
+            CheckGuidance::InflectionalAffixWithoutTemplateSlot,
+        ),
+        GrammarHealthCode::UnclassifiedAffix => {
+            ("Affix is unclassified", CheckGuidance::UnclassifiedAffix)
+        }
+        GrammarHealthCode::PartialReasonUnspecified => (
+            "Partial reason is unknown",
+            CheckGuidance::PartialReasonUnspecified,
+        ),
+        GrammarHealthCode::ImportWarning(_) => return None,
+    };
+    Some(CheckFindingMetadata {
+        group_name,
+        guidance,
+    })
+}
+
+fn check_guidance(code: &GrammarHealthCode, subjects: &[GrammarHealthSubject]) -> Option<String> {
+    let metadata = check_finding_metadata(code)?;
+    use pg_snapshot::fieldworks_paths as path;
+    let guidance = match metadata.guidance {
+        CheckGuidance::UndeclaredSegment => {
+            let kind = subjects.get(1).map(|subject| subject.kind)?;
+            let (edit_path, action) = match kind {
+                FwClass::MoForm | FwClass::MoStemMsa => (
+                    path::LEXICON_EDIT,
+                    "correct the form or add the missing phoneme",
+                ),
+                FwClass::MoInflAffMsa
+                | FwClass::MoDerivAffMsa
+                | FwClass::MoUnclassifiedAffixMsa => (
+                    path::LEXICON_EDIT,
+                    "correct the affix form or add the missing phoneme",
+                ),
+                FwClass::MoCompoundRule => (
+                    path::GRAMMAR_COMPOUND_RULES,
+                    "correct the rule or add the missing phoneme",
+                ),
+                _ => (path::GRAMMAR_PHONEMES, "add the missing phoneme"),
+            };
+            format!("In {edit_path}, {action} in {}.", path::GRAMMAR_PHONEMES)
+        }
+        CheckGuidance::DuplicateFeatureBundle => format!(
+            "In {}, assign distinct feature values to these phonemes.",
+            path::GRAMMAR_PHONEMES
+        ),
+        CheckGuidance::StemWithoutCategory => format!(
+            "In {}, open the entry and set Grammatical Info. > Category.",
+            path::LEXICON_EDIT
+        ),
+        CheckGuidance::InflectionalAffixWithoutTemplateSlot => format!(
+            "In {}, assign the affix to a template slot.",
+            path::GRAMMAR_CATEGORY_AFFIX_TEMPLATES
+        ),
+        CheckGuidance::UnclassifiedAffix => format!(
+            "In {}, set the affix's Grammatical Info. to an inflectional or derivational affix.",
+            path::LEXICON_EDIT
+        ),
+        CheckGuidance::PartialReasonUnspecified => format!(
+            "In {}, check the affix's category and template slot assignments.",
+            path::GRAMMAR_CATEGORY_AFFIX_TEMPLATES
+        ),
+    };
+    Some(guidance)
 }
 
 impl serde::Serialize for GrammarHealthCode {
@@ -359,8 +450,7 @@ impl serde::Serialize for GrammarHealthCheckFinding {
 
 impl GrammarHealthCheckFinding {
     pub fn from_import_warning(warning: &Warning) -> Self {
-        let import_code =
-            ImportWarningCode::from_wire(&warning.code).unwrap_or(ImportWarningCode::Unregistered);
+        let import_code = ImportWarningCode::from_wire_or_unregistered(&warning.code);
         let metadata = pg_snapshot::import_warning_metadata(import_code);
         let code = GrammarHealthCode::ImportWarning(warning.code.to_owned());
         let group_name = metadata.group_name.to_string();
@@ -396,11 +486,11 @@ impl GrammarHealthCheckFinding {
         Self {
             severity,
             group_name: code.group_name(),
+            guidance: check_guidance(&code, &subjects),
             code,
             origin: FindingOrigin::Check,
             audience: Audience::Linguist,
             message,
-            guidance: None,
             subjects,
         }
     }
@@ -861,18 +951,14 @@ fn check_duplicate_feature_bundles(
             subjects.extend(group.iter().map(|(id, cd)| {
                 char_def_subject(grammar, fieldworks_project, table_id, *id, cd, table)
             }));
-            let mut finding = GrammarHealthCheckFinding::checked(
+            let finding = GrammarHealthCheckFinding::checked(
                 GrammarHealthSeverity::Warning,
                 GrammarHealthCode::DuplicateFeatureBundle,
                 format!(
-                    "Phonemes {} have identical feature values and cannot be distinguished by FieldWorks rules.",
+                    "Phonemes {} share the same feature values.",
                     names.join(", ")
                 ),
                 subjects,
-            );
-            finding.guidance = Some(
-                "In Grammar > Phonemes, assign distinct feature values to these phonemes."
-                    .to_string(),
             );
             findings.push(finding);
         }
@@ -1186,13 +1272,13 @@ fn push_undeclared_segments(
     count: usize,
     findings: &mut Vec<GrammarHealthCheckFinding>,
 ) {
-    let (kind, guidance) = undeclared_segment_guidance(owner_subject.kind);
+    let kind = undeclared_segment_subject_label(owner_subject.kind);
     let description = format!(
         "{kind} '{}' uses a phoneme that is missing from the phoneme inventory.",
         owner_subject.title
     );
     for _ in 0..count {
-        let mut finding = GrammarHealthCheckFinding::checked(
+        let finding = GrammarHealthCheckFinding::checked(
             GrammarHealthSeverity::Error,
             GrammarHealthCode::UndeclaredSegment,
             description.clone(),
@@ -1201,34 +1287,19 @@ fn push_undeclared_segments(
                 owner_subject.clone(),
             ],
         );
-        finding.guidance = Some(guidance.to_string());
         findings.push(finding);
     }
 }
 
-fn undeclared_segment_guidance(kind: FwClass) -> (&'static str, String) {
-    use pg_snapshot::fieldworks_paths::{GRAMMAR_COMPOUND_RULES, GRAMMAR_PHONEMES, LEXICON_EDIT};
+fn undeclared_segment_subject_label(kind: FwClass) -> &'static str {
     match kind {
-        FwClass::MoForm => (
-            "Lexical entry",
-            format!("In {LEXICON_EDIT}, correct the form or add the missing phoneme in {GRAMMAR_PHONEMES}."),
-        ),
-        FwClass::MoStemMsa => (
-            "Stem",
-            format!("In {LEXICON_EDIT}, correct the form or add the missing phoneme in {GRAMMAR_PHONEMES}."),
-        ),
-        FwClass::MoInflAffMsa | FwClass::MoDerivAffMsa | FwClass::MoUnclassifiedAffixMsa => (
-            affix_kind_label(kind),
-            format!("In {LEXICON_EDIT}, correct the affix form or add the missing phoneme in {GRAMMAR_PHONEMES}."),
-        ),
-        FwClass::MoCompoundRule => (
-            "Compound rule",
-            format!("In {GRAMMAR_COMPOUND_RULES}, correct the rule or add the missing phoneme in {GRAMMAR_PHONEMES}."),
-        ),
-        _ => (
-            "Grammar item",
-            format!("In {GRAMMAR_PHONEMES}, add the missing phoneme to the inventory."),
-        ),
+        FwClass::MoForm => "Lexical entry",
+        FwClass::MoStemMsa => "Stem",
+        FwClass::MoInflAffMsa | FwClass::MoDerivAffMsa | FwClass::MoUnclassifiedAffixMsa => {
+            affix_kind_label(kind)
+        }
+        FwClass::MoCompoundRule => "Compound rule",
+        _ => "Grammar item",
     }
 }
 
@@ -1275,14 +1346,10 @@ fn partial_finding(
         .filter(|subtitle| !subtitle.trim().is_empty())
         .map(|subtitle| format!("'{}' ({subtitle})", subject.title))
         .unwrap_or_else(|| format!("'{}'", subject.title));
-    let (code, message, guidance) = match reason {
+    let (code, message) = match reason {
         PartialMorphemeReason::StemWithoutCategory => (
             GrammarHealthCode::StemWithoutCategory,
             format!("Lexical entry {name} has no grammatical category."),
-            format!(
-                "In {}, open the entry and set Grammatical Info. > Category.",
-                pg_snapshot::fieldworks_paths::LEXICON_EDIT
-            ),
         ),
         PartialMorphemeReason::InflectionalAffixWithoutTemplateSlot => (
             GrammarHealthCode::InflectionalAffixWithoutTemplateSlot,
@@ -1290,38 +1357,19 @@ fn partial_finding(
                 "{} {name} has no template slot.",
                 affix_kind_label(subject.kind)
             ),
-            format!(
-                "In {}, assign the affix to a template slot.",
-                pg_snapshot::fieldworks_paths::GRAMMAR_CATEGORY_AFFIX_TEMPLATES
-            ),
         ),
         PartialMorphemeReason::UnclassifiedAffix => (
             GrammarHealthCode::UnclassifiedAffix,
             format!("Affix {name} is unclassified, so it can attach anywhere."),
-            format!(
-                "In {}, set the affix's Grammatical Info. to an inflectional or derivational affix.",
-                pg_snapshot::fieldworks_paths::LEXICON_EDIT
-            ),
         ),
         PartialMorphemeReason::Unspecified => (
             GrammarHealthCode::PartialReasonUnspecified,
             format!(
                 "Affix {name} is marked partial in the grammar file; the reason is not recorded."
             ),
-            format!(
-                "In {}, check the affix's category and template slot assignments.",
-                pg_snapshot::fieldworks_paths::GRAMMAR_CATEGORY_AFFIX_TEMPLATES
-            ),
         ),
     };
-    let mut finding = GrammarHealthCheckFinding::checked(
-        GrammarHealthSeverity::Warning,
-        code,
-        message,
-        vec![subject],
-    );
-    finding.guidance = Some(guidance.to_string());
-    finding
+    GrammarHealthCheckFinding::checked(GrammarHealthSeverity::Warning, code, message, vec![subject])
 }
 
 #[cfg(test)]

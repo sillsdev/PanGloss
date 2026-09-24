@@ -9,7 +9,7 @@ use pg_featstruct::SymbolBits;
 
 use pg_snapshot::phonology::NaturalClass as SnapNaturalClass;
 use pg_snapshot::{
-    Audience, InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot, SourceRef,
+    InventoryKey, InventoryKind, IssueClass, SelectionRecorder, Snapshot, SourceRef,
 };
 
 use crate::chardef::CharDefId;
@@ -36,9 +36,9 @@ pub(crate) fn build(
     snapshot: &Snapshot,
     phon: &PhonFeatureSystem,
     phoneme_of: &HashMap<String, CharDefId>,
-    warnings: &mut Vec<String>,
     recorder: &mut SelectionRecorder,
     lineage: &mut Lineage,
+    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> NatClassBuild {
     let mut defs = Vec::new();
     let mut by_guid = HashMap::new();
@@ -63,6 +63,7 @@ pub(crate) fn build(
                             recorder.selected(key.clone());
                             inventory::reject(
                                 recorder,
+                                snapshot,
                                 warnings,
                                 key.clone(),
                                 issue_codes::NATCLASS_SEGMENTS_MEMBER_UNRESOLVED,
@@ -102,8 +103,9 @@ pub(crate) fn build(
                 let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
                 recorder.considered(key.clone());
                 recorder.selected(key.clone());
-                let pairs =
-                    feature_constraint_pairs(features, phon, warnings, recorder, guid, name);
+                let pairs = feature_constraint_pairs(
+                    features, phon, recorder, snapshot, warnings, guid, name,
+                );
                 let id = NatClassId(defs.len() as u32);
                 by_guid.insert(guid.clone(), id);
                 by_name.entry(name.clone()).or_insert(id);
@@ -154,8 +156,9 @@ pub(crate) fn build(
 fn feature_constraint_pairs(
     fs: &pg_snapshot::feature::FeatureStructure,
     phon: &PhonFeatureSystem,
-    warnings: &mut Vec<String>,
     recorder: &mut SelectionRecorder,
+    snapshot: &Snapshot,
+    warnings: &mut Vec<pg_snapshot::Warning>,
     nc_guid: &str,
     nc_name: &str,
 ) -> Vec<(FlatIndex, SymbolBits)> {
@@ -164,14 +167,14 @@ fn feature_constraint_pairs(
         let Some(flat) = phon.flat_index(&v.feature) else {
             inventory::note(
                 recorder,
+                snapshot,
                 warnings,
                 issue_codes::NATCLASS_FEATURE_CONSTRAINT_UNRESOLVED,
                 IssueClass::InvalidSource,
                 SourceRef {
-                    kind: "PhNaturalClass".to_string(),
+                    kind: pg_snapshot::FwClass::PhNaturalClass,
                     id: nc_guid.to_string(),
                 },
-                Audience::Linguist,
                 format!(
                     "Natural class '{}' refers to a phonological feature that is not defined.",
                     display_natural_class_name(nc_name)
@@ -184,14 +187,14 @@ fn feature_constraint_pairs(
                 let Some(idx) = phon.symbol_index(flat, value) else {
                     inventory::note(
                         recorder,
+                        snapshot,
                         warnings,
                         issue_codes::NATCLASS_FEATURE_CONSTRAINT_UNRESOLVED,
                         IssueClass::InvalidSource,
                         SourceRef {
-                            kind: "PhNaturalClass".to_string(),
+                            kind: pg_snapshot::FwClass::PhNaturalClass,
                             id: nc_guid.to_string(),
                         },
-                        Audience::Linguist,
                         format!(
                             "Natural class '{}' refers to a phonological feature value that is not defined.",
                             display_natural_class_name(nc_name)
@@ -204,14 +207,14 @@ fn feature_constraint_pairs(
             pg_snapshot::feature::FeatureValueKind::Complex { .. } => {
                 inventory::note(
                     recorder,
+                    snapshot,
                     warnings,
                     issue_codes::NATCLASS_COMPLEX_FEATURE_UNSUPPORTED,
                     IssueClass::UnrepresentableForHc,
                     SourceRef {
-                        kind: "PhNaturalClass".to_string(),
+                        kind: pg_snapshot::FwClass::PhNaturalClass,
                         id: nc_guid.to_string(),
                     },
-                    Audience::Linguist,
                     format!(
                         "Natural class '{}' has a complex phonological feature value that the importer cannot represent.",
                         display_natural_class_name(nc_name)

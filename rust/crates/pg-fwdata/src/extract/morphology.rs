@@ -99,11 +99,10 @@ fn record_parser_settings(
             ctx.record_rejected(
                 key,
                 ConversionIssue {
-                    code: super::codes::INVALID_PARSER_PARAMETER.to_string(),
+                    code: super::codes::INVALID_PARSER_PARAMETER,
                     class: IssueClass::MalformedSource,
                     source: None,
                     fatal: false,
-                    audience: pg_snapshot::Audience::Linguist,
                     message: format!(
                         "morphology.parserParameters: XAmple {field} is present but malformed"
                     ),
@@ -313,7 +312,7 @@ fn record_template_slot_attachments(ctx: &mut Ctx, parts_of_speech: &[PartOfSpee
                         pg_snapshot::IssueClass::InvalidSource,
                         !template.disabled,
                         Some(pg_snapshot::SourceRef {
-                            kind: "MoInflAffixSlot".to_string(),
+                            kind: pg_snapshot::FwClass::MoInflAffixSlot,
                             id: slot_guid.clone(),
                         }),
                         format!(
@@ -457,14 +456,13 @@ fn record_compound_side_attachment(
         ctx.record_rejected(
             key,
             ConversionIssue {
-                code: super::codes::DANGLING_REFERENCE.to_string(),
+                code: super::codes::DANGLING_REFERENCE,
                 class: IssueClass::InvalidSource,
                 source: Some(SourceRef {
-                    kind: "MoStemMsa".to_string(),
+                    kind: pg_snapshot::FwClass::MoStemMsa,
                     id: target_guid.to_string(),
                 }),
                 fatal: !rule_disabled,
-                audience: pg_snapshot::Audience::Linguist,
                 message: format!(
                     "morphology.compoundRules: compound rule {owner_guid} references {role} \
                      MSA {target_guid}, which does not resolve to a MoStemMsa"

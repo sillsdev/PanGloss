@@ -54,7 +54,7 @@ fn duplicate_guid_on_an_allowed_class_keeps_the_first_and_reports_one_issue() {
     let duplicate_issues: Vec<_> = graph
         .issues
         .iter()
-        .filter(|i| i.code == "invalid-source.duplicate-guid")
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::InvalidSourceDuplicateGuid)
         .collect();
     assert_eq!(duplicate_issues.len(), 1);
     assert!(duplicate_issues[0].fatal);
@@ -71,11 +71,11 @@ fn first_recognized_occurrence_wins_over_an_earlier_unknown_class_duplicate() {
     let duplicate_issues: Vec<_> = graph
         .issues
         .iter()
-        .filter(|i| i.code == "invalid-source.duplicate-guid")
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::InvalidSourceDuplicateGuid)
         .collect();
     assert_eq!(duplicate_issues.len(), 1);
     let source = duplicate_issues[0].source.as_ref().unwrap();
-    assert_eq!(source.kind, "ZzUnknown");
+    assert_eq!(source.kind, pg_snapshot::FwClass::Unknown);
     assert_eq!(source.id, "00000000-0000-0000-0000-000000000002");
     let record = graph
         .get("00000000-0000-0000-0000-000000000002")
@@ -93,11 +93,11 @@ fn duplicate_guid_across_two_different_allowed_classes_keeps_the_first() {
     let duplicate_issues: Vec<_> = graph
         .issues
         .iter()
-        .filter(|i| i.code == "invalid-source.duplicate-guid")
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::InvalidSourceDuplicateGuid)
         .collect();
     assert_eq!(duplicate_issues.len(), 1);
     let source = duplicate_issues[0].source.as_ref().unwrap();
-    assert_eq!(source.kind, "LexEntry");
+    assert_eq!(source.kind, pg_snapshot::FwClass::LexEntry);
     assert_eq!(source.id, "00000000-0000-0000-0000-000000000002");
     let record = graph
         .get("00000000-0000-0000-0000-000000000002")
@@ -115,13 +115,13 @@ fn two_allowed_class_records_missing_guid_each_get_their_own_issue() {
     let missing_issues: Vec<_> = graph
         .issues
         .iter()
-        .filter(|i| i.code == "invalid-source.missing-guid")
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::InvalidSourceMissingGuid)
         .collect();
     assert_eq!(missing_issues.len(), 2);
     let duplicate_issues = graph
         .issues
         .iter()
-        .filter(|i| i.code == "invalid-source.duplicate-guid")
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::InvalidSourceDuplicateGuid)
         .count();
     assert_eq!(duplicate_issues, 0);
     assert!(!graph.records.contains_key(""));
@@ -136,7 +136,7 @@ fn missing_guid_on_an_allowed_class_is_a_fatal_issue_and_is_not_inserted() {
     let missing_issues: Vec<_> = graph
         .issues
         .iter()
-        .filter(|i| i.code == "invalid-source.missing-guid")
+        .filter(|i| i.code == pg_snapshot::ImportWarningCode::InvalidSourceMissingGuid)
         .collect();
     assert_eq!(missing_issues.len(), 1);
     assert!(missing_issues[0].fatal);

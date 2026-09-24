@@ -99,11 +99,10 @@ fn unsegmentable_issue(
     position: usize,
 ) -> ConversionIssue {
     ConversionIssue {
-        code: issues::SUBSTRATE_UNSEGMENTABLE_FORM.to_string(),
+        code: issues::SUBSTRATE_UNSEGMENTABLE_FORM,
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
         fatal: false,
-        audience: pg_snapshot::Audience::Linguist,
         message: format!(
             "cannot segment {text:?}: no character definition matches {ch:?} at position \
              {position}, and this project's resolved substrate policy does not complete a \
@@ -115,11 +114,10 @@ fn unsegmentable_issue(
 /// Non-fatal and per-allomorph for the same reason as [`unsegmentable_issue`].
 fn ambiguous_issue(source: &SourceRef, text: &str, ch: char, position: usize) -> ConversionIssue {
     ConversionIssue {
-        code: issues::SUBSTRATE_CLASSIFICATION_AMBIGUOUS.to_string(),
+        code: issues::SUBSTRATE_CLASSIFICATION_AMBIGUOUS,
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
         fatal: false,
-        audience: pg_snapshot::Audience::Linguist,
         message: format!(
             "cannot segment {text:?}: {ch:?} at position {position} is neither a vernacular \
              exemplar, an authored boundary, nor in the safe boundary table; refusing rather than \
@@ -140,11 +138,10 @@ fn unmapped_position_issue(
         None => "is past the end of the word (word-final combining mark)".to_string(),
     };
     ConversionIssue {
-        code: issues::SUBSTRATE_POSITION_UNMAPPED.to_string(),
+        code: issues::SUBSTRATE_POSITION_UNMAPPED,
         class: IssueClass::SubstrateUnresolvable,
         source: Some(source.clone()),
         fatal: false,
-        audience: pg_snapshot::Audience::Linguist,
         message: format!(
             "cannot segment {text:?}: the failure position {position} {detail}; the true failing \
              element is likely a standalone combining mark from a decomposed character with no \
@@ -291,16 +288,15 @@ pub(crate) fn feature_rule_migration_issues(
         });
         if matches_a_feature_class {
             issues.push(ConversionIssue {
-                code: issues::SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE.to_string(),
+                code: issues::SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE,
                 class: IssueClass::MigrationDifference,
                 source: Some(SourceRef {
-                    kind: "PhPhoneme".to_string(),
+                    kind: pg_snapshot::FwClass::PhPhoneme,
                     id: format!("inferred:{}", inferred.representation),
                 }),
                 fatal: false,
-                audience: pg_snapshot::Audience::Linguist,
                 message: format!(
-                    "Inferred segment '{}' has no authored feature values; check its phonological features and matching feature-based natural classes.",
+                    "Character '{}' is used in an allomorph but is not a project phoneme.",
                     inferred.representation,
                 ),
             });

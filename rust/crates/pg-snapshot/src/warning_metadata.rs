@@ -326,12 +326,12 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             "check the named analysis's part of speech and features.",
         ),
         MsaNoAllomorphs => linguist_warning(
-            "No loadable entry allomorphs",
+            "No usable entry allomorphs",
             fieldworks_paths::LEXICON_EDIT,
-            "add or correct a loadable allomorph for the named lexical entry.",
+            "add or correct an allomorph for the named lexical entry.",
         ),
         MsaNoRuleFormAllomorphs => linguist_warning(
-            "Analysis has no rule-form allomorph",
+            "Analysis has no usable affix form",
             fieldworks_paths::LEXICON_EDIT,
             "add a usable affix allomorph to the named analysis.",
         ),
@@ -375,12 +375,12 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             "choose a supported morph type for the named allomorph.",
         ),
         AllomorphMorphTypeUnsupportedAsRuleForm => linguist_warning(
-            "Allomorph type is not a rule form",
+            "Allomorph type is not usable for this affix",
             fieldworks_paths::LEXICON_EDIT,
-            "check the named allomorph's morph type and its use as a rule form.",
+            "check the named allomorph's morph type and how it is used by the analysis.",
         ),
         AllomorphNotRuleForm => linguist_warning(
-            "Allomorph cannot be a rule form",
+            "Affix allomorph has no form",
             fieldworks_paths::LEXICON_EDIT,
             "add a non-empty form to the named affix allomorph.",
         ),
@@ -522,9 +522,9 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             "decide whether the named allomorph's character is a phoneme or boundary marker.",
         ),
         MigrationInferredSegmentWithFeatureRule => linguist_warning(
-            "Inferred segment matches a feature class",
+            "Character is not listed as a phoneme",
             fieldworks_paths::GRAMMAR_PHONEMES,
-            "add or edit the named phoneme's feature values, or review the natural class that matches it.",
+            "add the named character as a phoneme before assigning its feature values.",
         ),
         UnsupportedConstruct => linguist_warning(
             "Unsupported FieldWorks construct",
@@ -534,7 +534,7 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
         SubstratePositionUnmapped => linguist_warning(
             "Allomorph character position is unmapped",
             fieldworks_paths::LEXICON_EDIT,
-            "check the named allomorph's decomposed characters and phoneme inventory.",
+            "check the named allomorph's character sequence against the project's phonemes and boundary markers.",
         ),
     }
 }

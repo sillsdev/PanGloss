@@ -12,7 +12,7 @@ pub(crate) mod codes;
 pub(crate) use inventory::tracked_kind;
 
 use pg_snapshot::{
-    ConversionProvenance, InventoryKey, IssueClass, SelectionRecorder, Snapshot,
+    ConversionProvenance, ImportWarningCode, InventoryKey, IssueClass, SelectionRecorder, Snapshot,
     SourceInventoryStatus, SourceRef, Warning, CONVERSION_PROVENANCE_SCHEMA_VERSION,
 };
 
@@ -47,7 +47,7 @@ impl<'a> Ctx<'a> {
     }
 
     /// Record a warning: `code` is a stable short identifier naming the situation (see the `codes` module); `msg` is the human-readable prose.
-    pub fn warn(&mut self, code: &'static str, msg: impl Into<String>) {
+    pub fn warn(&mut self, code: ImportWarningCode, msg: impl Into<String>) {
         self.warnings.push(Warning::new(code, msg));
     }
 
@@ -60,15 +60,13 @@ impl<'a> Ctx<'a> {
         warning: Warning,
     ) {
         self.warnings.push(warning.clone());
-        let audience = warning.audience;
         self.recorder.rejected(
             key,
             pg_snapshot::ConversionIssue {
-                code: warning.code.to_string(),
+                code: ImportWarningCode::from_wire_or_unregistered(&warning.code),
                 class,
                 source,
                 fatal,
-                audience,
                 message: warning.message,
             },
         );
@@ -107,22 +105,21 @@ impl<'a> Ctx<'a> {
     pub(crate) fn reject(
         &mut self,
         key: InventoryKey,
-        code: &'static str,
+        code: ImportWarningCode,
         class: IssueClass,
         fatal: bool,
         source: Option<SourceRef>,
         msg: impl Into<String>,
     ) {
         let msg = msg.into();
-        self.warn(code, msg.clone());
+        self.warn(code.clone(), msg.clone());
         self.recorder.rejected(
             key,
             pg_snapshot::ConversionIssue {
-                code: code.to_string(),
+                code,
                 class,
                 source,
                 fatal,
-                audience: pg_snapshot::Audience::Linguist,
                 message: msg,
             },
         );

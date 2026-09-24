@@ -30,21 +30,74 @@ use super::{
     SubstratePolicy,
 };
 
+fn warning_metadata(warning: &pg_snapshot::Warning) -> pg_snapshot::ImportWarningMetadata {
+    let code = pg_snapshot::ImportWarningCode::from_wire_or_unregistered(&warning.code);
+    pg_snapshot::import_warning_metadata(code)
+}
+
+fn warning_guidance(warning: &pg_snapshot::Warning) -> Option<String> {
+    warning_metadata(warning).guidance_for_subject(
+        warning
+            .subjects
+            .first()
+            .and_then(|subject| subject.name.as_deref()),
+        warning.subjects.first().map(|subject| subject.class),
+    )
+}
+
+#[test]
+fn warning_deduplication_keeps_the_first_linguist_wording_for_a_fact() {
+    let subject = || {
+        pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoForm)
+            .guid("00000000-0000-0000-0000-000000000042")
+    };
+    let preferred = pg_snapshot::Warning::new(
+        pg_snapshot::ImportWarningCode::AllomorphUnsegmentable,
+        "Allomorph 'xyz' could not be segmented with this project's phonemes.",
+    )
+    .with_subject(subject());
+    let engine_detail = pg_snapshot::Warning::new(
+        pg_snapshot::ImportWarningCode::AllomorphUnsegmentable,
+        "cannot segment \"xyz\": no character definition matches 'x' at position 0",
+    )
+    .with_subject(subject());
+
+    let unique = super::warnings::deduplicate([preferred.clone(), engine_detail]);
+
+    assert_eq!(unique, vec![preferred]);
+}
+
 /// Compiles `snapshot` through the recording seam and asserts the recorder's own invariants hold; returns everything a caller might want to inspect further.
 fn compile_recording_ok(
     snapshot: &Snapshot,
 ) -> (
     crate::model::Grammar,
-    Vec<String>,
+    Vec<pg_snapshot::Warning>,
     pg_snapshot::ConversionInventory,
     Vec<pg_snapshot::ConversionIssue>,
 ) {
-    let (grammar, warnings, recorder, _substrate, _substrate_issues) =
+    let (grammar, recorder, _substrate, substrate_issues, compile_warnings) =
         compile_project_recording(snapshot, SubstratePolicy::default()).expect("must compile");
     recorder
         .check_invariants()
         .expect("recorder invariants must hold");
     let (inventory, issues) = recorder.finish();
+    let mut all_issues = snapshot.conversion_provenance.import_issues.clone();
+    if snapshot.conversion_provenance.source_inventory_status == SourceInventoryStatus::Unknown {
+        all_issues.push(pg_snapshot::ConversionIssue {
+            code: super::issues::SOURCE_PROVENANCE_UNKNOWN,
+            class: IssueClass::AmbiguousSource,
+            source: None,
+            fatal: true,
+            message:
+                "conversion provenance is unknown; cannot certify this conversion's completeness"
+                    .to_string(),
+        });
+    }
+    let mut warnings = super::warnings::from_issues(snapshot, &all_issues);
+    warnings.extend(super::warnings::from_issues(snapshot, &substrate_issues));
+    warnings.extend(compile_warnings);
+    let warnings = super::warnings::deduplicate(warnings);
     (grammar, warnings, inventory, issues)
 }
 
@@ -52,14 +105,13 @@ fn compile_recording_ok(
 fn import_warning_describes_failed_msa_without_internal_error_text() {
     let (snapshot, f) = fixture();
     let issues = [pg_snapshot::ConversionIssue {
-        code: super::issue_codes::MSA_BUILD_FAILED.to_string(),
+        code: super::issue_codes::MSA_BUILD_FAILED,
         class: IssueClass::UnrepresentableForHc,
         source: Some(pg_snapshot::SourceRef {
-            kind: "MoStemMsa".to_string(),
+            kind: pg_snapshot::FwClass::MoStemMsa,
             id: f.stem_msa,
         }),
         fatal: false,
-        audience: pg_snapshot::Audience::Linguist,
         message: "internal decoder error: private feature identifier".to_string(),
     }];
 
@@ -88,14 +140,13 @@ fn import_warning_names_a_phonological_rule_without_internal_error_text() {
         },
     ));
     let issues = [ConversionIssue {
-        code: super::issue_codes::RULE_BUILD_FAILED.to_string(),
+        code: super::issue_codes::RULE_BUILD_FAILED,
         class: IssueClass::UnrepresentableForHc,
         source: Some(pg_snapshot::SourceRef {
-            kind: "PhRegularRule".to_string(),
+            kind: pg_snapshot::FwClass::PhRegularRule,
             id: rule_guid.to_string(),
         }),
         fatal: false,
-        audience: pg_snapshot::Audience::Linguist,
         message: "internal rewrite failure: private emitter detail".to_string(),
     }];
 
@@ -117,14 +168,13 @@ fn import_warning_sanitizes_rule_form_failure_when_analysis_has_no_name() {
     let (snapshot, _) = fixture();
     let msa_guid = "10000000-0000-0000-0000-000000000002";
     let issues = [ConversionIssue {
-        code: super::issue_codes::MSA_NO_RULE_FORM_ALLOMORPHS.to_string(),
+        code: super::issue_codes::MSA_NO_RULE_FORM_ALLOMORPHS,
         class: IssueClass::UnrepresentableForHc,
         source: Some(pg_snapshot::SourceRef {
-            kind: "MoDerivAffMsa".to_string(),
+            kind: pg_snapshot::FwClass::MoDerivAffMsa,
             id: msa_guid.to_string(),
         }),
         fatal: false,
-        audience: pg_snapshot::Audience::Linguist,
         message: "affix rule has zero loadable allomorphs".to_string(),
     }];
 
@@ -133,12 +183,12 @@ fn import_warning_sanitizes_rule_form_failure_when_analysis_has_no_name() {
     assert_eq!(warnings.len(), 1);
     assert_eq!(
         warnings[0].message,
-        "Grammatical analysis 'unnamed grammatical analysis' has no allomorph that can serve as a rule form."
+        "Grammatical analysis 'Unnamed grammatical analysis' has no affix form FieldWorks can use."
     );
     assert_eq!(warnings[0].subjects[0].guid.as_deref(), Some(msa_guid));
     assert_eq!(
         warnings[0].subjects[0].name.as_deref(),
-        Some("unnamed grammatical analysis")
+        Some("Unnamed grammatical analysis")
     );
 }
 
@@ -464,7 +514,7 @@ fn unresolved_affix_environment_keeps_identifier_out_of_linguist_warning() {
     let warning = output
         .warnings
         .iter()
-        .find(|warning| warning.code == super::issue_codes::ENVIRONMENT_UNRESOLVED)
+        .find(|warning| warning.code == super::issue_codes::ENVIRONMENT_UNRESOLVED.wire())
         .expect("the linguist warning must be emitted");
     assert!(
         !warning.message.contains(dangling_guid),
@@ -481,7 +531,7 @@ fn compile_project_returns_structured_warnings() {
         .push(pg_snapshot::phonology::Environment {
             guid: "env-bad".to_string(),
             name: "bad environment".to_string(),
-            representation: "not-a-valid-environment".to_string(),
+            representation: "/[Nas]_".to_string(),
         });
     snapshot.lexicon.entries[0].allomorphs[0]
         .environments
@@ -490,7 +540,7 @@ fn compile_project_returns_structured_warnings() {
     let (_, warnings) = compile_project(&snapshot).expect("must still compile");
     let environment_warnings: Vec<_> = warnings
         .iter()
-        .filter(|warning| warning.code == super::issue_codes::ENVIRONMENT_INVALID)
+        .filter(|warning| warning.code == super::issue_codes::ENVIRONMENT_INVALID.wire())
         .collect();
     assert!(
         std::any::type_name_of_val(&warnings[0]).ends_with("pg_snapshot::warning::Warning"),
@@ -502,19 +552,20 @@ fn compile_project_returns_structured_warnings() {
         "duplicate environment reports must collapse"
     );
     let warning = environment_warnings[0];
-    assert_eq!(
-        warning.message,
-        "Phonological environment 'bad environment' is invalid; check its expression."
+    assert!(warning.message.contains("bad environment"));
+    assert!(
+        warning.message.contains("Nas"),
+        "specific validation cause: {warning:?}"
     );
     assert_eq!(warning.subjects.len(), 1);
     assert_eq!(
         warning.subjects[0].class,
         pg_snapshot::FwClass::PhEnvironment
     );
-    assert_eq!(warning.subjects[0].guid, None);
+    assert_eq!(warning.subjects[0].guid.as_deref(), Some("env-bad"));
     assert_eq!(warning.subjects[0].name.as_deref(), Some("bad environment"));
     assert_eq!(
-        warning.guidance.as_deref(),
+        warning_guidance(warning).as_deref(),
         Some(
             format!(
                 "In {}, correct the expression for phonological environment 'bad environment'.",
@@ -722,7 +773,7 @@ fn stem_msa_without_a_part_of_speech_is_partial() {
 }
 
 #[test]
-fn import_warning_empty_template_slot_is_emitted_once_with_its_source_identity() {
+fn empty_template_slot_is_recorded_without_a_linguist_warning() {
     let (mut snapshot, _f) = fixture();
     match &mut snapshot.lexicon.entries[1].msas[0] {
         Msa::Inflectional { slots, .. } => slots.clear(),
@@ -735,21 +786,12 @@ fn import_warning_empty_template_slot_is_emitted_once_with_its_source_identity()
     let warnings = output.warnings;
     let slot_warnings: Vec<_> = warnings
         .iter()
-        .filter(|warning| warning.code == super::issue_codes::TEMPLATE_SLOT_NO_RULES)
+        .filter(|warning| warning.code == super::issue_codes::TEMPLATE_SLOT_NO_RULES.wire())
         .collect();
     assert_eq!(
         slot_warnings.len(),
-        1,
-        "one empty slot has one source warning"
-    );
-    assert_eq!(
-        slot_warnings[0].subjects[0].class,
-        pg_snapshot::FwClass::MoInflAffixSlot
-    );
-    assert_eq!(slot_warnings[0].subjects[0].name.as_deref(), Some("Pl"));
-    assert_eq!(
-        slot_warnings[0].message,
-        "Affix template slot 'Pl' has no loaded inflectional affixes."
+        0,
+        "quietly dropped template slots are inventory issues, not linguist warnings"
     );
     let slot_issues: Vec<_> = output
         .issues
@@ -764,7 +806,9 @@ fn import_warning_empty_template_slot_is_emitted_once_with_its_source_identity()
     assert!(slot_issues.iter().all(|issue| issue
         .source
         .as_ref()
-        .is_some_and(|source| source.kind == "MoInflAffixSlot" && source.id == "slot-pl")));
+        .is_some_and(
+            |source| source.kind == pg_snapshot::FwClass::MoInflAffixSlot && source.id == "slot-pl"
+        )));
     assert!(slot_issues.iter().all(
         |issue| issue.message == "Affix template slot 'Pl' has no loaded inflectional affixes."
     ));
@@ -789,9 +833,9 @@ fn import_warning_empty_template_slot_is_emitted_once_with_its_source_identity()
     assert!(grammar.templates.is_empty());
 }
 
-/// `chardef::build`'s morph-boundary fallback (no authored `+` representation) must be recorded rejected, with the legacy warning text unchanged. Default compounding is suppressed: it unconditionally segments a literal `"+"` (`compounding::plus_join`), an unrelated pre-existing assumption this test must not trip.
+/// `chardef::build`'s morph-boundary fallback (no authored `+` representation) must be recorded rejected. Default compounding is suppressed: it unconditionally segments a literal `"+"` (`compounding::plus_join`), an unrelated pre-existing assumption this test must not trip.
 #[test]
-fn missing_morph_boundary_marker_is_recorded_rejected_with_the_legacy_warning_text() {
+fn missing_morph_boundary_marker_is_recorded_with_its_structured_warning() {
     let (mut snapshot, _f) = fixture();
     snapshot
         .phonology
@@ -800,12 +844,9 @@ fn missing_morph_boundary_marker_is_recorded_rejected_with_the_legacy_warning_te
     snapshot.morphology.parser_parameters.no_default_compounding = true;
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(
-        warnings
-            .iter()
-            .any(|w| w.contains("no boundary marker representation '+' found")),
-        "expected the legacy morph-boundary fallback warning to survive unchanged; got {warnings:?}"
-    );
+    assert!(warnings.iter().any(|warning| {
+        warning.code == super::issue_codes::BOUNDARY_MORPH_MARKER_UNRESOLVED.wire()
+    }));
     let key = InventoryKey::setting(InventoryKind::BoundaryMarker, "morph-boundary".to_string());
     assert!(inventory.rejected.contains(&key));
     assert!(issues
@@ -872,7 +913,9 @@ fn custom_strata_parser_parameter_warns_and_falls_back_to_the_default_layout() {
     snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(
-        warnings.iter().any(|w| w.contains("Strata")),
+        warnings.iter().any(|warning| {
+            warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire()
+        }),
         "expected a warning about unsupported custom Strata reorganization; got {warnings:?}"
     );
     assert_eq!(
@@ -988,7 +1031,10 @@ fn an_unconditioned_circumfix_entry_builds_the_half_cross_product() {
     let (grammar, warnings) =
         compile_project(&snapshot).expect("circumfix must not be a hard error");
     assert!(
-        !warnings.iter().any(|w| w.contains("circumfix")),
+        warnings.iter().all(|warning| {
+            warning.code != super::issue_codes::CIRCUMFIX_ENVIRONMENT_COMBINATION_SKIPPED.wire()
+                && warning.code != super::issue_codes::CIRCUMFIX_MISSING_HALF.wire()
+        }),
         "an unconditioned circumfix is representable, so nothing about it should be warned: {warnings:?}"
     );
     let built: Vec<&crate::model::AffixProcessRuleDef> = grammar
@@ -1038,6 +1084,37 @@ fn an_unconditioned_circumfix_entry_builds_the_half_cross_product() {
     );
 }
 
+#[test]
+fn circumfix_missing_half_names_the_entry_and_the_missing_side_once() {
+    let (mut snapshot, _) = circumfix_snapshot(&[], &[]);
+    snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.guid == "entry-circumfix")
+        .expect("circumfix entry exists")
+        .allomorphs
+        .pop();
+
+    let (_, warnings) = compile_project(&snapshot).expect("a missing half is reported");
+    let findings: Vec<_> = warnings
+        .iter()
+        .filter(|warning| warning.code == super::issue_codes::CIRCUMFIX_MISSING_HALF.wire())
+        .collect();
+
+    assert_eq!(findings.len(), 1, "one entry-level finding: {findings:?}");
+    assert_eq!(findings[0].subjects.len(), 1);
+    assert_eq!(
+        findings[0].subjects[0].class,
+        pg_snapshot::FwClass::LexEntry
+    );
+    assert_eq!(
+        findings[0].subjects[0].guid.as_deref(),
+        Some("entry-circumfix")
+    );
+    assert!(findings[0].message.contains("suffix"), "{findings:?}");
+}
+
 /// Every allomorph across `grammar.mrules` shaped like a circumfix cross-product cell (leading+trailing insert around one copy).
 fn circumfix_rule_allomorphs(
     grammar: &crate::model::Grammar,
@@ -1078,9 +1155,9 @@ fn a_circumfix_half_carrying_an_environment_builds_with_it_unioned_in() {
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must not be a hard error");
     assert!(
-        !warnings
-            .iter()
-            .any(|w| w.contains("circumfix") && w.contains("environment")),
+        warnings.iter().all(|warning| {
+            warning.code != super::issue_codes::CIRCUMFIX_ENVIRONMENT_COMBINATION_SKIPPED.wire()
+        }),
         "a conditioned circumfix half is representable, so nothing about it should be refused: {warnings:?}"
     );
     let built = circumfix_rule_allomorphs(&grammar);
@@ -1119,9 +1196,9 @@ fn a_circumfix_with_environments_on_both_halves_combines_the_outer_contexts_into
         });
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must not be a hard error");
-    assert!(!warnings
-        .iter()
-        .any(|w| w.contains("circumfix") && w.contains("environment")));
+    assert!(warnings.iter().all(|warning| {
+        warning.code != super::issue_codes::CIRCUMFIX_ENVIRONMENT_COMBINATION_SKIPPED.wire()
+    }));
     let built = circumfix_rule_allomorphs(&grammar);
     assert_eq!(built.len(), 1);
     assert_eq!(
@@ -1156,9 +1233,9 @@ fn a_circumfix_half_carrying_a_position_builds_with_it_unioned_in() {
     let _ = f;
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must not be a hard error");
-    assert!(!warnings
-        .iter()
-        .any(|w| w.contains("circumfix") && w.contains("environment")));
+    assert!(warnings.iter().all(|warning| {
+        warning.code != super::issue_codes::CIRCUMFIX_ENVIRONMENT_COMBINATION_SKIPPED.wire()
+    }));
     let built = circumfix_rule_allomorphs(&grammar);
     assert_eq!(built.len(), 1);
     assert_eq!(
@@ -1235,7 +1312,10 @@ fn circumfix_cross_product_embeds_each_halfs_context_in_lhs_not_environment_unio
 
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(
-        !warnings.iter().any(|w| w.contains("circumfix")),
+        warnings.iter().all(|warning| {
+            warning.code != super::issue_codes::CIRCUMFIX_ENVIRONMENT_COMBINATION_SKIPPED.wire()
+                && warning.code != super::issue_codes::CIRCUMFIX_MISSING_HALF.wire()
+        }),
         "unexpected circumfix warnings: {warnings:?}"
     );
 
@@ -1431,7 +1511,7 @@ fn fixture_grammar_dense_ids_are_internally_consistent() {
 }
 
 #[test]
-fn unreachable_affix_before_live_rule_preserves_live_source_row() {
+fn unreachable_affix_before_live_rule_is_compacted_without_a_linguist_warning() {
     let (mut snapshot, f) = fixture();
     let orphan_slot = "slot-orphan".to_string();
     snapshot.morphology.parts_of_speech[0]
@@ -1459,24 +1539,19 @@ fn unreachable_affix_before_live_rule_preserves_live_source_row() {
     // An unused slot makes this earlier rule unreachable; its owner and source row must both drop.
     snapshot.lexicon.entries.insert(1, orphan_entry);
 
-    let (grammar, warnings) = compile_project(&snapshot).expect("fixture must compile");
-    let messages: Vec<_> = warnings
-        .iter()
-        .map(|warning| warning.message.as_str())
-        .collect();
-    assert_eq!(
-        messages,
-        vec![
-            "mrule 2 unreachable after reachability compaction",
-            "mrule 2 unreachable after reachability compaction",
-        ],
-        "the compaction that drops the orphan is now reported rather than silent, once per \
-         inventory key the mrule published; the two readings are of the same mrule, which is why \
-         they read alike"
+    let (grammar, warnings, _inventory, issues) = compile_recording_ok(&snapshot);
+    assert!(
+        warnings.is_empty(),
+        "internal compaction facts stay out of linguist output"
     );
-    assert!(warnings
-        .iter()
-        .all(|warning| warning.audience == pg_snapshot::Audience::Developer));
+    assert_eq!(
+        issues
+            .iter()
+            .filter(|issue| issue.code == super::issue_codes::MRULE_UNREACHABLE_COMPACTED)
+            .count(),
+        2,
+        "the two inventory keys retain their compaction issues"
+    );
     assert_eq!(grammar.allomorph_owners.len(), 2);
     assert_eq!(grammar.allomorph_sources.len(), 2);
     assert_eq!(
@@ -1552,7 +1627,9 @@ fn enclitic_entry_compiles_to_clitic_stratum_lex_entry_and_affix_rule() {
     let (grammar, warnings) =
         compile_project(&snapshot).expect("clitic entries must not be a hard error");
     assert!(
-        !warnings.iter().any(|w| w.contains("clitic")),
+        warnings.iter().all(|warning| {
+            warning.code != super::issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM.wire()
+        }),
         "clitics are implemented; no clitic warning expected, got {warnings:?}"
     );
     // The fixture's own stem entry + the clitic entry's stem role.
@@ -1999,7 +2076,7 @@ fn variant_entry_expansion_atom_is_synthesized_and_represented() {
     );
 }
 
-/// `compile_project` is a thin wrapper that calls `compile_project_recording` and discards the recorder, so this can only prove that delegation is intact -- it cannot detect a regression in the recording seam itself, since `compile_project` has no independent implementation to diverge from it (the fixture's own warning-free pin lives on `stem_and_inflectional_affix_and_template_compile_into_expected_grammar`, via `compile_project` directly).
+/// `compile_project` returns the structured warnings produced by `compile_project_with`; the recorder helper reconstructs the same issue set for the same snapshot.
 #[test]
 fn compile_project_delegates_to_compile_project_recording_and_discards_the_recorder() {
     let (snapshot, _f) = fixture();
@@ -2007,30 +2084,22 @@ fn compile_project_delegates_to_compile_project_recording_and_discards_the_recor
         compile_project(&snapshot).expect("fixture must compile");
     let (_grammar_recorded, warnings_recorded, _inventory, _issues) =
         compile_recording_ok(&snapshot);
-    assert_eq!(
-        warnings_plain
-            .iter()
-            .map(|warning| warning.message.as_str())
-            .collect::<Vec<_>>(),
-        warnings_recorded
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>()
-    );
+    assert_eq!(warnings_plain, warnings_recorded);
 }
 
 #[test]
-fn unsegmentable_allomorph_is_rejected_with_the_expected_code_and_the_legacy_warning_text() {
+fn unsegmentable_allomorph_is_rejected_with_a_structured_warning() {
     let (mut snapshot, _f) = fixture();
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "xyz")];
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(
-        warnings
-            .iter()
-            .any(|w| w.contains("cannot segment") && w.contains("allo-stem")),
-        "expected the legacy 'cannot segment' warning to survive unchanged; got {warnings:?}"
-    );
+    assert!(warnings.iter().any(|warning| {
+        warning.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE.wire()
+            && warning
+                .subjects
+                .iter()
+                .any(|subject| subject.guid.as_deref() == Some("allo-stem"))
+    }));
     assert_eq!(
         grammar.entries.len(),
         0,
@@ -2059,7 +2128,7 @@ fn unsegmentable_warning_names_the_fieldworks_form_and_action() {
         compile_project(&snapshot).expect("fixture must compile with a dropped form");
     let warning = warnings
         .iter()
-        .find(|warning| warning.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE)
+        .find(|warning| warning.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE.wire())
         .expect("the unsegmentable allomorph must produce a warning");
 
     assert_eq!(
@@ -2069,17 +2138,17 @@ fn unsegmentable_warning_names_the_fieldworks_form_and_action() {
     assert_eq!(
         warnings
             .iter()
-            .filter(|warning| warning.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE)
+            .filter(|warning| warning.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE.wire())
             .count(),
         1,
         "the substrate and allomorph compiler reports describe the same fact"
     );
     assert_eq!(warning.subjects.len(), 1);
     assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::MoForm);
-    assert_eq!(warning.subjects[0].guid, None);
+    assert_eq!(warning.subjects[0].guid.as_deref(), Some("allo-stem"));
     assert_eq!(warning.subjects[0].name.as_deref(), Some("xyz"));
     assert_eq!(
-        warning.guidance.as_deref(),
+        warning_guidance(warning).as_deref(),
         Some(
             format!(
                 "In {}, check the spelling and phonological environments for allomorph 'xyz'.",
@@ -2157,7 +2226,10 @@ fn an_unresolved_environment_guid_on_a_root_allomorph_is_a_quiet_attachment_reje
 fn circumfix_cross_product_expansion_is_synthesized_and_represented() {
     let (snapshot, _f) = circumfix_snapshot(&[], &[]);
     let (_grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.iter().all(|w| !w.contains("circumfix")));
+    assert!(warnings.iter().all(|warning| {
+        warning.code != super::issue_codes::CIRCUMFIX_ENVIRONMENT_COMBINATION_SKIPPED.wire()
+            && warning.code != super::issue_codes::CIRCUMFIX_MISSING_HALF.wire()
+    }));
 
     let expansion = InventoryKey::expansion(
         InventoryKind::Allomorph,
@@ -2237,7 +2309,9 @@ fn custom_strata_setting_is_recorded_rejected() {
     snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.iter().any(|w| w.contains("Strata")));
+    assert!(warnings
+        .iter()
+        .any(|warning| { warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire() }));
     let key = InventoryKey::setting(InventoryKind::StrataConfiguration, "Strata");
     assert!(inventory.rejected.contains(&key));
     assert!(issues
@@ -2306,10 +2380,14 @@ fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
 
     assert!(
-        warnings
-            .iter()
-            .any(|w| w.contains("reduplication/bracket-pattern") && w.contains("allo-bracket-form")),
-        "expected the legacy reduplication warning to survive unchanged; got {warnings:?}"
+        warnings.iter().any(|warning| {
+            warning.code == super::issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED.wire()
+                && warning
+                    .subjects
+                    .iter()
+                    .any(|subject| subject.guid.as_deref() == Some("allo-bracket-form"))
+        }),
+        "expected a structured reduplication warning; got {warnings:?}"
     );
 
     let infix_key = InventoryKey::object(InventoryKind::Allomorph, "allo-infix-nopos".to_string());
@@ -2386,9 +2464,9 @@ fn complex_phonological_feature_is_recorded_selected_before_rejected() {
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
-        warnings
-            .iter()
-            .any(|w| w.contains("Complex phonological feature")),
+        warnings.iter().any(|warning| {
+            warning.code == super::issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED.wire()
+        }),
         "expected a named complex-feature warning; got {warnings:?}"
     );
     let key = InventoryKey::object(InventoryKind::FeatureDefinition, "cf-phon".to_string());
@@ -2421,18 +2499,18 @@ fn complex_phonological_feature_warning_is_registered_and_names_the_feature() {
     assert!(out
         .issues
         .iter()
-        .all(|issue| { pg_snapshot::ImportWarningCode::from_wire(&issue.code).is_some() }));
+        .all(|issue| !matches!(&issue.code, pg_snapshot::ImportWarningCode::Unregistered(_))));
     let warning = out
         .warnings
         .iter()
-        .find(|warning| warning.code == super::issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED)
+        .find(|warning| warning.code == super::issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED.wire())
         .expect("complex feature warning");
     assert_eq!(
         warning.subjects[0].class,
         pg_snapshot::FwClass::FsComplexFeature
     );
     assert_eq!(warning.subjects[0].name.as_deref(), Some("PhonComplex"));
-    assert!(warning.guidance.is_some());
+    assert!(warning_guidance(warning).is_some());
 }
 
 // --- finalizer revocation: a compacted-away mrule/natclass/co-occurrence rule is un-represented ---
@@ -2632,7 +2710,7 @@ fn cooccurrence_refusal_on_a_primary_whose_own_mrule_is_pruned_by_reachability_i
         .inventory
         .issues
         .iter()
-        .any(|i| i.code == "grammar.adhoc-prohibition.unresolved" && !i.fatal));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && !i.fatal));
 }
 
 /// Paired control for the test above, same owner code path: a primary that STAYS reachable (the fixture's own template-filling suffix) still refuses over the identical dangling-others shape -- the deferral in `resolve_pending_cooccurrence_refusals` only changes the dead-code case, never the live one.
@@ -2656,7 +2734,7 @@ fn cooccurrence_refusal_on_a_reachable_affix_owned_primary_still_refuses() {
     assert!(err
         .issues()
         .iter()
-        .any(|i| i.code == "grammar.adhoc-prohibition.unresolved" && i.fatal));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && i.fatal));
 }
 
 /// An unnamed, unreferenced, non-last natural class is revoked; a referenced one and `__any__` stay represented.
@@ -2713,11 +2791,8 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
         .find(|i| i.code == super::issue_codes::NATURAL_CLASS_UNREFERENCED_COMPACTED)
         .expect("compaction issue");
     assert_eq!(
-        compacted_issue
-            .source
-            .as_ref()
-            .map(|source| source.kind.as_str()),
-        Some("PhNaturalClass")
+        compacted_issue.source.as_ref().map(|source| source.kind),
+        Some(pg_snapshot::FwClass::PhNaturalClass)
     );
     assert_eq!(
         compacted_issue
@@ -2729,7 +2804,7 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
     let warning = super::warnings::from_issues(&snapshot, &[compacted_issue.clone()]);
     assert_eq!(
         warning[0].subjects[0].name.as_deref(),
-        Some("unnamed natural class")
+        Some("Unnamed natural class")
     );
     assert!(!grammar
         .natural_classes
@@ -3219,9 +3294,7 @@ fn compile_project_with_default_options_matches_compile_project() {
     let (snapshot, _f) = fixture();
     let (grammar_tuple, warnings_tuple) = compile_project(&snapshot).expect("must compile");
     let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
-    let messages: Vec<String> = out.warnings.iter().map(|w| w.message.clone()).collect();
-    let warning_messages: Vec<String> = warnings_tuple.iter().map(|w| w.message.clone()).collect();
-    assert_eq!(messages, warning_messages);
+    assert_eq!(out.warnings, warnings_tuple);
     assert_grammars_equal(&grammar_tuple, &out.grammar);
 }
 
@@ -3232,7 +3305,9 @@ fn every_compile_stage_warning_becomes_a_non_fatal_conversion_issue() {
     snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
     let (_grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(
-        warnings.iter().any(|w| w.contains("Strata")),
+        warnings.iter().any(|warning| {
+            warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire()
+        }),
         "fixture must still produce the legacy Strata warning; got {warnings:?}"
     );
 
@@ -3258,13 +3333,10 @@ fn refuse_rejects_a_fatal_imported_issue_but_measure_only_retains_it() {
         .conversion_provenance
         .import_issues
         .push(ConversionIssue {
-            code: pg_snapshot::ImportWarningCode::FwdataDanglingReference
-                .wire()
-                .to_string(),
+            code: pg_snapshot::ImportWarningCode::FwdataDanglingReference,
             class: IssueClass::InvalidSource,
             source: None,
             fatal: true,
-            audience: pg_snapshot::Audience::Linguist,
             message: "A referenced FieldWorks object does not exist.".to_string(),
         });
 
@@ -3274,13 +3346,13 @@ fn refuse_rejects_a_fatal_imported_issue_but_measure_only_retains_it() {
     assert!(err
         .issues()
         .iter()
-        .any(|i| { i.code == pg_snapshot::ImportWarningCode::FwdataDanglingReference.wire() }));
+        .any(|i| { i.code == pg_snapshot::ImportWarningCode::FwdataDanglingReference }));
 
     let (_, warnings, _) = compile_project_measured(&snapshot)
         .expect("inventory measurement must preserve the fatal issue without refusing");
     assert!(warnings.iter().any(|warning| {
         warning.code == pg_snapshot::ImportWarningCode::FwdataDanglingReference.wire()
-            && warning.audience == pg_snapshot::Audience::Linguist
+            && warning_metadata(warning).audience == pg_snapshot::Audience::Linguist
     }));
 
     let measured = compile_project_with(
@@ -3291,9 +3363,10 @@ fn refuse_rejects_a_fatal_imported_issue_but_measure_only_retains_it() {
         },
     )
     .expect("MeasureOnly must never refuse");
-    assert!(measured.issues.iter().any(|i| {
-        i.code == pg_snapshot::ImportWarningCode::FwdataDanglingReference.wire() && i.fatal
-    }));
+    assert!(measured
+        .issues
+        .iter()
+        .any(|i| { i.code == pg_snapshot::ImportWarningCode::FwdataDanglingReference && i.fatal }));
 }
 
 /// Unknown source provenance is fatal under `Refuse` too; `MeasureOnly` retains it instead.
@@ -3307,7 +3380,7 @@ fn refuse_rejects_unknown_source_provenance_but_measure_only_retains_it() {
     assert!(err
         .issues()
         .iter()
-        .any(|i| i.code == "conversion.source-provenance-unknown" && i.fatal));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::SourceProvenanceUnknown && i.fatal));
 
     let measured = compile_project_with(
         &snapshot,
@@ -3320,7 +3393,7 @@ fn refuse_rejects_unknown_source_provenance_but_measure_only_retains_it() {
     assert!(measured
         .issues
         .iter()
-        .any(|i| i.code == "conversion.source-provenance-unknown" && i.fatal));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::SourceProvenanceUnknown && i.fatal));
 }
 
 /// `GrammarError::issues()` returns `&[]` for every non-`Conversion` variant.
@@ -3370,7 +3443,7 @@ fn strict_hc_project_drops_only_the_allomorph_with_the_missing_segment() {
     )
     .expect("a single unrepresentable allomorph must not refuse the whole project");
     assert!(out.issues.iter().any(|i| {
-        i.code == "conversion.unsegmentable-form"
+        i.code == pg_snapshot::ImportWarningCode::SubstrateUnsegmentableForm
             && !i.fatal
             && i.source.as_ref().is_some_and(|s| s.id == "allo-stem")
     }));
@@ -3390,10 +3463,9 @@ fn ambiguous_symbol_without_ldml_drops_only_that_allomorph() {
 
     let out = compile_project_with(&snapshot, CompileOptions::default())
         .expect("symbol role is not authoritative without LDML, but that drops one allomorph, not the project");
-    assert!(out
-        .issues
-        .iter()
-        .any(|i| i.code == "substrate.classification-ambiguous" && !i.fatal));
+    assert!(out.issues.iter().any(|i| i.code
+        == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous
+        && !i.fatal));
     assert_eq!(
         out.grammar.entries.len(),
         0,
@@ -3417,17 +3489,16 @@ fn substrate_issue_and_the_real_owners_drop_agree_on_the_same_allomorph() {
     )
     .expect("must compile");
     let substrate_hit = out.issues.iter().any(|i| {
-        i.code == "conversion.unsegmentable-form"
+        i.code == pg_snapshot::ImportWarningCode::SubstrateUnsegmentableForm
             && !i.fatal
             && i.source.as_ref().is_some_and(|s| s.id == "allo-stem")
     });
     let owner_key = InventoryKey::object(InventoryKind::Allomorph, "allo-stem".to_string());
-    let owner_hit = out.inventory.inventory.rejected.contains(&owner_key)
-        && out
-            .inventory
-            .issues
-            .iter()
-            .any(|i| i.code == "grammar.allomorph.unsegmentable" && !i.fatal);
+    let owner_hit =
+        out.inventory.inventory.rejected.contains(&owner_key)
+            && out.inventory.issues.iter().any(|i| {
+                i.code == pg_snapshot::ImportWarningCode::AllomorphUnsegmentable && !i.fatal
+            });
     assert!(
         substrate_hit && owner_hit,
         "expected both the substrate issue and the owner's own drop on allo-stem; top-level={:?} inventory={:?}",
@@ -3452,10 +3523,9 @@ fn a_literal_authored_boundary_marker_inside_a_root_form_is_not_a_false_substrat
     )
     .expect("a literal authored boundary marker must segment, not misfire a substrate refusal");
     assert!(
-        out.issues
-            .iter()
-            .all(|i| i.code != "substrate.position-unmapped"
-                && i.code != "conversion.unsegmentable-form"),
+        out.issues.iter().all(|i| i.code
+            != pg_snapshot::ImportWarningCode::SubstratePositionUnmapped
+            && i.code != pg_snapshot::ImportWarningCode::SubstrateUnsegmentableForm),
         "expected no substrate issue at all; got {:?}",
         out.issues
     );
@@ -3583,10 +3653,13 @@ fn inferred_segment_uses_the_same_semantics_as_an_authored_featureless_segment()
 
     let inferred = compile_project_with(&snapshot, CompileOptions::default())
         .expect("ordinary HC unspecified-feature semantics is defined");
-    assert!(inferred
-        .issues
-        .iter()
-        .any(|i| i.code == "migration.inferred-segment-with-feature-rule"));
+    assert!(
+        inferred
+            .issues
+            .iter()
+            .any(|i| i.code
+                == pg_snapshot::ImportWarningCode::MigrationInferredSegmentWithFeatureRule)
+    );
 
     let q_id = inferred.grammar.char_tables[0]
         .lookup_nfd("q")
@@ -3637,16 +3710,51 @@ fn import_warning_migration_names_the_inferred_phoneme_and_has_guidance() {
         .expect("the migration difference is reported");
     let finding = crate::grammar_health::GrammarHealthCheckFinding::from_import_warning(warning);
 
-    assert_eq!(finding.message,
-        "Inferred segment 'q' has no authored feature values; check its phonological features and matching feature-based natural classes.");
+    assert!(finding.message.contains("'q'"), "{}", finding.message);
+    assert!(
+        finding.message.contains("not a project phoneme"),
+        "{}",
+        finding.message
+    );
+    assert!(
+        !finding.message.contains("inferred segment"),
+        "{}",
+        finding.message
+    );
     assert_eq!(finding.subjects.len(), 1);
     assert_eq!(finding.subjects[0].kind, pg_snapshot::FwClass::PhPhoneme);
     assert_eq!(finding.subjects[0].title, "q");
-    assert!(finding.guidance.is_some());
+    assert!(finding.subjects[0].guid.is_none());
+    assert!(finding.guidance.as_deref().is_some_and(|guidance| {
+        guidance.contains(pg_snapshot::fieldworks_paths::GRAMMAR_PHONEMES)
+    }));
 }
 
 #[test]
-fn import_warning_empty_stem_bucket_names_its_lexical_entry() {
+fn phoneme_collision_warning_names_the_other_phoneme() {
+    let (mut snapshot, _) = fixture();
+    snapshot.phonology.phonemes[0].name = "first phoneme".to_string();
+    snapshot.phonology.phonemes.push(Phoneme {
+        guid: "ph-k-duplicate".to_string(),
+        name: "second phoneme".to_string(),
+        representations: vec![ws("sen", "k")],
+        features: None,
+        basic_ipa_symbol: None,
+    });
+
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    let warning = output
+        .warnings
+        .iter()
+        .find(|warning| warning.code == pg_snapshot::ImportWarningCode::PhonemeNfdCollision.wire())
+        .expect("the duplicate phoneme is reported");
+
+    assert!(warning.message.contains("second phoneme"), "{warning:?}");
+    assert!(warning.message.contains("first phoneme"), "{warning:?}");
+}
+
+#[test]
+fn empty_stem_bucket_is_recorded_without_a_linguist_warning() {
     let (mut snapshot, _) = fixture();
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "?")];
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
@@ -3659,45 +3767,31 @@ fn import_warning_empty_stem_bucket_names_its_lexical_entry() {
         },
     )
     .expect("an entry with no loadable allomorph is dropped with a warning");
-    let warning = output
+    assert!(output
         .warnings
         .iter()
-        .find(|warning| warning.code == super::issue_codes::MSA_NO_ALLOMORPHS)
-        .expect("the empty lexical entry is reported");
-    let finding = crate::grammar_health::GrammarHealthCheckFinding::from_import_warning(warning);
-
-    assert_eq!(
-        finding.message,
-        "Lexical entry 'kuma' has no loadable allomorphs."
-    );
-    assert_eq!(finding.subjects.len(), 1);
-    assert_eq!(finding.subjects[0].kind, pg_snapshot::FwClass::LexEntry);
-    assert_eq!(finding.subjects[0].title, "kuma");
-    assert!(finding.guidance.is_some());
+        .all(|warning| warning.code != super::issue_codes::MSA_NO_ALLOMORPHS.wire()));
+    assert!(output
+        .issues
+        .iter()
+        .any(|issue| issue.code == super::issue_codes::MSA_NO_ALLOMORPHS));
 }
 
 #[test]
-fn import_warning_empty_affix_form_names_its_allomorph_and_entry() {
+fn empty_affix_form_is_recorded_without_a_linguist_warning() {
     let (mut snapshot, _) = fixture();
     snapshot.lexicon.entries[1].allomorphs[0].forms.clear();
 
     let output = compile_project_with(&snapshot, CompileOptions::default())
         .expect("an empty affix form is dropped with a warning");
-    let warning = output
+    assert!(output
         .warnings
         .iter()
-        .find(|warning| warning.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM)
-        .expect("the allomorph without a rule form is reported");
-    let finding = crate::grammar_health::GrammarHealthCheckFinding::from_import_warning(warning);
-
-    assert_eq!(finding.message,
-        "Affix allomorph in lexical entry '-ta' has no non-empty form and cannot be used as an inflectional rule.");
-    assert_eq!(finding.subjects.len(), 2);
-    assert_eq!(finding.subjects[0].kind, pg_snapshot::FwClass::MoForm);
-    assert_eq!(finding.subjects[0].title, "Unnamed affix allomorph");
-    assert_eq!(finding.subjects[1].kind, pg_snapshot::FwClass::LexEntry);
-    assert_eq!(finding.subjects[1].title, "-ta");
-    assert!(finding.guidance.is_some());
+        .all(|warning| warning.code != super::issue_codes::ALLOMORPH_NOT_RULE_FORM.wire()));
+    assert!(output
+        .issues
+        .iter()
+        .any(|issue| issue.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM));
 }
 
 /// A root form carrying `[C]`-style pattern syntax must compile exactly as it does without substrate completion -- `[`/`]` must never be checked as an undeclared literal.
@@ -3772,7 +3866,7 @@ fn bracket_pattern_affix_form_still_compiles_unaffected_and_publishes_unsupporte
     assert!(
         out.issues
             .iter()
-            .any(|i| i.code == "conversion.unsupported-construct" && !i.fatal),
+            .any(|i| i.code == pg_snapshot::ImportWarningCode::UnsupportedConstruct && !i.fatal),
         "expected a non-fatal conversion.unsupported-construct issue; got {:?}",
         out.issues
     );
@@ -3843,7 +3937,7 @@ fn precomposed_diacritic_mid_word_never_reselects_the_next_already_registered_ch
     )
     .expect("must not panic; the mismap must be reported as an issue, never as a duplicate registration");
     assert!(
-        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && !i.fatal),
+        out.issues.iter().any(|i| i.code == pg_snapshot::ImportWarningCode::SubstratePositionUnmapped && !i.fatal),
         "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
         out.issues
     );
@@ -3878,7 +3972,7 @@ fn precomposed_diacritic_word_final_refuses_instead_of_panicking_past_the_end() 
     )
     .expect("must not panic; a mismapped word-final position must be reported as an issue");
     assert!(
-        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && !i.fatal),
+        out.issues.iter().any(|i| i.code == pg_snapshot::ImportWarningCode::SubstratePositionUnmapped && !i.fatal),
         "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
         out.issues
     );
@@ -3908,7 +4002,7 @@ fn precomposed_diacritic_word_final_refuses_under_strict_too() {
     )
     .expect("must not panic under Strict either");
     assert!(
-        out.issues.iter().any(|i| i.code == "substrate.position-unmapped" && !i.fatal),
+        out.issues.iter().any(|i| i.code == pg_snapshot::ImportWarningCode::SubstratePositionUnmapped && !i.fatal),
         "expected a non-fatal substrate.position-unmapped issue (a recall gap for one allomorph); got {:?}",
         out.issues
     );

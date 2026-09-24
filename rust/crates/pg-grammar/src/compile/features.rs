@@ -269,8 +269,8 @@ fn push_complex(
 /// Only closed (symbolic) phonological features are representable, matching legacy HC-XML; a snapshot with authored complex features gets a warning and they are dropped.
 pub(crate) fn build_phon_features(
     snapshot: &Snapshot,
-    warnings: &mut Vec<String>,
     recorder: &mut SelectionRecorder,
+    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> Result<PhonFeatureSystem, GrammarError> {
     let fs = &snapshot.feature_systems.phonological;
     for cf in &fs.complex_features {
@@ -285,6 +285,7 @@ pub(crate) fn build_phon_features(
             recorder.selected(key.clone());
             super::inventory::reject(
                 recorder,
+                snapshot,
                 warnings,
                 key,
                 issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED,
@@ -386,22 +387,23 @@ pub(crate) fn build_stem_names(
     syn: &SynFeatureSystem,
     pos: &PosTable,
     fs_interner: &mut Interner<FeatureStruct>,
-    warnings: &mut Vec<String>,
     recorder: &mut SelectionRecorder,
+    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> (Vec<StemNameDef>, HashMap<String, StemNameId>) {
     let mut defs = Vec::new();
     let mut by_guid = HashMap::new();
 
     #[allow(clippy::too_many_arguments)]
     fn walk(
+        snapshot: &Snapshot,
         items: &[PartOfSpeech],
         syn: &SynFeatureSystem,
         pos: &PosTable,
         fs_interner: &mut Interner<FeatureStruct>,
         defs: &mut Vec<StemNameDef>,
         by_guid: &mut HashMap<String, StemNameId>,
-        warnings: &mut Vec<String>,
         recorder: &mut SelectionRecorder,
+        warnings: &mut Vec<pg_snapshot::Warning>,
     ) {
         for p in items {
             for sn in &p.stem_names {
@@ -412,6 +414,7 @@ pub(crate) fn build_stem_names(
                     recorder.selected(key.clone());
                     super::inventory::reject_quietly(
                         recorder,
+                        snapshot,
                         key,
                         issue_codes::STEM_NAME_EMPTY_REGIONS,
                         IssueClass::UnrepresentableForHc,
@@ -429,6 +432,7 @@ pub(crate) fn build_stem_names(
                         Err(e) => {
                             super::inventory::reject(
                                 recorder,
+                                snapshot,
                                 warnings,
                                 key.clone(),
                                 issue_codes::STEM_NAME_BUILD_FAILED,
@@ -452,26 +456,28 @@ pub(crate) fn build_stem_names(
                 recorder.represented(key);
             }
             walk(
+                snapshot,
                 &p.children,
                 syn,
                 pos,
                 fs_interner,
                 defs,
                 by_guid,
-                warnings,
                 recorder,
+                warnings,
             );
         }
     }
     walk(
+        snapshot,
         &snapshot.morphology.parts_of_speech,
         syn,
         pos,
         fs_interner,
         &mut defs,
         &mut by_guid,
-        warnings,
         recorder,
+        warnings,
     );
     (defs, by_guid)
 }

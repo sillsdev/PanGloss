@@ -21,11 +21,7 @@ const VAR_NAMES: [&str; 24] = [
 /// All phonological-rule definitions, plus which of them run on the Morphology vs. Clitics stratum.
 type RuleBuild = (Vec<PhonRuleDef>, Vec<PRuleId>, Vec<PRuleId>);
 
-pub(crate) fn build(
-    snapshot: &Snapshot,
-    ctx: &Ctx,
-    warnings: &mut Vec<String>,
-) -> Result<RuleBuild, GrammarError> {
+pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, GrammarError> {
     let mut prules = Vec::new();
     let mut morphology_prules = Vec::new();
     let mut clitic_prules = Vec::new();
@@ -39,7 +35,7 @@ pub(crate) fn build(
                 let key = InventoryKey::object(InventoryKind::PhonologicalRule, r.guid.clone());
                 ctx.considered(key.clone());
                 ctx.selected(key.clone());
-                match build_rewrite_rule(r, snapshot, ctx, warnings) {
+                match build_rewrite_rule(r, snapshot, ctx) {
                     Ok(def) => {
                         let id = PRuleId(prules.len() as u32);
                         prules.push(PhonRuleDef::Rewrite(def));
@@ -51,7 +47,6 @@ pub(crate) fn build(
                         ctx.represented(key);
                     }
                     Err(e) => ctx.reject(
-                        warnings,
                         key,
                         issue_codes::RULE_BUILD_FAILED,
                         IssueClass::UnrepresentableForHc,
@@ -64,7 +59,6 @@ pub(crate) fn build(
                 ctx.considered(key.clone());
                 ctx.selected(key.clone());
                 ctx.reject(
-                    warnings,
                     key,
                     issue_codes::RULE_METATHESIS_UNSUPPORTED,
                     IssueClass::UnrepresentableForHc,
@@ -89,12 +83,7 @@ fn dir_mode(d: pg_snapshot::phonology::RuleDirection) -> (Dir, RewriteMode) {
     }
 }
 
-fn build_var_table(
-    guids: &[String],
-    snapshot: &Snapshot,
-    ctx: &Ctx,
-    warnings: &mut Vec<String>,
-) -> VarTable {
+fn build_var_table(guids: &[String], snapshot: &Snapshot, ctx: &Ctx) -> VarTable {
     let mut vars = Vec::new();
     for (i, g) in guids.iter().enumerate() {
         let key = InventoryKey::object(InventoryKind::FeatureConstraint, g.clone());
@@ -107,7 +96,6 @@ fn build_var_table(
             .find(|c| &c.guid == g)
         else {
             ctx.reject(
-                warnings,
                 key,
                 issue_codes::FEATURE_CONSTRAINT_UNRESOLVED,
                 IssueClass::InvalidSource,
@@ -117,7 +105,6 @@ fn build_var_table(
         };
         let Some(flat) = ctx.phon.flat_index(&fc.feature) else {
             ctx.reject(
-                warnings,
                 key,
                 issue_codes::FEATURE_CONSTRAINT_PHON_FEATURE_UNRESOLVED,
                 IssueClass::InvalidSource,
@@ -139,10 +126,9 @@ fn build_rewrite_rule(
     r: &RewriteRule,
     snapshot: &Snapshot,
     ctx: &Ctx,
-    warnings: &mut Vec<String>,
 ) -> Result<RewriteRuleDef, String> {
     let (dir, mode) = dir_mode(r.direction);
-    let vars = build_var_table(&r.feature_constraint_variables, snapshot, ctx, warnings);
+    let vars = build_var_table(&r.feature_constraint_variables, snapshot, ctx);
 
     let mut lhs_nodes = Vec::new();
     for c in &r.structural_description {
@@ -152,9 +138,7 @@ fn build_rewrite_rule(
 
     let mut subrules = Vec::new();
     for rhs in &r.right_hand_sides {
-        subrules.push(build_subrule(
-            &r.guid, rhs, &lhs, mode, ctx, &vars, warnings,
-        )?);
+        subrules.push(build_subrule(&r.guid, rhs, &lhs, mode, ctx, &vars)?);
     }
 
     Ok(RewriteRuleDef {
@@ -175,7 +159,6 @@ fn build_subrule(
     mode: RewriteMode,
     ctx: &Ctx,
     vars: &VarTable,
-    warnings: &mut Vec<String>,
 ) -> Result<RewriteSubruleDef, String> {
     let required_pos = if rhs.required_parts_of_speech.is_empty() {
         None
@@ -196,7 +179,6 @@ fn build_subrule(
         );
         let resolved = ctx.mpr.rule_feature(f);
         ctx.record_attachment(
-            warnings,
             attachment,
             resolved.is_some(),
             issue_codes::RULE_FEATURE_UNRESOLVED,
@@ -217,7 +199,6 @@ fn build_subrule(
         );
         let resolved = ctx.mpr.rule_feature(f);
         ctx.record_attachment(
-            warnings,
             attachment,
             resolved.is_some(),
             issue_codes::RULE_FEATURE_UNRESOLVED,

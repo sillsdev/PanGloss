@@ -50,7 +50,10 @@ pub enum ImportError {
     #[error("not a .fwbackup: {0}")]
     Backup(String),
     #[error("{code}: {message}")]
-    InvalidSource { code: &'static str, message: String },
+    InvalidSource {
+        code: pg_snapshot::ImportWarningCode,
+        message: String,
+    },
 }
 
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.

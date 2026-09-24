@@ -95,14 +95,13 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
             ctx.record_rejected(
                 attachment,
                 ConversionIssue {
-                    code: super::codes::DANGLING_REFERENCE.to_string(),
+                    code: super::codes::DANGLING_REFERENCE,
                     class: IssueClass::InvalidSource,
                     source: Some(SourceRef {
-                        kind: "FsSymFeatVal".to_string(),
+                        kind: pg_snapshot::FwClass::FsSymFeatVal,
                         id: value_guid.clone(),
                     }),
                     fatal: true,
-                    audience: pg_snapshot::Audience::Linguist,
                     message: format!(
                         "closedFeature.values: feature {} references value {value_guid}, \
                          which does not resolve to a FsSymFeatVal",

@@ -10,7 +10,7 @@ use quick_xml::name::QName;
 use quick_xml::reader::Reader;
 use sha2::{Digest, Sha256};
 
-use pg_snapshot::{ConversionIssue, IssueClass, RawSourceCensus, SourceRef};
+use pg_snapshot::{ConversionIssue, FwClass, IssueClass, RawSourceCensus, SourceRef};
 
 use crate::extract::codes;
 use crate::node::Node;
@@ -265,14 +265,13 @@ pub fn parse_fwdata_reader<R: BufRead>(reader: R) -> Result<RawGraph, ImportErro
 /// The fatal issue for a tracked (allowed-class) `<rt>` record with no guid; the record itself is never inserted. `ordinal` is 1-based: the record's position among every `<rt>` header in the document.
 fn missing_guid_issue(class: &str, ordinal: u64) -> ConversionIssue {
     ConversionIssue {
-        code: codes::MISSING_GUID.to_string(),
+        code: codes::MISSING_GUID,
         class: IssueClass::InvalidSource,
         source: Some(SourceRef {
-            kind: class.to_string(),
+            kind: FwClass::from_wire(class),
             id: format!("rt#{ordinal}"),
         }),
         fatal: true,
-        audience: pg_snapshot::Audience::Linguist,
         message: format!("{class} record at rt#{ordinal} has no guid; dropped"),
     }
 }
@@ -304,14 +303,13 @@ fn push_duplicate_guid_issues(graph: &mut RawGraph) {
             .collect::<Vec<_>>()
             .join(", ");
         graph.issues.push(ConversionIssue {
-            code: codes::DUPLICATE_GUID.to_string(),
+            code: codes::DUPLICATE_GUID,
             class: IssueClass::InvalidSource,
             source: Some(SourceRef {
-                kind: first_class,
+                kind: FwClass::from_wire(&first_class),
                 id: guid.clone(),
             }),
             fatal: true,
-            audience: pg_snapshot::Audience::Linguist,
             message: format!(
                 "guid {guid} appears on {} records: {detail}",
                 occurrences.len()

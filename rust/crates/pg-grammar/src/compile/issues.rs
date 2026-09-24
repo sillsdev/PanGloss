@@ -10,35 +10,35 @@ use crate::chardef::CharDefKind;
 use crate::model::Grammar;
 
 /// `source_inventory_status == Unknown`'s fatal-under-`Refuse` code.
-pub(crate) const SOURCE_PROVENANCE_UNKNOWN: &str =
-    ImportWarningCode::SourceProvenanceUnknown.wire();
+pub(crate) const SOURCE_PROVENANCE_UNKNOWN: ImportWarningCode =
+    ImportWarningCode::SourceProvenanceUnknown;
 
 /// `substrate::complete`'s `Strict`-policy code: a recorded usage cannot segment and the project
 /// declared no closed-inventory-completion policy to fix it. Non-fatal and per-allomorph -- see
 /// `substrate`'s module doc.
-pub(crate) const SUBSTRATE_UNSEGMENTABLE_FORM: &str =
-    ImportWarningCode::SubstrateUnsegmentableForm.wire();
+pub(crate) const SUBSTRATE_UNSEGMENTABLE_FORM: ImportWarningCode =
+    ImportWarningCode::SubstrateUnsegmentableForm;
 
 /// `substrate::complete`'s ambiguous-classification code: a failing character is neither an
 /// exemplar, an authored boundary, nor in the versioned safe-boundary table. Non-fatal and
 /// per-allomorph -- see `substrate`'s module doc.
-pub(crate) const SUBSTRATE_CLASSIFICATION_AMBIGUOUS: &str =
-    ImportWarningCode::SubstrateClassificationAmbiguous.wire();
+pub(crate) const SUBSTRATE_CLASSIFICATION_AMBIGUOUS: ImportWarningCode =
+    ImportWarningCode::SubstrateClassificationAmbiguous;
 
 /// `substrate::feature_rule_migration_issues`'s code: an inferred (featureless) segment satisfies
 /// a `Feature`-kind natural class purely via HC's unspecified-lane-matches-anything default.
-pub(crate) const SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE: &str =
-    ImportWarningCode::MigrationInferredSegmentWithFeatureRule.wire();
+pub(crate) const SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE: ImportWarningCode =
+    ImportWarningCode::MigrationInferredSegmentWithFeatureRule;
 
 /// A text-use collector's code: the owner selected a construct (a bracket-pattern/reduplication
 /// affix form) but that construct is not literal text, so it cannot publish a usage for it.
-pub(crate) const UNSUPPORTED_CONSTRUCT: &str = ImportWarningCode::UnsupportedConstruct.wire();
+pub(crate) const UNSUPPORTED_CONSTRUCT: ImportWarningCode = ImportWarningCode::UnsupportedConstruct;
 
 /// `substrate::complete`'s code when a failure position remaps to an already-registered character
 /// (a decomposed-diacritic artifact of `segment::remap_error_position`'s own documented heuristic).
 /// Non-fatal and per-allomorph -- see `substrate`'s module doc.
-pub(crate) const SUBSTRATE_POSITION_UNMAPPED: &str =
-    ImportWarningCode::SubstratePositionUnmapped.wire();
+pub(crate) const SUBSTRATE_POSITION_UNMAPPED: ImportWarningCode =
+    ImportWarningCode::SubstratePositionUnmapped;
 
 /// What the compiler had to infer about the phonological substrate rather than read off a closed
 /// declaration, plus what it could not resolve at all. Populated by `substrate::complete` under

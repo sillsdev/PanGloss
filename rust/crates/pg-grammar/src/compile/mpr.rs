@@ -75,7 +75,6 @@ impl MprTables {
 
 pub(crate) fn build(
     snapshot: &Snapshot,
-    warnings: &mut Vec<String>,
     recorder: &mut SelectionRecorder,
 ) -> Result<MprTables, GrammarError> {
     let mut mpr_names: Vec<String> = Vec::new();
@@ -146,8 +145,6 @@ pub(crate) fn build(
         });
         record_synthesized_mpr_group(recorder, "lexEntryInflTypes");
     }
-
-    let _ = warnings; // reserved: no warning conditions besides the >64 hard error today.
 
     Ok(MprTables {
         mpr_names,

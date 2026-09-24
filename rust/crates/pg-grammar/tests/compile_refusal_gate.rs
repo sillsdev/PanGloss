@@ -195,10 +195,9 @@ fn import_and_compile_layers_disagree_about_the_dangling_environment_reference()
         .import_issues
         .iter()
         .find(|issue| {
-            issue
-                .source
-                .as_ref()
-                .is_some_and(|s| s.kind == "PhEnvironment" && s.id == dangling_guid)
+            issue.source.as_ref().is_some_and(|s| {
+                s.kind == pg_snapshot::FwClass::PhEnvironment && s.id == dangling_guid
+            })
         })
         .expect("import stage must record a fatal issue for the dangling PhEnvironment reference");
     assert!(
@@ -219,7 +218,7 @@ fn import_and_compile_layers_disagree_about_the_dangling_environment_reference()
     let compile_verdict = measure_only
         .issues
         .iter()
-        .find(|issue| issue.message.contains(dangling_guid) && issue.code != "fwdata.dangling-reference")
+        .find(|issue| issue.message.contains(dangling_guid) && issue.code != pg_snapshot::ImportWarningCode::FwdataDanglingReference)
         .expect("compile layer must still surface a warning about the identical guid, distinct from the carried-over import issue");
     assert!(
         !compile_verdict.fatal,

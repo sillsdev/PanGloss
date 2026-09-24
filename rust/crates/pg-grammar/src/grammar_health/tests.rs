@@ -14,12 +14,15 @@ fn grammar_health_report_uses_v2_envelope() {
 
 #[test]
 fn blank_named_import_subject_still_assembles_into_a_report() {
-    let warning = pg_snapshot::Warning::new("grammar.template.no-slots", "Empty template.")
-        .with_subject(
-            pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoInflAffixTemplate)
-                .guid("12345678-1234-1234-1234-123456789abc")
-                .name(" "),
-        );
+    let warning = pg_snapshot::Warning::new(
+        pg_snapshot::ImportWarningCode::TemplateNoSlots,
+        "Empty template.",
+    )
+    .with_subject(
+        pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoInflAffixTemplate)
+            .guid("12345678-1234-1234-1234-123456789abc")
+            .name(" "),
+    );
     let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
     assert_eq!(finding.subjects[0].title, "Unnamed affix template");
     GrammarHealthReport::new(vec![finding])
@@ -28,8 +31,8 @@ fn blank_named_import_subject_still_assembles_into_a_report() {
 
 #[test]
 fn import_warning_constructor_preserves_source_identity_without_compiled_ids() {
-    let code = ImportWarningCode::NaturalClassUnreferencedCompacted.wire();
-    let warning = pg_snapshot::Warning::new(code, "Unused natural class.").with_subject(
+    let code = ImportWarningCode::NaturalClassUnreferencedCompacted;
+    let warning = pg_snapshot::Warning::new(code.clone(), "Unused natural class.").with_subject(
         pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::PhNaturalClass)
             .guid("12345678-1234-1234-1234-123456789abc")
             .name("unnamed natural class"),
@@ -37,7 +40,7 @@ fn import_warning_constructor_preserves_source_identity_without_compiled_ids() {
 
     let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
 
-    assert_eq!(finding.code.wire(), code);
+    assert_eq!(finding.code.wire(), code.wire());
     assert_eq!(finding.origin, FindingOrigin::Import);
     assert_eq!(finding.audience, Audience::Developer);
     assert_eq!(finding.message, "Unused natural class.");
@@ -57,7 +60,7 @@ fn import_warning_constructor_preserves_source_identity_without_compiled_ids() {
 #[test]
 fn developer_only_import_warning_keeps_developer_audience() {
     let warning = pg_snapshot::Warning::new(
-        ImportWarningCode::NaturalClassUnreferencedCompacted.wire(),
+        pg_snapshot::ImportWarningCode::NaturalClassUnreferencedCompacted,
         "natural class 7 unreferenced after compaction",
     )
     .with_subject(
@@ -75,7 +78,7 @@ fn developer_only_import_warning_keeps_developer_audience() {
 #[test]
 fn import_warning_uses_human_group_name_and_table_guidance() {
     let warning = pg_snapshot::Warning::new(
-        "grammar.template.no-slots",
+        pg_snapshot::ImportWarningCode::TemplateNoSlots,
         "affix template has no slots with any loaded affix rule",
     );
 
@@ -87,9 +90,41 @@ fn import_warning_uses_human_group_name_and_table_guidance() {
 }
 
 #[test]
+fn linguist_warning_metadata_avoids_compiler_vocabulary() {
+    let engine_terms = [
+        "rule form",
+        "loadable allomorphs",
+        "inflectional rule",
+        "decomposed character sequence could not be aligned",
+        "cannot be distinguished by FieldWorks rules",
+        "inferred segment",
+    ];
+
+    for code in ImportWarningCode::ALL {
+        let metadata = pg_snapshot::import_warning_metadata(code.clone());
+        if metadata.audience != Audience::Linguist {
+            continue;
+        }
+        let text = format!(
+            "{} {}",
+            metadata.group_name,
+            metadata.guidance.unwrap_or_default()
+        )
+        .to_lowercase();
+        for term in engine_terms {
+            assert!(
+                !text.contains(term),
+                "{} contains engine wording {term:?}",
+                code.wire()
+            );
+        }
+    }
+}
+
+#[test]
 fn import_warning_guidance_template_uses_its_subject_name() {
     let warning = pg_snapshot::Warning::new(
-        ImportWarningCode::EnvironmentInvalid.wire(),
+        pg_snapshot::ImportWarningCode::EnvironmentInvalid,
         "Phonological environment 'bad environment' is invalid.",
     )
     .with_subject(
@@ -107,7 +142,7 @@ fn import_warning_guidance_template_uses_its_subject_name() {
 #[test]
 fn import_warning_guidance_uses_subject_kind_when_name_is_missing() {
     let warning = pg_snapshot::Warning::new(
-        ImportWarningCode::EnvironmentInvalid.wire(),
+        pg_snapshot::ImportWarningCode::EnvironmentInvalid,
         "Phonological environment is invalid.",
     )
     .with_subject(pg_snapshot::FwObjectRef::new(
@@ -146,16 +181,13 @@ fn unknown_warning_code_from_snapshot_is_unregistered_and_developer_facing() {
 #[test]
 fn invalid_source_guid_is_reported_as_invalid_not_missing() {
     let issue = pg_snapshot::ConversionIssue {
-        code: ImportWarningCode::PhonemeNoRepresentation
-            .wire()
-            .to_string(),
+        code: ImportWarningCode::PhonemeNoRepresentation,
         class: pg_snapshot::IssueClass::MigrationDifference,
         source: Some(pg_snapshot::SourceRef {
-            kind: "PhPhoneme".to_string(),
+            kind: pg_snapshot::FwClass::PhPhoneme,
             id: "not-a-guid".to_string(),
         }),
         fatal: false,
-        audience: Audience::Linguist,
         message: "environment failed validation".to_string(),
     };
     let warning = pg_snapshot::Warning::from_conversion_issue(&issue);
@@ -204,9 +236,12 @@ fn every_code_has_a_distinct_stable_linguist_group_name() {
 fn every_import_warning_code_has_exactly_one_metadata_entry() {
     let mut wires = Vec::new();
     for code in ImportWarningCode::ALL {
-        let metadata = pg_snapshot::import_warning_metadata(*code);
+        let metadata = pg_snapshot::import_warning_metadata(code.clone());
         assert!(!metadata.group_name.trim().is_empty(), "{code:?}");
-        assert_eq!(ImportWarningCode::from_wire(code.wire()), Some(*code));
+        assert_eq!(
+            ImportWarningCode::from_wire(code.wire()),
+            Some(code.clone())
+        );
         assert!(
             !wires.contains(&code.wire()),
             "{code:?} duplicates a registered import warning code"
@@ -321,7 +356,7 @@ fn import_warning_guidance_uses_the_tool_that_edits_each_object() {
     ];
 
     for (code, expected_path) in cases {
-        let metadata = pg_snapshot::import_warning_metadata(code);
+        let metadata = pg_snapshot::import_warning_metadata(code.clone());
         let guidance = metadata
             .guidance
             .unwrap_or_else(|| panic!("{code:?} must have guidance"));
@@ -374,10 +409,8 @@ fn two_segments_share_feature_bundle_reports_both_by_name() {
     let finding = &findings[0];
     assert_eq!(finding.code, GrammarHealthCode::DuplicateFeatureBundle);
     assert_eq!(finding.severity, GrammarHealthSeverity::Warning);
-    assert_eq!(
-        finding.message,
-        "Phonemes a, b have identical feature values and cannot be distinguished by FieldWorks rules."
-    );
+    assert!(finding.message.contains("Phonemes a, b"));
+    assert!(finding.message.contains("share the same feature values"));
     assert_eq!(
         finding.guidance.as_deref(),
         Some("In Grammar > Phonemes, assign distinct feature values to these phonemes.")

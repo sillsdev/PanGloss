@@ -171,7 +171,7 @@ fn dangling_cooccurrence_target_on_an_active_allomorph_refuses() {
     assert!(err
         .issues()
         .iter()
-        .any(|i| i.code == "grammar.adhoc-prohibition.unresolved" && i.fatal));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && i.fatal));
 }
 
 /// The SAME dangling target, but the primary itself never resolves to anything the compiled grammar keeps: the rule was never going to attach to anything real, so it is ignored with recorded provenance, not refused. Paired control for the test above -- same owner function, same code, opposite primary.
@@ -194,7 +194,7 @@ fn dangling_cooccurrence_whose_primary_never_resolves_is_ignored_not_refused() {
         .inventory
         .issues
         .iter()
-        .any(|i| i.code == "grammar.adhoc-prohibition.unresolved" && !i.fatal));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && !i.fatal));
 }
 
 /// A disabled rule must not refuse merely because its record (and its dangling target) exists -- disabled means never selected, so the owner never even reaches the resolution check.
@@ -217,7 +217,7 @@ fn disabled_cooccurrence_rule_with_a_dangling_target_does_not_refuse() {
     assert!(!out
         .issues
         .iter()
-        .any(|i| i.code == "grammar.adhoc-prohibition.unresolved"));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved));
 }
 
 /// A fully-representable co-occurrence rule between two active allomorphs must succeed and attach -- the non-refusal control proving the refusal above is exact, not a broad preflight check.
@@ -238,7 +238,7 @@ fn a_representable_cooccurrence_rule_between_two_active_allomorphs_compiles() {
     assert!(out
         .issues
         .iter()
-        .all(|i| i.code != "grammar.adhoc-prohibition.unresolved"));
+        .all(|i| i.code != pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved));
     let has_rule = out
         .grammar
         .entries
@@ -270,7 +270,7 @@ fn unsegmentable_allomorph_text_is_a_recall_gap_not_a_project_refusal() {
         .inventory
         .issues
         .iter()
-        .any(|i| i.code == "grammar.allomorph.unsegmentable" && !i.fatal));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AllomorphUnsegmentable && !i.fatal));
 }
 
 /// Paired control: with no unrepresentable text, both stems compile -- the drop above is exact to the one bad allomorph, not a side effect of some broader change.
@@ -306,5 +306,5 @@ fn measure_only_still_reports_the_fatal_cooccurrence_issue() {
     assert!(out
         .issues
         .iter()
-        .any(|i| i.code == "grammar.adhoc-prohibition.unresolved" && i.fatal));
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && i.fatal));
 }

@@ -433,7 +433,7 @@ fn load_grammar_impl(
             let (grammar, compile_warnings) = pg_grammar::compile_project(&snapshot)
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
             warnings.extend(compile_warnings);
-            Ok((grammar, deduplicate_warnings(warnings), metadata))
+            Ok((grammar, warnings, metadata))
         }
         _ => {
             let (xml, hash) = if capture_metadata {
@@ -485,23 +485,6 @@ pub(crate) fn print_grammar_warnings(warnings: &[pg_snapshot::Warning]) {
     for w in warnings {
         eprintln!("warning: {w}");
     }
-}
-
-fn deduplicate_warnings(warnings: Vec<pg_snapshot::Warning>) -> Vec<pg_snapshot::Warning> {
-    let mut unique = Vec::with_capacity(warnings.len());
-    for warning in warnings {
-        if !unique
-            .iter()
-            .any(|existing| same_warning_fact(existing, &warning))
-        {
-            unique.push(warning);
-        }
-    }
-    unique
-}
-
-fn same_warning_fact(left: &pg_snapshot::Warning, right: &pg_snapshot::Warning) -> bool {
-    left.same_fact_as(right)
 }
 
 /// `parse <grammar> <word> [flags...]`: traces, glosses, and/or realizes exactly one word's analyses. Flag semantics are detailed in the top-level usage banner; `--gloss`/`--natural-gloss` never touch the `word\tsignature` parity line, and a missing default-resolved realize-map sidecar degrades to empty while an explicitly named one failing is a hard error.

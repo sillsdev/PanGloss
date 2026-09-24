@@ -41,7 +41,7 @@ pub(crate) fn collect_text_uses(snapshot: &Snapshot, recorder: &mut SelectionRec
             }
             recorder.record_text_use(
                 SourceRef {
-                    kind: "allomorph".to_string(),
+                    kind: pg_snapshot::FwClass::MoForm,
                     id: allo.guid.clone(),
                 },
                 &form,
@@ -59,7 +59,6 @@ pub(crate) fn build(
     clitic_mrules: &mut Vec<MRuleId>,
     morphology_entries: &mut Vec<LexEntryId>,
     clitic_entries: &mut Vec<LexEntryId>,
-    warnings: &mut Vec<String>,
 ) -> Result<(), GrammarError> {
     let infl_type_by_guid: HashMap<&str, &LexEntryInflType> = snapshot
         .morphology
@@ -126,16 +125,12 @@ pub(crate) fn build(
         for msa in &entry.msas {
             if let Msa::Stem { .. } = msa {
                 if has_stem_form {
-                    if let Some(id) =
-                        build_stem_entry(entry, msa, None, StratumId(0), ctx, acc, warnings)
-                    {
+                    if let Some(id) = build_stem_entry(entry, msa, None, StratumId(0), ctx, acc) {
                         morphology_entries.push(id);
                     }
                 }
                 if has_clitic_stem_form {
-                    if let Some(id) =
-                        build_stem_entry(entry, msa, None, StratumId(1), ctx, acc, warnings)
-                    {
+                    if let Some(id) = build_stem_entry(entry, msa, None, StratumId(1), ctx, acc) {
                         clitic_entries.push(id);
                     }
                 }
@@ -162,7 +157,6 @@ pub(crate) fn build(
                     stratum,
                     ctx,
                     acc,
-                    warnings,
                 ) {
                     if !template_only {
                         mrules.push(id);
@@ -193,7 +187,6 @@ pub(crate) fn build(
                         acc,
                         morphology_entries,
                         &mut *morphology_mrules,
-                        warnings,
                     );
                 }
             }
@@ -249,7 +242,6 @@ fn build_stem_entry(
     stratum: StratumId,
     ctx: &Ctx,
     acc: &mut Acc,
-    warnings: &mut Vec<String>,
 ) -> Option<LexEntryId> {
     let Msa::Stem {
         guid,
@@ -272,7 +264,6 @@ fn build_stem_entry(
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
             ctx.reject(
-                warnings,
                 msa_key,
                 issue_codes::MSA_BUILD_FAILED,
                 IssueClass::UnrepresentableForHc,
@@ -301,7 +292,6 @@ fn build_stem_entry(
         );
         let resolved = ctx.mpr.infl_class_single(ic);
         ctx.record_attachment(
-            warnings,
             attachment,
             resolved.is_some(),
             issue_codes::MSA_INFLECTION_CLASS_UNRESOLVED,
@@ -321,7 +311,6 @@ fn build_stem_entry(
         );
         let resolved = ctx.mpr.exception_feature(f);
         ctx.record_attachment(
-            warnings,
             attachment,
             resolved.is_some(),
             issue_codes::MSA_EXCEPTION_FEATURE_UNRESOLVED,
@@ -341,7 +330,6 @@ fn build_stem_entry(
         );
         let resolved = ctx.mpr.lex_entry_infl_type(&it.guid);
         ctx.record_attachment(
-            warnings,
             attachment,
             resolved.is_some(),
             issue_codes::MSA_LEX_ENTRY_INFL_TYPE_UNRESOLVED,
@@ -366,7 +354,7 @@ fn build_stem_entry(
     {
         let allo_key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
         ctx.selected(allo_key.clone());
-        match build_root_allomorph(allo, ctx, warnings) {
+        match build_root_allomorph(allo, ctx) {
             Ok(def) => {
                 let allo_id = crate::model::AllomorphId(acc.allomorph_owners.len() as u32);
                 acc.allomorph_owners
@@ -384,7 +372,6 @@ fn build_stem_entry(
                 ctx.represented(allo_key);
             }
             Err(e) => ctx.reject(
-                warnings,
                 allo_key,
                 issue_codes::ALLOMORPH_UNSEGMENTABLE,
                 IssueClass::UnrepresentableForHc,
@@ -400,7 +387,7 @@ fn build_stem_entry(
             issue_codes::MSA_NO_ALLOMORPHS,
             IssueClass::UnrepresentableForHc,
             Some(pg_snapshot::SourceRef {
-                kind: "LexEntry".to_string(),
+                kind: pg_snapshot::FwClass::LexEntry,
                 id: entry.guid.clone(),
             }),
             format!("Lexical entry '{entry_name}' has no loadable allomorphs."),
@@ -433,11 +420,7 @@ fn build_stem_entry(
 }
 
 /// Uses the pattern-aware segmenter since a root form may carry a lexical lookup pattern (`[C]`-style underspecified segments).
-fn build_root_allomorph(
-    allo: &Allomorph,
-    ctx: &Ctx,
-    warnings: &mut Vec<String>,
-) -> Result<RootAllomorphDef, String> {
+fn build_root_allomorph(allo: &Allomorph, ctx: &Ctx) -> Result<RootAllomorphDef, String> {
     let form = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or("");
     let form = super::format_form(form);
     let shape = crate::segment::segment_with_patterns(ctx.table, natural_class_defs(ctx), &form)
@@ -453,7 +436,6 @@ fn build_root_allomorph(
         allo.environments.iter().map(String::as_str),
         ctx,
         &allo.guid,
-        warnings,
     );
 
     let stem_name = allo
@@ -499,7 +481,6 @@ fn build_variant(
     acc: &mut Acc,
     morphology_entries: &mut Vec<LexEntryId>,
     morphology_mrules: &mut Vec<MRuleId>,
-    warnings: &mut Vec<String>,
 ) {
     // The `EntryRef::Variant` itself, distinct from the entries/allomorphs/MSAs it draws from below.
     let er_key = InventoryKey::object(InventoryKind::EntryReference, er_guid.to_string());
@@ -527,7 +508,6 @@ fn build_variant(
                     roles::VARIANT_COMPONENT,
                 );
                 ctx.record_attachment(
-                    warnings,
                     attachment,
                     false,
                     issue_codes::VARIANT_COMPONENT_UNRESOLVED,
@@ -546,15 +526,9 @@ fn build_variant(
                 if !matches!(msa, Msa::Stem { .. }) {
                     continue;
                 }
-                if let Some(id) = build_variant_stem_entry(
-                    variant_entry,
-                    main_entry,
-                    msa,
-                    infl_type,
-                    ctx,
-                    acc,
-                    warnings,
-                ) {
+                if let Some(id) =
+                    build_variant_stem_entry(variant_entry, main_entry, msa, infl_type, ctx, acc)
+                {
                     morphology_entries.push(id);
                 }
             }
@@ -572,7 +546,6 @@ fn build_variant(
                 variant_affix_allos,
                 ctx,
                 acc,
-                warnings,
             ) {
                 let template_only =
                     matches!(msa, Msa::Inflectional { slots, .. } if !slots.is_empty());
@@ -592,7 +565,6 @@ fn build_variant_affix_rule(
     variant_affix_allos: &[&Allomorph],
     ctx: &Ctx,
     acc: &mut Acc,
-    warnings: &mut Vec<String>,
 ) -> Option<MRuleId> {
     let gloss = sense_gloss(main_entry, msa_guid(msa), ctx).map(str::to_string);
     affixes::build_affix_rule(
@@ -603,7 +575,6 @@ fn build_variant_affix_rule(
         StratumId(0),
         ctx,
         acc,
-        warnings,
     )
 }
 
@@ -638,7 +609,6 @@ fn build_variant_stem_entry(
     infl_type: Option<&LexEntryInflType>,
     ctx: &Ctx,
     acc: &mut Acc,
-    warnings: &mut Vec<String>,
 ) -> Option<LexEntryId> {
     let Msa::Stem {
         guid,
@@ -682,7 +652,6 @@ fn build_variant_stem_entry(
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
             ctx.reject(
-                warnings,
                 variant_key,
                 issue_codes::MSA_BUILD_FAILED,
                 IssueClass::UnrepresentableForHc,
@@ -727,7 +696,7 @@ fn build_variant_stem_entry(
     {
         let allo_key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
         ctx.selected(allo_key.clone());
-        match build_root_allomorph(allo, ctx, warnings) {
+        match build_root_allomorph(allo, ctx) {
             Ok(def) => {
                 let allo_id = crate::model::AllomorphId(acc.allomorph_owners.len() as u32);
                 acc.allomorph_owners
@@ -745,7 +714,6 @@ fn build_variant_stem_entry(
                 ctx.represented(allo_key);
             }
             Err(e) => ctx.reject(
-                warnings,
                 allo_key,
                 issue_codes::ALLOMORPH_UNSEGMENTABLE,
                 IssueClass::UnrepresentableForHc,
@@ -764,7 +732,7 @@ fn build_variant_stem_entry(
             issue_codes::MSA_NO_ALLOMORPHS,
             IssueClass::UnrepresentableForHc,
             Some(pg_snapshot::SourceRef {
-                kind: "LexEntry".to_string(),
+                kind: pg_snapshot::FwClass::LexEntry,
                 id: variant_entry.guid.clone(),
             }),
             format!("Lexical entry '{variant_name}' has no loadable allomorphs."),

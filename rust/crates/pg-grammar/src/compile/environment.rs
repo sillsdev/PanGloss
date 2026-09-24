@@ -11,7 +11,6 @@ pub(crate) fn resolve_environment_defs<'a>(
     guids: impl IntoIterator<Item = &'a str>,
     ctx: &Ctx,
     allo_guid: &str,
-    warnings: &mut Vec<String>,
 ) -> Vec<EnvironmentDef> {
     let mut environments = Vec::new();
     for env_guid in guids {
@@ -48,21 +47,17 @@ pub(crate) fn resolve_environment_defs<'a>(
                 ctx.represented(attachment);
                 ctx.represented(env_object);
             }
-            Err(_) => {
+            Err(cause) => {
                 let source = Some(SourceRef {
-                    kind: "PhEnvironment".to_string(),
+                    kind: pg_snapshot::FwClass::PhEnvironment,
                     id: env.guid.clone(),
                 });
                 ctx.reject_with_source(
-                    warnings,
                     attachment,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,
                     source.clone(),
-                    format!(
-                        "Environment '{}' is invalid and was ignored.",
-                        env.representation
-                    ),
+                    format!("environment validation failed: {cause}"),
                 );
                 ctx.reject_quietly_with_source(
                     env_object,

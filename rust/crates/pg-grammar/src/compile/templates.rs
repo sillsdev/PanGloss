@@ -19,7 +19,6 @@ pub(crate) fn build(
     snapshot: &Snapshot,
     ctx: &Ctx,
     acc: &mut Acc,
-    warnings: &mut Vec<String>,
 ) -> Result<Vec<TemplateId>, GrammarError> {
     let mut slot_registry: HashMap<&str, &AffixSlot> = HashMap::new();
     collect_slots(&snapshot.morphology.parts_of_speech, &mut slot_registry);
@@ -32,7 +31,6 @@ pub(crate) fn build(
         acc,
         &slot_registry,
         &mut out,
-        warnings,
     )?;
     Ok(out)
 }
@@ -53,7 +51,6 @@ fn build_pos(
     acc: &mut Acc,
     slot_registry: &HashMap<&str, &AffixSlot>,
     out: &mut Vec<TemplateId>,
-    warnings: &mut Vec<String>,
 ) -> Result<(), GrammarError> {
     for pos in items {
         for tmpl in &pos.affix_templates {
@@ -62,21 +59,11 @@ fn build_pos(
             if tmpl.disabled {
                 continue;
             }
-            if let Some(id) =
-                build_template(pos, tmpl, snapshot, ctx, acc, slot_registry, warnings)?
-            {
+            if let Some(id) = build_template(pos, tmpl, snapshot, ctx, acc, slot_registry)? {
                 out.push(id);
             }
         }
-        build_pos(
-            &pos.children,
-            snapshot,
-            ctx,
-            acc,
-            slot_registry,
-            out,
-            warnings,
-        )?;
+        build_pos(&pos.children, snapshot, ctx, acc, slot_registry, out)?;
     }
     Ok(())
 }
@@ -88,7 +75,6 @@ fn build_template(
     ctx: &Ctx,
     acc: &mut Acc,
     slot_registry: &HashMap<&str, &AffixSlot>,
-    warnings: &mut Vec<String>,
 ) -> Result<Option<TemplateId>, GrammarError> {
     // Combined slot order: suffix slots as declared, then prefix slots reversed.
     let mut combined: Vec<(&str, bool)> = tmpl
@@ -117,7 +103,6 @@ fn build_template(
             ctx.selected(slot_key.clone());
             ctx.selected(attachment.clone());
             ctx.reject(
-                warnings,
                 slot_key,
                 issue_codes::TEMPLATE_SLOT_UNRESOLVED,
                 IssueClass::InvalidSource,
@@ -153,7 +138,7 @@ fn build_template(
                 issue_codes::TEMPLATE_SLOT_NO_RULES,
                 IssueClass::UnrepresentableForHc,
                 Some(pg_snapshot::SourceRef {
-                    kind: "MoInflAffixSlot".to_string(),
+                    kind: pg_snapshot::FwClass::MoInflAffixSlot,
                     id: slot_guid.to_string(),
                 }),
                 format!(
@@ -186,7 +171,7 @@ fn build_template(
             // Null-affix synthesis, unless the slot is optional (an irregular form can leave it empty).
             if !affix_slot.optional {
                 for it in &infl_types_for_slot {
-                    if let Some(id) = build_null_affix_rule(it, is_prefix, ctx, acc, warnings) {
+                    if let Some(id) = build_null_affix_rule(it, is_prefix, ctx, acc) {
                         rules.push(id);
                     }
                 }
@@ -222,7 +207,6 @@ fn build_template(
         Ok(fs) => acc.fs_interner.intern(fs),
         Err(e) => {
             ctx.reject(
-                warnings,
                 template_key,
                 issue_codes::TEMPLATE_BUILD_FAILED,
                 IssueClass::UnrepresentableForHc,
@@ -259,7 +243,6 @@ fn build_null_affix_rule(
     is_prefix: bool,
     ctx: &Ctx,
     acc: &mut Acc,
-    warnings: &mut Vec<String>,
 ) -> Option<MRuleId> {
     let key = InventoryKey::object(InventoryKind::Msa, format!("null-affix#{}", it.guid));
     ctx.synthesized(key.clone());
@@ -267,12 +250,11 @@ fn build_null_affix_rule(
     let Some(required_mpr) = ctx.mpr.lex_entry_infl_type(&it.guid) else {
         ctx.selected(key.clone());
         ctx.reject_with_source(
-            warnings,
             key,
             issue_codes::NULL_AFFIX_MPR_UNRESOLVED,
             IssueClass::InvalidSource,
             Some(pg_snapshot::SourceRef {
-                kind: "LexEntryInflType".to_string(),
+                kind: pg_snapshot::FwClass::LexEntryInflType,
                 id: it.guid.clone(),
             }),
             format!(
@@ -290,12 +272,11 @@ fn build_null_affix_rule(
                 Ok(v) => acc.fs_interner.intern(v),
                 Err(e) => {
                     ctx.reject_with_source(
-                        warnings,
                         key,
                         issue_codes::NULL_AFFIX_SYN_FS_FAILED,
                         IssueClass::UnrepresentableForHc,
                         Some(pg_snapshot::SourceRef {
-                            kind: "LexEntryInflType".to_string(),
+                            kind: pg_snapshot::FwClass::LexEntryInflType,
                             id: it.guid.clone(),
                         }),
                         format!(
@@ -316,12 +297,11 @@ fn build_null_affix_rule(
     let null_ins = if is_prefix { "^0+" } else { "+^0" };
     let Ok(insert) = insert_segments(null_ins, ctx) else {
         ctx.reject_with_source(
-            warnings,
             key,
             issue_codes::NULL_AFFIX_SEGMENT_FAILED,
             IssueClass::UnrepresentableForHc,
             Some(pg_snapshot::SourceRef {
-                kind: "LexEntryInflType".to_string(),
+                kind: pg_snapshot::FwClass::LexEntryInflType,
                 id: it.guid.clone(),
             }),
             format!(

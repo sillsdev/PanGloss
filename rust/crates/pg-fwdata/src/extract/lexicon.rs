@@ -133,7 +133,7 @@ fn resolve_morph_type(
                 IssueClass::UnrepresentableForHc,
                 false,
                 Some(SourceRef {
-                    kind: rec.class.clone(),
+                    kind: pg_snapshot::FwClass::from_wire(&rec.class),
                     id: rec.guid.clone(),
                 }),
                 warning,
@@ -237,7 +237,7 @@ fn record_environment_attachment(ctx: &mut Ctx, allomorph_guid: &str, env_guid: 
             IssueClass::InvalidSource,
             true,
             Some(SourceRef {
-                kind: "PhEnvironment".to_string(),
+                kind: pg_snapshot::FwClass::PhEnvironment,
                 id: env_guid.to_string(),
             }),
             format!(
