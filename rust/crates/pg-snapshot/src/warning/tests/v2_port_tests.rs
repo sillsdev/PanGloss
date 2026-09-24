@@ -3,7 +3,7 @@ use super::super::*;
 #[test]
 fn display_is_exactly_the_message() {
     let w = Warning::new(
-        "fwdata.dangling-reference",
+        ImportWarningCode::FwdataDanglingReference,
         "phoneme \"00...\" does not resolve",
     );
     assert_eq!(w.to_string(), "phoneme \"00...\" does not resolve");
@@ -12,7 +12,7 @@ fn display_is_exactly_the_message() {
 #[test]
 fn deref_supports_str_methods_like_contains() {
     let w = Warning::new(
-        "fwdata.dangling-reference",
+        ImportWarningCode::FwdataDanglingReference,
         "dangling reference to Foo abc-123",
     );
     assert!(w.contains("abc-123"));
@@ -20,47 +20,84 @@ fn deref_supports_str_methods_like_contains() {
 
 #[test]
 fn code_is_independent_of_message_reword() {
-    let original = Warning::new("fwdata.dangling-reference", "old wording of the same fact");
-    let reworded = Warning::new("fwdata.dangling-reference", "new wording, same situation");
+    let original = Warning::new(
+        ImportWarningCode::FwdataDanglingReference,
+        "old wording of the same fact",
+    );
+    let reworded = Warning::new(
+        ImportWarningCode::FwdataDanglingReference,
+        "new wording, same situation",
+    );
     assert_eq!(original.code, reworded.code);
     assert_ne!(original.message, reworded.message);
 }
 
 #[test]
 fn different_situations_get_different_codes() {
-    let dangling = Warning::new("fwdata.dangling-reference", "X does not resolve");
-    let unexpected_class = Warning::new("fwdata.unexpected-class", "X has unexpected class Y");
+    let dangling = Warning::new(
+        ImportWarningCode::FwdataDanglingReference,
+        "X does not resolve",
+    );
+    let unexpected_class = Warning::new(
+        ImportWarningCode::FwdataUnexpectedClass,
+        "X has unexpected class Y",
+    );
     assert_ne!(dangling.code, unexpected_class.code);
 }
 
 #[test]
 fn warning_equality_includes_code_and_subject() {
-    let same_message_different_code = Warning::new("warning.first", "same prose");
-    let other_code = Warning::new("warning.second", "same prose");
+    let same_message_different_code = Warning::new(
+        ImportWarningCode::Unregistered("warning.first".to_string()),
+        "same prose",
+    );
+    let other_code = Warning::new(
+        ImportWarningCode::Unregistered("warning.second".to_string()),
+        "same prose",
+    );
     assert_ne!(same_message_different_code, other_code);
 
     let subject_a = FwObjectRef::new(FwClass::PhEnvironment).name("first");
     let subject_b = FwObjectRef::new(FwClass::PhEnvironment).name("second");
     assert_ne!(
-        Warning::new("warning.same", "same prose").with_subject(subject_a),
-        Warning::new("warning.same", "same prose").with_subject(subject_b),
+        Warning::new(
+            ImportWarningCode::Unregistered("warning.same".to_string()),
+            "same prose"
+        )
+        .with_subject(subject_a),
+        Warning::new(
+            ImportWarningCode::Unregistered("warning.same".to_string()),
+            "same prose"
+        )
+        .with_subject(subject_b),
     );
 }
 
 #[test]
 fn warning_deduplication_does_not_match_an_unidentified_warning_to_a_subject() {
-    let unidentified = Warning::new("warning.same", "same prose");
-    let identified = Warning::new("warning.same", "same prose").with_subject(
-        FwObjectRef::new(FwClass::MoForm).guid("00000000-0000-0000-0000-000000000042"),
+    let unidentified = Warning::new(
+        ImportWarningCode::Unregistered("warning.same".to_string()),
+        "same prose",
     );
+    let identified = Warning::new(
+        ImportWarningCode::Unregistered("warning.same".to_string()),
+        "same prose",
+    )
+    .with_subject(FwObjectRef::new(FwClass::MoForm).guid("00000000-0000-0000-0000-000000000042"));
 
     assert!(!unidentified.same_fact_as(&identified));
 }
 
 #[test]
 fn warning_deduplication_does_not_merge_unidentified_facts() {
-    let first = Warning::new("warning.same", "same prose");
-    let second = Warning::new("warning.same", "same prose");
+    let first = Warning::new(
+        ImportWarningCode::Unregistered("warning.same".to_string()),
+        "same prose",
+    );
+    let second = Warning::new(
+        ImportWarningCode::Unregistered("warning.same".to_string()),
+        "same prose",
+    );
 
     assert!(!first.same_fact_as(&second));
 }
@@ -71,38 +108,43 @@ fn warning_deduplication_compares_subject_sets_without_order() {
         FwObjectRef::new(FwClass::PhNaturalClass).guid("00000000-0000-0000-0000-000000000001");
     let environment =
         FwObjectRef::new(FwClass::PhEnvironment).guid("00000000-0000-0000-0000-000000000002");
-    let first = Warning::new("warning.same", "same prose")
-        .with_subject(natural_class.clone())
-        .with_subject(environment.clone());
-    let second = Warning::new("warning.same", "same prose")
-        .with_subject(environment)
-        .with_subject(natural_class);
+    let first = Warning::new(
+        ImportWarningCode::Unregistered("warning.same".to_string()),
+        "same prose",
+    )
+    .with_subject(natural_class.clone())
+    .with_subject(environment.clone());
+    let second = Warning::new(
+        ImportWarningCode::Unregistered("warning.same".to_string()),
+        "same prose",
+    )
+    .with_subject(environment)
+    .with_subject(natural_class);
 
     assert!(first.same_fact_as(&second));
 }
 
 #[test]
-fn conversion_issue_uses_catalog_audience_and_retains_noncanonical_guid() {
+fn conversion_issue_retains_unknown_code_and_noncanonical_guid() {
     let canonical_guid = "00000000-0000-0000-0000-000000000042";
     let issue = crate::ConversionIssue {
-        code: "grammar.anything".to_string(),
+        code: ImportWarningCode::Unregistered("grammar.anything".to_string()),
         class: crate::IssueClass::MigrationDifference,
         source: Some(crate::SourceRef {
-            kind: "PhEnvironment".to_string(),
+            kind: crate::FwClass::PhEnvironment,
             id: canonical_guid.to_string(),
         }),
         fatal: false,
-        audience: Audience::Developer,
         message: "internal notice".to_string(),
     };
 
     let warning = Warning::from_conversion_issue(&issue);
-    assert_eq!(warning.audience, Audience::Developer);
+    assert!(warning.message.contains("grammar.anything"));
     assert_eq!(warning.subjects[0].guid.as_deref(), Some(canonical_guid));
 
     let issue = crate::ConversionIssue {
         source: Some(crate::SourceRef {
-            kind: "PhEnvironment".to_string(),
+            kind: crate::FwClass::PhEnvironment,
             id: "env-bad".to_string(),
         }),
         ..issue

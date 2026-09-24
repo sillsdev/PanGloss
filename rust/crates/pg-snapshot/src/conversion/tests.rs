@@ -195,11 +195,10 @@ fn invariants_reject_represented_and_rejected_together() {
     r.rejected(
         key,
         ConversionIssue {
-            code: "test.code".to_string(),
+            code: crate::ImportWarningCode::Unregistered("test.code".to_string()),
             class: IssueClass::UnrepresentableForHc,
             source: None,
             fatal: false,
-            audience: crate::Audience::Linguist,
             message: "test".to_string(),
         },
     );
@@ -217,11 +216,10 @@ fn revoke_represented_moves_the_key_to_rejected_and_off_represented() {
     r.revoke_represented(
         key.clone(),
         ConversionIssue {
-            code: "test.revoked".to_string(),
+            code: crate::ImportWarningCode::Unregistered("test.revoked".to_string()),
             class: IssueClass::UnreachableInGrammar,
             source: None,
             fatal: false,
-            audience: crate::Audience::Linguist,
             message: "test".to_string(),
         },
     );
@@ -241,11 +239,10 @@ fn revoke_represented_panics_on_a_key_that_was_never_represented() {
     r.revoke_represented(
         key,
         ConversionIssue {
-            code: "test.revoked".to_string(),
+            code: crate::ImportWarningCode::Unregistered("test.revoked".to_string()),
             class: IssueClass::UnreachableInGrammar,
             source: None,
             fatal: false,
-            audience: crate::Audience::Linguist,
             message: "test".to_string(),
         },
     );
@@ -256,7 +253,7 @@ fn record_text_use_is_independent_of_the_stage_invariants() {
     let mut r = SelectionRecorder::default();
     r.record_text_use(
         SourceRef {
-            kind: "allomorph".to_string(),
+            kind: crate::FwClass::MoForm,
             id: "allo-1".to_string(),
         },
         "quma",
@@ -265,7 +262,7 @@ fn record_text_use_is_independent_of_the_stage_invariants() {
         r.text_uses(),
         &[(
             SourceRef {
-                kind: "allomorph".to_string(),
+                kind: crate::FwClass::MoForm,
                 id: "allo-1".to_string(),
             },
             "quma".to_string(),

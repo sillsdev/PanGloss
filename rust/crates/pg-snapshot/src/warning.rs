@@ -1,4 +1,4 @@
-//! Import warnings pair stable codes with messages, source subjects, FieldWorks guidance, and audience.
+//! Import warnings pair stable codes with messages and source subjects.
 use std::fmt;
 use std::ops::Deref;
 
@@ -11,75 +11,35 @@ pub struct Warning {
     pub message: String,
     /// The FieldWorks objects the warning is about, most specific first.
     pub subjects: Vec<FwObjectRef>,
-    /// What to do about it in FieldWorks (area, tool, field); `None` when there is no user action.
-    pub guidance: Option<String>,
-    pub audience: Audience,
 }
 
 impl Warning {
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        let code = code.into();
-        let registered_code = ImportWarningCode::from_wire(&code);
-        let metadata = crate::import_warning_metadata(
-            registered_code.unwrap_or(ImportWarningCode::Unregistered),
-        );
+    pub fn new(code: ImportWarningCode, message: impl Into<String>) -> Self {
+        let wire = code.wire().to_string();
         let message = message.into();
-        let message = if registered_code.is_none() {
-            eprintln!("unregistered import warning code '{code}'");
-            format!("Unregistered warning code '{code}': {message}")
+        let message = if matches!(code, ImportWarningCode::Unregistered(_)) {
+            format!("Unregistered warning code '{wire}': {message}")
         } else {
             message
         };
         Warning {
-            code,
+            code: wire,
             message,
             subjects: Vec::new(),
-            guidance: metadata.guidance,
-            audience: metadata.audience,
         }
     }
 
     pub fn with_subject(mut self, subject: FwObjectRef) -> Self {
-        if let Some(name) = subject
-            .name
-            .as_deref()
-            .filter(|name| !name.trim().is_empty())
-        {
-            self.render_guidance_subject(name);
-        }
         self.subjects.push(subject);
         self
     }
 
-    /// Adds the resolved name for the primary source and fills any table guidance template.
+    /// Adds the resolved name for the primary source.
     pub fn set_primary_subject_name(&mut self, name: impl Into<String>) {
         let name = name.into();
         if let Some(subject) = self.subjects.first_mut() {
             subject.name = Some(name.clone());
         }
-        self.render_guidance_subject(&name);
-    }
-
-    fn render_guidance_subject(&mut self, name: &str) {
-        if let Some(guidance) = &mut self.guidance {
-            *guidance = guidance.replace("{subject}", name);
-        }
-    }
-
-    pub fn with_guidance(mut self, guidance: impl Into<String>) -> Self {
-        self.guidance = Some(guidance.into());
-        self
-    }
-
-    pub fn with_audience(mut self, audience: Audience) -> Self {
-        self.audience = audience;
-        self
-    }
-
-    /// Marks an engine-internal notice (e.g. an index dropped by compaction) that no linguist can act on.
-    pub fn for_developers(mut self) -> Self {
-        self.audience = Audience::Developer;
-        self
     }
 
     /// Deduplication uses stable code and source identity, not prose that may change.
@@ -105,10 +65,8 @@ impl Warning {
     pub fn from_conversion_issue(issue: &crate::ConversionIssue) -> Self {
         let mut warning = Warning::new(issue.code.clone(), issue.message.clone());
         if let Some(source) = &issue.source {
-            if let Some(class) = fw_class_from_source_kind(&source.kind) {
-                let subject = FwObjectRef::new(class).guid(source.id.clone());
-                warning = warning.with_subject(subject);
-            }
+            let subject = FwObjectRef::new(source.kind).guid(source.id.clone());
+            warning = warning.with_subject(subject);
         }
         warning
     }
@@ -137,44 +95,15 @@ fn same_subject_identity(left: &FwObjectRef, right: &FwObjectRef) -> bool {
         }
 }
 
-fn fw_class_from_source_kind(kind: &str) -> Option<FwClass> {
-    Some(match kind {
-        "LexEntry" => FwClass::LexEntry,
-        "LexSense" => FwClass::LexSense,
-        "MoForm" | "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess" | "allomorph" => {
-            FwClass::MoForm
-        }
-        "MoStemMsa" => FwClass::MoStemMsa,
-        "MoInflAffMsa" => FwClass::MoInflAffMsa,
-        "MoDerivAffMsa" => FwClass::MoDerivAffMsa,
-        "MoUnclassifiedAffixMsa" => FwClass::MoUnclassifiedAffixMsa,
-        "LexEntryInflType" => FwClass::LexEntryInflType,
-        "MoStemName" => FwClass::MoStemName,
-        "MoInflAffixTemplate" => FwClass::MoInflAffixTemplate,
-        "MoInflAffixSlot" => FwClass::MoInflAffixSlot,
-        "MoCompoundRule" => FwClass::MoCompoundRule,
-        "MoAdhocProhib" | "MoAlloAdhocProhib" | "MoMorphAdhocProhib" => FwClass::MoAdhocProhib,
-        "PhPhonemeSet" => FwClass::PhPhonemeSet,
-        "PhPhoneme" => FwClass::PhPhoneme,
-        "PhBdryMarker" => FwClass::PhBdryMarker,
-        "PhNaturalClass" => FwClass::PhNaturalClass,
-        "PhEnvironment" => FwClass::PhEnvironment,
-        "PhRegularRule" => FwClass::PhRegularRule,
-        "PhMetathesisRule" => FwClass::PhMetathesisRule,
-        "FsFeatureSystem" => FwClass::FsFeatureSystem,
-        "FsComplexFeature" => FwClass::FsComplexFeature,
-        "Project" => FwClass::Project,
-        _ => return None,
-    })
-}
-
 macro_rules! import_warning_codes {
     ($($variant:ident => $wire:literal,)+) => {
         /// Stable codes used by the FieldWorks importer and grammar compiler.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         #[allow(missing_docs)]
         pub enum ImportWarningCode {
             $($variant,)+
+            /// A code supplied by a producer this build does not know.
+            Unregistered(String),
         }
 
         impl ImportWarningCode {
@@ -182,9 +111,10 @@ macro_rules! import_warning_codes {
             pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
 
             /// The stable wire identifier for this code.
-            pub const fn wire(self) -> &'static str {
+            pub fn wire(&self) -> &str {
                 match self {
                     $(Self::$variant => $wire,)+
+                    Self::Unregistered(raw) => raw,
                 }
             }
 
@@ -194,6 +124,11 @@ macro_rules! import_warning_codes {
                     $($wire => Some(Self::$variant),)+
                     _ => None,
                 }
+            }
+
+            /// Resolves known identifiers and retains unknown ones explicitly.
+            pub fn from_wire_or_unregistered(wire: &str) -> Self {
+                Self::from_wire(wire).unwrap_or_else(|| Self::Unregistered(wire.to_string()))
             }
         }
     };
@@ -209,7 +144,6 @@ import_warning_codes! {
     FwdataUnrecognizedEnumValue => "fwdata.unrecognized-enum-value",
     FwdataMetathesisApproximation => "fwdata.metathesis-approximation",
     FwdataStaleAdhocProhibition => "fwdata.stale-adhoc-prohibition",
-    Unregistered => "warning.unregistered",
     FwdataNoUsableAllomorphs => "fwdata.no-usable-allomorphs",
     FwdataUnsupportedMorphType => "fwdata.unsupported-morph-type",
     FwdataUnknownMorphTypeGuid => "fwdata.unknown-morph-type-guid",
@@ -285,6 +219,35 @@ import_warning_codes! {
     SubstratePositionUnmapped => "substrate.position-unmapped",
 }
 
+impl serde::Serialize for ImportWarningCode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.wire())
+    }
+}
+
+impl fmt::Display for ImportWarningCode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.wire())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ImportWarningCode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = <String as serde::Deserialize>::deserialize(deserializer)?;
+        let code = Self::from_wire_or_unregistered(&wire);
+        if matches!(code, Self::Unregistered(_)) {
+            eprintln!("unregistered import warning code '{wire}'");
+        }
+        Ok(code)
+    }
+}
+
 /// Who can act on a warning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -331,7 +294,7 @@ impl FwObjectRef {
 }
 
 /// FieldWorks (LCM) class of a warning subject; the wire value is the LCM class name. Append-only.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum FwClass {
     LexEntry,
     MoForm,
@@ -357,6 +320,57 @@ pub enum FwClass {
     PhBdryMarker,
     FsComplexFeature,
     MoStemName,
+    MoInflClass,
+    FsClosedFeature,
+    FsSymFeatVal,
+    Unknown,
+}
+
+impl<'de> serde::Deserialize<'de> for FwClass {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(Self::from_wire(&wire))
+    }
+}
+
+impl FwClass {
+    /// Converts a FieldWorks class name at an external-data boundary.
+    pub fn from_wire(wire: &str) -> Self {
+        match wire {
+            "LexEntry" => Self::LexEntry,
+            "MoForm" | "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess" | "allomorph" => {
+                Self::MoForm
+            }
+            "MoStemMsa" => Self::MoStemMsa,
+            "MoInflAffMsa" => Self::MoInflAffMsa,
+            "MoDerivAffMsa" => Self::MoDerivAffMsa,
+            "MoUnclassifiedAffixMsa" => Self::MoUnclassifiedAffixMsa,
+            "LexEntryInflType" => Self::LexEntryInflType,
+            "MoInflAffixTemplate" => Self::MoInflAffixTemplate,
+            "MoInflAffixSlot" => Self::MoInflAffixSlot,
+            "MoCompoundRule" => Self::MoCompoundRule,
+            "MoAdhocProhib" | "MoAlloAdhocProhib" | "MoMorphAdhocProhib" => Self::MoAdhocProhib,
+            "PhPhonemeSet" => Self::PhPhonemeSet,
+            "PhPhoneme" => Self::PhPhoneme,
+            "PhNaturalClass" => Self::PhNaturalClass,
+            "PhEnvironment" => Self::PhEnvironment,
+            "PhRegularRule" => Self::PhRegularRule,
+            "PhMetathesisRule" => Self::PhMetathesisRule,
+            "FsFeatureSystem" => Self::FsFeatureSystem,
+            "Project" => Self::Project,
+            "LexSense" => Self::LexSense,
+            "PhBdryMarker" => Self::PhBdryMarker,
+            "FsComplexFeature" => Self::FsComplexFeature,
+            "MoStemName" => Self::MoStemName,
+            "MoInflClass" => Self::MoInflClass,
+            "FsClosedFeature" => Self::FsClosedFeature,
+            "FsSymFeatVal" => Self::FsSymFeatVal,
+            _ => Self::Unknown,
+        }
+    }
 }
 
 impl fmt::Display for Warning {

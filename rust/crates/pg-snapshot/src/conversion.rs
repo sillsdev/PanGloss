@@ -328,7 +328,7 @@ pub enum IssueClass {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceRef {
-    pub kind: String,
+    pub kind: crate::FwClass,
     pub id: String,
 }
 
@@ -336,14 +336,10 @@ pub struct SourceRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversionIssue {
-    pub code: String,
+    pub code: crate::ImportWarningCode,
     pub class: IssueClass,
     pub source: Option<SourceRef>,
     pub fatal: bool,
-    /// Audience was chosen by the producer that raised this issue. Older provenance records
-    /// omit it and are read as linguist-facing.
-    #[serde(default)]
-    pub audience: crate::Audience,
     pub message: String,
 }
 

@@ -43,6 +43,7 @@ pub fn fieldworks_subject_kind_label(kind: FwClass) -> &'static str {
         | FwClass::MoUnclassifiedAffixMsa => "grammatical analysis",
         FwClass::LexEntryInflType => "entry inflection type",
         FwClass::MoStemName => "stem name",
+        FwClass::MoInflClass => "inflection class",
         FwClass::MoInflAffixTemplate => "affix template",
         FwClass::MoInflAffixSlot => "affix template slot",
         FwClass::MoCompoundRule => "compound rule",
@@ -56,7 +57,43 @@ pub fn fieldworks_subject_kind_label(kind: FwClass) -> &'static str {
         FwClass::PhMetathesisRule => "metathesis rule",
         FwClass::FsFeatureSystem => "feature system",
         FwClass::FsComplexFeature => "complex phonological feature",
+        FwClass::FsClosedFeature => "phonological feature",
+        FwClass::FsSymFeatVal => "feature value",
+        FwClass::Unknown => "item",
         FwClass::Project => "project",
+    }
+}
+
+/// Display fallback used when a source object has no authored name or representation.
+pub fn fieldworks_missing_name_fallback(kind: FwClass) -> &'static str {
+    match kind {
+        FwClass::LexEntry => "Unnamed lexical entry",
+        FwClass::LexSense => "Unnamed sense",
+        FwClass::MoForm => "Unnamed affix allomorph",
+        FwClass::MoStemMsa
+        | FwClass::MoInflAffMsa
+        | FwClass::MoDerivAffMsa
+        | FwClass::MoUnclassifiedAffixMsa => "Unnamed grammatical analysis",
+        FwClass::LexEntryInflType => "Unnamed entry inflection type",
+        FwClass::MoStemName => "Unnamed stem name",
+        FwClass::MoInflClass => "Unnamed inflection class",
+        FwClass::MoInflAffixTemplate => "Unnamed affix template",
+        FwClass::MoInflAffixSlot => "Unnamed affix template slot",
+        FwClass::MoCompoundRule => "Unnamed compound rule",
+        FwClass::MoAdhocProhib => "Unnamed ad-hoc prohibition",
+        FwClass::PhPhonemeSet => "Unnamed phoneme set",
+        FwClass::PhPhoneme => "Unnamed phoneme",
+        FwClass::PhBdryMarker => "Unnamed boundary marker",
+        FwClass::PhNaturalClass => "Unnamed natural class",
+        FwClass::PhEnvironment => "Unnamed phonological environment",
+        FwClass::PhRegularRule => "Unnamed phonological rule",
+        FwClass::PhMetathesisRule => "Unnamed metathesis rule",
+        FwClass::FsFeatureSystem => "Unnamed feature system",
+        FwClass::FsComplexFeature => "Unnamed complex phonological feature",
+        FwClass::FsClosedFeature => "Unnamed phonological feature",
+        FwClass::FsSymFeatVal => "Unnamed feature value",
+        FwClass::Unknown => "Unnamed FieldWorks item",
+        FwClass::Project => "Unnamed project",
     }
 }
 
@@ -129,7 +166,7 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::GRAMMAR_AD_HOC_RULES,
             "update the named prohibition's affix reference or remove it.",
         ),
-        Unregistered => internal_warning("Unregistered warning code"),
+        Unregistered(_) => internal_warning("Unregistered warning code"),
         FwdataNoUsableAllomorphs => linguist_warning(
             "No usable allomorphs",
             fieldworks_paths::LEXICON_EDIT,

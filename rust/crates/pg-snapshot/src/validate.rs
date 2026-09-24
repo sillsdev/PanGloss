@@ -39,14 +39,14 @@ use crate::phonology::PhonContext;
 use crate::{ImportWarningCode, Snapshot, Warning};
 
 /// Shared by every plain "does this reference resolve to a definition of the expected kind" check.
-const DANGLING_REFERENCE: &str = ImportWarningCode::SnapshotDanglingReference.wire();
+const DANGLING_REFERENCE: ImportWarningCode = ImportWarningCode::SnapshotDanglingReference;
 /// `check_feature_structure`'s recursive closed/complex feature-or-value resolution.
-const FEATURE_STRUCTURE_UNRESOLVED: &str =
-    ImportWarningCode::SnapshotFeatureStructureUnresolved.wire();
+const FEATURE_STRUCTURE_UNRESOLVED: ImportWarningCode =
+    ImportWarningCode::SnapshotFeatureStructureUnresolved;
 /// `check_rule_feature_ref` legitimately resolves against either registry; see that function's doc.
-const RULE_FEATURE_UNRESOLVED: &str = ImportWarningCode::SnapshotRuleFeatureUnresolved.wire();
+const RULE_FEATURE_UNRESOLVED: ImportWarningCode = ImportWarningCode::SnapshotRuleFeatureUnresolved;
 /// Resolves to a real definition elsewhere in the snapshot, but outside the required local scope.
-const REFERENCE_OUT_OF_SCOPE: &str = ImportWarningCode::SnapshotReferenceOutOfScope.wire();
+const REFERENCE_OUT_OF_SCOPE: ImportWarningCode = ImportWarningCode::SnapshotReferenceOutOfScope;
 
 /// Registries of every GUID this snapshot *defines*, checked against every GUID it *references*.
 struct Registries {

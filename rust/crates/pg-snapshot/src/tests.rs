@@ -191,11 +191,10 @@ fn grammar_hash_ignores_conversion_provenance_differences() {
         .conversion_provenance
         .import_issues
         .push(ConversionIssue {
-            code: "test.issue".to_string(),
+            code: ImportWarningCode::Unregistered("test.issue".to_string()),
             class: IssueClass::AmbiguousSource,
             source: None,
             fatal: false,
-            audience: crate::Audience::Linguist,
             message: "an import diagnostic".to_string(),
         });
     assert_ne!(snap_a.conversion_provenance, snap_b.conversion_provenance);
