@@ -135,3 +135,47 @@ stay `Readiness` rather than `CannotRepresent`. The full diagnosis, the containm
 and the `faithfulness_coverage_gate` ratchet raised 5 -> 6 for the same word are in
 `docs/superpowers/plans/2026-09-04-reject-partial-fst-builds-results.md`. Soundness stayed at 0
 `candidate_only_identities` in the run that produced these figures (2026-09-05, full `-Mode test`).
+
+## Machine 34215889: reduplication followed by deletion (`hasaasa`)
+
+### Baseline measurement before staging-clone synchronization (2026-09-24)
+
+The all-scope conformance run measured TunedSurfaceProbed at 70 `oracle_exact` and 2
+`compiles_but_misses` fixture cells, against the prior 71/1 ratchet. The new miss is
+`machine:languages/metathesis-phase-isolation`, word `hasaasa`; the faithfulness report names the
+required oracle identity as `morphemes=[8, 16]`, `root_index=1`, with multiplicity 1 and zero
+proposals for it. This is a real recall/correctness gap, not a readiness or resource-containment
+refusal.
+
+The faithfulness gate measured 20 failed `(construct kind, backend)` pairs against its ceiling of
+14. Six newly failing pairs all identify the same TunedSurfaceProbed miss:
+
+| construct kind | fixture / word | required identity |
+|---|---|---|
+| IterativeRewrite | `machine:languages/metathesis-phase-isolation` / `hasaasa` | `[8, 16]`, root index 1 |
+| LeftToRightRewrite | same | `[8, 16]`, root index 1 |
+| Metathesis | same | `[8, 16]`, root index 1 |
+| SubruleGating | same | `[8, 16]`, root index 1 |
+| CircumfixOutputAction | same | `[8, 16]`, root index 1 |
+| Reduplication | same | `[8, 16]`, root index 1 |
+
+Source inspection points to the interaction between the committed derivation and the query-time
+peeler. The word file derives `hasaasa` from a leading full copy of `HASA`, then `prHDel` deletes
+the second copy's initial `h`, leaving `hasa` + `asa`. The peeler in
+`rust/crates/pg-foma-runtime/src/peel.rs` only matches equal character slices and infers morpheme
+order from the matched prefix or suffix position. It can see the local repeated `asa` suffix, but
+that yields a suffix-copy candidate; the oracle requires the leading reduplication morpheme and
+root index 1. This is a source-based explanation of the measured proposal miss, not a new backend
+measurement.
+
+The static TunedSurfaceProbed card does not promise rule-aware inverse alignment for altered copy
+material. Recovering this identity requires a broader relation between copied spans and subsequent
+phonology, so this pass did not attempt an emitter change.
+
+The same work synchronized `staging:edge-cases/backend-ordered-generic` to the Machine grammar and
+ordered word inputs, changing only the language name. That clone will be another scored fixture cell
+with the same TSP outcome. The post-sync scoreboard count and the post-sync faithfulness report were
+not rerun because the managed target preflight selected a denied `G:\cargo-build-cache` when C: had
+14.4 GB free against the required 15 GB reserve. Thus 69 exact / 3 misses and an unchanged total of
+20 faithfulness pairs are expectations from the clone's identical inputs, not measured post-change
+values; the gate ratchets were left untouched pending an allowed managed verification run.
