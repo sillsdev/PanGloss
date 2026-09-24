@@ -78,7 +78,5 @@ status.
 `BackendOrderedGeneric`. This keeps the staged backend-ordering workload aligned with the upstream
 fixture, including its added reduplication and phonology words.
 
-The 2026-08-31 C# founding-oracle check above applies to the staged files as they existed on that
-date. The newly copied upstream word rows were not checked against C# in this worktree, so that old
-check is not claimed as provenance for them. The committed Machine expectations remain the source
-for those rows and are replayed by the shared conformance harness.
+The synced rows were verified against the C# oracle by the Machine self-check at that commit (every
+word passes), so `words.yaml` carries a founding-oracle marker for `34215889`.
