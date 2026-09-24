@@ -10,16 +10,6 @@ pub(crate) enum FieldWorksSource {
     MorphRule(MRuleId),
 }
 
-pub(crate) fn canonical_guid(source_id: &str) -> Option<String> {
-    let bytes = source_id.as_bytes();
-    let well_formed = bytes.len() == 36
-        && bytes.iter().enumerate().all(|(index, byte)| match index {
-            8 | 13 | 18 | 23 => *byte == b'-',
-            _ => byte.is_ascii_hexdigit(),
-        });
-    well_formed.then(|| source_id.to_ascii_lowercase())
-}
-
 pub(crate) fn fieldworks_link_from_identity(
     class: FwClass,
     source_guid: Option<&str>,
@@ -37,7 +27,7 @@ pub(crate) fn fieldworks_link_from_identity(
             guid: None,
         };
     };
-    let Some(guid) = canonical_guid(raw_guid) else {
+    let Some(guid) = pg_snapshot::canonical_guid(raw_guid) else {
         return FieldWorksLink::Unavailable {
             reason: FieldWorksUnavailableReason::InvalidGuid,
             guid: Some(raw_guid.to_string()),

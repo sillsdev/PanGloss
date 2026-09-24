@@ -1,7 +1,7 @@
 //! The exhaustive per-code owner for import warning audience, group, and FieldWorks guidance.
 
 use crate::fieldworks_paths;
-use crate::{Audience, ImportWarningCode};
+use crate::{Audience, FwClass, ImportWarningCode};
 
 pub struct ImportWarningMetadata {
     pub group_name: &'static str,
@@ -11,13 +11,52 @@ pub struct ImportWarningMetadata {
 }
 
 impl ImportWarningMetadata {
-    pub fn guidance_for_subject(&self, subject_name: Option<&str>) -> Option<String> {
+    pub fn guidance_for_subject(
+        &self,
+        subject_name: Option<&str>,
+        subject_class: Option<FwClass>,
+    ) -> Option<String> {
         let subject_name = subject_name
             .filter(|name| !name.trim().is_empty())
-            .unwrap_or("the affected item");
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                format!(
+                    "the {}",
+                    subject_class.map_or("item", fieldworks_subject_kind_label)
+                )
+            });
         self.guidance
             .as_ref()
-            .map(|template| template.replace("{subject}", subject_name))
+            .map(|template| template.replace("{subject}", &subject_name))
+    }
+}
+
+/// The linguist-facing fallback label for a FieldWorks source kind.
+pub fn fieldworks_subject_kind_label(kind: FwClass) -> &'static str {
+    match kind {
+        FwClass::LexEntry => "lexical entry",
+        FwClass::LexSense => "sense",
+        FwClass::MoForm => "form",
+        FwClass::MoStemMsa
+        | FwClass::MoInflAffMsa
+        | FwClass::MoDerivAffMsa
+        | FwClass::MoUnclassifiedAffixMsa => "grammatical analysis",
+        FwClass::LexEntryInflType => "entry inflection type",
+        FwClass::MoStemName => "stem name",
+        FwClass::MoInflAffixTemplate => "affix template",
+        FwClass::MoInflAffixSlot => "affix template slot",
+        FwClass::MoCompoundRule => "compound rule",
+        FwClass::MoAdhocProhib => "ad-hoc prohibition",
+        FwClass::PhPhonemeSet => "phoneme set",
+        FwClass::PhPhoneme => "phoneme",
+        FwClass::PhBdryMarker => "boundary marker",
+        FwClass::PhNaturalClass => "natural class",
+        FwClass::PhEnvironment => "phonological environment",
+        FwClass::PhRegularRule => "phonological rule",
+        FwClass::PhMetathesisRule => "metathesis rule",
+        FwClass::FsFeatureSystem => "feature system",
+        FwClass::FsComplexFeature => "complex phonological feature",
+        FwClass::Project => "project",
     }
 }
 
@@ -90,6 +129,7 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::GRAMMAR_AD_HOC_RULES,
             "update the named prohibition's affix reference or remove it.",
         ),
+        Unregistered => internal_warning("Unregistered warning code"),
         FwdataNoUsableAllomorphs => linguist_warning(
             "No usable allomorphs",
             fieldworks_paths::LEXICON_EDIT,

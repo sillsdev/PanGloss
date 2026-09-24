@@ -1557,8 +1557,8 @@ fn try_load_affix_process_rule(
         None => None,
     };
 
-    let partial_reason = parse_bool(mr.attr("partial"), false)
-        .then_some(PartialMorphemeReason::InflectionalAffixWithoutTemplateSlot);
+    let partial_reason =
+        parse_bool(mr.attr("partial"), false).then_some(PartialMorphemeReason::Unspecified);
     acc.mrules
         .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
             morpheme,

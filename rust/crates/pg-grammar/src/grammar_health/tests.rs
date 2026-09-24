@@ -104,6 +104,79 @@ fn import_warning_guidance_template_uses_its_subject_name() {
     );
 }
 
+#[test]
+fn import_warning_guidance_uses_subject_kind_when_name_is_missing() {
+    let warning = pg_snapshot::Warning::new(
+        ImportWarningCode::EnvironmentInvalid.wire(),
+        "Phonological environment is invalid.",
+    )
+    .with_subject(pg_snapshot::FwObjectRef::new(
+        pg_snapshot::FwClass::PhEnvironment,
+    ));
+
+    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
+    let guidance = finding.guidance.expect("catalog guidance");
+
+    assert!(guidance.contains("phonological environment"), "{guidance}");
+    assert!(!guidance.contains("{subject}"), "{guidance}");
+    assert!(!guidance.contains("the affected item"), "{guidance}");
+}
+
+#[test]
+fn unknown_warning_code_from_snapshot_is_unregistered_and_developer_facing() {
+    let issue: pg_snapshot::ConversionIssue = serde_json::from_value(serde_json::json!({
+        "code": "future.warning-code",
+        "class": "migrationDifference",
+        "source": null,
+        "fatal": false,
+        "audience": "developer",
+        "message": "future warning text"
+    }))
+    .expect("old snapshot issue deserializes");
+    let warning = pg_snapshot::Warning::from_conversion_issue(&issue);
+
+    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
+
+    assert_eq!(finding.code.wire(), "future.warning-code");
+    assert_eq!(finding.audience, Audience::Developer);
+    assert!(finding.message.contains("future.warning-code"));
+    assert!(finding.message.contains("future warning text"));
+}
+
+#[test]
+fn invalid_source_guid_is_reported_as_invalid_not_missing() {
+    let issue = pg_snapshot::ConversionIssue {
+        code: ImportWarningCode::PhonemeNoRepresentation
+            .wire()
+            .to_string(),
+        class: pg_snapshot::IssueClass::MigrationDifference,
+        source: Some(pg_snapshot::SourceRef {
+            kind: "PhPhoneme".to_string(),
+            id: "not-a-guid".to_string(),
+        }),
+        fatal: false,
+        audience: Audience::Linguist,
+        message: "environment failed validation".to_string(),
+    };
+    let warning = pg_snapshot::Warning::from_conversion_issue(&issue);
+    let report = GrammarHealthReport::new(vec![GrammarHealthCheckFinding::from_import_warning(
+        &warning,
+    )])
+    .expect("finding is valid")
+    .with_fieldworks_project(FieldWorksProject {
+        name: Some("Project".to_string()),
+        source: Some(FieldWorksProjectSource::Argument),
+    });
+
+    assert!(matches!(
+        report.findings()[0].subjects[0].fieldworks,
+        FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::InvalidGuid,
+            ..
+        }
+    ));
+}
+
 fn grammar(xml: &str) -> Grammar {
     crate::load(xml).unwrap_or_else(|e| panic!("fixture grammar failed to load: {e}"))
 }
@@ -761,7 +834,7 @@ fn partial_ordinary_rule_reports_rule() {
     assert_eq!(findings.len(), 1);
     assert_eq!(
         findings[0].code,
-        GrammarHealthCode::InflectionalAffixWithoutTemplateSlot
+        GrammarHealthCode::PartialReasonUnspecified
     );
     assert!(findings[0].message.contains("plural"));
     assert!(matches!(
@@ -775,17 +848,14 @@ fn partial_template_rule_referenced_twice_reports_once() {
     let g = grammar(PARTIAL_TEMPLATE_RULE_XML);
     let findings = check_grammar_health(&g, None).expect("grammar-health checks");
     assert_eq!(findings.len(), 1, "referenced by two slots, reported once");
-    assert_eq!(
-        findings[0].code.wire(),
-        "hc-inflectional-affix-missing-template-slot"
-    );
+    assert_eq!(findings[0].code.wire(), "hc-partial-reason-unspecified");
     assert_eq!(
         findings[0].message,
-        "Inflectional affix 'subject' has no template slot."
+        "Affix 'subject' is marked partial in the grammar file; the reason is not recorded."
     );
     assert_eq!(
         findings[0].guidance.as_deref(),
-        Some("In Grammar > Category Edit > the category's Affix Templates, assign the affix to a template slot.")
+        Some("In Grammar > Category Edit > the category's Affix Templates, check the affix's category and template slot assignments.")
     );
 }
 
@@ -948,7 +1018,10 @@ fn assert_no_blank_or_internal_subjects(report: &GrammarHealthReport) {
         assert!(!finding.message.trim().is_empty());
         assert!(!finding.code.wire().is_empty());
         for subject in &finding.subjects {
-            assert!(!subject_kind_label(subject.kind).is_empty());
+            assert!(
+                !pg_snapshot::warning_metadata::fieldworks_subject_kind_label(subject.kind)
+                    .is_empty()
+            );
             assert!(!subject.title.trim().is_empty());
             assert!(!subject.render_location(false).trim().is_empty());
             assert!(!is_internal_subject_label(&subject.title));
@@ -1013,12 +1086,14 @@ fn an_empty_report_remains_valid() {
 
 #[test]
 fn every_code_variant_occurs_once_in_all() {
-    assert_eq!(GrammarHealthCode::ALL.len(), 5);
+    assert_eq!(GrammarHealthCode::ALL.len(), 6);
     for code in [
         GrammarHealthCode::UndeclaredSegment,
         GrammarHealthCode::DuplicateFeatureBundle,
         GrammarHealthCode::StemWithoutCategory,
         GrammarHealthCode::InflectionalAffixWithoutTemplateSlot,
+        GrammarHealthCode::UnclassifiedAffix,
+        GrammarHealthCode::PartialReasonUnspecified,
     ] {
         assert_eq!(
             GrammarHealthCode::ALL
@@ -1237,6 +1312,7 @@ fn assert_partial_subjects_match_facts(g: &Grammar) {
                 &finding.code,
                 GrammarHealthCode::StemWithoutCategory
                     | GrammarHealthCode::InflectionalAffixWithoutTemplateSlot
+                    | GrammarHealthCode::PartialReasonUnspecified
             )
         })
         .flat_map(|finding| finding.subjects.iter())
@@ -1268,7 +1344,10 @@ fn assert_partial_subjects_match_facts(g: &Grammar) {
             left.1
                 .cmp(&right.1)
                 .then_with(|| left.2.cmp(&right.2))
-                .then_with(|| subject_kind_label(left.0).cmp(subject_kind_label(right.0)))
+                .then_with(|| {
+                    pg_snapshot::warning_metadata::fieldworks_subject_kind_label(left.0)
+                        .cmp(pg_snapshot::warning_metadata::fieldworks_subject_kind_label(right.0))
+                })
         });
     };
     sort_subjects(&mut warning_subjects);

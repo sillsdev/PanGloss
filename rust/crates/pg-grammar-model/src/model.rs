@@ -1124,6 +1124,8 @@ pub enum PartialMorphemeReason {
     StemWithoutCategory,
     InflectionalAffixWithoutTemplateSlot,
     UnclassifiedAffix,
+    /// HC-XML carries only a boolean `partial` marker for morphological rules, not its cause.
+    Unspecified,
 }
 
 /// One typed member of the canonical partial-morpheme inventory.

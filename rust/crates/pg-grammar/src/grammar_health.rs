@@ -74,6 +74,7 @@ pub enum GrammarHealthCode {
     StemWithoutCategory,
     InflectionalAffixWithoutTemplateSlot,
     UnclassifiedAffix,
+    PartialReasonUnspecified,
     ImportWarning(String),
 }
 
@@ -85,6 +86,7 @@ impl GrammarHealthCode {
         Self::StemWithoutCategory,
         Self::InflectionalAffixWithoutTemplateSlot,
         Self::UnclassifiedAffix,
+        Self::PartialReasonUnspecified,
     ];
 
     /// The stable C# wire string this code shares with `GrammarHealthCodes`.
@@ -97,6 +99,7 @@ impl GrammarHealthCode {
                 "hc-inflectional-affix-missing-template-slot"
             }
             Self::UnclassifiedAffix => "hc-unclassified-affix",
+            Self::PartialReasonUnspecified => "hc-partial-reason-unspecified",
             Self::ImportWarning(code) => code,
         }
     }
@@ -111,13 +114,14 @@ impl GrammarHealthCode {
                 "Inflectional affix has no slot".to_string()
             }
             Self::UnclassifiedAffix => "Affix is unclassified".to_string(),
-            Self::ImportWarning(code) => ImportWarningCode::from_wire(code)
-                .map(|code| {
-                    pg_snapshot::import_warning_metadata(code)
-                        .group_name
-                        .to_string()
-                })
-                .unwrap_or_else(|| "Import warning".to_string()),
+            Self::PartialReasonUnspecified => "Partial reason is unknown".to_string(),
+            Self::ImportWarning(code) => {
+                let code =
+                    ImportWarningCode::from_wire(code).unwrap_or(ImportWarningCode::Unregistered);
+                pg_snapshot::import_warning_metadata(code)
+                    .group_name
+                    .to_string()
+            }
         }
     }
 }
@@ -145,6 +149,7 @@ impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
                 Self::InflectionalAffixWithoutTemplateSlot
             }
             "hc-unclassified-affix" => Self::UnclassifiedAffix,
+            "hc-partial-reason-unspecified" => Self::PartialReasonUnspecified,
             _ => Self::ImportWarning(wire),
         })
     }
@@ -301,35 +306,10 @@ impl GrammarHealthSubject {
 
 /// A FieldWorks item left unnamed there is still reported, as "Unnamed affix template" etc.
 fn unnamed_subject_title(kind: FwClass) -> String {
-    format!("Unnamed {}", subject_kind_label(kind))
-}
-
-fn subject_kind_label(kind: FwClass) -> &'static str {
-    match kind {
-        FwClass::LexEntry => "lexical entry",
-        FwClass::LexSense => "sense",
-        FwClass::MoForm => "form",
-        FwClass::MoStemMsa
-        | FwClass::MoInflAffMsa
-        | FwClass::MoDerivAffMsa
-        | FwClass::MoUnclassifiedAffixMsa => "grammatical analysis",
-        FwClass::LexEntryInflType => "entry inflection type",
-        FwClass::MoStemName => "stem name",
-        FwClass::MoInflAffixTemplate => "affix template",
-        FwClass::MoInflAffixSlot => "affix template slot",
-        FwClass::MoCompoundRule => "compound rule",
-        FwClass::MoAdhocProhib => "ad-hoc prohibition",
-        FwClass::PhPhonemeSet => "phoneme set",
-        FwClass::PhPhoneme => "phoneme",
-        FwClass::PhBdryMarker => "boundary marker",
-        FwClass::PhNaturalClass => "natural class",
-        FwClass::PhEnvironment => "phonological environment",
-        FwClass::PhRegularRule => "phonological rule",
-        FwClass::PhMetathesisRule => "metathesis rule",
-        FwClass::FsFeatureSystem => "feature system",
-        FwClass::FsComplexFeature => "complex phonological feature",
-        FwClass::Project => "project",
-    }
+    format!(
+        "Unnamed {}",
+        pg_snapshot::warning_metadata::fieldworks_subject_kind_label(kind)
+    )
 }
 
 /// One grammar-health finding. JSON uses `description` for its human-readable message.
@@ -379,12 +359,8 @@ impl serde::Serialize for GrammarHealthCheckFinding {
 
 impl GrammarHealthCheckFinding {
     pub fn from_import_warning(warning: &Warning) -> Self {
-        let import_code = ImportWarningCode::from_wire(&warning.code).unwrap_or_else(|| {
-            panic!(
-                "import warning code '{}' is missing grammar-health metadata",
-                warning.code
-            )
-        });
+        let import_code =
+            ImportWarningCode::from_wire(&warning.code).unwrap_or(ImportWarningCode::Unregistered);
         let metadata = pg_snapshot::import_warning_metadata(import_code);
         let code = GrammarHealthCode::ImportWarning(warning.code.to_owned());
         let group_name = metadata.group_name.to_string();
@@ -400,6 +376,7 @@ impl GrammarHealthCheckFinding {
                     .subjects
                     .first()
                     .and_then(|subject| subject.name.as_deref()),
+                warning.subjects.first().map(|subject| subject.class),
             ),
             subjects: warning
                 .subjects
@@ -432,7 +409,9 @@ impl GrammarHealthCheckFinding {
         let kinds = self
             .subjects
             .iter()
-            .map(|subject| subject_kind_label(subject.kind))
+            .map(|subject| {
+                pg_snapshot::warning_metadata::fieldworks_subject_kind_label(subject.kind)
+            })
             .collect::<Vec<_>>();
         let titles = self
             .subjects
@@ -751,7 +730,7 @@ fn validate_finding(
         }
         match &subject.fieldworks {
             FieldWorksLink::Available { guid, tool, url } => {
-                if crate::grammar_health_presentation::canonical_guid(guid).is_none() {
+                if pg_snapshot::canonical_guid(guid).is_none() {
                     return missing("fieldworks.guid", format!("{subject_prefix}: invalid GUID"));
                 }
                 if tool.trim().is_empty() {
@@ -1322,6 +1301,16 @@ fn partial_finding(
             format!(
                 "In {}, set the affix's Grammatical Info. to an inflectional or derivational affix.",
                 pg_snapshot::fieldworks_paths::LEXICON_EDIT
+            ),
+        ),
+        PartialMorphemeReason::Unspecified => (
+            GrammarHealthCode::PartialReasonUnspecified,
+            format!(
+                "Affix {name} is marked partial in the grammar file; the reason is not recorded."
+            ),
+            format!(
+                "In {}, check the affix's category and template slot assignments.",
+                pg_snapshot::fieldworks_paths::GRAMMAR_CATEGORY_AFFIX_TEMPLATES
             ),
         ),
     };

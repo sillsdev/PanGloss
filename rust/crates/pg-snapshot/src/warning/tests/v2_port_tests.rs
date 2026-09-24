@@ -82,7 +82,7 @@ fn warning_deduplication_compares_subject_sets_without_order() {
 }
 
 #[test]
-fn conversion_issue_carries_its_audience_and_only_canonical_guids() {
+fn conversion_issue_uses_catalog_audience_and_retains_noncanonical_guid() {
     let canonical_guid = "00000000-0000-0000-0000-000000000042";
     let issue = crate::ConversionIssue {
         code: "grammar.anything".to_string(),
@@ -108,7 +108,7 @@ fn conversion_issue_carries_its_audience_and_only_canonical_guids() {
         ..issue
     };
     let warning = Warning::from_conversion_issue(&issue);
-    assert_eq!(warning.subjects[0].guid, None);
+    assert_eq!(warning.subjects[0].guid.as_deref(), Some("env-bad"));
 }
 
 #[test]

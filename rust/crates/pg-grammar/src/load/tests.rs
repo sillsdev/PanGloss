@@ -379,6 +379,16 @@ fn partial_morpheme_facts_counts_entries_and_rules_independently() {
     assert!(facts.has_partials());
     assert!(facts.authored_ids().any(|id| id == "entry-partial"));
     assert!(facts.authored_ids().any(|id| id == "rule-partial"));
+    let entry_reason = facts.identities().find_map(|identity| match identity {
+        crate::model::PartialMorphemeIdentity::LexicalEntry { reason, .. } => Some(*reason),
+        crate::model::PartialMorphemeIdentity::MorphologicalRule { .. } => None,
+    });
+    let rule_reason = facts.identities().find_map(|identity| match identity {
+        crate::model::PartialMorphemeIdentity::MorphologicalRule { reason, .. } => Some(*reason),
+        crate::model::PartialMorphemeIdentity::LexicalEntry { .. } => None,
+    });
+    assert_eq!(format!("{entry_reason:?}"), "Some(StemWithoutCategory)");
+    assert_eq!(format!("{rule_reason:?}"), "Some(Unspecified)");
 
     let control = grammar(false, false);
     let control_facts = control

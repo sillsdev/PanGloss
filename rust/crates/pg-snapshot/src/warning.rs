@@ -19,18 +19,23 @@ pub struct Warning {
 impl Warning {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         let code = code.into();
-        let (audience, guidance) = ImportWarningCode::from_wire(&code)
-            .map(|code| {
-                let metadata = crate::import_warning_metadata(code);
-                (metadata.audience, metadata.guidance)
-            })
-            .unwrap_or((Audience::Linguist, None));
+        let registered_code = ImportWarningCode::from_wire(&code);
+        let metadata = crate::import_warning_metadata(
+            registered_code.unwrap_or(ImportWarningCode::Unregistered),
+        );
+        let message = message.into();
+        let message = if registered_code.is_none() {
+            eprintln!("unregistered import warning code '{code}'");
+            format!("Unregistered warning code '{code}': {message}")
+        } else {
+            message
+        };
         Warning {
             code,
-            message: message.into(),
+            message,
             subjects: Vec::new(),
-            guidance,
-            audience,
+            guidance: metadata.guidance,
+            audience: metadata.audience,
         }
     }
 
@@ -99,15 +104,9 @@ impl Warning {
 
     pub fn from_conversion_issue(issue: &crate::ConversionIssue) -> Self {
         let mut warning = Warning::new(issue.code.clone(), issue.message.clone());
-        if ImportWarningCode::from_wire(&issue.code).is_none() {
-            warning.audience = issue.audience;
-        }
         if let Some(source) = &issue.source {
             if let Some(class) = fw_class_from_source_kind(&source.kind) {
-                let mut subject = FwObjectRef::new(class);
-                if is_canonical_guid(&source.id) {
-                    subject = subject.guid(source.id.clone());
-                }
+                let subject = FwObjectRef::new(class).guid(source.id.clone());
                 warning = warning.with_subject(subject);
             }
         }
@@ -115,15 +114,16 @@ impl Warning {
     }
 }
 
-fn is_canonical_guid(value: &str) -> bool {
-    value.len() == 36
+pub fn canonical_guid(value: &str) -> Option<String> {
+    let well_formed = value.len() == 36
         && value.bytes().enumerate().all(|(index, byte)| {
             if matches!(index, 8 | 13 | 18 | 23) {
                 byte == b'-'
             } else {
                 byte.is_ascii_hexdigit()
             }
-        })
+        });
+    well_formed.then(|| value.to_ascii_lowercase())
 }
 
 fn same_subject_identity(left: &FwObjectRef, right: &FwObjectRef) -> bool {
@@ -209,6 +209,7 @@ import_warning_codes! {
     FwdataUnrecognizedEnumValue => "fwdata.unrecognized-enum-value",
     FwdataMetathesisApproximation => "fwdata.metathesis-approximation",
     FwdataStaleAdhocProhibition => "fwdata.stale-adhoc-prohibition",
+    Unregistered => "warning.unregistered",
     FwdataNoUsableAllomorphs => "fwdata.no-usable-allomorphs",
     FwdataUnsupportedMorphType => "fwdata.unsupported-morph-type",
     FwdataUnknownMorphTypeGuid => "fwdata.unknown-morph-type-guid",
@@ -319,9 +320,7 @@ impl FwObjectRef {
 
     pub fn guid(mut self, guid: impl Into<String>) -> Self {
         let guid = guid.into();
-        if is_canonical_guid(&guid) {
-            self.guid = Some(guid.to_ascii_lowercase());
-        }
+        self.guid = Some(canonical_guid(&guid).unwrap_or(guid));
         self
     }
 
