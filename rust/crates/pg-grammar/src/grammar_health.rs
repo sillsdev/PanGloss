@@ -41,30 +41,10 @@ use crate::model::{
     PartialMorphemeIdentity, PartialMorphemeReason, TableId,
 };
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
-use pg_snapshot::{Audience, FwClass, FwObjectRef, ImportWarningCode, Warning};
+use pg_snapshot::{DiagnosticLevel, FwClass, FwObjectRef, ImportWarningCode, Warning};
 
-/// How serious a [`GrammarHealthCheckFinding`] is. Mirrors C# `GrammarHealthSeverity`: `Error` means
-/// the engine behaves incorrectly (or refuses the word outright) whenever the offending construct
-/// is exercised; `Warning` means the construct is a genuine reliability risk whose actual impact
-/// depends on how the grammar's rules use it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GrammarHealthSeverity {
-    Warning,
-    Error,
-}
-
-impl GrammarHealthSeverity {
-    pub const fn wire(self) -> &'static str {
-        match self {
-            Self::Warning => "warning",
-            Self::Error => "error",
-        }
-    }
-}
-
-/// The stable finding codes this module reports (C# `GrammarHealthCodes`). Treat
-/// [`GrammarHealthCode::wire`], not [`GrammarHealthCheckFinding::message`], as the identifier a host
+/// The stable diagnostic codes this module reports (C# `GrammarHealthCodes`). Treat
+/// [`GrammarHealthCode::wire`], not [`GrammarHealthDiagnostic::message`], as the identifier a host
 /// filters/suppresses/tests on -- the message text is free to change. Serializes as the bare wire
 /// string.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -104,9 +84,9 @@ impl GrammarHealthCode {
         }
     }
 
-    /// Stable group label for a finding code.
+    /// Stable group label for a diagnostic code.
     pub fn group_name(&self) -> String {
-        check_finding_metadata(self).map_or_else(
+        check_diagnostic_metadata(self).map_or_else(
             || match self {
                 Self::ImportWarning(code) => {
                     let code = ImportWarningCode::from_wire_or_unregistered(code);
@@ -114,7 +94,7 @@ impl GrammarHealthCode {
                         .group_name
                         .to_string()
                 }
-                _ => unreachable!("every check code has check-finding metadata"),
+                _ => unreachable!("every check code has check-diagnostic metadata"),
             },
             |metadata| metadata.group_name.to_string(),
         )
@@ -131,12 +111,12 @@ enum CheckGuidance {
     PartialReasonUnspecified,
 }
 
-struct CheckFindingMetadata {
+struct CheckDiagnosticMetadata {
     group_name: &'static str,
     guidance: CheckGuidance,
 }
 
-fn check_finding_metadata(code: &GrammarHealthCode) -> Option<CheckFindingMetadata> {
+fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnosticMetadata> {
     let (group_name, guidance) = match code {
         GrammarHealthCode::UndeclaredSegment => (
             "Missing segment definition",
@@ -162,14 +142,14 @@ fn check_finding_metadata(code: &GrammarHealthCode) -> Option<CheckFindingMetada
         ),
         GrammarHealthCode::ImportWarning(_) => return None,
     };
-    Some(CheckFindingMetadata {
+    Some(CheckDiagnosticMetadata {
         group_name,
         guidance,
     })
 }
 
 fn check_guidance(code: &GrammarHealthCode, subjects: &[GrammarHealthSubject]) -> Option<String> {
-    let metadata = check_finding_metadata(code)?;
+    let metadata = check_diagnostic_metadata(code)?;
     use pg_snapshot::fieldworks_paths as path;
     let guidance = match metadata.guidance {
         CheckGuidance::UndeclaredSegment => {
@@ -248,7 +228,7 @@ impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum FindingOrigin {
+pub enum DiagnosticOrigin {
     Check,
     Import,
 }
@@ -324,7 +304,7 @@ impl FieldWorksLink {
     }
 }
 
-/// One structured item a grammar-health finding references. `title` is the only identity a human
+/// One structured item a grammar-health diagnostic references. `title` is the only identity a human
 /// report should display; `internal_id` is retained solely for tooling and navigation joins.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GrammarHealthSubject {
@@ -407,31 +387,29 @@ fn unnamed_subject_title(kind: FwClass) -> String {
     )
 }
 
-/// One grammar-health finding. JSON uses `description` for its human-readable message.
+/// One grammar-health diagnostic. JSON uses `description` for its human-readable message.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GrammarHealthCheckFinding {
-    pub severity: GrammarHealthSeverity,
+pub struct GrammarHealthDiagnostic {
+    pub level: DiagnosticLevel,
     pub code: GrammarHealthCode,
     pub group_name: String,
-    pub origin: FindingOrigin,
-    pub audience: Audience,
+    pub origin: DiagnosticOrigin,
     pub message: String,
     pub guidance: Option<String>,
     pub subjects: Vec<GrammarHealthSubject>,
 }
 
-impl serde::Serialize for GrammarHealthCheckFinding {
+impl serde::Serialize for GrammarHealthDiagnostic {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         #[derive(serde::Serialize)]
         struct Wire<'a> {
-            severity: GrammarHealthSeverity,
+            level: DiagnosticLevel,
             code: GrammarHealthCode,
             group_name: &'a str,
-            origin: FindingOrigin,
-            audience: Audience,
+            origin: DiagnosticOrigin,
             description: &'a str,
             guidance: &'a Option<String>,
             #[serde(borrow)]
@@ -439,11 +417,10 @@ impl serde::Serialize for GrammarHealthCheckFinding {
         }
 
         Wire {
-            severity: self.severity,
+            level: self.level,
             code: self.code.clone(),
             group_name: &self.group_name,
             origin: self.origin,
-            audience: self.audience,
             description: &self.message,
             guidance: &self.guidance,
             subjects: &self.subjects,
@@ -452,18 +429,17 @@ impl serde::Serialize for GrammarHealthCheckFinding {
     }
 }
 
-impl GrammarHealthCheckFinding {
+impl GrammarHealthDiagnostic {
     pub fn from_import_warning(warning: &Warning) -> Self {
         let import_code = ImportWarningCode::from_wire_or_unregistered(&warning.code);
         let metadata = pg_snapshot::import_warning_metadata(import_code);
         let code = GrammarHealthCode::ImportWarning(warning.code.to_owned());
         let group_name = metadata.group_name.to_string();
         Self {
-            severity: GrammarHealthSeverity::Warning,
+            level: metadata.level,
             code,
             group_name,
-            origin: FindingOrigin::Import,
-            audience: metadata.audience,
+            origin: DiagnosticOrigin::Import,
             message: warning.message.clone(),
             guidance: metadata.guidance_for_subject(
                 warning
@@ -482,18 +458,17 @@ impl GrammarHealthCheckFinding {
     }
 
     fn checked(
-        severity: GrammarHealthSeverity,
+        level: DiagnosticLevel,
         code: GrammarHealthCode,
         message: String,
         subjects: Vec<GrammarHealthSubject>,
     ) -> Self {
         Self {
-            severity,
+            level,
             group_name: code.group_name(),
             guidance: check_guidance(&code, &subjects),
             code,
-            origin: FindingOrigin::Check,
-            audience: Audience::Linguist,
+            origin: DiagnosticOrigin::Check,
             message,
             subjects,
         }
@@ -514,7 +489,7 @@ impl GrammarHealthCheckFinding {
             .collect::<Vec<_>>();
         format!(
             "{} [{}] {}: {} - {}",
-            self.severity.wire(),
+            self.level.wire(),
             self.group_name,
             kinds.join(", "),
             titles.join(", "),
@@ -533,14 +508,14 @@ pub enum GrammarHealthReportErrorCode {
     InvalidField,
     UnsupportedSchemaVersion,
     MissingSubjects,
-    InvalidFinding,
+    InvalidDiagnostic,
     Serialization,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrammarHealthReportError {
     pub code: GrammarHealthReportErrorCode,
-    pub finding_index: Option<usize>,
+    pub diagnostic_index: Option<usize>,
     pub field: Option<String>,
     pub message: String,
 }
@@ -562,7 +537,7 @@ impl std::fmt::Display for GrammarHealthReportErrorCode {
             Self::InvalidField => "invalid_field",
             Self::UnsupportedSchemaVersion => "unsupported_schema_version",
             Self::MissingSubjects => "missing_subjects",
-            Self::InvalidFinding => "invalid_finding",
+            Self::InvalidDiagnostic => "invalid_diagnostic",
             Self::Serialization => "serialization",
         };
         formatter.write_str(name)
@@ -572,25 +547,27 @@ impl std::fmt::Display for GrammarHealthReportErrorCode {
 /// The sole validated in-memory grammar-health report.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GrammarHealthReport {
-    findings: Vec<GrammarHealthCheckFinding>,
+    diagnostics: Vec<GrammarHealthDiagnostic>,
     fieldworks_project: FieldWorksProject,
 }
 
 impl GrammarHealthReport {
-    pub fn new(findings: Vec<GrammarHealthCheckFinding>) -> Result<Self, GrammarHealthReportError> {
-        for (finding_index, finding) in findings.iter().enumerate() {
-            validate_finding(finding, finding_index)?;
+    pub fn new(
+        diagnostics: Vec<GrammarHealthDiagnostic>,
+    ) -> Result<Self, GrammarHealthReportError> {
+        for (diagnostic_index, diagnostic) in diagnostics.iter().enumerate() {
+            validate_diagnostic(diagnostic, diagnostic_index)?;
         }
         Ok(Self {
-            findings,
+            diagnostics,
             fieldworks_project: FieldWorksProject::default(),
         })
     }
 
     pub fn with_fieldworks_project(mut self, fieldworks_project: FieldWorksProject) -> Self {
         let fieldworks_project = fieldworks_project.normalized();
-        for finding in &mut self.findings {
-            for subject in &mut finding.subjects {
+        for diagnostic in &mut self.diagnostics {
+            for subject in &mut diagnostic.subjects {
                 subject.fieldworks = fieldworks_link_from_identity(
                     subject.kind,
                     subject.guid.as_deref(),
@@ -602,22 +579,22 @@ impl GrammarHealthReport {
         self
     }
 
-    pub fn findings(&self) -> &[GrammarHealthCheckFinding] {
-        &self.findings
+    pub fn diagnostics(&self) -> &[GrammarHealthDiagnostic] {
+        &self.diagnostics
     }
 
     pub fn len(&self) -> usize {
-        self.findings.len()
+        self.diagnostics.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.findings.is_empty()
+        self.diagnostics.is_empty()
     }
 
     pub fn to_json(&self) -> Result<String, GrammarHealthReportError> {
         serde_json::to_string_pretty(self).map_err(|error| GrammarHealthReportError {
             code: GrammarHealthReportErrorCode::Serialization,
-            finding_index: None,
+            diagnostic_index: None,
             field: None,
             message: error.to_string(),
         })
@@ -652,24 +629,24 @@ impl GrammarHealthReport {
             ));
         }
         let fieldworks_project = required_field(object, "fieldworks_project", None)?;
-        let finding_values = required_field::<Vec<serde_json::Value>>(object, "findings", None)?;
-        let mut findings = Vec::with_capacity(finding_values.len());
-        for (finding_index, value) in finding_values.into_iter().enumerate() {
-            findings.push(decode_finding(value, finding_index)?);
+        let diagnostic_values =
+            required_field::<Vec<serde_json::Value>>(object, "diagnostics", None)?;
+        let mut diagnostics = Vec::with_capacity(diagnostic_values.len());
+        for (diagnostic_index, value) in diagnostic_values.into_iter().enumerate() {
+            diagnostics.push(decode_diagnostic(value, diagnostic_index)?);
         }
-        Self::new(findings).map(|report| report.with_fieldworks_project(fieldworks_project))
+        Self::new(diagnostics).map(|report| report.with_fieldworks_project(fieldworks_project))
     }
 
     fn summary(&self) -> Vec<GrammarHealthSummaryRow> {
         let mut rows = std::collections::BTreeMap::<String, GrammarHealthSummaryRow>::new();
-        for finding in &self.findings {
-            rows.entry(finding.code.wire().to_string())
+        for diagnostic in &self.diagnostics {
+            rows.entry(diagnostic.code.wire().to_string())
                 .and_modify(|row| row.count += 1)
                 .or_insert_with(|| GrammarHealthSummaryRow {
-                    code: finding.code.wire().to_string(),
-                    group_name: finding.group_name.clone(),
-                    severity: finding.severity,
-                    audience: finding.audience,
+                    code: diagnostic.code.wire().to_string(),
+                    group_name: diagnostic.group_name.clone(),
+                    level: diagnostic.level,
                     count: 1,
                 });
         }
@@ -681,16 +658,15 @@ impl GrammarHealthReport {
 pub struct GrammarHealthSummaryRow {
     pub code: String,
     pub group_name: String,
-    pub severity: GrammarHealthSeverity,
-    pub audience: Audience,
+    pub level: DiagnosticLevel,
     pub count: usize,
 }
 
 impl std::ops::Deref for GrammarHealthReport {
-    type Target = [GrammarHealthCheckFinding];
+    type Target = [GrammarHealthDiagnostic];
 
     fn deref(&self) -> &Self::Target {
-        self.findings()
+        self.diagnostics()
     }
 }
 
@@ -704,14 +680,14 @@ impl serde::Serialize for GrammarHealthReport {
             schema_version: u32,
             fieldworks_project: &'a FieldWorksProject,
             summary: Vec<GrammarHealthSummaryRow>,
-            findings: &'a [GrammarHealthCheckFinding],
+            diagnostics: &'a [GrammarHealthDiagnostic],
         }
 
         Wire {
             schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
             fieldworks_project: &self.fieldworks_project,
             summary: self.summary(),
-            findings: &self.findings,
+            diagnostics: &self.diagnostics,
         }
         .serialize(serializer)
     }
@@ -719,13 +695,13 @@ impl serde::Serialize for GrammarHealthReport {
 
 fn report_error(
     code: GrammarHealthReportErrorCode,
-    finding_index: Option<usize>,
+    diagnostic_index: Option<usize>,
     field: Option<&str>,
     message: String,
 ) -> GrammarHealthReportError {
     GrammarHealthReportError {
         code,
-        finding_index,
+        diagnostic_index,
         field: field.map(str::to_string),
         message,
     }
@@ -734,12 +710,12 @@ fn report_error(
 fn required_field<T: serde::de::DeserializeOwned>(
     object: &serde_json::Map<String, serde_json::Value>,
     field: &str,
-    finding_index: Option<usize>,
+    diagnostic_index: Option<usize>,
 ) -> Result<T, GrammarHealthReportError> {
     let value = object.get(field).ok_or_else(|| {
         report_error(
             GrammarHealthReportErrorCode::MissingField,
-            finding_index,
+            diagnostic_index,
             Some(field),
             format!("missing field {field}"),
         )
@@ -747,68 +723,66 @@ fn required_field<T: serde::de::DeserializeOwned>(
     serde_json::from_value(value.clone()).map_err(|error| {
         report_error(
             GrammarHealthReportErrorCode::InvalidField,
-            finding_index,
+            diagnostic_index,
             Some(field),
             error.to_string(),
         )
     })
 }
 
-fn decode_finding(
+fn decode_diagnostic(
     value: serde_json::Value,
-    finding_index: usize,
-) -> Result<GrammarHealthCheckFinding, GrammarHealthReportError> {
+    diagnostic_index: usize,
+) -> Result<GrammarHealthDiagnostic, GrammarHealthReportError> {
     let object = value.as_object().ok_or_else(|| {
         report_error(
             GrammarHealthReportErrorCode::InvalidShape,
-            Some(finding_index),
+            Some(diagnostic_index),
             None,
-            "finding must be an object".to_string(),
+            "diagnostic must be an object".to_string(),
         )
     })?;
-    let severity: GrammarHealthSeverity = required_field(object, "severity", Some(finding_index))?;
-    let code: GrammarHealthCode = required_field(object, "code", Some(finding_index))?;
-    let group_name = required_field(object, "group_name", Some(finding_index))?;
-    let origin = required_field(object, "origin", Some(finding_index))?;
-    let audience = required_field(object, "audience", Some(finding_index))?;
-    let message = required_field(object, "description", Some(finding_index))?;
-    let guidance = required_field(object, "guidance", Some(finding_index))?;
-    let subjects = required_field(object, "subjects", Some(finding_index))?;
-    Ok(GrammarHealthCheckFinding {
-        severity,
+    let level: DiagnosticLevel = required_field(object, "level", Some(diagnostic_index))?;
+    let code: GrammarHealthCode = required_field(object, "code", Some(diagnostic_index))?;
+    let group_name = required_field(object, "group_name", Some(diagnostic_index))?;
+    let origin = required_field(object, "origin", Some(diagnostic_index))?;
+    let message = required_field(object, "description", Some(diagnostic_index))?;
+    let guidance = required_field(object, "guidance", Some(diagnostic_index))?;
+    let subjects = required_field(object, "subjects", Some(diagnostic_index))?;
+    Ok(GrammarHealthDiagnostic {
+        level,
         code,
         group_name,
         origin,
-        audience,
         message,
         guidance,
         subjects,
     })
 }
 
-fn validate_finding(
-    finding: &GrammarHealthCheckFinding,
-    finding_index: usize,
+fn validate_diagnostic(
+    diagnostic: &GrammarHealthDiagnostic,
+    diagnostic_index: usize,
 ) -> Result<(), GrammarHealthReportError> {
     let prefix = format!(
-        "grammar-health finding {finding_index} ({})",
-        finding.code.wire()
+        "grammar-health diagnostic {diagnostic_index} ({})",
+        diagnostic.code.wire()
     );
     let missing = |field: &'static str, message: String| {
         Err(report_error(
-            GrammarHealthReportErrorCode::InvalidFinding,
-            Some(finding_index),
+            GrammarHealthReportErrorCode::InvalidDiagnostic,
+            Some(diagnostic_index),
             Some(field),
             message,
         ))
     };
-    if finding.message.trim().is_empty() {
+    if diagnostic.message.trim().is_empty() {
         return missing("description", format!("{prefix}: missing description"));
     }
-    if finding.group_name.trim().is_empty() {
+    if diagnostic.group_name.trim().is_empty() {
         return missing("group_name", format!("{prefix}: missing group_name"));
     }
-    for (subject_index, subject) in finding.subjects.iter().enumerate() {
+    for (subject_index, subject) in diagnostic.subjects.iter().enumerate() {
         let subject_prefix = format!("{prefix} subject {subject_index}");
         if subject.title.trim().is_empty() {
             return missing("title", format!("{subject_prefix}: missing title"));
@@ -847,14 +821,14 @@ fn validate_finding(
     Ok(())
 }
 
-/// Render complete findings as one nonblank plain-text line per finding.
+/// Render complete diagnostics as one nonblank plain-text line per diagnostic.
 ///
 /// include_guids is opt-in because the title remains the human identity in the default log.
 pub fn render_log(report: &GrammarHealthReport, include_guids: bool) -> String {
     report
-        .findings()
+        .diagnostics()
         .iter()
-        .map(|finding| finding.log_line(include_guids))
+        .map(|diagnostic| diagnostic.log_line(include_guids))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -885,24 +859,24 @@ pub fn check_grammar_health_with_project(
     grammar: &Grammar,
     fieldworks_project: FieldWorksProject,
 ) -> Result<GrammarHealthReport, crate::GrammarError> {
-    let findings = check_grammar_health_findings(grammar)?;
-    let report = GrammarHealthReport::new(findings)
+    let diagnostics = check_grammar_health_diagnostics(grammar)?;
+    let report = GrammarHealthReport::new(diagnostics)
         .map_err(|error| crate::GrammarError::Semantic(error.to_string()))?
         .with_fieldworks_project(fieldworks_project);
     Ok(report)
 }
 
-/// Runs every registered check and returns the findings without assembling a report.
-/// Callers that combine check findings with import findings can build one report after merging.
-pub fn check_grammar_health_findings(
+/// Runs every registered check and returns the diagnostics without assembling a report.
+/// Callers that combine check diagnostics with import diagnostics can build one report after merging.
+pub fn check_grammar_health_diagnostics(
     grammar: &Grammar,
-) -> Result<Vec<GrammarHealthCheckFinding>, crate::GrammarError> {
+) -> Result<Vec<GrammarHealthDiagnostic>, crate::GrammarError> {
     let partial_facts = grammar.partial_morpheme_facts()?;
-    let mut findings = Vec::new();
-    check_duplicate_feature_bundles(grammar, None, &mut findings)?;
-    check_undeclared_segments(grammar, None, &mut findings)?;
-    check_partial_morphemes(grammar, None, &partial_facts, &mut findings)?;
-    Ok(findings)
+    let mut diagnostics = Vec::new();
+    check_duplicate_feature_bundles(grammar, None, &mut diagnostics)?;
+    check_undeclared_segments(grammar, None, &mut diagnostics)?;
+    check_partial_morphemes(grammar, None, &partial_facts, &mut diagnostics)?;
+    Ok(diagnostics)
 }
 
 // --- hc-duplicate-feature-bundle -------------------------------------------------------------
@@ -911,7 +885,7 @@ pub fn check_grammar_health_findings(
 fn check_duplicate_feature_bundles(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
-    findings: &mut Vec<GrammarHealthCheckFinding>,
+    diagnostics: &mut Vec<GrammarHealthDiagnostic>,
 ) -> Result<(), crate::GrammarError> {
     if grammar.phon_features.is_empty() {
         return Ok(());
@@ -947,8 +921,8 @@ fn check_duplicate_feature_bundles(
             subjects.extend(group.iter().map(|(id, cd)| {
                 char_def_subject(grammar, fieldworks_project, table_id, *id, cd, table)
             }));
-            let finding = GrammarHealthCheckFinding::checked(
-                GrammarHealthSeverity::Warning,
+            let diagnostic = GrammarHealthDiagnostic::checked(
+                DiagnosticLevel::Warning,
                 GrammarHealthCode::DuplicateFeatureBundle,
                 format!(
                     "Phonemes {} share the same feature values.",
@@ -956,7 +930,7 @@ fn check_duplicate_feature_bundles(
                 ),
                 subjects,
             );
-            findings.push(finding);
+            diagnostics.push(diagnostic);
         }
     }
     Ok(())
@@ -1090,7 +1064,7 @@ fn morph_rule_subject(
 fn check_undeclared_segments(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
-    findings: &mut Vec<GrammarHealthCheckFinding>,
+    diagnostics: &mut Vec<GrammarHealthDiagnostic>,
 ) -> Result<(), crate::GrammarError> {
     for stratum in &grammar.strata {
         let table = grammar
@@ -1123,7 +1097,7 @@ fn check_undeclared_segments(
                     stratum.table,
                     subject,
                     undeclared,
-                    findings,
+                    diagnostics,
                 );
             }
         }
@@ -1145,7 +1119,7 @@ fn check_undeclared_segments(
                                 fieldworks_project,
                                 action,
                                 &mut owner,
-                                findings,
+                                diagnostics,
                             )?;
                         }
                     }
@@ -1158,7 +1132,7 @@ fn check_undeclared_segments(
                                 fieldworks_project,
                                 action,
                                 &mut owner,
-                                findings,
+                                diagnostics,
                             )?;
                         }
                     }
@@ -1176,7 +1150,7 @@ fn check_insert_segments(
     fieldworks_project: Option<&str>,
     action: &OutputAction,
     owner: &mut LazySubject,
-    findings: &mut Vec<GrammarHealthCheckFinding>,
+    diagnostics: &mut Vec<GrammarHealthDiagnostic>,
 ) -> Result<(), crate::GrammarError> {
     let OutputAction::InsertSegments {
         table: table_id,
@@ -1206,7 +1180,7 @@ fn check_insert_segments(
         *table_id,
         subject,
         undeclared,
-        findings,
+        diagnostics,
     );
     Ok(())
 }
@@ -1216,7 +1190,7 @@ enum SubjectOwner {
     MorphRule(MRuleId),
 }
 
-/// Builds the owner subject only when a finding needs it, so clean items cost no naming or link work.
+/// Builds the owner subject only when a diagnostic needs it, so clean items cost no naming or link work.
 struct LazySubject {
     owner: SubjectOwner,
     subject: Option<GrammarHealthSubject>,
@@ -1266,7 +1240,7 @@ fn push_undeclared_segments(
     table_id: TableId,
     owner_subject: &GrammarHealthSubject,
     count: usize,
-    findings: &mut Vec<GrammarHealthCheckFinding>,
+    diagnostics: &mut Vec<GrammarHealthDiagnostic>,
 ) {
     let kind = undeclared_segment_subject_label(owner_subject.kind);
     let description = format!(
@@ -1274,8 +1248,8 @@ fn push_undeclared_segments(
         owner_subject.title
     );
     for _ in 0..count {
-        let finding = GrammarHealthCheckFinding::checked(
-            GrammarHealthSeverity::Error,
+        let diagnostic = GrammarHealthDiagnostic::checked(
+            DiagnosticLevel::Warning,
             GrammarHealthCode::UndeclaredSegment,
             description.clone(),
             vec![
@@ -1283,7 +1257,7 @@ fn push_undeclared_segments(
                 owner_subject.clone(),
             ],
         );
-        findings.push(finding);
+        diagnostics.push(diagnostic);
     }
 }
 
@@ -1315,27 +1289,27 @@ fn check_partial_morphemes(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
     facts: &PartialMorphemeFacts,
-    findings: &mut Vec<GrammarHealthCheckFinding>,
+    diagnostics: &mut Vec<GrammarHealthDiagnostic>,
 ) -> Result<(), crate::GrammarError> {
     for identity in facts.identities() {
         match identity {
             PartialMorphemeIdentity::LexicalEntry { id, reason, .. } => {
                 let subject = partial_stem_subject(grammar, fieldworks_project, *id)?;
-                findings.push(partial_finding(*reason, subject));
+                diagnostics.push(partial_diagnostic(*reason, subject));
             }
             PartialMorphemeIdentity::MorphologicalRule { id, reason, .. } => {
                 let subject = morph_rule_subject(grammar, fieldworks_project, *id)?;
-                findings.push(partial_finding(*reason, subject));
+                diagnostics.push(partial_diagnostic(*reason, subject));
             }
         }
     }
     Ok(())
 }
 
-fn partial_finding(
+fn partial_diagnostic(
     reason: PartialMorphemeReason,
     subject: GrammarHealthSubject,
-) -> GrammarHealthCheckFinding {
+) -> GrammarHealthDiagnostic {
     let name = subject
         .subtitle
         .as_deref()
@@ -1365,7 +1339,7 @@ fn partial_finding(
             ),
         ),
     };
-    GrammarHealthCheckFinding::checked(GrammarHealthSeverity::Warning, code, message, vec![subject])
+    GrammarHealthDiagnostic::checked(DiagnosticLevel::Warning, code, message, vec![subject])
 }
 
 #[cfg(test)]

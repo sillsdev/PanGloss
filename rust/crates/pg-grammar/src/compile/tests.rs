@@ -120,19 +120,19 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
     let report = crate::grammar_health::GrammarHealthReport::new(
         warnings
             .iter()
-            .map(crate::grammar_health::GrammarHealthCheckFinding::from_import_warning)
+            .map(crate::grammar_health::GrammarHealthDiagnostic::from_import_warning)
             .collect(),
     )
     .expect("compiler warnings form a grammar-health report");
 
-    let findings = report.findings();
+    let findings = report.diagnostics();
     let msa_without_allomorphs = findings
         .iter()
         .find(|finding| finding.code.wire() == "grammar.msa.no-allomorphs")
         .expect("an MSA with no usable allomorphs reaches grammar-health");
     assert_eq!(
-        msa_without_allomorphs.audience,
-        pg_snapshot::Audience::Linguist
+        msa_without_allomorphs.level,
+        pg_snapshot::DiagnosticLevel::Warning
     );
 
     let compacted_natural_class = findings
@@ -140,8 +140,8 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
         .find(|finding| finding.code.wire() == "grammar.natclass.unreferenced-compacted")
         .expect("a compacted natural class reaches grammar-health");
     assert_eq!(
-        compacted_natural_class.audience,
-        pg_snapshot::Audience::Developer
+        compacted_natural_class.level,
+        pg_snapshot::DiagnosticLevel::Info
     );
     assert_eq!(
         compacted_natural_class.subjects[0].guid.as_deref(),
@@ -188,8 +188,8 @@ fn linguist_warnings(warnings: &[pg_snapshot::Warning]) -> Vec<&pg_snapshot::War
         .iter()
         .filter(|warning| {
             let code = pg_snapshot::ImportWarningCode::from_wire_or_unregistered(&warning.code);
-            pg_snapshot::warning_metadata::import_warning_metadata(code).audience
-                == pg_snapshot::Audience::Linguist
+            pg_snapshot::warning_metadata::import_warning_metadata(code).level
+                == pg_snapshot::DiagnosticLevel::Warning
         })
         .collect()
 }
@@ -3477,7 +3477,7 @@ fn refuse_rejects_a_fatal_imported_issue_but_measure_only_retains_it() {
         .expect("inventory measurement must preserve the fatal issue without refusing");
     assert!(warnings.iter().any(|warning| {
         warning.code == pg_snapshot::ImportWarningCode::FwdataDanglingReference.wire()
-            && warning_metadata(warning).audience == pg_snapshot::Audience::Linguist
+            && warning_metadata(warning).level == pg_snapshot::DiagnosticLevel::Warning
     }));
 
     let measured = compile_project_with(
@@ -3833,7 +3833,7 @@ fn import_warning_migration_names_the_inferred_phoneme_and_has_guidance() {
         .iter()
         .find(|warning| warning.code == "migration.inferred-segment-with-feature-rule")
         .expect("the migration difference is reported");
-    let finding = crate::grammar_health::GrammarHealthCheckFinding::from_import_warning(warning);
+    let finding = crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(warning);
 
     assert!(finding.message.contains("'q'"), "{}", finding.message);
     assert!(

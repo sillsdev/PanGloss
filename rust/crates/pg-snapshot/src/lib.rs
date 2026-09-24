@@ -78,7 +78,9 @@ pub use phonology::{
     Phoneme, PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection,
 };
 pub use project::Project;
-pub use warning::{canonical_guid, Audience, FwClass, FwObjectRef, ImportWarningCode, Warning};
+pub use warning::{
+    canonical_guid, DiagnosticLevel, FwClass, FwObjectRef, ImportWarningCode, Warning,
+};
 pub use warning_metadata::{import_warning_metadata, ImportWarningMetadata};
 
 use serde::{Deserialize, Serialize};

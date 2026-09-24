@@ -9,7 +9,7 @@ fn grammar_health_report_uses_v2_envelope() {
     assert_eq!(json["schema_version"], 2);
     assert!(json["fieldworks_project"].is_object());
     assert!(json["summary"].is_array());
-    assert!(json["findings"].is_array());
+    assert!(json["diagnostics"].is_array());
 }
 
 #[test]
@@ -37,9 +37,9 @@ fn blank_named_import_subject_still_assembles_into_a_report() {
             .guid("12345678-1234-1234-1234-123456789abc")
             .name(" "),
     );
-    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
-    assert_eq!(finding.subjects[0].title, "Unnamed affix template");
-    GrammarHealthReport::new(vec![finding])
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
+    assert_eq!(diagnostic.subjects[0].title, "Unnamed affix template");
+    GrammarHealthReport::new(vec![diagnostic])
         .expect("a blank FieldWorks name must not refuse the report");
 }
 
@@ -52,27 +52,27 @@ fn import_warning_constructor_preserves_source_identity_without_compiled_ids() {
             .name("unnamed natural class"),
     );
 
-    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
 
-    assert_eq!(finding.code.wire(), code.wire());
-    assert_eq!(finding.origin, FindingOrigin::Import);
-    assert_eq!(finding.audience, Audience::Developer);
-    assert_eq!(finding.message, "Unused natural class.");
-    assert_eq!(finding.guidance, None);
-    assert_eq!(finding.subjects[0].internal_id, None);
-    assert_eq!(finding.subjects[0].title, "unnamed natural class");
+    assert_eq!(diagnostic.code.wire(), code.wire());
+    assert_eq!(diagnostic.origin, DiagnosticOrigin::Import);
+    assert_eq!(diagnostic.level, DiagnosticLevel::Info);
+    assert_eq!(diagnostic.message, "Unused natural class.");
+    assert_eq!(diagnostic.guidance, None);
+    assert_eq!(diagnostic.subjects[0].internal_id, None);
+    assert_eq!(diagnostic.subjects[0].title, "unnamed natural class");
     assert_eq!(
-        finding.subjects[0].kind,
+        diagnostic.subjects[0].kind,
         pg_snapshot::FwClass::PhNaturalClass
     );
     assert_eq!(
-        finding.subjects[0].guid.as_deref(),
+        diagnostic.subjects[0].guid.as_deref(),
         Some("12345678-1234-1234-1234-123456789abc")
     );
 }
 
 #[test]
-fn developer_only_import_warning_keeps_developer_audience() {
+fn compaction_notice_is_an_info_diagnostic() {
     let warning = pg_snapshot::Warning::new(
         pg_snapshot::ImportWarningCode::NaturalClassUnreferencedCompacted,
         "natural class 7 unreferenced after compaction",
@@ -83,10 +83,10 @@ fn developer_only_import_warning_keeps_developer_audience() {
             .name("unnamed natural class"),
     );
 
-    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
 
-    assert_eq!(finding.audience, Audience::Developer);
-    assert_eq!(finding.subjects[0].title, "unnamed natural class");
+    assert_eq!(diagnostic.level, DiagnosticLevel::Info);
+    assert_eq!(diagnostic.subjects[0].title, "unnamed natural class");
 }
 
 #[test]
@@ -96,10 +96,12 @@ fn import_warning_uses_human_group_name_and_table_guidance() {
         "affix template has no slots with any loaded affix rule",
     );
 
-    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
 
-    assert_eq!(finding.group_name, "Empty affix template");
-    let guidance = finding.guidance.expect("import metadata supplies guidance");
+    assert_eq!(diagnostic.group_name, "Empty affix template");
+    let guidance = diagnostic
+        .guidance
+        .expect("import metadata supplies guidance");
     assert!(guidance.contains(pg_snapshot::fieldworks_paths::GRAMMAR_CATEGORY_AFFIX_TEMPLATES));
 }
 
@@ -116,7 +118,7 @@ fn linguist_warning_metadata_avoids_compiler_vocabulary() {
 
     for code in ImportWarningCode::ALL {
         let metadata = pg_snapshot::import_warning_metadata(code.clone());
-        if metadata.audience != Audience::Linguist {
+        if metadata.level != DiagnosticLevel::Warning {
             continue;
         }
         let text = format!(
@@ -145,10 +147,10 @@ fn import_warning_guidance_template_uses_its_subject_name() {
         pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::PhEnvironment).name("bad environment"),
     );
 
-    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
 
     assert_eq!(
-        finding.guidance.as_deref(),
+        diagnostic.guidance.as_deref(),
         Some("In Grammar > Environments, correct the expression for phonological environment 'bad environment'.")
     );
 }
@@ -163,8 +165,8 @@ fn import_warning_guidance_uses_subject_kind_when_name_is_missing() {
         pg_snapshot::FwClass::PhEnvironment,
     ));
 
-    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
-    let guidance = finding.guidance.expect("catalog guidance");
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
+    let guidance = diagnostic.guidance.expect("catalog guidance");
 
     assert!(guidance.contains("phonological environment"), "{guidance}");
     assert!(!guidance.contains("{subject}"), "{guidance}");
@@ -172,7 +174,7 @@ fn import_warning_guidance_uses_subject_kind_when_name_is_missing() {
 }
 
 #[test]
-fn unknown_warning_code_from_snapshot_is_unregistered_and_developer_facing() {
+fn unknown_warning_code_from_snapshot_is_unregistered_and_stays_a_warning() {
     let issue: pg_snapshot::ConversionIssue = serde_json::from_value(serde_json::json!({
         "code": "future.warning-code",
         "class": "migrationDifference",
@@ -184,12 +186,12 @@ fn unknown_warning_code_from_snapshot_is_unregistered_and_developer_facing() {
     .expect("old snapshot issue deserializes");
     let warning = pg_snapshot::Warning::from_conversion_issue(&issue);
 
-    let finding = GrammarHealthCheckFinding::from_import_warning(&warning);
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
 
-    assert_eq!(finding.code.wire(), "future.warning-code");
-    assert_eq!(finding.audience, Audience::Developer);
-    assert!(finding.message.contains("future.warning-code"));
-    assert!(finding.message.contains("future warning text"));
+    assert_eq!(diagnostic.code.wire(), "future.warning-code");
+    assert_eq!(diagnostic.level, DiagnosticLevel::Warning);
+    assert!(diagnostic.message.contains("future.warning-code"));
+    assert!(diagnostic.message.contains("future warning text"));
 }
 
 #[test]
@@ -205,17 +207,16 @@ fn invalid_source_guid_is_reported_as_invalid_not_missing() {
         message: "environment failed validation".to_string(),
     };
     let warning = pg_snapshot::Warning::from_conversion_issue(&issue);
-    let report = GrammarHealthReport::new(vec![GrammarHealthCheckFinding::from_import_warning(
-        &warning,
-    )])
-    .expect("finding is valid")
-    .with_fieldworks_project(FieldWorksProject {
-        name: Some("Project".to_string()),
-        source: Some(FieldWorksProjectSource::Argument),
-    });
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+            .expect("diagnostic is valid")
+            .with_fieldworks_project(FieldWorksProject {
+                name: Some("Project".to_string()),
+                source: Some(FieldWorksProjectSource::Argument),
+            });
 
     assert!(matches!(
-        report.findings()[0].subjects[0].fieldworks,
+        report.diagnostics()[0].subjects[0].fieldworks,
         FieldWorksLink::Unavailable {
             reason: FieldWorksUnavailableReason::InvalidGuid,
             ..
@@ -227,8 +228,8 @@ fn grammar(xml: &str) -> Grammar {
     crate::load(xml).unwrap_or_else(|e| panic!("fixture grammar failed to load: {e}"))
 }
 
-fn codes(findings: &[GrammarHealthCheckFinding]) -> Vec<GrammarHealthCode> {
-    findings.iter().map(|f| f.code.clone()).collect()
+fn codes(diagnostics: &[GrammarHealthDiagnostic]) -> Vec<GrammarHealthCode> {
+    diagnostics.iter().map(|f| f.code.clone()).collect()
 }
 
 #[test]
@@ -261,19 +262,17 @@ fn every_import_warning_code_has_exactly_one_metadata_entry() {
             "{code:?} duplicates a registered import warning code"
         );
         wires.push(code.wire());
-        match metadata.audience {
-            Audience::Linguist => {
-                let guidance = metadata
-                    .guidance
-                    .expect("every linguist import code has FieldWorks guidance");
-                assert!(
-                    guidance.contains(" > "),
-                    "{code:?} guidance must use a FieldWorks path: {guidance}"
-                );
-            }
-            Audience::Developer => {
-                assert!(metadata.guidance.is_none(), "{code:?} is internal");
-            }
+        if metadata.level == DiagnosticLevel::Warning {
+            assert!(
+                metadata.guidance.is_some(),
+                "{code:?}: every warning has FieldWorks guidance"
+            );
+        }
+        if let Some(guidance) = metadata.guidance {
+            assert!(
+                guidance.contains(" > "),
+                "{code:?} guidance must use a FieldWorks path: {guidance}"
+            );
         }
     }
     assert_eq!(wires.len(), ImportWarningCode::ALL.len());
@@ -418,19 +417,19 @@ const TWO_SEGMENTS_SHARE_BUNDLE_XML: &str = r#"<?xml version="1.0" encoding="utf
 #[test]
 fn two_segments_share_feature_bundle_reports_both_by_name() {
     let g = grammar(TWO_SEGMENTS_SHARE_BUNDLE_XML);
-    let findings = check_grammar_health(&g, None).expect("grammar-health checks");
-    assert_eq!(findings.len(), 1);
-    let finding = &findings[0];
-    assert_eq!(finding.code, GrammarHealthCode::DuplicateFeatureBundle);
-    assert_eq!(finding.severity, GrammarHealthSeverity::Warning);
-    assert!(finding.message.contains("Phonemes a, b"));
-    assert!(finding.message.contains("share the same feature values"));
+    let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
+    assert_eq!(diagnostics.len(), 1);
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic.code, GrammarHealthCode::DuplicateFeatureBundle);
+    assert_eq!(diagnostic.level, DiagnosticLevel::Warning);
+    assert!(diagnostic.message.contains("Phonemes a, b"));
+    assert!(diagnostic.message.contains("share the same feature values"));
     assert_eq!(
-        finding.guidance.as_deref(),
+        diagnostic.guidance.as_deref(),
         Some("In Grammar > Phonemes, assign distinct feature values to these phonemes.")
     );
     assert!(matches!(
-        &finding.subjects[0],
+        &diagnostic.subjects[0],
         GrammarHealthSubject { kind: FwClass::PhPhonemeSet, title, .. } if title == "table1"
     ));
 }
@@ -462,7 +461,7 @@ const DISTINCT_BUNDLES_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 "#;
 
 #[test]
-fn every_segment_has_distinct_feature_bundle_no_findings() {
+fn every_segment_has_distinct_feature_bundle_no_diagnostics() {
     let g = grammar(DISTINCT_BUNDLES_XML);
     assert!(check_grammar_health(&g, None)
         .expect("grammar-health checks")
@@ -526,7 +525,7 @@ const CLEAN_LEXICON_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 "#;
 
 #[test]
-fn clean_grammar_no_findings_at_all() {
+fn clean_grammar_no_diagnostics_at_all() {
     let g = grammar(CLEAN_LEXICON_XML);
     assert!(check_grammar_health(&g, None)
         .expect("grammar-health checks")
@@ -541,19 +540,19 @@ fn undeclared_shape() -> Shape {
 }
 
 #[test]
-fn lexical_entry_uses_segment_no_table_declares_reports_finding() {
+fn lexical_entry_uses_segment_no_table_declares_reports_diagnostic() {
     let mut g = grammar(CLEAN_LEXICON_XML);
     g.entries[0].allomorphs[0].shape.shape = undeclared_shape();
 
-    let findings = check_grammar_health(&g, None).expect("grammar-health checks");
-    assert_eq!(findings.len(), 1);
-    assert_eq!(findings[0].code, GrammarHealthCode::UndeclaredSegment);
-    assert_eq!(findings[0].severity, GrammarHealthSeverity::Error);
-    assert!(findings[0].message.contains("Lexical entry 'ab'"));
-    assert!(findings[0]
+    let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, GrammarHealthCode::UndeclaredSegment);
+    assert_eq!(diagnostics[0].level, DiagnosticLevel::Warning);
+    assert!(diagnostics[0].message.contains("Lexical entry 'ab'"));
+    assert!(diagnostics[0]
         .message
         .contains("missing from the phoneme inventory"));
-    let guidance = findings[0]
+    let guidance = diagnostics[0]
         .guidance
         .as_deref()
         .expect("FieldWorks guidance");
@@ -620,19 +619,19 @@ fn insert_segments_shape_mut(g: &mut Grammar) -> &mut Shape {
 }
 
 #[test]
-fn affix_process_rule_insert_segments_undeclared_reports_finding() {
+fn affix_process_rule_insert_segments_undeclared_reports_diagnostic() {
     let mut g = grammar(AFFIX_INSERT_SEGMENTS_XML);
     *insert_segments_shape_mut(&mut g) = undeclared_shape();
 
-    let findings = check_grammar_health(&g, None).expect("grammar-health checks");
-    assert_eq!(findings.len(), 1);
-    assert_eq!(findings[0].code, GrammarHealthCode::UndeclaredSegment);
+    let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, GrammarHealthCode::UndeclaredSegment);
     assert_eq!(
-        findings[0].message,
+        diagnostics[0].message,
         "Inflectional affix 'plural' uses a phoneme that is missing from the phoneme inventory."
     );
     assert_eq!(
-        findings[0].guidance.as_deref(),
+        diagnostics[0].guidance.as_deref(),
         Some("In Lexicon > Lexicon Edit, correct the affix form or add the missing phoneme in Grammar > Phonemes.")
     );
 }
@@ -650,13 +649,13 @@ fn affix_description_uses_the_source_msa_class() {
         };
         g.morphemes[def.morpheme.0 as usize].source_msa_class = Some(class);
 
-        let findings = check_grammar_health(&g, None).expect("grammar-health checks");
-        assert_eq!(findings.len(), 1);
+        let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
+        assert_eq!(diagnostics.len(), 1);
         assert_eq!(
-            findings[0].message,
+            diagnostics[0].message,
             format!("{label} 'plural' uses a phoneme that is missing from the phoneme inventory.")
         );
-        assert_eq!(findings[0].subjects[1].kind, class);
+        assert_eq!(diagnostics[0].subjects[1].kind, class);
     }
 }
 
@@ -702,7 +701,7 @@ const COMPOUNDING_INSERT_SEGMENTS_XML: &str = r#"<?xml version="1.0" encoding="u
 "#;
 
 #[test]
-fn compounding_rule_insert_segments_undeclared_reports_finding() {
+fn compounding_rule_insert_segments_undeclared_reports_diagnostic() {
     let mut g = grammar(COMPOUNDING_INSERT_SEGMENTS_XML);
     let MorphRuleDef::Compounding(def) = &mut g.mrules[0] else {
         panic!("expected a Compounding rule");
@@ -716,15 +715,15 @@ fn compounding_rule_insert_segments_undeclared_reports_finding() {
     }
     assert!(replaced, "fixture must contain an InsertSegments action");
 
-    let findings = check_grammar_health(&g, None).expect("grammar-health checks");
-    assert_eq!(findings.len(), 1);
-    assert_eq!(findings[0].code, GrammarHealthCode::UndeclaredSegment);
+    let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, GrammarHealthCode::UndeclaredSegment);
     assert_eq!(
-        findings[0].message,
+        diagnostics[0].message,
         "Compound rule 'compound1' uses a phoneme that is missing from the phoneme inventory."
     );
     assert_eq!(
-        findings[0].guidance.as_deref(),
+        diagnostics[0].guidance.as_deref(),
         Some("In Grammar > Compound Rules, correct the rule or add the missing phoneme in Grammar > Phonemes.")
     );
 }
@@ -760,18 +759,18 @@ const PARTIAL_LEX_ENTRY_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 #[test]
 fn partial_lexical_entry_reports_actionable_warning() {
     let g = grammar(PARTIAL_LEX_ENTRY_XML);
-    let findings = check_grammar_health(&g, None).expect("grammar-health checks");
-    assert_eq!(findings.len(), 1);
-    let finding = &findings[0];
-    assert_eq!(finding.code.wire(), "hc-stem-no-grammatical-category");
-    assert_eq!(finding.severity, GrammarHealthSeverity::Warning);
-    assert!(finding.message.contains("'a'"));
-    assert!(finding.message.contains("no grammatical category"));
-    let guidance = finding.guidance.as_deref().expect("FieldWorks guidance");
+    let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
+    assert_eq!(diagnostics.len(), 1);
+    let diagnostic = &diagnostics[0];
+    assert_eq!(diagnostic.code.wire(), "hc-stem-no-grammatical-category");
+    assert_eq!(diagnostic.level, DiagnosticLevel::Warning);
+    assert!(diagnostic.message.contains("'a'"));
+    assert!(diagnostic.message.contains("no grammatical category"));
+    let guidance = diagnostic.guidance.as_deref().expect("FieldWorks guidance");
     assert!(guidance.contains("Lexicon > Lexicon Edit"));
     assert!(guidance.contains("Category"));
     assert!(matches!(
-        &finding.subjects[..],
+        &diagnostic.subjects[..],
         [GrammarHealthSubject { kind: FwClass::LexEntry, title, .. }] if title == "a"
     ));
 }
@@ -875,15 +874,15 @@ fn partial_ordinary_rule_reports_rule() {
 </HermitCrabInput>
 "#;
     let g = grammar(XML);
-    let findings = check_grammar_health(&g, None).expect("grammar-health checks");
-    assert_eq!(findings.len(), 1);
+    let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
+    assert_eq!(diagnostics.len(), 1);
     assert_eq!(
-        findings[0].code,
+        diagnostics[0].code,
         GrammarHealthCode::PartialReasonUnspecified
     );
-    assert!(findings[0].message.contains("plural"));
+    assert!(diagnostics[0].message.contains("plural"));
     assert!(matches!(
-        &findings[0].subjects[..],
+        &diagnostics[0].subjects[..],
         [GrammarHealthSubject { kind: FwClass::MoInflAffMsa, title, .. }] if title == "plural"
     ));
 }
@@ -891,15 +890,19 @@ fn partial_ordinary_rule_reports_rule() {
 #[test]
 fn partial_template_rule_referenced_twice_reports_once() {
     let g = grammar(PARTIAL_TEMPLATE_RULE_XML);
-    let findings = check_grammar_health(&g, None).expect("grammar-health checks");
-    assert_eq!(findings.len(), 1, "referenced by two slots, reported once");
-    assert_eq!(findings[0].code.wire(), "hc-partial-reason-unspecified");
+    let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
     assert_eq!(
-        findings[0].message,
+        diagnostics.len(),
+        1,
+        "referenced by two slots, reported once"
+    );
+    assert_eq!(diagnostics[0].code.wire(), "hc-partial-reason-unspecified");
+    assert_eq!(
+        diagnostics[0].message,
         "Affix 'subject' is marked partial in the grammar file; the reason is not recorded."
     );
     assert_eq!(
-        findings[0].guidance.as_deref(),
+        diagnostics[0].guidance.as_deref(),
         Some("In Grammar > Category Edit > the category's Affix Templates, check the affix's category and template slot assignments.")
     );
 }
@@ -961,7 +964,7 @@ fn report_round_trips_through_the_single_decode_path() {
     let report = check_grammar_health(&g, None).expect("grammar-health checks");
     let json = report.to_json().expect("report must serialize");
     assert_eq!(
-        report.findings()[0].code,
+        report.diagnostics()[0].code,
         GrammarHealthCode::StemWithoutCategory
     );
     let round_tripped = GrammarHealthReport::from_json(&json).expect("report must decode");
@@ -1031,19 +1034,19 @@ const FIELDWORKS_GUID_PARTIAL_XML: &str = r#"<HermitCrabInput><Language>
 fn fieldworks_guid_partial_entry_uses_its_readable_name() {
     let mut g = grammar(FIELDWORKS_GUID_PARTIAL_XML);
     g.entries[0].source_guid = Some("f4e4b416-5a15-41e3-9039-c3cca7093153".to_string());
-    let findings =
+    let diagnostics =
         check_grammar_health(&g, Some("FieldWorks Demo")).expect("grammar-health checks");
-    assert_eq!(findings.len(), 1);
-    assert!(findings[0].message.contains("'a' (walk)"));
-    assert!(findings[0].message.contains("no grammatical category"));
-    let guidance = findings[0]
+    assert_eq!(diagnostics.len(), 1);
+    assert!(diagnostics[0].message.contains("'a' (walk)"));
+    assert!(diagnostics[0].message.contains("no grammatical category"));
+    let guidance = diagnostics[0]
         .guidance
         .as_deref()
         .expect("FieldWorks guidance");
     assert!(guidance.contains("Lexicon > Lexicon Edit"));
     assert!(guidance.contains("Category"));
     assert!(matches!(
-        &findings[0].subjects[..],
+        &diagnostics[0].subjects[..],
         [GrammarHealthSubject {
             kind: FwClass::LexEntry,
             title,
@@ -1054,17 +1057,17 @@ fn fieldworks_guid_partial_entry_uses_its_readable_name() {
             && guid == "f4e4b416-5a15-41e3-9039-c3cca7093153"
             && tool == "lexiconEdit"
     ));
-    assert!(!findings[0]
+    assert!(!diagnostics[0]
         .message
         .contains("f4e4b416-5a15-41e3-9039-c3cca7093153"));
 }
 
 fn assert_no_blank_or_internal_subjects(report: &GrammarHealthReport) {
-    let findings = report.findings();
-    for finding in findings {
-        assert!(!finding.message.trim().is_empty());
-        assert!(!finding.code.wire().is_empty());
-        for subject in &finding.subjects {
+    let diagnostics = report.diagnostics();
+    for diagnostic in diagnostics {
+        assert!(!diagnostic.message.trim().is_empty());
+        assert!(!diagnostic.code.wire().is_empty());
+        for subject in &diagnostic.subjects {
             assert!(
                 !pg_snapshot::warning_metadata::fieldworks_subject_kind_label(subject.kind)
                     .is_empty()
@@ -1073,11 +1076,11 @@ fn assert_no_blank_or_internal_subjects(report: &GrammarHealthReport) {
             assert!(!subject.render_location(false).trim().is_empty());
             assert!(!is_internal_subject_label(&subject.title));
         }
-        let json = serde_json::to_value(finding).expect("finding serializes");
-        assert!(json["severity"]
+        let json = serde_json::to_value(diagnostic).expect("diagnostic serializes");
+        assert!(json["level"]
             .as_str()
             .is_some_and(|value| !value.is_empty()));
-        assert_eq!(json["group_name"], finding.code.group_name());
+        assert_eq!(json["group_name"], diagnostic.code.group_name());
         assert!(json["description"]
             .as_str()
             .is_some_and(|value| !value.is_empty()));
@@ -1097,21 +1100,20 @@ fn assert_no_blank_or_internal_subjects(report: &GrammarHealthReport) {
 }
 
 #[test]
-fn report_rejects_an_incomplete_finding_instead_of_dropping_it() {
-    let incomplete = GrammarHealthCheckFinding {
-        severity: GrammarHealthSeverity::Warning,
+fn report_rejects_an_incomplete_diagnostic_instead_of_dropping_it() {
+    let incomplete = GrammarHealthDiagnostic {
+        level: DiagnosticLevel::Warning,
         code: GrammarHealthCode::StemWithoutCategory,
         group_name: "Stem has no category".to_string(),
-        origin: FindingOrigin::Check,
-        audience: Audience::Linguist,
+        origin: DiagnosticOrigin::Check,
         message: " ".to_string(),
         guidance: None,
         subjects: Vec::new(),
     };
     let error = GrammarHealthReport::new(vec![incomplete])
-        .expect_err("incomplete findings must fail report construction");
-    assert_eq!(error.code, GrammarHealthReportErrorCode::InvalidFinding);
-    assert_eq!(error.finding_index, Some(0));
+        .expect_err("incomplete diagnostics must fail report construction");
+    assert_eq!(error.code, GrammarHealthReportErrorCode::InvalidDiagnostic);
+    assert_eq!(error.diagnostic_index, Some(0));
     assert_eq!(error.field.as_deref(), Some("description"));
 }
 
@@ -1128,7 +1130,7 @@ fn an_empty_report_remains_valid() {
     let json = render_json(&report).expect("empty report serializes");
     let report: serde_json::Value = serde_json::from_str(&json).expect("versioned report");
     assert_eq!(report["schema_version"], GRAMMAR_HEALTH_SCHEMA_VERSION);
-    assert_eq!(report["findings"], serde_json::json!([]));
+    assert_eq!(report["diagnostics"], serde_json::json!([]));
 }
 
 #[test]
@@ -1175,7 +1177,7 @@ fn authored_names_resembling_ids_are_accepted_as_titles() {
 fn direct_report_decode_rejects_an_unsupported_schema_version() {
     let json = serde_json::json!({
         "schema_version": 99,
-        "findings": [],
+        "diagnostics": [],
     });
     let error = GrammarHealthReport::from_json(&json.to_string())
         .expect_err("unsupported schema versions must be rejected");
@@ -1190,14 +1192,14 @@ fn direct_report_decode_rejects_an_unsupported_schema_version() {
 fn direct_report_decode_rejects_both_fieldworks_link_states() {
     let grammar = grammar(FIELDWORKS_GUID_PARTIAL_XML);
     let source_report = check_grammar_health(&grammar, None).expect("grammar-health checks");
-    let finding = source_report
-        .findings()
+    let diagnostic = source_report
+        .diagnostics()
         .iter()
         .next()
-        .expect("fixture has a finding");
-    let report = GrammarHealthReport::new(vec![finding.clone()]).expect("report validates");
+        .expect("fixture has a diagnostic");
+    let report = GrammarHealthReport::new(vec![diagnostic.clone()]).expect("report validates");
     let mut json = serde_json::to_value(&report).expect("report serializes");
-    json["findings"][0]["subjects"][0]["fieldworks"] = serde_json::json!({
+    json["diagnostics"][0]["subjects"][0]["fieldworks"] = serde_json::json!({
         "status": "available",
         "guid": "invalid",
         "tool": "lexiconEdit",
@@ -1210,16 +1212,16 @@ fn direct_report_decode_rejects_both_fieldworks_link_states() {
 
 #[test]
 fn canonical_report_round_trips_without_changing_consumer_values() {
-    let findings = check_grammar_health(&grammar(FIELDWORKS_GUID_PARTIAL_XML), None)
+    let diagnostics = check_grammar_health(&grammar(FIELDWORKS_GUID_PARTIAL_XML), None)
         .expect("grammar-health checks");
-    let original = findings;
+    let original = diagnostics;
     let json = original.to_json().expect("canonical report serializes");
     let decoded = GrammarHealthReport::from_json(&json).expect("canonical report decodes");
     assert_eq!(decoded, original);
 }
 
 #[test]
-fn every_existing_grammar_fixture_has_complete_human_findings() {
+fn every_existing_grammar_fixture_has_complete_human_diagnostics() {
     let mut compounding_grammar = grammar(COMPOUNDING_INSERT_SEGMENTS_XML);
     let MorphRuleDef::Compounding(def) = &mut compounding_grammar.mrules[0] else {
         panic!("expected a Compounding rule");
@@ -1229,13 +1231,14 @@ fn every_existing_grammar_fixture_has_complete_human_findings() {
             shape.shape = undeclared_shape();
         }
     }
-    let compounding_findings = check_grammar_health(&compounding_grammar, Some("FieldWorks Demo"))
-        .expect("grammar-health checks");
-    let compounding_subject = compounding_findings
+    let compounding_diagnostics =
+        check_grammar_health(&compounding_grammar, Some("FieldWorks Demo"))
+            .expect("grammar-health checks");
+    let compounding_subject = compounding_diagnostics
         .iter()
-        .flat_map(|finding| &finding.subjects)
+        .flat_map(|diagnostic| &diagnostic.subjects)
         .find(|subject| subject.kind == FwClass::MoCompoundRule)
-        .expect("compounding finding names its rule");
+        .expect("compounding diagnostic names its rule");
     assert!(matches!(
         compounding_subject.fieldworks,
         FieldWorksLink::Unavailable {
@@ -1255,8 +1258,8 @@ fn every_existing_grammar_fixture_has_complete_human_findings() {
         PARTIAL_MORPHEME_AND_EXISTING_PROBLEM_XML,
         FIELDWORKS_GUID_PARTIAL_XML,
     ] {
-        let findings = check_grammar_health(&grammar(xml), None).expect("grammar-health checks");
-        assert_no_blank_or_internal_subjects(&findings);
+        let diagnostics = check_grammar_health(&grammar(xml), None).expect("grammar-health checks");
+        assert_no_blank_or_internal_subjects(&diagnostics);
     }
 }
 
@@ -1290,7 +1293,7 @@ fn log_and_json_render_the_same_guid_fixture_with_explicit_link_state() {
     assert!(log_with_guids.contains("a (walk) [guid f4e4b416-5a15-41e3-9039-c3cca7093153]"));
     assert!(!log_with_guids.contains("entry0"));
 
-    let json = render_json(&with_project).expect("structured findings serialize");
+    let json = render_json(&with_project).expect("structured diagnostics serialize");
     assert!(json.contains("\"schema_version\": 2"));
     assert!(json.contains("\"group_name\": \"Stem has no category\""));
     assert!(json.contains("silfw://localhost/link?database%3DFieldWorks+Demo%26tool%3DlexiconEdit"));
@@ -1305,17 +1308,17 @@ fn log_and_json_render_the_same_guid_fixture_with_explicit_link_state() {
             guid: Some(_),
         }
     ));
-    let no_project_json = render_json(&without_project).expect("structured findings serialize");
+    let no_project_json = render_json(&without_project).expect("structured diagnostics serialize");
     assert!(no_project_json.contains("missing_project"));
     assert!(no_project_json.contains("f4e4b416-5a15-41e3-9039-c3cca7093153"));
     assert!(!no_project_json.contains("silfw://localhost/link?database="));
 
-    let no_guid_findings = check_grammar_health(
+    let no_guid_diagnostics = check_grammar_health(
         &grammar(TWO_SEGMENTS_SHARE_BUNDLE_XML),
         Some("FieldWorks Demo"),
     )
     .expect("grammar-health checks");
-    let no_guid_log = render_log(&no_guid_findings, true);
+    let no_guid_log = render_log(&no_guid_diagnostics, true);
     assert!(no_guid_log.contains("source item has no FieldWorks GUID"));
     assert!(no_guid_log.contains("[guid unavailable]"));
 }
@@ -1349,18 +1352,18 @@ fn assert_partial_subjects_match_facts(g: &Grammar) {
         facts.has_partials(),
         "fixture must declare a partial morpheme"
     );
-    let findings = check_grammar_health(g, None).expect("grammar-health checks");
-    let mut warning_subjects = findings
+    let diagnostics = check_grammar_health(g, None).expect("grammar-health checks");
+    let mut warning_subjects = diagnostics
         .iter()
-        .filter(|finding| {
+        .filter(|diagnostic| {
             matches!(
-                &finding.code,
+                &diagnostic.code,
                 GrammarHealthCode::StemWithoutCategory
                     | GrammarHealthCode::InflectionalAffixWithoutTemplateSlot
                     | GrammarHealthCode::PartialReasonUnspecified
             )
         })
-        .flat_map(|finding| finding.subjects.iter())
+        .flat_map(|diagnostic| diagnostic.subjects.iter())
         .map(|subject| {
             (
                 subject.kind,
@@ -1656,18 +1659,17 @@ fn phoneme_source_identity_keeps_imported_guid_for_navigation() {
 
 #[test]
 fn report_constructor_owns_validation_and_renderers_accept_only_reports() {
-    let finding = GrammarHealthCheckFinding {
-        severity: GrammarHealthSeverity::Warning,
+    let diagnostic = GrammarHealthDiagnostic {
+        level: DiagnosticLevel::Warning,
         code: GrammarHealthCode::StemWithoutCategory,
         group_name: "Stem has no category".to_string(),
-        origin: FindingOrigin::Check,
-        audience: Audience::Linguist,
+        origin: DiagnosticOrigin::Check,
         message: "partial".to_string(),
         guidance: None,
         subjects: vec![],
     };
-    let report =
-        GrammarHealthReport::new(vec![finding]).expect("project findings may have no subjects");
+    let report = GrammarHealthReport::new(vec![diagnostic])
+        .expect("project diagnostics may have no subjects");
     assert_eq!(report.len(), 1);
 }
 
@@ -1676,7 +1678,7 @@ fn authored_xml_guid_shape_does_not_create_a_fieldworks_link() {
     let report = check_grammar_health(&grammar(FIELDWORKS_GUID_PARTIAL_XML), Some("Demo"))
         .expect("grammar-health checks");
     assert!(matches!(
-        &report.findings()[0].subjects[0].fieldworks,
+        &report.diagnostics()[0].subjects[0].fieldworks,
         FieldWorksLink::Unavailable {
             reason: FieldWorksUnavailableReason::GuidNotRecorded,
             ..

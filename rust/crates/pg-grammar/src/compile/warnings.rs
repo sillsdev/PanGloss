@@ -91,6 +91,28 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                         "Grammatical analysis for '{name}' could not be imported; check its part of speech and features."
                     );
                 }
+                ImportWarningCode::MruleUnreachableCompacted => {
+                    let kind = match source.kind {
+                        pg_snapshot::FwClass::MoForm => "Affix allomorph",
+                        _ => "Inflectional affix",
+                    };
+                    warning.message = format!(
+                        "{kind} '{name}' is never used: no enabled affix template includes it."
+                    );
+                }
+                ImportWarningCode::CooccurrenceTargetUnreachable => {
+                    warning.message = format!(
+                        "Ad hoc rule for '{name}' is never used: an affix it refers to is never used."
+                    );
+                }
+                ImportWarningCode::NaturalClassUnreferencedCompacted => {
+                    warning.message =
+                        format!("Natural class '{name}' is not used by any rule or environment.");
+                }
+                ImportWarningCode::AllomorphMorphTypeUnsupportedAsRuleForm => {
+                    warning.message =
+                        format!("'{name}' is loaded through its separate parts, not as one form.");
+                }
                 ImportWarningCode::PhonemeNoRepresentation => {
                     warning.message = format!("Phoneme '{name}' has no grapheme representation.");
                 }
@@ -144,11 +166,6 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                 ImportWarningCode::StemNameBuildFailed => {
                     warning.message = format!(
                         "Stem name '{name}' could not be loaded; check its category and regions."
-                    );
-                }
-                ImportWarningCode::AllomorphMorphTypeUnsupportedAsRuleForm => {
-                    warning.message = format!(
-                        "Allomorph '{name}' has a morph type that cannot be used by this affix analysis."
                     );
                 }
                 ImportWarningCode::AllomorphMorphTypeUnsupported => {

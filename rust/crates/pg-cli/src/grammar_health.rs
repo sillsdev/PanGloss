@@ -1,6 +1,6 @@
 //! `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`: run
 //! the ported `hc-*` HermitCrab grammar-authoring checks (`pg_grammar::grammar_health`) and
-//! print/serialize the findings.
+//! print/serialize the diagnostics.
 //!
 //! Deliberately a SEPARATE command from `fst-health`, not a section added to it: the two answer
 //! different questions (grammar authoring correctness vs. FST compilation/production readiness),
@@ -13,12 +13,13 @@ use std::fs;
 use std::path::Path;
 
 use pg_grammar::grammar_health::{
-    check_grammar_health_findings, render_json, render_log, FieldWorksProject,
-    FieldWorksProjectSource, GrammarHealthCheckFinding, GrammarHealthReport, GrammarHealthSeverity,
+    check_grammar_health_diagnostics, render_json, render_log, FieldWorksProject,
+    FieldWorksProjectSource, GrammarHealthDiagnostic, GrammarHealthReport,
 };
+use pg_snapshot::DiagnosticLevel;
 
 /// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`;
-/// `<out.json>` omitted prints the versioned report to stdout instead of a file. Findings are
+/// `<out.json>` omitted prints the versioned report to stdout instead of a file. Diagnostics are
 /// also logged one per line on stderr.
 pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
     let mut positionals = Vec::new();
@@ -71,18 +72,18 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
 
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     let project = fieldworks_project_for_path(grammar_path, fieldworks_project);
-    let mut findings = check_grammar_health_findings(&grammar)
+    let mut diagnostics = check_grammar_health_diagnostics(&grammar)
         .map_err(|error| format!("run grammar health checks: {error}"))?;
-    findings.extend(
+    diagnostics.extend(
         warnings
             .iter()
-            .map(GrammarHealthCheckFinding::from_import_warning),
+            .map(GrammarHealthDiagnostic::from_import_warning),
     );
-    let report = GrammarHealthReport::new(findings)
+    let report = GrammarHealthReport::new(diagnostics)
         .map_err(|error| format!("assemble grammar health report: {error}"))?
         .with_fieldworks_project(project);
     let json =
-        render_json(&report).map_err(|e| format!("serialize grammar health findings: {e}"))?;
+        render_json(&report).map_err(|e| format!("serialize grammar health diagnostics: {e}"))?;
 
     match out_path {
         Some(path) => {
@@ -96,9 +97,9 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
         eprintln!("{log}");
     }
     eprintln!(
-        "grammar-health complete: {} finding(s) ({})",
+        "grammar-health complete: {} diagnostic(s) ({})",
         report.len(),
-        render_severity_counts(report.findings()),
+        render_level_counts(report.diagnostics()),
     );
     Ok(())
 }
@@ -127,14 +128,14 @@ fn fieldworks_project_for_path(
     }
 }
 
-/// The `N error(s), M warning(s)` fragment of `run_grammar_health`'s completion message.
-fn render_severity_counts(findings: &[GrammarHealthCheckFinding]) -> String {
-    let errors = findings
+/// The `N warning(s), M info` fragment of `run_grammar_health`'s completion message.
+fn render_level_counts(diagnostics: &[GrammarHealthDiagnostic]) -> String {
+    let warnings = diagnostics
         .iter()
-        .filter(|f| f.severity == GrammarHealthSeverity::Error)
+        .filter(|d| d.level == DiagnosticLevel::Warning)
         .count();
-    let warnings = findings.len() - errors;
-    format!("{errors} error(s), {warnings} warning(s)")
+    let info = diagnostics.len() - warnings;
+    format!("{warnings} warning(s), {info} info")
 }
 
 #[cfg(test)]

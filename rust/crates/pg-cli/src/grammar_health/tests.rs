@@ -2,7 +2,7 @@ use super::*;
 use pg_grammar::grammar_health::check_grammar_health;
 use pg_grammar::model::Grammar;
 
-/// Same clean, zero-findings shape `fst_health.rs`'s own fixture uses.
+/// Same clean, zero-diagnostics shape `fst_health.rs`'s own fixture uses.
 const CLEAN_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
@@ -67,21 +67,21 @@ fn clean_grammar_serializes_to_an_empty_versioned_report() {
     let g = grammar(CLEAN_GRAMMAR_XML);
     let report = check_grammar_health(&g, None).expect("clean grammar checks");
     assert!(report.is_empty());
-    let json = render_json(&report).expect("empty findings serialize");
+    let json = render_json(&report).expect("empty diagnostics serialize");
     let report_value: serde_json::Value = serde_json::from_str(&json).expect("versioned report");
     assert_eq!(report_value["schema_version"], 2);
-    assert!(report_value["findings"].is_array());
-    assert_eq!(render_severity_counts(&report), "0 error(s), 0 warning(s)");
+    assert!(report_value["diagnostics"].is_array());
+    assert_eq!(render_level_counts(&report), "0 warning(s), 0 info");
 }
 
 #[test]
 fn json_is_versioned_by_default() {
     let g = grammar(CLEAN_GRAMMAR_XML);
     let report = check_grammar_health(&g, None).expect("clean grammar checks");
-    let json = render_json(&report).expect("structured findings serialize");
+    let json = render_json(&report).expect("structured diagnostics serialize");
     let value: serde_json::Value = serde_json::from_str(&json).expect("structured JSON");
     assert_eq!(value["schema_version"], 2);
-    assert!(value["findings"].is_array());
+    assert!(value["diagnostics"].is_array());
 }
 
 #[test]
@@ -102,8 +102,8 @@ fn command_emits_versioned_json_by_default() {
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
             .expect("structured JSON");
     assert_eq!(report["schema_version"], 2);
-    assert!(report["findings"].is_array());
-    assert_eq!(report["findings"].as_array().unwrap().len(), 1);
+    assert!(report["diagnostics"].is_array());
+    assert_eq!(report["diagnostics"].as_array().unwrap().len(), 1);
 
     let _ = fs::remove_file(grammar_path);
     let _ = fs::remove_file(output_path);
@@ -139,14 +139,14 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
     assert_eq!(report["schema_version"], 2);
     assert_eq!(report["fieldworks_project"]["name"], "fixture");
     assert_eq!(report["fieldworks_project"]["source"], "fwdata_path");
-    let warning = report["findings"]
+    let warning = report["diagnostics"]
         .as_array()
-        .expect("findings array")
+        .expect("diagnostics array")
         .iter()
-        .find(|finding| finding["code"] == "fwdata.unknown-morph-type-guid")
-        .expect("unknown morph type import finding");
+        .find(|diagnostic| diagnostic["code"] == "fwdata.unknown-morph-type-guid")
+        .expect("unknown morph type import diagnostic");
     assert_eq!(warning["origin"], "import");
-    assert_eq!(warning["audience"], "linguist");
+    assert_eq!(warning["level"], "warning");
     let description = warning["description"]
         .as_str()
         .expect("warning description");
@@ -187,11 +187,11 @@ fn partial_entry_grammar_reports_one_warning_naming_its_code() {
     let g = grammar(PARTIAL_ENTRY_GRAMMAR_XML);
     let report = check_grammar_health(&g, None).expect("partial grammar checks");
     assert_eq!(report.len(), 1);
-    let json = render_json(&report).expect("findings serialize");
+    let json = render_json(&report).expect("diagnostics serialize");
     assert!(json.contains("hc-stem-no-grammatical-category"));
     assert_eq!(
-        render_severity_counts(report.findings()),
-        "0 error(s), 1 warning(s)"
+        render_level_counts(report.diagnostics()),
+        "1 warning(s), 0 info"
     );
 }
 

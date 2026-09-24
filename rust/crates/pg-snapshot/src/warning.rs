@@ -248,17 +248,20 @@ impl<'de> serde::Deserialize<'de> for ImportWarningCode {
     }
 }
 
-/// Who can act on a warning.
+/// `Warning` asks for a FieldWorks change; `Info` reports something left out with nothing to fix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Audience {
-    Linguist,
-    Developer,
+pub enum DiagnosticLevel {
+    Warning,
+    Info,
 }
 
-impl Default for Audience {
-    fn default() -> Self {
-        Self::Linguist
+impl DiagnosticLevel {
+    pub const fn wire(self) -> &'static str {
+        match self {
+            Self::Warning => "warning",
+            Self::Info => "info",
+        }
     }
 }
 
