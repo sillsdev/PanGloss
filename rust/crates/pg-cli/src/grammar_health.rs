@@ -10,9 +10,11 @@
 //! lossless plain-text log.
 
 use std::fs;
+use std::path::Path;
 
 use pg_grammar::grammar_health::{
-    check_grammar_health, render_json, render_log, GrammarHealthCheckFinding, GrammarHealthSeverity,
+    check_grammar_health_with_project, render_json, render_log, FieldWorksProject,
+    FieldWorksProjectSource, GrammarHealthCheckFinding, GrammarHealthReport, GrammarHealthSeverity,
 };
 
 /// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]`;
@@ -68,10 +70,18 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
     };
 
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
-    crate::print_grammar_warnings(&warnings);
-
-    let report = check_grammar_health(&grammar, fieldworks_project)
+    let project = fieldworks_project_for_path(grammar_path, fieldworks_project);
+    let checked_report = check_grammar_health_with_project(&grammar, project.clone())
         .map_err(|error| format!("run grammar health checks: {error}"))?;
+    let mut findings = checked_report.findings().to_vec();
+    findings.extend(
+        warnings
+            .iter()
+            .map(GrammarHealthCheckFinding::from_import_warning),
+    );
+    let report = GrammarHealthReport::new(findings)
+        .map_err(|error| format!("assemble grammar health report: {error}"))?
+        .with_fieldworks_project(project);
     let json =
         render_json(&report).map_err(|e| format!("serialize grammar health findings: {e}"))?;
 
@@ -92,6 +102,35 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
         render_severity_counts(report.findings()),
     );
     Ok(())
+}
+
+fn fieldworks_project_for_path(
+    grammar_path: &str,
+    fieldworks_project: Option<&str>,
+) -> FieldWorksProject {
+    if let Some(name) = fieldworks_project
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        return FieldWorksProject {
+            name: Some(name.to_string()),
+            source: Some(FieldWorksProjectSource::Argument),
+        };
+    }
+    let path = Path::new(grammar_path);
+    let is_fwdata = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("fwdata"));
+    let name = is_fwdata
+        .then(|| path.file_stem().and_then(|stem| stem.to_str()))
+        .flatten()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    FieldWorksProject {
+        name: name.map(str::to_string),
+        source: name.map(|_| FieldWorksProjectSource::FwdataPath),
+    }
 }
 
 /// The `N error(s), M warning(s)` fragment of `run_grammar_health`'s completion message.
