@@ -234,7 +234,7 @@ fn build_endo(
             roles::OUTPUT,
         );
         let bits = ctx.pos.bits_single(p);
-        ctx.record_attachment_quietly(
+        ctx.record_attachment(
             attachment,
             bits.is_some(),
             issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
@@ -319,7 +319,7 @@ fn build_exo(
             roles::OUTPUT,
         );
         let bits = ctx.pos.bits_single(p);
-        ctx.record_attachment_quietly(
+        ctx.record_attachment(
             attachment,
             bits.is_some(),
             issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,
@@ -430,7 +430,7 @@ fn side_required_fs(
             role.to_string(),
         );
         let resolved = ctx.pos.bits_single(p);
-        ctx.record_attachment_quietly(
+        ctx.record_attachment(
             attachment,
             resolved.is_some(),
             issue_codes::COMPOUND_SIDE_POS_UNRESOLVED,

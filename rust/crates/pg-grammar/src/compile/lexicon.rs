@@ -380,9 +380,9 @@ fn build_stem_entry(
         }
     }
     if allomorphs.is_empty() {
-        let entry_name = super::best_ws(&entry.citation_form, ctx.default_vernacular_ws.as_deref())
+        let entry_name = super::entry_headword(entry, ctx.default_vernacular_ws.as_deref())
             .unwrap_or("unnamed lexical entry");
-        ctx.reject_quietly_with_source(
+        ctx.reject_with_source(
             msa_key,
             issue_codes::MSA_NO_ALLOMORPHS,
             IssueClass::UnrepresentableForHc,
@@ -425,7 +425,7 @@ fn build_root_allomorph(allo: &Allomorph, ctx: &Ctx) -> Result<RootAllomorphDef,
     let form = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref()).unwrap_or("");
     let form = super::format_form(form);
     let shape = crate::segment::segment_with_patterns(ctx.table, natural_class_defs(ctx), &form)
-        .map_err(|e| format!("cannot segment {form:?}: {e}"))?;
+        .map_err(|e| e.to_string())?;
     if shape
         .interior()
         .all(|(_, k, _, _)| k == pg_shape::NodeKind::Boundary)
@@ -723,12 +723,10 @@ fn build_variant_stem_entry(
         }
     }
     if allomorphs.is_empty() {
-        let variant_name = super::best_ws(
-            &variant_entry.citation_form,
-            ctx.default_vernacular_ws.as_deref(),
-        )
-        .unwrap_or("unnamed variant entry");
-        ctx.reject_quietly_with_source(
+        let variant_name =
+            super::entry_headword(variant_entry, ctx.default_vernacular_ws.as_deref())
+                .unwrap_or("unnamed variant entry");
+        ctx.reject_with_source(
             variant_key,
             issue_codes::MSA_NO_ALLOMORPHS,
             IssueClass::UnrepresentableForHc,

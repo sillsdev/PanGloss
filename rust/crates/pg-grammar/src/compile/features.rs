@@ -270,7 +270,6 @@ fn push_complex(
 pub(crate) fn build_phon_features(
     snapshot: &Snapshot,
     recorder: &mut SelectionRecorder,
-    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> Result<PhonFeatureSystem, GrammarError> {
     let fs = &snapshot.feature_systems.phonological;
     for cf in &fs.complex_features {
@@ -286,7 +285,6 @@ pub(crate) fn build_phon_features(
             super::inventory::reject(
                 recorder,
                 snapshot,
-                warnings,
                 key,
                 issue_codes::PHON_COMPLEX_FEATURE_UNSUPPORTED,
                 IssueClass::UnrepresentableForHc,
@@ -388,7 +386,6 @@ pub(crate) fn build_stem_names(
     pos: &PosTable,
     fs_interner: &mut Interner<FeatureStruct>,
     recorder: &mut SelectionRecorder,
-    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> (Vec<StemNameDef>, HashMap<String, StemNameId>) {
     let mut defs = Vec::new();
     let mut by_guid = HashMap::new();
@@ -403,7 +400,6 @@ pub(crate) fn build_stem_names(
         defs: &mut Vec<StemNameDef>,
         by_guid: &mut HashMap<String, StemNameId>,
         recorder: &mut SelectionRecorder,
-        warnings: &mut Vec<pg_snapshot::Warning>,
     ) {
         for p in items {
             for sn in &p.stem_names {
@@ -412,7 +408,7 @@ pub(crate) fn build_stem_names(
                 let regions: Vec<_> = sn.regions.iter().filter(|r| !r.values.is_empty()).collect();
                 if regions.is_empty() {
                     recorder.selected(key.clone());
-                    super::inventory::reject_quietly(
+                    super::inventory::reject(
                         recorder,
                         snapshot,
                         key,
@@ -433,7 +429,6 @@ pub(crate) fn build_stem_names(
                             super::inventory::reject(
                                 recorder,
                                 snapshot,
-                                warnings,
                                 key.clone(),
                                 issue_codes::STEM_NAME_BUILD_FAILED,
                                 IssueClass::UnrepresentableForHc,
@@ -464,7 +459,6 @@ pub(crate) fn build_stem_names(
                 defs,
                 by_guid,
                 recorder,
-                warnings,
             );
         }
     }
@@ -477,7 +471,6 @@ pub(crate) fn build_stem_names(
         &mut defs,
         &mut by_guid,
         recorder,
-        warnings,
     );
     (defs, by_guid)
 }

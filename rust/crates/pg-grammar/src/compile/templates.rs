@@ -111,7 +111,7 @@ fn build_template(
                     tmpl.guid
                 ),
             );
-            ctx.reject_quietly(
+            ctx.reject(
                 attachment,
                 issue_codes::TEMPLATE_SLOT_UNRESOLVED,
                 IssueClass::InvalidSource,
@@ -124,7 +124,7 @@ fn build_template(
         let mut rules = acc.slot_rules.get(slot_guid).cloned().unwrap_or_default();
         if rules.is_empty() {
             // No loaded affix at all references this slot — HCLoader drops it entirely.
-            ctx.reject_quietly(
+            ctx.reject(
                 slot_key,
                 issue_codes::TEMPLATE_SLOT_NO_RULES,
                 IssueClass::UnrepresentableForHc,
@@ -133,7 +133,7 @@ fn build_template(
                     affix_slot.name
                 ),
             );
-            ctx.reject_quietly_with_source(
+            ctx.reject_with_source(
                 attachment,
                 issue_codes::TEMPLATE_SLOT_NO_RULES,
                 IssueClass::UnrepresentableForHc,
@@ -191,7 +191,7 @@ fn build_template(
     }
 
     if slot_defs.is_empty() {
-        ctx.reject_quietly(
+        ctx.reject(
             template_key,
             issue_codes::TEMPLATE_NO_SLOTS,
             IssueClass::UnrepresentableForHc,
@@ -375,8 +375,7 @@ fn build_null_affix_rule(
 }
 
 fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
-    let shape = crate::segment::segment(ctx.table, text)
-        .map_err(|e| format!("cannot segment {text:?}: {e}"))?;
+    let shape = crate::segment::segment(ctx.table, text).map_err(|e| e.to_string())?;
     Ok(OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {

@@ -36,7 +36,6 @@ pub(crate) fn build_raw(
     snapshot: &Snapshot,
     phon: &PhonFeatureSystem,
     recorder: &mut SelectionRecorder,
-    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> Result<RawCharDefBuild, GrammarError> {
     let default_ws = snapshot
         .project
@@ -58,7 +57,6 @@ pub(crate) fn build_raw(
             inventory::reject(
                 recorder,
                 snapshot,
-                warnings,
                 key,
                 issue_codes::PHONEME_NO_REPRESENTATION,
                 IssueClass::InvalidSource,
@@ -75,7 +73,6 @@ pub(crate) fn build_raw(
             inventory::reject(
                 recorder,
                 snapshot,
-                warnings,
                 key,
                 issue_codes::PHONEME_NFD_COLLISION,
                 IssueClass::AmbiguousSource,
@@ -86,7 +83,7 @@ pub(crate) fn build_raw(
             );
             continue;
         }
-        let feature_values = phoneme_feature_values(ph, phon, recorder, snapshot, warnings);
+        let feature_values = phoneme_feature_values(ph, phon, recorder);
         for n in &norm {
             seen_nfd.insert(n.clone());
         }
@@ -109,7 +106,7 @@ pub(crate) fn build_raw(
         if reps.is_empty() {
             // HCLoader silently omits a boundary marker with no representation, not even a warning.
             recorder.selected(key.clone());
-            inventory::reject_quietly(
+            inventory::reject(
                 recorder,
                 snapshot,
                 key,
@@ -125,7 +122,6 @@ pub(crate) fn build_raw(
             inventory::reject(
                 recorder,
                 snapshot,
-                warnings,
                 key,
                 issue_codes::BOUNDARY_NFD_COLLISION,
                 IssueClass::AmbiguousSource,
@@ -161,7 +157,6 @@ pub(crate) fn build_raw(
         "__null__",
         &["^0", "*0", "&0", "\u{2205}"],
         recorder,
-        warnings,
     );
     let null_bdry = CharDefId(null_idx as u32);
     push_synthetic_boundary(
@@ -171,7 +166,6 @@ pub(crate) fn build_raw(
         "__dot__",
         &["."],
         recorder,
-        warnings,
     );
 
     Ok(RawCharDefBuild {
@@ -189,7 +183,6 @@ pub(crate) fn finalize(
     raw: RawCharDefBuild,
     phon: &PhonFeatureSystem,
     recorder: &mut SelectionRecorder,
-    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> Result<CharDefBuild, GrammarError> {
     let RawCharDefBuild {
         raw_defs,
@@ -214,7 +207,6 @@ pub(crate) fn finalize(
             inventory::reject(
                 recorder,
                 snapshot,
-                warnings,
                 morph_bdry_key,
                 issue_codes::BOUNDARY_MORPH_MARKER_UNRESOLVED,
                 IssueClass::InvalidSource,
@@ -241,7 +233,6 @@ fn push_synthetic_boundary(
     xml_id: &str,
     reps: &[&str],
     recorder: &mut SelectionRecorder,
-    warnings: &mut Vec<pg_snapshot::Warning>,
 ) {
     let key = InventoryKey::object(InventoryKind::BoundaryMarker, xml_id.to_string());
     recorder.synthesized(key.clone());
@@ -258,7 +249,6 @@ fn push_synthetic_boundary(
         inventory::reject(
             recorder,
             snapshot,
-            warnings,
             key,
             issue_codes::BOUNDARY_NFD_COLLISION,
             IssueClass::AmbiguousSource,
@@ -295,8 +285,6 @@ fn phoneme_feature_values(
     ph: &Phoneme,
     phon: &PhonFeatureSystem,
     recorder: &mut SelectionRecorder,
-    snapshot: &Snapshot,
-    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> Vec<RawFeatureValue> {
     let Some(fs) = &ph.features else {
         return Vec::new();
@@ -306,8 +294,6 @@ fn phoneme_feature_values(
         let Some(flat) = phon.flat_index(&v.feature) else {
             inventory::note(
                 recorder,
-                snapshot,
-                warnings,
                 issue_codes::PHONEME_FEATURE_UNRESOLVED,
                 IssueClass::InvalidSource,
                 SourceRef {
@@ -326,8 +312,6 @@ fn phoneme_feature_values(
                 if phon.symbol_index(flat, value).is_none() {
                     inventory::note(
                         recorder,
-                        snapshot,
-                        warnings,
                         issue_codes::PHONEME_FEATURE_UNRESOLVED,
                         IssueClass::InvalidSource,
                         SourceRef {
@@ -349,8 +333,6 @@ fn phoneme_feature_values(
             pg_snapshot::feature::FeatureValueKind::Complex { .. } => {
                 inventory::note(
                     recorder,
-                    snapshot,
-                    warnings,
                     issue_codes::PHONEME_COMPLEX_FEATURE_UNSUPPORTED,
                     IssueClass::UnrepresentableForHc,
                     SourceRef {

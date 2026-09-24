@@ -432,8 +432,8 @@ fn name_for_source(snapshot: &Snapshot, source: &pg_snapshot::SourceRef) -> Opti
             .iter()
             .find(|entry| entry.guid == source.id)
             .and_then(|entry| {
-                super::best_ws(
-                    &entry.citation_form,
+                super::entry_headword(
+                    entry,
                     snapshot
                         .project
                         .vernacular_writing_systems
@@ -552,8 +552,8 @@ fn name_for_source(snapshot: &Snapshot, source: &pg_snapshot::SourceRef) -> Opti
                     .iter()
                     .find(|msa| msa.guid() == source.id && msa.fw_class() == source.kind)
                     .and_then(|_| {
-                        super::best_ws(
-                            &entry.citation_form,
+                        super::entry_headword(
+                            entry,
                             snapshot
                                 .project
                                 .vernacular_writing_systems
@@ -705,8 +705,8 @@ fn adhoc_prohibition_name(snapshot: &Snapshot, guid: &str) -> Option<String> {
             .any(|allomorph| allomorph.guid == primary)
             || entry.msas.iter().any(|msa| msa.guid() == primary);
         refers_to_primary.then(|| {
-            super::best_ws(
-                &entry.citation_form,
+            super::entry_headword(
+                entry,
                 snapshot
                     .project
                     .vernacular_writing_systems

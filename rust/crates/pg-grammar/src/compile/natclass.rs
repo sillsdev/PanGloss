@@ -38,7 +38,6 @@ pub(crate) fn build(
     phoneme_of: &HashMap<String, CharDefId>,
     recorder: &mut SelectionRecorder,
     lineage: &mut Lineage,
-    warnings: &mut Vec<pg_snapshot::Warning>,
 ) -> NatClassBuild {
     let mut defs = Vec::new();
     let mut by_guid = HashMap::new();
@@ -64,7 +63,6 @@ pub(crate) fn build(
                             inventory::reject(
                                 recorder,
                                 snapshot,
-                                warnings,
                                 key.clone(),
                                 issue_codes::NATCLASS_SEGMENTS_MEMBER_UNRESOLVED,
                                 IssueClass::InvalidSource,
@@ -103,9 +101,7 @@ pub(crate) fn build(
                 let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
                 recorder.considered(key.clone());
                 recorder.selected(key.clone());
-                let pairs = feature_constraint_pairs(
-                    features, phon, recorder, snapshot, warnings, guid, name,
-                );
+                let pairs = feature_constraint_pairs(features, phon, recorder, guid, name);
                 let id = NatClassId(defs.len() as u32);
                 by_guid.insert(guid.clone(), id);
                 by_name.entry(name.clone()).or_insert(id);
@@ -157,8 +153,6 @@ fn feature_constraint_pairs(
     fs: &pg_snapshot::feature::FeatureStructure,
     phon: &PhonFeatureSystem,
     recorder: &mut SelectionRecorder,
-    snapshot: &Snapshot,
-    warnings: &mut Vec<pg_snapshot::Warning>,
     nc_guid: &str,
     nc_name: &str,
 ) -> Vec<(FlatIndex, SymbolBits)> {
@@ -167,8 +161,6 @@ fn feature_constraint_pairs(
         let Some(flat) = phon.flat_index(&v.feature) else {
             inventory::note(
                 recorder,
-                snapshot,
-                warnings,
                 issue_codes::NATCLASS_FEATURE_CONSTRAINT_UNRESOLVED,
                 IssueClass::InvalidSource,
                 SourceRef {
@@ -187,8 +179,6 @@ fn feature_constraint_pairs(
                 let Some(idx) = phon.symbol_index(flat, value) else {
                     inventory::note(
                         recorder,
-                        snapshot,
-                        warnings,
                         issue_codes::NATCLASS_FEATURE_CONSTRAINT_UNRESOLVED,
                         IssueClass::InvalidSource,
                         SourceRef {
@@ -207,8 +197,6 @@ fn feature_constraint_pairs(
             pg_snapshot::feature::FeatureValueKind::Complex { .. } => {
                 inventory::note(
                     recorder,
-                    snapshot,
-                    warnings,
                     issue_codes::NATCLASS_COMPLEX_FEATURE_UNSUPPORTED,
                     IssueClass::UnrepresentableForHc,
                     SourceRef {

@@ -160,11 +160,10 @@ pub(crate) fn finalize(
     }
 }
 
-/// Records `key` rejected and emits the SAME warning a caller would otherwise have pushed alone, so converting a warn-only site to also reject never changes warning prose or counts. For the phases that run before `Ctx` exists (`Ctx::reject` covers everything after).
+/// Records `key` rejected; its issue becomes the report's warning. For the phases that run before `Ctx` exists (`Ctx::reject` covers everything after).
 pub(crate) fn reject(
     recorder: &mut SelectionRecorder,
     snapshot: &Snapshot,
-    warnings: &mut Vec<pg_snapshot::Warning>,
     key: InventoryKey,
     code: ImportWarningCode,
     class: IssueClass,
@@ -179,37 +178,12 @@ pub(crate) fn reject(
         fatal: false,
         message: msg,
     };
-    warnings.push(super::warnings::from_issue(snapshot, &issue));
     recorder.rejected(key, issue);
-}
-
-/// As [`reject`], but pushes no warning — for a site that was already silent about dropping it.
-pub(crate) fn reject_quietly(
-    recorder: &mut SelectionRecorder,
-    snapshot: &Snapshot,
-    key: InventoryKey,
-    code: ImportWarningCode,
-    class: IssueClass,
-    msg: impl Into<String>,
-) {
-    let source = super::warnings::source_for_key(snapshot, &key);
-    recorder.rejected(
-        key,
-        ConversionIssue {
-            code,
-            class,
-            source,
-            fatal: false,
-            message: msg.into(),
-        },
-    );
 }
 
 /// Records a warning about an object or value that remains represented in the grammar.
 pub(crate) fn note(
     recorder: &mut SelectionRecorder,
-    snapshot: &Snapshot,
-    warnings: &mut Vec<pg_snapshot::Warning>,
     code: ImportWarningCode,
     class: IssueClass,
     source: SourceRef,
@@ -222,7 +196,6 @@ pub(crate) fn note(
         fatal: false,
         message: msg.into(),
     };
-    warnings.push(super::warnings::from_issue(snapshot, &issue));
     recorder.noted(issue);
 }
 

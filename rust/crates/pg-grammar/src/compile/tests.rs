@@ -158,7 +158,7 @@ fn compile_recording_ok(
     pg_snapshot::ConversionInventory,
     Vec<pg_snapshot::ConversionIssue>,
 ) {
-    let (grammar, recorder, _substrate, substrate_issues, compile_warnings) =
+    let (grammar, recorder, _substrate, substrate_issues) =
         compile_project_recording(snapshot, SubstratePolicy::default()).expect("must compile");
     recorder
         .check_invariants()
@@ -177,10 +177,35 @@ fn compile_recording_ok(
         });
     }
     let mut warnings = super::warnings::from_issues(snapshot, &all_issues);
+    warnings.extend(super::warnings::from_issues(snapshot, &issues));
     warnings.extend(super::warnings::from_issues(snapshot, &substrate_issues));
-    warnings.extend(compile_warnings);
     let warnings = super::warnings::deduplicate(warnings);
     (grammar, warnings, inventory, issues)
+}
+
+fn linguist_warnings(warnings: &[pg_snapshot::Warning]) -> Vec<&pg_snapshot::Warning> {
+    warnings
+        .iter()
+        .filter(|warning| {
+            let code = pg_snapshot::ImportWarningCode::from_wire_or_unregistered(&warning.code);
+            pg_snapshot::warning_metadata::import_warning_metadata(code).audience
+                == pg_snapshot::Audience::Linguist
+        })
+        .collect()
+}
+
+#[test]
+fn entry_headword_falls_back_to_the_lexeme_form_like_fieldworks() {
+    let (snapshot, _f) = fixture();
+    let mut entry = snapshot.lexicon.entries[0].clone();
+    let lexeme_form = entry.allomorphs.last().unwrap().forms[0].form.clone();
+    entry.citation_form = vec![ws("sen", " ")];
+    assert_eq!(
+        super::entry_headword(&entry, None),
+        Some(lexeme_form.as_str())
+    );
+    entry.citation_form = vec![ws("sen", "cited")];
+    assert_eq!(super::entry_headword(&entry, None), Some("cited"));
 }
 
 #[test]
@@ -855,7 +880,7 @@ fn stem_msa_without_a_part_of_speech_is_partial() {
 }
 
 #[test]
-fn empty_template_slot_is_recorded_without_a_linguist_warning() {
+fn empty_template_slot_reaches_one_linguist_warning() {
     let (mut snapshot, _f) = fixture();
     match &mut snapshot.lexicon.entries[1].msas[0] {
         Msa::Inflectional { slots, .. } => slots.clear(),
@@ -872,8 +897,8 @@ fn empty_template_slot_is_recorded_without_a_linguist_warning() {
         .collect();
     assert_eq!(
         slot_warnings.len(),
-        0,
-        "quietly dropped template slots are inventory issues, not linguist warnings"
+        1,
+        "the slot and its template attachment collapse to one linguist warning"
     );
     let slot_issues: Vec<_> = output
         .issues
@@ -1623,7 +1648,7 @@ fn unreachable_affix_before_live_rule_is_compacted_without_a_linguist_warning() 
 
     let (grammar, warnings, _inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
-        warnings.is_empty(),
+        linguist_warnings(&warnings).is_empty(),
         "internal compaction facts stay out of linguist output"
     );
     assert_eq!(
@@ -2275,16 +2300,26 @@ fn a_disabled_compound_rule_is_considered_but_not_selected_with_no_issue() {
 }
 
 #[test]
-fn an_unresolved_environment_guid_on_a_root_allomorph_is_a_quiet_attachment_rejection() {
+fn an_unresolved_environment_guid_on_a_root_allomorph_names_its_allomorph() {
     let (mut snapshot, _f) = fixture();
     snapshot.lexicon.entries[0].allomorphs[0]
         .environments
         .push("dangling-env-guid".to_string());
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(
-        warnings.is_empty(),
-        "an unresolved environment guid is silently dropped, never warned: {warnings:?}"
+    let environment_warnings: Vec<_> = warnings
+        .iter()
+        .filter(|w| w.code == super::issue_codes::ENVIRONMENT_UNRESOLVED.wire())
+        .collect();
+    assert_eq!(environment_warnings.len(), 1, "{warnings:?}");
+    assert_eq!(
+        environment_warnings[0]
+            .subjects
+            .iter()
+            .map(|s| (s.class, s.guid.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![(pg_snapshot::FwClass::MoForm, Some("allo-stem"))],
+        "the linguist is pointed at the allomorph holding the dangling reference"
     );
     let attachment = InventoryKey::attachment(
         InventoryKind::Environment,
@@ -2494,9 +2529,9 @@ fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
         .any(|i| i.code == super::issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED));
 }
 
-/// A bare `Circumfix`/`DiscontigPhrase`-typed allomorph must be selected then quietly rejected, not left dangling.
+/// A bare `Circumfix`/`DiscontigPhrase`-typed allomorph must be selected then rejected, not left dangling.
 #[test]
-fn circumfix_typed_allomorph_outside_a_cross_product_is_selected_before_quiet_rejection() {
+fn circumfix_typed_allomorph_outside_a_cross_product_is_selected_before_rejection() {
     let (mut snapshot, f) = fixture();
     snapshot.lexicon.entries.push(LexEntry {
         guid: "entry-bare-circumfix".to_string(),
@@ -2516,7 +2551,10 @@ fn circumfix_typed_allomorph_outside_a_cross_product_is_selected_before_quiet_re
     });
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.is_empty(), "this rejection is quiet: {warnings:?}");
+    assert!(
+        linguist_warnings(&warnings).is_empty(),
+        "a circumfix whole form is developer-only: {warnings:?}"
+    );
 
     let key = InventoryKey::object(InventoryKind::Allomorph, "allo-bare-circumfix".to_string());
     assert!(
@@ -2619,7 +2657,7 @@ fn template_only_mrule_orphaned_by_no_template_is_revoked_unreachable_after_comp
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
-        warnings.is_empty(),
+        linguist_warnings(&warnings).is_empty(),
         "compaction revocation is silent: {warnings:?}"
     );
 
@@ -2861,7 +2899,7 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
-        warnings.is_empty(),
+        linguist_warnings(&warnings).is_empty(),
         "compaction revocation is silent: {warnings:?}"
     );
 
@@ -2943,7 +2981,7 @@ fn morpheme_coocurrence_rule_targeting_a_compacted_away_morpheme_is_revoked_but_
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
-        warnings.is_empty(),
+        linguist_warnings(&warnings).is_empty(),
         "compaction revocation is silent: {warnings:?}"
     );
 
@@ -3109,7 +3147,7 @@ fn allomorph_cooccurrence_rule_whose_owner_is_compacted_away_is_revoked() {
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
-        warnings.is_empty(),
+        linguist_warnings(&warnings).is_empty(),
         "compaction revocation is silent: {warnings:?}"
     );
 
@@ -3172,7 +3210,7 @@ fn allomorph_cooccurrence_rule_whose_only_target_is_compacted_away_is_revoked() 
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
-        warnings.is_empty(),
+        linguist_warnings(&warnings).is_empty(),
         "developer compaction issues are typed: {warnings:?}"
     );
 
@@ -3278,7 +3316,7 @@ fn owner_with_two_cooccurrence_rules_revokes_only_the_one_whose_target_is_compac
 
     let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(
-        warnings.is_empty(),
+        linguist_warnings(&warnings).is_empty(),
         "developer compaction issues are typed: {warnings:?}"
     );
 
@@ -3394,7 +3432,12 @@ fn every_compile_stage_warning_becomes_a_non_fatal_conversion_issue() {
     );
 
     let out = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
-    assert_eq!(out.issues.len(), warnings.len());
+    assert_eq!(
+        out.issues.len(),
+        warnings.len(),
+        "issues {:?} warnings {warnings:?}",
+        out.issues
+    );
     for issue in &out.issues {
         assert!(
             !issue.fatal,
@@ -3860,7 +3903,7 @@ fn empty_stem_bucket_is_reported_with_a_linguist_warning() {
 }
 
 #[test]
-fn empty_affix_form_is_recorded_without_a_linguist_warning() {
+fn empty_affix_form_reaches_a_linguist_warning() {
     let (mut snapshot, _) = fixture();
     snapshot.lexicon.entries[1].allomorphs[0].forms.clear();
 
@@ -3869,7 +3912,7 @@ fn empty_affix_form_is_recorded_without_a_linguist_warning() {
     assert!(output
         .warnings
         .iter()
-        .all(|warning| warning.code != super::issue_codes::ALLOMORPH_NOT_RULE_FORM.wire()));
+        .any(|warning| warning.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM.wire()));
     assert!(output
         .issues
         .iter()

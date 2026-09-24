@@ -23,12 +23,16 @@ pub(crate) fn resolve_environment_defs<'a>(
         ctx.authored(attachment.clone());
         ctx.considered(attachment.clone());
         let Some(env) = ctx.env_by_guid.get(env_guid) else {
-            // Silently skipped today (no warning), so recording must not add one either.
+            // HCLoader skips it silently; the report names the allomorph that holds the dangling reference.
             ctx.selected(attachment.clone());
-            ctx.reject_quietly(
+            ctx.reject_with_source(
                 attachment,
                 issue_codes::ENVIRONMENT_UNRESOLVED,
                 IssueClass::InvalidSource,
+                Some(SourceRef {
+                    kind: pg_snapshot::FwClass::MoForm,
+                    id: allo_guid.to_string(),
+                }),
                 format!("environment {env_guid:?} does not resolve"),
             );
             continue;
@@ -59,7 +63,7 @@ pub(crate) fn resolve_environment_defs<'a>(
                     source.clone(),
                     format!("environment validation failed: {cause}"),
                 );
-                ctx.reject_quietly_with_source(
+                ctx.reject_with_source(
                     env_object,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,
@@ -226,7 +230,7 @@ fn nodes_from_tokens(tokens: &[String], ctx: &Ctx) -> Result<Vec<PatternNode>, S
             Some(_) => {
                 let text = tok.trim();
                 let shape = crate::segment::segment_phonemes_only(ctx.table, text)
-                    .map_err(|e| format!("cannot segment {text:?}: {e}"))?;
+                    .map_err(|e| e.to_string())?;
                 out.push(PatternNode::Segments {
                     table: ctx.table_id,
                     shape: crate::model::SegmentedText {

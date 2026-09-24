@@ -168,7 +168,7 @@ fn compile_project_with_additional_warnings(
     }
     let mut issues = external_issues.clone();
 
-    let (grammar, recorder, substrate, substrate_issues, compile_warnings) =
+    let (grammar, recorder, substrate, substrate_issues) =
         compile_project_recording(snapshot, options.substrate)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
@@ -180,7 +180,6 @@ fn compile_project_with_additional_warnings(
     warnings.extend(warnings::from_issues(snapshot, &external_issues));
     warnings.extend(warnings::from_issues(snapshot, &recorded_issues));
     warnings.extend(warnings::from_issues(snapshot, &substrate_issues));
-    warnings.extend(compile_warnings);
     let warnings = warnings::deduplicate(warnings);
     let inventory = InventoryDelta::from_stage(recorded_inventory, recorded_issues);
 
@@ -202,13 +201,12 @@ fn compile_project_with_additional_warnings(
     })
 }
 
-/// What [`compile_project_recording`] yields: the grammar, three recording seams, and structured warnings from loud compiler sites.
+/// What [`compile_project_recording`] yields: the grammar and its three recording seams.
 pub(crate) type CompiledProject = (
     Grammar,
     SelectionRecorder,
     SubstrateReport,
     Vec<ConversionIssue>,
-    Vec<pg_snapshot::Warning>,
 );
 
 /// As [`compile_project`], but also returns the [`SelectionRecorder`], [`SubstrateReport`], and
@@ -222,7 +220,6 @@ pub(crate) fn compile_project_recording(
     substrate_policy: SubstratePolicy,
 ) -> Result<CompiledProject, GrammarError> {
     let mut recorder = SelectionRecorder::default();
-    let mut warnings = Vec::new();
     let mut lineage = Lineage::default();
     inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
 
@@ -233,7 +230,7 @@ pub(crate) fn compile_project_recording(
     let (syn, pos) = features::build_syn_features(snapshot, &mut recorder)?;
 
     // --- phonological feature system -----------------------------------------------------------
-    let phon_features = features::build_phon_features(snapshot, &mut recorder, &mut warnings)?;
+    let phon_features = features::build_phon_features(snapshot, &mut recorder)?;
 
     // --- text usage: owners publish literal text they already selected, for substrate inference -
     let mut substrate_issues: Vec<ConversionIssue> = Vec::new();
@@ -241,7 +238,7 @@ pub(crate) fn compile_project_recording(
     affixes::collect_text_uses(snapshot, &mut recorder, &mut substrate_issues);
 
     // --- character-definition table, completed from usage under a resolved CompleteFromUsage ---
-    let raw = chardef::build_raw(snapshot, &phon_features, &mut recorder, &mut warnings)?;
+    let raw = chardef::build_raw(snapshot, &phon_features, &mut recorder)?;
     let resolved_substrate = substrate_policy.resolve(
         snapshot.morphology.parser_parameters.active_parser,
         snapshot
@@ -274,13 +271,7 @@ pub(crate) fn compile_project_recording(
         boundary_of,
         null_bdry,
         morph_bdry,
-    } = chardef::finalize(
-        snapshot,
-        completed_raw,
-        &phon_features,
-        &mut recorder,
-        &mut warnings,
-    )?;
+    } = chardef::finalize(snapshot, completed_raw, &phon_features, &mut recorder)?;
     let table_id = TableId(0);
 
     // --- natural classes (+ synthetic "Any") ----------------------------------------------------
@@ -296,7 +287,6 @@ pub(crate) fn compile_project_recording(
         &phoneme_of,
         &mut recorder,
         &mut lineage,
-        &mut warnings,
     );
 
     // A migration difference, never fatal: see `substrate::feature_rule_migration_issues`'s own doc.
@@ -312,14 +302,8 @@ pub(crate) fn compile_project_recording(
     debug_assert_eq!(empty, pg_featstruct::FsId(0));
 
     // --- stem names ------------------------------------------------------------------------------
-    let (stem_names, stem_name_by_guid) = features::build_stem_names(
-        snapshot,
-        &syn,
-        &pos,
-        &mut fs_interner,
-        &mut recorder,
-        &mut warnings,
-    );
+    let (stem_names, stem_name_by_guid) =
+        features::build_stem_names(snapshot, &syn, &pos, &mut fs_interner, &mut recorder);
 
     let mut env_by_guid = HashMap::new();
     for e in &snapshot.phonology.environments {
@@ -347,7 +331,6 @@ pub(crate) fn compile_project_recording(
         default_vernacular_ws: snapshot.project.vernacular_writing_systems.first().cloned(),
         default_analysis_ws: snapshot.project.analysis_writing_systems.first().cloned(),
         recorder: RefCell::new(recorder),
-        warnings: RefCell::new(warnings),
         lineage: RefCell::new(lineage),
         pending_cooccurrence_refusals: RefCell::new(Vec::new()),
     };
@@ -434,7 +417,6 @@ pub(crate) fn compile_project_recording(
     strata_assign_co_occurrence(snapshot, &ctx, &mut acc);
     // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
     let mut recorder = ctx.recorder.into_inner();
-    let warnings = ctx.warnings.into_inner();
     let lineage = ctx.lineage.into_inner();
     let pending_cooccurrence_refusals = ctx.pending_cooccurrence_refusals.into_inner();
 
@@ -533,13 +515,7 @@ pub(crate) fn compile_project_recording(
 
     grammar.final_template_prune_facts()?;
 
-    Ok((
-        grammar,
-        recorder,
-        substrate_report,
-        substrate_issues,
-        warnings,
-    ))
+    Ok((grammar, recorder, substrate_report, substrate_issues))
 }
 
 /// Ad-hoc co-occurrence rules resolved against the now-complete `acc.allomorph_guid_index`/`acc.msa_guid_index` registries; a dangling reference is a warning, never a hard failure.
@@ -631,7 +607,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     continue;
                 }
                 if other_ids.is_empty() {
-                    ctx.reject_quietly(
+                    ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                         IssueClass::InvalidSource,
@@ -726,7 +702,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     continue;
                 }
                 if other_ids.is_empty() {
-                    ctx.reject_quietly(
+                    ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                         IssueClass::InvalidSource,
@@ -828,9 +804,6 @@ pub(crate) struct Ctx<'a> {
     pub default_analysis_ws: Option<String>,
     /// The snapshot-to-grammar selection recorder every owner below writes its considered/selected/represented/rejected/synthesized calls into; behind a `RefCell` since `Ctx` itself is shared by shared reference everywhere.
     pub recorder: RefCell<SelectionRecorder>,
-    /// Linguist-facing warnings emitted at compiler sites that explicitly report a dropped or
-    /// adjusted construct. Quiet inventory bookkeeping never enters this collection.
-    pub warnings: RefCell<Vec<pg_snapshot::Warning>>,
     /// Which owner published which `represented` keys, read only by `inventory::finalize`.
     pub lineage: RefCell<Lineage>,
     /// Co-occurrence refusals whose primary is affix-owned, so reachability (running after this
@@ -911,9 +884,6 @@ impl Ctx<'_> {
             fatal: false,
             message: msg,
         };
-        self.warnings
-            .borrow_mut()
-            .push(warnings::from_issue(self.snapshot, &issue));
         self.recorder.borrow_mut().rejected(key, issue);
     }
 
@@ -924,15 +894,7 @@ impl Ctx<'_> {
         source: SourceRef,
         msg: impl Into<String>,
     ) {
-        inventory::note(
-            &mut self.recorder.borrow_mut(),
-            self.snapshot,
-            &mut self.warnings.borrow_mut(),
-            code,
-            class,
-            source,
-            msg,
-        );
+        inventory::note(&mut self.recorder.borrow_mut(), code, class, source, msg);
     }
 
     /// As [`Ctx::reject`], but fatal -- for a construct attached to something already active, where dropping it would change what the grammar accepts. Fatal refusals are reported through the structured issue result.
@@ -979,39 +941,7 @@ impl Ctx<'_> {
             });
     }
 
-    /// As [`Ctx::reject`], but pushes no warning, for a site that was already silent about dropping it.
-    pub(crate) fn reject_quietly(
-        &self,
-        key: InventoryKey,
-        code: ImportWarningCode,
-        class: IssueClass,
-        msg: impl Into<String>,
-    ) {
-        self.reject_quietly_with_source(key, code, class, None, msg);
-    }
-
-    pub(crate) fn reject_quietly_with_source(
-        &self,
-        key: InventoryKey,
-        code: ImportWarningCode,
-        class: IssueClass,
-        source: Option<pg_snapshot::SourceRef>,
-        msg: impl Into<String>,
-    ) {
-        let source = source.or_else(|| warnings::source_for_key(self.snapshot, &key));
-        self.recorder.borrow_mut().rejected(
-            key,
-            ConversionIssue {
-                code,
-                class,
-                source,
-                fatal: false,
-                message: msg.into(),
-            },
-        );
-    }
-
-    /// The `authored → considered → selected → represented|rejected` sequence every attachment-resolution site repeats; `resolved` picks the branch, with the loud (warning-pushing) rejection path.
+    /// The `authored → considered → selected → represented|rejected` sequence every attachment-resolution site repeats; `resolved` picks the branch.
     pub(crate) fn record_attachment(
         &self,
         key: InventoryKey,
@@ -1027,25 +957,6 @@ impl Ctx<'_> {
             self.represented(key);
         } else {
             self.reject(key, code, class, msg);
-        }
-    }
-
-    /// As [`Ctx::record_attachment`], but silent on rejection.
-    pub(crate) fn record_attachment_quietly(
-        &self,
-        key: InventoryKey,
-        resolved: bool,
-        code: ImportWarningCode,
-        class: IssueClass,
-        msg: impl Into<String>,
-    ) {
-        self.authored(key.clone());
-        self.considered(key.clone());
-        self.selected(key.clone());
-        if resolved {
-            self.represented(key);
-        } else {
-            self.reject_quietly(key, code, class, msg);
         }
     }
 }
@@ -1087,6 +998,20 @@ pub(crate) fn best_ws<'a>(
         }
     }
     forms.first().map(|f| f.form.as_str())
+}
+
+/// FieldWorks' headword: the citation form, else the lexeme form (always the last allomorph).
+pub(crate) fn entry_headword<'a>(
+    entry: &'a pg_snapshot::lexicon::LexEntry,
+    preferred_ws: Option<&str>,
+) -> Option<&'a str> {
+    let non_empty = |form: &&str| !form.trim().is_empty();
+    best_ws(&entry.citation_form, preferred_ws)
+        .filter(non_empty)
+        .or_else(|| {
+            let lexeme_form = entry.allomorphs.last()?;
+            best_ws(&lexeme_form.forms, preferred_ws).filter(non_empty)
+        })
 }
 
 /// Every representation tagged with `preferred_ws` (there may be several — multiple `PhCode`s in

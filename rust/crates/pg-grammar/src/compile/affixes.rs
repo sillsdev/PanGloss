@@ -413,7 +413,7 @@ pub(crate) fn build_affix_rule(
         allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
     }
     if allomorphs.is_empty() {
-        ctx.reject_quietly(
+        ctx.reject(
             msa_key,
             issue_codes::MSA_NO_RULE_FORM_ALLOMORPHS,
             IssueClass::UnrepresentableForHc,
@@ -503,8 +503,7 @@ fn build_circumfix_allomorphs(
     let suffixes = halves(is_circumfix_suffix_half);
 
     if prefixes.is_empty() || suffixes.is_empty() {
-        let entry_name = super::best_ws(&entry.citation_form, ctx.default_vernacular_ws.as_deref())
-            .filter(|name| !name.trim().is_empty())
+        let entry_name = super::entry_headword(entry, ctx.default_vernacular_ws.as_deref())
             .unwrap_or_else(|| {
                 pg_snapshot::warning_metadata::fieldworks_missing_name_fallback(
                     pg_snapshot::FwClass::LexEntry,
@@ -530,7 +529,7 @@ fn build_circumfix_allomorphs(
                     message.clone(),
                 );
             } else {
-                ctx.reject_quietly(
+                ctx.reject(
                     key,
                     issue_codes::CIRCUMFIX_MISSING_HALF,
                     IssueClass::UnrepresentableForHc,
@@ -794,9 +793,9 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
     match allo.morph_type {
         MorphType::Infix | MorphType::InfixingInterfix => {
             if allo.positions.is_empty() {
-                // `selected` before `reject_quietly`, not once for the whole function: the catch-all arm below must stay unselected (see its own comment).
+                // `selected` before `reject`, not once for the whole function: the catch-all arm below must stay unselected (see its own comment).
                 ctx.selected(key.clone());
-                ctx.reject_quietly(
+                ctx.reject(
                     key,
                     issue_codes::ALLOMORPH_NOT_RULE_FORM,
                     IssueClass::UnrepresentableForHc,
@@ -831,7 +830,7 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
             }
             if form.trim().is_empty() {
                 ctx.selected(key.clone());
-                ctx.reject_quietly(
+                ctx.reject(
                     key,
                     issue_codes::ALLOMORPH_NOT_RULE_FORM,
                     IssueClass::UnrepresentableForHc,
@@ -845,7 +844,7 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
         // A circumfix/discontiguous-phrase allomorph is never a valid rule form on its own (a circumfix is built as a prefix/suffix-half cross-product instead); selected then rejected here since neither half-shape check above nor `lexicon.rs`'s stem/clitic bucket ever claims this guid.
         MorphType::Circumfix | MorphType::DiscontigPhrase => {
             ctx.selected(key.clone());
-            ctx.reject_quietly(
+            ctx.reject(
                 key,
                 issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM,
                 IssueClass::UnrepresentableForHc,
@@ -853,7 +852,7 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
             );
             false
         }
-        // Bare Clitic/Particle/Stem/Root/BoundRoot/BoundStem/Phrase are never rule forms for this filter, and no `selected`/`reject_quietly` here: `lexicon.rs`'s stem/clitic bucket owns this allomorph guid's selected/represented/rejected identity instead.
+        // Bare Clitic/Particle/Stem/Root/BoundRoot/BoundStem/Phrase are never rule forms for this filter, and no `selected`/`reject` here: `lexicon.rs`'s stem/clitic bucket owns this allomorph guid's selected/represented/rejected identity instead.
         _ => false,
     }
 }
@@ -987,7 +986,7 @@ fn build_affix_allomorphs_for(
     }
     // Selected as a rule form but every pass failed to build one: reject it rather than leave it silently unrepresented.
     if out.is_empty() {
-        ctx.reject_quietly(
+        ctx.reject(
             InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()),
             issue_codes::ALLOMORPH_UNSEGMENTABLE,
             IssueClass::UnrepresentableForHc,
@@ -1101,8 +1100,7 @@ fn build_concatenative(
 }
 
 fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
-    let shape = crate::segment::segment(ctx.table, text)
-        .map_err(|e| format!("cannot segment {text:?}: {e}"))?;
+    let shape = crate::segment::segment(ctx.table, text).map_err(|e| e.to_string())?;
     Ok(OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {
@@ -1161,7 +1159,7 @@ fn resolve_environments(
                 source.clone(),
                 format!("environment validation failed: {cause}"),
             );
-            ctx.reject_quietly_with_source(
+            ctx.reject_with_source(
                 env_object,
                 issue_codes::ENVIRONMENT_INVALID,
                 IssueClass::InvalidSource,
@@ -1189,7 +1187,7 @@ fn resolve_environments(
                     source.clone(),
                     format!("environment validation failed: {cause}"),
                 );
-                ctx.reject_quietly_with_source(
+                ctx.reject_with_source(
                     env_object,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,

@@ -374,11 +374,10 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::LEXICON_EDIT,
             "choose a supported morph type for the named allomorph.",
         ),
-        AllomorphMorphTypeUnsupportedAsRuleForm => linguist_warning(
-            "Allomorph type is not usable for this affix",
-            fieldworks_paths::LEXICON_EDIT,
-            "check the named allomorph's morph type and how it is used by the analysis.",
-        ),
+        // Only a circumfix's whole-form allomorph, which is loaded through its prefix and suffix halves.
+        AllomorphMorphTypeUnsupportedAsRuleForm => {
+            internal_warning("Circumfix whole form is loaded through its halves")
+        }
         AllomorphNotRuleForm => linguist_warning(
             "Affix allomorph has no form",
             fieldworks_paths::LEXICON_EDIT,
