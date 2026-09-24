@@ -1,6 +1,8 @@
-//! Stems, variants, root allomorphs, and the per-entry dispatch into affix rules; mirrors HCLoader's `LexEntry`-per-MSA fan-out, so an LCM entry with two stem MSAs becomes two `Grammar` lexical entries sharing the same root-allomorph list.
+//! Stems, variants, root allomorphs, and per-entry affix dispatch; equivalent stem MSAs share their first lexical representative within each entry.
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
+
+use pg_snapshot::feature::{FeatureStructure, FeatureValue, FeatureValueKind};
 
 use pg_snapshot::lexicon::{Allomorph, EntryRef, LexEntry, Msa, Sense};
 use pg_snapshot::morphology::{LexEntryInflType, MorphType};
@@ -121,7 +123,7 @@ pub(crate) fn build(
         let has_stem_form = entry.allomorphs.iter().any(|a| is_lex_entry_form(a, false));
 
         // --- stems: one Grammar LexEntryDef per (entry, Msa::Stem, stratum-bucket) --------------
-        for msa in &entry.msas {
+        for msa in unique_stem_msas(&entry.msas) {
             if let Msa::Stem { .. } = msa {
                 if has_stem_form {
                     if let Some(id) =
@@ -199,6 +201,93 @@ pub(crate) fn build(
     }
 
     Ok(())
+}
+
+fn unique_stem_msas(msas: &[Msa]) -> Vec<&Msa> {
+    let mut retained: Vec<&Msa> = Vec::new();
+    for msa in msas {
+        if matches!(msa, Msa::Stem { .. })
+            && !retained
+                .iter()
+                .any(|existing| stem_msas_equivalent(existing, msa))
+        {
+            retained.push(msa);
+        }
+    }
+    retained
+}
+
+fn stem_msas_equivalent(left: &Msa, right: &Msa) -> bool {
+    let (
+        Msa::Stem {
+            part_of_speech: left_pos,
+            inflection_class: left_ic,
+            features: left_features,
+            exception_features: left_exceptions,
+            from_parts_of_speech: left_from_pos,
+            ..
+        },
+        Msa::Stem {
+            part_of_speech: right_pos,
+            inflection_class: right_ic,
+            features: right_features,
+            exception_features: right_exceptions,
+            from_parts_of_speech: right_from_pos,
+            ..
+        },
+    ) = (left, right)
+    else {
+        return false;
+    };
+    left_pos == right_pos
+        && left_ic == right_ic
+        && feature_structures_equivalent(left_features.as_ref(), right_features.as_ref())
+        && unordered_guid_sets_equal(left_exceptions, right_exceptions)
+        && unordered_guid_sets_equal(left_from_pos, right_from_pos)
+}
+
+fn unordered_guid_sets_equal(left: &[String], right: &[String]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut remaining: HashSet<&String> = right.iter().collect();
+    left.iter().all(|value| remaining.remove(value))
+}
+
+fn feature_structures_equivalent(
+    left: Option<&FeatureStructure>,
+    right: Option<&FeatureStructure>,
+) -> bool {
+    let left: &[FeatureValue] = left.map_or(&[], |fs| fs.values.as_slice());
+    let right: &[FeatureValue] = right.map_or(&[], |fs| fs.values.as_slice());
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut used = vec![false; right.len()];
+    for left_value in left {
+        let Some((index, _)) = right.iter().enumerate().find(|(index, right_value)| {
+            !used[*index] && feature_values_equivalent(left_value, right_value)
+        }) else {
+            return false;
+        };
+        used[index] = true;
+    }
+    true
+}
+
+fn feature_values_equivalent(left: &FeatureValue, right: &FeatureValue) -> bool {
+    left.feature == right.feature
+        && match (&left.value, &right.value) {
+            (
+                FeatureValueKind::Closed { value: left },
+                FeatureValueKind::Closed { value: right },
+            ) => left == right,
+            (
+                FeatureValueKind::Complex { value: left },
+                FeatureValueKind::Complex { value: right },
+            ) => feature_structures_equivalent(Some(left), Some(right)),
+            _ => false,
+        }
 }
 
 fn msa_guid(msa: &Msa) -> &str {
@@ -501,7 +590,17 @@ fn build_variant(
     for component in component_lexemes {
         let main_msas: Vec<(&LexEntry, &Msa)> =
             if let Some(&e) = entry_by_guid.get(component.as_str()) {
-                e.msas.iter().map(|m| (e, m)).collect()
+                let retained_stems = unique_stem_msas(&e.msas);
+                e.msas
+                    .iter()
+                    .filter(|m| {
+                        !matches!(m, Msa::Stem { .. })
+                            || retained_stems
+                                .iter()
+                                .any(|retained| std::ptr::eq(*retained, *m))
+                    })
+                    .map(|m| (e, m))
+                    .collect()
             } else if let Some(&(e, sense)) = sense_owner.get(component.as_str()) {
                 e.msas
                     .iter()
@@ -787,3 +886,6 @@ fn build_variant_stem_entry(
     });
     Some(lex_id)
 }
+
+#[cfg(test)]
+mod unique_stem_tests;

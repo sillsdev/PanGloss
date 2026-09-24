@@ -3499,3 +3499,5 @@ fn environment_only_undeclared_exemplar_is_completed_from_usage() {
     );
     assert_eq!(out.substrate.inferred_segments[0].representation, "q");
 }
+
+mod unique_stem_msas;
