@@ -42,7 +42,8 @@ const GATE_SUBRULE_POS: Fixture = Fixture::upstream("edge-cases", "subrule-morph
 /// Unbounded-peeled-copy exercise 1: the peel's SUFFIX scan (`redupMorphType="suffix"`).
 const PEELED_COPY_SUFFIX_SCAN: Fixture =
     Fixture::upstream("languages", "suffixing-extension-slot-ordering");
-/// Unbounded-peeled-copy exercise 2 and the bounded-copy exercise: the one grammar carrying a fixed-width copy alongside an unbounded one.
+/// Unbounded-peeled-copy exercise 2 and two bounded-copy exercises: the grammar carries a finite
+/// CV copy, a fixed-I copy, and an unbounded copy.
 const COPY_BOUNDED_AND_UNBOUNDED: Fixture =
     Fixture::upstream("languages", "metathesis-phase-isolation");
 
@@ -1047,7 +1048,7 @@ fn gate_exercise_pos_requirement_on_a_rewrite_subrule() {
     );
 }
 
-// Bounded copy: one fixture, two layers (see docs/research/orthogonal-basis-group-b-methodology.md for why there is no second fixture).
+// Bounded copy: two distinct rules in one fixture; each has its own committed word-level witness.
 
 /// Bounded-copy exercise, WORD level: a fixed-width reduplicant and an unbounded copy of the same root in the same grammar must recall different, disjoint readings, one each.
 #[test]
@@ -1096,7 +1097,34 @@ fn bounded_copy_exercise_fixed_width_reduplicant_recalls_exactly_one_reading() {
     );
 }
 
-/// Bounded-copy exercise, MODEL level: the bounded/unbounded line is a computed property of the loaded grammar (finite vs. no width bound on the copied part), not a label this file applied; also asserts corpus-wide that only one bounded-copy rule exists.
+/// Bounded-copy exercise 2: `mrRedupHi` copies a one-segment consonant part and modifies the
+/// vowel, so this witness checks a distinct finite-copy path from `mrRedupCV`.
+#[test]
+fn bounded_copy_exercise_fixed_i_reduplicant_recalls_exactly_one_reading() {
+    let (label, grammar, words) = COPY_BOUNDED_AND_UNBOUNDED.open();
+    anchor_whole_fixture(&label, &grammar, &words);
+
+    assert_eq!(
+        copy_width_bound(&label, &grammar, "redupFixedI"),
+        Some(1),
+        "{label}: redupFixedI copies exactly one consonant segment; its vowel modification is a \
+         separate output action"
+    );
+
+    let expectations = committed_named(&label, &words, &["titula"]);
+    let occurrences = occurrences_for(&label, &grammar, &expectations);
+    assert_identities_and_multiplicity(
+        &label,
+        &occurrences,
+        "titula",
+        1,
+        "the fixed-I copy: its committed oracle analysis copies the initial consonant and modifies the copied vowel",
+    );
+}
+
+/// Bounded-copy MODEL level: the bounded/unbounded line is a computed property of the loaded
+/// grammar (finite vs. no width bound on the copied part), not a label this file applied; also
+/// checks the corpus still contains examples of both shapes.
 #[test]
 fn the_bounded_unbounded_copy_line_is_a_property_of_the_grammar() {
     let (label, grammar, _words) = COPY_BOUNDED_AND_UNBOUNDED.open();
@@ -1113,13 +1141,19 @@ fn the_bounded_unbounded_copy_line_is_a_property_of_the_grammar() {
         "{label}: the fixed-width reduplicant is one consonant plus one vowel, so its bound is 2"
     );
 
+    assert_eq!(
+        copy_width_bound(&label, &grammar, "redupFixedI"),
+        Some(1),
+        "{label}: redupFixedI copies only its one-consonant input part"
+    );
+
     assert!(
         copy_width_bound(&label, &grammar, "redupFull").is_none(),
         "{label}: the full-copy rule's copied part must be UNBOUNDED; if it acquired a finite bound \
          this grammar no longer contains the contrast that makes the two mechanisms distinguishable"
     );
 
-    // Corpus-wide: exactly one bounded-copy rule exists; if a second is ever authored, this assertion is the place that says so.
+    // Corpus-wide: retain positive evidence that bounded and unbounded copy shapes both exist.
     let mut bounded_rules: Vec<String> = Vec::new();
     let mut unbounded_rules: Vec<String> = Vec::new();
     for fixture in discover() {
@@ -1154,13 +1188,6 @@ fn the_bounded_unbounded_copy_line_is_a_property_of_the_grammar() {
     assert!(
         !unbounded_rules.is_empty(),
         "the corpus must contain at least one UNBOUNDED copy, or the peel mechanism has no exercise"
-    );
-    assert!(
-        bounded_rules.len() <= 2,
-        "more than two bounded-copy rules now exist ({bounded_rules:?}). Two was the CLONE pair \
-         (see clone_fixtures_are_pinned_as_clones_not_independent_exercises); a genuine third means \
-         the bounded-copy mechanism can finally have two INDEPENDENT fixtures, so add the second \
-         exercise and delete this ceiling rather than raising it"
     );
     assert!(
         !bounded_rules.is_empty(),
@@ -1314,13 +1341,34 @@ fn clone_fixtures_are_pinned_as_clones_not_independent_exercises() {
         let clone_xml = clone_ref.load_grammar_xml();
         let original_xml = original_ref.load_grammar_xml();
 
-        let clone_name = clone_ref.load_words_yaml().language;
-        let original_name = original_ref.load_words_yaml().language;
+        let clone_words = clone_ref.load_words_yaml();
+        let original_words = original_ref.load_words_yaml();
+        let clone_name = clone_words.language.clone();
+        let original_name = original_words.language.clone();
         assert_ne!(
             clone_name,
             original_name,
             "{}: a clone must at least differ in its language name",
             clone_ref.label()
+        );
+
+        let clone_inputs: Vec<&str> = clone_words
+            .words
+            .iter()
+            .map(|word| word.word.as_str())
+            .collect();
+        let original_inputs: Vec<&str> = original_words
+            .words
+            .iter()
+            .map(|word| word.word.as_str())
+            .collect();
+        assert_eq!(
+            clone_inputs,
+            original_inputs,
+            "{} does not exercise the same ordered word inputs as {}; a clone used to hold backend \
+             input constant must track additions and removals too",
+            clone_ref.label(),
+            original_ref.label()
         );
 
         let normalize = |xml: &str, name: &str| {

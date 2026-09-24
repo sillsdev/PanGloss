@@ -11,7 +11,7 @@ cascade/strata, lexical class, allomorph priority, and zero morphology.
 | Bounded metathesis | `staging:edge-cases/right-to-left-metathesis-reversal` | `staging:edge-cases/multi-table-metathesis-shared-representation` | yes |
 | Feature/POS/MPR gates | `machine:edge-cases/mpr-gated-exception` | `machine:edge-cases/subrule-morphosyntactic-gating` | partly — see "The gate pair is only half-independent" |
 | Unbounded peeled copy | `machine:languages/suffixing-extension-slot-ordering` | `machine:languages/metathesis-phase-isolation` | yes |
-| Bounded copy | `machine:languages/metathesis-phase-isolation` (word level) | the same fixture at the model level | no second fixture exists — see "Bounded copy has exactly one fixture" |
+| Bounded copy | `machine:languages/metathesis-phase-isolation` / `mrRedupCV` (`tutula`) | the same fixture / `mrRedupHi` (`titula`) | distinct bounded-copy rules and committed word paths; still one independent source fixture |
 
 Every exercise is an already-committed conformance fixture, and every expected number an
 assertion compares against is read out of that fixture's own committed `words.yaml`. Nothing here
@@ -68,7 +68,8 @@ pins it to a property of the loaded grammar that `copy_width_bound` computes:
   which is why the peel path exists at all, and why it (and only it) carries a chain-depth budget.
 
 `the_bounded_unbounded_copy_line_is_a_property_of_the_grammar` asserts this distinction is a real,
-computed fact: `mrRedupCV`'s copied part must have a finite bound and `mrRedupFull`'s must not.
+computed fact: `mrRedupCV`'s copied part has finite bound 2, `mrRedupHi`'s copied part has finite
+bound 1, and `mrRedupFull`'s copied part has no finite bound.
 
 ## A budget refusal must never read as a recall failure
 
@@ -89,31 +90,31 @@ truncated candidate set. Two rules follow, both observed:
 No assertion in this file is a proposal-set ceiling, no proposal set is truncated, and no assertion
 reads a clock: wall time is never an eligibility or certification input here.
 
-## Bounded copy has exactly one fixture, and that is a finding
+## Bounded copy has two rule-level exercises in one source fixture
 
-A census of every `grammar.xml` under both fixture roots for a doubled `CopyFromInput` of one part
-(the shape `pg_foma::emit::classify_affix` reads as `Role::Reduplication`) finds five rules in four
-distinct grammars. Four of the five copy an unbounded part (`metathesis-phase-isolation`'s
-`mrRedupFull`, `suffixing-extension-slot-ordering`'s `mrRedup`,
-`deletion-reduplication-exception-composite`'s `mrRedupFull`,
-`circumfix-reduplication-precedence`'s `mrCircRedup`). Exactly one copies a fixed-width part:
-`metathesis-phase-isolation`'s `mrRedupCV`. Its apparent second home,
-`staging:edge-cases/recipe-ordered-generic`, is a byte-identical clone of that upstream grammar
-differing only in `<Language><Name>` — pinned by
-`clone_fixtures_are_pinned_as_clones_not_independent_exercises` precisely so nobody pairs the two
-and reports one exercise as two.
+The Machine update added `mrRedupHi` (`redupFixedI`) to
+`machine:languages/metathesis-phase-isolation`. The grammar now has two distinct bounded-copy
+rules alongside its unbounded full-copy rule:
 
-So there is no second bounded-copy fixture in the corpus, and authoring one is out of scope here: a
-new fixture's `words.yaml` must be transcribed from a real oracle run
-(`.claude/skills/conformance-grammars/SKILL.md`, and every existing fixture's own header), and a
-hand-derived expectation would pin this file's arithmetic instead of the grammar — exactly what the
-discipline above exists to prevent. What is offered instead is two exercises of the one fixture at
-two different layers, with genuinely independent falsifiers:
-`bounded_copy_exercise_fixed_width_reduplicant_recalls_exactly_one_reading` (word level,
-oracle-anchored: a synthesis/analysis defect in the fixed-width copy fails it while the model stays
-intact) and `the_bounded_unbounded_copy_line_is_a_property_of_the_grammar` (model level: a loader
-change that collapsed `OptionalSegmentSequence`'s `min`/`max` fails it while both words could still
-parse). That is weaker than two fixtures and is reported as weaker.
+- `mrRedupCV` copies the two-segment `rcCV` part twice (finite width 2), witnessed by `tutula`.
+- `mrRedupHi` copies the one-segment `rhC` part twice (finite width 1), while a separate
+  `ModifyFromInput` action changes the copied vowel to `i`, witnessed by `titula`.
+
+`bounded_copy_exercise_fixed_width_reduplicant_recalls_exactly_one_reading` and
+`bounded_copy_exercise_fixed_i_reduplicant_recalls_exactly_one_reading` assert those distinct
+committed word paths. `the_bounded_unbounded_copy_line_is_a_property_of_the_grammar` checks both
+computed finite bounds and the unbounded full-copy rule. These are separate rule-level exercises,
+but they still share one source fixture and so do not claim fixture-level independence.
+
+The staging clone is `staging:edge-cases/backend-ordered-generic`; it is synchronized with the
+Machine grammar and word inputs, modulo the language name. The clone guard compares both normalized
+grammar content and the ordered word input list, so a later fixture addition cannot silently turn
+the clone into a different backend-ordering workload. The duplicate path remains excluded from any
+claim of an independent fixture.
+
+This task does not author a new fixture. A new fixture's `words.yaml` must be transcribed from a
+real oracle run (`.claude/skills/conformance-grammars/SKILL.md` and each fixture's own header); a
+hand-derived expectation would pin this file's arithmetic instead of the grammar.
 
 ## The gate pair is only half-independent
 

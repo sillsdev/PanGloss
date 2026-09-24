@@ -69,3 +69,16 @@ grammar.xml + words.yaml: PASS -- every word's signature and traced ules: list 
 fixture's words.yaml now carries # oracle-provenance: founding-oracle. Any "Oracle discipline"
 section below describes how this fixture was originally authored, not its current verification
 status.
+
+## Clone sync after Machine 34215889 (2026-09-24)
+
+`grammar.xml` and `words.yaml` are synchronized from
+`machine/conformance/languages/metathesis-phase-isolation` at Machine commit
+`34215889c7adf3012f700c9ee1c1d6712c056d15`, changing only the language name to
+`BackendOrderedGeneric`. This keeps the staged backend-ordering workload aligned with the upstream
+fixture, including its added reduplication and phonology words.
+
+The 2026-08-31 C# founding-oracle check above applies to the staged files as they existed on that
+date. The newly copied upstream word rows were not checked against C# in this worktree, so that old
+check is not claimed as provenance for them. The committed Machine expectations remain the source
+for those rows and are replayed by the shared conformance harness.
