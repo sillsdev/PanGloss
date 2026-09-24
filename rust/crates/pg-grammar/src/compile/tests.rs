@@ -67,6 +67,88 @@ fn warning_deduplication_keeps_the_first_linguist_wording_for_a_fact() {
     assert_eq!(unique, vec![preferred]);
 }
 
+#[test]
+fn import_and_compile_warnings_deduplicate_at_the_compile_boundary() {
+    let (mut snapshot, _) = fixture();
+    let guid = "00000000-0000-0000-0000-000000000044";
+    let code = pg_snapshot::ImportWarningCode::FwdataUnknownMorphTypeGuid;
+    snapshot
+        .conversion_provenance
+        .import_issues
+        .push(pg_snapshot::ConversionIssue {
+            code: code.clone(),
+            class: IssueClass::MigrationDifference,
+            source: Some(pg_snapshot::SourceRef {
+                kind: pg_snapshot::FwClass::MoForm,
+                id: guid.to_string(),
+            }),
+            fatal: false,
+            message: "compiler wording for the same warning".to_string(),
+        });
+    let importer_warning = pg_snapshot::Warning::new(code, "Importer wording for the same warning")
+        .with_subject(pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoForm).guid(guid));
+
+    let (_, warnings) =
+        super::compile_project_with_import_warnings(&snapshot, [importer_warning.clone()])
+            .expect("snapshot compiles");
+    let matching: Vec<_> = warnings
+        .into_iter()
+        .filter(|warning| warning.code == importer_warning.code)
+        .collect();
+
+    assert_eq!(matching, vec![importer_warning]);
+}
+
+#[test]
+fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_health() {
+    let (mut snapshot, _) = fixture();
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "?")];
+    snapshot.phonology.natural_classes.extend([
+        SnapNaturalClass::Segments {
+            guid: "nc-unreferenced-compacted".to_string(),
+            name: String::new(),
+            phonemes: vec!["ph-k".to_string()],
+        },
+        SnapNaturalClass::Segments {
+            guid: "nc-last-unnamed".to_string(),
+            name: String::new(),
+            phonemes: vec!["ph-t".to_string()],
+        },
+    ]);
+
+    let (_, warnings) = compile_project(&snapshot).expect("snapshot compiles");
+    let report = crate::grammar_health::GrammarHealthReport::new(
+        warnings
+            .iter()
+            .map(crate::grammar_health::GrammarHealthCheckFinding::from_import_warning)
+            .collect(),
+    )
+    .expect("compiler warnings form a grammar-health report");
+
+    let findings = report.findings();
+    let msa_without_allomorphs = findings
+        .iter()
+        .find(|finding| finding.code.wire() == "grammar.msa.no-allomorphs")
+        .expect("an MSA with no usable allomorphs reaches grammar-health");
+    assert_eq!(
+        msa_without_allomorphs.audience,
+        pg_snapshot::Audience::Linguist
+    );
+
+    let compacted_natural_class = findings
+        .iter()
+        .find(|finding| finding.code.wire() == "grammar.natclass.unreferenced-compacted")
+        .expect("a compacted natural class reaches grammar-health");
+    assert_eq!(
+        compacted_natural_class.audience,
+        pg_snapshot::Audience::Developer
+    );
+    assert_eq!(
+        compacted_natural_class.subjects[0].guid.as_deref(),
+        Some("nc-unreferenced-compacted")
+    );
+}
+
 /// Compiles `snapshot` through the recording seam and asserts the recorder's own invariants hold; returns everything a caller might want to inspect further.
 fn compile_recording_ok(
     snapshot: &Snapshot,
@@ -3754,7 +3836,7 @@ fn phoneme_collision_warning_names_the_other_phoneme() {
 }
 
 #[test]
-fn empty_stem_bucket_is_recorded_without_a_linguist_warning() {
+fn empty_stem_bucket_is_reported_with_a_linguist_warning() {
     let (mut snapshot, _) = fixture();
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "?")];
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::Hc;
@@ -3770,7 +3852,7 @@ fn empty_stem_bucket_is_recorded_without_a_linguist_warning() {
     assert!(output
         .warnings
         .iter()
-        .all(|warning| warning.code != super::issue_codes::MSA_NO_ALLOMORPHS.wire()));
+        .any(|warning| warning.code == super::issue_codes::MSA_NO_ALLOMORPHS.wire()));
     assert!(output
         .issues
         .iter()

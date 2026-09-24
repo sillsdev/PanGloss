@@ -130,6 +130,29 @@ pub fn compile_project_with(
     snapshot: &Snapshot,
     options: CompileOptions,
 ) -> Result<CompileOutput, GrammarError> {
+    compile_project_with_additional_warnings(snapshot, options, std::iter::empty())
+}
+
+/// Compile a FieldWorks snapshot and merge importer warnings into the compiler's warning set.
+/// Importer warnings come first so their linguist-facing wording wins when the compiler reports
+/// the same code and source subjects.
+pub fn compile_project_with_import_warnings(
+    snapshot: &Snapshot,
+    import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
+) -> Result<(Grammar, Vec<pg_snapshot::Warning>), GrammarError> {
+    let output = compile_project_with_additional_warnings(
+        snapshot,
+        CompileOptions::default(),
+        import_warnings,
+    )?;
+    Ok((output.grammar, output.warnings))
+}
+
+fn compile_project_with_additional_warnings(
+    snapshot: &Snapshot,
+    options: CompileOptions,
+    import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
+) -> Result<CompileOutput, GrammarError> {
     let mut external_issues: Vec<ConversionIssue> =
         snapshot.conversion_provenance.import_issues.clone();
     if snapshot.conversion_provenance.source_inventory_status == SourceInventoryStatus::Unknown {
@@ -153,7 +176,9 @@ pub fn compile_project_with(
     let (recorded_inventory, recorded_issues) = recorder.finish();
     issues.extend(recorded_issues.iter().cloned());
     issues.extend(substrate_issues.iter().cloned());
-    let mut warnings = warnings::from_issues(snapshot, &external_issues);
+    let mut warnings: Vec<_> = import_warnings.into_iter().collect();
+    warnings.extend(warnings::from_issues(snapshot, &external_issues));
+    warnings.extend(warnings::from_issues(snapshot, &recorded_issues));
     warnings.extend(warnings::from_issues(snapshot, &substrate_issues));
     warnings.extend(compile_warnings);
     let warnings = warnings::deduplicate(warnings);
