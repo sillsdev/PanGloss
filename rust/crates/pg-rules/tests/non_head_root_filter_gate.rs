@@ -90,6 +90,7 @@ fn compound_rule_with(
 ) -> MorphRuleDef {
     MorphRuleDef::Compounding(CompoundingRuleDef {
         xml_id: "c".into(),
+        source_guid: None,
         name: None,
         blockable: false,
         max_apps: 1,

@@ -180,6 +180,7 @@ fn compile_project_with_additional_warnings(
     warnings.extend(warnings::from_issues(snapshot, &external_issues));
     warnings.extend(warnings::from_issues(snapshot, &recorded_issues));
     warnings.extend(warnings::from_issues(snapshot, &substrate_issues));
+    warnings::add_open_targets(snapshot, &mut warnings);
     let warnings = warnings::deduplicate(warnings);
     let inventory = InventoryDelta::from_stage(recorded_inventory, recorded_issues);
 

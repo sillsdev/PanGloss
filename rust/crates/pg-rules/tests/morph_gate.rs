@@ -306,6 +306,7 @@ fn simulfix_analysis_underspecifies_modified_feature() {
 fn compound_rule() -> MorphRuleDef {
     MorphRuleDef::Compounding(CompoundingRuleDef {
         xml_id: "c".into(),
+        source_guid: None,
         name: None,
         blockable: false,
         max_apps: 1,

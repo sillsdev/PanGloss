@@ -49,6 +49,7 @@ pub(crate) fn build(
             SnapNaturalClass::Segments {
                 guid,
                 name,
+                display_name: _,
                 phonemes,
             } => {
                 let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
@@ -96,6 +97,7 @@ pub(crate) fn build(
             SnapNaturalClass::Features {
                 guid,
                 name,
+                display_name: _,
                 features,
             } => {
                 let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());

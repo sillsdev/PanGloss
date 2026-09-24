@@ -1,4 +1,5 @@
 use super::*;
+use crate::grammar_health_presentation::fieldworks_link_from_identity;
 use pg_shape::ShapeBuilder;
 
 #[test]
@@ -24,6 +25,45 @@ fn report_trims_fieldworks_project_name_when_attaching_project() {
 
     assert_eq!(value["fieldworks_project"]["name"], "Chosen Project");
     assert_eq!(value["fieldworks_project"]["source"], "argument");
+}
+
+#[test]
+fn open_target_survives_project_attachment_and_json() {
+    let set = "11111111-1111-1111-1111-111111111111";
+    let warning = pg_snapshot::Warning::new(
+        pg_snapshot::ImportWarningCode::BoundaryNoRepresentation,
+        "Boundary marker has no representation.",
+    )
+    .with_subject(
+        pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::PhBdryMarker)
+            .guid("44444444-4444-4444-4444-444444444444")
+            .name("+")
+            .opens_in("phonemeEdit", set),
+    );
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+            .expect("report is valid")
+            .with_fieldworks_project(FieldWorksProject {
+                name: Some("Demo".to_string()),
+                source: Some(FieldWorksProjectSource::Argument),
+            });
+    let round_tripped =
+        GrammarHealthReport::from_json(&report.to_json().expect("report serializes"))
+            .expect("report decodes");
+
+    for report in [&report, &round_tripped] {
+        let subject = &report.diagnostics()[0].subjects[0];
+        assert_eq!(
+            subject.guid.as_deref(),
+            Some("44444444-4444-4444-4444-444444444444")
+        );
+        match &subject.fieldworks {
+            FieldWorksLink::Available { tool, guid, .. } => {
+                assert_eq!((tool.as_str(), guid.as_str()), ("phonemeEdit", set));
+            }
+            other => panic!("boundary marker must open its phoneme set: {other:?}"),
+        }
+    }
 }
 
 #[test]
@@ -1239,10 +1279,11 @@ fn every_existing_grammar_fixture_has_complete_human_diagnostics() {
         .flat_map(|diagnostic| &diagnostic.subjects)
         .find(|subject| subject.kind == FwClass::MoCompoundRule)
         .expect("compounding diagnostic names its rule");
+    // An HC-XML compound rule has a tool but no FieldWorks GUID.
     assert!(matches!(
         compounding_subject.fieldworks,
         FieldWorksLink::Unavailable {
-            reason: FieldWorksUnavailableReason::UnsupportedKind,
+            reason: FieldWorksUnavailableReason::GuidNotRecorded,
             ..
         }
     ));
@@ -1527,10 +1568,8 @@ fn fieldworks_navigation_has_exact_supported_and_unavailable_states() {
         .clone();
     assert!(matches!(
         infl_type,
-        FieldWorksLink::Unavailable {
-            reason: FieldWorksUnavailableReason::UnsupportedKind,
-            guid: Some(guid),
-        } if guid == "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        FieldWorksLink::Available { guid, tool, .. }
+            if guid == "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" && tool == "variantEntryTypeEdit"
     ));
 
     let mut compound = grammar(COMPOUNDING_INSERT_SEGMENTS_XML);
@@ -1553,7 +1592,7 @@ fn fieldworks_navigation_has_exact_supported_and_unavailable_states() {
     assert!(matches!(
         compound,
         FieldWorksLink::Unavailable {
-            reason: FieldWorksUnavailableReason::UnsupportedKind,
+            reason: FieldWorksUnavailableReason::GuidNotRecorded,
             ..
         }
     ));
@@ -1563,7 +1602,7 @@ fn fieldworks_navigation_has_exact_supported_and_unavailable_states() {
     for (kind, reason) in [
         (
             FwClass::PhPhonemeSet,
-            FieldWorksUnavailableReason::UnsupportedKind,
+            FieldWorksUnavailableReason::GuidNotRecorded,
         ),
         (
             FwClass::PhPhoneme,

@@ -149,6 +149,7 @@ fn nonhead_resolution_replaces_shape_and_syntactic_fs() {
 fn clone_def(def: &CompoundingRuleDef) -> CompoundingRuleDef {
     CompoundingRuleDef {
         xml_id: def.xml_id.clone(),
+        source_guid: def.source_guid.clone(),
         name: def.name.clone(),
         blockable: def.blockable,
         max_apps: def.max_apps,

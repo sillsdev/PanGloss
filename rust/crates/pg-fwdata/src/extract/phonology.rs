@@ -35,6 +35,7 @@ pub fn extract_phonology(
     let rules = extract_rules(ctx, phon_data);
 
     Phonology {
+        phoneme_set: phon_data.node.objsur_list("PhonemeSets").into_iter().next(),
         phonemes,
         boundary_markers,
         natural_classes,
@@ -42,6 +43,18 @@ pub fn extract_phonology(
         rules,
         feature_constraints,
     }
+}
+
+/// The first phoneme set, named as FieldWorks shows it; the project name stands in for an unnamed set.
+fn phoneme_set_subject(ctx: &Ctx, set_guid: &str, project_name: &str) -> FwObjectRef {
+    let name = ctx
+        .get(set_guid)
+        .map(|set| ctx.best_analysis(&set.node.ws_forms("Name")))
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| project_name.to_string());
+    FwObjectRef::new(FwClass::PhPhonemeSet)
+        .guid(set_guid)
+        .name(name)
 }
 
 /// `HCLoader` only ever loads the first phoneme set (HCLoader.cs:204); this does the same, warning if there is more than one.
@@ -60,7 +73,7 @@ fn extract_phoneme_set(
                     set_guids.len()
                 ),
             )
-            .with_subject(FwObjectRef::new(FwClass::Project).name(project_name)),
+            .with_subject(phoneme_set_subject(ctx, &set_guids[0], project_name)),
         );
     }
     // Every set beyond the first is looked at only to record it as considered, never selected.
@@ -216,6 +229,8 @@ fn extract_natural_classes(ctx: &mut Ctx, phon_data: &Record) -> Vec<NaturalClas
 fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
     let rec = ctx.get(guid)?;
     let name = ctx.best_analysis(&rec.node.ws_forms("Abbreviation"));
+    let display_name =
+        Some(ctx.best_analysis(&rec.node.ws_forms("Name"))).filter(|n| !n.trim().is_empty());
     let key = InventoryKey::object(InventoryKind::NaturalClass, guid.to_string());
     match rec.class.as_str() {
         "PhNCSegments" => {
@@ -226,6 +241,7 @@ fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
             Some(NaturalClass::Segments {
                 guid: guid.to_string(),
                 name,
+                display_name,
                 phonemes,
             })
         }
@@ -241,6 +257,7 @@ fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
             Some(NaturalClass::Features {
                 guid: guid.to_string(),
                 name,
+                display_name,
                 features,
             })
         }

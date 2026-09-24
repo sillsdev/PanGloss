@@ -113,6 +113,8 @@ impl CharDef {
 pub struct CharDefTable {
     xml_id: String,
     name: Option<String>,
+    /// ← the `PhPhonemeSet` this table was compiled from; `None` for a table loaded from HC XML.
+    source_guid: Option<String>,
     defs: Vec<CharDef>,
     /// NFD-normalized representation -> owning char def, the exact lookup `CharacterDefinitionTable._charDefLookup` performs.
     lookup: HashMap<String, CharDefId>,
@@ -200,6 +202,7 @@ impl CharDefTable {
         Ok(CharDefTable {
             xml_id,
             name,
+            source_guid: None,
             defs,
             lookup,
             unif_closure,
@@ -246,6 +249,16 @@ impl CharDefTable {
     #[inline]
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    pub fn with_source_guid(mut self, source_guid: Option<String>) -> Self {
+        self.source_guid = source_guid;
+        self
+    }
+
+    #[inline]
+    pub fn source_guid(&self) -> Option<&str> {
+        self.source_guid.as_deref()
     }
 
     #[inline]

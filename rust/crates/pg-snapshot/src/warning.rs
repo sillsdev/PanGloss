@@ -273,6 +273,16 @@ pub struct FwObjectRef {
     pub guid: Option<String>,
     /// The name a linguist sees in FieldWorks (form, gloss, rule name, phoneme representation).
     pub name: Option<String>,
+    /// Where FieldWorks opens this object when its class alone cannot say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opens_in: Option<FwOpenTarget>,
+}
+
+/// A FieldWorks tool and the GUID it selects, e.g. a boundary marker opens its phoneme set in `phonemeEdit`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct FwOpenTarget {
+    pub tool: String,
+    pub guid: String,
 }
 
 impl FwObjectRef {
@@ -281,7 +291,17 @@ impl FwObjectRef {
             class,
             guid: None,
             name: None,
+            opens_in: None,
         }
+    }
+
+    pub fn opens_in(mut self, tool: impl Into<String>, guid: impl Into<String>) -> Self {
+        let guid = guid.into();
+        self.opens_in = Some(FwOpenTarget {
+            tool: tool.into(),
+            guid: canonical_guid(&guid).unwrap_or(guid),
+        });
+        self
     }
 
     pub fn guid(mut self, guid: impl Into<String>) -> Self {

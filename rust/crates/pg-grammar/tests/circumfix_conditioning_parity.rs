@@ -78,11 +78,13 @@ fn snapshot() -> Snapshot {
             NaturalClass::Segments {
                 guid: "nc-v".to_string(),
                 name: "V".to_string(),
+                display_name: None,
                 phonemes: vec!["ph-a".to_string()],
             },
             NaturalClass::Segments {
                 guid: "nc-c".to_string(),
                 name: "C".to_string(),
+                display_name: None,
                 phonemes: vec!["ph-b".to_string()],
             },
         ],

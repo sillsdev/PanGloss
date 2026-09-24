@@ -430,6 +430,7 @@ fn prefix_rule(g: &Grammar, morpheme: u32, seg: &str) -> MorphRuleDef {
 fn compounding_rule(g: &Grammar) -> MorphRuleDef {
     MorphRuleDef::Compounding(CompoundingRuleDef {
         xml_id: "compound".into(),
+        source_guid: None,
         name: None,
         blockable: false,
         max_apps: 1,

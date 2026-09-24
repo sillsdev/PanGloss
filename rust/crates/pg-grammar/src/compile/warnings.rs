@@ -543,18 +543,30 @@ fn name_for_source(snapshot: &Snapshot, source: &pg_snapshot::SourceRef) -> Opti
             }),
         pg_snapshot::FwClass::PhNaturalClass => snapshot.phonology.natural_classes.iter().find_map(
             |natural_class| match natural_class {
-                pg_snapshot::phonology::NaturalClass::Segments { guid, name, .. }
-                | pg_snapshot::phonology::NaturalClass::Features { guid, name, .. }
-                    if guid == &source.id =>
-                {
-                    Some(if name.is_empty() {
-                        pg_snapshot::warning_metadata::fieldworks_missing_name_fallback(
-                            pg_snapshot::FwClass::PhNaturalClass,
-                        )
-                        .to_string()
-                    } else {
-                        name.clone()
-                    })
+                pg_snapshot::phonology::NaturalClass::Segments {
+                    guid,
+                    name,
+                    display_name,
+                    ..
+                }
+                | pg_snapshot::phonology::NaturalClass::Features {
+                    guid,
+                    name,
+                    display_name,
+                    ..
+                } if guid == &source.id => {
+                    // FieldWorks' Name first; the abbreviation is what environments cite.
+                    Some(
+                        display_name
+                            .clone()
+                            .or_else(|| Some(name.clone()).filter(|name| !name.is_empty()))
+                            .unwrap_or_else(|| {
+                                pg_snapshot::warning_metadata::fieldworks_missing_name_fallback(
+                                    pg_snapshot::FwClass::PhNaturalClass,
+                                )
+                                .to_string()
+                            }),
+                    )
                 }
                 _ => None,
             },
@@ -777,4 +789,56 @@ fn template_name(snapshot: &Snapshot, guid: &str, want_template: bool) -> Option
 
 fn same_fact(left: &Warning, right: &Warning) -> bool {
     left.same_fact_as(right)
+}
+
+/// Gives each subject FieldWorks cannot open by its class alone the tool and GUID that does.
+pub(super) fn add_open_targets(snapshot: &Snapshot, warnings: &mut [Warning]) {
+    use crate::grammar_health_presentation::tool;
+    use pg_snapshot::FwClass;
+    let phoneme_set = snapshot.phonology.phoneme_set.as_deref();
+    for subject in warnings
+        .iter_mut()
+        .flat_map(|warning| warning.subjects.iter_mut())
+    {
+        if subject.opens_in.is_some() {
+            continue;
+        }
+        let target = match subject.class {
+            FwClass::PhBdryMarker => phoneme_set.map(|set| (tool::PHONEMES, set)),
+            FwClass::PhPhoneme if subject.guid.is_none() => {
+                phoneme_set.map(|set| (tool::PHONEMES, set))
+            }
+            FwClass::FsClosedFeature | FwClass::FsComplexFeature | FwClass::FsSymFeatVal => {
+                subject.guid.as_deref().and_then(|guid| {
+                    feature_tool(snapshot, guid).map(|feature_tool| (feature_tool, guid))
+                })
+            }
+            _ => None,
+        };
+        if let Some((tool, guid)) = target {
+            let guid = guid.to_string();
+            *subject = subject.clone().opens_in(tool, guid);
+        }
+    }
+}
+
+/// Phonological and inflection features are edited in different FieldWorks tools.
+fn feature_tool(snapshot: &Snapshot, guid: &str) -> Option<&'static str> {
+    use crate::grammar_health_presentation::tool;
+    let owns = |system: &pg_snapshot::feature::FeatureSystem| {
+        system.closed_features.iter().any(|feature| {
+            feature.guid == guid || feature.values.iter().any(|value| value.guid == guid)
+        }) || system
+            .complex_features
+            .iter()
+            .any(|feature| feature.guid == guid)
+    };
+    let systems = &snapshot.feature_systems;
+    if owns(&systems.phonological) {
+        Some(tool::PHONOLOGICAL_FEATURES)
+    } else if owns(&systems.morphosyntactic) {
+        Some(tool::INFLECTION_FEATURES)
+    } else {
+        None
+    }
 }

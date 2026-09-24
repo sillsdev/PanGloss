@@ -14,6 +14,9 @@ use crate::feature::FeatureStructure;
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Phonology {
+    /// ← `PhonologicalDataOA.PhonemeSetsOS[0]`, the set the phonemes and boundary markers below belong to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phoneme_set: Option<Guid>,
     /// ← `PhPhonemeSet.PhonemesOC` of `PhonologicalDataOA.PhonemeSetsOS[0]` (HCLoader only ever
     /// loads the first phoneme set, HCLoader.cs:204/2669).
     pub phonemes: Vec<Phoneme>,
@@ -84,12 +87,17 @@ pub enum NaturalClass {
         guid: Guid,
         /// ← `PhNaturalClass.Abbreviation`, not `Name` -- what environment strings reference in `[Abbr]` bracket notation.
         name: String,
+        /// ← `PhNaturalClass.Name`, the label FieldWorks shows; reports only, never matched.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_name: Option<String>,
         phonemes: Vec<Guid>,
     },
     /// ← `PhNCFeatures.FeaturesOA` — every phoneme whose feature structure includes these values.
     Features {
         guid: Guid,
         name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_name: Option<String>,
         features: FeatureStructure,
     },
 }

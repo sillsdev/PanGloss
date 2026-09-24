@@ -759,6 +759,8 @@ pub enum OutputAction {
 #[derive(Debug)]
 pub struct CompoundingRuleDef {
     pub xml_id: String,
+    /// ← the `MoCompoundRule` it was compiled from; `None` for a synthesized or HC-XML rule.
+    pub source_guid: Option<String>,
     pub name: Option<String>,
     pub blockable: bool,
     pub max_apps: u16,

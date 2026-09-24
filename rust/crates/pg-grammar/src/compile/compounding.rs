@@ -143,6 +143,7 @@ fn default_compounding_rules(ctx: &Ctx, acc: &mut Acc) -> Result<Vec<MRuleId>, G
         acc.mrules
             .push(MorphRuleDef::Compounding(CompoundingRuleDef {
                 xml_id: name.to_string(),
+                source_guid: None,
                 name: Some(name.to_string()),
                 blockable: true,
                 max_apps: 1,
@@ -270,6 +271,7 @@ fn build_endo(
     acc.mrules
         .push(MorphRuleDef::Compounding(CompoundingRuleDef {
             xml_id: format!("endo#{name}"),
+            source_guid: Some(rule_guid.to_string()),
             name: Some(name.to_string()),
             blockable: true,
             max_apps,
@@ -359,6 +361,7 @@ fn build_exo(
         acc.mrules
             .push(MorphRuleDef::Compounding(CompoundingRuleDef {
                 xml_id: format!("exo-right#{name}"),
+                source_guid: Some(rule_guid.to_string()),
                 name: Some(name.to_string()),
                 blockable: true,
                 max_apps,
@@ -389,6 +392,7 @@ fn build_exo(
         acc.mrules
             .push(MorphRuleDef::Compounding(CompoundingRuleDef {
                 xml_id: format!("exo-left#{name}"),
+                source_guid: Some(rule_guid.to_string()),
                 name: Some(name.to_string()),
                 blockable: true,
                 max_apps,

@@ -315,6 +315,7 @@ fn synthesis_override_bypasses_partial_word_rescue_for_compounding() {
     let g = load_alpha_grammar();
     let rule = MorphRuleDef::Compounding(CompoundingRuleDef {
         xml_id: "compound".into(),
+        source_guid: None,
         name: None,
         blockable: false,
         max_apps: 1,
@@ -400,6 +401,7 @@ fn compounding_in_a_template_slot_bypasses_the_ordinary_synthesis_gate() {
     let r = MRuleId(g.mrules.len() as u32);
     g.mrules.push(MorphRuleDef::Compounding(CompoundingRuleDef {
         xml_id: "template-compound".into(),
+        source_guid: None,
         name: None,
         blockable: false,
         max_apps: 1,

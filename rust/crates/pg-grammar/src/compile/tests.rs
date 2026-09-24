@@ -107,11 +107,13 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
         SnapNaturalClass::Segments {
             guid: "nc-unreferenced-compacted".to_string(),
             name: String::new(),
+            display_name: None,
             phonemes: vec!["ph-k".to_string()],
         },
         SnapNaturalClass::Segments {
             guid: "nc-last-unnamed".to_string(),
             name: String::new(),
+            display_name: None,
             phonemes: vec!["ph-t".to_string()],
         },
     ]);
@@ -192,6 +194,68 @@ fn linguist_warnings(warnings: &[pg_snapshot::Warning]) -> Vec<&pg_snapshot::War
                 == pg_snapshot::DiagnosticLevel::Warning
         })
         .collect()
+}
+
+#[test]
+fn subjects_without_a_tool_of_their_own_open_where_fieldworks_edits_them() {
+    use pg_snapshot::{FwClass, FwObjectRef, FwOpenTarget, Warning};
+    let (mut snapshot, _f) = fixture();
+    let set = "11111111-1111-1111-1111-111111111111";
+    snapshot.phonology.phoneme_set = Some(set.to_string());
+    let feature = |guid: &str| pg_snapshot::feature::ClosedFeature {
+        guid: guid.to_string(),
+        name: "feature".to_string(),
+        abbreviation: "f".to_string(),
+        values: Vec::new(),
+    };
+    let phonological = "22222222-2222-2222-2222-222222222222";
+    let inflection = "33333333-3333-3333-3333-333333333333";
+    let marker = "44444444-4444-4444-4444-444444444444";
+    let natural_class = "55555555-5555-5555-5555-555555555555";
+    snapshot
+        .feature_systems
+        .phonological
+        .closed_features
+        .push(feature(phonological));
+    snapshot
+        .feature_systems
+        .morphosyntactic
+        .closed_features
+        .push(feature(inflection));
+    let subject = |source: FwObjectRef| {
+        Warning::new(super::issue_codes::STRATA_CUSTOM_UNSUPPORTED, "m").with_subject(source)
+    };
+    let mut warnings = vec![
+        subject(FwObjectRef::new(FwClass::PhBdryMarker).guid(marker)),
+        subject(FwObjectRef::new(FwClass::PhPhoneme).name("N")),
+        subject(FwObjectRef::new(FwClass::FsClosedFeature).guid(phonological)),
+        subject(FwObjectRef::new(FwClass::FsClosedFeature).guid(inflection)),
+        subject(FwObjectRef::new(FwClass::PhNaturalClass).guid(natural_class)),
+    ];
+
+    super::warnings::add_open_targets(&snapshot, &mut warnings);
+
+    let target = |tool: &str, guid: &str| {
+        Some(FwOpenTarget {
+            tool: tool.to_string(),
+            guid: guid.to_string(),
+        })
+    };
+    let opens: Vec<_> = warnings
+        .iter()
+        .map(|warning| warning.subjects[0].opens_in.clone())
+        .collect();
+    assert_eq!(
+        opens,
+        vec![
+            target("phonemeEdit", set),
+            target("phonemeEdit", set),
+            target("phonologicalFeaturesAdvancedEdit", phonological),
+            target("featuresAdvancedEdit", inflection),
+            None,
+        ],
+        "only subjects whose class cannot pick a tool get an explicit target"
+    );
 }
 
 #[test]
@@ -693,6 +757,7 @@ fn valid_bracket_environment_compiles_without_warnings() {
         .push(SnapNaturalClass::Segments {
             guid: "nc-vowel".to_string(),
             name: "V".to_string(),
+            display_name: None,
             phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
         });
     snapshot
@@ -1106,6 +1171,7 @@ fn circumfix_snapshot(
         .push(SnapNaturalClass::Segments {
             guid: "nc-vowel".to_string(),
             name: "V".to_string(),
+            display_name: None,
             phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
         });
     let mut prefix = simple_allomorph("allo-circ-prefix", MorphType::Prefix, "ka");
@@ -1366,6 +1432,7 @@ fn circumfix_cross_product_embeds_each_halfs_context_in_lhs_not_environment_unio
         .push(SnapNaturalClass::Segments {
             guid: "nc-v".to_string(),
             name: "V".to_string(),
+            display_name: None,
             phonemes: vec!["ph-a".to_string()],
         });
     snapshot
@@ -1374,6 +1441,7 @@ fn circumfix_cross_product_embeds_each_halfs_context_in_lhs_not_environment_unio
         .push(SnapNaturalClass::Segments {
             guid: "nc-c".to_string(),
             name: "C".to_string(),
+            display_name: None,
             phonemes: vec!["ph-b".to_string()],
         });
     for (guid, rep) in [
@@ -1972,6 +2040,7 @@ fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
             .push(SnapNaturalClass::Segments {
                 guid: "nc-vowel".to_string(),
                 name: "V".to_string(),
+                display_name: None,
                 phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
             });
         snapshot
@@ -2410,8 +2479,21 @@ fn default_compounding_synthesizes_exactly_two_compound_rule_atoms_only_when_non
             right: CompoundConstituentRequirement::default(),
             overriding: CompoundOutcome::default(),
         });
-    let (_grammar2, _warnings2, inventory2, _issues2) =
+    let (grammar2, _warnings2, inventory2, _issues2) =
         compile_recording_ok(&snapshot_with_authored);
+    let compound_sources: Vec<_> = grammar2
+        .mrules
+        .iter()
+        .filter_map(|rule| match rule {
+            MorphRuleDef::Compounding(def) => Some(def.source_guid.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        compound_sources,
+        vec![Some("cr-authored")],
+        "an authored compound rule keeps its FieldWorks GUID for linking"
+    );
     let synthesized_compound_rules_2 = inventory2
         .synthesized
         .iter()
@@ -2714,6 +2796,7 @@ fn natclass_segments_member_unresolved_is_non_fatal() {
         .push(SnapNaturalClass::Segments {
             guid: "nc-bad".to_string(),
             name: "Bad".to_string(),
+            display_name: None,
             phonemes: vec!["ph-does-not-exist".to_string()],
         });
 
@@ -2867,6 +2950,7 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
         .push(SnapNaturalClass::Segments {
             guid: "nc-orphan".to_string(),
             name: String::new(),
+            display_name: None,
             phonemes: vec!["ph-a".to_string()],
         });
     snapshot
@@ -2875,6 +2959,7 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
         .push(SnapNaturalClass::Segments {
             guid: "nc-last-unnamed".to_string(),
             name: String::new(),
+            display_name: None,
             phonemes: vec!["ph-i".to_string()],
         });
     snapshot
@@ -2883,6 +2968,7 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
         .push(SnapNaturalClass::Segments {
             guid: "nc-vowel".to_string(),
             name: "V".to_string(),
+            display_name: None,
             phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
         });
     snapshot
@@ -3710,6 +3796,7 @@ fn add_feature_based_rule_that_can_match_unspecified_q(snapshot: &mut Snapshot) 
         .push(SnapNaturalClass::Features {
             guid: nc_guid.clone(),
             name: "Front".to_string(),
+            display_name: None,
             features: FeatureStructure {
                 values: vec![FeatureValue {
                     feature: feature_guid.clone(),
@@ -3929,6 +4016,7 @@ fn pattern_bearing_root_form_is_not_treated_as_an_undeclared_literal() {
         .push(SnapNaturalClass::Segments {
             guid: "nc-vowel".to_string(),
             name: "V".to_string(),
+            display_name: None,
             phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
         });
     snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "k[V]t")];

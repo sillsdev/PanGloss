@@ -216,6 +216,7 @@ fn base_snapshot() -> Snapshot {
         .push(NaturalClass::Features {
             guid: "nc-front".to_string(),
             name: "Front".to_string(),
+            display_name: None,
             features: FeatureStructure {
                 values: vec![FeatureValue {
                     feature: "feat-frontness".to_string(),

@@ -1902,6 +1902,7 @@ fn try_load_compounding_rule(
     acc.mrules
         .push(MorphRuleDef::Compounding(CompoundingRuleDef {
             xml_id: comp.attr("id").unwrap_or("").to_string(),
+            source_guid: None,
             name: comp.text_of("Name").map(str::to_string),
             blockable: parse_bool(comp.attr("blockable"), true),
             max_apps,

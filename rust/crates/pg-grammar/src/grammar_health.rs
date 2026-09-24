@@ -33,15 +33,15 @@
 //! change out of scope for this port.
 
 use crate::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
-use crate::grammar_health_presentation::{
-    fieldworks_identity, fieldworks_link_from_identity, FieldWorksSource,
-};
+use crate::grammar_health_presentation::{fieldworks_identity, fieldworks_link, FieldWorksSource};
 use crate::model::{
     Grammar, LexEntryId, MRuleId, MorphRuleDef, OutputAction, PartialMorphemeFacts,
     PartialMorphemeIdentity, PartialMorphemeReason, TableId,
 };
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
-use pg_snapshot::{DiagnosticLevel, FwClass, FwObjectRef, ImportWarningCode, Warning};
+use pg_snapshot::{
+    DiagnosticLevel, FwClass, FwObjectRef, FwOpenTarget, ImportWarningCode, Warning,
+};
 
 /// The stable diagnostic codes this module reports (C# `GrammarHealthCodes`). Treat
 /// [`GrammarHealthCode::wire`], not [`GrammarHealthDiagnostic::message`], as the identifier a host
@@ -313,6 +313,9 @@ pub struct GrammarHealthSubject {
     pub subtitle: Option<String>,
     pub guid: Option<String>,
     pub internal_id: Option<String>,
+    /// Where FieldWorks opens this subject when its kind alone cannot say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opens_in: Option<FwOpenTarget>,
     pub fieldworks: FieldWorksLink,
 }
 
@@ -335,7 +338,12 @@ impl GrammarHealthSubject {
             .filter(|name| !name.is_empty())
             .map_or_else(|| unnamed_subject_title(source.class), str::to_string);
         let guid = source.guid;
-        let fieldworks = fieldworks_link_from_identity(source.class, guid.as_deref(), None);
+        let fieldworks = fieldworks_link(
+            source.class,
+            guid.as_deref(),
+            source.opens_in.as_ref(),
+            None,
+        );
         Self {
             kind: source.class,
             title,
@@ -343,6 +351,7 @@ impl GrammarHealthSubject {
             fieldworks,
             guid,
             internal_id: None,
+            opens_in: source.opens_in,
         }
     }
 
@@ -568,9 +577,10 @@ impl GrammarHealthReport {
         let fieldworks_project = fieldworks_project.normalized();
         for diagnostic in &mut self.diagnostics {
             for subject in &mut diagnostic.subjects {
-                subject.fieldworks = fieldworks_link_from_identity(
+                subject.fieldworks = fieldworks_link(
                     subject.kind,
                     subject.guid.as_deref(),
+                    subject.opens_in.as_ref(),
                     fieldworks_project.name.as_deref(),
                 );
             }
@@ -966,14 +976,19 @@ fn make_subject(
     fieldworks_project: Option<&str>,
 ) -> GrammarHealthSubject {
     let source = source.name(title.clone());
-    let fieldworks =
-        fieldworks_link_from_identity(source.class, source.guid.as_deref(), fieldworks_project);
+    let fieldworks = fieldworks_link(
+        source.class,
+        source.guid.as_deref(),
+        source.opens_in.as_ref(),
+        fieldworks_project,
+    );
     GrammarHealthSubject {
         kind: source.class,
         title,
         subtitle,
         guid: source.guid,
         internal_id: Some(internal_id),
+        opens_in: source.opens_in,
         fieldworks,
     }
 }
@@ -985,7 +1000,7 @@ fn table_subject(
     table: &CharDefTable,
 ) -> GrammarHealthSubject {
     make_subject(
-        fieldworks_identity(grammar, &FieldWorksSource::Table),
+        fieldworks_identity(grammar, &FieldWorksSource::Table(id)),
         table_display_name(table).to_string(),
         None,
         format!("table#{}:{}", id.0, table.xml_id()),

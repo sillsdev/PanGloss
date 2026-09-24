@@ -191,7 +191,8 @@ pub(crate) fn finalize(
         null_bdry,
         ..
     } = raw;
-    let table = CharDefTable::from_raw("main".to_string(), None, raw_defs, phon)?;
+    let table = CharDefTable::from_raw("main".to_string(), None, raw_defs, phon)?
+        .with_source_guid(snapshot.phonology.phoneme_set.clone());
 
     // The morph-boundary lookup is a derived fact, not a snapshot object -- there is nothing upstream to author it against.
     let morph_bdry_key = InventoryKey::setting(InventoryKind::BoundaryMarker, "morph-boundary");

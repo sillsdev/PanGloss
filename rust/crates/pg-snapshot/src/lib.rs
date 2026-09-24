@@ -79,7 +79,7 @@ pub use phonology::{
 };
 pub use project::Project;
 pub use warning::{
-    canonical_guid, DiagnosticLevel, FwClass, FwObjectRef, ImportWarningCode, Warning,
+    canonical_guid, DiagnosticLevel, FwClass, FwObjectRef, FwOpenTarget, ImportWarningCode, Warning,
 };
 pub use warning_metadata::{import_warning_metadata, ImportWarningMetadata};
 
