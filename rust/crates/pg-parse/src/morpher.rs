@@ -46,7 +46,7 @@ pub struct Morpher<'g> {
     cache: RuleCache,
     /// C#'s settable `Morpher.MaxStemCount`; default `2`, and raising it stays bounded by the shared step/timeout budget.
     max_stem_count: u32,
-    /// Opt-in C# `Morpher.PruneDisagreeingCopies`; default `false` to preserve existing analyses.
+    /// C# `Morpher.PruneDisagreeingCopies`; on by default, as in C#.
     prune_disagreeing_copies: bool,
 }
 
@@ -194,7 +194,7 @@ impl<'g> Morpher<'g> {
             word_timeout: None,
             cache: RuleCache::build(g),
             max_stem_count: 2, // C# `Morpher.MaxStemCount` ctor default (Morpher.cs:56)
-            prune_disagreeing_copies: false,
+            prune_disagreeing_copies: true,
         }
     }
 

@@ -1274,3 +1274,8 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
         );
     }
 }
+
+#[test]
+fn copy_agreement_pruning_is_on_by_default() {
+    assert!(AnalyzerConfig::default().prune_disagreeing_copies);
+}

@@ -440,7 +440,7 @@ impl Default for AnalyzerConfig {
             merge_equivalent: true,
             max_unapplications: 0,
             max_stem_count: 2,
-            prune_disagreeing_copies: false,
+            prune_disagreeing_copies: true,
         }
     }
 }
