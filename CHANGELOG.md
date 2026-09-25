@@ -3,19 +3,48 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## 0.3.3
+## 0.4.0
 
-### Single-word trace details as JSON
+### Reduplication is analyzed without chasing copies that cannot match
 
-- **An explicit diagnostic envelope.** `pangloss parse <grammar> <word> --trace
-  --trace-format=json --trace-details` writes one `pangloss.trace-details.v1` JSON document.
-  It carries the compact trace, parse result and analyses, completion and cap state, step count,
-  and the existing attempt and outcome counters grouped by parser category.
-- **Timing reuses the existing stats architecture.** The envelope reports overall search
-  `elapsedNs` and category `selfElapsedNs`. Categories without timing instrumentation say so
-  with `timingAvailable: false` and `selfElapsedNs: null`; no per-node clocks were added.
-- **The mode remains narrow and opt-in.** It accepts one word per invocation, is unavailable on
-  `batch`, and leaves ordinary parse and trace output unchanged when `--trace-details` is absent.
+- **Disagreeing copies are pruned by default.** When a rule copies part of the stem more than once
+  (full or partial reduplication), analysis used to try every way of splitting the word into copies
+  and let synthesis discard the ones whose copies differ. It now drops a split whose copies cannot
+  unify segment by segment, before any further search. On grammars built around full-stem
+  reduplication this is most of the analysis work; grammars without such rules are unaffected.
+- **Results are unchanged.** A copy containing an optional segment (an undone deletion), or one the
+  rule itself modifies, is always kept, so only splits synthesis would reject are removed. The
+  whole conformance suite and the C# port tests pass with pruning on and off. It mirrors
+  sillsdev/machine#519; `Morpher::with_prune_disagreeing_copies(false)` restores the old search.
+- **New conformance cases.** The `machine` submodule advances to 34215889, adding reduplication x
+  phonology words (a copy changed by later voicing or deletion, and a fixed-vowel reduplicant). The
+  FST backends' `tuned-surface-probed` route misses one of them (`hasaasa`, a copy altered by
+  deletion); the scoreboard and faithfulness ratchets record it as a known proposer gap.
+
+### Grammar health v2
+
+- **Diagnostics with levels.** Report items are `diagnostics`, each `warning` (change something in
+  FieldWorks) or `info` (the parser left something out; nothing to fix). `level` replaces
+  `severity` and `audience`.
+- **FieldWorks names and links for every diagnostic.** Natural classes show their FieldWorks name,
+  and every subject links back to the FieldWorks tool that owns it. `pangloss` reports the v2
+  format, and imports carry structured diagnostics.
+
+### Traces and stats
+
+- **Single-word trace details as JSON.** `pangloss parse <grammar> <word> --trace
+  --trace-format=json --trace-details` writes one `pangloss.trace-details.v1` document with the
+  compact trace, parse result, analyses, completion and cap state, step count, and counters grouped
+  by parser category, including search `elapsedNs` and category `selfElapsedNs`. It is opt-in and
+  single-word; ordinary parse and trace output are unchanged. (Prepared as 0.3.3, which was never
+  published.)
+- **Stats cover more of the work.** Overlay time splits into search, gate and materialize;
+  phonological synthesis, metathesis and root lookups are timed; stats batches parse each word once.
+
+### Build and test
+
+- Integration tests are consolidated into far fewer binaries, builds size themselves to the machine,
+  and tests link with rust-lld, so a full test run compiles much less.
 
 ## 0.3.2
 
