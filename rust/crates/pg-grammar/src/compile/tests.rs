@@ -3007,7 +3007,7 @@ fn unreferenced_unnamed_natural_class_is_revoked_but_referenced_and_any_survive(
             .map(|source| source.id.as_str()),
         Some("nc-orphan")
     );
-    let warning = super::warnings::from_issues(&snapshot, &[compacted_issue.clone()]);
+    let warning = super::warnings::from_issues(&snapshot, std::slice::from_ref(compacted_issue));
     assert_eq!(
         warning[0].subjects[0].name.as_deref(),
         Some("Unnamed natural class")

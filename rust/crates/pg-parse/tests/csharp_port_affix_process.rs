@@ -41,10 +41,12 @@ fn analyze_copy_shape(
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
     let stratum = pg_grammar_model::model::StratumId(0);
-    let mut config = AnalyzerConfig::default();
-    config.prune_disagreeing_copies = prune_disagreeing_copies;
+    let config = AnalyzerConfig {
+        prune_disagreeing_copies,
+        ..AnalyzerConfig::default()
+    };
     pg_rules::stratum::analyze_stratum(
-        &g,
+        g,
         stratum,
         Word::new(shape, stratum),
         &config,
