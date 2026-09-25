@@ -41,6 +41,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | FieldWorks `HCLoader.cs` (`LoadCircumfixAffixProcessAllomorph`) | 039 |
 | `Stratum.cs` (`CharacterDefinitionTable` property) | 041 |
 | `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
+| `AnalysisMorphologicalTransform.cs` (`ClassifyRepeatedPartCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
+| `AnalysisRewriteRule.cs` (deletion unapplication), `AnalysisMetathesisRule.cs` | 050 |
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
 
 ## By Rust module
@@ -89,6 +91,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-parse/src/morpher.rs` (`surface_of`, `is_match_traced`) | 042, 043 |
 | `pg-cli/src/main.rs` (`run_batch`, `parse_batch_with_stats`) | 048 |
 | `pg-cli/src/stats_cmd.rs` (`prepare_batch_stats_hc`, `finish_batch_stats_hc`) | 048 |
+| `pg-rules/src/morph.rs` (`copy_agreement_refuses_match`, `ana_allomorph_matches`), `pg-rules/src/stratum.rs` (`AnalyzerConfig`) | 049 |
+| `pg-rules/src/rewrite.rs` (deletion unapplication), `pg-rules/src/metathesis.rs` (analysis) | 050 |
 
 ## By fixture / test file
 
@@ -115,6 +119,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/right-to-left-segments-environment/`, `pg-foma/src/capability.rs` unit tests | 044 |
 | `conformance-staging/edge-cases/right-to-left-cross-table-segments-environment/` | 044 |
 | `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |
+| `pg-parse/tests/csharp_port_affix_process.rs` (copy-agreement tests), `pg-rules/tests/stratum_gate.rs` (`copy_agreement_pruning_is_on_by_default`), `machine/conformance` `metathesis-phase-isolation` / `suffixing-extension-slot-ordering` reduplication words | 049 |
 
 ## Optimization and shared-correctness follow-up
 
@@ -128,3 +133,5 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `ApplyRhs` / `attribute_morphs` | 036 | Stable shared zero-width fixture still missing |
 | C# tied-node ordering / oracle comparison | 037 | Fresh-process identity pin still missing |
 | Edge-segment matching / unported prefilter | 038 | Candidate only; no dedicated fixture |
+| Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `34215889`) |
+| Deletion unapplication x metathesis across strata | 050 | Missing; repro in Machine #520 |
