@@ -1991,6 +1991,17 @@ fn repeated_part_action_groups(rhs: &[OutputAction]) -> HashMap<u16, Vec<usize>>
     groups
 }
 
+fn has_repeated_part_action_group(rhs: &[OutputAction]) -> bool {
+    rhs.iter().enumerate().any(|(i, action)| {
+        let Some(part) = redup_part_ref(action) else {
+            return false;
+        };
+        rhs[..i]
+            .iter()
+            .any(|previous| redup_part_ref(previous) == Some(part))
+    })
+}
+
 /// For every RHS index inside a reduplication group (an `Input` part referenced 2+ times), reports whether that occurrence is the existing echo or new affix material; indices outside any group are absent, keeping default attribution.
 fn classify_redup(
     lhs_len: u16,
@@ -2643,7 +2654,8 @@ fn ana_allomorph_matches(
         .map(|(i, p)| (format!("p{i}"), p))
         .collect();
     let mut allo_out: Vec<Word> = Vec::new();
-    let repeated_parts = prune_disagreeing_copies.then(|| repeated_part_action_groups(&allo.rhs));
+    let repeated_parts = (prune_disagreeing_copies && has_repeated_part_action_group(&allo.rhs))
+        .then(|| repeated_part_action_groups(&allo.rhs));
     let matches = Transduce::new(fst, segs.to_vec())
         .anchored(true, true)
         .all_matches();
@@ -3510,6 +3522,34 @@ fn push_remove_duplicates_compound_pinned(out: &mut Vec<Word>, w: Word) {
         shape_duplicates(&a.shape, &b.shape)
             && b.current_non_head().and_then(|nh| nh.root_allomorph) == allo
     });
+}
+
+#[cfg(test)]
+mod copy_prune_tests {
+    use super::{has_repeated_part_action_group, OutputAction, PartRef, SimpleContext};
+
+    #[test]
+    fn repeated_part_scan_only_finds_duplicate_input_references() {
+        assert!(!has_repeated_part_action_group(&[]));
+        assert!(!has_repeated_part_action_group(&[
+            OutputAction::Copy(PartRef::Input(0)),
+            OutputAction::Copy(PartRef::Input(1)),
+            OutputAction::Copy(PartRef::Head(0)),
+            OutputAction::Copy(PartRef::Head(0)),
+        ]));
+        assert!(has_repeated_part_action_group(&[
+            OutputAction::Copy(PartRef::Input(0)),
+            OutputAction::Copy(PartRef::Input(0)),
+        ]));
+        let context = SimpleContext {
+            nat_class: pg_grammar_model::model::NatClassId(0),
+            vars: Vec::new(),
+        };
+        assert!(has_repeated_part_action_group(&[
+            OutputAction::Copy(PartRef::Input(0)),
+            OutputAction::Modify(PartRef::Input(0), context),
+        ]));
+    }
 }
 
 // Compile-once cache — `crate::cache::RuleCache`'s allomorph/compounding slices.
