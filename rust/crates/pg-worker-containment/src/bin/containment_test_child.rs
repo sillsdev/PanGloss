@@ -105,11 +105,11 @@ mod windows_child {
             .next()
             .ok_or_else(|| "missing ready path".to_string())?;
         let late = args.next().ok_or_else(|| "missing late path".to_string())?;
-        fs::write(Path::new(&ready), b"ready").map_err(io_error)?;
         println!("holder stdout");
         eprintln!("holder stderr");
         io::stdout().flush().map_err(io_error)?;
         io::stderr().flush().map_err(io_error)?;
+        fs::write(Path::new(&ready), b"ready").map_err(io_error)?;
         std::thread::sleep(Duration::from_secs(10));
         fs::write(Path::new(&late), b"late").map_err(io_error)
     }
