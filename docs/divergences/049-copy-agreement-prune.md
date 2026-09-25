@@ -22,6 +22,14 @@ Synthesis writes every copy of a part from the same input, and every later chang
 - Conformance at Machine `34215889` adds reduplication x phonology words (`suffixing-extension-slot-ordering`: `pambam`; `metathesis-phase-isolation`: `hasaasa`, `haasa`, `titula`, `hiasa` and negatives). `-Mode conformance-test -Scope all` passes 2,725/2,725 with pruning on.
 - Release comparison, v0.3.3 vs v0.4.0 (`machine/scratchpad/review-0923/bench040`): identical analyses and unavailable lists on all 7,455 words completed by both across the five reference grammars. Aweti: 172 -> 191 completed within 20 s, 5.3x on the 172 shared words, word-list index 182 (Maxwell export) 60 s timeout -> 2.7 s. Sena, Amharic and Mbugwe measured 4-12% slower; see follow-up.
 
-## Follow-up
+## Allocation-free guard (after v0.4.0)
 
-The v0.4.0 path builds a `HashMap` of repeated parts for every affix allomorph match even when no part repeats, which is the suspected cause of the slowdown on grammars with no copy rules. An allocation-free guard is in progress on `perf/copy-prune-no-alloc`.
+v0.4.0 built a `HashMap` of repeated parts for every affix allomorph match, even when no part repeats. `77aca87f` (`perf/copy-prune-no-alloc`) first runs an allocation-free scan (`has_repeated_part_action_group`) and builds the map only when a part repeats. Release binaries against v0.4.0, same settings (`AlwaysEnforceFinalTemplates` off), identical analyses on words both complete, time summed over those words:
+
+| Grammar | Fixed / v0.4.0 | Completed (fixed vs v0.4.0) |
+|---|---|---|
+| Aweti (1 thread, 20 s cap) | 0.62, 0.64 | 190-192 vs 189 |
+| Mbugwe (8 threads, 10 s cap) | 0.97, 0.97 (a third round overlapped other builds and is excluded) | about equal |
+| Amharic (8 threads, 10 s cap) | 1.01 | equal |
+
+The 4-12% slowdown first reported for Sena, Amharic and Mbugwe was mostly machine-load noise: v0.3.3 and v0.4.0 swapped order between rounds. The C# side got the matching change in PR #519 (`2e1eb06f`, `HasRepeatedParts` cached per rule). Evidence: `machine/scratchpad/review-0923/bench040/noalloc` (local).
