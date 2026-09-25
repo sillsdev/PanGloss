@@ -10,7 +10,6 @@
 //! lossless plain-text log.
 
 use std::fs;
-use std::path::Path;
 
 use pg_grammar::grammar_health::{
     check_grammar_health_diagnostics, render_json, render_log, FieldWorksProject,
@@ -114,14 +113,15 @@ fn fieldworks_project_for_path(
             source: Some(FieldWorksProjectSource::Argument),
         };
     }
-    let path = Path::new(grammar_path);
-    let is_fwdata = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("fwdata"));
-    let name = is_fwdata
-        .then(|| path.file_stem().and_then(|stem| stem.to_str()))
-        .flatten();
+    // Split on both separators: a Windows project path must name its project on every host.
+    let file_name = grammar_path
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(grammar_path);
+    let name = file_name
+        .rsplit_once('.')
+        .filter(|(stem, extension)| !stem.is_empty() && extension.eq_ignore_ascii_case("fwdata"))
+        .map(|(stem, _)| stem);
     FieldWorksProject {
         name: name.map(str::to_string),
         source: name.map(|_| FieldWorksProjectSource::FwdataPath),

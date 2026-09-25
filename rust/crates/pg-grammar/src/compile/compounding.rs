@@ -60,7 +60,7 @@ pub(crate) fn build(
                 overriding,
                 ..
             } => {
-                match build_endo(
+                if let Some(id) = build_endo(
                     rule.guid(),
                     name,
                     *head_last,
@@ -71,11 +71,8 @@ pub(crate) fn build(
                     ctx,
                     acc,
                 )? {
-                    Some(id) => {
-                        morphology_mrules.push(id);
-                        ctx.represent_via(LineageTarget::MRule(id.0), key);
-                    }
-                    None => {}
+                    morphology_mrules.push(id);
+                    ctx.represent_via(LineageTarget::MRule(id.0), key);
                 }
             }
             CompoundRule::Exocentric {
