@@ -1,18 +1,13 @@
 name: Release
 
-# The ONLY way a PanGloss version is tagged. `rust/tools/release.ps1` refuses to tag outside this
-# workflow; run it locally with -DryRun as a preflight, not as a release.
+# Releases are cut only in CI: a local cut is reproducible only from the machine that cut it.
+# Unrelated scratch roots can dirty its tree, and a FieldWorks checkout can drift between machines.
 #
-# Why here rather than a workstation: a release cut locally is reproducible only from the machine
-# that cut it. One run of release.ps1 was refused because six roots of unrelated local scratch made
-# the tree dirty, and another because a FieldWorks checkout on that one machine had drifted -- both
-# facts about a laptop, neither about PanGloss.
-#
-# What actually gates a release is the conformance suite: `machine/conformance`, engine-agnostic and
-# all-synthetic, diffed against committed ground truth. That is the contract PanGloss is held to.
-# The real-language corpora (Sena, Amharic, Aweti, Indonesian) are deliberately absent here -- they
-# are gitignored local files, used for speed work and to harvest issues that then become conformance
-# fixtures. They are the sampling tool, not the contract, and their absence is not a gap in this gate.
+# The conformance gate is machine/conformance: all-synthetic fixtures diffed against committed
+# ground truth. Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files
+# and deliberately absent; they help harvest fixtures but are not release gates.
+# The local release.ps1 -DryRun checks workstation gates; CI also builds and smoke-checks all four
+# supported targets before publishing.
 
 on:
   workflow_dispatch:
@@ -24,7 +19,6 @@ on:
 
 permissions:
   contents: read
-  # The release preflight reads this commit's Rust CI result.
   actions: read
 
 env:
@@ -39,19 +33,16 @@ jobs:
       version: ${{ inputs.version }}
       timeout_minutes: 120
 
-  release:
-    name: stamp, tag and publish
+  stamp:
+    name: prepare version stamp
     needs: gates
     runs-on: windows-latest
-    timeout-minutes: 60
-    permissions:
-      contents: write
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           submodules: true
-          # The stamp commit is pushed from here, so fetch enough history to fast-forward main.
-          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -59,67 +50,427 @@ jobs:
         with:
           workspaces: rust
 
-      # Same substitution release.ps1 performs: [workspace.package] version is the single source and
-      # every crate inherits it. Cargo.lock records each workspace crate's version, so it is
-      # regenerated here or the tagged tree will not build with --locked.
       - name: Stamp the workspace version
         shell: pwsh
-        run: |
-          $toml = 'rust/Cargo.toml'
-          $text = Get-Content $toml -Raw
-          $stamped = $text -replace '(?m)^(version\s*=\s*)"[^"]+"', ('$1"' + '${{ inputs.version }}' + '"')
-          if ($stamped -eq $text) { Write-Host '::error::version substitution changed nothing in rust/Cargo.toml'; exit 1 }
-          Set-Content -Path $toml -Value $stamped -NoNewline
-      - name: Regenerate Cargo.lock
-        working-directory: rust
-        run: cargo check --workspace --locked --offline || cargo update --workspace
-
-      - name: Build the release artifact
-        working-directory: rust
-        run: cargo build --release -p pg-cli --locked
-
-      - name: Export the artifact with its checksum
-        shell: pwsh
-        run: |
-          $dist = "dist/v${{ inputs.version }}"
-          New-Item -ItemType Directory -Force -Path $dist | Out-Null
-          $exe = 'rust/target/release/pangloss.exe'
-          if (-not (Test-Path $exe)) { Write-Host '::error::release build produced no pangloss.exe'; exit 1 }
-          Copy-Item $exe $dist
-          $hash = (Get-FileHash (Join-Path $dist 'pangloss.exe') -Algorithm SHA256).Hash.ToLower()
-          Set-Content -Path (Join-Path $dist 'pangloss.exe.sha256') -Value $hash -NoNewline
-          Write-Host "artifact: $dist/pangloss.exe  sha256 $hash"
-
-      # The tag annotation says what was checked, so a tag can never imply coverage it did not have.
-      - name: Commit the stamp and tag
-        shell: bash
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          NOTE="Gated by: fmt, clippy, comment hygiene, rustdoc, cargo test --workspace, and the machine/conformance suite.
-          Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files and are not part of any release gate."
-          git add rust/Cargo.toml rust/Cargo.lock
-          git commit -m "release: v${{ inputs.version }}"
-          git tag -a "v${{ inputs.version }}" -m "PanGloss v${{ inputs.version }}
-
-          $NOTE"
-          git push origin HEAD:main
-          git push origin "v${{ inputs.version }}"
-
-      - name: Publish the GitHub release
         env:
-          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $path = 'rust/Cargo.toml'
+          $text = Get-Content $path -Raw
+          $sectionMatch = [regex]::Match($text, '(?ms)^\[workspace\.package\]\r?\n(?<section>.*?)(?=^\[|\z)')
+          if (-not $sectionMatch.Success) { Write-Host '::error::[workspace.package] is missing'; exit 1 }
+          $section = $sectionMatch.Groups['section'].Value
+          $pattern = '(?m)^(version\s*=\s*)"[^"]+"'
+          if (-not [regex]::IsMatch($section, $pattern)) { Write-Host '::error::workspace version is missing'; exit 1 }
+          $replacement = '$1"' + $env:RELEASE_VERSION + '"'
+          $stampedSection = [regex]::Replace($section, $pattern, $replacement, 1)
+          if ($stampedSection -eq $section) { Write-Host '::error::workspace version stamp changed nothing'; exit 1 }
+          $stamped = $text.Substring(0, $sectionMatch.Index) + $stampedSection + $text.Substring($sectionMatch.Index + $sectionMatch.Length)
+          [System.IO.File]::WriteAllText($path, $stamped, [System.Text.UTF8Encoding]::new($false))
+
+      # Update local workspace package versions directly. A separate locked metadata pass proves
+      # the generated lockfile is usable; no unrelated resolution failure is treated as a stamp retry.
+      - name: Regenerate and validate Cargo.lock
+        working-directory: rust
+        run: |
+          cargo update --workspace
+          cargo metadata --locked --format-version 1 > $null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-stamp
+          path: |
+            rust/Cargo.toml
+            rust/Cargo.lock
+          if-no-files-found: error
+          overwrite: true
+
+  build:
+    name: ${{ matrix.asset }} (${{ matrix.target }})
+    needs: [gates, stamp]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: pangloss.exe
+            asset: pangloss-win-x64.exe
+            artifact: pangloss-win-x64
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            binary: pangloss
+            asset: pangloss-linux-x64
+            artifact: pangloss-linux-x64
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            binary: pangloss
+            asset: pangloss-osx-arm64
+            artifact: pangloss-osx-arm64
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            binary: pangloss
+            asset: pangloss-osx-x64
+            artifact: pangloss-osx-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-stamp
+          path: release-stamp
+
+      - name: Apply the shared version stamp
         shell: bash
         run: |
-          # A real file, not a process substitution: this job's bash is Git Bash while `gh` is a native
-          # Windows binary, which cannot open the /proc/<pid>/fd path `<(...)` hands it.
-          awk '/^## ${{ inputs.version }}$/{f=1;next} /^## /{f=0} f' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "::error::release notes for ${{ inputs.version }} came out empty"
+          set -euo pipefail
+          cp release-stamp/Cargo.toml rust/Cargo.toml
+          cp release-stamp/Cargo.lock rust/Cargo.lock
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build pg-cli
+        working-directory: rust
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release -p pg-cli --locked --target "$TARGET"
+
+      - name: Smoke-test the Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          $source = Join-Path 'rust/target' "$env:TARGET/release/pangloss.exe"
+          if (-not (Test-Path -LiteralPath $source)) { Write-Host "::error::missing target binary $source"; exit 1 }
+          $smokeBinary = Join-Path $env:RUNNER_TEMP 'pangloss-smoke.exe'
+          Copy-Item -LiteralPath $source -Destination $smokeBinary -Force
+          $actual = ((& $smokeBinary --version) -join "`n").TrimEnd([char[]](13, 10))
+          if ($LASTEXITCODE -ne 0 -or $actual -cne "pangloss $env:RELEASE_VERSION") {
+            Write-Host "::error::expected 'pangloss $env:RELEASE_VERSION', got '$actual' (exit $LASTEXITCODE)"
+            exit 1
+          }
+          Write-Host "smoke passed: $actual ($env:TARGET)"
+
+      - name: Smoke-test the Unix target binary
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          BINARY: ${{ matrix.binary }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          source="rust/target/$TARGET/release/$BINARY"
+          test -f "$source"
+          suffix=""
+          if [[ "$TARGET" == *windows* ]]; then suffix=".exe"; fi
+          smoke_binary="$RUNNER_TEMP/pangloss-smoke$suffix"
+          cp "$source" "$smoke_binary"
+
+          if [[ "$TARGET" == x86_64-apple-darwin && "$(uname -m)" == arm64 ]]; then
+            if ! arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+              sudo softwareupdate --install-rosetta --agree-to-license
+            fi
+            actual="$(arch -x86_64 "$smoke_binary" --version)"
+          else
+            actual="$("$smoke_binary" --version)"
+          fi
+          expected="pangloss $RELEASE_VERSION"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::expected '$expected', got '$actual'"
             exit 1
           fi
-          gh release create "v${{ inputs.version }}" \
-            "dist/v${{ inputs.version }}/pangloss.exe" \
-            "dist/v${{ inputs.version }}/pangloss.exe.sha256" \
-            --title "PanGloss v${{ inputs.version }}" \
-            --notes-file release-notes.md
+          echo "smoke passed: $actual ($TARGET)"
+
+      - name: Stage Windows assets
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          ASSET_NAME: ${{ matrix.asset }}
+        run: |
+          $dist = Join-Path $env:RUNNER_TEMP 'release-assets'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          $binary = Join-Path $env:RUNNER_TEMP 'pangloss-smoke.exe'
+          $asset = Join-Path $dist $env:ASSET_NAME
+          Copy-Item -LiteralPath $binary -Destination $asset
+          $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksum = "$asset" + '.sha256'
+          [System.IO.File]::WriteAllText($checksum, $hash)
+          Copy-Item -LiteralPath $asset -Destination (Join-Path $dist 'pangloss.exe')
+          Copy-Item -LiteralPath $checksum -Destination (Join-Path $dist 'pangloss.exe.sha256')
+
+      - name: Stage Linux assets
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ASSET_NAME: ${{ matrix.asset }}
+        run: |
+          set -euo pipefail
+          dist="$RUNNER_TEMP/release-assets"
+          mkdir -p "$dist"
+          cp "$RUNNER_TEMP/pangloss-smoke" "$dist/$ASSET_NAME"
+          sha256sum "$dist/$ASSET_NAME" | awk '{print $1}' > "$dist/$ASSET_NAME.sha256"
+
+      - name: Stage macOS assets
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          ASSET_NAME: ${{ matrix.asset }}
+        run: |
+          set -euo pipefail
+          dist="$RUNNER_TEMP/release-assets"
+          mkdir -p "$dist"
+          cp "$RUNNER_TEMP/pangloss-smoke" "$dist/$ASSET_NAME"
+          shasum -a 256 "$dist/$ASSET_NAME" | awk '{print $1}' > "$dist/$ASSET_NAME.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/release-assets/*
+          if-no-files-found: error
+          overwrite: true
+
+  publish:
+    name: verify and publish release
+    needs: [gates, stamp, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-stamp
+          path: release-stamp
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pangloss-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify all ten local release files and notes
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '::error::invalid release version'; exit 1; }
+          cp release-stamp/Cargo.toml rust/Cargo.toml
+          cp release-stamp/Cargo.lock rust/Cargo.lock
+
+          expected_files=(
+            pangloss-win-x64.exe pangloss-win-x64.exe.sha256
+            pangloss-linux-x64 pangloss-linux-x64.sha256
+            pangloss-osx-arm64 pangloss-osx-arm64.sha256
+            pangloss-osx-x64 pangloss-osx-x64.sha256
+            pangloss.exe pangloss.exe.sha256
+          )
+          mapfile -t expected < <(printf '%s\n' "${expected_files[@]}" | sort)
+          mapfile -t actual < <(find release-assets -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf '::error::unexpected release asset inventory\nexpected:\n%s\nactual:\n%s\n' \
+              "$(printf '%s\n' "${expected[@]}")" "$(printf '%s\n' "${actual[@]}")"
+            exit 1
+          fi
+
+          for asset in pangloss-win-x64.exe pangloss-linux-x64 pangloss-osx-arm64 pangloss-osx-x64 pangloss.exe; do
+            actual_hash="$(sha256sum "release-assets/$asset" | cut -d ' ' -f 1)"
+            recorded_hash="$(cat "release-assets/$asset.sha256")"
+            if [[ ! "$recorded_hash" =~ ^[0-9a-f]{64}$ || "$recorded_hash" != "$actual_hash" ]]; then
+              echo "::error::checksum mismatch for $asset"
+              exit 1
+            fi
+          done
+          cmp --silent release-assets/pangloss-win-x64.exe release-assets/pangloss.exe || {
+            echo '::error::legacy pangloss.exe differs from pangloss-win-x64.exe'; exit 1;
+          }
+          cmp --silent release-assets/pangloss-win-x64.exe.sha256 release-assets/pangloss.exe.sha256 || {
+            echo '::error::legacy Windows checksum differs from its platform asset'; exit 1;
+          }
+
+          awk -v version="$RELEASE_VERSION" '
+            $0 == "## " version { found=1; next }
+            /^## / { if (found) exit; found=0 }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error::release notes for $RELEASE_VERSION are empty"
+            exit 1
+          fi
+
+      # Tagging happens only after every build and local inventory check has succeeded. Re-run
+      # failed jobs in this workflow run to resume publication; a full new run refuses the tag.
+      - name: Commit the stamp and atomically push main plus tag
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v$RELEASE_VERSION"
+          remote_tag="$(git ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}")"
+
+          if [[ -z "$remote_tag" ]]; then
+            remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+            if [[ "$remote_main" != "$GITHUB_SHA" ]]; then
+              echo "::error::main moved after preflight (expected $GITHUB_SHA, found $remote_main)"
+              exit 1
+            fi
+            git config user.name 'github-actions[bot]'
+            git config user.email 'github-actions[bot]@users.noreply.github.com'
+            git add -- rust/Cargo.toml rust/Cargo.lock
+            git diff --cached --quiet && { echo '::error::version stamp produced no changes'; exit 1; }
+            git commit -m "release: $tag"
+            # The annotation records checked coverage so this tag never implies more than it passed.
+            git tag -a "$tag" -m "PanGloss $tag
+
+Coverage: Rust CI (fmt, clippy, cargo test), release gates (comment hygiene, rustdoc, machine/conformance: all-synthetic fixtures diffed against committed ground truth), and smoke-checked Windows x64, Linux x64, macOS arm64, and macOS x64 builds.
+Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files and are deliberately absent from release gates."
+            commit="$(git rev-parse HEAD)"
+            remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+            if [[ "$remote_main" != "$GITHUB_SHA" ]]; then
+              echo "::error::main moved before the atomic push (expected $GITHUB_SHA, found $remote_main)"
+              exit 1
+            fi
+            git push --atomic origin "$commit:refs/heads/main" "refs/tags/$tag"
+          else
+            git fetch --quiet origin "refs/tags/$tag:refs/tags/$tag" \
+              refs/heads/main:refs/remotes/origin/main
+            if [[ "$(git cat-file -t "refs/tags/$tag")" != tag ]]; then
+              echo "::error::existing $tag is not an annotated tag"
+              exit 1
+            fi
+            commit="$(git rev-parse "$tag^{commit}")"
+            parent="$(git rev-parse "$commit^")"
+            if [[ "$parent" != "$GITHUB_SHA" ]]; then
+              echo "::error::$tag does not stamp the source commit from this workflow run"
+              exit 1
+            fi
+            mapfile -t changed < <(git diff-tree --no-commit-id --name-only -r "$commit" | sort)
+            if [[ "${changed[*]}" != 'rust/Cargo.lock rust/Cargo.toml' ]]; then
+              echo "::error::$tag changes files outside the expected version stamp"
+              exit 1
+            fi
+            git show "$commit:rust/Cargo.toml" | cmp --silent - release-stamp/Cargo.toml || {
+              echo "::error::$tag Cargo.toml differs from this run's stamp"; exit 1;
+            }
+            git show "$commit:rust/Cargo.lock" | cmp --silent - release-stamp/Cargo.lock || {
+              echo "::error::$tag Cargo.lock differs from this run's stamp"; exit 1;
+            }
+            git merge-base --is-ancestor "$commit" origin/main || {
+              echo "::error::$tag is not present on current origin/main"; exit 1;
+            }
+            echo "resuming the verified $tag stamp commit $commit"
+          fi
+
+      - name: Create or resume the draft and publish verified assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v$RELEASE_VERSION"
+          endpoint="repos/$GITHUB_REPOSITORY/releases/tags/$tag"
+          export RELEASE_TITLE="PanGloss $tag"
+          export RELEASE_NOTES_PATH=release-notes.md
+          export RELEASE_ASSETS_DIR=release-assets
+
+          cat > "$RUNNER_TEMP/verify_release.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          release = json.load(open("release.json", encoding="utf-8"))
+          notes = Path(os.environ["RELEASE_NOTES_PATH"]).read_text(encoding="utf-8")
+          if release.get("tag_name") != f"v{os.environ['RELEASE_VERSION']}":
+              sys.exit("release tag does not match the requested version")
+          if release.get("name") != os.environ["RELEASE_TITLE"]:
+              sys.exit("release title does not match this workflow run")
+          if release.get("body") != notes:
+              sys.exit("release notes do not match CHANGELOG.md")
+
+          expected = {
+              "pangloss-win-x64.exe", "pangloss-win-x64.exe.sha256",
+              "pangloss-linux-x64", "pangloss-linux-x64.sha256",
+              "pangloss-osx-arm64", "pangloss-osx-arm64.sha256",
+              "pangloss-osx-x64", "pangloss-osx-x64.sha256",
+              "pangloss.exe", "pangloss.exe.sha256",
+          }
+          assets = release.get("assets", [])
+          names = [asset.get("name") for asset in assets]
+          if len(names) != len(expected) or set(names) != expected:
+              sys.exit(f"remote asset inventory differs: {sorted(names)}")
+          asset_by_name = {asset["name"]: asset for asset in assets}
+          for name in sorted(expected):
+              local = Path(os.environ["RELEASE_ASSETS_DIR"]) / name
+              asset = asset_by_name[name]
+              digest = hashlib.sha256(local.read_bytes()).hexdigest()
+              if asset.get("state") != "uploaded":
+                  sys.exit(f"remote asset {name} is not uploaded")
+              if asset.get("size") != local.stat().st_size:
+                  sys.exit(f"remote asset {name} has the wrong size")
+              if asset.get("digest") != f"sha256:{digest}":
+                  sys.exit(f"remote asset {name} digest does not match local bytes")
+          expected_draft = os.environ["EXPECTED_DRAFT"] == "true"
+          if release.get("draft") is not expected_draft:
+              sys.exit("release draft state differs from the expected state")
+          print(f"verified {len(expected)} remote assets; draft={str(expected_draft).lower()}")
+          PY
+
+          if gh api "$endpoint" > release.json 2>/dev/null; then
+            release_state="$(python - <<'PY'
+          import json, os, sys
+          release = json.load(open("release.json", encoding="utf-8"))
+          notes = open(os.environ["RELEASE_NOTES_PATH"], encoding="utf-8").read()
+          if release.get("tag_name") != f"v{os.environ['RELEASE_VERSION']}": sys.exit("release tag mismatch")
+          if release.get("name") != os.environ["RELEASE_TITLE"]: sys.exit("release title mismatch")
+          if release.get("body") != notes: sys.exit("release notes mismatch")
+          print("draft" if release.get("draft") else "public")
+          PY
+          )"
+            if [[ "$release_state" == public ]]; then
+              export EXPECTED_DRAFT=false
+              python "$RUNNER_TEMP/verify_release.py"
+              echo 'release is already public with the exact expected assets; retry is complete'
+              exit 0
+            fi
+          else
+            gh release create "$tag" \
+              --verify-tag \
+              --draft \
+              --title "$RELEASE_TITLE" \
+              --notes-file "$RELEASE_NOTES_PATH"
+          fi
+
+          gh release upload "$tag" release-assets/* --clobber
+          gh api "$endpoint" > release.json
+          export EXPECTED_DRAFT=true
+          python "$RUNNER_TEMP/verify_release.py"
+
+          gh release edit "$tag" --draft=false
+          gh api "$endpoint" > release.json
+          export EXPECTED_DRAFT=false
+          python "$RUNNER_TEMP/verify_release.py"
