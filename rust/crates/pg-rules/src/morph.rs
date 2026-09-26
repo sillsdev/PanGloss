@@ -3524,7 +3524,6 @@ fn push_remove_duplicates_compound_pinned(out: &mut Vec<Word>, w: Word) {
     });
 }
 
-
 // Compile-once cache — `crate::cache::RuleCache`'s allomorph/compounding slices.
 
 /// One compounding subrule's precompiled matchers. A field is `None` iff its pattern failed to
