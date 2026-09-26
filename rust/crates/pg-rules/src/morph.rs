@@ -3524,33 +3524,6 @@ fn push_remove_duplicates_compound_pinned(out: &mut Vec<Word>, w: Word) {
     });
 }
 
-#[cfg(test)]
-mod copy_prune_tests {
-    use super::{has_repeated_part_action_group, OutputAction, PartRef, SimpleContext};
-
-    #[test]
-    fn repeated_part_scan_only_finds_duplicate_input_references() {
-        assert!(!has_repeated_part_action_group(&[]));
-        assert!(!has_repeated_part_action_group(&[
-            OutputAction::Copy(PartRef::Input(0)),
-            OutputAction::Copy(PartRef::Input(1)),
-            OutputAction::Copy(PartRef::Head(0)),
-            OutputAction::Copy(PartRef::Head(0)),
-        ]));
-        assert!(has_repeated_part_action_group(&[
-            OutputAction::Copy(PartRef::Input(0)),
-            OutputAction::Copy(PartRef::Input(0)),
-        ]));
-        let context = SimpleContext {
-            nat_class: pg_grammar_model::model::NatClassId(0),
-            vars: Vec::new(),
-        };
-        assert!(has_repeated_part_action_group(&[
-            OutputAction::Copy(PartRef::Input(0)),
-            OutputAction::Modify(PartRef::Input(0), context),
-        ]));
-    }
-}
 
 // Compile-once cache — `crate::cache::RuleCache`'s allomorph/compounding slices.
 
@@ -3606,5 +3579,33 @@ pub(crate) fn build_allomorph_lhs_cache(
     AllomorphLhsCache {
         synth_lhs: compile_parts(g, table, &allo.lhs, "p", true).ok(),
         ana_lhs: build_ana_affix_lhs(g, table, allo).ok(),
+    }
+}
+
+#[cfg(test)]
+mod copy_prune_tests {
+    use super::{has_repeated_part_action_group, OutputAction, PartRef, SimpleContext};
+
+    #[test]
+    fn repeated_part_scan_only_finds_duplicate_input_references() {
+        assert!(!has_repeated_part_action_group(&[]));
+        assert!(!has_repeated_part_action_group(&[
+            OutputAction::Copy(PartRef::Input(0)),
+            OutputAction::Copy(PartRef::Input(1)),
+            OutputAction::Copy(PartRef::Head(0)),
+            OutputAction::Copy(PartRef::Head(0)),
+        ]));
+        assert!(has_repeated_part_action_group(&[
+            OutputAction::Copy(PartRef::Input(0)),
+            OutputAction::Copy(PartRef::Input(0)),
+        ]));
+        let context = SimpleContext {
+            nat_class: pg_grammar_model::model::NatClassId(0),
+            vars: Vec::new(),
+        };
+        assert!(has_repeated_part_action_group(&[
+            OutputAction::Copy(PartRef::Input(0)),
+            OutputAction::Modify(PartRef::Input(0), context),
+        ]));
     }
 }
