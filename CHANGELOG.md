@@ -3,6 +3,24 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## Unreleased
+
+### Grammar health: known-bad grammar items are errors
+
+- **New `error` level.** A diagnostic is an error when a restriction is silently dropped, two items
+  become indistinguishable, or a whole morpheme is lost. That covers all partial morphemes (a stem
+  with no category, an inflectional affix with no slot, an unclassified affix), duplicate segment
+  feature bundles, and 23 import codes. `docs/grammar-diagnostics.md` gives the rationale for each
+  class and the report format.
+- **`pangloss grammar-health` exits non-zero when there is any error.** It still writes the full
+  report first. The completion line now counts errors, warnings and info separately.
+- **Report schema version 3.** It adds the `error` level; readers of version 2 must be updated.
+- **Generated reference.** `docs/grammar-diagnostics-reference.md` lists every code with its level
+  and fix. It is generated from the diagnostic metadata, and a `pg-grammar` test regenerates it
+  and fails while the checked-in copy is stale.
+- **Parsing is unchanged.** Only the reported level changed; what the grammar loader keeps or drops
+  still follows HermitCrab's loader.
+
 ## 0.4.0
 
 ### Reduplication is analyzed without chasing copies that cannot match

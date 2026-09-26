@@ -97,6 +97,14 @@ pub fn fieldworks_missing_name_fallback(kind: FwClass) -> &'static str {
     }
 }
 
+/// A known-bad item that loosens or confuses the grammar: a dropped restriction, a collision, or a lost morpheme.
+fn error(group_name: &'static str, path: &str, action: &'static str) -> ImportWarningMetadata {
+    ImportWarningMetadata {
+        level: DiagnosticLevel::Error,
+        ..warning(group_name, path, action)
+    }
+}
+
 fn warning(group_name: &'static str, path: &str, action: &'static str) -> ImportWarningMetadata {
     ImportWarningMetadata {
         group_name,
@@ -171,7 +179,7 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             level: DiagnosticLevel::Warning,
             guidance: None,
         },
-        FwdataNoUsableAllomorphs => warning(
+        FwdataNoUsableAllomorphs => error(
             "No usable allomorphs",
             fieldworks_paths::LEXICON_EDIT,
             "add or correct an allomorph for the named lexical entry.",
@@ -249,22 +257,22 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::GRAMMAR_PHONEMES,
             "add a grapheme representation to the named phoneme.",
         ),
-        PhonemeNfdCollision => warning(
+        PhonemeNfdCollision => error(
             "Phoneme representation collision",
             fieldworks_paths::GRAMMAR_PHONEMES,
             "change the named phoneme's representation so it is unique.",
         ),
-        PhonemeFeatureUnresolved => warning(
+        PhonemeFeatureUnresolved => error(
             "Unresolved phoneme feature value",
             fieldworks_paths::GRAMMAR_PHONEMES,
             "correct the named phoneme's phonological feature values.",
         ),
-        PhonemeComplexFeatureUnsupported => warning(
+        PhonemeComplexFeatureUnsupported => error(
             "Unsupported phoneme feature value",
             fieldworks_paths::GRAMMAR_PHONEMES,
             "replace the named phoneme's complex value with a supported feature value.",
         ),
-        BoundaryNfdCollision => warning(
+        BoundaryNfdCollision => error(
             "Boundary representation collision",
             fieldworks_paths::GRAMMAR_PHONEMES,
             "change the named boundary marker's representation so it is unique.",
@@ -284,12 +292,12 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::GRAMMAR_NATURAL_CLASSES,
             "add a valid phoneme to the named natural class or remove the missing member.",
         ),
-        NatclassFeatureConstraintUnresolved => warning(
+        NatclassFeatureConstraintUnresolved => error(
             "Unresolved natural class feature",
             fieldworks_paths::GRAMMAR_NATURAL_CLASSES,
             "correct the named natural class's phonological feature constraints.",
         ),
-        NatclassComplexFeatureUnsupported => warning(
+        NatclassComplexFeatureUnsupported => error(
             "Unsupported natural class feature",
             fieldworks_paths::GRAMMAR_NATURAL_CLASSES,
             "replace the named natural class's complex feature with supported constraints.",
@@ -314,12 +322,12 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::GRAMMAR_COMPOUND_RULES,
             "check the named compound rule's constituent categories.",
         ),
-        CompoundSidePosUnresolved => warning(
+        CompoundSidePosUnresolved => error(
             "Unresolved compound category",
             fieldworks_paths::GRAMMAR_COMPOUND_RULES,
             "assign a valid part of speech to the named compound rule side.",
         ),
-        CompoundSideExceptionFeatureUnresolved => warning(
+        CompoundSideExceptionFeatureUnresolved => error(
             "Unresolved compound exception feature",
             fieldworks_paths::GRAMMAR_COMPOUND_RULES,
             "correct the named compound rule's exception feature.",
@@ -329,34 +337,34 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::LEXICON_EDIT,
             "check the named analysis's part of speech and features.",
         ),
-        MsaNoAllomorphs => warning(
+        MsaNoAllomorphs => error(
             "No usable entry allomorphs",
             fieldworks_paths::LEXICON_EDIT,
             "add or correct an allomorph for the named lexical entry.",
         ),
-        MsaNoRuleFormAllomorphs => warning(
+        MsaNoRuleFormAllomorphs => error(
             "Analysis has no usable affix form",
             fieldworks_paths::LEXICON_EDIT,
             "add a usable affix allomorph to the named analysis.",
         ),
-        MsaExceptionFeatureUnresolved => warning(
+        MsaExceptionFeatureUnresolved => error(
             "Unresolved analysis exception feature",
             fieldworks_paths::LEXICON_EDIT,
             "correct the named analysis's exception features.",
         ),
-        MsaInflectionClassUnresolved => warning(
+        MsaInflectionClassUnresolved => error(
             "Unresolved analysis inflection class",
             fieldworks_paths::LEXICON_EDIT,
             "assign a valid inflection class to the named analysis.",
         ),
-        MsaStemNameUnresolved => warning(
+        MsaStemNameUnresolved => error(
             "Unresolved analysis stem name",
             fieldworks_paths::LEXICON_EDIT,
             "assign a valid stem name to the named analysis.",
         ),
         MsaLexEntryInflTypeUnresolved => ImportWarningMetadata {
             group_name: "Unresolved entry inflection type",
-            level: DiagnosticLevel::Warning,
+            level: DiagnosticLevel::Error,
             guidance: Some(format!(
                 "In {}, assign a valid entry inflection type to the named analysis; in {}, add a missing type.",
                 fieldworks_paths::LEXICON_EDIT,
@@ -397,7 +405,7 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::LEXICON_EDIT,
             "check the named allomorph's input and output mappings.",
         ),
-        AllomorphInflectionClassUnresolved => warning(
+        AllomorphInflectionClassUnresolved => error(
             "Unresolved allomorph inflection class",
             fieldworks_paths::LEXICON_EDIT,
             "assign a valid inflection class to the named allomorph.",
@@ -412,7 +420,7 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::LEXICON_EDIT,
             "correct the named allomorph's phonological environment.",
         ),
-        CircumfixMissingHalf => warning(
+        CircumfixMissingHalf => error(
             "Circumfix is missing a half",
             fieldworks_paths::LEXICON_EDIT,
             "add a prefix or suffix half to the named circumfix entry.",
@@ -424,14 +432,14 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
         ),
         EnvironmentUnresolved => ImportWarningMetadata {
             group_name: "Unresolved phonological environment",
-            level: DiagnosticLevel::Warning,
+            level: DiagnosticLevel::Error,
             guidance: Some(format!(
                 "In {}, add the missing environment; in {}, correct its reference on the named allomorph.",
                 fieldworks_paths::GRAMMAR_ENVIRONMENTS,
                 fieldworks_paths::LEXICON_EDIT
             )),
         },
-        EnvironmentInvalid => warning(
+        EnvironmentInvalid => error(
             "Invalid phonological environment",
             fieldworks_paths::GRAMMAR_ENVIRONMENTS,
             "correct the expression for phonological environment '{subject}'.",
@@ -481,17 +489,17 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::GRAMMAR_PHONOLOGICAL_RULES,
             "check the named rule's structural description and change.",
         ),
-        FeatureConstraintUnresolved => warning(
+        FeatureConstraintUnresolved => error(
             "Unresolved rule feature constraint",
             fieldworks_paths::GRAMMAR_PHONOLOGICAL_RULES,
             "correct the named rule's feature constraint.",
         ),
-        FeatureConstraintPhonFeatureUnresolved => warning(
+        FeatureConstraintPhonFeatureUnresolved => error(
             "Unresolved phonological feature constraint",
             fieldworks_paths::GRAMMAR_PHONOLOGICAL_RULES,
             "correct the named constraint's phonological feature reference.",
         ),
-        RuleFeatureUnresolved => warning(
+        RuleFeatureUnresolved => error(
             "Unresolved phonological rule feature",
             fieldworks_paths::GRAMMAR_PHONOLOGICAL_RULES,
             "correct the named rule's feature reference.",
@@ -524,7 +532,7 @@ pub fn import_warning_metadata(code: ImportWarningCode) -> ImportWarningMetadata
             fieldworks_paths::GRAMMAR_PHONEMES,
             "decide whether the named allomorph's character is a phoneme or boundary marker.",
         ),
-        MigrationInferredSegmentWithFeatureRule => warning(
+        MigrationInferredSegmentWithFeatureRule => error(
             "Character is not listed as a phoneme",
             fieldworks_paths::GRAMMAR_PHONEMES,
             "add the named character as a phoneme before assigning its feature values.",

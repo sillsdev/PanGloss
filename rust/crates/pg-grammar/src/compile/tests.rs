@@ -134,7 +134,7 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
         .expect("an MSA with no usable allomorphs reaches grammar-health");
     assert_eq!(
         msa_without_allomorphs.level,
-        pg_snapshot::DiagnosticLevel::Warning
+        pg_snapshot::DiagnosticLevel::Error
     );
 
     let compacted_natural_class = findings
@@ -191,7 +191,7 @@ fn linguist_warnings(warnings: &[pg_snapshot::Warning]) -> Vec<&pg_snapshot::War
         .filter(|warning| {
             let code = pg_snapshot::ImportWarningCode::from_wire_or_unregistered(&warning.code);
             pg_snapshot::warning_metadata::import_warning_metadata(code).level
-                == pg_snapshot::DiagnosticLevel::Warning
+                != pg_snapshot::DiagnosticLevel::Info
         })
         .collect()
 }

@@ -100,6 +100,10 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
         report.len(),
         render_level_counts(report.diagnostics()),
     );
+    let errors = count_level(report.diagnostics(), DiagnosticLevel::Error);
+    if errors > 0 {
+        return Err(format!("{errors} error(s); fix them before parsing"));
+    }
     Ok(())
 }
 
@@ -128,14 +132,18 @@ fn fieldworks_project_for_path(
     }
 }
 
-/// The `N warning(s), M info` fragment of `run_grammar_health`'s completion message.
+/// The `E error(s), N warning(s), M info` fragment of `run_grammar_health`'s completion message.
 fn render_level_counts(diagnostics: &[GrammarHealthDiagnostic]) -> String {
-    let warnings = diagnostics
-        .iter()
-        .filter(|d| d.level == DiagnosticLevel::Warning)
-        .count();
-    let info = diagnostics.len() - warnings;
-    format!("{warnings} warning(s), {info} info")
+    format!(
+        "{} error(s), {} warning(s), {} info",
+        count_level(diagnostics, DiagnosticLevel::Error),
+        count_level(diagnostics, DiagnosticLevel::Warning),
+        count_level(diagnostics, DiagnosticLevel::Info),
+    )
+}
+
+fn count_level(diagnostics: &[GrammarHealthDiagnostic], level: DiagnosticLevel) -> usize {
+    diagnostics.iter().filter(|d| d.level == level).count()
 }
 
 #[cfg(test)]

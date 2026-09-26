@@ -3,11 +3,11 @@ use crate::grammar_health_presentation::fieldworks_link_from_identity;
 use pg_shape::ShapeBuilder;
 
 #[test]
-fn grammar_health_report_uses_v2_envelope() {
+fn grammar_health_report_uses_v3_envelope() {
     let report = GrammarHealthReport::new(Vec::new()).expect("empty report is valid");
     let json = serde_json::to_value(report).expect("report serializes");
 
-    assert_eq!(json["schema_version"], 2);
+    assert_eq!(json["schema_version"], 3);
     assert!(json["fieldworks_project"].is_object());
     assert!(json["summary"].is_array());
     assert!(json["diagnostics"].is_array());
@@ -158,7 +158,7 @@ fn linguist_warning_metadata_avoids_compiler_vocabulary() {
 
     for code in ImportWarningCode::ALL {
         let metadata = pg_snapshot::import_warning_metadata(code.clone());
-        if metadata.level != DiagnosticLevel::Warning {
+        if metadata.level == DiagnosticLevel::Info {
             continue;
         }
         let text = format!(
@@ -302,7 +302,7 @@ fn every_import_warning_code_has_exactly_one_metadata_entry() {
             "{code:?} duplicates a registered import warning code"
         );
         wires.push(code.wire());
-        if metadata.level == DiagnosticLevel::Warning {
+        if metadata.level != DiagnosticLevel::Info {
             assert!(
                 metadata.guidance.is_some(),
                 "{code:?}: every warning has FieldWorks guidance"
@@ -461,7 +461,7 @@ fn two_segments_share_feature_bundle_reports_both_by_name() {
     assert_eq!(diagnostics.len(), 1);
     let diagnostic = &diagnostics[0];
     assert_eq!(diagnostic.code, GrammarHealthCode::DuplicateFeatureBundle);
-    assert_eq!(diagnostic.level, DiagnosticLevel::Warning);
+    assert_eq!(diagnostic.level, DiagnosticLevel::Error);
     assert!(diagnostic.message.contains("Phonemes a, b"));
     assert!(diagnostic.message.contains("share the same feature values"));
     assert_eq!(
@@ -797,13 +797,13 @@ const PARTIAL_LEX_ENTRY_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 "#;
 
 #[test]
-fn partial_lexical_entry_reports_actionable_warning() {
+fn partial_lexical_entry_reports_actionable_error() {
     let g = grammar(PARTIAL_LEX_ENTRY_XML);
     let diagnostics = check_grammar_health(&g, None).expect("grammar-health checks");
     assert_eq!(diagnostics.len(), 1);
     let diagnostic = &diagnostics[0];
     assert_eq!(diagnostic.code.wire(), "hc-stem-no-grammatical-category");
-    assert_eq!(diagnostic.level, DiagnosticLevel::Warning);
+    assert_eq!(diagnostic.level, DiagnosticLevel::Error);
     assert!(diagnostic.message.contains("'a'"));
     assert!(diagnostic.message.contains("no grammatical category"));
     let guidance = diagnostic.guidance.as_deref().expect("FieldWorks guidance");
@@ -1142,7 +1142,7 @@ fn assert_no_blank_or_internal_subjects(report: &GrammarHealthReport) {
 #[test]
 fn report_rejects_an_incomplete_diagnostic_instead_of_dropping_it() {
     let incomplete = GrammarHealthDiagnostic {
-        level: DiagnosticLevel::Warning,
+        level: DiagnosticLevel::Error,
         code: GrammarHealthCode::StemWithoutCategory,
         group_name: "Stem has no category".to_string(),
         origin: DiagnosticOrigin::Check,
@@ -1335,7 +1335,7 @@ fn log_and_json_render_the_same_guid_fixture_with_explicit_link_state() {
     assert!(!log_with_guids.contains("entry0"));
 
     let json = render_json(&with_project).expect("structured diagnostics serialize");
-    assert!(json.contains("\"schema_version\": 2"));
+    assert!(json.contains("\"schema_version\": 3"));
     assert!(json.contains("\"group_name\": \"Stem has no category\""));
     assert!(json.contains("silfw://localhost/link?database%3DFieldWorks+Demo%26tool%3DlexiconEdit"));
     assert!(json.contains("\"internal_id\""));
@@ -1699,7 +1699,7 @@ fn phoneme_source_identity_keeps_imported_guid_for_navigation() {
 #[test]
 fn report_constructor_owns_validation_and_renderers_accept_only_reports() {
     let diagnostic = GrammarHealthDiagnostic {
-        level: DiagnosticLevel::Warning,
+        level: DiagnosticLevel::Error,
         code: GrammarHealthCode::StemWithoutCategory,
         group_name: "Stem has no category".to_string(),
         origin: DiagnosticOrigin::Check,
@@ -1723,4 +1723,52 @@ fn authored_xml_guid_shape_does_not_create_a_fieldworks_link() {
             ..
         }
     ));
+}
+
+#[test]
+fn diagnostics_reference_is_current() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .join(DIAGNOSTICS_REFERENCE_PATH);
+    let expected = render_diagnostics_reference();
+    let actual = std::fs::read_to_string(&path).unwrap_or_default();
+    if actual.replace("\r\n", "\n") != expected {
+        std::fs::write(&path, &expected)
+            .unwrap_or_else(|error| panic!("regenerate {}: {error}", path.display()));
+        panic!(
+            "{DIAGNOSTICS_REFERENCE_PATH} was stale and has been regenerated; review and commit it"
+        );
+    }
+}
+
+#[test]
+fn every_code_has_a_level_and_errors_carry_guidance() {
+    let reference = render_diagnostics_reference();
+    for code in GrammarHealthCode::ALL {
+        assert!(
+            reference.contains(&format!("`{}`", code.wire())),
+            "{code:?}"
+        );
+    }
+    for code in ImportWarningCode::ALL {
+        assert!(
+            reference.contains(&format!("`{}`", code.wire())),
+            "{code:?}"
+        );
+        let metadata = pg_snapshot::import_warning_metadata(code.clone());
+        if metadata.level == DiagnosticLevel::Error {
+            assert!(
+                metadata.guidance.is_some(),
+                "{code:?}: an error must say what to fix"
+            );
+        }
+    }
+    assert_eq!(
+        GrammarHealthCode::DuplicateFeatureBundle.level(),
+        DiagnosticLevel::Error
+    );
+    assert_eq!(
+        GrammarHealthCode::UndeclaredSegment.level(),
+        DiagnosticLevel::Warning
+    );
 }

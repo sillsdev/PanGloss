@@ -248,10 +248,11 @@ impl<'de> serde::Deserialize<'de> for ImportWarningCode {
     }
 }
 
-/// `Warning` asks for a FieldWorks change; `Info` reports something left out with nothing to fix.
+/// `Error` must be fixed; `Warning` asks for a FieldWorks change; `Info` needs nothing fixed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiagnosticLevel {
+    Error,
     Warning,
     Info,
 }
@@ -259,6 +260,7 @@ pub enum DiagnosticLevel {
 impl DiagnosticLevel {
     pub const fn wire(self) -> &'static str {
         match self {
+            Self::Error => "error",
             Self::Warning => "warning",
             Self::Info => "info",
         }

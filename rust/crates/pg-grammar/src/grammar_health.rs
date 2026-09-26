@@ -99,6 +99,18 @@ impl GrammarHealthCode {
             |metadata| metadata.group_name.to_string(),
         )
     }
+
+    /// The level every diagnostic with this code carries.
+    pub fn level(&self) -> DiagnosticLevel {
+        match (check_diagnostic_metadata(self), self) {
+            (Some(metadata), _) => metadata.level,
+            (None, Self::ImportWarning(code)) => {
+                let code = ImportWarningCode::from_wire_or_unregistered(code);
+                pg_snapshot::import_warning_metadata(code).level
+            }
+            (None, _) => unreachable!("every check code has check-diagnostic metadata"),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -113,37 +125,49 @@ enum CheckGuidance {
 
 struct CheckDiagnosticMetadata {
     group_name: &'static str,
+    level: DiagnosticLevel,
     guidance: CheckGuidance,
 }
 
+/// Each level's rationale is in docs/grammar-diagnostics.md.
 fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnosticMetadata> {
-    let (group_name, guidance) = match code {
+    use DiagnosticLevel::{Error, Warning};
+    let (group_name, level, guidance) = match code {
         GrammarHealthCode::UndeclaredSegment => (
             "Missing segment definition",
+            Warning,
             CheckGuidance::UndeclaredSegment,
         ),
         GrammarHealthCode::DuplicateFeatureBundle => (
             "Duplicate segment features",
+            Error,
             CheckGuidance::DuplicateFeatureBundle,
         ),
-        GrammarHealthCode::StemWithoutCategory => {
-            ("Stem has no category", CheckGuidance::StemWithoutCategory)
-        }
+        GrammarHealthCode::StemWithoutCategory => (
+            "Stem has no category",
+            Error,
+            CheckGuidance::StemWithoutCategory,
+        ),
         GrammarHealthCode::InflectionalAffixWithoutTemplateSlot => (
             "Inflectional affix has no slot",
+            Error,
             CheckGuidance::InflectionalAffixWithoutTemplateSlot,
         ),
-        GrammarHealthCode::UnclassifiedAffix => {
-            ("Affix is unclassified", CheckGuidance::UnclassifiedAffix)
-        }
+        GrammarHealthCode::UnclassifiedAffix => (
+            "Affix is unclassified",
+            Error,
+            CheckGuidance::UnclassifiedAffix,
+        ),
         GrammarHealthCode::PartialReasonUnspecified => (
             "Partial reason is unknown",
+            Error,
             CheckGuidance::PartialReasonUnspecified,
         ),
         GrammarHealthCode::ImportWarning(_) => return None,
     };
     Some(CheckDiagnosticMetadata {
         group_name,
+        level,
         guidance,
     })
 }
@@ -467,13 +491,12 @@ impl GrammarHealthDiagnostic {
     }
 
     fn checked(
-        level: DiagnosticLevel,
         code: GrammarHealthCode,
         message: String,
         subjects: Vec<GrammarHealthSubject>,
     ) -> Self {
         Self {
-            level,
+            level: code.level(),
             group_name: code.group_name(),
             guidance: check_guidance(&code, &subjects),
             code,
@@ -507,7 +530,7 @@ impl GrammarHealthDiagnostic {
     }
 }
 
-pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 2;
+pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GrammarHealthReportErrorCode {
@@ -848,6 +871,102 @@ pub fn render_json(report: &GrammarHealthReport) -> Result<String, GrammarHealth
     report.to_json()
 }
 
+/// Checked-in path, relative to the repository root, of [`render_diagnostics_reference`]'s output.
+pub const DIAGNOSTICS_REFERENCE_PATH: &str = "docs/grammar-diagnostics-reference.md";
+
+/// Render every registered diagnostic code as a Markdown reference, grouped by level.
+///
+/// Generated from the same metadata the report uses, so the reference cannot drift from what
+/// `pangloss grammar-health` prints. A gate test regenerates the checked-in copy and fails while it
+/// is stale.
+pub fn render_diagnostics_reference() -> String {
+    struct Row {
+        wire: String,
+        name: String,
+        origin: &'static str,
+        guidance: String,
+    }
+    let mut rows: Vec<(DiagnosticLevel, Row)> = Vec::new();
+    for code in GrammarHealthCode::ALL {
+        let guidance = check_guidance(code, &[]).unwrap_or_else(|| {
+            "Depends on the item that uses the phoneme; the report names the FieldWorks tool."
+                .to_string()
+        });
+        rows.push((
+            code.level(),
+            Row {
+                wire: code.wire().to_string(),
+                name: code.group_name(),
+                origin: "check",
+                guidance,
+            },
+        ));
+    }
+    for code in ImportWarningCode::ALL {
+        let metadata = pg_snapshot::import_warning_metadata(code.clone());
+        rows.push((
+            metadata.level,
+            Row {
+                wire: code.wire().to_string(),
+                name: metadata.group_name.to_string(),
+                origin: "import",
+                guidance: metadata
+                    .guidance_for_subject(Some("_name_"), None)
+                    .unwrap_or_else(|| "Nothing to fix.".to_string()),
+            },
+        ));
+    }
+
+    let mut out = String::new();
+    out.push_str("# Grammar diagnostics reference\n\n");
+    out.push_str(
+        "<!-- Generated by pg_grammar::grammar_health::render_diagnostics_reference. Do not edit by \
+         hand: the diagnostics_reference_is_current test rewrites this file when it is stale. -->\n\n",
+    );
+    out.push_str(
+        "Every diagnostic `pangloss grammar-health` can report, grouped by level. Why each level \
+         exists, and the report format, are in [grammar-diagnostics.md](grammar-diagnostics.md).\n",
+    );
+    let sections = [
+        (
+            DiagnosticLevel::Error,
+            "Errors",
+            "Known bad: a restriction is dropped, two items become indistinguishable, or a whole \
+             morpheme is lost. Any error makes `pangloss grammar-health` exit non-zero.",
+        ),
+        (
+            DiagnosticLevel::Warning,
+            "Warnings",
+            "Something in FieldWorks should change, but the grammar still behaves as authored \
+             or only loses one alternative.",
+        ),
+        (
+            DiagnosticLevel::Info,
+            "Info",
+            "Something was left out on purpose; nothing to fix.",
+        ),
+    ];
+    for (level, title, blurb) in sections {
+        let section: Vec<&Row> = rows
+            .iter()
+            .filter(|(row_level, _)| *row_level == level)
+            .map(|(_, row)| row)
+            .collect();
+        out.push_str(&format!("\n## {title} ({})\n\n{blurb}\n\n", section.len()));
+        out.push_str("| Code | Name | Origin | What to do |\n|---|---|---|---|\n");
+        for row in section {
+            out.push_str(&format!(
+                "| `{}` | {} | {} | {} |\n",
+                row.wire,
+                row.name.replace('|', "\\|"),
+                row.origin,
+                row.guidance.replace('|', "\\|")
+            ));
+        }
+    }
+    out
+}
+
 /// Runs every registered check against grammar. `fieldworks_project` is caller-supplied because
 /// the project/database name is not part of the compiled grammar.
 pub fn check_grammar_health(
@@ -932,7 +1051,6 @@ fn check_duplicate_feature_bundles(
                 char_def_subject(grammar, fieldworks_project, table_id, *id, cd, table)
             }));
             let diagnostic = GrammarHealthDiagnostic::checked(
-                DiagnosticLevel::Warning,
                 GrammarHealthCode::DuplicateFeatureBundle,
                 format!(
                     "Phonemes {} share the same feature values.",
@@ -1264,7 +1382,6 @@ fn push_undeclared_segments(
     );
     for _ in 0..count {
         let diagnostic = GrammarHealthDiagnostic::checked(
-            DiagnosticLevel::Warning,
             GrammarHealthCode::UndeclaredSegment,
             description.clone(),
             vec![
@@ -1299,7 +1416,7 @@ fn affix_kind_label(kind: FwClass) -> &'static str {
 
 // --- hc-partial-morpheme -------------------------------------------------------------------
 
-/// Consume the canonical typed inventory; this warning path does not inspect rule definitions.
+/// Consume the canonical typed inventory; this error path does not inspect rule definitions.
 fn check_partial_morphemes(
     grammar: &Grammar,
     fieldworks_project: Option<&str>,
@@ -1354,7 +1471,7 @@ fn partial_diagnostic(
             ),
         ),
     };
-    GrammarHealthDiagnostic::checked(DiagnosticLevel::Warning, code, message, vec![subject])
+    GrammarHealthDiagnostic::checked(code, message, vec![subject])
 }
 
 #[cfg(test)]

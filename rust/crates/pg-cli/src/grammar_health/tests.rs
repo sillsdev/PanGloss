@@ -69,9 +69,12 @@ fn clean_grammar_serializes_to_an_empty_versioned_report() {
     assert!(report.is_empty());
     let json = render_json(&report).expect("empty diagnostics serialize");
     let report_value: serde_json::Value = serde_json::from_str(&json).expect("versioned report");
-    assert_eq!(report_value["schema_version"], 2);
+    assert_eq!(report_value["schema_version"], 3);
     assert!(report_value["diagnostics"].is_array());
-    assert_eq!(render_level_counts(&report), "0 warning(s), 0 info");
+    assert_eq!(
+        render_level_counts(&report),
+        "0 error(s), 0 warning(s), 0 info"
+    );
 }
 
 #[test]
@@ -80,7 +83,7 @@ fn json_is_versioned_by_default() {
     let report = check_grammar_health(&g, None).expect("clean grammar checks");
     let json = render_json(&report).expect("structured diagnostics serialize");
     let value: serde_json::Value = serde_json::from_str(&json).expect("structured JSON");
-    assert_eq!(value["schema_version"], 2);
+    assert_eq!(value["schema_version"], 3);
     assert!(value["diagnostics"].is_array());
 }
 
@@ -93,16 +96,18 @@ fn command_emits_versioned_json_by_default() {
     let output_path = grammar_path.with_extension("json");
     fs::write(&grammar_path, PARTIAL_ENTRY_GRAMMAR_XML).expect("write grammar fixture");
 
-    run_grammar_health(&[
+    let error = run_grammar_health(&[
         grammar_path.to_string_lossy().into_owned(),
         output_path.to_string_lossy().into_owned(),
     ])
-    .expect("grammar-health command");
+    .expect_err("a partial morpheme fails the command");
+    assert!(error.contains("1 error(s)"), "{error}");
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
-            .expect("structured JSON");
-    assert_eq!(report["schema_version"], 2);
+            .expect("the report is still written");
+    assert_eq!(report["schema_version"], 3);
     assert!(report["diagnostics"].is_array());
+    assert_eq!(report["diagnostics"][0]["level"], "error");
     assert_eq!(report["diagnostics"].as_array().unwrap().len(), 1);
 
     let _ = fs::remove_file(grammar_path);
@@ -127,16 +132,27 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
     let output_path = scratch.join("report.json");
     fs::write(&grammar_path, xml).expect("write synthetic fixture");
 
-    run_grammar_health(&[
+    let error = run_grammar_health(&[
         grammar_path.to_string_lossy().into_owned(),
         output_path.to_string_lossy().into_owned(),
     ])
-    .expect("grammar-health command");
+    .expect_err("the fixture's error-level import issues fail the command");
+    assert!(error.contains("error(s)"), "{error}");
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
-            .expect("structured JSON");
+            .expect("the report is still written");
 
-    assert_eq!(report["schema_version"], 2);
+    assert_eq!(report["schema_version"], 3);
+    let error_count = report["diagnostics"]
+        .as_array()
+        .expect("diagnostics array")
+        .iter()
+        .filter(|diagnostic| diagnostic["level"] == "error")
+        .count();
+    assert!(
+        error.starts_with(&format!("{error_count} error(s)")),
+        "{error}"
+    );
     assert_eq!(report["fieldworks_project"]["name"], "fixture");
     assert_eq!(report["fieldworks_project"]["source"], "fwdata_path");
     let warning = report["diagnostics"]
@@ -172,7 +188,7 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
         "--fw-project".to_string(),
         "  Chosen Project  ".to_string(),
     ])
-    .expect("grammar-health command with explicit project name");
+    .expect_err("the same error-level issues fail the command with an explicit project name");
     let named_report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&named_output_path).expect("read named output"))
             .expect("structured JSON");
@@ -183,7 +199,7 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
 }
 
 #[test]
-fn partial_entry_grammar_reports_one_warning_naming_its_code() {
+fn partial_entry_grammar_reports_one_error_naming_its_code() {
     let g = grammar(PARTIAL_ENTRY_GRAMMAR_XML);
     let report = check_grammar_health(&g, None).expect("partial grammar checks");
     assert_eq!(report.len(), 1);
@@ -191,7 +207,7 @@ fn partial_entry_grammar_reports_one_warning_naming_its_code() {
     assert!(json.contains("hc-stem-no-grammatical-category"));
     assert_eq!(
         render_level_counts(report.diagnostics()),
-        "1 warning(s), 0 info"
+        "1 error(s), 0 warning(s), 0 info"
     );
 }
 
