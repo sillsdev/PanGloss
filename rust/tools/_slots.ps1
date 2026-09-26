@@ -31,6 +31,33 @@ function New-ResourceSlotMutex {
     }
 }
 
+function Wait-AnyMutexByPolling {
+    <#
+      .DESCRIPTION
+      WaitHandle.WaitAny over several named mutexes throws NotSupportedException off Windows, so
+      Linux polls each mutex instead. Returns the acquired index, or WaitHandle.WaitTimeout.
+    #>
+    param(
+        [Parameter(Mandatory)][System.Threading.Mutex[]]$Mutexes,
+        [int]$TimeoutMs = [System.Threading.Timeout]::Infinite,
+        [string]$Pool = 'build',
+        [int]$PollMs = 250
+    )
+    $deadline = if ($TimeoutMs -lt 0) { [datetime]::MaxValue } else { (Get-Date).AddMilliseconds($TimeoutMs) }
+    while ($true) {
+        for ($i = 0; $i -lt $Mutexes.Count; $i++) {
+            try {
+                if ($Mutexes[$i].WaitOne(0)) { return $i }
+            } catch [System.Threading.AbandonedMutexException] {
+                Write-Host "[build-env] recovered an abandoned $Pool slot ($i) -- its previous holder exited without releasing it." -ForegroundColor Yellow
+                return $i
+            }
+        }
+        if ((Get-Date) -ge $deadline) { return [System.Threading.WaitHandle]::WaitTimeout }
+        Start-Sleep -Milliseconds $PollMs
+    }
+}
+
 function Enter-ResourceSlot {
     param(
         [ValidateSet('build', 'run')][string]$Pool = 'build',
@@ -54,7 +81,11 @@ function Enter-ResourceSlot {
     $timeoutMs = if ($TimeoutSeconds -le 0) { [System.Threading.Timeout]::Infinite } else { $TimeoutSeconds * 1000 }
     $index = -1
     try {
-        $index = [System.Threading.WaitHandle]::WaitAny($mutexes, $timeoutMs)
+        if ($mutexes.Count -gt 1 -and ($IsLinux -or $IsMacOS)) {
+            $index = Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs $timeoutMs -Pool $Pool
+        } else {
+            $index = [System.Threading.WaitHandle]::WaitAny($mutexes, $timeoutMs)
+        }
     } catch [System.Threading.AbandonedMutexException] {
         $index = $_.Exception.MutexIndex
         Write-Host "[build-env] recovered an abandoned $Pool slot ($index) -- its previous holder exited without releasing it." -ForegroundColor Yellow

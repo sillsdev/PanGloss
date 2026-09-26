@@ -101,6 +101,45 @@ Test-Case 'MaxConcurrent is honoured per invocation, not frozen by the first cal
     } finally { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
 }
 
+Test-Case 'the Linux polling wait skips a slot another process holds and takes the free one' {
+    # WaitAny over several named mutexes throws off Windows; this is the path Linux uses instead.
+    $holder = Start-SlotHolder -Slots 1          # holds slot0 only
+    $mutexes = @(0, 1 | ForEach-Object { New-ResourceSlotMutex -Name "$($script:BuildSlotMutexPrefix)$_" })
+    try {
+        Assert-Equal 1 (Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs 5000) 'slot0 is held, so slot1 must be taken'
+        $mutexes[1].ReleaseMutex()
+    } finally {
+        Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
+        $mutexes | ForEach-Object { $_.Dispose() }
+    }
+}
+
+Test-Case 'the Linux polling wait times out when every slot is held' {
+    $holder = Start-SlotHolder -Slots 1
+    $mutexes = @(New-ResourceSlotMutex -Name "$($script:BuildSlotMutexPrefix)0")
+    try {
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $index = Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs 600 -PollMs 100
+        $sw.Stop()
+        Assert-Equal ([System.Threading.WaitHandle]::WaitTimeout) $index 'a fully held pool must time out'
+        Assert-True ($sw.ElapsedMilliseconds -lt 5000) "the timeout must be honoured (took $($sw.ElapsedMilliseconds)ms)"
+    } finally {
+        Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
+        $mutexes | ForEach-Object { $_.Dispose() }
+    }
+}
+
+Test-Case 'the Linux polling wait recovers a slot whose holder was killed' {
+    $holder = Start-SlotHolder -Slots 1
+    Stop-Process -Id $holder.Id -Force
+    Start-Sleep -Milliseconds 750
+    $mutexes = @(New-ResourceSlotMutex -Name "$($script:BuildSlotMutexPrefix)0")
+    try {
+        Assert-Equal 0 (Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs 5000) 'an abandoned slot must be taken'
+        $mutexes[0].ReleaseMutex()
+    } finally { $mutexes | ForEach-Object { $_.Dispose() } }
+}
+
 Test-Case 'timing out returns null rather than throwing or hanging' {
     $holder = Start-SlotHolder -Slots 1
     try {
