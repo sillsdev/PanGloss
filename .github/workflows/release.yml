@@ -24,6 +24,8 @@ on:
 
 permissions:
   contents: read
+  # The release preflight reads this commit's Rust CI result.
+  actions: read
 
 env:
   CARGO_TERM_COLOR: always

@@ -19,8 +19,10 @@ reason its way around under pressure is not a control; a hook is executed by the
 holds even when the shell is broken and even when the model believes an exception is warranted.
 
 WHAT IS ALLOWED
-Only the four verbs CLAUDE.md names are refused, plus `cargo nextest run` (the same thing pg.ps1's
+Only the verbs CLAUDE.md names are refused, plus `cargo nextest run` (the same thing pg.ps1's
 test mode runs internally, so bypassing the wrapper with it bypasses every gate above too).
+`cargo clippy` is refused because `pg.ps1 -Mode check` runs it with CI's exact flags; a bare run
+with other features, or without `-D warnings`, can pass a tree CI then refuses.
 `cargo fmt`, `cargo clean`, `cargo metadata`, `cargo --version` and friends are untouched: they are
 cheap, do not schedule a compile, and do not write a target directory worth redirecting.
 
@@ -42,7 +44,7 @@ import sys
 
 # Anchored at a command boundary, and \b after the verb, so a flag value or an alias cannot trip it.
 BARE_CARGO = re.compile(
-    r"(?:^|[;&|(]|\s)cargo\s+(?:\+[\w.-]+\s+)?(build|test|check|run|nextest\s+run)\b"
+    r"(?:^|[;&|(]|\s)cargo\s+(?:\+[\w.-]+\s+)?(build|test|check|clippy|run|nextest\s+run)\b"
 )
 
 MANAGED = ("pg.ps1", "build.ps1", "test.ps1")
@@ -70,7 +72,8 @@ def main() -> int:
     verb = re.sub(r"\s+", " ", match.group(1))
     mode = {
         "build": "build",
-        "check": "build",
+        "check": "check",
+        "clippy": "check",
         "test": "test",
         "nextest run": "test",
         "run": "release",

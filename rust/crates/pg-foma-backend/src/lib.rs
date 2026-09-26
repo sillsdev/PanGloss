@@ -6,7 +6,7 @@ macro_rules! workbench_module {
         #[cfg(feature = "test-support")]
         pub mod $name $($body)*
         #[cfg(not(feature = "test-support"))]
-        #[allow(dead_code)]
+        #[allow(dead_code, unused_imports)]
         pub(crate) mod $name $($body)*
     };
 }

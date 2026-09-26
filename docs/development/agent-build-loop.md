@@ -6,6 +6,11 @@ Use a fresh PowerShell process for every managed Rust command:
 pwsh -NoProfile -File rust/tools/pg.ps1 -Mode check -Package <package>
 ```
 
+Every compile mode fails up front on anything CI would refuse, before tests or a build start:
+rustfmt is applied to the tree, a comment-hygiene violation exits 41, and clippy with `-D warnings`
+(the same command CI runs; `-Mode check` is that command) exits 40. Fix what they report and rerun;
+do not switch to bare cargo to get past them. Run `-Mode check` before every commit.
+
 Do not call `pg.ps1` with `&` from a reusable PowerShell host. The managed script sets build
 environment variables for its child processes; process isolation prevents one worktree's target
 directory or cache experiment from reaching the next invocation.

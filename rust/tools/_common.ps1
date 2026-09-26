@@ -49,6 +49,10 @@
   different worktrees. Picked to avoid colliding with cargo's own exit codes (101 on build failure)
   and PowerShell's reserved low range.
 
+  Up-front gate exit codes (40-41), raised before tests or a build start so a tree CI would refuse
+  never gets that far: 40 clippy failed (`-D warnings`, the same command CI runs), 41 comment
+  hygiene found violations or could not run.
+
   Exit code 19 (Assert-ScriptAndCwdAgreeOnWorktree) deserves special caution: `Get-RepoRoot` resolves
   via `git rev-parse --show-toplevel`, which answers for whichever worktree the CALLER IS STANDING IN,
   so `pwsh -File <worktreeA>\rust\tools\pg.ps1` run from worktreeB silently builds and tests B while
@@ -479,6 +483,32 @@ function Get-ExampleFeaturePackages {
         }
     }
 }
+function Get-ClippyInvocation {
+    <#
+      .DESCRIPTION
+      The clippy command every compile mode runs first, and `check` runs instead of `cargo check`.
+      Mirrors .github/workflows/rust-gates.yml's clippy job (all targets, every `examples` feature,
+      `-D warnings`) so a lint that fails CI fails here first. -Package narrows it to one crate.
+    #>
+    param(
+        [string]$Package = '',
+        [bool]$DebugProfile = $false,
+        [string]$TestTarget = '',
+        [string[]]$ExtraArgs = @(),
+        [string[]]$ExamplePackages = @(Get-ExampleFeaturePackages)
+    )
+    $cargoArgs = @('clippy', '--all-targets')
+    if (-not $DebugProfile) {
+        $cargoArgs += @('--profile', $(if ($script:TestOptProfile) { $script:TestOptProfile } else { 'pg-test-opt' }))
+    }
+    $features = @($ExamplePackages | Where-Object { -not $Package -or $_ -eq $Package } | ForEach-Object { "$_/examples" })
+    if ($features.Count -gt 0) { $cargoArgs += @('--features', ($features -join ',')) }
+    if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
+    if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
+    if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
+    $cargoArgs + @('--', '-D', 'warnings')
+}
+
 function Get-GatedExamplePackage {
     <#
       .DESCRIPTION
@@ -1044,6 +1074,10 @@ $script:ExitCodeOracleUnavailable = 25
 $script:ExitCodeOracleDivergence = 26
 # -Mode release compiled but produced nothing exportable: the deliverable exists only in a reclaimable cache, so the build is not a pass.
 $script:ExitCodeReleaseArtifactNotExported = 28
+# Clippy (or the type-check under it) failed before tests or a build started; CI's clippy job would fail the same tree.
+$script:ExitCodeLint = 40
+# Comment hygiene found violations or could not run; CI's release gate would refuse the same tree.
+$script:ExitCodeCommentHygiene = 41
 
 function Get-FilterZeroMatchHint {
     <#

@@ -39,7 +39,9 @@ Each is enforced. The enforcement explains itself when it fires, so this is a ta
 
 | Rule | Enforced by |
 |---|---|
-| Bare `cargo build`, `cargo test`, `cargo check`, `cargo run` and `cargo nextest run` are PROHIBITED — use `rust/tools/pg.ps1` | `.claude/hooks/block-bare-cargo.py` |
+| Bare `cargo build`, `cargo test`, `cargo check`, `cargo clippy`, `cargo run` and `cargo nextest run` are PROHIBITED — use `rust/tools/pg.ps1` | `.claude/hooks/block-bare-cargo.py` |
+| Every compile mode refuses a tree CI would refuse, before tests or a build start: rustfmt is applied, comment hygiene is fatal, clippy runs with `-D warnings` | `pg.ps1`: exit 41 (hygiene), exit 40 (clippy); `rust/tools/tests/lint-gate.tests.ps1` |
+| No release from a commit whose `Rust CI` run is not green | `release preflight` in `.github/workflows/rust-gates.yml` |
 | A managed build runs in the foreground, never `run_in_background` | `.claude/hooks/block-backgrounded-build.py` |
 | Never scan from a filesystem root | `.claude/hooks/block-root-find.py` |
 | `-Mode conformance-test` must claim `-Scope local\|all`; no default | exit 20, and `pg_conformance_fixtures::discover` panics on an unset `PANGLOSS_CONFORMANCE_SCOPE` |
@@ -81,8 +83,17 @@ Nothing enforces these. They are here because they change what a careful agent d
 round trip is compiling and linking test binaries (pg-foma has 11 integration targets and
 pg-foma-backend has 9, plus examples), not running tests.
 
-`-Mode check` type-checks everything including test code. `-Mode quick` adds unit tests.
+`-Mode check` is `cargo clippy --all-targets -- -D warnings` with CI's exact flags: it type-checks
+everything including test code and lints it as CI does. `-Mode quick` adds unit tests.
 `-Mode test` / `-Mode conformance-test` are authoritative — a green `quick` is not a green suite.
+
+**Fail up front, not at release.** Every compile mode applies rustfmt, then refuses on a comment
+hygiene violation (exit 41), then runs the same clippy (exit 40) before any test or build starts. So
+a tree that passes a managed run passes CI's fmt, clippy and hygiene gates. Fix what they report;
+never route around them with bare cargo or an `#[allow]` you cannot justify. Run `-Mode check`
+before every commit, and commit the rustfmt reflow with the change. *Scar: v0.5.0 needed three
+release runs — a clippy error that had kept `Rust CI` red since the commit that introduced it, then
+a rustfmt failure in the fix, which was verified with bare `cargo clippy` instead of `pg.ps1`.*
 Also: `corpus-test` (refuses before Cargo if a declared corpus is missing), `release`, `doc` (the
 only thing enforcing `broken_intra_doc_links`), `doctor`, `gc`, `run`, `new-worktree`.
 
@@ -102,6 +113,10 @@ own.
 `.github/workflows/release.yml` (Actions -> Release -> Run workflow, with the version) is the only
 thing that tags a version. `rust/tools/release.ps1` refuses outside CI and exits 37; run it with
 `-DryRun` to check a tree before dispatching, which is what it is for now.
+
+Dispatch only once `Rust CI` is green for the commit at the tip of `main`
+(`gh run list --workflow rust-ci.yml --limit 1`). The release preflight refuses otherwise, in
+seconds. A red `main` is fixed on `main`, not discovered by a release.
 
 **The contract gate is `machine/conformance`** -- engine-agnostic, all-synthetic, diffed against
 committed ground truth, and available to CI through the submodule. The real-language corpora (Sena,

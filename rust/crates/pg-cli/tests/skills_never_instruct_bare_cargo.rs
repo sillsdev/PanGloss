@@ -12,7 +12,7 @@ fn repo_root() -> PathBuf {
 fn refused_subcommands() -> Vec<String> {
     let hook = fs::read_to_string(repo_root().join(".claude/hooks/block-bare-cargo.py"))
         .expect("block-bare-cargo.py is the source of truth for this gate");
-    let mut out: Vec<String> = ["build", "test", "check", "run"]
+    let mut out: Vec<String> = ["build", "test", "check", "clippy", "run"]
         .iter()
         .filter(|s| hook.contains(*s))
         .map(|s| (*s).to_string())

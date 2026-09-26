@@ -10,17 +10,24 @@
   rust/tools/test.ps1 are thin front ends that translate their existing parameters into a call
   here, so there is exactly one place that policy is decided rather than two copies that can drift.
 
+  Up-front gates, in every compile mode (check, quick, build, test, corpus-test, conformance-test,
+  release, doc), so a tree CI would refuse fails here instead of at release time:
+    rustfmt         applied to the tree (never just checked); commit the reflow with your change.
+    comment hygiene fatal (exit 41) before cargo starts.
+    clippy          `-D warnings` with CI's exact flags (Get-ClippyInvocation). `check` IS this
+                    clippy run; every other cargo mode runs it first and stops with exit 40.
+  v0.5.0 needed three release runs because clippy and rustfmt failures surfaced only in CI.
+
   Modes:
-    check         cargo check --all-targets. The fast inner loop: it type-checks TEST and EXAMPLE
-                  code, which `build` never touches, and stops before codegen and linking. That
-                  matters because linking is where the time is -- pg-foma has 12 integration test
-                  targets and pg-foma-backend has 7, and a green `build` has twice hidden broken test
-                  code that only a full `test` round-trip revealed. Skips comment hygiene: that is a
-                  prose check, and this mode is asked exactly one question. Uses the same profile as
-                  `test` so its fingerprints are the ones a later test run reuses.
+    check         cargo clippy --all-targets -- -D warnings. The fast inner loop: it type-checks TEST
+                  and EXAMPLE code, which `build` never touches, lints it exactly as CI does, and stops
+                  before codegen and linking. That matters because linking is where the time is --
+                  pg-foma has 12 integration test targets and pg-foma-backend has 7, and a green
+                  `build` has twice hidden broken test code that only a full `test` round-trip
+                  revealed. Uses the same profile as `test`.
     quick         check's question plus unit tests: `nextest run --lib --bins`. Deliberately does
                   NOT build the integration targets -- that is the expensive half and what `test`
-                  is for. Hygiene off, same profile, so a warm loop stays inside a few minutes.
+                  is for. Same profile, so a warm loop stays inside a few minutes.
                   A green `quick` is not a green suite; it is a fast way to be wrong less often.
     build        cargo build. --release unless -DebugProfile (matches build.ps1's existing
                   default exactly -- this mode exists for backward compatibility with that
@@ -464,34 +471,35 @@ if ($Mode -eq 'test' -or $Mode -eq 'corpus-test' -or $Mode -eq 'doctor' -or ($Mo
 function Invoke-CommentHygieneReport {
     <#
       .DESCRIPTION
-      Reported on EVERY managed build, not only in doctor -- doctor is the mode nobody runs before an
-      ordinary build, so a comment regression there could survive indefinitely.
+      Runs on every compile mode and in doctor. Returns $true only on a clean verdict; the caller
+      decides whether a violation is fatal. Every compile mode treats it as fatal, because CI's release
+      gate refuses the same tree and a problem found at release time costs a whole release run
+      (v0.5.0 needed three). doctor only reports.
 
-      Deliberately NOT folded into the unsafe/exit-code decision: a documentation finding that blocks
-      every managed build is the gate shape this repo has already watched get switched off and then
-      protect nothing. Loud, never fatal.
-
-      Prints its own timing (costs a few seconds per invocation against several hundred files): if
-      that cost ever becomes the reason someone reaches for bare cargo, it has outgrown the benefit
-      and should move to changed-files-only rather than be quietly dropped.
+      Prints its own timing (a few seconds against several hundred files). If that cost ever becomes
+      the reason someone reaches for bare cargo, move it to changed files only rather than drop it.
     #>
     param([Parameter(Mandatory)][string]$ToolRoot)
     $hygiene = Join-Path $ToolRoot 'comment-hygiene.ps1'
-    if (-not (Test-Path $hygiene)) { return }
+    if (-not (Test-Path $hygiene)) {
+        Write-Host "[pg] comment hygiene CHECKER MISSING at $hygiene -- no hygiene verdict." -ForegroundColor Red
+        return $false
+    }
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $hygieneOut = & pwsh -NoProfile -File $hygiene 2>&1
     $sw.Stop()
     $secs = [math]::Round($sw.Elapsed.TotalSeconds, 1)
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[pg] comment hygiene: clean (${secs}s)." -ForegroundColor Green
-    } elseif ($LASTEXITCODE -eq 1) {
-        # Warning here, fatal in CI: blocking every local build on documentation is how a gate gets switched off.
-        Write-Host "[pg] comment hygiene: violations present -- warning here, fatal in CI (${secs}s)." -ForegroundColor Yellow
-        $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
-    } else {
-        Write-Host "[pg] comment hygiene CHECKER FAILED (exit $LASTEXITCODE) -- no hygiene verdict (${secs}s)." -ForegroundColor Yellow
-        $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+        return $true
     }
+    if ($LASTEXITCODE -eq 1) {
+        Write-Host "[pg] comment hygiene: violations present (${secs}s)." -ForegroundColor Red
+    } else {
+        Write-Host "[pg] comment hygiene CHECKER FAILED (exit $LASTEXITCODE) -- no hygiene verdict (${secs}s)." -ForegroundColor Red
+    }
+    $hygieneOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    $false
 }
 
 function Invoke-RustFmt {
@@ -614,10 +622,15 @@ if ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-t
     Invoke-RustFmt -RustRoot $rustRoot
 }
 
-# Skipped in doctor, which reports this itself; a stale native checker may bootstrap a nested build.
+# Fatal in every compile mode: CI refuses the same tree. doctor reports it below; a stale native checker may bootstrap a nested build.
 if ($HygieneBootstrap) {
     Write-Host '[pg] hygiene preflight omitted only while compiling the checker itself.'
-} elseif ($Mode -notin @('doctor', 'check', 'quick')) { Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot }
+} elseif ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc')) {
+    if (-not (Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot)) {
+        Write-Host '[pg] refused BEFORE starting cargo: fix the comment-hygiene violations above (rules: .claude/skills/code-comments/SKILL.md; offenders: rust/tools/comment-hygiene.ps1 -List).' -ForegroundColor Red
+        exit $script:ExitCodeCommentHygiene
+    }
+}
 
 if ($HygieneBootstrap) {
     . (Join-Path $PSScriptRoot '_comment-hygiene-tool.ps1')
@@ -665,7 +678,7 @@ if ($Mode -eq 'doctor') {
         Write-Host "  if this keeps happening: use 'pg.ps1 -Mode run' for binaries so they participate in the run-slot pool." -ForegroundColor Yellow
     }
 
-    Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot
+    $null = Invoke-CommentHygieneReport -ToolRoot $PSScriptRoot
 
     if ($unsafe) {
         Write-Host '[pg] doctor: environment is UNSAFE for a managed build (see failures above).' -ForegroundColor Red
@@ -746,12 +759,8 @@ if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
 } else {
     switch ($Mode) {
         'check' {
-            # --all-targets reaches test and example code; check stops before codegen and linking.
-            $cargoArgs += @('check', '--all-targets')
-            if (-not $DebugProfile) { $cargoArgs += @('--profile', $script:TestOptProfile) }
-            # Examples sit behind each crate's `examples` feature; turn it on so check still type-checks them.
-            $exampleFeatures = @(Get-ExampleFeaturePackages | Where-Object { -not $Package -or $_ -eq $Package } | ForEach-Object { "$_/examples" })
-            if ($exampleFeatures.Count -gt 0) { $cargoArgs += @('--features', ($exampleFeatures -join ',')) }
+            # Clippy is cargo check plus lints: all targets and examples, no codegen, `-D warnings` as in CI.
+            $cargoArgs = @(Get-ClippyInvocation -Package $Package -DebugProfile:$DebugProfile -TestTarget $TestTarget -ExtraArgs $ExtraArgs)
         }
         'build' {
             $cargoArgs += 'build'
@@ -767,9 +776,17 @@ if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
             if (-not $env:RUSTDOCFLAGS) { $env:RUSTDOCFLAGS = '-D warnings' }
         }
     }
-    if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
-    if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
-    if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
+    if ($Mode -ne 'check') {
+        if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
+        if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
+        if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
+    }
+}
+
+# Every other compile mode runs the same clippy first, so a tree CI's clippy job would refuse stops here.
+$lintArgs = $null
+if ($Mode -in @('quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release') -and -not $HygieneBootstrap) {
+    $lintArgs = @(Get-ClippyInvocation -Package $Package -DebugProfile:$DebugProfile)
 }
 
 } # end: if ($Mode -ne 'run')
@@ -796,7 +813,7 @@ if ($Mode -eq 'run') {
 }
 
 if ($Mode -ne 'run' -and -not $runnerLabel) {
-    $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo check' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
+    $runnerLabel = if ($useNextest) { 'nextest' } elseif ($Mode -eq 'check') { 'cargo clippy' } elseif ($Mode -eq 'build' -or $Mode -eq 'release') { 'cargo build' } elseif ($Mode -eq 'doc') { 'rustdoc' } else { 'cargo test' }
 }
 
 # `run` still takes a slot, but its own pool; -Heavy opts a build-sized probe back into the build pool.
@@ -822,7 +839,17 @@ if (-not $memCheckNow.Ok) {
 $code = 1
 $hygienePreviousStamp = $env:PANGLOSS_HYGIENE_BUILD_FINGERPRINT
 try {
-    if ($Mode -eq 'run') {
+    $lintCode = 0
+    if ($lintArgs) {
+        Write-Host "[pg] lint gate: cargo $($lintArgs -join ' ')" -ForegroundColor Cyan
+        $lintInvoke = @{ Exe = 'cargo'; CmdArgs = $lintArgs; WorkingDirectory = $rustRoot; Priority = $Priority }
+        if ($null -ne $linuxHostProof) { $lintInvoke['HostCgroupProof'] = $linuxHostProof }
+        $lintCode = Invoke-ManagedProcess @lintInvoke
+    }
+    if ($lintCode -ne 0) {
+        Write-Host "[pg] lint gate FAILED (cargo exit $lintCode): fix the clippy errors above before $Mode runs. It is the same command CI's clippy job runs." -ForegroundColor Red
+        $code = $script:ExitCodeLint
+    } elseif ($Mode -eq 'run') {
         Write-Host "[pg] run ($($runPlan.Label)): $($runPlan.LaunchExe) $($runPlan.LaunchArgs -join ' ')  (target-dir: $(if ($targetDir) { $targetDir } else { '<default>' }))" -ForegroundColor Cyan
         $invokeArgs = @{
             Exe = $runPlan.LaunchExe; CmdArgs = $runPlan.LaunchArgs; WorkingDirectory = $rustRoot
