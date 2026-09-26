@@ -5,7 +5,7 @@ Status: optimized-in-rust (mirrors [Machine PR #519](https://github.com/sillsdev
 
 ## Sites
 
-- C# site: `AnalysisMorphologicalTransform.ClassifyRepeatedPartCopies`, `CopyAgreementPatternRule`, `Morpher.PruneDisagreeingCopies` (PR #519, on by default).
+- C# site: `AnalysisMorphologicalTransform.HasDisagreeingCopies`, `CopyAgreementPatternRule`, `Morpher.PruneDisagreeingCopies` (PR #519, on by default).
 - Rust site: `pg-rules/src/morph.rs::copy_agreement_refuses_match` and `ana_allomorph_matches`; `pg-rules/src/stratum.rs::AnalyzerConfig::prune_disagreeing_copies`; `pg-parse/src/morpher.rs::Morpher::with_prune_disagreeing_copies`.
 
 ## Difference
@@ -19,7 +19,7 @@ Synthesis writes every copy of a part from the same input, and every later chang
 ## Evidence
 
 - `pg-parse/tests/csharp_port_affix_process.rs`: `full_copy_keeps_only_the_split_whose_copies_agree`, `disagreeing_copies_are_removed_only_when_pruning`, `unifiable_distinct_segments_survive_copy_agreement_pruning`, `optional_left_prefix_keeps_copy_agreement_undecidable`, and prune-off/on variants of `reduplication_rules` and `modify_from_input_rules`. Mutants: never-prune fails the disagreeing-copies test; pruning undecidable copies fails the optional-prefix test; pruning everything fails five tests. `pg-rules/tests/stratum_gate.rs::copy_agreement_pruning_is_on_by_default` pins the default.
-- Conformance at Machine `34215889` adds reduplication x phonology words (`suffixing-extension-slot-ordering`: `pambam`; `metathesis-phase-isolation`: `hasaasa`, `haasa`, `titula`, `hiasa` and negatives). `-Mode conformance-test -Scope all` passes 2,725/2,725 with pruning on.
+- Conformance adds reduplication x phonology words (`suffixing-extension-slot-ordering`: `pambam`; `metathesis-phase-isolation`: `hasaasa`, `haasa`, `titula`, `hiasa` and negatives). At pin `f412c252` (#480 after its 2026-09-26 rebase) `-Mode conformance-test -Scope all` passes 2,728/2,728 with pruning on.
 - Release comparison, v0.3.3 vs v0.4.0 (`machine/scratchpad/review-0923/bench040`): identical analyses and unavailable lists on all 7,455 words completed by both across the five reference grammars. Aweti: 172 -> 191 completed within 20 s, 5.3x on the 172 shared words, word-list index 182 (Maxwell export) 60 s timeout -> 2.7 s. Sena, Amharic and Mbugwe measured 4-12% slower; see follow-up.
 
 ## Allocation-free guard (after v0.4.0)
@@ -32,4 +32,4 @@ v0.4.0 built a `HashMap` of repeated parts for every affix allomorph match, even
 | Mbugwe (8 threads, 10 s cap) | 0.97, 0.97 (a third round overlapped other builds and is excluded) | about equal |
 | Amharic (8 threads, 10 s cap) | 1.01 | equal |
 
-The 4-12% slowdown first reported for Sena, Amharic and Mbugwe was mostly machine-load noise: v0.3.3 and v0.4.0 swapped order between rounds. The C# side got the matching change in PR #519 (`2e1eb06f`, `HasRepeatedParts` cached per rule). Evidence: `machine/scratchpad/review-0923/bench040/noalloc` (local).
+The 4-12% slowdown first reported for Sena, Amharic and Mbugwe was mostly machine-load noise: v0.3.3 and v0.4.0 swapped order between rounds. The C# side got the matching change in PR #519 (`19a82cc8`, `HasRepeatedParts` cached per rule). Evidence: `machine/scratchpad/review-0923/bench040/noalloc` (local).

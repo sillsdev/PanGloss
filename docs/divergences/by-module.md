@@ -41,7 +41,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | FieldWorks `HCLoader.cs` (`LoadCircumfixAffixProcessAllomorph`) | 039 |
 | `Stratum.cs` (`CharacterDefinitionTable` property) | 041 |
 | `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
-| `AnalysisMorphologicalTransform.cs` (`ClassifyRepeatedPartCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
+| `AnalysisMorphologicalTransform.cs` (`HasDisagreeingCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
 | `AnalysisRewriteRule.cs` (deletion unapplication), `AnalysisMetathesisRule.cs` | 050 |
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
 
@@ -133,5 +133,5 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `ApplyRhs` / `attribute_morphs` | 036 | Stable shared zero-width fixture still missing |
 | C# tied-node ordering / oracle comparison | 037 | Fresh-process identity pin still missing |
 | Edge-segment matching / unported prefilter | 038 | Candidate only; no dedicated fixture |
-| Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `34215889`) |
+| Reduplication copy agreement / `copy_agreement_refuses_match` | 049 | `metathesis-phase-isolation`, `suffixing-extension-slot-ordering` (Machine `f412c252`) |
 | Deletion unapplication x metathesis across strata | 050 | Missing; repro in Machine #520 |

@@ -5,6 +5,12 @@ file has no section for.
 
 ## Unreleased
 
+### Conformance pin follows the rebased Machine branch
+
+- The `machine` submodule moves from 34215889 to f412c252, the head of `integrate-conformance-framework`
+  after it was rebased on 2026-09-26. The old pin is no longer on that branch. The fixture words
+  and ground truth are unchanged; the new commit updates coverage ledgers and edge-case metadata.
+
 ### Grammar health: known-bad grammar items are errors
 
 - **New `error` level.** A diagnostic is an error when a restriction is silently dropped, two items
