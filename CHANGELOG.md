@@ -3,13 +3,7 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
-## Unreleased
-
-### Conformance pin follows the rebased Machine branch
-
-- The `machine` submodule moves from 34215889 to f412c252, the head of `integrate-conformance-framework`
-  after it was rebased on 2026-09-26. The old pin is no longer on that branch. The fixture words
-  and ground truth are unchanged; the new commit updates coverage ledgers and edge-case metadata.
+## 0.5.0
 
 ### Grammar health: known-bad grammar items are errors
 
@@ -26,6 +20,21 @@ file has no section for.
   and fails while the checked-in copy is stale.
 - **Parsing is unchanged.** Only the reported level changed; what the grammar loader keeps or drops
   still follows HermitCrab's loader.
+
+### Reduplication pruning no longer costs grammars without copies
+
+- v0.4.0 built a map of repeated parts for every affix allomorph match, even when nothing repeats.
+  An allocation-free scan now runs first, and the map is built only when a part actually repeats.
+  Against v0.4.0, Aweti takes about 0.63x the time on the words both complete; Mbugwe and Amharic
+  are unchanged. Analyses are identical (`docs/divergences/049-copy-agreement-prune.md`). The
+  4-12% slowdown first reported for v0.4.0 on Sena, Amharic and Mbugwe was mostly machine-load
+  noise.
+
+### Conformance pin follows the rebased Machine branch
+
+- The `machine` submodule moves from 34215889 to f412c252, the head of `integrate-conformance-framework`
+  after it was rebased on 2026-09-26. The old pin is no longer on that branch. The fixture words
+  and ground truth are unchanged; the new commit updates coverage ledgers and edge-case metadata.
 
 ## 0.4.0
 
