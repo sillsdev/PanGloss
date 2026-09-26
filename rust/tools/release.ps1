@@ -2,9 +2,10 @@
   .DESCRIPTION
   Release entry point for the PanGloss Rust workspace. THIN FRONT END in the same family as
   build.ps1/test.ps1: every build runs through pg.ps1, so target-dir redirection, sccache, the
-  build-slot mutex, and the job-object ceilings all apply unchanged. What this script adds is the
-  release CONTRACT: it refuses to stamp, tag, or produce artifacts unless every gate below is green,
-  because a release that skipped a gate is indistinguishable from one that passed it.
+  build-slot mutex, and the job-object ceilings all apply unchanged. In -DryRun mode this script
+  checks the local tree, hygiene, rustdoc, tests, founding oracle, version, and changelog. That is a
+  workstation preflight, not the complete release contract: GitHub also requires green Rust CI for
+  the current main tip and builds and smoke-tests Windows, Linux, macOS arm64, and macOS x64.
 
   Gates, in order (cheapest first, so a refusal costs the least machine time):
     1. clean working tree (nothing uncommitted; a release must be reproducible from its tag)
@@ -15,22 +16,18 @@
        warning when the oracle exe is absent on this machine -- an absent tool must never block the
        workflow, but the skip is printed in the release record so it can never read as "passed")
 
-  Then, and only then:
-    6. stamp [workspace.package] version in rust/Cargo.toml (single source; all crates inherit)
-    7. verify CHANGELOG.md has a section for the new version (it will not write one for you --
-       release notes are authored, not generated)
-    8. commit the stamp, tag v<version> (annotated), and build the optimized artifact via
-       pg.ps1 -Mode release
-    9. print the artifact paths and the exact push command -- IT NEVER PUSHES.
+  The GitHub workflow then stamps the workspace version and lockfile, builds each target, runs the
+  version smoke check on each binary, verifies the ten-file asset inventory and checksums, and only
+  then commits, tags, and publishes. -DryRun reports this CI-only work without performing it.
 
   THIS SCRIPT NO LONGER TAGS FROM A WORKSTATION. Steps 6-9 run only inside GitHub Actions; locally
-  it refuses unless -DryRun. The release surface is .github/workflows/release.yml, whose contract
-  gate is the machine/conformance suite.
+  it refuses unless -DryRun. The release surface is .github/workflows/release.yml. It publishes
+  only after all four target builds, their version smoke checks, and the exact release asset and
+  checksum inventory have passed.
 
   Examples:
     rust\tools\release.ps1 -Version 0.2.0 -DryRun    # run every gate, mutate nothing
-    rust\tools\release.ps1 -Version 0.2.0            # the real thing
-    rust\tools\release.ps1 -Version 0.2.0 -SkipGate test  # emergency only; recorded in the tag message
+    rust\tools\release.ps1 -Version 0.2.0            # refused locally; releases run through GitHub Actions
 
   Exit codes: 30 dirty-tree, 31 hygiene, 32 doc, 33 test, 34 oracle, 35 version/changelog,
   36 tag-exists, 37 run-locally-without-DryRun, 0 success. Distinct codes so automation can tell
@@ -151,7 +148,11 @@ if (-not (Test-Path $changelog) -or ((Get-Content $changelog -Raw) -notmatch [re
 Write-Gate 'version' "ok (v$Version is new, changelog section present)"
 
 if ($DryRun) {
-    Write-Host "[release] DRY RUN -- every gate evaluated; nothing stamped, tagged, or built."
+    Write-Host '[release] DRY RUN -- local preflight evaluated; nothing stamped, tagged, or built.'
+    Write-Host '[release] GitHub Release additionally builds and smoke-tests:'
+    Write-Host '    Windows x64 (pangloss-win-x64.exe; legacy pangloss.exe retained)'
+    Write-Host '    Linux x64, macOS arm64, and macOS x64'
+    Write-Host '[release] GitHub publishes only after all four builds and all ten asset/checksum files verify.'
     exit 0
 }
 

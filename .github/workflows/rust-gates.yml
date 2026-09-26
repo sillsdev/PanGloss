@@ -33,22 +33,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Refuse a version that is not x.y.z
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          case "${{ inputs.version }}" in
-            [0-9]*.[0-9]*.[0-9]*) echo "version ${{ inputs.version }}" ;;
-            *) echo "::error::version must be x.y.z, got '${{ inputs.version }}'"; exit 1 ;;
-          esac
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::version must be exactly x.y.z with numeric components'
+            exit 1
+          fi
+          echo "version $RELEASE_VERSION"
       - name: Refuse a version CHANGELOG.md has no section for
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          if ! grep -qE "^## ${{ inputs.version }}\$" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md has no '## ${{ inputs.version }}' section. Release notes are authored, not generated."
+          if ! grep -Fxq -- "## $RELEASE_VERSION" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $RELEASE_VERSION' section. Release notes are authored, not generated."
+            exit 1
+          fi
+      - name: Require the current main tip as the release source
+        env:
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          if [[ "$SOURCE_REF" != refs/heads/main ]]; then
+            echo "::error::dispatch the Release workflow from main (got $SOURCE_REF)"
+            exit 1
+          fi
+          main_sha="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          if [[ -z "$main_sha" || "$main_sha" != "$SOURCE_SHA" ]]; then
+            echo "::error::workflow source $SOURCE_SHA is not the current main tip ($main_sha)"
             exit 1
           fi
       - name: Refuse a tag that already exists
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/v${{ inputs.version }}" >/dev/null 2>&1; then
-            echo "::error::tag v${{ inputs.version }} already exists on origin"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$RELEASE_VERSION" >/dev/null 2>&1; then
+            echo "::error::tag v$RELEASE_VERSION already exists on origin"
             exit 1
           fi
       # Rust CI already runs fmt, clippy and the tests on every push; releasing past a red run is how
@@ -57,9 +80,9 @@ jobs:
       - name: Refuse a commit whose Rust CI run is not green
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
-          git fetch --quiet --depth=50 origin "${{ github.sha }}"
-          sha="${{ github.sha }}"
+          sha="$SOURCE_SHA"
           while [ "$(git log -1 --format=%an "$sha")" = "github-actions[bot]" ] \
                 && git log -1 --format=%s "$sha" | grep -qE '^release: v[0-9]+\.[0-9]+\.[0-9]+$'; do
             sha="$(git rev-parse "$sha^")"
