@@ -16,14 +16,14 @@
        warning when the oracle exe is absent on this machine -- an absent tool must never block the
        workflow, but the skip is printed in the release record so it can never read as "passed")
 
-  The GitHub workflow then stamps the workspace version and lockfile, builds each target, runs the
-  version smoke check on each binary, verifies the ten-file asset inventory and checksums, and only
-  then commits, tags, and publishes. -DryRun reports this CI-only work without performing it.
+  The GitHub workflow can run build-only with publish=false: it stamps the version and lockfile,
+  builds each target, smoke-checks each binary, and verifies all ten assets and checksums without
+  committing or publishing. With publish=true (the default), it then commits, tags, and publishes.
+  -DryRun reports this CI-only work without performing it.
 
-  THIS SCRIPT NO LONGER TAGS FROM A WORKSTATION. Steps 6-9 run only inside GitHub Actions; locally
-  it refuses unless -DryRun. The release surface is .github/workflows/release.yml. It publishes
-  only after all four target builds, their version smoke checks, and the exact release asset and
-  checksum inventory have passed.
+  THIS SCRIPT NO LONGER TAGS FROM A WORKSTATION. Locally it refuses unless -DryRun. The release
+  surface is .github/workflows/release.yml; its publish input defaults to true and gates all
+  commit, tag, and release steps after the four builds, smoke checks, and asset/checksum inventory.
 
   Examples:
     rust\tools\release.ps1 -Version 0.2.0 -DryRun    # run every gate, mutate nothing
@@ -149,10 +149,10 @@ Write-Gate 'version' "ok (v$Version is new, changelog section present)"
 
 if ($DryRun) {
     Write-Host '[release] DRY RUN -- local preflight evaluated; nothing stamped, tagged, or built.'
-    Write-Host '[release] GitHub Release additionally builds and smoke-tests:'
+    Write-Host '[release] GitHub Release can run build-only with publish=false and verify all ten assets:'
     Write-Host '    Windows x64 (pangloss-win-x64.exe; legacy pangloss.exe retained)'
     Write-Host '    Linux x64, macOS arm64, and macOS x64'
-    Write-Host '[release] GitHub publishes only after all four builds and all ten asset/checksum files verify.'
+    Write-Host '[release] With publish=true (the default), GitHub publishes only after all builds and checks pass.'
     exit 0
 }
 
