@@ -88,13 +88,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ github.sha }}
+          # A release is judged by main's push run; a dry run on a branch has only its pull-request run.
+          RUST_CI_EVENT: ${{ inputs.require_main && 'push' || 'pull_request' }}
         run: |
           sha="$SOURCE_SHA"
           while [ "$(git log -1 --format=%an "$sha")" = "github-actions[bot]" ] \
                 && git log -1 --format=%s "$sha" | grep -qE '^release: v[0-9]+\.[0-9]+\.[0-9]+$'; do
             sha="$(git rev-parse "$sha^")"
           done
-          run="$(gh run list -R "${{ github.repository }}" --workflow rust-ci.yml --commit "$sha" --event push \
+          run="$(gh run list -R "${{ github.repository }}" --workflow rust-ci.yml --commit "$sha" --event "$RUST_CI_EVENT" \
                  --limit 1 --json status,conclusion,url --jq '.[0] | "\(.status) \(.conclusion) \(.url)"')"
           if [ -z "$run" ]; then
             echo "::error::no Rust CI run exists for $sha; push it to main and let Rust CI finish before releasing"
