@@ -37,6 +37,7 @@ jobs:
       include_release_gates: true
       version: ${{ inputs.version }}
       timeout_minutes: 120
+      require_main: ${{ inputs.publish }}
 
   stamp:
     name: prepare version stamp

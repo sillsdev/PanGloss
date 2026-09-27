@@ -21,6 +21,11 @@ on:
         required: false
         default: 360
         type: number
+      require_main:
+        description: Require the current main tip as the source. Only a build-only dry run passes false.
+        required: false
+        default: true
+        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -52,7 +57,9 @@ jobs:
             echo "::error::CHANGELOG.md has no '## $RELEASE_VERSION' section. Release notes are authored, not generated."
             exit 1
           fi
+      # A dry run publishes nothing, so it may prove a branch before that branch reaches main.
       - name: Require the current main tip as the release source
+        if: ${{ inputs.require_main }}
         env:
           SOURCE_REF: ${{ github.ref }}
           SOURCE_SHA: ${{ github.sha }}
