@@ -65,13 +65,15 @@ jobs:
           $text = Get-Content $path -Raw
           $sectionMatch = [regex]::Match($text, '(?ms)^\[workspace\.package\]\r?\n(?<section>.*?)(?=^\[|\z)')
           if (-not $sectionMatch.Success) { Write-Host '::error::[workspace.package] is missing'; exit 1 }
-          $section = $sectionMatch.Groups['section'].Value
-          $pattern = '(?m)^(version\s*=\s*)"[^"]+"'
-          if (-not [regex]::IsMatch($section, $pattern)) { Write-Host '::error::workspace version is missing'; exit 1 }
-          $replacement = '$1"' + $env:RELEASE_VERSION + '"'
-          $stampedSection = [regex]::Replace($section, $pattern, $replacement, 1)
+          $sectionGroup = $sectionMatch.Groups['section']
+          $section = $sectionGroup.Value
+          $versionLine = [regex]::new('(?m)^(version\s*=\s*)"[^"]+"')
+          if (-not $versionLine.IsMatch($section)) { Write-Host '::error::workspace version is missing'; exit 1 }
+          $replacement = '${1}"' + $env:RELEASE_VERSION + '"'
+          $stampedSection = $versionLine.Replace($section, $replacement, 1)
           if ($stampedSection -eq $section) { Write-Host '::error::workspace version stamp changed nothing'; exit 1 }
-          $stamped = $text.Substring(0, $sectionMatch.Index) + $stampedSection + $text.Substring($sectionMatch.Index + $sectionMatch.Length)
+          # Splice at the body group, not the whole match, so the [workspace.package] header survives.
+          $stamped = $text.Substring(0, $sectionGroup.Index) + $stampedSection + $text.Substring($sectionGroup.Index + $sectionGroup.Length)
           [System.IO.File]::WriteAllText($path, $stamped, [System.Text.UTF8Encoding]::new($false))
 
       # Update local workspace package versions directly. A separate locked metadata pass proves
