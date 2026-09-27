@@ -16,6 +16,11 @@ on:
         description: 'Version to release, x.y.z (CHANGELOG.md must already have its section)'
         required: true
         type: string
+      publish:
+        description: 'Commit the version stamp and publish the release after all build checks pass'
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -322,6 +327,7 @@ jobs:
       # Tagging happens only after every build and local inventory check has succeeded. Re-run
       # failed jobs in this workflow run to resume publication; a full new run refuses the tag.
       - name: Commit the stamp and atomically push main plus tag
+        if: ${{ inputs.publish }}
         shell: bash
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -384,6 +390,7 @@ Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local fi
           fi
 
       - name: Create or resume the draft and publish verified assets
+        if: ${{ inputs.publish }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
