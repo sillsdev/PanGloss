@@ -3,6 +3,21 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.5.1
+
+### PanGloss now ships for Windows, Linux and macOS
+
+- **Four release assets.** Each release publishes `pangloss-win-x64.exe`, `pangloss-linux-x64`
+  (built on Ubuntu 22.04 for glibc reach), `pangloss-osx-arm64` and `pangloss-osx-x64`, each with a
+  `.sha256`. `pangloss.exe` is still published and is byte-identical to `pangloss-win-x64.exe`, so
+  existing consumers keep working.
+- **Every asset is smoke-checked before publishing.** Each target's binary must report the release
+  version from `--version` on its own platform, and the publish job verifies the full asset inventory
+  and every checksum before it commits the version stamp or pushes the tag.
+- **Build-only dry run.** Dispatching the release workflow with `publish: false` runs the gates and
+  all four builds and checks without committing, tagging or publishing.
+- **Parsing is unchanged.** No parser, grammar or output change since 0.5.0.
+
 ## 0.5.0
 
 ### Grammar health: known-bad grammar items are errors
