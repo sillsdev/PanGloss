@@ -348,10 +348,9 @@ jobs:
             git diff --cached --quiet && { echo '::error::version stamp produced no changes'; exit 1; }
             git commit -m "release: $tag"
             # The annotation records checked coverage so this tag never implies more than it passed.
-            git tag -a "$tag" -m "PanGloss $tag
-
-Coverage: Rust CI (fmt, clippy, cargo test), release gates (comment hygiene, rustdoc, machine/conformance: all-synthetic fixtures diffed against committed ground truth), and smoke-checked Windows x64, Linux x64, macOS arm64, and macOS x64 builds.
-Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files and are deliberately absent from release gates."
+            coverage='Coverage: Rust CI (fmt, clippy, cargo test), release gates (comment hygiene, rustdoc, machine/conformance: all-synthetic fixtures diffed against committed ground truth), and smoke-checked Windows x64, Linux x64, macOS arm64, and macOS x64 builds.'
+            corpora='Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files and are deliberately absent from release gates.'
+            git tag -a "$tag" -m "PanGloss $tag" -m "$coverage" -m "$corpora"
             commit="$(git rev-parse HEAD)"
             remote_main="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
             if [[ "$remote_main" != "$GITHUB_SHA" ]]; then
