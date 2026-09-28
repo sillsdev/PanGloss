@@ -400,8 +400,10 @@ jobs:
         run: |
           set -euo pipefail
           tag="v$RELEASE_VERSION"
-          endpoint="repos/$GITHUB_REPOSITORY/releases/tags/$tag"
+          tag_endpoint="repos/$GITHUB_REPOSITORY/releases/tags/$tag"
+          releases_endpoint="repos/$GITHUB_REPOSITORY/releases?per_page=100"
           export RELEASE_TITLE="PanGloss $tag"
+          export RELEASE_TAG="$tag"
           export RELEASE_NOTES_PATH=release-notes.md
           export RELEASE_ASSETS_DIR=release-assets
 
@@ -449,37 +451,72 @@ jobs:
           print(f"verified {len(expected)} remote assets; draft={str(expected_draft).lower()}")
           PY
 
-          if gh api "$endpoint" > release.json 2>/dev/null; then
-            release_state="$(python - <<'PY'
-          import json, os, sys
-          release = json.load(open("release.json", encoding="utf-8"))
-          notes = open(os.environ["RELEASE_NOTES_PATH"], encoding="utf-8").read()
-          if release.get("tag_name") != f"v{os.environ['RELEASE_VERSION']}": sys.exit("release tag mismatch")
-          if release.get("name") != os.environ["RELEASE_TITLE"]: sys.exit("release title mismatch")
-          if release.get("body") != notes: sys.exit("release notes mismatch")
-          print("draft" if release.get("draft") else "public")
+          cat > "$RUNNER_TEMP/find_release_id.py" <<'PY'
+          import json
+          import os
+          import sys
+
+          pages = json.load(sys.stdin)
+          releases = [release for page in pages for release in page]
+          matches = [release for release in releases if release.get("tag_name") == os.environ["RELEASE_TAG"]]
+          if len(matches) > 1:
+              sys.exit(f"multiple releases found for {os.environ['RELEASE_TAG']}")
+          if matches:
+              release_id = matches[0].get("id")
+              if not isinstance(release_id, int):
+                  sys.exit("matching release has no numeric id")
+              print(release_id)
           PY
-          )"
-            if [[ "$release_state" == public ]]; then
-              export EXPECTED_DRAFT=false
-              python "$RUNNER_TEMP/verify_release.py"
-              echo 'release is already public with the exact expected assets; retry is complete'
-              exit 0
-            fi
-          else
+
+          resolve_release_id() {
+            gh api --paginate --slurp "$releases_endpoint" > release-pages.json
+            release_id="$(python "$RUNNER_TEMP/find_release_id.py" < release-pages.json)"
+          }
+
+          resolve_release_id
+          if [[ -z "$release_id" ]]; then
             gh release create "$tag" \
               --verify-tag \
               --draft \
               --title "$RELEASE_TITLE" \
               --notes-file "$RELEASE_NOTES_PATH"
+            resolve_release_id
+          fi
+          if [[ -z "$release_id" ]]; then
+            echo "::error::could not resolve the draft release id for $tag after creation"
+            exit 1
+          fi
+
+          release_endpoint="repos/$GITHUB_REPOSITORY/releases/$release_id"
+          gh api "$release_endpoint" > release.json
+          release_state="$(python - <<'PY'
+          import json, os, sys
+          release = json.load(open("release.json", encoding="utf-8"))
+          notes = open(os.environ["RELEASE_NOTES_PATH"], encoding="utf-8").read()
+          if release.get("tag_name") != os.environ["RELEASE_TAG"]: sys.exit("release tag mismatch")
+          if release.get("name") != os.environ["RELEASE_TITLE"]: sys.exit("release title mismatch")
+          if release.get("body") != notes: sys.exit("release notes mismatch")
+          if release.get("draft") is True: print("draft")
+          elif release.get("draft") is False: print("public")
+          else: sys.exit("release draft state is missing")
+          PY
+          )"
+
+          if [[ "$release_state" == public ]]; then
+            # The by-tag endpoint resolves published releases; use it only after publication.
+            gh api "$tag_endpoint" > release.json
+            export EXPECTED_DRAFT=false
+            python "$RUNNER_TEMP/verify_release.py"
+            echo 'release is already public with the exact expected assets; retry is complete'
+            exit 0
           fi
 
           gh release upload "$tag" release-assets/* --clobber
-          gh api "$endpoint" > release.json
+          gh api "$release_endpoint" > release.json
           export EXPECTED_DRAFT=true
           python "$RUNNER_TEMP/verify_release.py"
 
-          gh release edit "$tag" --draft=false
-          gh api "$endpoint" > release.json
+          gh api --method PATCH "$release_endpoint" -F draft=false > release.json
+          gh api "$tag_endpoint" > release.json
           export EXPECTED_DRAFT=false
           python "$RUNNER_TEMP/verify_release.py"
