@@ -206,7 +206,45 @@
         "notAttempted": {
           "$ref": "#/$defs/notAttemptedReason"
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "analyses"
+          ],
+          "properties": {
+            "outcome": {
+              "const": "complete"
+            },
+            "incomplete": false,
+            "notAttempted": false
+          }
+        },
+        {
+          "required": [
+            "incomplete"
+          ],
+          "properties": {
+            "outcome": {
+              "const": "incomplete"
+            },
+            "analyses": false,
+            "notAttempted": false
+          }
+        },
+        {
+          "required": [
+            "notAttempted"
+          ],
+          "properties": {
+            "outcome": {
+              "const": "not_attempted"
+            },
+            "analyses": false,
+            "incomplete": false
+          }
+        }
+      ]
     },
     "analysisRecord": {
       "type": "object",

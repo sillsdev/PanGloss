@@ -287,12 +287,12 @@ pub fn golden_diff(
         return Err(mismatch);
     }
 
-    let mut report_cases = BTreeMap::new();
-    for case in report.cases() {
-        if report_cases.insert(case.case_id.as_str(), case).is_some() {
-            return Err(GoldenError::DuplicateReportCase(case.case_id.clone()));
-        }
-    }
+    // AssessmentReport construction guarantees unique case IDs for every consumer.
+    let report_cases: BTreeMap<_, _> = report
+        .cases()
+        .iter()
+        .map(|case| (case.case_id.as_str(), case))
+        .collect();
     let suite_ids: BTreeMap<&str, &str> = suite
         .cases()
         .iter()

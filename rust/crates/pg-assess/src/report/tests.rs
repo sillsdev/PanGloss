@@ -426,3 +426,95 @@ fn duplicate_json_object_keys_are_rejected() {
     );
     assert!(parse_report(&duplicated).is_err());
 }
+
+#[test]
+fn guessed_flag_is_required_boolean_evidence() {
+    for malformed in [
+        serde_json::Value::Null,
+        serde_json::json!(0),
+        serde_json::json!("false"),
+    ] {
+        let mut value = sample().finish().unwrap().to_value();
+        value["cases"][0]["analyses"][0]["guessed"] = malformed;
+        assert!(
+            parse_report(&value.to_string()).is_err(),
+            "invalid guessed evidence must not become false"
+        );
+    }
+    let mut value = sample().finish().unwrap().to_value();
+    value["cases"][0]["analyses"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("guessed");
+    assert!(parse_report(&value.to_string()).is_err());
+}
+
+#[test]
+fn report_shape_is_not_silently_repaired() {
+    let mut draft = sample();
+    draft.cases[0].outcome = CaseOutcome::Complete(AnalysisSet::from_annotated([(
+        identity(&[Some("root")], None),
+        false,
+    )]));
+    let valid = draft.finish().unwrap().to_value();
+    assert!(parse_report(&valid.to_string()).is_ok());
+    for pointer in [
+        "",
+        "/cases/0",
+        "/cases/0/analyses/0",
+        "/cases/0/analyses/0/identity",
+    ] {
+        let mut changed = valid.clone();
+        changed
+            .pointer_mut(pointer)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert("unknownField".into(), json!(true));
+        assert!(
+            parse_report(&changed.to_string()).is_err(),
+            "ignored field at {pointer}"
+        );
+    }
+    for (parent, key) in [
+        ("", "failure"),
+        ("", "generatedAt"),
+        ("/cases/0/analyses/0/identity", "category"),
+    ] {
+        let mut changed = valid.clone();
+        changed
+            .pointer_mut(parent)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove(key);
+        assert!(
+            parse_report(&changed.to_string()).is_err(),
+            "repaired missing {key}"
+        );
+    }
+    let mut changed = valid.clone();
+    changed["cases"][0]["supersedes"] = Value::Null;
+    assert!(
+        parse_report(&changed.to_string()).is_err(),
+        "null is not a supersedes array"
+    );
+    let mut equivalent = valid;
+    equivalent["cases"][0]["supersedes"] = json!([]);
+    assert!(
+        parse_report(&equivalent.to_string()).is_ok(),
+        "optional empty lineage is valid"
+    );
+}
+
+#[test]
+fn conflicting_duplicate_case_ids_cannot_become_comparison_evidence() {
+    let mut draft = sample();
+    let agreeing = draft.cases[0].clone();
+    draft.cases[0].outcome = CaseOutcome::Complete(AnalysisSet::default());
+    draft.cases.push(agreeing);
+    assert!(
+        draft.finish().is_err(),
+        "duplicate IDs would erase the first candidate in comparison"
+    );
+}

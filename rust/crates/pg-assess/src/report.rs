@@ -18,7 +18,7 @@
 //! Diagnostics reach the semantic projection as `(code, count)` pairs rather than prose, so
 //! rewording an importer warning is never reported as a context difference.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -166,7 +166,13 @@ pub struct AssessmentReport {
 
 impl ReportDraft {
     /// Derive status, reproducibility, and all three digests.
-    pub fn finish(self) -> Result<AssessmentReport, JcsError> {
+    pub fn finish(self) -> Result<AssessmentReport, ReportError> {
+        let mut seen = BTreeSet::new();
+        for case in &self.cases {
+            if !seen.insert(&case.case_id) {
+                return Err(ReportError::DuplicateCaseId(case.case_id.clone()));
+            }
+        }
         let outcomes: Vec<CaseOutcome> = self.cases.iter().map(|c| c.outcome.clone()).collect();
         let status = crate::outcome::derive_status(&outcomes);
         let reproducible = outcomes.iter().all(CaseOutcome::is_reproducible);
@@ -477,6 +483,7 @@ pub enum ReportError {
     KeyIndexOutOfRange(usize, usize),
     ForeignIdentityProfile(String),
     ArtifactIntegrityMismatch(&'static str),
+    DuplicateCaseId(String),
 }
 
 impl std::fmt::Display for ReportError {
@@ -494,8 +501,9 @@ impl std::fmt::Display for ReportError {
                  {REPORT_SCHEMA_VERSION})"
             ),
             ReportError::BadField(name) => {
-                write!(f, "field {name} is missing or has the wrong type")
+                write!(f, "field {name} is missing, invalid, or not permitted")
             }
+            ReportError::DuplicateCaseId(id) => write!(f, "duplicate report case ID {id}"),
             ReportError::KeyIndexOutOfRange(index, len) => write!(
                 f,
                 "key index {index} is outside a key table of {len} entries"
@@ -516,6 +524,12 @@ impl std::fmt::Display for ReportError {
 
 impl std::error::Error for ReportError {}
 
+impl From<JcsError> for ReportError {
+    fn from(error: JcsError) -> Self {
+        Self::Malformed(error.to_string())
+    }
+}
+
 /// Parse an assessment report, expanding interned keys back to values.
 pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
     let root =
@@ -534,6 +548,27 @@ pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
         None => return Err(ReportError::BadField("schemaVersion".into())),
     }
 
+    reject_unknown_fields(
+        object,
+        &[
+            "schema",
+            "schemaVersion",
+            "reportId",
+            "semanticDigest",
+            "outcomeDigest",
+            "generatedAt",
+            "status",
+            "reproducible",
+            "suite",
+            "execution",
+            "provenance",
+            "diagnostics",
+            "keyTable",
+            "cases",
+            "failure",
+            "extensions",
+        ],
+    )?;
     let suite: SuiteRef = field(object, "suite")?;
     if suite.analysis_identity_profile != IDENTITY_PROFILE {
         // Refused rather than best-effort: expectations written under another profile's encoding would silently miss.
@@ -553,18 +588,17 @@ pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
     }
 
     let draft = ReportDraft {
-        generated_at: object
-            .get("generatedAt")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
+        generated_at: field(object, "generatedAt")?,
         suite,
         execution: field(object, "execution")?,
         provenance: field(object, "provenance")?,
         diagnostics: field(object, "diagnostics")?,
-        failure: match object.get("failure") {
-            None | Some(Value::Null) => None,
-            Some(value) => Some(
+        failure: match object
+            .get("failure")
+            .ok_or_else(|| ReportError::BadField("failure".into()))?
+        {
+            Value::Null => None,
+            value => Some(
                 serde_json::from_value(value.clone())
                     .map_err(|_| ReportError::BadField("failure".into()))?,
             ),
@@ -574,9 +608,7 @@ pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
     };
 
     // Recomputed from the expanded content rather than trusted from the file, so a hand-edited report is caught immediately.
-    let report = draft
-        .finish()
-        .map_err(|e| ReportError::Malformed(e.to_string()))?;
+    let report = draft.finish()?;
     verify_digest_field(object, "reportId", report.report_id())?;
     verify_digest_field(object, "semanticDigest", report.semantic_digest())?;
     verify_digest_field(object, "outcomeDigest", report.outcome_digest())?;
@@ -600,6 +632,13 @@ fn verify_digest_field(
         Some(supplied) if supplied == expected => Ok(()),
         _ => Err(ReportError::ArtifactIntegrityMismatch(field_name)),
     }
+}
+
+fn reject_unknown_fields(object: &Map<String, Value>, allowed: &[&str]) -> Result<(), ReportError> {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(ReportError::BadField(format!("unexpected {key}")));
+    }
+    Ok(())
 }
 
 fn field<T: for<'de> Deserialize<'de>>(
@@ -627,7 +666,18 @@ fn read_case(value: &Value, table: &[String]) -> Result<CaseRecord, ReportError>
         .ok_or_else(|| ReportError::BadField("cases[].input".into()))?
         .to_string();
 
-    let outcome = match object.get("outcome").and_then(Value::as_str) {
+    let outcome_kind = object.get("outcome").and_then(Value::as_str);
+    let evidence_field = match outcome_kind {
+        Some("complete") => "analyses",
+        Some("incomplete") => "incomplete",
+        Some("not_attempted") => "notAttempted",
+        _ => return Err(ReportError::BadField("cases[].outcome".into())),
+    };
+    reject_unknown_fields(
+        object,
+        &["caseId", "input", "supersedes", "outcome", evidence_field],
+    )?;
+    let outcome = match outcome_kind {
         Some("complete") => {
             let analyses = object
                 .get("analyses")
@@ -635,6 +685,13 @@ fn read_case(value: &Value, table: &[String]) -> Result<CaseRecord, ReportError>
                 .ok_or_else(|| ReportError::BadField("cases[].analyses".into()))?;
             let mut annotated = Vec::with_capacity(analyses.len());
             for analysis in analyses {
+                let analysis = analysis
+                    .as_object()
+                    .ok_or_else(|| ReportError::BadField("cases[].analyses[]".into()))?;
+                reject_unknown_fields(
+                    analysis,
+                    &["identity", "identityDigest", "duplicateCount", "guessed"],
+                )?;
                 let identity = read_identity(
                     analysis.get("identity").ok_or_else(|| {
                         ReportError::BadField("cases[].analyses[].identity".into())
@@ -650,7 +707,7 @@ fn read_case(value: &Value, table: &[String]) -> Result<CaseRecord, ReportError>
                 let guessed = analysis
                     .get("guessed")
                     .and_then(Value::as_bool)
-                    .unwrap_or(false);
+                    .ok_or_else(|| ReportError::BadField("cases[].analyses[].guessed".into()))?;
                 let count = match analysis.get("duplicateCount") {
                     Some(Value::Number(number)) => number
                         .as_u64()
@@ -683,7 +740,7 @@ fn read_case(value: &Value, table: &[String]) -> Result<CaseRecord, ReportError>
     };
 
     let supersedes = match object.get("supersedes") {
-        None | Some(Value::Null) => Vec::new(),
+        None => Vec::new(),
         Some(value) => serde_json::from_value(value.clone())
             .map_err(|_| ReportError::BadField("cases[].supersedes".into()))?,
     };
@@ -704,6 +761,10 @@ fn read_reason<T: for<'de> Deserialize<'de>>(
 }
 
 fn read_identity(value: &Value, table: &[String]) -> Result<AnalysisIdentity, ReportError> {
+    let value = value
+        .as_object()
+        .ok_or_else(|| ReportError::BadField("identity".into()))?;
+    reject_unknown_fields(value, &["morphemes", "rootIndex", "category"])?;
     let resolve = |slot: &Value| -> Result<Option<String>, ReportError> {
         match slot {
             Value::Null => Ok(None),
@@ -739,7 +800,11 @@ fn read_identity(value: &Value, table: &[String]) -> Result<AnalysisIdentity, Re
             .and_then(|index| i32::try_from(index).ok())
             .filter(|index| *index >= -1)
             .ok_or_else(|| ReportError::BadField("identity.rootIndex".into()))?,
-        category: resolve(value.get("category").unwrap_or(&Value::Null))?,
+        category: resolve(
+            value
+                .get("category")
+                .ok_or_else(|| ReportError::BadField("identity.category".into()))?,
+        )?,
     })
 }
 

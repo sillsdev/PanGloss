@@ -19,3 +19,5 @@ Pulling a real JSON Schema crate was the alternative and was rejected: this repo
 dependency, and inventing a general-purpose validator by hand would be worse than declaring a small,
 honest subset and erroring loudly the moment a schema needs more of the spec than that subset
 covers.
+
+The subset also supports boolean schemas and integer `minimum`/`maximum` across the full signed and unsigned JSON integer range. Report cases require exactly the evidence belonging to their selected outcome.

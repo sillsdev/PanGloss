@@ -389,8 +389,8 @@ fn golden_diff_refuses_unknown_and_duplicate_report_cases() {
     let mut duplicate = base.draft().clone();
     duplicate.cases.push(duplicate.cases[0].clone());
     assert_eq!(
-        golden_diff(&duplicate.finish().unwrap(), &suite),
-        Err(GoldenError::DuplicateReportCase("c1".into()))
+        duplicate.finish(),
+        Err(crate::report::ReportError::DuplicateCaseId("c1".into()))
     );
 }
 

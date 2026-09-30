@@ -50,6 +50,13 @@ impl Validator {
     }
 
     fn validate(&self, instance: &Value, schema: &Value, path: &str) -> Vec<Failure> {
+        if let Value::Bool(accepts) = schema {
+            return if *accepts {
+                Vec::new()
+            } else {
+                vec![Failure::at(path, "false schema rejects this value")]
+            };
+        }
         let Some(schema) = schema.as_object() else {
             return vec![Failure::at(path, "schema node is not an object")];
         };
@@ -200,15 +207,13 @@ impl Validator {
                 }
             }
             Value::Number(number) => {
-                let integer = number
-                    .as_i64()
-                    .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()));
-                if let Some(min) = schema.get("minimum").and_then(Value::as_i64) {
+                let integer = json_integer(&Value::Number(number.clone()));
+                if let Some(min) = schema.get("minimum").and_then(json_integer) {
                     if integer.is_some_and(|n| n < min) {
                         failures.push(Failure::at(path, format!("below minimum {min}")));
                     }
                 }
-                if let Some(max) = schema.get("maximum").and_then(Value::as_i64) {
+                if let Some(max) = schema.get("maximum").and_then(json_integer) {
                     if integer.is_some_and(|n| n > max) {
                         failures.push(Failure::at(path, format!("above maximum {max}")));
                     }
@@ -218,6 +223,13 @@ impl Validator {
         }
         failures
     }
+}
+
+fn json_integer(value: &Value) -> Option<i128> {
+    value
+        .as_i64()
+        .map(i128::from)
+        .or_else(|| value.as_u64().map(i128::from))
 }
 
 fn kind_of(value: &Value) -> &'static str {
@@ -674,9 +686,11 @@ fn a_report_with_a_zero_duplicate_count_is_rejected() {
 
 #[test]
 fn a_report_with_duplicate_count_above_u32_is_rejected() {
-    let mut value = full_report().to_value();
-    value["cases"][0]["analyses"][0]["duplicateCount"] = json!(u64::from(u32::MAX) + 1);
-    assert_rejected("assessment-report", &value, "duplicateCount");
+    for invalid in [u64::from(u32::MAX) + 1, u64::MAX] {
+        let mut value = full_report().to_value();
+        value["cases"][0]["analyses"][0]["duplicateCount"] = json!(invalid);
+        assert_rejected("assessment-report", &value, "duplicateCount");
+    }
 }
 
 #[test]
@@ -773,4 +787,22 @@ fn the_validator_refuses_a_schema_keyword_it_does_not_implement() {
         outcome.is_err(),
         "an unimplemented keyword must not pass silently"
     );
+}
+
+#[test]
+fn case_evidence_is_required_for_the_selected_outcome() {
+    let mut value = full_report().to_value();
+    value["cases"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("analyses");
+    assert_rejected("assessment-report", &value, "cases[0]");
+}
+
+#[test]
+fn case_evidence_from_other_outcomes_is_rejected() {
+    let mut value = full_report().to_value();
+    value["cases"][2]["analyses"] = json!([]);
+    assert_eq!(value["cases"][2]["outcome"], "incomplete");
+    assert_rejected("assessment-report", &value, "cases[2]");
 }

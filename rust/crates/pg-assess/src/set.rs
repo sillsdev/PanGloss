@@ -51,37 +51,12 @@ impl AnalysisSet {
     /// Discovery order is deliberately discarded: it is not semantic, and letting it reach a digest
     /// would make engine internals observable as grammar changes.
     pub fn from_annotated<I: IntoIterator<Item = (AnalysisIdentity, bool)>>(observed: I) -> Self {
-        // Keyed by digest so ordering is stable under any future field reordering of `AnalysisIdentity`, which a derived `Ord` would not survive.
-        let mut by_digest: BTreeMap<String, AnalysisSetEntry> = BTreeMap::new();
-        for (identity, guessed) in observed {
-            let digest = identity_digest(&identity);
-            match by_digest.get_mut(&digest) {
-                Some(existing) => {
-                    debug_assert_eq!(
-                        existing.identity, identity,
-                        "identity digest collision: unequal identities share {digest}"
-                    );
-                    existing.duplicate_count += 1;
-                    // If copies of one identity ever disagree on guessed, keep the fact a fabricated root was involved rather than letting the last-arrived copy decide.
-                    existing.guessed |= guessed;
-                }
-                None => {
-                    by_digest.insert(
-                        digest.clone(),
-                        AnalysisSetEntry {
-                            identity,
-                            identity_digest: digest,
-                            duplicate_count: 1,
-                            guessed,
-                        },
-                    );
-                }
-            }
-        }
-
-        AnalysisSet {
-            entries: by_digest.into_values().collect(),
-        }
+        Self::from_counted(
+            observed
+                .into_iter()
+                .map(|(identity, guessed)| (identity, guessed, 1)),
+        )
+        .expect("observed analysis count exceeds the representable u32 aggregate")
     }
 
     /// Build a canonical set from already-counted records without expanding copies.
