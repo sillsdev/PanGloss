@@ -264,6 +264,26 @@ pub mod frontier_profile {
         }
     }
 
+    /// Clear per-word frontier maxima on this thread while preserving the cached env gate.
+    pub fn reset() {
+        CUR_DEPTH.with(|c| c.set(0));
+        MAX_DEPTH.with(|c| c.set(0));
+        MAX_LOCAL_LEN.with(|c| c.set(0));
+        MAX_LOCAL_BYTES.with(|c| c.set(0));
+        MAX_DEDUP_LEN.with(|c| c.set(0));
+        MAX_DEDUP_BYTES.with(|c| c.set(0));
+        MAX_RAW_CASCADE_LEN.with(|c| c.set(0));
+        MAX_RAW_CASCADE_BYTES.with(|c| c.set(0));
+        MAX_TEMPLATE_LEN.with(|c| c.set(0));
+        MAX_TEMPLATE_BYTES.with(|c| c.set(0));
+        MAX_APPLY_MRULES_LEN.with(|c| c.set(0));
+        MAX_APPLY_MRULES_BYTES.with(|c| c.set(0));
+        MAX_APPLY_TEMPLATES_LEN.with(|c| c.set(0));
+        MAX_APPLY_TEMPLATES_BYTES.with(|c| c.set(0));
+        MAX_LIVE_WORDS.with(|c| c.set(0));
+        MAX_LIVE_BYTES.with(|c| c.set(0));
+    }
+
     /// Test-only control the real `HC_FRONTIER_STATS=1` env gate can't give unit tests: force this
     /// thread's counters on and zero them, independent of process environment and other threads.
     #[cfg(test)]

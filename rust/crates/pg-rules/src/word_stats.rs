@@ -116,5 +116,14 @@ pub fn snapshot() -> WordStatsSnapshot {
     }
 }
 
+/// Clear per-word peaks and samples on this thread while preserving the cached env gate.
+pub fn reset() {
+    LIVE_PEAK_TOTAL.with(|c| c.set(0));
+    LIVE_PEAK_COUNT.with(|c| c.set(0));
+    LIVE_PEAK_BREAKDOWN.with(|c| *c.borrow_mut() = WordByteBreakdown::default());
+    MAX_SINGLE_WORD_BYTES.with(|c| c.set(0));
+    ALT_LENS.with(|v| v.borrow_mut().clear());
+    NON_HEAD_LENS.with(|v| v.borrow_mut().clear());
+}
 #[cfg(test)]
 mod tests;

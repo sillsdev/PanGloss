@@ -2863,6 +2863,14 @@ pub mod dedup_profile {
             TOTAL_OUT_LEN.with(|c| c.get()),
         )
     }
+
+    /// Clear profiling counters on this thread before measuring another word.
+    pub fn reset() {
+        CALLS.with(|c| c.set(0));
+        NANOS.with(|c| c.set(0));
+        MAX_OUT_LEN.with(|c| c.set(0));
+        TOTAL_OUT_LEN.with(|c| c.set(0));
+    }
 }
 
 /// C# `Duplicates`: two shapes duplicate each other iff their **non-Optional** nodes carry an identical feature structure (lanes AND `StrRep`, load-bearing since it is a boundary's only identity); this port is deliberately finer than C# here, so err toward finer, never coarser, if you touch it.

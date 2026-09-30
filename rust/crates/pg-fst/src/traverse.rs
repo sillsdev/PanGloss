@@ -88,6 +88,23 @@ pub mod profile {
             DISTINCT_TOTAL_INPUT_LEN.with(|c| c.get()),
         )
     }
+
+    /// Clear traversal counters on the current thread before measuring another word.
+    pub fn reset() {
+        RUN_CALLS.with(|c| c.set(0));
+        RUN_NANOS.with(|c| c.set(0));
+        RUN_MAX_NANOS.with(|c| c.set(0));
+        NONDET_CALLS.with(|c| c.set(0));
+        NONDET_NANOS.with(|c| c.set(0));
+        NONDET_MAX_TRAVERSED.with(|c| c.set(0));
+        NONDET_TOTAL_TRAVERSED.with(|c| c.set(0));
+        DET_CALLS.with(|c| c.set(0));
+        DET_NANOS.with(|c| c.set(0));
+        DISTINCT_CALLS.with(|c| c.set(0));
+        DISTINCT_NANOS.with(|c| c.set(0));
+        DISTINCT_MAX_INPUT_LEN.with(|c| c.set(0));
+        DISTINCT_TOTAL_INPUT_LEN.with(|c| c.set(0));
+    }
 }
 
 /// One input segment: its symbolic-feature lanes and whether it is optional (C# `Annotation.Optional`, e.g. a boundary node).

@@ -937,6 +937,76 @@ fn totals_line_attribution_matches_hand_summed_rows() {
         total_line.contains(&format!("{expected_pct:.1}% attributed")),
         "TOTAL line's attribution percentage must match summing rows by hand: {total_line}"
     );
+    assert!(
+        total_line.contains("comparison elapsed across cached words"),
+        "{total_line}"
+    );
+
+    let json = render_object(&conn, &Filters::default(), OutputFormat::Jsonl).unwrap();
+    let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
+    assert_eq!(
+        meta["totals"]["comparisonElapsedNs"], run_elapsed_ns,
+        "the default comparison denominator is all cached word elapsed time"
+    );
+    assert_eq!(meta["totals"]["comparisonScope"], "cached_words");
+}
+
+#[test]
+fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
+    let cache = synthetic_stats_cache_with_words(
+        "hc",
+        vec![
+            pg_stats::WordRecord {
+                form: "ok".to_string(),
+                elapsed_ns: 1_000,
+                attempts: 1,
+                passes: 1,
+                capped: false,
+                timed_out: false,
+                invalid_shape: false,
+                facts: vec![synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 1)],
+            },
+            pg_stats::WordRecord {
+                form: "capped".to_string(),
+                elapsed_ns: 3_000,
+                attempts: 1,
+                passes: 0,
+                capped: true,
+                timed_out: false,
+                invalid_shape: false,
+                facts: vec![synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 1)],
+            },
+        ],
+    );
+
+    let cache_scope = render_object(
+        cache.connection(),
+        &Filters {
+            top_n: Some(0),
+            exclude_censored: true,
+            ..Filters::default()
+        },
+        OutputFormat::Jsonl,
+    )
+    .unwrap();
+    let cache_meta: serde_json::Value =
+        serde_json::from_str(cache_scope.lines().next().unwrap()).unwrap();
+    assert_eq!(cache_meta["totals"]["comparisonElapsedNs"], 4_000);
+    assert_eq!(cache_meta["totals"]["comparisonScope"], "cached_words");
+
+    let word_scope = render_object(
+        cache.connection(),
+        &Filters {
+            word: Some("ok".to_string()),
+            ..Filters::default()
+        },
+        OutputFormat::Jsonl,
+    )
+    .unwrap();
+    let word_meta: serde_json::Value =
+        serde_json::from_str(word_scope.lines().next().unwrap()).unwrap();
+    assert_eq!(word_meta["totals"]["comparisonElapsedNs"], 1_000);
+    assert_eq!(word_meta["totals"]["comparisonScope"], "selected_word");
 }
 
 #[test]
@@ -1344,6 +1414,25 @@ fn public_stats_groups_do_not_expose_internal_stratum_or_direction_orientations(
 }
 
 fn synthetic_stats_cache(engine: &str, facts: Vec<pg_stats::FactRecord>) -> pg_stats::StatsCache {
+    synthetic_stats_cache_with_words(
+        engine,
+        vec![pg_stats::WordRecord {
+            form: "w".to_string(),
+            elapsed_ns: 1000,
+            attempts: 4,
+            passes: 1,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts,
+        }],
+    )
+}
+
+fn synthetic_stats_cache_with_words(
+    engine: &str,
+    words: Vec<pg_stats::WordRecord>,
+) -> pg_stats::StatsCache {
     let dir = scratch_dir("contract");
     let path = dir.join("cache.sqlite3");
     let mut outcome = pg_stats::StatsCache::open(&path, "contract-hash").unwrap();
@@ -1357,22 +1446,7 @@ fn synthetic_stats_cache(engine: &str, facts: Vec<pg_stats::FactRecord>) -> pg_s
         created_utc: "unix:0".to_string(),
         step_cap: None,
     };
-    outcome
-        .cache
-        .flush(
-            &run,
-            &[pg_stats::WordRecord {
-                form: "w".to_string(),
-                elapsed_ns: 1000,
-                attempts: 4,
-                passes: 1,
-                capped: false,
-                timed_out: false,
-                invalid_shape: false,
-                facts,
-            }],
-        )
-        .unwrap();
+    outcome.cache.flush(&run, &words).unwrap();
     outcome.cache
 }
 
@@ -1478,6 +1552,109 @@ fn foma_word_report_does_not_claim_unmeasured_attempts() {
     );
     let row: serde_json::Value = serde_json::from_str(json.lines().nth(1).unwrap()).unwrap();
     assert!(row["attempts"].is_null(), "{row}");
+}
+
+#[test]
+fn word_report_exports_invalid_shape_in_text_and_json() {
+    let cache = synthetic_stats_cache_with_words(
+        "hc",
+        vec![pg_stats::WordRecord {
+            form: "bad-shape".to_string(),
+            elapsed_ns: 500,
+            attempts: 4,
+            passes: 0,
+            capped: false,
+            timed_out: false,
+            invalid_shape: true,
+            facts: vec![],
+        }],
+    );
+
+    let text = render_word(cache.connection(), &Filters::default(), OutputFormat::Text).unwrap();
+    assert!(text.contains("invalid_shape"), "{text}");
+    assert!(text.contains("bad-shape"), "{text}");
+    assert!(text.contains("true"), "{text}");
+
+    let json = render_word(cache.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
+    let row: serde_json::Value = serde_json::from_str(json.lines().nth(1).unwrap()).unwrap();
+    assert_eq!(row["invalid_shape"], true, "{row}");
+}
+
+#[test]
+fn word_report_applies_censor_and_top_filters_to_rows() {
+    let cache = synthetic_stats_cache_with_words(
+        "hc",
+        vec![
+            pg_stats::WordRecord {
+                form: "ok".to_string(),
+                elapsed_ns: 100,
+                attempts: 1,
+                passes: 1,
+                capped: false,
+                timed_out: false,
+                invalid_shape: false,
+                facts: vec![],
+            },
+            pg_stats::WordRecord {
+                form: "capped".to_string(),
+                elapsed_ns: 500,
+                attempts: 1,
+                passes: 0,
+                capped: true,
+                timed_out: false,
+                invalid_shape: false,
+                facts: vec![],
+            },
+            pg_stats::WordRecord {
+                form: "timed-out".to_string(),
+                elapsed_ns: 400,
+                attempts: 1,
+                passes: 0,
+                capped: false,
+                timed_out: true,
+                invalid_shape: false,
+                facts: vec![],
+            },
+        ],
+    );
+
+    let censored = render_word(
+        cache.connection(),
+        &Filters {
+            exclude_censored: true,
+            ..Filters::default()
+        },
+        OutputFormat::Jsonl,
+    )
+    .unwrap();
+    let censored_rows: Vec<serde_json::Value> = censored
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(censored_rows.len(), 1, "{censored}");
+    assert_eq!(censored_rows[0]["form"], "ok");
+
+    let top = render_word(
+        cache.connection(),
+        &Filters {
+            top_n: Some(1),
+            ..Filters::default()
+        },
+        OutputFormat::Jsonl,
+    )
+    .unwrap();
+    let top_rows: Vec<serde_json::Value> = top
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(top_rows.len(), 1, "{top}");
+    assert_eq!(top_rows[0]["form"], "capped");
+    let meta: serde_json::Value = serde_json::from_str(top.lines().next().unwrap()).unwrap();
+    assert_eq!(meta["filters"]["top"], 1);
+    assert_eq!(meta["totals"]["rows"], 3, "totals retain all matches");
+    assert_eq!(meta["totals"]["rows_shown"], 1, "{meta}");
 }
 
 #[test]

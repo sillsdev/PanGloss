@@ -1026,7 +1026,7 @@ fn row_view_to_json(r: &RowView) -> serde_json::Value {
     })
 }
 
-/// The totals/attribution line printed under every orientation: row count, row-time sum, and its "N% attributed" check against `run_elapsed_ns`.
+/// The totals/attribution line printed under every orientation: row count, row-time sum, and its "N% attributed" check against cached word elapsed time, narrowed by `--word` when selected.
 struct TotalsSummary {
     /// Every row the filters matched, whether or not `--top` displayed it.
     matched_rows: usize,
@@ -1035,25 +1035,33 @@ struct TotalsSummary {
     /// Per kind, in descending count order: one cross-kind `attempts` sum adds different units.
     attempts_by_kind: Vec<(Option<String>, Option<i64>)>,
     total_uses: Option<i64>,
-    run_elapsed_ns: i64,
+    comparison_elapsed_ns: i64,
+    comparison_is_word: bool,
 }
 
 impl TotalsSummary {
     /// `rows` must be the full matched set; `shown_rows` only narrows what the table displayed.
-    fn from_rows(rows: &[RowView], shown_rows: usize, run_elapsed_ns: i64) -> Self {
+    fn from_rows(
+        rows: &[RowView],
+        shown_rows: usize,
+        comparison_elapsed_ns: i64,
+        comparison_is_word: bool,
+    ) -> Self {
         TotalsSummary {
             matched_rows: rows.len(),
             shown_rows,
             total_time_ns: sum_optional(rows.iter().map(|r| r.self_time_ns)),
             attempts_by_kind: attempts_by_kind_desc(rows),
             total_uses: sum_optional(rows.iter().map(|r| r.uses)),
-            run_elapsed_ns,
+            comparison_elapsed_ns,
+            comparison_is_word,
         }
     }
 
     fn attributed_pct(&self) -> Option<f64> {
         self.total_time_ns.and_then(|total| {
-            (self.run_elapsed_ns > 0).then_some(total as f64 / self.run_elapsed_ns as f64 * 100.0)
+            (self.comparison_elapsed_ns > 0)
+                .then_some(total as f64 / self.comparison_elapsed_ns as f64 * 100.0)
         })
     }
 
@@ -1082,7 +1090,7 @@ impl TotalsSummary {
 
     fn text_line(&self) -> String {
         format!(
-            "TOTAL  {} row(s){}   time {} ({} attributed of {:.3}ms recorded)   attempts {}   uses {}\n",
+            "TOTAL  {} row(s){}   time {} ({} attributed of {:.3}ms comparison elapsed {})   attempts {}   uses {}\n",
             self.matched_rows,
             self.shown_note(),
             self.total_time_ns
@@ -1091,7 +1099,12 @@ impl TotalsSummary {
             self.attributed_pct()
                 .map(|value| format!("{value:.1}%"))
                 .unwrap_or_else(|| "-".to_string()),
-            self.run_elapsed_ns as f64 / 1e6,
+            self.comparison_elapsed_ns as f64 / 1e6,
+            if self.comparison_is_word {
+                "for selected word"
+            } else {
+                "across cached words"
+            },
             self.attempts_text(),
             fmt_opt_i64(self.total_uses),
         )
@@ -1113,7 +1126,12 @@ impl TotalsSummary {
                 })
                 .collect::<serde_json::Map<String, serde_json::Value>>(),
             "uses": self.total_uses,
-            "run_elapsed_ns": self.run_elapsed_ns,
+            "comparisonElapsedNs": self.comparison_elapsed_ns,
+            "comparisonScope": if self.comparison_is_word {
+                "selected_word"
+            } else {
+                "cached_words"
+            },
             "attributed_pct": self.attributed_pct(),
         })
     }
@@ -1214,9 +1232,11 @@ fn empty_output(
     match format {
         OutputFormat::Text => Ok(reason),
         OutputFormat::Jsonl => {
-            let run_elapsed_ns = pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
-                .map_err(|e| e.to_string())?;
-            let totals = TotalsSummary::from_rows(&[], 0, run_elapsed_ns);
+            let comparison_elapsed_ns =
+                pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
+                    .map_err(|e| e.to_string())?;
+            let totals =
+                TotalsSummary::from_rows(&[], 0, comparison_elapsed_ns, filters.word.is_some());
             let mut meta = jsonl_meta_value(conn, orientation, filters, &totals)?;
             meta["empty_reason"] = serde_json::Value::String(reason.trim().to_string());
             Ok(format!(
@@ -1296,10 +1316,15 @@ fn render_rowview_body(
             _ => out,
         });
     }
-    let run_elapsed_ns = pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
+    let comparison_elapsed_ns = pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
         .map_err(|e| e.to_string())?;
     let shown = truncate_per_kind(rows.clone(), filters.top_n);
-    let totals = TotalsSummary::from_rows(&rows, shown.len(), run_elapsed_ns);
+    let totals = TotalsSummary::from_rows(
+        &rows,
+        shown.len(),
+        comparison_elapsed_ns,
+        filters.word.is_some(),
+    );
     let denoms = Denominators::of(&rows);
     match format {
         OutputFormat::Text if filters.by_kind || orientation == "object" => {
@@ -1471,13 +1496,25 @@ fn render_word(
     format: OutputFormat,
 ) -> Result<String, String> {
     let mut rows = pg_stats::per_word_report(conn).map_err(|e| e.to_string())?;
+    let cache_has_words = !rows.is_empty();
     if let Some(w) = filters.word.as_deref() {
         rows.retain(|r| r.form == w);
     }
     if rows.is_empty() {
+        let reason = match (filters.word.as_deref(), cache_has_words) {
+            (Some(w), true) => format!("stats: no word named {w} found in this cache\n"),
+            (_, false) => "stats: cache has no recorded words\n".to_string(),
+            (None, true) => unreachable!("unfiltered rows are nonempty when the cache has words"),
+        };
+        return empty_output(conn, "word", filters, reason, format);
+    }
+    if filters.exclude_censored {
+        rows.retain(|r| !r.capped && !r.timed_out);
+    }
+    if rows.is_empty() {
         let reason = match filters.word.as_deref() {
-            Some(w) => format!("stats: no word named {w} found in this cache\n"),
-            None => "stats: cache has no recorded words\n".to_string(),
+            Some(w) => format!("stats: word {w} is censored and excluded\n"),
+            None => "stats: no uncensored words match this filter\n".to_string(),
         };
         return empty_output(conn, "word", filters, reason, format);
     }
@@ -1485,15 +1522,16 @@ fn render_word(
     let attempts_measured = engine != "foma";
     let total_elapsed: i64 = rows.iter().map(|r| r.elapsed_ns).sum();
     let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
+    let shown_rows = filters.top_n.map_or(rows.len(), |n| n.min(rows.len()));
+    let shown = rows.iter().take(shown_rows);
     match format {
         OutputFormat::Text => {
             let mut headers = vec!["form", "time_ms", "time%"];
             if attempts_measured {
                 headers.extend(["attempts", "attempts%"]);
             }
-            headers.extend(["passes", "capped", "timed_out"]);
-            let table_rows: Vec<Vec<String>> = rows
-                .iter()
+            headers.extend(["passes", "capped", "timed_out", "invalid_shape"]);
+            let table_rows: Vec<Vec<String>> = shown
                 .map(|r| {
                     let mut row = vec![
                         r.form.clone(),
@@ -1508,6 +1546,7 @@ fn render_word(
                         r.passes.to_string(),
                         r.capped.to_string(),
                         r.timed_out.to_string(),
+                        r.invalid_shape.to_string(),
                     ]);
                     row
                 })
@@ -1517,9 +1556,13 @@ fn render_word(
                 out.insert_str(0, "note: engine=foma never records attempts; attempts and attempts% are omitted (this is not \"zero\")\n");
             }
             out.push_str(&format!(
-                "TOTAL  {} word(s)   time {:.3}ms (100.0% attributed; word rows ARE the recorded \
-                 total){}\n",
+                "TOTAL  {} word(s){}   time {:.3}ms (100.0% of matched word elapsed){}\n",
                 rows.len(),
+                if shown_rows < rows.len() {
+                    format!(" ({shown_rows} shown)")
+                } else {
+                    String::new()
+                },
                 total_elapsed as f64 / 1e6,
                 if attempts_measured {
                     format!("   attempts {total_attempts}")
@@ -1536,11 +1579,11 @@ fn render_word(
                 "grammar_hash": grammar_hash,
                 "engine": engine,
                 "filters": filters_json(filters),
-                "totals": {"rows": rows.len(), "time_ns": total_elapsed, "attempts": if attempts_measured { serde_json::json!(total_attempts) } else { serde_json::Value::Null }},
+                "totals": {"rows": rows.len(), "rows_shown": shown_rows, "time_ns": total_elapsed, "attempts": if attempts_measured { serde_json::json!(total_attempts) } else { serde_json::Value::Null }},
                 "unmeasured": if attempts_measured { serde_json::json!({}) } else { serde_json::json!({"attempts": "engine=foma never records it"}) },
             });
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
-            for r in &rows {
+            for r in shown {
                 let v = serde_json::json!({
                     "form": r.form,
                     "elapsed_ns": r.elapsed_ns,
@@ -1548,6 +1591,7 @@ fn render_word(
                     "passes": r.passes,
                     "capped": r.capped,
                     "timed_out": r.timed_out,
+                    "invalid_shape": r.invalid_shape,
                 });
                 lines.push(serde_json::to_string(&v).map_err(|e| e.to_string())?);
             }

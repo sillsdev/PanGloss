@@ -1,6 +1,7 @@
 //! Tests the CLI parser and batch command integration.
 use super::{load_grammar, run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP};
 use std::fs;
+use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// A minimal, self-contained grammar (no phonological/morphological rules): one stratum, one table, one `LexicalEntry` whose surface form is "kat" — root-only lookup is enough to exercise the batch pipeline.
@@ -100,6 +101,92 @@ fn run_batch_tsv_custom(
         .lines()
         .map(str::to_string)
         .collect()
+}
+
+const PER_WORD_PROFILE_CHILD_ENV: &str = "PG_TEST_PER_WORD_PROFILE_CHILD";
+const PER_WORD_PROFILE_CHILD_VALUE: &str = "alt-yield-effect-v1";
+const PER_WORD_PROFILE_CHILD_MARKER: &str = "PG_PER_WORD_PROFILE_EFFECT_ASSERTIONS_PASSED";
+const PER_WORD_PROFILE_TEST_NAME: &str =
+    "tests::per_word_profile_does_not_accumulate_across_repeated_batch_words";
+
+fn run_batch_alt_yield_snapshot(
+    tag: &str,
+    words_text: &str,
+) -> pg_parse::alt_yield::AltYieldSnapshot {
+    let tag = tag.to_string();
+    let words_text = words_text.to_string();
+    std::thread::spawn(move || {
+        let dir = scratch_dir(&tag);
+        let grammar_path = dir.join("grammar.xml");
+        let words_path = dir.join("words.txt");
+        let out_path = dir.join("out.tsv");
+        fs::write(&grammar_path, MINI_GRAMMAR_XML).expect("write grammar");
+        fs::write(&words_path, words_text).expect("write words");
+        run_batch(&[
+            grammar_path.to_string_lossy().into_owned(),
+            words_path.to_string_lossy().into_owned(),
+            out_path.to_string_lossy().into_owned(),
+            "--threads".to_string(),
+            "1".to_string(),
+        ])
+        .expect("run batch with per-word profiling");
+        pg_parse::alt_yield::snapshot()
+    })
+    .join()
+    .expect("batch profiling thread must complete")
+}
+
+fn assert_repeated_batch_word_profile_is_per_word() {
+    let once = run_batch_alt_yield_snapshot("alt-yield-once", "kat\n");
+    let twice = run_batch_alt_yield_snapshot("alt-yield-twice", "kat\nkat\n");
+
+    assert!(
+        once.expanded_total > 0,
+        "fixture must exercise alternative expansion"
+    );
+    assert_eq!(
+        twice.canonical_alt_total, once.canonical_alt_total,
+        "the second word's canonical count must start at zero"
+    );
+    assert_eq!(
+        twice.canonical_alt_max, once.canonical_alt_max,
+        "the second word's canonical maximum must start at zero"
+    );
+    assert_eq!(
+        twice.expanded_total, once.expanded_total,
+        "the second word's expansion count must start at zero"
+    );
+    assert_eq!(
+        twice.distinct_identities, once.distinct_identities,
+        "the second word's identity set must start empty"
+    );
+}
+
+#[test]
+fn per_word_profile_does_not_accumulate_across_repeated_batch_words() {
+    if std::env::var(PER_WORD_PROFILE_CHILD_ENV).as_deref() == Ok(PER_WORD_PROFILE_CHILD_VALUE) {
+        assert_repeated_batch_word_profile_is_per_word();
+        println!("{PER_WORD_PROFILE_CHILD_MARKER}");
+        return;
+    }
+
+    let executable = std::env::current_exe().expect("resolve current test executable");
+    let child = Command::new(executable)
+        .args(["--exact", PER_WORD_PROFILE_TEST_NAME, "--nocapture"])
+        .env("HC_ALT_YIELD", "1")
+        .env(PER_WORD_PROFILE_CHILD_ENV, PER_WORD_PROFILE_CHILD_VALUE)
+        .output()
+        .expect("spawn isolated profiling regression process");
+    let stdout = String::from_utf8_lossy(&child.stdout);
+    let stderr = String::from_utf8_lossy(&child.stderr);
+    assert!(
+        child.status.success(),
+        "isolated profiling regression failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains(PER_WORD_PROFILE_CHILD_MARKER),
+        "child exited without executing its effect assertions\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
 }
 
 fn run_batch_sidecar_custom(

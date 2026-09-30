@@ -826,6 +826,30 @@ fn parse_batch_with_stats(
     })
 }
 
+fn per_word_diagnostics_requested() -> bool {
+    [
+        "HC_STEP_STATS",
+        "HC_FST_PROFILE",
+        "HC_FRONTIER_STATS",
+        "HC_WORD_STATS",
+        "HC_ALT_YIELD",
+    ]
+    .iter()
+    .any(|name| std::env::var_os(name).is_some())
+        || (cfg!(feature = "alloc-trace") && std::env::var_os("HC_ALLOC_STATS").is_some())
+}
+
+/// Reset per-word thread-local diagnostic counters before the next parse.
+fn reset_per_word_diagnostics() {
+    pg_fst::profile::reset();
+    pg_rules::morph::dedup_profile::reset();
+    pg_rules::stratum::frontier_profile::reset();
+    pg_rules::word_stats::reset();
+    pg_parse::alt_yield::reset();
+    #[cfg(feature = "alloc-trace")]
+    alloc_trace::reset_peak();
+}
+
 fn run_batch(args: &[String]) -> Result<(), String> {
     run_batch_with_counter(args, &BatchParseCounter::default())
 }
@@ -930,6 +954,12 @@ fn run_batch_with_counter(
     if threads == 0 {
         return Err("--threads must be >= 1".into());
     }
+    let per_word_diagnostics = per_word_diagnostics_requested();
+    if per_word_diagnostics && threads != 1 {
+        return Err(format!(
+            "per-word profiling diagnostics require --threads 1 (received --threads {threads})"
+        ));
+    }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
             "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
@@ -1033,6 +1063,9 @@ fn run_batch_with_counter(
                     .as_ref()
                     .is_some_and(|cache| !cache.contains(word))
                 {
+                    if per_word_diagnostics {
+                        reset_per_word_diagnostics();
+                    }
                     let start = Instant::now();
                     parse_counter.record();
                     let (outcome, rows, prune_rows) =
@@ -1054,6 +1087,9 @@ fn run_batch_with_counter(
             writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
             // Flush the STARTED sentinel immediately, before starting this word's parse, or it would only reach disk alongside the result line, defeating its purpose as a live in-flight signal for an external watchdog.
             w.flush().map_err(|e| e.to_string())?;
+            if per_word_diagnostics {
+                reset_per_word_diagnostics();
+            }
             let start = Instant::now();
             let (result, stats) = if stats_requested {
                 parse_counter.record();

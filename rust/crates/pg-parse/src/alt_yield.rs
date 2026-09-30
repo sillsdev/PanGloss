@@ -85,5 +85,12 @@ pub fn snapshot() -> AltYieldSnapshot {
     }
 }
 
+/// Clear per-word totals and identities on this thread while preserving the cached env gate.
+pub fn reset() {
+    CANONICAL_ALT_TOTAL.with(|c| c.set(0));
+    CANONICAL_ALT_MAX.with(|c| c.set(0));
+    EXPANDED_TOTAL.with(|c| c.set(0));
+    IDENTITIES.with(|s| s.borrow_mut().clear());
+}
 #[cfg(test)]
 mod tests;
