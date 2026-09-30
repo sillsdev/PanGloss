@@ -3,6 +3,7 @@ use crate::{hc_analyze_word_json, hc_buf_free, hc_lexicon_add_json, HcResultBuf,
 
 const XML: &str = r#"<HermitCrabInput><Language><Name>BackendTest</Name><PartsOfSpeech><PartOfSpeech id="p"><Name>N</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="official-a" partOfSpeech="p"><Allomorphs><Allomorph id="aa"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
 
+#[cfg(feature = "foma-tools")]
 #[test]
 fn foma_initialization_failure_explicitly_falls_back_to_official_morpher_analysis() {
     let grammar = pg_grammar::load(XML).unwrap();
@@ -19,6 +20,7 @@ fn foma_initialization_failure_explicitly_falls_back_to_official_morpher_analysi
     );
 }
 
+#[cfg(feature = "foma-tools")]
 #[test]
 fn analyzer_panic_is_enveloped_and_the_same_handle_remains_usable() {
     let grammar = pg_grammar::load(XML).unwrap();
@@ -54,6 +56,7 @@ fn analyzer_panic_is_enveloped_and_the_same_handle_remains_usable() {
     };
 }
 
+#[cfg(feature = "foma-tools")]
 #[test]
 fn injected_analyzer_panic_is_scoped_to_one_handle() {
     let first = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
@@ -109,6 +112,7 @@ fn mutation_panic_is_structured_and_same_handle_remains_mutable_and_analyzable()
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(feature = "foma-tools")]
 #[test]
 fn batch_confirmation_uses_requested_parallelism_outside_backend_lock() {
     let handle = GrammarHandle::new(pg_grammar::load(XML).unwrap(), XML);
@@ -147,6 +151,19 @@ fn batch_pool_build_failure_maps_to_invalid_argument_and_handle_is_reusable() {
         crate::HC_ERR_INVALID_ARG
     );
     assert!(out.data.is_null());
+    assert_eq!(
+        unsafe { borrow(raw) }.unwrap().pool_build_count_for_test(),
+        0
+    );
+    assert_eq!(
+        unsafe { crate::hc_parse_batch(raw, std::ptr::null(), 0, 2, &mut out) },
+        HC_OK
+    );
+    assert_eq!(
+        unsafe { borrow(raw) }.unwrap().pool_build_count_for_test(),
+        1
+    );
+    unsafe { hc_buf_free(&mut out) };
     assert_eq!(
         unsafe { crate::hc_parse_word(raw, b"a".as_ptr(), 1, &mut out) },
         HC_OK

@@ -143,7 +143,7 @@ jobs:
           workspaces: rust
       # Examples are behind each crate's `examples` feature so test builds skip them; lint them anyway.
       - working-directory: rust
-        run: cargo clippy --workspace --all-targets --features pg-foma/examples,pg-foma-backend/examples,pg-cli/examples -- -D warnings
+        run: cargo clippy --all-targets --features pg-cli/examples -- -D warnings
 
   test:
     name: build + test
@@ -163,7 +163,7 @@ jobs:
         with:
           workspaces: rust
       - working-directory: rust
-        run: cargo test --workspace --profile pg-test-opt --no-fail-fast
+        run: cargo test --profile pg-test-opt --no-fail-fast
 
   release-extras:
     name: release gates (hygiene, rustdoc, conformance)
@@ -188,7 +188,7 @@ jobs:
         working-directory: rust
         env:
           RUSTDOCFLAGS: -D warnings
-        run: cargo doc --workspace --no-deps
+        run: cargo doc --no-deps
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:

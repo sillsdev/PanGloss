@@ -22,9 +22,20 @@ const HISTORICAL_DISPATCH_LITERALS: &[&str] = &[
 #[test]
 fn table_covers_every_historical_dispatch_literal() {
     for name in HISTORICAL_DISPATCH_LITERALS {
-        assert!(
+        let foma_only = matches!(
+            *name,
+            "fst-health"
+                | "coverage"
+                | "plan-diagram"
+                | "make-report"
+                | "recipe-optimize"
+                | "__recipe-optimize-child"
+                | "__compile-worker-child"
+        );
+        assert_eq!(
             find_command(name).is_some(),
-            "missing from COMMANDS: {name}"
+            !foma_only || cfg!(feature = "foma-tools"),
+            "unexpected COMMANDS presence for {name}"
         );
     }
 }
@@ -129,6 +140,7 @@ fn every_command_flag_starts_with_double_dash() {
     }
 }
 
+#[cfg(feature = "foma-tools")]
 #[test]
 fn make_report_allow_unproven_flag_is_cfg_gated_the_same_way_as_the_parser() {
     let spec = find_command("make-report").expect("make-report must be in COMMANDS");

@@ -30,6 +30,32 @@ members = [
     "crates/pg-stats",
     "crates/pg-xample-oracle",
 ]
+# Keep the native runtime as the workspace's default build; compiler research crates remain explicit.
+default-members = [
+    "crates/pg-comment-hygiene",
+    "crates/pg-grammar-model",
+    "crates/pg-grammar",
+    "crates/pg-featstruct",
+    "crates/pg-shape",
+    "crates/pg-health",
+    "crates/pg-fst",
+    "crates/pg-rules",
+    "crates/pg-parse",
+    "crates/pg-ffi",
+    "crates/pg-cli",
+    "crates/pg-realize",
+    "crates/pg-lexicon",
+    "crates/pg-wasm",
+    "crates/pg-snapshot",
+    "crates/pg-fwdata",
+    "crates/pg-conformance-fixtures",
+    "crates/pg-grammar-gen",
+    "crates/pg-pack",
+    "crates/pg-worker-containment",
+    "crates/pg-assess",
+    "crates/pg-stats",
+    "crates/pg-xample-oracle",
+]
 
 # Doc-comment link integrity. `broken_intra_doc_links` only WARNS by default, and a warning nobody
 # reads is not a check -- so it is denied here and every member crate opts in with `[lints] workspace

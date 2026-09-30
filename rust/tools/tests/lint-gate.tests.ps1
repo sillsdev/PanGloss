@@ -8,7 +8,7 @@ Test-Case 'the local clippy invocation denies warnings over every target and exa
     $inv = @(Get-ClippyInvocation -ExamplePackages @('pg-foma', 'pg-cli'))
     Assert-Equal 'clippy' $inv[0] 'clippy must be the cargo verb'
     Assert-Contains $inv '--all-targets' 'tests and examples must be linted'
-    Assert-Contains $inv '--workspace' 'an unnarrowed run must cover the whole workspace'
+    Assert-False ($inv -contains '--workspace') 'an ordinary run must honor Cargo default-members'
     Assert-Contains $inv 'pg-foma/examples,pg-cli/examples' 'every examples feature must be on'
     $sep = [array]::IndexOf($inv, '--')
     Assert-True ($sep -gt 0) 'clippy flags must follow a -- separator'
@@ -33,7 +33,7 @@ Test-Case 'the local clippy gate matches the clippy command CI runs' {
     $ciLine = [regex]::Match($gates, '(?m)^\s*run:\s*(cargo clippy .+)$').Groups[1].Value
     Assert-True $ciLine 'rust-gates.yml must contain a cargo clippy run line'
     $ciFeatures = [regex]::Match($ciLine, '--features\s+(\S+)').Groups[1].Value -split ',' | Sort-Object
-    $localFeatures = @(Get-ExampleFeaturePackages | ForEach-Object { "$_/examples" }) | Sort-Object
+    $localFeatures = @(Get-ExampleFeaturePackages -DefaultOnly | ForEach-Object { "$_/examples" }) | Sort-Object
     Assert-Equal ($ciFeatures -join ',') ($localFeatures -join ',') 'local and CI examples features must agree'
     Assert-True ($ciLine -match '--all-targets') 'CI must lint all targets'
     Assert-True ($ciLine -match '--\s+-D warnings\s*$') 'CI must deny warnings'

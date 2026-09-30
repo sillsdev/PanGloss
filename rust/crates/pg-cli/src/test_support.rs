@@ -98,6 +98,7 @@ pub(crate) fn assert_rendered_text_eq(actual: &str, expected: &str) {
 
 /// Normalizes only `expected`'s newlines (a checked-in golden may carry CRLF); `actual` must already be canonical LF.
 #[track_caller]
+#[cfg(feature = "foma-tools")]
 pub(crate) fn assert_canonical_lf_text_eq(actual: &str, expected: &str) {
     let expected_normalized = normalize_newlines(expected);
     if actual != expected_normalized {

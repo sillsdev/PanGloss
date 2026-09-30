@@ -121,16 +121,24 @@ impl BatchParseCounter {
 
 mod assess;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
+#[cfg(feature = "foma-tools")]
 pub mod backend_report;
+#[cfg(feature = "foma-tools")]
 mod coverage;
+#[cfg(feature = "foma-tools")]
 mod fst_health;
 // `pub`: see `backend_report`'s note above -- marks this bin module's long docs as interface for comment-hygiene.
 pub mod grammar_health;
+#[cfg(feature = "foma-tools")]
 mod make_report;
 mod pack;
+#[cfg(feature = "foma-tools")]
 mod plan_diagram;
+#[cfg(feature = "foma-tools")]
 pub mod readiness_policy;
+#[cfg(feature = "foma-tools")]
 pub mod readiness_verdict;
+#[cfg(feature = "foma-tools")]
 mod recipe_optimize;
 mod rich_trace;
 mod stats_cmd;
@@ -138,6 +146,7 @@ mod surface;
 mod trace_render;
 
 /// Accepts experimental FST controls only in `developer-tools` builds, before positional parsing.
+#[cfg(feature = "foma-tools")]
 fn accept_developer_flag(arg: &str) -> Result<(), String> {
     debug_assert!(matches!(arg, "--allow-unproven"));
     #[cfg(feature = "developer-tools")]
@@ -331,7 +340,7 @@ fn run() -> ExitCode {
 }
 
 fn print_usage_and_fail() -> ExitCode {
-    eprintln!(
+    let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
          usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
@@ -365,6 +374,17 @@ fn print_usage_and_fail() -> ExitCode {
         env!("CARGO_PKG_VERSION"),
         REPORT_DEVELOPER_HELP
     );
+    for line in help.lines() {
+        if let Some(command) = line
+            .strip_prefix("usage: pangloss ")
+            .and_then(|usage| usage.split_whitespace().next())
+        {
+            if command != "--describe" && surface::find_command(command).is_none() {
+                continue;
+            }
+        }
+        eprintln!("{line}");
+    }
     ExitCode::FAILURE
 }
 

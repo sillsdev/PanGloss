@@ -11,3 +11,6 @@ mod header_abi;
 mod json_api;
 #[path = "../parse_opts_gate.rs"]
 mod parse_opts_gate;
+
+#[path = "../grammar_load_panic_boundary.rs"]
+mod grammar_load_panic_boundary;

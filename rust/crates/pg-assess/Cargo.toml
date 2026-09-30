@@ -11,9 +11,14 @@ autotests = false
 name = "all"
 path = "tests/harnesses/all.rs"
 
+[features]
+foma-tools = ["dep:pg-foma", "dep:pg-foma-runtime"]
+
 [dependencies]
 pg-grammar-model.workspace = true
 pg-parse.workspace = true
+pg-foma = { workspace = true, optional = true, features = ["test-concurrency-hook"] }
+pg-foma-runtime = { workspace = true, optional = true, features = ["test-concurrency-hook"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -26,8 +31,6 @@ pg-grammar.workspace = true
 # byte-identically. `test-concurrency-hook` is native-only, opt-in instrumentation owned by one
 # analyzer. It rendezvous-synchronizes two tasks only when the batch and pool can support them;
 # otherwise it records non-overlap without blocking. Unarmed analyzers remain unchanged.
-pg-foma = { workspace = true, features = ["test-concurrency-hook"] }
-pg-foma-runtime = { workspace = true, features = ["test-concurrency-hook"] }
 # Reaches the upstream `deep-optional-affix-nesting` fixture by name, so an absent one fails.
 pg-conformance-fixtures.workspace = true
 

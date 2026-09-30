@@ -411,6 +411,14 @@ fn shared_binding_fixture_normalizes_native_json_contract() {
     let normalized = normalize_binding(transcript, signature);
     let expected =
         expand_fixture_refs(fixture["expectedTranscript"].clone(), &fixture["fragments"]);
+    #[cfg(feature = "foma-tools")]
+    let expected = {
+        let mut expected = expected;
+        // Proposal work differs by backend; the full identities and completion flags remain shared.
+        expected["analysis"]["grammar"]["candidatesGenerated"] =
+            fixture["optionalFomaGrammarCandidatesGenerated"].clone();
+        expected
+    };
     assert_eq!(normalized, expected);
     unsafe {
         hc_grammar_free(case_handle);

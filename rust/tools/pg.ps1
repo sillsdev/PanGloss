@@ -191,7 +191,7 @@ param(
     [switch]$Apply,
     # gc only: also reclaim fully-committed worktrees idle this many days; 0 (default) leaves them alone.
     [int]$StaleWorktreeDays = 0,
-    [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$ExtraArgs = @()
 )
 
 . "$PSScriptRoot\_common.ps1"
@@ -777,7 +777,7 @@ if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
         }
     }
     if ($Mode -ne 'check') {
-        if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
+        if ($Package) { $cargoArgs += @('-p', $Package) }
         if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
         if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
     }

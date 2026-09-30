@@ -55,9 +55,10 @@ function Get-LegacyCargoTestInvocation {
         }
     }
 
-    if ($Package) { $args += @('-p', $Package) } else { $args += '--workspace' }
+    if ($Package) { $args += @('-p', $Package) }
     if ($TestTarget) { $args += @('--test', $TestTarget) }
 
+    if (-not $UseNextest -and -not $FailFast -and $ExtraArgs -notcontains '--no-fail-fast') { $args += '--no-fail-fast' }
     if ($UseNextest) {
         if ((-not $FailFast) -and ($ExtraArgs -notcontains '--no-fail-fast')) { $args += '--no-fail-fast' }
         if ($HarnessModule) {
@@ -120,6 +121,27 @@ Test-Case 'shared cargo test invocation preserves the current argument arrays ac
         Assert-Equal $expected.RunnerLabel $actual.RunnerLabel "edge runner label $($case.Mode)"
     }
     Assert-Equal 128 $cases 'the mode × runner × profile × filter × target × harness matrix must be complete'
+}
+
+Test-Case 'both runners report all failures by default, with cargo flag before the harness separator' {
+    foreach ($mode in @('quick', 'test', 'corpus-test', 'conformance-test')) {
+        foreach ($nextest in @($false, $true)) {
+            $inv = Get-CargoTestInvocation -Mode $mode -UseNextest:$nextest -DebugProfile:$false -TestThreads 1 -Package pg-parse
+            Assert-Contains $inv.CargoArgs '--no-fail-fast' "$mode runner=$nextest must continue after a failure"
+            if (-not $nextest) {
+                Assert-True ([array]::IndexOf($inv.CargoArgs, '--no-fail-fast') -lt [array]::IndexOf($inv.CargoArgs, '--')) 'Cargo must receive the flag, not libtest'
+            }
+            $fast = Get-CargoTestInvocation -Mode $mode -UseNextest:$nextest -DebugProfile:$false -TestThreads 1 -Package pg-parse -FailFast:$true
+            Assert-False ($fast.CargoArgs -contains '--no-fail-fast') '-FailFast explicitly requests early termination'
+        }
+    }
+}
+
+Test-Case 'ordinary test scope honors default-members and explicit workspace is opt-in' {
+    $ordinary = Get-CargoTestInvocation -Mode test -UseNextest:$false -DebugProfile:$false -TestThreads 1
+    Assert-False ($ordinary.CargoArgs -contains '--workspace') 'default members define the ordinary solution'
+    $all = Get-CargoTestInvocation -Mode test -UseNextest:$false -DebugProfile:$false -TestThreads 1 -ExtraArgs @('--workspace')
+    Assert-Contains $all.CargoArgs '--workspace' 'explicit lab-wide scope remains available'
 }
 
 Write-TestSummary

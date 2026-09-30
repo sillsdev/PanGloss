@@ -10,7 +10,9 @@
 
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(feature = "foma-tools")]
+use std::sync::Mutex;
 
 use crate::error::{
     clear_error, set_error, HcError, HC_ERR_GRAMMAR_LOAD, HC_ERR_NULL_ARG, HC_ERR_UTF8, HC_OK,
@@ -39,6 +41,7 @@ fn native_v1_morpher(grammar: &'static Grammar) -> Morpher<'static> {
     Morpher::new(grammar, DEFAULT_ANALYSIS_POLICY.step_cap)
 }
 
+#[cfg(feature = "foma-tools")]
 struct FomaState {
     proposer: pg_foma_runtime::analyzer::FomaProposer,
     peeler: pg_foma_runtime::peel::ReduplicationPeeler,
@@ -47,11 +50,13 @@ struct FomaState {
     filter: pg_foma_runtime::candidate_filter::CandidateFilterSettings,
 }
 
+#[cfg(feature = "foma-tools")]
 enum OfficialBackend {
     Foma(Box<FomaState>),
     MorpherFallback { diagnostic: String },
 }
 
+#[cfg(feature = "foma-tools")]
 impl FomaState {
     fn new(grammar: &Grammar) -> Result<Self, String> {
         Ok(Self {
@@ -84,8 +89,9 @@ pub(crate) struct GrammarHandle {
     pub(crate) morpher: Morpher<'static>,
     pub(crate) runtime: pg_lexicon::SuppliedLexiconRuntime,
     /// The foma runtime needs mutable access while proposing, so calls briefly check the pieces out under a lock.
+    #[cfg(feature = "foma-tools")]
     official_backend: Mutex<OfficialBackend>,
-    #[cfg(test)]
+    #[cfg(all(test, feature = "foma-tools"))]
     force_next_foma_panic: std::sync::atomic::AtomicBool,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     force_next_pool_build_failure: std::sync::atomic::AtomicBool,
@@ -108,11 +114,29 @@ impl GrammarHandle {
             DEFAULT_ANALYSIS_POLICY,
         )
         .expect("a successfully loaded named grammar initializes its runtime");
+        #[cfg(feature = "foma-tools")]
         let foma = FomaState::new(&grammar);
-        Self::new_with_foma_result_inner(grammar, morpher, runtime, foma)
+        #[cfg(feature = "foma-tools")]
+        let official_backend = match foma {
+            Ok(state) => OfficialBackend::Foma(Box::new(state)),
+            Err(diagnostic) => OfficialBackend::MorpherFallback { diagnostic },
+        };
+        Box::new(GrammarHandle {
+            morpher,
+            runtime,
+            #[cfg(feature = "foma-tools")]
+            official_backend: Mutex::new(official_backend),
+            #[cfg(all(test, feature = "foma-tools"))]
+            force_next_foma_panic: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            force_next_pool_build_failure: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            pool_build_count: std::sync::atomic::AtomicUsize::new(0),
+            grammar,
+        })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "foma-tools"))]
     fn new_with_foma_result(
         grammar: Grammar,
         grammar_source: &str,
@@ -131,6 +155,7 @@ impl GrammarHandle {
         Self::new_with_foma_result_inner(grammar, morpher, runtime, foma)
     }
 
+    #[cfg(all(test, feature = "foma-tools"))]
     fn new_with_foma_result_inner(
         grammar: Arc<Grammar>,
         morpher: Morpher<'static>,
@@ -145,7 +170,7 @@ impl GrammarHandle {
             morpher,
             runtime,
             official_backend: Mutex::new(official_backend),
-            #[cfg(test)]
+            #[cfg(all(test, feature = "foma-tools"))]
             force_next_foma_panic: std::sync::atomic::AtomicBool::new(false),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             force_next_pool_build_failure: std::sync::atomic::AtomicBool::new(false),
@@ -161,6 +186,16 @@ impl GrammarHandle {
     /// `hc_analyze_word_json` (which already carries `guessed` honestly at both word and analysis
     /// level, so it keeps the pre-existing retry-on behavior explicitly rather than losing it as a
     /// side effect of the default flip).
+    #[cfg(not(feature = "foma-tools"))]
+    pub(crate) fn analyze_word(
+        &self,
+        word: &str,
+        guess_fallback: bool,
+    ) -> pg_lexicon::UnifiedAnalysis {
+        self.runtime.analyze_word_opts(word, None, guess_fallback)
+    }
+
+    #[cfg(feature = "foma-tools")]
     pub(crate) fn analyze_word(
         &self,
         word: &str,
@@ -231,6 +266,7 @@ impl GrammarHandle {
     /// Analyze a batch while holding the mutable foma backend lock only for serialized proposal.
     /// Confirmation (the dominant official cost) and overlay union run outside that lock with the
     /// caller's requested parallelism.
+    #[cfg(feature = "foma-tools")]
     pub(crate) fn analyze_words(
         &self,
         words: &[String],
@@ -246,7 +282,35 @@ impl GrammarHandle {
             self.analyze_words_wasm(words, max_threads, guess_fallback)
         }
     }
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "foma-tools"))]
+    pub(crate) fn analyze_words(
+        &self,
+        words: &[String],
+        max_threads: usize,
+        guess_fallback: bool,
+    ) -> Result<Vec<(pg_lexicon::UnifiedAnalysis, std::time::Duration)>, ()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            for word in words {
+                pg_parse::batch::test_panic_if_requested(word);
+            }
+            let pool = self.build_batch_pool(max_threads)?;
+            Ok(self.analyze_words_without_official(words, &pool, guess_fallback))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(words
+                .iter()
+                .map(|word| {
+                    (
+                        self.runtime.analyze_word_opts(word, None, guess_fallback),
+                        std::time::Duration::ZERO,
+                    )
+                })
+                .collect())
+        }
+    }
+    #[cfg(all(feature = "foma-tools", not(target_arch = "wasm32")))]
     fn analyze_words_native(
         &self,
         words: &[String],
@@ -330,7 +394,7 @@ impl GrammarHandle {
         Ok(self.union_official_batch(words, official, &pool, guess_fallback))
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(feature = "foma-tools", target_arch = "wasm32"))]
     fn analyze_words_wasm(
         &self,
         words: &[String],
@@ -426,7 +490,7 @@ impl GrammarHandle {
             })
             .collect())
     }
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(test, feature = "foma-tools", not(target_arch = "wasm32")))]
     fn analyze_words_with_confirmation_concurrency_probe(
         &self,
         words: &[String],
@@ -545,7 +609,7 @@ impl GrammarHandle {
         })
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "foma-tools", not(target_arch = "wasm32")))]
     fn union_official_batch(
         &self,
         words: &[String],
@@ -580,7 +644,7 @@ impl GrammarHandle {
         pool.install(|| inputs.par_iter().map(operation).collect())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "foma-tools"))]
     fn backend_kind(&self) -> &'static str {
         match &*self
             .official_backend
@@ -595,7 +659,7 @@ impl GrammarHandle {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "foma-tools"))]
     fn force_next_foma_panic(&self) {
         self.force_next_foma_panic
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -613,6 +677,7 @@ impl GrammarHandle {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 
+    #[cfg(feature = "foma-tools")]
     fn test_panic_if_requested(&self) {
         #[cfg(test)]
         if self
@@ -646,7 +711,7 @@ pub unsafe extern "C" fn hc_grammar_load(
     out: *mut HcGrammarHandle,
     err: *mut HcError,
 ) -> i32 {
-    let result = std::panic::catch_unwind(|| -> Result<(Grammar, String), (i32, String)> {
+    let result = std::panic::catch_unwind(|| -> Result<Box<GrammarHandle>, (i32, String)> {
         if out.is_null() {
             return Err((HC_ERR_NULL_ARG, "hc_grammar_load: out is null".to_string()));
         }
@@ -671,12 +736,11 @@ pub unsafe extern "C" fn hc_grammar_load(
         })?;
         let grammar = pg_grammar::load(xml)
             .map_err(|e| (HC_ERR_GRAMMAR_LOAD, format!("hc_grammar_load: {e}")))?;
-        Ok((grammar, xml.to_string()))
+        Ok(GrammarHandle::new(grammar, xml))
     });
 
     match result {
-        Ok(Ok((grammar, xml))) => {
-            let handle = GrammarHandle::new(grammar, &xml);
+        Ok(Ok(handle)) => {
             // SAFETY: `out` non-null already checked above.
             unsafe {
                 *out = Box::into_raw(handle) as HcGrammarHandle;

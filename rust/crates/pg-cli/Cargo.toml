@@ -17,10 +17,12 @@ path = "tests/harnesses/all.rs"
 [[test]]
 name = "recipe_optimize_timeout"
 path = "tests/recipe_optimize_timeout.rs"
+required-features = ["foma-tools"]
 
 [features]
 examples = []
-developer-tools = ["pg-foma/developer-tools", "pg-foma-backend/developer-tools"]
+foma-tools = ["dep:pg-foma", "dep:pg-foma-backend", "pg-assess/foma-tools", "pg-pack/foma-tools"]
+developer-tools = ["foma-tools", "pg-foma/developer-tools", "pg-foma-backend/developer-tools"]
 # Ground-truth allocator instrumentation for docs/research/word-memory-trace.md; default off, see
 # `src/alloc_trace.rs`.
 alloc-trace = []
@@ -41,8 +43,8 @@ pg-snapshot.workspace = true
 pg-fwdata.workspace = true
 # P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` on `batch`/`parse` routes through
 # `pg_foma::composite::FomaAnalyzer` instead of the default `pg_parse::Morpher` path.
-pg-foma.workspace = true
-pg-foma-backend.workspace = true
+pg-foma = { workspace = true, optional = true }
+pg-foma-backend = { workspace = true, optional = true }
 pg-assess.workspace = true
 pg-pack.workspace = true
 pg-worker-containment.workspace = true

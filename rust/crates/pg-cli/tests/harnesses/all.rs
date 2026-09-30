@@ -9,6 +9,7 @@ mod developer_flags_contract;
 mod divergence_catalogue_gate;
 #[path = "../fixture_pins_never_self_skip.rs"]
 mod fixture_pins_never_self_skip;
+#[cfg(feature = "foma-tools")]
 #[path = "../four_grammar_recipe_evidence.rs"]
 mod four_grammar_recipe_evidence;
 #[path = "../fwdata_conformance_gate.rs"]
@@ -21,7 +22,11 @@ mod grammar_dump_diag;
 mod guesser_conformance_gate;
 #[path = "../inferred_segment_engine_parity_gate.rs"]
 mod inferred_segment_engine_parity_gate;
+#[cfg(feature = "foma-tools")]
 #[path = "../recipe_optimize_continuation.rs"]
 mod recipe_optimize_continuation;
 #[path = "../skills_never_instruct_bare_cargo.rs"]
 mod skills_never_instruct_bare_cargo;
+
+#[path = "../default_dependency_closure.rs"]
+mod default_dependency_closure;

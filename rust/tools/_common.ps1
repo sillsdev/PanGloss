@@ -441,9 +441,10 @@ function Get-CargoTestInvocation {
         }
     }
 
-    if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
+    if ($Package) { $cargoArgs += @('-p', $Package) }
     if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 
+    if (-not $UseNextest -and -not $FailFast -and $ExtraArgs -notcontains '--no-fail-fast') { $cargoArgs += '--no-fail-fast' }
     if ($UseNextest) {
         if ((-not $FailFast) -and ($ExtraArgs -notcontains '--no-fail-fast')) { $cargoArgs += '--no-fail-fast' }
         if ($HarnessModule) {
@@ -474,8 +475,20 @@ function Get-CargoTestInvocation {
 
 function Get-ExampleFeaturePackages {
     <# .DESCRIPTION Workspace packages that declare an `examples` feature, read from their manifests. #>
-    param([string]$CratesRoot = (Join-Path $PSScriptRoot '..\crates'))
+    param([string]$CratesRoot = (Join-Path $PSScriptRoot '..\crates'), [switch]$DefaultOnly)
+    $defaultPaths = $null
+    if ($DefaultOnly) {
+        $workspace = Get-Content -Raw -LiteralPath (Join-Path $CratesRoot '..\Cargo.toml')
+        $defaultMembers = [regex]::Match($workspace, '(?s)default-members\s*=\s*\[(?<members>.*?)\]')
+        if ($defaultMembers.Success) {
+            $defaultPaths = @([regex]::Matches($defaultMembers.Groups['members'].Value, '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
+        }
+    }
     foreach ($manifest in Get-ChildItem -Path $CratesRoot -Filter Cargo.toml -Recurse -Depth 1 -ErrorAction SilentlyContinue) {
+        if ($null -ne $defaultPaths) {
+            $memberPath = 'crates/' + $manifest.Directory.Name
+            if ($defaultPaths -notcontains $memberPath) { continue }
+        }
         $text = Get-Content -Raw -LiteralPath $manifest.FullName
         $features = [regex]::Match($text, '(?ms)^\[features\]\s*(?<body>.*?)(?=^\[|\z)').Groups['body'].Value
         if ($features -match '(?m)^examples\s*=') {
@@ -487,7 +500,7 @@ function Get-ClippyInvocation {
     <#
       .DESCRIPTION
       The clippy command every compile mode runs first, and `check` runs instead of `cargo check`.
-      Mirrors .github/workflows/rust-gates.yml's clippy job (all targets, every `examples` feature,
+      Mirrors .github/workflows/rust-gates.yml's clippy job (default members, all their examples,
       `-D warnings`) so a lint that fails CI fails here first. -Package narrows it to one crate.
     #>
     param(
@@ -495,15 +508,16 @@ function Get-ClippyInvocation {
         [bool]$DebugProfile = $false,
         [string]$TestTarget = '',
         [string[]]$ExtraArgs = @(),
-        [string[]]$ExamplePackages = @(Get-ExampleFeaturePackages)
+        [string[]]$ExamplePackages = @()
     )
     $cargoArgs = @('clippy', '--all-targets')
     if (-not $DebugProfile) {
         $cargoArgs += @('--profile', $(if ($script:TestOptProfile) { $script:TestOptProfile } else { 'pg-test-opt' }))
     }
+    if (-not $PSBoundParameters.ContainsKey('ExamplePackages')) { $ExamplePackages = @(Get-ExampleFeaturePackages -DefaultOnly:(-not $Package -and $ExtraArgs -notcontains '--workspace')) }
     $features = @($ExamplePackages | Where-Object { -not $Package -or $_ -eq $Package } | ForEach-Object { "$_/examples" })
     if ($features.Count -gt 0) { $cargoArgs += @('--features', ($features -join ',')) }
-    if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--workspace' }
+    if ($Package) { $cargoArgs += @('-p', $Package) }
     if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
     if ($ExtraArgs) { $cargoArgs += $ExtraArgs }
     $cargoArgs + @('--', '-D', 'warnings')
@@ -830,6 +844,20 @@ function Set-SccacheServerPriority {
 
 . "$PSScriptRoot\_slots.ps1"
 
+function ConvertTo-NativeArgument {
+    param([AllowEmptyString()][string]$Argument)
+    if ($Argument.Length -gt 0 -and $Argument -notmatch '[\s"]') { return $Argument }
+    $escaped = [regex]::Replace($Argument, '(\\*)"', [System.Text.RegularExpressions.MatchEvaluator] {
+        param($match)
+        return ('\' * (2 * $match.Groups[1].Length + 1)) + '"'
+    })
+    $escaped = [regex]::Replace($escaped, '(\\+)$', [System.Text.RegularExpressions.MatchEvaluator] {
+        param($match)
+        return '\' * (2 * $match.Length)
+    })
+    return '"' + $escaped + '"'
+}
+
 function Invoke-ManagedProcess {
     param(
         [Parameter(Mandatory)][string]$Exe,
@@ -841,7 +869,7 @@ function Invoke-ManagedProcess {
 
     $psiArgs = @{
         FilePath         = $Exe
-        ArgumentList     = $CmdArgs
+        ArgumentList     = @($CmdArgs | ForEach-Object { ConvertTo-NativeArgument $_ })
         WorkingDirectory = $WorkingDirectory
         NoNewWindow      = $true
         PassThru         = $true

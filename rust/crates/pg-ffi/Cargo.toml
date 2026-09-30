@@ -19,19 +19,21 @@ path = "tests/harnesses/all.rs"
 name = "abort_safety"
 path = "tests/abort_safety.rs"
 
+[features]
+foma-tools = ["dep:pg-foma", "dep:pg-foma-runtime", "pg-foma/test-concurrency-hook", "pg-foma-runtime/test-concurrency-hook"]
+
 [dependencies]
 pg-parse.workspace = true
 pg-grammar.workspace = true
 pg-lexicon.workspace = true
-pg-foma.workspace = true
-pg-foma-runtime.workspace = true
+pg-foma = { workspace = true, optional = true }
+pg-foma-runtime = { workspace = true, optional = true }
 rayon = "1"
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 pg-lexicon = { workspace = true, features = ["test-hooks"] }
-pg-foma = { workspace = true, features = ["test-concurrency-hook"] }
 # Enables `pg_parse::batch::TEST_PANIC_WORD` for the abort-safety test only (Cargo feature
 # unification means this activates `test-panic-hook` for `cargo test`'s build of pg-parse, but
 # NEVER for a plain `cargo build`/`cargo build --release`, which does not build

@@ -45,6 +45,7 @@ fn production_commands_reject_developer_flags_as_unknown_options() {
         for args in [
             vec!["parse", "missing.xml", "word", flag],
             vec!["batch", "missing.xml", "words.txt", "out.tsv", flag],
+            #[cfg(feature = "foma-tools")]
             vec!["make-report", "missing.xml", "out.md", flag],
         ] {
             let output = pangloss(&args);
@@ -84,6 +85,7 @@ fn developer_build_rejects_removed_flags_on_all_commands() {
         for args in [
             vec!["parse", "missing.xml", "word", flag],
             vec!["batch", "missing.xml", "words.txt", "out.tsv", flag],
+            #[cfg(feature = "foma-tools")]
             vec!["make-report", "missing.xml", "out.md", flag],
         ] {
             let output = pangloss(&args);
@@ -114,6 +116,26 @@ fn developer_help_mentions_only_the_remaining_developer_flag() {
         assert!(
             !text.contains(flag),
             "developer help must omit removed flag {flag}: {text}"
+        );
+    }
+}
+
+#[cfg(not(feature = "foma-tools"))]
+#[test]
+fn default_help_omits_optional_commands_and_keeps_generic_health() {
+    let output = pangloss(&[]);
+    let text = combined_output(&output);
+    assert!(text.contains("usage: pangloss grammar-health"));
+    for command in [
+        "fst-health",
+        "coverage",
+        "plan-diagram",
+        "make-report",
+        "recipe-optimize",
+    ] {
+        assert!(
+            !text.contains(&format!("usage: pangloss {command}")),
+            "disabled command advertised: {command}"
         );
     }
 }

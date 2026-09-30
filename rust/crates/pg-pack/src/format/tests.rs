@@ -117,8 +117,10 @@ fn read_pack_rejects_manifest_v8_with_stale_embedded_health_schema_v6() {
 // --- Real foma binary-memory bytes (not just the plain-ASCII synthetic fixtures above) ---
 
 /// A tiny, deterministic, real compiled foma network for exercising binary payload handling.
+#[cfg(feature = "foma-tools")]
 const REAL_LEXC_SOURCE: &str = "LEXICON Root\ncat # ;\ndog # ;\n";
 
+#[cfg(feature = "foma-tools")]
 fn compile_real_network() -> foma::types::Fsm {
     let opts = foma::options::FomaOptions::default();
     foma::lexcread::fsm_lexc_parse_string(&opts, None, REAL_LEXC_SOURCE)
@@ -126,6 +128,7 @@ fn compile_real_network() -> foma::types::Fsm {
 }
 
 /// A real, gzip-compressed foma binary-memory payload, unlike the plain-ASCII `SYNTHETIC_FOMA_PAYLOAD` every other test uses — this format must handle genuine binary content just as well.
+#[cfg(feature = "foma-tools")]
 fn real_foma_payload_bytes() -> Vec<u8> {
     let net = compile_real_network();
     let mut bytes = Vec::new();
@@ -133,6 +136,7 @@ fn real_foma_payload_bytes() -> Vec<u8> {
     bytes
 }
 
+#[cfg(feature = "foma-tools")]
 #[test]
 fn round_trip_with_real_foma_binary_payload_not_just_synthetic_ascii() {
     let real_foma = real_foma_payload_bytes();

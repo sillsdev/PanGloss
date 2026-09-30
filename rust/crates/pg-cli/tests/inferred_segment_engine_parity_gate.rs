@@ -252,6 +252,7 @@ fn analyze_direct(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
         .signature()
 }
 
+#[cfg(feature = "foma-tools")]
 fn analyze_fst_confirm(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
     let mut analyzer =
         pg_foma::composite::compile_analyzer(grammar).expect("fixture grammar must foma-compile");
@@ -305,13 +306,17 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
             "expected {word:?} to have at least one analysis"
         );
 
+        #[cfg(feature = "foma-tools")]
         let inferred_fst = analyze_fst_confirm(&inferred, word);
+        #[cfg(feature = "foma-tools")]
         let explicit_fst = analyze_fst_confirm(&explicit, word);
+        #[cfg(feature = "foma-tools")]
         assert_eq!(
             inferred_fst, explicit_fst,
             "FST-confirm analysis of {word:?} must match between the inferred and \
              explicit-featureless grammars"
         );
+        #[cfg(feature = "foma-tools")]
         assert_ne!(
             inferred_fst, "-",
             "expected {word:?} to have at least one FST-confirmed analysis"
@@ -324,8 +329,11 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
         inferred_qta_direct, valued_qta_direct,
         "an explicitly feature-valued q must change qta's direct-HC analysis"
     );
+    #[cfg(feature = "foma-tools")]
     let inferred_qta_fst = analyze_fst_confirm(&inferred, "qta");
+    #[cfg(feature = "foma-tools")]
     let valued_qta_fst = analyze_fst_confirm(&valued, "qta");
+    #[cfg(feature = "foma-tools")]
     assert_ne!(
         inferred_qta_fst, valued_qta_fst,
         "an explicitly feature-valued q must change qta's FST-confirm analysis"

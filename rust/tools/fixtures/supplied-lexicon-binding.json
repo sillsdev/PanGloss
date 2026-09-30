@@ -1,5 +1,6 @@
 {
   "grammarXml": "<HermitCrabInput><Language><Name>BindingFixture</Name><PartsOfSpeech><PartOfSpeech id=\"posN\"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id=\"t\"><Name>T</Name><SegmentDefinitions><SegmentDefinition id=\"a\"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id=\"b\"><Representations><Representation>b</Representation><Representation>B</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable=\"t\"><Name>S</Name><LexicalEntries><LexicalEntry id=\"official-a\" partOfSpeech=\"posN\"><Allomorphs><Allomorph id=\"aa\"><PhoneticShape>a</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>",
+  "optionalFomaGrammarCandidatesGenerated": 2,
   "stem": "b", "glossLanguage": "en", "gloss": "bee", "invalidAddErrorCode": "invalid_stem",
   "normalization": {
     "signatureId": "$signature", "entryId": "$entry", "lexicalDates": "$date",
@@ -26,7 +27,7 @@
     "guide":{"remaining":["$signature"],"next":null,"useful":[],"selection":{"exhaustive":true,"signatures":["$signature"]},"answer":{"answered":true},"afterAnswer":["$signature"],"undo":true,"invalidAnswer":{"code":"unknown_form","details":{"formId":"missing"},"message":"unknown diagnostic form"}},
     "analysis":{
       "supplied":{"analyses":[["b","[bB]"]],"candidatesGenerated":1,"capped":false,"guessed":false,"invalidShape":false,"revision":"rev_3","structured":[{"guessed":false,"morphemeIds":[4294967295],"posId":0,"provenance":{"entryId":"$entry","kind":"supplied"},"rootMorphemeIndex":0,"suppliedRoot":{"authority":{"kind":"supplied"},"entryId":"$entry","gloss":"letter bee","lexicalSpelling":"b","mpr":0,"realizationId":"$entry","stratum":0,"synFs":{"entries":[[0,{"Symbolic":1}]]}}}],"timedOut":false},
-      "grammar":{"analyses":[["","a"]],"candidatesGenerated":2,"capped":false,"guessed":false,"invalidShape":false,"revision":"rev_3","structured":[{"guessed":false,"morphemeIds":[0],"posId":0,"provenance":{"kind":"grammar"},"rootMorphemeIndex":0,"suppliedRoot":null}],"timedOut":false}
+      "grammar":{"analyses":[["","a"]],"candidatesGenerated":1,"capped":false,"guessed":false,"invalidShape":false,"revision":"rev_3","structured":[{"guessed":false,"morphemeIds":[0],"posId":0,"provenance":{"kind":"grammar"},"rootMorphemeIndex":0,"suppliedRoot":null}],"timedOut":false}
     },
     "remove":{"changed":true,"revision":"rev_4","value":true},
     "import":{"changed":true,"compatibleMigration":false,"exactMatch":true,"inactiveEntries":[],"revision":"rev_5","supersededEntries":[]},

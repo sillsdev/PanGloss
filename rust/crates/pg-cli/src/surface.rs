@@ -78,6 +78,7 @@ fn dispatch_parse(args: &[String]) -> ExitCode {
 fn dispatch_import(args: &[String]) -> ExitCode {
     dispatch("import", args, crate::run_import)
 }
+#[cfg(feature = "foma-tools")]
 fn dispatch_fst_health(args: &[String]) -> ExitCode {
     dispatch("fst-health", args, crate::fst_health::run_fst_health)
 }
@@ -88,18 +89,22 @@ fn dispatch_grammar_health(args: &[String]) -> ExitCode {
         crate::grammar_health::run_grammar_health,
     )
 }
+#[cfg(feature = "foma-tools")]
 fn dispatch_coverage(args: &[String]) -> ExitCode {
     dispatch("coverage", args, crate::coverage::run_coverage)
 }
+#[cfg(feature = "foma-tools")]
 fn dispatch_plan_diagram(args: &[String]) -> ExitCode {
     dispatch("plan-diagram", args, crate::plan_diagram::run_plan_diagram)
 }
+#[cfg(feature = "foma-tools")]
 fn dispatch_make_report(args: &[String]) -> ExitCode {
     dispatch("make-report", args, crate::make_report::run_make_report)
 }
 fn dispatch_stats(args: &[String]) -> ExitCode {
     dispatch("stats", args, crate::stats_cmd::run_stats)
 }
+#[cfg(feature = "foma-tools")]
 fn dispatch_recipe_optimize(args: &[String]) -> ExitCode {
     match crate::recipe_optimize::run_recipe_optimize(args) {
         Ok(()) => ExitCode::SUCCESS,
@@ -109,6 +114,7 @@ fn dispatch_recipe_optimize(args: &[String]) -> ExitCode {
         }
     }
 }
+#[cfg(feature = "foma-tools")]
 fn dispatch_recipe_optimize_child(args: &[String]) -> ExitCode {
     match crate::recipe_optimize::run_recipe_optimize(args) {
         Ok(()) => ExitCode::SUCCESS,
@@ -127,6 +133,7 @@ fn dispatch_golden_diff(args: &[String]) -> ExitCode {
 fn dispatch_investigate(args: &[String]) -> ExitCode {
     crate::assess::exit(crate::assess::run_investigate(args), "investigate")
 }
+#[cfg(feature = "foma-tools")]
 fn dispatch_compile_worker_child(_args: &[String]) -> ExitCode {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
@@ -288,6 +295,7 @@ const INVESTIGATE_FLAGS: &[FlagSpec] = &[
     },
 ];
 
+#[cfg(feature = "foma-tools")]
 const FST_HEALTH_FLAGS: &[FlagSpec] = &[];
 
 const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
@@ -303,6 +311,7 @@ const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
     },
 ];
 
+#[cfg(feature = "foma-tools")]
 const COVERAGE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--json",
@@ -316,6 +325,7 @@ const COVERAGE_FLAGS: &[FlagSpec] = &[
     },
 ];
 
+#[cfg(feature = "foma-tools")]
 const PLAN_DIAGRAM_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--json",
@@ -335,7 +345,7 @@ const PLAN_DIAGRAM_FLAGS: &[FlagSpec] = &[
     },
 ];
 
-#[cfg(feature = "developer-tools")]
+#[cfg(all(feature = "foma-tools", feature = "developer-tools"))]
 const MAKE_REPORT_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--pack",
@@ -353,7 +363,7 @@ const MAKE_REPORT_FLAGS: &[FlagSpec] = &[
         summary: "developer-tools only; force-compile and measure a capability-refused grammar",
     },
 ];
-#[cfg(not(feature = "developer-tools"))]
+#[cfg(all(feature = "foma-tools", not(feature = "developer-tools")))]
 const MAKE_REPORT_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--pack",
@@ -440,6 +450,7 @@ const STATS_FLAGS: &[FlagSpec] = &[
     },
 ];
 
+#[cfg(feature = "foma-tools")]
 const RECIPE_OPTIMIZE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--seed",
@@ -565,6 +576,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         flags: INVESTIGATE_FLAGS,
         handler: dispatch_investigate,
     },
+    #[cfg(feature = "foma-tools")]
     CommandSpec {
         name: "fst-health",
         summary: "Run grammar-only FST characterization and write a HealthReport.",
@@ -581,6 +593,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         flags: GRAMMAR_HEALTH_FLAGS,
         handler: dispatch_grammar_health,
     },
+    #[cfg(feature = "foma-tools")]
     CommandSpec {
         name: "coverage",
         summary:
@@ -590,6 +603,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         flags: COVERAGE_FLAGS,
         handler: dispatch_coverage,
     },
+    #[cfg(feature = "foma-tools")]
     CommandSpec {
         name: "plan-diagram",
         summary: "Render a grammar's compiled Plan as JSON or a mermaid diagram.",
@@ -598,6 +612,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         flags: PLAN_DIAGRAM_FLAGS,
         handler: dispatch_plan_diagram,
     },
+    #[cfg(feature = "foma-tools")]
     CommandSpec {
         name: "make-report",
         summary: "Compose a markdown readiness report from an already-built artifact.",
@@ -614,6 +629,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         flags: STATS_FLAGS,
         handler: dispatch_stats,
     },
+    #[cfg(feature = "foma-tools")]
     CommandSpec {
         name: "recipe-optimize",
         summary: "Search backend recipe candidates for a grammar under a fixed evidence budget.",
@@ -630,6 +646,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         flags: &[],
         handler: run_describe,
     },
+    #[cfg(feature = "foma-tools")]
     CommandSpec {
         name: "__recipe-optimize-child",
         summary: "Internal recipe-optimize worker process; not for direct use.",
@@ -638,6 +655,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         flags: RECIPE_OPTIMIZE_FLAGS,
         handler: dispatch_recipe_optimize_child,
     },
+    #[cfg(feature = "foma-tools")]
     CommandSpec {
         name: "__compile-worker-child",
         summary: "Internal out-of-process foma compile worker; not for direct use.",
