@@ -130,7 +130,7 @@ pub fn compile_project_with(
     snapshot: &Snapshot,
     options: CompileOptions,
 ) -> Result<CompileOutput, GrammarError> {
-    compile_project_with_additional_warnings(snapshot, options, std::iter::empty())
+    compile_project_with_options_and_import_warnings(snapshot, options, std::iter::empty())
 }
 
 /// Compile a FieldWorks snapshot and merge importer warnings into the compiler's warning set.
@@ -140,7 +140,7 @@ pub fn compile_project_with_import_warnings(
     snapshot: &Snapshot,
     import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
 ) -> Result<(Grammar, Vec<pg_snapshot::Warning>), GrammarError> {
-    let output = compile_project_with_additional_warnings(
+    let output = compile_project_with_options_and_import_warnings(
         snapshot,
         CompileOptions::default(),
         import_warnings,
@@ -148,7 +148,9 @@ pub fn compile_project_with_import_warnings(
     Ok((output.grammar, output.warnings))
 }
 
-fn compile_project_with_additional_warnings(
+/// Compile with explicit options and importer warnings, preserving the full compiler report.
+/// Importer wording wins when the compiler reports the same code and source subjects.
+pub fn compile_project_with_options_and_import_warnings(
     snapshot: &Snapshot,
     options: CompileOptions,
     import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,

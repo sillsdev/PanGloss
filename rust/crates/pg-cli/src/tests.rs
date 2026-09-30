@@ -767,3 +767,29 @@ mod guess_tests {
         }
     }
 }
+
+#[test]
+fn plain_parse_reports_invalid_shape_instead_of_complete_rejection() {
+    let path = scratch_dir("parse-invalid-shape").join("grammar.xml");
+    fs::write(&path, MINI_GRAMMAR_XML).unwrap();
+    let error = super::run_parse(&[path.to_string_lossy().into_owned(), "q".into()])
+        .expect_err("an unsegmentable word must not look like a complete rejection");
+    assert!(error.contains("invalid_shape"), "{error}");
+}
+
+#[test]
+fn plain_parse_reports_capped_search_and_preserves_complete_controls() {
+    let path = scratch_dir("parse-completion").join("grammar.xml");
+    fs::write(&path, homophonous_suffix_grammar_xml(7)).unwrap();
+    let args = [
+        path.to_string_lossy().into_owned(),
+        format!("kad{}", "d".repeat(7)),
+        "--step-cap".into(),
+        "500".into(),
+    ];
+    let error = super::run_parse(&args).expect_err("capped search must return an explicit failure");
+    assert!(error.contains("capped"), "{error}");
+    for word in ["kad", "dak"] {
+        super::run_parse(&[path.to_string_lossy().into_owned(), word.into()]).unwrap();
+    }
+}

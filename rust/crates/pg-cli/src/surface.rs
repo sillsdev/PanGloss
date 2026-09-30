@@ -225,6 +225,16 @@ const GENERATE_FLAGS: &[FlagSpec] = &[];
 
 const PARSE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
+        name: "--step-cap",
+        takes_value: true,
+        summary: "N|unbounded; bound HC analysis steps (default 50000000)",
+    },
+    FlagSpec {
+        name: "--word-timeout-ms",
+        takes_value: true,
+        summary: "bound HC word search wall-clock time",
+    },
+    FlagSpec {
         name: "--trace",
         takes_value: true,
         summary: "trace to stdout, or to a file with --trace=<file>",

@@ -339,3 +339,190 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
         "an explicitly feature-valued q must change qta's FST-confirm analysis"
     );
 }
+
+#[test]
+fn cli_reports_successful_inference_without_polluting_parse_stdout() {
+    let mut snapshot = base_snapshot();
+    snapshot
+        .feature_systems
+        .phonological
+        .closed_features
+        .clear();
+    snapshot.phonology.natural_classes.clear();
+    snapshot.phonology.environments.clear();
+    for entry in &mut snapshot.lexicon.entries {
+        for allomorph in &mut entry.allomorphs {
+            allomorph.environments.clear();
+        }
+    }
+    let inferred = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert_eq!(inferred.substrate.inferred_segments.len(), 1);
+    let directory = std::env::temp_dir().join(format!(
+        "pangloss-inference-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("grammar.json");
+    std::fs::write(&path, snapshot.to_json()).unwrap();
+    let run = || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_pangloss"))
+            .args(["parse", path.to_str().unwrap(), "qta"])
+            .output()
+            .unwrap()
+    };
+    let output = run();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let signature = analyze_direct(&inferred.grammar, "qta");
+    assert_ne!(
+        signature, "-",
+        "inferred segment positive control must produce an analysis"
+    );
+    let expected_stdout = format!("qta\t{signature}\n");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), expected_stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("inferred segment \"q\""), "{stderr}");
+    assert!(stderr.contains("LdmlExemplar"), "{stderr}");
+    snapshot.phonology.phonemes.push(phoneme("authored-q", "q"));
+    std::fs::write(&path, snapshot.to_json()).unwrap();
+    let authored = run();
+    assert!(authored.status.success());
+    assert_eq!(authored.stdout, output.stdout);
+    assert!(!String::from_utf8_lossy(&authored.stderr).contains("inferred segment"));
+}
+
+#[test]
+fn cli_reports_boundary_inference_even_when_compilation_has_no_warnings() {
+    let mut snapshot = base_snapshot();
+    snapshot.phonology.natural_classes.clear();
+    snapshot.phonology.environments.clear();
+    snapshot.phonology.phonemes.push(phoneme("authored-q", "q"));
+    for entry in &mut snapshot.lexicon.entries {
+        for allomorph in &mut entry.allomorphs {
+            allomorph.environments.clear();
+        }
+    }
+    snapshot.lexicon.entries[0].allomorphs[0].forms = vec![ws("sen", "ku\u{00a0}ma")];
+    let inferred = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert!(inferred.warnings.is_empty(), "{:?}", inferred.warnings);
+    assert_eq!(inferred.substrate.inferred_boundaries.len(), 1);
+    let directory = std::env::temp_dir().join(format!(
+        "pangloss-boundary-inference-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("grammar.json");
+    std::fs::write(&path, snapshot.to_json()).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_pangloss"))
+        .args(["parse", path.to_str().unwrap(), "ku\u{00a0}mata"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!(
+            "ku\u{00a0}mata\t{}\n",
+            analyze_direct(&inferred.grammar, "ku\u{00a0}mata")
+        )
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("inferred boundary"), "{stderr}");
+    assert!(stderr.contains("SafeBoundaryTable"), "{stderr}");
+}
+
+#[test]
+fn cli_plain_and_ordinary_trace_report_owner_completion_status() {
+    let snapshot = base_snapshot();
+    let grammar = compile(&snapshot);
+    let directory = std::env::temp_dir().join(format!(
+        "pangloss-completion-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let grammar_path = directory.join("grammar.json");
+    let trace_path = directory.join("trace.json");
+    std::fs::write(&grammar_path, snapshot.to_json()).unwrap();
+    for (word, flags, cap, timeout, expected_flag) in [
+        ("qta", vec![], usize::MAX, None, None),
+        ("taku", vec![], usize::MAX, None, None),
+        ("q?", vec![], usize::MAX, None, Some("invalid_shape")),
+        ("qta", vec!["--step-cap", "1"], 1, None, Some("capped")),
+        (
+            "qta",
+            vec!["--word-timeout-ms", "0"],
+            usize::MAX,
+            Some(std::time::Duration::ZERO),
+            Some("timed_out"),
+        ),
+    ] {
+        let expected = pg_parse::Morpher::new(&grammar, cap)
+            .with_word_timeout(timeout)
+            .parse_word(word);
+        assert_eq!(
+            expected.capped || expected.timed_out || expected.invalid_shape,
+            expected_flag.is_some(),
+            "fixture must exercise {expected_flag:?}"
+        );
+        if word == "qta" && expected_flag.is_none() {
+            assert!(
+                !expected.structured.is_empty(),
+                "complete positive control must have an analysis"
+            );
+        }
+        if word == "taku" {
+            assert!(expected.structured.is_empty());
+        }
+        for trace in [false, true] {
+            let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_pangloss"));
+            command
+                .args(["parse", grammar_path.to_str().unwrap(), word])
+                .args(&flags);
+            if trace {
+                command
+                    .arg(format!("--trace={}", trace_path.display()))
+                    .args(["--trace-format", "json"]);
+            }
+            let output = command.output().unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(
+                output.status.success(),
+                expected_flag.is_none(),
+                "{word:?} trace={trace}: {stderr}"
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout),
+                format!("{word}\t{}\n", expected.signature())
+            );
+            for (present, flag) in [
+                (expected.capped, "capped"),
+                (expected.timed_out, "timed_out"),
+                (expected.invalid_shape, "invalid_shape"),
+            ] {
+                assert_eq!(
+                    stderr.contains(&format!("parse incomplete: {flag}")),
+                    present,
+                    "{word:?} trace={trace}: {stderr}"
+                );
+            }
+        }
+    }
+}

@@ -125,8 +125,18 @@ route a word batch or a single parse through this path; see the Rust API below f
 Parse one word (the only engine `parse` runs is the default HermitCrab one):
 
 ```
-pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>]
+pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--step-cap N|unbounded] [--word-timeout-ms N]
 ```
+
+Plain parsing and ordinary tracing exit with failure when the HC engine reports `capped`,
+`timed_out`, or `invalid_shape`. The applicable flags appear on stderr; any printed signature is
+then diagnostic partial output. Complete hits and complete rejections keep the existing
+`word\tsignature` stdout format and successful exit. The default step cap remains 50,000,000;
+`--word-timeout-ms 0` requests an immediate deadline.
+
+When snapshot or FieldWorks loading auto-creates phonology, stderr records each inferred segment
+or boundary and its compiler-owned evidence, plus unresolved or ambiguous source uses. This
+report is independent of warnings and leaves parse stdout unchanged.
 
 For one-word diagnostics as a single JSON document, including the trace, result, attempt counters,
 and existing timing statistics:
@@ -135,7 +145,7 @@ and existing timing statistics:
 pangloss parse <grammar> <word> --trace --trace-format=json --trace-details
 ```
 
-This mode is explicit and remains one word per invocation. See
+This mode is explicit and remains one word per invocation. Its JSON search envelope carries completion flags, including incomplete results. See
 [The trace format](docs/formats/trace-format.md) for the envelope and timing semantics.
 
 Batch a word list to TSV (the only engine `batch` runs is the default HermitCrab one):

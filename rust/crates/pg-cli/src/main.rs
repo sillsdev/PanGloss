@@ -344,7 +344,7 @@ fn print_usage_and_fail() -> ExitCode {
         "pangloss {} — HermitCrab Rust engine CLI\n\
          usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
          usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
@@ -417,17 +417,14 @@ fn run_import(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn load_grammar_impl(
-    path: &str,
-    capture_metadata: bool,
-) -> Result<
-    (
-        Grammar,
-        Vec<pg_snapshot::Warning>,
-        Option<rich_trace::TraceMetadata>,
-    ),
-    String,
-> {
+struct LoadedGrammar {
+    grammar: Grammar,
+    warnings: Vec<pg_snapshot::Warning>,
+    metadata: Option<rich_trace::TraceMetadata>,
+    substrate: pg_grammar::compile::issues::SubstrateReport,
+}
+
+fn load_grammar_impl(path: &str, capture_metadata: bool) -> Result<LoadedGrammar, String> {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -439,9 +436,14 @@ fn load_grammar_impl(
                 .map_err(|e| format!("parse snapshot {path}: {e}"))?;
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "snapshot"));
-            let (grammar, warnings) = pg_grammar::compile_project(&snapshot)
+            let output = pg_grammar::compile_project_with(&snapshot, Default::default())
                 .map_err(|e| format!("compile {path}: {e:?}"))?;
-            Ok((grammar, warnings, metadata))
+            Ok(LoadedGrammar {
+                grammar: output.grammar,
+                warnings: output.warnings,
+                metadata,
+                substrate: output.substrate,
+            })
         }
         _ if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") => {
             let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
@@ -450,10 +452,18 @@ fn load_grammar_impl(
             import_warnings.extend(snapshot.validate());
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "fwdata"));
-            let (grammar, warnings) =
-                pg_grammar::compile_project_with_import_warnings(&snapshot, import_warnings)
-                    .map_err(|e| format!("compile {path}: {e:?}"))?;
-            Ok((grammar, warnings, metadata))
+            let output = pg_grammar::compile_project_with_options_and_import_warnings(
+                &snapshot,
+                Default::default(),
+                import_warnings,
+            )
+            .map_err(|e| format!("compile {path}: {e:?}"))?;
+            Ok(LoadedGrammar {
+                grammar: output.grammar,
+                warnings: output.warnings,
+                metadata,
+                substrate: output.substrate,
+            })
         }
         _ => {
             let (xml, hash) = if capture_metadata {
@@ -476,14 +486,20 @@ fn load_grammar_impl(
             };
             let grammar = pg_grammar::load(&xml).map_err(|e| format!("load {path}: {e:?}"))?;
             let metadata = hash.map(|hash| rich_trace::metadata_from_xml(&grammar, hash));
-            Ok((grammar, Vec::new(), metadata))
+            Ok(LoadedGrammar {
+                grammar,
+                warnings: Vec::new(),
+                metadata,
+                substrate: Default::default(),
+            })
         }
     }
 }
 
 pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
-    let (grammar, warnings, _) = load_grammar_impl(path, false)?;
-    Ok((grammar, warnings))
+    let loaded = load_grammar_impl(path, false)?;
+    print_substrate_report(&loaded.substrate);
+    Ok((loaded.grammar, loaded.warnings))
 }
 
 pub(crate) fn load_grammar_with_trace_metadata(
@@ -496,10 +512,34 @@ pub(crate) fn load_grammar_with_trace_metadata(
     ),
     String,
 > {
-    let (grammar, warnings, metadata) = load_grammar_impl(path, true)?;
-    let metadata = metadata.ok_or_else(|| "rich trace metadata was not captured".to_string())?;
-    Ok((grammar, warnings, metadata))
+    let loaded = load_grammar_impl(path, true)?;
+    let metadata = loaded
+        .metadata
+        .ok_or_else(|| "rich trace metadata was not captured".to_string())?;
+    print_substrate_report(&loaded.substrate);
+    Ok((loaded.grammar, loaded.warnings, metadata))
 }
+fn print_substrate_report(report: &pg_grammar::compile::issues::SubstrateReport) {
+    for inferred in &report.inferred_segments {
+        eprintln!(
+            "substrate: inferred segment {:?} ({:?})",
+            inferred.representation, inferred.evidence
+        );
+    }
+    for inferred in &report.inferred_boundaries {
+        eprintln!(
+            "substrate: inferred boundary {:?} ({:?})",
+            inferred.representation, inferred.evidence
+        );
+    }
+    for source in &report.unresolved_uses {
+        eprintln!("substrate: unresolved use {source:?}");
+    }
+    for source in &report.ambiguous_uses {
+        eprintln!("substrate: ambiguous use {source:?}");
+    }
+}
+
 /// Print grammar warnings to stderr so parser stdout remains machine-readable.
 pub(crate) fn print_grammar_warnings(warnings: &[pg_snapshot::Warning]) {
     for w in warnings {
@@ -517,6 +557,8 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
     let mut guess = false;
+    let mut step_cap = DEFAULT_STEP_CAP;
+    let mut word_timeout = None;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -549,6 +591,30 @@ fn run_parse(args: &[String]) -> Result<(), String> {
                 realize_map_arg = Some(s["--realize-map=".len()..].to_string());
             }
             "--guess" => guess = true,
+            "--step-cap" => {
+                step_cap = it
+                    .next()
+                    .ok_or("--step-cap requires a value")?
+                    .parse::<StepCap>()?;
+            }
+            value if value.starts_with("--step-cap=") => {
+                step_cap = value["--step-cap=".len()..].parse::<StepCap>()?;
+            }
+            "--word-timeout-ms" => {
+                let value = it.next().ok_or("--word-timeout-ms requires a value")?;
+                word_timeout = Some(Duration::from_millis(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| "--word-timeout-ms must be an integer")?,
+                ));
+            }
+            value if value.starts_with("--word-timeout-ms=") => {
+                word_timeout = Some(Duration::from_millis(
+                    value["--word-timeout-ms=".len()..]
+                        .parse::<u64>()
+                        .map_err(|_| "--word-timeout-ms must be an integer")?,
+                ));
+            }
             s => {
                 reject_unknown_option("parse", s)?;
                 positional.push(s);
@@ -574,7 +640,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--word-timeout-ms N]".into());
     };
 
     let (grammar, warnings, trace_metadata) = if trace_details {
@@ -596,8 +662,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     };
 
-    // `parse` has no `--step-cap` flag of its own; the same finite default as `batch` guards a single interactive word against a runaway grammar.
-    let morpher = Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap());
+    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap()).with_word_timeout(word_timeout);
     // --guess omitted is exactly ParseOptions::default(), so every call below is byte-identical to the unconditional-default-options behavior.
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
 
@@ -644,14 +709,35 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             None => print!("{rendered}"),
             Some(path) => fs::write(&path, rendered).map_err(|e| format!("write {path}: {e}"))?,
         }
+        require_complete_parse(&outcome)?;
     } else {
         // No --trace: behave like a minimal, single-word `batch` (the parse result only).
         let outcome = morpher.parse_word_opts(word, &opts);
         println!("{}\t{}", word, outcome.signature());
         print_guessed_line(guess, outcome.guessed);
         print_realize_lines(&grammar, &outcome.structured, word, gloss, natural.as_ref());
+        require_complete_parse(&outcome)?;
     }
     Ok(())
+}
+
+fn require_complete_parse(outcome: &pg_parse::ParseOutcome) -> Result<(), String> {
+    let flags: Vec<_> = [
+        (outcome.capped, "capped"),
+        (outcome.timed_out, "timed_out"),
+        (outcome.invalid_shape, "invalid_shape"),
+    ]
+    .into_iter()
+    .filter_map(|(present, flag)| present.then_some(flag))
+    .collect();
+    if flags.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "parse incomplete: {}; stdout is diagnostic, not a confirmed result",
+            flags.join(", ")
+        ))
+    }
 }
 
 /// `--guess`'s own output marker: printed only when `--guess` was passed, right after the parity line and before any `--gloss`/`--natural-gloss` lines, so a guessed result is never indistinguishable from a confirmed one.
