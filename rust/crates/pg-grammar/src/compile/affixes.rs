@@ -355,6 +355,7 @@ pub(crate) fn build_affix_rule(
     };
 
     // A circumfix's allomorph set is the cross-product of its halves, not one def per stored form, so it is built from the whole bucket rather than per-allomorph.
+    let pending_start = ctx.pending_rule_refusals.borrow().len();
     let built: Vec<(Vec<String>, SourceMorphPlacement, AffixAllomorphDef)> =
         if entry.lexeme_morph_type == MorphType::Circumfix {
             build_circumfix_allomorphs(
@@ -375,7 +376,7 @@ pub(crate) fn build_affix_rule(
                         Some(Shape::Infix) => SourceMorphPlacement::InsertBeforeLast,
                         _ => SourceMorphPlacement::Append,
                     };
-                    build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, ctx, acc)
+                    build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, mrule_id, ctx, acc)
                         .into_iter()
                         .map(|def| (vec![allo.guid.clone()], placement, def))
                         .collect::<Vec<_>>()
@@ -413,6 +414,10 @@ pub(crate) fn build_affix_rule(
         allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
     }
     if allomorphs.is_empty() {
+        ctx.abandon_rule_refusals_since(
+            pending_start,
+            "owning rule produced no loadable allomorphs",
+        );
         ctx.reject(
             msa_key,
             issue_codes::MSA_NO_RULE_FORM_ALLOMORPHS,
@@ -608,14 +613,16 @@ fn build_circumfix_allomorphs(
                 .chain(&prefix.positions)
                 .map(String::as_str)
                 .collect();
-            let prefix_passes = resolve_environments(&prefix_env_guids, &prefix.guid, ctx);
+            let prefix_passes =
+                resolve_environments(&prefix_env_guids, &prefix.guid, mrule_id, ctx);
             let suffix_env_guids: Vec<&str> = suffix
                 .environments
                 .iter()
                 .chain(&suffix.positions)
                 .map(String::as_str)
                 .collect();
-            let suffix_passes = resolve_environments(&suffix_env_guids, &suffix.guid, ctx);
+            let suffix_passes =
+                resolve_environments(&suffix_env_guids, &suffix.guid, mrule_id, ctx);
 
             for prefix_pass in &prefix_passes {
                 for suffix_pass in &suffix_passes {
@@ -776,6 +783,11 @@ pub(crate) fn collect_text_uses(
                 });
                 continue;
             }
+            environment::collect_text_uses(
+                snapshot,
+                allo.environments.iter().chain(&allo.positions),
+                recorder,
+            );
             recorder.record_text_use(source, &form);
         }
     }
@@ -863,6 +875,7 @@ fn build_affix_allomorphs_for(
     msa: &Msa,
     required_mpr: crate::model::MprSet,
     out_mpr: crate::model::MprSet,
+    mrule_id: MRuleId,
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Vec<AffixAllomorphDef> {
@@ -927,8 +940,9 @@ fn build_affix_allomorphs_for(
         .map(String::as_str)
         .collect();
 
+    let pending_start = ctx.pending_rule_refusals.borrow().len();
     let mut out = Vec::new();
-    for pass in resolve_environments(&combined_env_guids, &allo.guid, ctx) {
+    for pass in resolve_environments(&combined_env_guids, &allo.guid, mrule_id, ctx) {
         let (left_str, right_str) = pass.unwrap_or_default();
         match build_concatenative(&form, &left_str, &right_str, shape, ctx) {
             Ok((lhs, rhs, environments)) => {
@@ -986,6 +1000,10 @@ fn build_affix_allomorphs_for(
     }
     // Selected as a rule form but every pass failed to build one: reject it rather than leave it silently unrepresented.
     if out.is_empty() {
+        ctx.abandon_rule_refusals_since(
+            pending_start,
+            "owning allomorph produced no executable definition",
+        );
         ctx.reject(
             InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone()),
             issue_codes::ALLOMORPH_UNSEGMENTABLE,
@@ -1111,9 +1129,32 @@ fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
 }
 
 /// Resolves each environment guid to its split `(left, right)` context strings, yielding one `None` pass whenever the guid list was empty or an entry failed to resolve/parse.
+fn defer_environment_refusal(
+    ctx: &Ctx,
+    mrule: MRuleId,
+    key: InventoryKey,
+    code: pg_snapshot::ImportWarningCode,
+    class: IssueClass,
+    source: Option<SourceRef>,
+    message: impl Into<String>,
+) {
+    ctx.defer_rule_refusal(
+        key,
+        ConversionIssue {
+            code,
+            class,
+            source,
+            fatal: true,
+            message: message.into(),
+        },
+        mrule,
+    );
+}
+
 fn resolve_environments(
     guids: &[&str],
     allo_guid: &str,
+    mrule_id: MRuleId,
     ctx: &Ctx,
 ) -> Vec<Option<(String, String)>> {
     let mut out = Vec::new();
@@ -1129,7 +1170,9 @@ fn resolve_environments(
         ctx.considered(attachment.clone());
         let Some(env) = ctx.env_by_guid.get(g) else {
             ctx.selected(attachment.clone());
-            ctx.reject_with_source(
+            defer_environment_refusal(
+                ctx,
+                mrule_id,
                 attachment,
                 issue_codes::ENVIRONMENT_UNRESOLVED,
                 IssueClass::InvalidSource,
@@ -1152,14 +1195,18 @@ fn resolve_environments(
                 kind: pg_snapshot::FwClass::PhEnvironment,
                 id: env.guid.clone(),
             });
-            ctx.reject_with_source(
+            defer_environment_refusal(
+                ctx,
+                mrule_id,
                 attachment,
                 issue_codes::ENVIRONMENT_INVALID,
                 IssueClass::InvalidSource,
                 source.clone(),
                 format!("environment validation failed: {cause}"),
             );
-            ctx.reject_with_source(
+            defer_environment_refusal(
+                ctx,
+                mrule_id,
                 env_object,
                 issue_codes::ENVIRONMENT_INVALID,
                 IssueClass::InvalidSource,
@@ -1180,14 +1227,18 @@ fn resolve_environments(
                     kind: pg_snapshot::FwClass::PhEnvironment,
                     id: env.guid.clone(),
                 });
-                ctx.reject_with_source(
+                defer_environment_refusal(
+                    ctx,
+                    mrule_id,
                     attachment,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,
                     source.clone(),
                     format!("environment validation failed: {cause}"),
                 );
-                ctx.reject_with_source(
+                defer_environment_refusal(
+                    ctx,
+                    mrule_id,
                     env_object,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,

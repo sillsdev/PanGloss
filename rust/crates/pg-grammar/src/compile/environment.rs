@@ -1,4 +1,4 @@
-//! Environment-string tokenization and pattern building (`TokenizeContext`/`LoadPatternNodes`/`LoadEnvironmentPattern`/`SplitEnvironment`, HCLoader.cs:2260-2457): re-tokenizes and validates a hand-authored string like `/_[UnVDent]` at compile time exactly as HCLoader does at load time -- lazily and tolerantly, since a malformed environment is a warning, never a hard failure.
+//! Selected environment patterns, literal substrate inputs, and conversion issues for active restrictions.
 
 use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SourceRef};
 
@@ -6,7 +6,7 @@ use crate::model::{AnchorSide, EnvironmentDef, Pattern, PatternNode, SimpleConte
 
 use super::{issue_codes, roles, Ctx};
 
-/// Resolves environment guids into `EnvironmentDef`s, dropping (with a warning) any that fail to resolve or parse; shared by `build_root_allomorph` and `build_circumfix_allomorphs`.
+/// Resolves environment guids into `EnvironmentDef`s, recording a fatal issue for any active restriction that fails to resolve or parse; shared by `build_root_allomorph` and `build_circumfix_allomorphs`.
 pub(crate) fn resolve_environment_defs<'a>(
     guids: impl IntoIterator<Item = &'a str>,
     ctx: &Ctx,
@@ -25,7 +25,7 @@ pub(crate) fn resolve_environment_defs<'a>(
         let Some(env) = ctx.env_by_guid.get(env_guid) else {
             // HCLoader skips it silently; the report names the allomorph that holds the dangling reference.
             ctx.selected(attachment.clone());
-            ctx.reject_with_source(
+            ctx.refuse_with_source(
                 attachment,
                 issue_codes::ENVIRONMENT_UNRESOLVED,
                 IssueClass::InvalidSource,
@@ -56,14 +56,14 @@ pub(crate) fn resolve_environment_defs<'a>(
                     kind: pg_snapshot::FwClass::PhEnvironment,
                     id: env.guid.clone(),
                 });
-                ctx.reject_with_source(
+                ctx.refuse_with_source(
                     attachment,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,
                     source.clone(),
                     format!("environment validation failed: {cause}"),
                 );
-                ctx.reject_with_source(
+                ctx.refuse_with_source(
                     env_object,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,
@@ -323,8 +323,33 @@ pub(crate) fn validate_environment(representation: &str, ctx: &Ctx) -> Result<()
     Ok(())
 }
 
+/// Publishes attached environment literals after the allomorph owner selects a form.
+pub(crate) fn collect_text_uses<'a>(
+    snapshot: &pg_snapshot::Snapshot,
+    guids: impl IntoIterator<Item = &'a String>,
+    recorder: &mut pg_snapshot::SelectionRecorder,
+) {
+    for guid in guids {
+        if let Some(env) = snapshot
+            .phonology
+            .environments
+            .iter()
+            .find(|env| env.guid == *guid)
+        {
+            for literal in literal_text_elements(&env.representation) {
+                recorder.record_text_use(
+                    SourceRef {
+                        kind: pg_snapshot::FwClass::PhEnvironment,
+                        id: env.guid.clone(),
+                    },
+                    &literal,
+                );
+            }
+        }
+    }
+}
+
 /// Literal grapheme text only: excludes `_`/`#`/class brackets, descends into optional-group parens.
-#[allow(dead_code)] // unwired -- see the `#[ignore]`d environment_only_undeclared_exemplar_is_completed_from_usage test
 pub(crate) fn literal_text_elements(representation: &str) -> Vec<String> {
     let body = representation
         .trim()
@@ -337,7 +362,6 @@ pub(crate) fn literal_text_elements(representation: &str) -> Vec<String> {
     out
 }
 
-#[allow(dead_code)] // unwired -- see the `#[ignore]`d environment_only_undeclared_exemplar_is_completed_from_usage test
 fn collect_literal_tokens(s: &str, out: &mut Vec<String>) {
     let Ok(tokens) = tokenize(s) else { return };
     for tok in &tokens {

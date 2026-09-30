@@ -155,15 +155,20 @@ fn compile_project_with_additional_warnings(
 ) -> Result<CompileOutput, GrammarError> {
     let mut external_issues: Vec<ConversionIssue> =
         snapshot.conversion_provenance.import_issues.clone();
-    if snapshot.conversion_provenance.source_inventory_status == SourceInventoryStatus::Unknown {
+    let provenance_error = snapshot
+        .conversion_provenance
+        .validate()
+        .err()
+        .map(|error| format!("invalid conversion provenance: {error:?}"));
+    if provenance_error.is_some()
+        || snapshot.conversion_provenance.source_inventory_status == SourceInventoryStatus::Unknown
+    {
         external_issues.push(ConversionIssue {
             code: issues::SOURCE_PROVENANCE_UNKNOWN,
             class: IssueClass::AmbiguousSource,
             source: None,
             fatal: true,
-            message: "conversion provenance is unknown; cannot certify this conversion's \
-                      completeness"
-                .to_string(),
+            message: provenance_error.unwrap_or_else(|| "conversion provenance is unknown; cannot certify this conversion's completeness".to_string()),
         });
     }
     let mut issues = external_issues.clone();
@@ -333,7 +338,7 @@ pub(crate) fn compile_project_recording(
         default_analysis_ws: snapshot.project.analysis_writing_systems.first().cloned(),
         recorder: RefCell::new(recorder),
         lineage: RefCell::new(lineage),
-        pending_cooccurrence_refusals: RefCell::new(Vec::new()),
+        pending_rule_refusals: RefCell::new(Vec::new()),
     };
 
     let mut acc = Acc {
@@ -419,7 +424,7 @@ pub(crate) fn compile_project_recording(
     // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
     let mut recorder = ctx.recorder.into_inner();
     let lineage = ctx.lineage.into_inner();
-    let pending_cooccurrence_refusals = ctx.pending_cooccurrence_refusals.into_inner();
+    let pending_rule_refusals = ctx.pending_rule_refusals.into_inner();
 
     let strata = vec![
         StratumDef {
@@ -492,11 +497,7 @@ pub(crate) fn compile_project_recording(
     // Mrule + morpheme-co-occurrence reachability compaction (see `reachability::compact_mrules`'s own doc); runs before the natural-class compaction below so an orphan rule's class is correctly treated as unreferenced too.
     let (removed_mrules, removed_allomorph_cooccurrence) =
         reachability::compact_mrules(&mut grammar);
-    resolve_pending_cooccurrence_refusals(
-        &mut recorder,
-        pending_cooccurrence_refusals,
-        &removed_mrules,
-    );
+    resolve_pending_rule_refusals(&mut recorder, pending_rule_refusals, &removed_mrules);
     let removed_cooccurrence = reachability::trim_unreachable_morpheme_coocurrence(&mut grammar);
 
     // `pg-fwdata` extracts every declared natural class unconditionally, so compact to only those actually referenced now that every other compile step has had its chance to resolve one (see `natclass::compact_to_referenced`'s own doc).
@@ -728,40 +729,19 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
     }
 }
 
-/// Decides every `PendingCooccurrenceRefusal` `strata_assign_co_occurrence` deferred, now that `removed_mrules` (old ids) says which affix mrules reachability compaction pruned as dead code.
-fn resolve_pending_cooccurrence_refusals(
+/// Resolves [`PendingRuleRefusal`] severity from the reachability owner's removed-rule facts.
+fn resolve_pending_rule_refusals(
     recorder: &mut SelectionRecorder,
-    pending: Vec<PendingCooccurrenceRefusal>,
+    pending: Vec<PendingRuleRefusal>,
     removed_mrules: &[u32],
 ) {
-    for p in pending {
-        if removed_mrules.contains(&p.mrule.0) {
-            recorder.rejected(
-                p.key,
-                ConversionIssue {
-                    code: p.code,
-                    class: IssueClass::UnreachableInGrammar,
-                    source: None,
-                    fatal: false,
-                    message: format!(
-                        "{}; the primary's own mrule is unreachable after reachability \
-                         compaction, so this would have been dropped as dead code regardless",
-                        p.message
-                    ),
-                },
-            );
+    for refusal in pending {
+        let refusal = if removed_mrules.contains(&refusal.mrule.0) {
+            refusal.unreachable("owning rule is unreachable after reachability compaction")
         } else {
-            recorder.rejected(
-                p.key,
-                ConversionIssue {
-                    code: p.code,
-                    class: p.class,
-                    source: None,
-                    fatal: true,
-                    message: p.message,
-                },
-            );
-        }
+            refusal
+        };
+        recorder.rejected(refusal.key, refusal.issue);
     }
 }
 
@@ -809,22 +789,41 @@ pub(crate) struct Ctx<'a> {
     pub lineage: RefCell<Lineage>,
     /// Co-occurrence refusals whose primary is affix-owned, so reachability (running after this
     /// context is done) might still prune the primary's own mrule as dead code -- resolved by
-    /// `resolve_pending_cooccurrence_refusals` once `removed_mrules` is known.
-    pub pending_cooccurrence_refusals: RefCell<Vec<PendingCooccurrenceRefusal>>,
+    /// `resolve_pending_rule_refusals` once `removed_mrules` is known.
+    pub pending_rule_refusals: RefCell<Vec<PendingRuleRefusal>>,
 }
 
-/// One `strata_assign_co_occurrence` refusal candidate deferred past reachability compaction:
-/// `mrule` names the PRIMARY's owning affix rule, whose survival decides fatal (still reachable, a
-/// real drop) vs. non-fatal (reachability would have pruned it as dead code regardless).
-pub(crate) struct PendingCooccurrenceRefusal {
+/// A selected constraint issue whose owning rule may be removed by reachability compaction.
+pub(crate) struct PendingRuleRefusal {
     key: InventoryKey,
-    code: ImportWarningCode,
-    class: IssueClass,
-    message: String,
+    issue: ConversionIssue,
     mrule: MRuleId,
 }
 
+impl PendingRuleRefusal {
+    fn unreachable(mut self, reason: &str) -> Self {
+        self.issue.class = IssueClass::UnreachableInGrammar;
+        self.issue.fatal = false;
+        self.issue.message.push_str("; ");
+        self.issue.message.push_str(reason);
+        self
+    }
+}
+
 impl Ctx<'_> {
+    fn abandon_rule_refusals_since(&self, start: usize, reason: &str) {
+        let pending: Vec<_> = self
+            .pending_rule_refusals
+            .borrow_mut()
+            .drain(start..)
+            .collect();
+        let mut recorder = self.recorder.borrow_mut();
+        for refusal in pending {
+            let refusal = refusal.unreachable(reason);
+            recorder.rejected(refusal.key, refusal.issue);
+        }
+    }
+
     /// Records an attachment/expansion/setting `key` as sourced (object identities are seeded once in `inventory::seed_authored_from_snapshot` instead).
     pub(crate) fn authored(&self, key: InventoryKey) {
         self.recorder.borrow_mut().authored(key);
@@ -857,7 +856,7 @@ impl Ctx<'_> {
         );
     }
 
-    /// Delegates to `inventory::reject` so the `ConversionIssue` construction exists in exactly one place, shared with the phases that run before `Ctx` exists.
+    /// Records a nonfatal issue at the selected inventory owner.
     pub(crate) fn reject(
         &self,
         key: InventoryKey,
@@ -876,16 +875,29 @@ impl Ctx<'_> {
         source: Option<pg_snapshot::SourceRef>,
         msg: impl Into<String>,
     ) {
-        let msg = msg.into();
+        self.record_rejection(key, code, class, source, msg.into(), false);
+    }
+
+    fn record_rejection(
+        &self,
+        key: InventoryKey,
+        code: ImportWarningCode,
+        class: IssueClass,
+        source: Option<pg_snapshot::SourceRef>,
+        message: String,
+        fatal: bool,
+    ) {
         let source = source.or_else(|| warnings::source_for_key(self.snapshot, &key));
-        let issue = ConversionIssue {
-            code,
-            class,
-            source,
-            fatal: false,
-            message: msg,
-        };
-        self.recorder.borrow_mut().rejected(key, issue);
+        self.recorder.borrow_mut().rejected(
+            key,
+            ConversionIssue {
+                code,
+                class,
+                source,
+                fatal,
+                message,
+            },
+        );
     }
 
     pub(crate) fn note(
@@ -906,23 +918,24 @@ impl Ctx<'_> {
         class: IssueClass,
         msg: impl Into<String>,
     ) {
-        let source = warnings::source_for_key(self.snapshot, &key);
-        self.recorder.borrow_mut().rejected(
-            key,
-            ConversionIssue {
-                code,
-                class,
-                source,
-                fatal: true,
-                message: msg.into(),
-            },
-        );
+        self.refuse_with_source(key, code, class, None, msg);
+    }
+
+    pub(crate) fn refuse_with_source(
+        &self,
+        key: InventoryKey,
+        code: ImportWarningCode,
+        class: IssueClass,
+        source: Option<pg_snapshot::SourceRef>,
+        msg: impl Into<String>,
+    ) {
+        self.record_rejection(key, code, class, source, msg.into(), true);
     }
 
     /// As [`Ctx::refuse`], but for a co-occurrence primary that is affix-owned: reachability
     /// compaction (which runs after this `Ctx` is gone) might still prune the primary's own mrule
     /// as dead code, so the fatal/non-fatal call is deferred to
-    /// `resolve_pending_cooccurrence_refusals` rather than decided here.
+    /// `resolve_pending_rule_refusals` rather than decided here.
     pub(crate) fn defer_cooccurrence_refusal(
         &self,
         key: InventoryKey,
@@ -931,15 +944,28 @@ impl Ctx<'_> {
         message: String,
         mrule: MRuleId,
     ) {
-        self.pending_cooccurrence_refusals
-            .borrow_mut()
-            .push(PendingCooccurrenceRefusal {
-                key,
+        self.defer_rule_refusal(
+            key,
+            ConversionIssue {
                 code,
                 class,
+                source: None,
+                fatal: true,
                 message,
-                mrule,
-            });
+            },
+            mrule,
+        );
+    }
+
+    pub(crate) fn defer_rule_refusal(
+        &self,
+        key: InventoryKey,
+        issue: ConversionIssue,
+        mrule: MRuleId,
+    ) {
+        self.pending_rule_refusals
+            .borrow_mut()
+            .push(PendingRuleRefusal { key, issue, mrule });
     }
 
     /// The `authored → considered → selected → represented|rejected` sequence every attachment-resolution site repeats; `resolved` picks the branch.

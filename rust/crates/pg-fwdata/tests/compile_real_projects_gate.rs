@@ -16,7 +16,7 @@ fn project_fwdata(project_dir_name: &str) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// `MeasureOnly` keeps every issue non-fatal, so the counts below are the real measurement.
+/// `MeasureOnly` returns measurements while retaining fatal evidence; it does not admit production output.
 fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolved: usize) {
     let Some(path) = project_fwdata(project_dir_name) else {
         eprintln!("skipping {project_dir_name}: FieldWorks checkout not present");
@@ -61,10 +61,84 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
         eprintln!("  ambiguous: {}", issue.message);
     }
 
+    let expected_environments: &[(&str, &str)] = if project_dir_name == "Sena 3" {
+        &[
+            ("048b5c62-2988-4766-9de5-9b9780cbf246", "/_~[V]"),
+            ("3eacba77-b996-4801-878f-b91b4b74dd29", "/~_[V]"),
+            ("b7402c94-1f44-4f2e-8be9-18081a855510", "/#~_"),
+        ]
+    } else {
+        &[]
+    };
+    let mut environment_ambiguities: Vec<&str> = out
+        .substrate
+        .ambiguous_uses
+        .iter()
+        .filter(|source| source.kind == pg_snapshot::FwClass::PhEnvironment)
+        .map(|source| source.id.as_str())
+        .collect();
+    environment_ambiguities.sort_unstable();
+    let mut expected_ids: Vec<&str> = expected_environments.iter().map(|(id, _)| *id).collect();
+    expected_ids.sort_unstable();
+    assert_eq!(
+        environment_ambiguities, expected_ids,
+        "selected environment evidence changed"
+    );
+    for (id, representation) in expected_environments {
+        let environment = snap
+            .phonology
+            .environments
+            .iter()
+            .find(|env| env.guid == *id)
+            .unwrap();
+        assert_eq!(
+            environment
+                .representation
+                .split_whitespace()
+                .collect::<String>(),
+            *representation
+        );
+        assert!(
+            out.issues.iter().any(|issue| issue.code
+                == pg_snapshot::ImportWarningCode::EnvironmentInvalid
+                && issue
+                    .source
+                    .as_ref()
+                    .is_some_and(|source| source.kind == pg_snapshot::FwClass::PhEnvironment
+                        && source.id == *id)),
+            "environment {id} must publish its unsupported restriction"
+        );
+    }
+    if !expected_environments.is_empty() {
+        assert!(!out
+            .substrate
+            .inferred_segments
+            .iter()
+            .any(|segment| segment.representation == "~"));
+        let refused = pg_grammar::compile_project_with(&snap, CompileOptions::default())
+            .expect_err("unsupported active restrictions must refuse production");
+        assert!(
+            refused.issues().iter().any(|issue| {
+                issue.fatal
+                    && issue.code == pg_snapshot::ImportWarningCode::EnvironmentInvalid
+                    && issue.source.as_ref().is_some_and(|source| {
+                        source.kind == pg_snapshot::FwClass::PhEnvironment
+                            && expected_environments.iter().any(|(id, _)| source.id == *id)
+                    })
+            }),
+            "refusal must carry fatal evidence from a measured selected environment"
+        );
+    }
+
     let unexpected: Vec<&str> = out
         .issues
         .iter()
         .filter(|i| i.code == pg_snapshot::ImportWarningCode::SubstrateClassificationAmbiguous)
+        .filter(|i| {
+            !i.source
+                .as_ref()
+                .is_some_and(|source| source.kind == pg_snapshot::FwClass::PhEnvironment)
+        })
         .map(|i| i.message.as_str())
         .filter(|m| unexpected_ambiguous_char(m))
         .collect();
@@ -74,11 +148,16 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
          `-`/`'`/`:`/`_`/`^` set: {unexpected:#?}"
     );
 
-    // A ratchet, not a target: today's count stays legible while a new regression fails.
+    let form_ambiguities = out
+        .substrate
+        .ambiguous_uses
+        .iter()
+        .filter(|source| source.kind != pg_snapshot::FwClass::PhEnvironment)
+        .count();
+    // The existing form population retains its ceiling; newly measured environments have exact witnesses above.
     assert!(
-        out.substrate.ambiguous_uses.len() <= max_ambiguous,
-        "{project_dir_name}: ambiguous_uses grew to {} (ratchet: {max_ambiguous})",
-        out.substrate.ambiguous_uses.len()
+        form_ambiguities <= max_ambiguous,
+        "{project_dir_name}: form ambiguities grew to {form_ambiguities} (ratchet: {max_ambiguous})",
     );
     assert!(
         out.substrate.unresolved_uses.len() <= max_unresolved,

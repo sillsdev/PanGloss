@@ -1,4 +1,4 @@
-//! Phonological rules: rewrite rules placed on the stratum `NotOnClitics` selects. Metathesis rules are not implemented -- each produces a warning, not a rule.
+//! Phonological rules: rewrite rules placed on the stratum `NotOnClitics` selects. Unsupported active rules produce fatal conversion issues rather than silently changing the cascade.
 
 use pg_snapshot::phonology::{PhonContext, PhonologicalRule, RewriteRhs, RewriteRule};
 use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, Snapshot};
@@ -46,7 +46,7 @@ pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, Grammar
                         }
                         ctx.represented(key);
                     }
-                    Err(e) => ctx.reject(
+                    Err(e) => ctx.refuse(
                         key,
                         issue_codes::RULE_BUILD_FAILED,
                         IssueClass::UnrepresentableForHc,
@@ -58,7 +58,7 @@ pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, Grammar
                 let key = InventoryKey::object(InventoryKind::PhonologicalRule, r.guid.clone());
                 ctx.considered(key.clone());
                 ctx.selected(key.clone());
-                ctx.reject(
+                ctx.refuse(
                     key,
                     issue_codes::RULE_METATHESIS_UNSUPPORTED,
                     IssueClass::UnrepresentableForHc,
@@ -95,7 +95,7 @@ fn build_var_table(guids: &[String], snapshot: &Snapshot, ctx: &Ctx) -> VarTable
             .iter()
             .find(|c| &c.guid == g)
         else {
-            ctx.reject(
+            ctx.refuse(
                 key,
                 issue_codes::FEATURE_CONSTRAINT_UNRESOLVED,
                 IssueClass::InvalidSource,
@@ -104,7 +104,7 @@ fn build_var_table(guids: &[String], snapshot: &Snapshot, ctx: &Ctx) -> VarTable
             continue;
         };
         let Some(flat) = ctx.phon.flat_index(&fc.feature) else {
-            ctx.reject(
+            ctx.refuse(
                 key,
                 issue_codes::FEATURE_CONSTRAINT_PHON_FEATURE_UNRESOLVED,
                 IssueClass::InvalidSource,

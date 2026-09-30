@@ -630,9 +630,9 @@ fn tokenize_rejects_unclosed_paren() {
     assert!(environment::tokenize("(abc").is_err());
 }
 
-/// An allomorph's environment guid pointing at a string that doesn't even start with `/` must not fail the whole compile -- it is a warning, and the allomorph still compiles with that one environment simply absent.
+/// A malformed active restriction refuses production; MeasureOnly retains diagnostics.
 #[test]
-fn invalid_environment_string_is_a_warning_not_an_error() {
+fn invalid_active_environment_refuses_and_remains_measurable() {
     let (mut snapshot, _f) = fixture();
     snapshot
         .phonology
@@ -646,13 +646,28 @@ fn invalid_environment_string_is_a_warning_not_an_error() {
         .environments
         .push("env-bad".to_string());
 
-    let out =
-        compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    let production = compile_project_with(&snapshot, CompileOptions::default());
+    let Err(GrammarError::Conversion(refused)) = production else {
+        panic!("active restriction or rule must refuse if it cannot be preserved")
+    };
+    assert!(refused.issues.iter().any(|issue| issue.code
+        == super::issue_codes::ENVIRONMENT_INVALID
+        && issue.fatal
+        && issue.source.is_some()));
+
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("must still compile");
     assert!(
         out.issues
             .iter()
-            .any(|i| i.code == super::issue_codes::ENVIRONMENT_INVALID && !i.fatal),
-        "expected a non-fatal ENVIRONMENT_INVALID issue; got {:?}",
+            .any(|i| i.code == super::issue_codes::ENVIRONMENT_INVALID && i.fatal),
+        "expected a fatal ENVIRONMENT_INVALID issue; got {:?}",
         out.issues
     );
     assert_eq!(
@@ -670,8 +685,23 @@ fn unresolved_affix_environment_keeps_identifier_out_of_linguist_warning() {
         .environments
         .push(dangling_guid.to_string());
 
-    let output = compile_project_with(&snapshot, CompileOptions::default())
-        .expect("an unresolved affix environment is a non-fatal issue");
+    let production = compile_project_with(&snapshot, CompileOptions::default());
+    let Err(GrammarError::Conversion(refused)) = production else {
+        panic!("active restriction or rule must refuse if it cannot be preserved")
+    };
+    assert!(refused.issues.iter().any(|issue| issue.code
+        == super::issue_codes::ENVIRONMENT_UNRESOLVED
+        && issue.fatal
+        && issue.source.is_some()));
+
+    let output = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("an unresolved affix environment remains inspectable in measurement");
     let issue = output
         .issues
         .iter()
@@ -680,7 +710,7 @@ fn unresolved_affix_environment_keeps_identifier_out_of_linguist_warning() {
                 && issue.message.contains(dangling_guid)
         })
         .expect("the structured issue must retain the unresolved environment id");
-    assert!(!issue.fatal);
+    assert!(issue.fatal);
 
     let warning = output
         .warnings
@@ -708,7 +738,15 @@ fn compile_project_returns_structured_warnings() {
         .environments
         .push("env-bad".to_string());
 
-    let (_, warnings) = compile_project(&snapshot).expect("must still compile");
+    let warnings = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("partial diagnostics remain measurable")
+    .warnings;
     let environment_warnings: Vec<_> = warnings
         .iter()
         .filter(|warning| warning.code == super::issue_codes::ENVIRONMENT_INVALID.wire())
@@ -1126,10 +1164,10 @@ fn not_on_clitics_false_places_rewrite_rules_on_the_clitic_stratum() {
     );
 }
 
-// --- 7. unsupported Phase-B construct: a warning, not an error ---------------------------------
+// --- 7. unsupported active phonological constructs refuse production ---------------------
 
 #[test]
-fn metathesis_rule_is_unsupported_and_warns_rather_than_erroring() {
+fn unsupported_active_metathesis_refuses_and_remains_measurable() {
     let (mut snapshot, _f) = fixture();
     snapshot
         .phonology
@@ -1143,13 +1181,28 @@ fn metathesis_rule_is_unsupported_and_warns_rather_than_erroring() {
             right_switch_index: 1,
         }));
 
-    let out = compile_project_with(&snapshot, CompileOptions::default())
-        .expect("metathesis must not be a hard error");
+    let production = compile_project_with(&snapshot, CompileOptions::default());
+    let Err(GrammarError::Conversion(refused)) = production else {
+        panic!("active restriction or rule must refuse if it cannot be preserved")
+    };
+    assert!(refused.issues.iter().any(|issue| issue.code
+        == super::issue_codes::RULE_METATHESIS_UNSUPPORTED
+        && issue.fatal
+        && issue.source.is_some()));
+
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("measure-only records unsupported metathesis");
     assert!(
         out.issues
             .iter()
-            .any(|i| i.code == super::issue_codes::RULE_METATHESIS_UNSUPPORTED && !i.fatal),
-        "expected a non-fatal RULE_METATHESIS_UNSUPPORTED issue; got {:?}",
+            .any(|i| i.code == super::issue_codes::RULE_METATHESIS_UNSUPPORTED && i.fatal),
+        "expected a fatal RULE_METATHESIS_UNSUPPORTED issue; got {:?}",
         out.issues
     );
     assert!(
@@ -2403,8 +2456,8 @@ fn an_unresolved_environment_guid_on_a_root_allomorph_names_its_allomorph() {
     assert!(
         issues
             .iter()
-            .any(|i| i.code == super::issue_codes::ENVIRONMENT_UNRESOLVED && !i.fatal),
-        "expected a non-fatal ENVIRONMENT_UNRESOLVED issue; got {issues:?}"
+            .any(|i| i.code == super::issue_codes::ENVIRONMENT_UNRESOLVED && i.fatal),
+        "expected a fatal ENVIRONMENT_UNRESOLVED issue; got {issues:?}"
     );
 }
 
@@ -2843,9 +2896,9 @@ fn compound_rule_side_pos_unresolved_is_non_fatal() {
     );
 }
 
-/// A phonological rewrite rule whose right-hand side is malformed fails to build, non-fatally: the rule is dropped, not the project.
+/// A malformed active rewrite refuses production and remains visible in measurement.
 #[test]
-fn phonological_rule_build_failure_is_non_fatal() {
+fn active_phonological_rule_build_failure_refuses_and_remains_measurable() {
     let (mut snapshot, _f) = fixture();
     snapshot.phonology.rules.push(PhonologicalRule::Rewrite(
         pg_snapshot::phonology::RewriteRule {
@@ -2860,13 +2913,30 @@ fn phonological_rule_build_failure_is_non_fatal() {
         },
     ));
 
-    let out =
-        compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
+    let production = compile_project_with(&snapshot, CompileOptions::default());
+    let Err(GrammarError::Conversion(refused)) = production else {
+        panic!("active restriction or rule must refuse if it cannot be preserved")
+    };
+    assert!(refused
+        .issues
+        .iter()
+        .any(|issue| issue.code == super::issue_codes::RULE_BUILD_FAILED
+            && issue.fatal
+            && issue.source.is_some()));
+
+    let out = compile_project_with(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+    )
+    .expect("must still compile");
     assert!(
         out.issues
             .iter()
-            .any(|i| i.code == super::issue_codes::RULE_BUILD_FAILED && !i.fatal),
-        "expected a non-fatal RULE_BUILD_FAILED issue; got {:?}",
+            .any(|i| i.code == super::issue_codes::RULE_BUILD_FAILED && i.fatal),
+        "expected a fatal RULE_BUILD_FAILED issue; got {:?}",
         out.issues
     );
     assert!(
@@ -4233,9 +4303,8 @@ fn precomposed_diacritic_word_final_refuses_under_strict_too() {
     );
 }
 
-/// Target behavior, not current: no owner yet publishes environment-string text into substrate completion, so this stays `#[ignore]`d (visible) rather than silently absent, until one does.
+/// Selected environment literals participate in substrate completion before pattern compilation.
 #[test]
-#[ignore = "environment-sourced substrate completion is not wired; see literal_text_elements"]
 fn environment_only_undeclared_exemplar_is_completed_from_usage() {
     let (mut snapshot, _f) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
@@ -4259,4 +4328,146 @@ fn environment_only_undeclared_exemplar_is_completed_from_usage() {
         "an exemplar character used only inside an environment must still be inferred"
     );
     assert_eq!(out.substrate.inferred_segments[0].representation, "q");
+    let constrained = pg_parse::Morpher::new(&out.grammar, 10_000).parse_word("kumata");
+    assert!(
+        constrained.analyses.is_empty(),
+        "a suffix requiring q must not apply after a"
+    );
+    assert!(!constrained.capped && !constrained.invalid_shape);
+    snapshot.lexicon.entries[1].allomorphs[0]
+        .environments
+        .clear();
+    let control = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    let unconstrained = pg_parse::Morpher::new(&control.grammar, 10_000).parse_word("kumata");
+    assert!(
+        !unconstrained.analyses.is_empty(),
+        "removing the restriction must change the parse effect"
+    );
+}
+
+#[test]
+fn unsupported_provenance_never_claims_clean_conversion() {
+    for (version, status) in [
+        (2, SourceInventoryStatus::Synthetic),
+        (0, SourceInventoryStatus::ImportedComplete),
+        (1, SourceInventoryStatus::Unknown),
+    ] {
+        let (mut snapshot, _) = fixture();
+        snapshot.conversion_provenance.schema_version = version;
+        snapshot.conversion_provenance.source_inventory_status = status;
+        let error = compile_project_with(&snapshot, CompileOptions::default())
+            .expect_err("invalid provenance must refuse production conversion");
+        let GrammarError::Conversion(error) = error else {
+            panic!("expected conversion refusal")
+        };
+        assert!(error
+            .issues
+            .iter()
+            .any(|issue| issue.fatal && issue.code == super::issues::SOURCE_PROVENANCE_UNKNOWN));
+        let measured = compile_project_with(
+            &snapshot,
+            CompileOptions {
+                semantic_loss: SemanticLossPolicy::MeasureOnly,
+                ..CompileOptions::default()
+            },
+        )
+        .expect("measurement remains explicit");
+        assert!(measured
+            .issues
+            .iter()
+            .any(|issue| issue.fatal && issue.code == super::issues::SOURCE_PROVENANCE_UNKNOWN));
+    }
+}
+
+#[test]
+fn unreferenced_invalid_environment_does_not_refuse_production() {
+    let (mut snapshot, _) = fixture();
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "unused-bad".into(),
+            name: String::new(),
+            representation: "invalid".into(),
+        });
+    let out = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert!(!out
+        .issues
+        .iter()
+        .any(|issue| issue.code == super::issue_codes::ENVIRONMENT_INVALID));
+}
+
+#[test]
+fn unreachable_affix_environment_is_nonfatal_and_root_positions_are_not_inferred() {
+    let (mut snapshot, _) = fixture();
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "orphan-env".into(),
+            name: String::new(),
+            representation: "/_[Missing]".into(),
+        });
+    let mut orphan = snapshot.lexicon.entries[1].clone();
+    orphan.guid = "entry-orphan".into();
+    orphan.allomorphs[0].guid = "allo-orphan".into();
+    orphan.allomorphs[0].environments = vec!["orphan-env".into()];
+    if let Msa::Inflectional { guid, slots, .. } = &mut orphan.msas[0] {
+        *guid = "msa-orphan".into();
+        *slots = vec!["slot-never-templated".into()];
+    }
+    snapshot.lexicon.entries.push(orphan);
+    let out = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert!(out.issues.iter().any(
+        |issue| issue.code == super::issue_codes::ENVIRONMENT_INVALID
+            && !issue.fatal
+            && issue.class == IssueClass::UnreachableInGrammar
+    ));
+    snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
+    snapshot.project.exemplar_characters.push("q".into());
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "unused-position".into(),
+            name: String::new(),
+            representation: "/q_".into(),
+        });
+    snapshot.lexicon.entries[0].allomorphs[0]
+        .positions
+        .push("unused-position".into());
+    let out = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert!(
+        out.substrate.inferred_segments.is_empty(),
+        "root positions are not an execution input"
+    );
+}
+
+#[test]
+fn discarded_affix_environment_does_not_refuse_a_surviving_sibling() {
+    let (mut snapshot, _) = fixture();
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::phonology::Environment {
+            guid: "discarded-env".into(),
+            name: String::new(),
+            representation: "/_[Missing]".into(),
+        });
+    let mut discarded = snapshot.lexicon.entries[1].allomorphs[0].clone();
+    discarded.guid = "allo-unsegmentable".into();
+    discarded.forms = vec![ws("sen", "qa")];
+    discarded.environments = vec!["discarded-env".into()];
+    snapshot.lexicon.entries[1].allomorphs.push(discarded);
+    let out = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    assert!(out.issues.iter().any(
+        |issue| issue.code == super::issue_codes::ENVIRONMENT_INVALID
+            && !issue.fatal
+            && issue.class == IssueClass::UnreachableInGrammar
+    ));
+    let parsed = pg_parse::Morpher::new(&out.grammar, 100_000).parse_word("kumata");
+    assert!(
+        !parsed.analyses.is_empty(),
+        "valid sibling must remain executable"
+    );
 }
