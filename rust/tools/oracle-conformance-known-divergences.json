@@ -1,5 +1,5 @@
 {
-  "_comment": "Known-divergence baseline for rust/tools/oracle-conformance.ps1's hc-conformance.exe self-check gate. A ratchet, not a target (see CLAUDE.md 'Build the differential measurement before the change'): a fixture id listed here is tolerated when hc-conformance.exe reports it FAIL; any FAIL not listed here is a NEW divergence and fails the gate. Remove an entry once a fixture is fixed/reconciled -- never add one without recording why below. machine_commit is the submodule pin PanGloss's own machine submodule carries (branch integrate-conformance-framework), chosen as oracle of record because the exe used to measure this baseline was built from that exact commit (verified: exe LastWriteTime postdates the commit's own commit time) in two independent worktrees (the main checkout and .worktrees/pin-<commit>), both producing byte-identical PASS/FAIL outcomes over every fixture in this file.",
+  "_comment": "Exact reviewed oracle mismatch evidence. A fixture ID alone never waives a failure; changed reason text fails closed for review. Forward-synthesis entries additionally require the fixture provenance marker. These records narrow previously existing waivers without changing expectations.",
   "machine_commit": "25ddf914c0edb739a4445f9a088f7e06492a808d",
   "machine_branch": "integrate-conformance-framework",
   "measured_date": "2026-09-03",
@@ -7,7 +7,15 @@
     {
       "fixture": "edge-cases/head-ambiguous-compounding",
       "kind": "rules-attribution-only",
-      "note": "SIGNATURE matches the founding oracle exactly for both of dakimo's two analyses. The rules: field cannot be verified by hc-conformance.exe's self-check for a structural reason: both declared parses render to the IDENTICAL signature \"DAK+IMO|dakimo\", and the self-check's per-signature rule-attribution check (Runner.cs) compares EVERY declared parse against EVERY actual result sharing that signature -- for two derivations with genuinely different rule sets under one shared signature, this always reports exactly one mismatch per declared entry, regardless of which of the two correct rule-set assignments is chosen (verified empirically: swapping the assignment only changes which mismatch is reported, not whether one is). words.yaml's rules: values instead follow this fixture's own documented semantics (crLeftHead ~ root_index 0 ~ DAK-headed; crRightHead ~ root_index 1 ~ IMO-headed), independently confirmed by cross_compiler_equivalence_gate.rs's RED-2 test."
+      "note": "SIGNATURE matches the founding oracle exactly for both of dakimo's two analyses. The rules: field cannot be verified by hc-conformance.exe's self-check for a structural reason: both declared parses render to the IDENTICAL signature \"DAK+IMO|dakimo\", and the self-check's per-signature rule-attribution check (Runner.cs) compares EVERY declared parse against EVERY actual result sharing that signature -- for two derivations with genuinely different rule sets under one shared signature, this always reports exactly one mismatch per declared entry, regardless of which of the two correct rule-set assignments is chosen (verified empirically: swapping the assignment only changes which mismatch is reported, not whether one is). words.yaml's rules: values instead follow this fixture's own documented semantics (crLeftHead ~ root_index 0 ~ DAK-headed; crRightHead ~ root_index 1 ~ IMO-headed), independently confirmed by cross_compiler_equivalence_gate.rs's RED-2 test.",
+      "reason": "1/4 word(s) mismatched: dakimo: parse 'DAK+IMO|dakimo': declared rules [crLeftHead] != traced [crRightHead]; parse 'DAK+IMO|dakimo': declared rules [crRightHead] != traced [crLeftHead]"
+    },
+    {
+      "fixture": "edge-cases/zero-width-morpheme-identity-stability",
+      "kind": "forward-synthesis",
+      "reason": "1/4 word(s) mismatched: sagui: expected [ROOT+A2B+B2A+THIRD|sagui | ROOT+A2B+B2A|sagui] got [ROOT+A2B+B2A|sagui | ROOT+A2B+THIRD|sagui]",
+      "note": "Existing deliberate-red provenance narrowed to the exact 2026-09-30 staged observation; see words.yaml and its forward derivation. Unrelated negative-control failures now gate."
     }
-  ]
+  ],
+  "evidence_measured_date": "2026-09-30"
 }

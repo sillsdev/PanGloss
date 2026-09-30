@@ -18,7 +18,7 @@
   script) lists fixtures known to currently mismatch, each tagged with WHY (a grammar the oracle
   cannot load at all vs. a fixture whose SIGNATURE already matches and only the incidental `rules:`
   attribution field is incomplete -- PROTOCOL.md section 4 does not compare `rules:` at all). A FAIL
-  already in the baseline is reported but does not fail the gate; a FAIL that is NOT in the baseline
+  matching exact reviewed evidence in the baseline is reported but does not fail the gate; any changed FAIL
   is a NEW divergence and fails it. Removing a reconciled fixture from the baseline is how the
   backlog shrinks; nothing here grows it silently.
 
@@ -212,72 +212,16 @@ function New-FilterPassesOracleRoot {
 }
 
 function Test-FilterPassesSelfCheckRun {
-    <#
-      .DESCRIPTION
-      Runs hc-conformance.exe self-check over a materialized mirror of conformance-staging/
-      filter-passes/** (see New-FilterPassesOracleRoot) and reports against the baseline, keyed by
-      the fixtures' REAL id (`filter-passes/<name>`, never the materialized `edge-cases/<name>`).
-      Mirrors Test-SelfCheckRun's shape and return contract ($null = harness could not run, $false =
-      new divergence, $true = clean or fully baselined) so the caller's exit-code logic is unchanged.
-    #>
-    param(
-        [string]$ExePath,
-        [string]$FilterPassesRoot,
-        [string]$TempRoot,
-        [hashtable]$Baseline,
-        [switch]$IncludePathological,
-        [switch]$Propose
-    )
-
-    Write-Host ""
-    Write-Host "[oracle-conformance] self-check: conformance-staging/filter-passes (materialized under $TempRoot as edge-cases/<name> for discovery; real fixtures are never moved)" -ForegroundColor Cyan
-
+    # The mirror uses the same evidence validator and waiver owner as ordinary fixture roots.
+    param([string]$ExePath, [string]$FilterPassesRoot, [string]$TempRoot, [hashtable]$Baseline,
+          [switch]$IncludePathological, [switch]$Propose)
     $fixtureNames = @(New-FilterPassesOracleRoot -FilterPassesRoot $FilterPassesRoot -DestRoot $TempRoot)
     if ($fixtureNames.Count -eq 0) {
-        Write-Host "[oracle-conformance] no filter-passes fixtures with both grammar.xml and words.yaml found under $FilterPassesRoot -- nothing to self-check." -ForegroundColor Yellow
-        return $true
-    }
-
-    $run = Invoke-OracleSelfCheck -ExePath $ExePath -FixturesRoot $TempRoot -IncludePathological:$IncludePathological -Propose:$Propose
-    Write-Host $run.Output
-
-    if ($run.ExitCode -ne 0 -and $run.ExitCode -ne 1) {
-        Write-Host "[oracle-conformance] hc-conformance.exe could not run against the materialized filter-passes root (exit $($run.ExitCode)) -- see output above." -ForegroundColor Red
+        Write-Host '[oracle-conformance] no filter-passes fixtures found -- no evidence available.' -ForegroundColor Red
         return $null
     }
-
-    $results = ConvertFrom-SelfCheckOutput -Text $run.Output
-    foreach ($r in $results) {
-        if ($r.Fixture -like 'edge-cases/*') {
-            $r.Fixture = 'filter-passes/' + $r.Fixture.Substring('edge-cases/'.Length)
-        }
-    }
-
-    $fails = $results | Where-Object { $_.Status -eq 'FAIL' }
-    $newDivergences = @()
-    $baselined = @()
-    foreach ($f in $fails) {
-        if ($Baseline.ContainsKey($f.Fixture)) { $baselined += $f } else { $newDivergences += $f }
-    }
-
-    if ($baselined.Count -gt 0) {
-        Write-Host ""
-        Write-Host "[oracle-conformance] $($baselined.Count) known (baselined) divergence(s) under filter-passes -- tolerated, not gating:" -ForegroundColor Yellow
-        foreach ($f in $baselined) {
-            $entry = $Baseline[$f.Fixture]
-            Write-Host "  $($f.Fixture): [$($entry.kind)] $($f.Reason)" -ForegroundColor Yellow
-        }
-    }
-
-    if ($newDivergences.Count -gt 0) {
-        Write-Host ""
-        Write-Host "[oracle-conformance] *** $($newDivergences.Count) NEW divergence(s) under filter-passes (not in the known-divergence baseline) ***" -ForegroundColor Red
-        foreach ($f in $newDivergences) { Write-Host "  $($f.Fixture): $($f.Reason)" -ForegroundColor Red }
-        return $false
-    }
-
-    Write-Host "[oracle-conformance] filter-passes: no new divergence ($($results.Count) fixture(s) attempted, $($baselined.Count) known-baselined)." -ForegroundColor Green
-    return $true
+    return Test-SelfCheckRun -ExePath $ExePath -FixturesRoot $TempRoot -RootLabel 'filter-passes (mirror)' `
+        -Baseline $Baseline -IncludePathological:$IncludePathological -Propose:$Propose -MapFilterPasses
 }
 
 function Get-Baseline {
@@ -303,84 +247,71 @@ function Test-DeclaredForwardSynthesis {
     return $false
 }
 
-function Test-SelfCheckRun {
-    <#
-      .DESCRIPTION
-      Runs self-check over one fixtures root and reports against the baseline. Returns $true if this
-      root introduced no NEW divergence (baselined FAILs are printed but do not count).
-    #>
-    param(
-        [string]$ExePath,
-        [string]$FixturesRoot,
-        [string]$RootLabel,
-        [hashtable]$Baseline,
-        [switch]$IncludePathological,
-        [switch]$Propose,
-        [switch]$ExpectCleanBaseline
-    )
+function Test-OracleEvidence {
+    # Reconcile the oracle's own discovery, exclusions, result rows, totals and exit contract.
+    param($Run, [array]$Results)
+    if ($Run.ExitCode -notin @(0, 1)) { return $false }
+    $summaries = [regex]::Matches($Run.Output, '(?m)^totals: (\d+) passed, (\d+) failed, (\d+) skipped \(of (\d+) attempted\)\s*$')
+    $discoveries = [regex]::Matches($Run.Output, '(?m)^discovered (\d+) fixture\(s\) under .+$')
+    if ($summaries.Count -ne 1 -or $discoveries.Count -ne 1) { return $false }
+    $totals = $summaries[0].Groups
+    $passed = [long]$totals[1].Value; $failed = [long]$totals[2].Value
+    $skipped = [long]$totals[3].Value; $attempted = [long]$totals[4].Value
+    if ($passed + $failed -eq 0 -or $Results.Count -ne $attempted) { return $false }
+    if (@($Results | Select-Object -ExpandProperty Fixture -Unique).Count -ne $Results.Count) { return $false }
+    if (@($Results | Where-Object Status -eq PASS).Count -ne $passed -or
+        @($Results | Where-Object Status -eq FAIL).Count -ne $failed -or
+        @($Results | Where-Object Status -eq SKIP).Count -ne $skipped) { return $false }
+    $exclusions = [regex]::Matches($Run.Output, '(?m)^(\d+) pathological \(budget_ms\) fixture\(s\) excluded by default .+$')
+    if ($exclusions.Count -gt 1) { return $false }
+    $excluded = if ($exclusions.Count) { [long]$exclusions[0].Groups[1].Value } else { 0 }
+    if ([long]$discoveries[0].Groups[1].Value -ne $attempted + $excluded) { return $false }
+    return $Run.ExitCode -eq $(if ($failed -gt 0) { 1 } else { 0 })
+}
 
-    Write-Host ""
+function Test-OracleKnownFailure {
+    # A fixture identifier or provenance marker cannot waive a newly changed failure.
+    param($Failure, [hashtable]$Baseline, [string]$FixturesRoot, [switch]$ExpectCleanBaseline)
+    if (-not $Baseline.ContainsKey($Failure.Fixture)) { return $false }
+    $entry = $Baseline[$Failure.Fixture]
+    if (-not $entry.PSObject.Properties['reason'] -or [string]$entry.reason -cne $Failure.Reason) { return $false }
+    if ($entry.kind -eq 'forward-synthesis') {
+        return Test-DeclaredForwardSynthesis -FixturesRoot $FixturesRoot -Fixture $Failure.Fixture
+    }
+    return -not $ExpectCleanBaseline
+}
+
+function Test-SelfCheckRun {
+    # $null means unavailable/inconsistent evidence; $false means a new divergence.
+    param([string]$ExePath, [string]$FixturesRoot, [string]$RootLabel, [hashtable]$Baseline,
+          [switch]$IncludePathological, [switch]$Propose, [switch]$ExpectCleanBaseline, [switch]$MapFilterPasses)
     Write-Host "[oracle-conformance] self-check: $RootLabel ($FixturesRoot)" -ForegroundColor Cyan
     $run = Invoke-OracleSelfCheck -ExePath $ExePath -FixturesRoot $FixturesRoot -IncludePathological:$IncludePathological -Propose:$Propose
     Write-Host $run.Output
-
-    if ($run.ExitCode -ne 0 -and $run.ExitCode -ne 1) {
-        Write-Host "[oracle-conformance] hc-conformance.exe could not run against $RootLabel (exit $($run.ExitCode)) -- bad --fixtures path or zero fixtures discovered. See output above." -ForegroundColor Red
+    $results = @(ConvertFrom-SelfCheckOutput -Text $run.Output)
+    if (-not (Test-OracleEvidence -Run $run -Results $results)) {
+        Write-Host "[oracle-conformance] incomplete or inconsistent oracle evidence under $RootLabel (exit $($run.ExitCode)); no passing claim can be made." -ForegroundColor Red
         return $null
     }
-
-    $results = ConvertFrom-SelfCheckOutput -Text $run.Output
-    $fails = $results | Where-Object { $_.Status -eq 'FAIL' }
-    $newDivergences = @()
-    $baselined = @()
-    $declaredRed = @()
-
-    foreach ($f in $fails) {
-        # PROTOCOL.md lets a fixture pin a forward-synthesized answer the oracle currently loses; it says so in words.yaml and is red against hc.dll by design, in either root.
-        if (Test-DeclaredForwardSynthesis -FixturesRoot $FixturesRoot -Fixture $f.Fixture) {
-            $declaredRed += $f
-            continue
+    if ($MapFilterPasses) {
+        foreach ($r in $results) {
+            if ($r.Fixture -like 'edge-cases/*') { $r.Fixture = 'filter-passes/' + $r.Fixture.Substring('edge-cases/'.Length) }
         }
-        if ($ExpectCleanBaseline) {
-            # machine/conformance is C#-authored: every observed-provenance fixture there must pass its own oracle.
-            $newDivergences += $f
-            continue
-        }
-        if ($Baseline.ContainsKey($f.Fixture)) {
-            $baselined += $f
+    }
+    $newDivergences = @(); $known = @()
+    foreach ($failure in @($results | Where-Object Status -eq FAIL)) {
+        if (Test-OracleKnownFailure -Failure $failure -Baseline $Baseline -FixturesRoot $FixturesRoot -ExpectCleanBaseline:$ExpectCleanBaseline) {
+            $known += $failure
+            Write-Host "  $($failure.Fixture): [$($Baseline[$failure.Fixture].kind), exact reviewed evidence] $($failure.Reason)" -ForegroundColor Yellow
         } else {
-            $newDivergences += $f
+            $newDivergences += $failure
+            Write-Host "  NEW $($failure.Fixture): $($failure.Reason)" -ForegroundColor Red
         }
     }
-
-    if ($declaredRed.Count -gt 0) {
-        Write-Host ""
-        Write-Host "[oracle-conformance] $($declaredRed.Count) fixture(s) under $RootLabel declare '# oracle-provenance: forward-synthesis' and are red against hc.dll by design -- tolerated, not gating:" -ForegroundColor Yellow
-        foreach ($f in $declaredRed) {
-            Write-Host "  $($f.Fixture): [declared forward-synthesis] $($f.Reason)" -ForegroundColor Yellow
-        }
-    }
-
-    if ($baselined.Count -gt 0) {
-        Write-Host ""
-        Write-Host "[oracle-conformance] $($baselined.Count) known (baselined) divergence(s) under $RootLabel -- tolerated, not gating:" -ForegroundColor Yellow
-        foreach ($f in $baselined) {
-            $entry = $Baseline[$f.Fixture]
-            Write-Host "  $($f.Fixture): [$($entry.kind)] $($f.Reason)" -ForegroundColor Yellow
-        }
-    }
-
-    if ($newDivergences.Count -gt 0) {
-        Write-Host ""
-        Write-Host "[oracle-conformance] *** $($newDivergences.Count) NEW divergence(s) under $RootLabel (not in the known-divergence baseline) ***" -ForegroundColor Red
-        foreach ($f in $newDivergences) {
-            Write-Host "  $($f.Fixture): $($f.Reason)" -ForegroundColor Red
-        }
-        return $false
-    }
-
-    Write-Host "[oracle-conformance] ${RootLabel}: no new divergence ($($results.Count) fixture(s) attempted, $($baselined.Count) known-baselined)." -ForegroundColor Green
-    return $true
+    $passCount = @($results | Where-Object Status -eq PASS).Count
+    $skipCount = @($results | Where-Object Status -eq SKIP).Count
+    Write-Host "[oracle-conformance] ${RootLabel}: $($results.Count) attempted; $passCount PASS, $($known.Count) exact known FAIL, $($newDivergences.Count) new FAIL, $skipCount SKIP."
+    return $newDivergences.Count -eq 0
 }
 
 # ---- main ----
