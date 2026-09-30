@@ -165,7 +165,7 @@ impl StatsCache {
     /// Writes one run's metadata and every word/fact row it produced, in a single transaction.
     ///
     /// Word rows upsert on `form` (two runs can compute the same word concurrently); fact rows
-    /// upsert on their composite key for the same reason. Returns the new `run_id`.
+    /// are replaced as one observation inside the same transaction. Returns the new `run_id`.
     pub fn flush(&mut self, run: &RunMetadata, words: &[WordRecord]) -> Result<i64, StatsError> {
         let total_elapsed_ns: u64 = words.iter().map(|w| w.elapsed_ns).sum();
         let tx = self
@@ -256,6 +256,7 @@ impl StatsCache {
 
         for word in words {
             let word_id = upsert_word(&tx, run_id, word)?;
+            tx.execute("DELETE FROM fact WHERE word_id = ?1", params![word_id])?;
             for fact in &word.facts {
                 write_fact(&tx, word_id, fact)?;
             }

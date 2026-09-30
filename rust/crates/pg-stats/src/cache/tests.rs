@@ -499,3 +499,42 @@ fn unbounded_step_cap_round_trips_through_storage() {
         .expect_err("unbounded must still be distinguishable from a finite cap");
     assert!(err.to_string().contains("unbounded"), "{err}");
 }
+
+#[test]
+fn replacing_word_replaces_all_facts_and_failure_rolls_back() {
+    let mut opened = StatsCache::open_in_memory("hash-a").unwrap();
+    let mut word = sample_word("apu");
+    let mut second = word.facts[0].clone();
+    second.object_key = "rule-b".into();
+    second.object_label = "Rule B".into();
+    word.facts.push(second);
+    opened.cache.flush(&sample_run(), &[word.clone()]).unwrap();
+    let count = |cache: &StatsCache| {
+        cache
+            .connection()
+            .query_row("SELECT COUNT(*) FROM fact", [], |row| row.get::<_, i64>(0))
+            .unwrap()
+    };
+    assert_eq!(count(&opened.cache), 2);
+    word.facts.truncate(1);
+    opened.cache.flush(&sample_run(), &[word.clone()]).unwrap();
+    assert_eq!(
+        count(&opened.cache),
+        1,
+        "superseded facts must not survive the replacement observation"
+    );
+    word.facts[0].attempts = u64::MAX;
+    assert!(opened.cache.flush(&sample_run(), &[word.clone()]).is_err());
+    assert_eq!(
+        count(&opened.cache),
+        1,
+        "failed replacement must restore the prior complete observation"
+    );
+    word.facts.clear();
+    opened.cache.flush(&sample_run(), &[word]).unwrap();
+    assert_eq!(
+        count(&opened.cache),
+        0,
+        "an observation with no facts must remove all previous facts"
+    );
+}
