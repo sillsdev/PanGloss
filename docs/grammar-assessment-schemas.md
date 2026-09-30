@@ -98,7 +98,7 @@ self-contained. Two practical ways to do it:
    does.
 
 Every keyword actually used across all six files (`type` including `["...", "null"]`, `required`,
-`properties`, `additionalProperties`, `enum`, `const`, `items`, `oneOf`, `minimum`, `minLength`,
+`properties`, `additionalProperties`, `enum`, `const`, `items`, `oneOf`, `minimum`, `maximum`, `minLength`,
 `maxLength`, `minItems`, `maxItems`, and one literal `pattern`) is standard JSON Schema 2020-12, so
 once the `$defs` merge above is handled, an off-the-shelf generator should otherwise need no
 special-casing.
@@ -123,7 +123,11 @@ Two independent version axes exist; do not conflate them:
 All digests are lowercase-hex SHA-256, algorithm-prefixed (`^sha256:[0-9a-f]{64}$`, the shared
 `digest` def, `maxLength` 71) computed over [RFC 8785 JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785)
 bytes, per handoff spec §17.2. The canonicalizer used to produce them rejects duplicate JSON object
-keys; a consumer that recomputes a digest independently to verify it must reject them too.
+keys. The retained suite and report parsers also reject duplicate keys before decoding; a consumer
+that recomputes a digest independently to verify it must reject them too. The report parser verifies
+`reportId`, `semanticDigest`, `outcomeDigest`, derived `status` and `reproducible`, and each analysis
+record's `identityDigest` against recomputed values. A report is rejected when any supplied value
+differs.
 
 An `assessment-report` carries three separately meaningful hashes, each over a **named,
 independently versioned projection** — the projection's name is folded into the digest preimage

@@ -113,6 +113,14 @@ pub enum GoldenError {
         report: String,
         suite: String,
     },
+    MissingReportCase(String),
+    UnexpectedReportCase(String),
+    DuplicateReportCase(String),
+    ReportInputMismatch {
+        case_id: String,
+        report: String,
+        suite: String,
+    },
 }
 
 impl std::fmt::Display for GoldenError {
@@ -127,6 +135,23 @@ impl std::fmt::Display for GoldenError {
                 "the assessment was produced against a different suite: {field} is {report} in the \
                  report and {suite} in the suite. Re-run `assess` rather than judging an old run \
                  against revised expectations"
+            ),
+            GoldenError::MissingReportCase(case_id) => {
+                write!(f, "report is missing suite case {case_id}")
+            }
+            GoldenError::UnexpectedReportCase(case_id) => {
+                write!(f, "report contains unknown suite case {case_id}")
+            }
+            GoldenError::DuplicateReportCase(case_id) => {
+                write!(f, "report contains duplicate case {case_id}")
+            }
+            GoldenError::ReportInputMismatch {
+                case_id,
+                report,
+                suite,
+            } => write!(
+                f,
+                "report input for case {case_id} is {report:?}, but the suite declares {suite:?}"
             ),
         }
     }
@@ -260,6 +285,38 @@ pub fn golden_diff(
         })
     {
         return Err(mismatch);
+    }
+
+    let mut report_cases = BTreeMap::new();
+    for case in report.cases() {
+        if report_cases.insert(case.case_id.as_str(), case).is_some() {
+            return Err(GoldenError::DuplicateReportCase(case.case_id.clone()));
+        }
+    }
+    let suite_ids: BTreeMap<&str, &str> = suite
+        .cases()
+        .iter()
+        .map(|case| (case.case_id.as_str(), case.input.as_str()))
+        .collect();
+    for declared_case in suite.cases() {
+        let Some(recorded_case) = report_cases.get(declared_case.case_id.as_str()) else {
+            return Err(GoldenError::MissingReportCase(
+                declared_case.case_id.clone(),
+            ));
+        };
+        if recorded_case.input != declared_case.input {
+            return Err(GoldenError::ReportInputMismatch {
+                case_id: declared_case.case_id.clone(),
+                report: recorded_case.input.clone(),
+                suite: declared_case.input.clone(),
+            });
+        }
+    }
+    if let Some(case_id) = report_cases
+        .keys()
+        .find(|case_id| !suite_ids.contains_key(**case_id))
+    {
+        return Err(GoldenError::UnexpectedReportCase((*case_id).to_string()));
     }
 
     let expectations: BTreeMap<&str, &Expectation> = suite

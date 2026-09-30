@@ -347,3 +347,82 @@ fn extensions_survive_but_stay_out_of_both_semantic_projections() {
         annotated.draft().extensions
     );
 }
+
+#[test]
+fn duplicate_counts_must_be_positive_integers() {
+    for invalid in [
+        json!(0),
+        json!(-1),
+        json!(1.5),
+        json!(u64::from(u32::MAX) + 1),
+    ] {
+        let mut value = sample().finish().unwrap().to_value();
+        value["cases"][0]["analyses"][0]["duplicateCount"] = invalid;
+        let json = serde_json::to_string(&value).unwrap();
+        assert!(parse_report(&json).is_err());
+    }
+}
+
+#[test]
+fn a_missing_required_duplicate_count_is_rejected() {
+    let mut value = sample().finish().unwrap().to_value();
+    value["cases"][0]["analyses"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("duplicateCount");
+    let json = serde_json::to_string(&value).unwrap();
+    assert!(parse_report(&json).is_err());
+}
+
+#[test]
+fn root_index_outside_i32_is_rejected_without_narrowing() {
+    let mut value = sample().finish().unwrap().to_value();
+    value["cases"][0]["analyses"][0]["identity"]["rootIndex"] = json!(i64::from(i32::MAX) + 1);
+    let json = serde_json::to_string(&value).unwrap();
+    assert!(parse_report(&json).is_err());
+}
+
+#[test]
+fn supplied_report_digests_status_and_case_identity_digest_are_verified() {
+    for (path, replacement) in [
+        (
+            "reportId",
+            json!("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+        ),
+        (
+            "semanticDigest",
+            json!("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+        ),
+        (
+            "outcomeDigest",
+            json!("sha256:0000000000000000000000000000000000000000000000000000000000000000"),
+        ),
+        ("status", json!("failed")),
+        ("reproducible", json!(false)),
+    ] {
+        let mut value = sample().finish().unwrap().to_value();
+        value[path] = replacement;
+        let json = serde_json::to_string(&value).unwrap();
+        assert!(parse_report(&json).is_err(), "accepted corrupted {path}");
+    }
+
+    let mut value = sample().finish().unwrap().to_value();
+    value["cases"][0]["analyses"][0]["identityDigest"] =
+        json!("sha256:0000000000000000000000000000000000000000000000000000000000000000");
+    let json = serde_json::to_string(&value).unwrap();
+    assert!(
+        parse_report(&json).is_err(),
+        "accepted corrupted identityDigest"
+    );
+}
+
+#[test]
+fn duplicate_json_object_keys_are_rejected() {
+    let valid = sample().finish().unwrap().to_canonical_json().unwrap();
+    let duplicated = valid.replacen(
+        "\"schema\":",
+        "\"schema\":\"pangloss.assessment-report\",\"schema\":",
+        1,
+    );
+    assert!(parse_report(&duplicated).is_err());
+}

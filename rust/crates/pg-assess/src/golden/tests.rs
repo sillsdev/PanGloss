@@ -342,3 +342,66 @@ fn evaluation_never_writes_to_the_suite() {
         "a disagreement must not amend the expectation that produced it"
     );
 }
+
+fn two_case_suite() -> ValidatedSuite {
+    let document = format!(
+        r#"{{
+            "schema": "pangloss.assessment-suite",
+            "schemaVersion": 1,
+            "suiteId": "s",
+            "suiteRevision": "r1",
+            "analysisIdentityProfile": "{IDENTITY_PROFILE}",
+            "cases": [
+                {{ "caseId": "c1", "input": "w" }},
+                {{ "caseId": "c2", "input": "x" }}
+            ]
+        }}"#
+    );
+    parse_suite(&document).unwrap()
+}
+
+#[test]
+fn golden_diff_refuses_a_report_missing_a_suite_case() {
+    let suite = two_case_suite();
+    let report = report_for(&suite, CaseOutcome::Complete(AnalysisSet::default()));
+    assert_eq!(
+        golden_diff(&report, &suite),
+        Err(GoldenError::MissingReportCase("c2".into()))
+    );
+}
+
+#[test]
+fn golden_diff_refuses_unknown_and_duplicate_report_cases() {
+    let suite = suite_without_expectation();
+    let base = report_for(&suite, CaseOutcome::Complete(AnalysisSet::default()));
+    let mut extra = base.draft().clone();
+    extra.cases.push(CaseRecord {
+        case_id: "unknown".into(),
+        input: "x".into(),
+        outcome: CaseOutcome::Complete(AnalysisSet::default()),
+        supersedes: Vec::new(),
+    });
+    assert_eq!(
+        golden_diff(&extra.finish().unwrap(), &suite),
+        Err(GoldenError::UnexpectedReportCase("unknown".into()))
+    );
+
+    let mut duplicate = base.draft().clone();
+    duplicate.cases.push(duplicate.cases[0].clone());
+    assert_eq!(
+        golden_diff(&duplicate.finish().unwrap(), &suite),
+        Err(GoldenError::DuplicateReportCase("c1".into()))
+    );
+}
+
+#[test]
+fn golden_diff_refuses_changed_case_input() {
+    let suite = suite_without_expectation();
+    let base = report_for(&suite, CaseOutcome::Complete(AnalysisSet::default()));
+    let mut changed = base.draft().clone();
+    changed.cases[0].input = "edited".into();
+    assert!(matches!(
+        golden_diff(&changed.finish().unwrap(), &suite),
+        Err(GoldenError::ReportInputMismatch { case_id, .. }) if case_id == "c1"
+    ));
+}

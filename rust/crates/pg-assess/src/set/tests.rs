@@ -64,3 +64,27 @@ fn contains_confirms_the_structured_value() {
     assert!(set.contains(&id(&["x"])));
     assert!(!set.contains(&id(&["y"])));
 }
+
+#[test]
+fn counted_entries_preserve_large_counts_without_expanding_copies() {
+    let set = AnalysisSet::from_counted([(id(&["x"]), false, u32::MAX)]).unwrap();
+    assert_eq!(set.len(), 1);
+    assert_eq!(set.entries()[0].duplicate_count, u32::MAX);
+
+    let aggregated =
+        AnalysisSet::from_counted([(id(&["x"]), false, 2), (id(&["x"]), true, 3)]).unwrap();
+    assert_eq!(aggregated.entries()[0].duplicate_count, 5);
+    assert!(aggregated.entries()[0].guessed);
+}
+#[test]
+fn counted_entries_reject_checked_overflow() {
+    assert!(
+        AnalysisSet::from_counted([(id(&["x"]), false, u32::MAX), (id(&["x"]), false, 1),])
+            .is_err()
+    );
+}
+
+#[test]
+fn counted_entries_reject_zero_counts() {
+    assert!(AnalysisSet::from_counted([(id(&["x"]), false, 0)]).is_err());
+}

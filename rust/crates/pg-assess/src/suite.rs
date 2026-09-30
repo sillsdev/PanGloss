@@ -238,8 +238,8 @@ impl std::fmt::Display for SuiteError {
 
 /// Parse and validate a suite document. Validation is complete before any case runs.
 pub fn parse_suite(document: &str) -> Result<ValidatedSuite, SuiteError> {
-    let raw: Value =
-        serde_json::from_str(document).map_err(|e| SuiteError::Malformed(e.to_string()))?;
+    let raw = crate::jcs::parse_strict_json(document)
+        .map_err(|e| SuiteError::Malformed(e.to_string()))?;
 
     // Check schema and version before typed deserialization, so a future-versioned document reports the version rather than an incidental field mismatch.
     match raw.get("schema").and_then(Value::as_str) {

@@ -27,6 +27,13 @@ pub struct AnalysisSetEntry {
     pub guessed: bool,
 }
 
+/// A counted set cannot contain zero observations or an overflowing aggregate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CountedAnalysisSetError {
+    ZeroCount,
+    CountOverflow,
+}
+
 /// A complete analysis set in canonical order.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AnalysisSet {
@@ -75,6 +82,45 @@ impl AnalysisSet {
         AnalysisSet {
             entries: by_digest.into_values().collect(),
         }
+    }
+
+    /// Build a canonical set from already-counted records without expanding copies.
+    /// Repeated records for the same identity are combined with checked arithmetic.
+    pub fn from_counted<I>(observed: I) -> Result<Self, CountedAnalysisSetError>
+    where
+        I: IntoIterator<Item = (AnalysisIdentity, bool, u32)>,
+    {
+        let mut by_digest: BTreeMap<String, AnalysisSetEntry> = BTreeMap::new();
+        for (identity, guessed, count) in observed {
+            if count == 0 {
+                return Err(CountedAnalysisSetError::ZeroCount);
+            }
+            let digest = identity_digest(&identity);
+            match by_digest.get_mut(&digest) {
+                Some(existing) => {
+                    debug_assert_eq!(existing.identity, identity);
+                    existing.duplicate_count = existing
+                        .duplicate_count
+                        .checked_add(count)
+                        .ok_or(CountedAnalysisSetError::CountOverflow)?;
+                    existing.guessed |= guessed;
+                }
+                None => {
+                    by_digest.insert(
+                        digest.clone(),
+                        AnalysisSetEntry {
+                            identity,
+                            identity_digest: digest,
+                            duplicate_count: count,
+                            guessed,
+                        },
+                    );
+                }
+            }
+        }
+        Ok(AnalysisSet {
+            entries: by_digest.into_values().collect(),
+        })
     }
 
     pub fn entries(&self) -> &[AnalysisSetEntry] {

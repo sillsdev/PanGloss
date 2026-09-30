@@ -18,7 +18,7 @@ reason to trust them; without it a checked-in schema is documentation that silen
 
 `tests/schema_conformance.rs` carries a small validator covering exactly the JSON Schema subset
 used here — `type`, `required`, `properties`, `additionalProperties`, `enum`, `const`, `items`,
-`$ref` to `#/$defs/*`, `oneOf`, `minimum`, `minItems`, `maxLength`, and `nullable` via
+`$ref` to `#/$defs/*`, `oneOf`, `minimum`, `maximum`, `minItems`, `maxLength`, and `nullable` via
 `type: [..., "null"]`. It is deliberately **not** a general JSON Schema implementation: a full one
 is a dependency this repo has not taken, and pretending to be one would be worse than declaring the
 subset. Anything outside the subset is a hard error in the validator rather than a silent pass, so

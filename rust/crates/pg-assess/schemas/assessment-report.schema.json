@@ -227,7 +227,8 @@
         "duplicateCount": {
           "type": "integer",
           "description": "Copies observed before deduplication. Health evidence about the engine's work, never about the grammar.",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 4294967295
         },
         "guessed": {
           "type": "boolean",
@@ -257,7 +258,8 @@
         },
         "rootIndex": {
           "type": "integer",
-          "minimum": -1
+          "minimum": -1,
+          "maximum": 2147483647
         },
         "category": {
           "type": [

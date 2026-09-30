@@ -476,6 +476,7 @@ pub enum ReportError {
     BadField(String),
     KeyIndexOutOfRange(usize, usize),
     ForeignIdentityProfile(String),
+    ArtifactIntegrityMismatch(&'static str),
 }
 
 impl std::fmt::Display for ReportError {
@@ -503,6 +504,12 @@ impl std::fmt::Display for ReportError {
                 f,
                 "report declares identity profile {found}; this build implements {IDENTITY_PROFILE}"
             ),
+            ReportError::ArtifactIntegrityMismatch(field) => {
+                write!(
+                    f,
+                    "report field {field} does not match its recomputed value"
+                )
+            }
         }
     }
 }
@@ -511,8 +518,8 @@ impl std::error::Error for ReportError {}
 
 /// Parse an assessment report, expanding interned keys back to values.
 pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
-    let root: Value =
-        serde_json::from_str(document).map_err(|e| ReportError::Malformed(e.to_string()))?;
+    let root =
+        jcs::parse_strict_json(document).map_err(|e| ReportError::Malformed(e.to_string()))?;
     let object = root
         .as_object()
         .ok_or_else(|| ReportError::BadField("<root>".into()))?;
@@ -567,9 +574,32 @@ pub fn parse_report(document: &str) -> Result<AssessmentReport, ReportError> {
     };
 
     // Recomputed from the expanded content rather than trusted from the file, so a hand-edited report is caught immediately.
-    draft
+    let report = draft
         .finish()
-        .map_err(|e| ReportError::Malformed(e.to_string()))
+        .map_err(|e| ReportError::Malformed(e.to_string()))?;
+    verify_digest_field(object, "reportId", report.report_id())?;
+    verify_digest_field(object, "semanticDigest", report.semantic_digest())?;
+    verify_digest_field(object, "outcomeDigest", report.outcome_digest())?;
+    if object.get("status")
+        != Some(&serde_json::to_value(report.status()).expect("status is plain data"))
+    {
+        return Err(ReportError::ArtifactIntegrityMismatch("status"));
+    }
+    if object.get("reproducible").and_then(Value::as_bool) != Some(report.is_reproducible()) {
+        return Err(ReportError::ArtifactIntegrityMismatch("reproducible"));
+    }
+    Ok(report)
+}
+
+fn verify_digest_field(
+    object: &Map<String, Value>,
+    field_name: &'static str,
+    expected: &str,
+) -> Result<(), ReportError> {
+    match object.get(field_name).and_then(Value::as_str) {
+        Some(supplied) if supplied == expected => Ok(()),
+        _ => Err(ReportError::ArtifactIntegrityMismatch(field_name)),
+    }
 }
 
 fn field<T: for<'de> Deserialize<'de>>(
@@ -611,21 +641,37 @@ fn read_case(value: &Value, table: &[String]) -> Result<CaseRecord, ReportError>
                     })?,
                     table,
                 )?;
+                let expected_digest = identity_digest(&identity);
+                if analysis.get("identityDigest").and_then(Value::as_str)
+                    != Some(expected_digest.as_str())
+                {
+                    return Err(ReportError::ArtifactIntegrityMismatch("identityDigest"));
+                }
                 let guessed = analysis
                     .get("guessed")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                // Duplicate counts are evidence, so they are restored rather than recounted.
-                let count = analysis
-                    .get("duplicateCount")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(1)
-                    .max(1);
-                for _ in 0..count {
-                    annotated.push((identity.clone(), guessed));
-                }
+                let count = match analysis.get("duplicateCount") {
+                    Some(Value::Number(number)) => number
+                        .as_u64()
+                        .and_then(|count| u32::try_from(count).ok())
+                        .filter(|count| *count > 0)
+                        .ok_or_else(|| {
+                            ReportError::BadField("cases[].analyses[].duplicateCount".into())
+                        })?,
+                    _ => {
+                        return Err(ReportError::BadField(
+                            "cases[].analyses[].duplicateCount".into(),
+                        ))
+                    }
+                };
+                annotated.push((identity, guessed, count));
             }
-            CaseOutcome::Complete(AnalysisSet::from_annotated(annotated))
+            CaseOutcome::Complete(
+                AnalysisSet::from_counted(annotated).map_err(|_| {
+                    ReportError::BadField("cases[].analyses[].duplicateCount".into())
+                })?,
+            )
         }
         Some("incomplete") => {
             CaseOutcome::Incomplete(read_reason::<IncompleteReason>(object, "incomplete")?)
@@ -690,8 +736,9 @@ fn read_identity(value: &Value, table: &[String]) -> Result<AnalysisIdentity, Re
         root_index: value
             .get("rootIndex")
             .and_then(Value::as_i64)
-            .ok_or_else(|| ReportError::BadField("identity.rootIndex".into()))?
-            as i32,
+            .and_then(|index| i32::try_from(index).ok())
+            .filter(|index| *index >= -1)
+            .ok_or_else(|| ReportError::BadField("identity.rootIndex".into()))?,
         category: resolve(value.get("category").unwrap_or(&Value::Null))?,
     })
 }

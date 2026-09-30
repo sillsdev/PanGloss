@@ -87,6 +87,7 @@ impl Validator {
                 "items",
                 "oneOf",
                 "minimum",
+                "maximum",
                 "minLength",
                 "maxLength",
                 "minItems",
@@ -199,9 +200,17 @@ impl Validator {
                 }
             }
             Value::Number(number) => {
+                let integer = number
+                    .as_i64()
+                    .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()));
                 if let Some(min) = schema.get("minimum").and_then(Value::as_i64) {
-                    if number.as_i64().is_some_and(|n| n < min) {
+                    if integer.is_some_and(|n| n < min) {
                         failures.push(Failure::at(path, format!("below minimum {min}")));
+                    }
+                }
+                if let Some(max) = schema.get("maximum").and_then(Value::as_i64) {
+                    if integer.is_some_and(|n| n > max) {
+                        failures.push(Failure::at(path, format!("above maximum {max}")));
                     }
                 }
             }
@@ -326,7 +335,12 @@ fn provenance() -> Provenance {
 fn case(case_id: &str, outcome: CaseOutcome) -> CaseRecord {
     CaseRecord {
         case_id: case_id.into(),
-        input: "walked".into(),
+        input: if case_id.starts_with("bank-") {
+            "bank"
+        } else {
+            "walked"
+        }
+        .into(),
         outcome,
         supersedes: Vec::new(),
     }
@@ -656,6 +670,20 @@ fn a_report_with_a_zero_duplicate_count_is_rejected() {
     let mut value = full_report().to_value();
     value["cases"][0]["analyses"][0]["duplicateCount"] = json!(0);
     assert_rejected("assessment-report", &value, "duplicateCount");
+}
+
+#[test]
+fn a_report_with_duplicate_count_above_u32_is_rejected() {
+    let mut value = full_report().to_value();
+    value["cases"][0]["analyses"][0]["duplicateCount"] = json!(u64::from(u32::MAX) + 1);
+    assert_rejected("assessment-report", &value, "duplicateCount");
+}
+
+#[test]
+fn a_report_with_root_index_above_i32_is_rejected() {
+    let mut value = full_report().to_value();
+    value["cases"][0]["analyses"][0]["identity"]["rootIndex"] = json!(i64::from(i32::MAX) + 1);
+    assert_rejected("assessment-report", &value, "rootIndex");
 }
 
 #[test]

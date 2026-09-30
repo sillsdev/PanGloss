@@ -227,3 +227,13 @@ fn malformed_json_is_refused_with_its_reason() {
         SuiteError::Malformed(_)
     ));
 }
+
+#[test]
+fn duplicate_json_object_keys_are_rejected() {
+    let duplicated = suite_json(json!([])).replacen(
+        "\"schema\":",
+        "\"schema\":\"pangloss.assessment-suite\",\"schema\":",
+        1,
+    );
+    assert!(parse_suite(&duplicated).is_err());
+}

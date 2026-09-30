@@ -16,7 +16,9 @@
 
 use std::fmt;
 
-use serde_json::{Map, Value};
+use serde::de::{self, MapAccess, SeqAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use serde_json::{Map, Number, Value};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum JcsError {
@@ -33,6 +35,92 @@ impl fmt::Display for JcsError {
                  durations are integer microseconds"
             ),
         }
+    }
+}
+
+/// Parse JSON while rejecting duplicate object keys before a `Value` can discard them.
+pub fn parse_strict_json(document: &str) -> Result<Value, serde_json::Error> {
+    let mut deserializer = serde_json::Deserializer::from_str(document);
+    let value = StrictValue::deserialize(&mut deserializer)?.0;
+    deserializer.end()?;
+    Ok(value)
+}
+
+struct StrictValue(Value);
+
+impl<'de> Deserialize<'de> for StrictValue {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct StrictValueVisitor;
+
+        impl<'de> Visitor<'de> for StrictValueVisitor {
+            type Value = StrictValue;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a JSON value with unique object keys")
+            }
+
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(StrictValue(Value::Null))
+            }
+
+            fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+                self.visit_unit()
+            }
+
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(StrictValue(Value::Bool(value)))
+            }
+
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(StrictValue(Value::Number(Number::from(value))))
+            }
+
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(StrictValue(Value::Number(Number::from(value))))
+            }
+
+            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                Number::from_f64(value)
+                    .map(Value::Number)
+                    .map(StrictValue)
+                    .ok_or_else(|| E::custom("non-finite JSON number"))
+            }
+
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(StrictValue(Value::String(value.to_owned())))
+            }
+
+            fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(StrictValue(Value::String(value)))
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(
+                self,
+                mut sequence: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut values = Vec::new();
+                while let Some(value) = sequence.next_element::<StrictValue>()? {
+                    values.push(value.0);
+                }
+                Ok(StrictValue(Value::Array(values)))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut object: A) -> Result<Self::Value, A::Error> {
+                let mut values = Map::new();
+                while let Some(key) = object.next_key::<String>()? {
+                    if values.contains_key(&key) {
+                        return Err(de::Error::custom(format!(
+                            "duplicate JSON object key {key:?}"
+                        )));
+                    }
+                    let value = object.next_value::<StrictValue>()?;
+                    values.insert(key, value.0);
+                }
+                Ok(StrictValue(Value::Object(values)))
+            }
+        }
+
+        deserializer.deserialize_any(StrictValueVisitor)
     }
 }
 

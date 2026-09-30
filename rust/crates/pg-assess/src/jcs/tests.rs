@@ -92,3 +92,12 @@ fn nested_objects_canonicalize_recursively() {
         r#"{"o":{"a":[{"x":2,"y":1}],"z":1}}"#
     );
 }
+
+#[test]
+fn strict_json_rejects_duplicate_keys_at_any_nesting_level() {
+    assert!(parse_strict_json(r#"{"nested":{"key":1,"key":2}}"#).is_err());
+    assert_eq!(
+        parse_strict_json(r#"{"nested":{"key":1}}"#).unwrap(),
+        serde_json::json!({"nested":{"key":1}})
+    );
+}
