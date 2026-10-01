@@ -32,11 +32,18 @@ function Resolve-HygieneTool {
     if (Test-Path -LiteralPath $binary -PathType Leaf) { return $binary }
     [Console]::Error.WriteLine('[hygiene] native checker missing or stale; bootstrapping through the managed build.')
     Push-Location $root
+    $hadCargoPassthrough = Test-Path Env:PANGLOSS_EXTRA_ARGS
+    $cargoPassthrough = $env:PANGLOSS_EXTRA_ARGS
     try {
+        Remove-Item Env:PANGLOSS_EXTRA_ARGS -ErrorAction SilentlyContinue
         & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'pg.ps1') -Mode build -Package pg-comment-hygiene -DebugProfile -HygieneBootstrap 2>&1 |
             ForEach-Object { [Console]::Error.WriteLine([string]$_) }
         if ($LASTEXITCODE -ne 0) { throw "Native hygiene checker bootstrap failed (exit $LASTEXITCODE)." }
-    } finally { Pop-Location }
+    } finally {
+        if ($hadCargoPassthrough) { [Environment]::SetEnvironmentVariable('PANGLOSS_EXTRA_ARGS', $cargoPassthrough, 'Process') }
+        else { Remove-Item Env:PANGLOSS_EXTRA_ARGS -ErrorAction SilentlyContinue }
+        Pop-Location
+    }
     $fingerprint = Get-HygieneInputFingerprint -RepoRoot $root
     $binary = Get-HygieneCachedPath -RepoRoot $root -Fingerprint $fingerprint
     if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'Managed bootstrap did not publish a current native hygiene checker.' }

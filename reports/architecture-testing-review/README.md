@@ -264,3 +264,16 @@ The per-child contract regression fails on the previous script and passes 12/12 
 Bash syntax and the delegated managed package check also pass. Actual hosted execution at
 the repaired main tip remains the acceptance condition; source checks alone do not certify it.
 This is launcher setup for HC WASM, with optional Foma/FST engine work still deferred.
+
+
+The repaired main run [36802036535](https://github.com/sillsdev/PanGloss/actions/runs/36802036535)
+confirmed the controller repair's actual effect: managed preflight read the expected
+6,442,450,944-byte effective cap. It then failed before Cargo because the native hygiene
+checker was absent and its nested bootstrap inherited the outer WASM target arguments.
+The native bootstrap owner now removes only `PANGLOSS_EXTRA_ARGS` for its child and restores
+caller presence/value in `finally`; the strict bootstrap guard and all hygiene gates remain.
+An isolated owner regression failed at inherited arguments on the previous implementation
+(7 PASS / 1 FAIL), then passed 8/8 after repair. It checks success, nonzero/thrown failures,
+caller arguments/location restoration, cache-hit reuse and absent-variable preservation,
+without compiling or touching the shared cache. Earlier hosted coverage also completed SUCCESS.
+Actual cold-runner WASM execution and exact repaired-tip CI are still required before release.

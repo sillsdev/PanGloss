@@ -78,4 +78,59 @@ Test-Case 'a locked bootstrap capture cannot overturn a successful build' {
         'temporary capture cleanup must tolerate the Start-Process redirect-handle race'
 }
 
+Test-Case 'native bootstrap isolates outer Cargo arguments and restores caller state' {
+    $fixture = New-TestTempDir -Prefix 'pg-hygiene-env'
+    $fixtureBinary = Join-Path $fixture 'isolated-checker.exe'
+    $observations = [Collections.Generic.List[object]]::new()
+    $hadPrevious = Test-Path Env:PANGLOSS_EXTRA_ARGS
+    $previous = $env:PANGLOSS_EXTRA_ARGS
+    $callerLocation = (Get-Location).Path
+    function Get-HygieneInputFingerprint { param($RepoRoot) return 'isolated-fixture' }
+    function Get-HygieneCachedPath { param($RepoRoot, $Fingerprint) return $fixtureBinary }
+    function pwsh {
+        $observations.Add([pscustomobject]@{ Present = (Test-Path Env:PANGLOSS_EXTRA_ARGS); Value = $env:PANGLOSS_EXTRA_ARGS })
+        if ($childBehavior -eq 'throw') { throw 'fixture child threw' }
+        if ($childBehavior -eq 'success') {
+            New-Item -ItemType File -Path $fixtureBinary -Force | Out-Null
+            $global:LASTEXITCODE = 0
+        } else { $global:LASTEXITCODE = 37 }
+    }
+    try {
+        foreach ($childBehavior in @('success', 'nonzero', 'throw')) {
+            if (Test-Path -LiteralPath $fixtureBinary) { Remove-Item -LiteralPath $fixtureBinary -Force }
+            $env:PANGLOSS_EXTRA_ARGS = '--target wasm32-unknown-unknown'
+            $before = $observations.Count
+            $errorText = ''
+            try { $resolved = Resolve-HygieneTool } catch { $errorText = "$_" }
+            Assert-Equal ($before + 1) $observations.Count 'a cold cache must invoke the child'
+            Assert-False $observations[$before].Present 'native bootstrap must not inherit outer Cargo arguments'
+            Assert-Equal '--target wasm32-unknown-unknown' $env:PANGLOSS_EXTRA_ARGS 'caller arguments must be restored'
+            Assert-Equal $callerLocation (Get-Location).Path 'caller directory must be restored'
+            if ($childBehavior -eq 'success') {
+                Assert-Equal '' $errorText
+                Assert-Equal $fixtureBinary $resolved
+            } elseif ($childBehavior -eq 'nonzero') {
+                Assert-True ($errorText -match 'bootstrap failed \(exit 37\)') 'nonzero child failure must propagate'
+            } else {
+                Assert-True ($errorText -match 'fixture child threw') 'thrown child failure must propagate'
+            }
+        }
+        New-Item -ItemType File -Path $fixtureBinary -Force | Out-Null
+        $before = $observations.Count
+        Assert-Equal $fixtureBinary (Resolve-HygieneTool)
+        Assert-Equal $before $observations.Count 'cache hit must not invoke a child'
+        Assert-Equal '--target wasm32-unknown-unknown' $env:PANGLOSS_EXTRA_ARGS 'cache hit must preserve caller arguments'
+        Remove-Item -LiteralPath $fixtureBinary -Force
+        Remove-Item Env:PANGLOSS_EXTRA_ARGS -ErrorAction SilentlyContinue
+        $childBehavior = 'success'
+        Assert-Equal $fixtureBinary (Resolve-HygieneTool)
+        Assert-False (Test-Path Env:PANGLOSS_EXTRA_ARGS) 'an absent caller variable must stay absent'
+    } finally {
+        if ($hadPrevious) { [Environment]::SetEnvironmentVariable('PANGLOSS_EXTRA_ARGS', $previous, 'Process') }
+        else { Remove-Item Env:PANGLOSS_EXTRA_ARGS -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $fixtureBinary) { Remove-Item -LiteralPath $fixtureBinary -Force }
+        Remove-Item -LiteralPath $fixture -Force
+    }
+}
+
 Write-TestSummary
