@@ -91,6 +91,7 @@ repository = "https://github.com/sillsdev/machine"
 [workspace.dependencies]
 quick-xml = "0.37"
 unicode-normalization = "0.1"
+unicode-segmentation = "1"
 hashbrown = "0.15"
 rustc-hash = "2"
 bumpalo = "3"

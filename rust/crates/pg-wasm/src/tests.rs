@@ -1,9 +1,16 @@
 use super::*;
 
+fn test_orthographic_characters() -> BTreeSet<char> {
+    pg_grammar::load(TEST_XML)
+        .expect("test fixture loads")
+        .orthographic_characters()
+}
+
 #[test]
 fn tokenize_reconstructs_input_exactly() {
     let text = "Mwana ali na nyumba, m'phole-m'phole.\n16 Iwe.";
-    let pieces = tokenize(text);
+    let orthography = test_orthographic_characters();
+    let pieces = tokenize(text, &orthography);
     let rejoined: String = pieces
         .iter()
         .map(|p| match p {
@@ -15,9 +22,56 @@ fn tokenize_reconstructs_input_exactly() {
 }
 
 #[test]
+fn grammar_punctuation_and_combining_representation_stay_word_material() {
+    let orthography = test_orthographic_characters();
+    let pieces = tokenize("!e\u{301}", &orthography);
+    assert_eq!(pieces.len(), 1);
+    assert!(matches!(pieces[0], Piece::Word("!e\u{301}")));
+}
+
+#[test]
+fn undeclared_combining_mark_stays_attached_to_word_material() {
+    let orthography = test_orthographic_characters();
+    let pieces = tokenize("e\u{300}", &orthography);
+    assert_eq!(pieces.len(), 1);
+    assert!(matches!(pieces[0], Piece::Word("e\u{300}")));
+}
+
+#[test]
+fn ascii_apostrophe_remains_word_material() {
+    let orthography = test_orthographic_characters();
+    let pieces = tokenize("b'b", &orthography);
+    assert_eq!(pieces.len(), 1);
+    assert!(matches!(pieces[0], Piece::Word("b'b")));
+}
+
+#[test]
+fn whitespace_boundary_stays_a_text_separator() {
+    let orthography = test_orthographic_characters();
+    assert!(
+        orthography.contains(&' '),
+        "fixture exposes its authored space boundary"
+    );
+    let pieces = tokenize("hi there", &orthography);
+    assert!(matches!(
+        pieces.as_slice(),
+        [Piece::Word("hi"), Piece::Other(" "), Piece::Word("there")]
+    ));
+}
+
+#[test]
+fn whitespace_grapheme_with_known_mark_remains_other_text() {
+    let orthography = test_orthographic_characters();
+    assert!(orthography.contains(&'\u{301}'));
+    let pieces = tokenize(" \u{301}", &orthography);
+    assert!(matches!(pieces.as_slice(), [Piece::Other(" \u{301}")]));
+}
+
+#[test]
 fn tokenize_splits_words_from_punctuation_and_digits() {
-    // "hi" / ", 16" / "th" / "!": punctuation, whitespace, and digits merge into one "other" run; only word-vs-other transitions split pieces.
-    let pieces = tokenize("hi, 16th!");
+    // "hi" / ", 16" / "th" / "?": punctuation, whitespace, and digits merge into one "other" run; only word-vs-other transitions split pieces.
+    let orthography = test_orthographic_characters();
+    let pieces = tokenize("hi, 16th?", &orthography);
     let kinds: Vec<bool> = pieces.iter().map(|p| matches!(p, Piece::Word(_))).collect();
     assert_eq!(kinds, vec![true, false, true, false]);
 }
@@ -38,9 +92,12 @@ const TEST_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
         <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
         <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
         <SegmentDefinition id="cE"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cEAcute"><Representations><Representation>é</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cBang"><Representations><Representation>!</Representation></Representations></SegmentDefinition>
       </SegmentDefinitions>
       <BoundaryDefinitions>
         <BoundaryDefinition id="cPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+        <BoundaryDefinition id="cSpace"><Representations><Representation>&#x20;</Representation></Representations></BoundaryDefinition>
       </BoundaryDefinitions>
     </CharacterDefinitionTable>
     <NaturalClasses>

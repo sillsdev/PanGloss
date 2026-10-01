@@ -290,6 +290,14 @@ impl CharDefTable {
             .map(|(i, d)| (CharDefId(i as u32), d))
     }
 
+    /// Unicode scalars that occur in this table's NFD segmentation representations.
+    pub fn orthographic_characters(&self) -> impl Iterator<Item = char> + '_ {
+        self.defs
+            .iter()
+            .flat_map(|definition| definition.representations_nfd.iter())
+            .flat_map(|representation| representation.chars())
+    }
+
     /// The static unifiability closure of `cd` (Design A, P5 — see `unif_closure`'s field doc).
     /// `O(1)`. `None` when the closure is disabled (zero-feature grammar) or `cd` names a
     /// boundary (boundaries stay identity-gated in every grammar, mirroring C#'s `StrRep`-always

@@ -26,6 +26,7 @@
 
 use pg_featstruct::{FsId, SymbolBits};
 use pg_shape::Shape;
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use crate::chardef::{CharDefId, CharDefTable};
@@ -1084,6 +1085,18 @@ pub struct Grammar {
     pub templates: Vec<AffixTemplateDef>,
     pub entries: Vec<LexEntryDef>,
     pub strata: Vec<StratumDef>,
+}
+
+impl Grammar {
+    /// Unicode scalars recognized by the character tables referenced by this grammar's strata.
+    pub fn orthographic_characters(&self) -> BTreeSet<char> {
+        let tables: BTreeSet<_> = self.strata.iter().map(|stratum| stratum.table).collect();
+        tables
+            .into_iter()
+            .filter_map(|table| self.char_tables.get(table.0 as usize))
+            .flat_map(CharDefTable::orthographic_characters)
+            .collect()
+    }
 }
 
 /// Grammar-owned facts used by the final-template interleaving policy.

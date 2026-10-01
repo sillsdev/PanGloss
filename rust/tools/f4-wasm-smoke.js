@@ -6,7 +6,10 @@ const fs = require("fs");
 const path = require("path");
 
 const ROOT = path.resolve(__dirname, "..");
-const PKG = path.join(ROOT, "crates/pg-wasm/pkg/pg_wasm.js");
+const PKG_DIR = process.env.PANGLOSS_WASM_PACKAGE_DIR
+  ? path.resolve(process.env.PANGLOSS_WASM_PACKAGE_DIR)
+  : path.join(ROOT, "crates/pg-wasm/pkg");
+const PKG = path.join(PKG_DIR, "pg_wasm.js");
 const DATA = path.resolve(ROOT, "../samples/data");
 const BINDING_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "tools/fixtures/supplied-lexicon-binding.json"), "utf8"));
 const { checkGeneratedWasmApi } = require("./check-wasm-api.js");
@@ -65,11 +68,116 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 
+function checkWasmTokenization() {
+  const charsXml = BINDING_FIXTURE.grammarXml.replace(
+    "</SegmentDefinitions>",
+    '<SegmentDefinition id="e-acute"><Representations><Representation>é</Representation></Representations></SegmentDefinition>' +
+      '<SegmentDefinition id="bang"><Representations><Representation>!</Representation></Representations></SegmentDefinition>' +
+      "</SegmentDefinitions>",
+  );
+  const boundaryXml = charsXml.replace(
+    "</CharacterDefinitionTable>",
+    '<BoundaryDefinitions><BoundaryDefinition id="space"><Representations><Representation>&#x20;</Representation></Representations></BoundaryDefinition></BoundaryDefinitions></CharacterDefinitionTable>',
+  );
+  const grammarXml = boundaryXml.replace(
+    "</LexicalEntries>",
+    '<LexicalEntry id="authored-e-acute" partOfSpeech="posN"><Allomorphs><Allomorph id="e-acute-root"><PhoneticShape>é</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>' +
+      '<LexicalEntry id="authored-bang" partOfSpeech="posN"><Allomorphs><Allomorph id="bang-root"><PhoneticShape>!</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>' +
+      "</LexicalEntries>",
+  );
+  const runtime = new pkg.PanGlossGrammar(grammarXml, undefined);
+  const wordTexts = ["é", "e\u0301", "!", "e\u0300", "b'b"];
+  const whitespaceMark = " \u0301";
+  const text = wordTexts.join(" ") + whitespaceMark;
+  const first = runtime.analyzeText(text, {});
+  const wordTokens = first.tokens.filter((token) => token.kind === "word");
+  const tokenByText = new Map(wordTokens.map((token) => [token.text, token]));
+  const owner = new Map(wordTexts.map((word) => [word, runtime.analyzeWord(word)]));
+  const NFC = "é";
+  const NFD = "e\u0301";
+  const nfcOwner = owner.get(NFC);
+  const nfdOwner = owner.get(NFD);
+  const nfcToken = tokenByText.get(NFC);
+  const nfdToken = tokenByText.get(NFD);
+  const identity = (analysis) => ({
+    guessed: analysis.guessed,
+    provenance: analysis.provenance,
+    posId: analysis.posId,
+    rootMorphemeIndex: analysis.rootMorphemeIndex,
+    suppliedRoot: analysis.suppliedRoot,
+    synFs: analysis.synFs,
+  });
+  const ownerStructured = (outcome) => (outcome.structured || []).map(identity);
+  const tokenStructured = (token) => (token.analyses || []).map(({guessed, provenance}) => ({guessed, provenance}));
+  const tokenMatchesOwner = (token, outcome) => !!token &&
+    token.analyses.length === outcome.structured.length &&
+    canonical(tokenStructured(token)) === canonical(outcome.structured.map(({guessed, provenance}) => ({guessed, provenance}))) &&
+    token.invalidShape === outcome.invalidShape &&
+    token.capped === outcome.capped &&
+    token.candidatesGenerated === outcome.candidatesGenerated &&
+    token.candidatesAccepted === outcome.structured.length;
+
+  check("WASM authored NFC/NFD roots and punctuation parse through real bindings",
+    wordTokens.length === wordTexts.length &&
+      wordTexts.every((word, index) => wordTokens[index].text === word) &&
+      ["é", "e\u0301", "!"].every((word) => owner.get(word).structured.length > 0 &&
+        !owner.get(word).invalidShape && tokenByText.get(word)?.analyses.length > 0),
+    JSON.stringify(wordTokens.map(({text, analyses, invalidShape}) => ({text, analyses: analyses.length, invalidShape}))));
+
+  check("WASM NFC/NFD owner identities and token analyses agree",
+    !!nfcOwner && !!nfdOwner &&
+      canonical(ownerStructured(nfcOwner)) === canonical(ownerStructured(nfdOwner)) &&
+      tokenMatchesOwner(nfcToken, nfcOwner) &&
+      tokenMatchesOwner(nfdToken, nfdOwner),
+    JSON.stringify({nfcOwner, nfdOwner, nfcToken, nfdToken}));
+
+  const nfcDisplay = nfcToken?.analyses.map(({gloss, complete, residue, guessed, provenance, morphemeIds}) =>
+    ({gloss, complete, residue, guessed, provenance, morphemeIds}));
+  const nfdDisplay = nfdToken?.analyses.map(({gloss, complete, residue, guessed, provenance, morphemeIds}) =>
+    ({gloss, complete, residue, guessed, provenance, morphemeIds}));
+  check("WASM NFC/NFD displayed analyses preserve multiplicity and completion",
+    !!nfcDisplay && canonical(nfcDisplay) === canonical(nfdDisplay) &&
+      nfcDisplay.every(({complete, residue}) => typeof complete === "boolean" && Array.isArray(residue)),
+    JSON.stringify({nfcDisplay, nfdDisplay}));
+
+  const unknownCombining = tokenByText.get("e\u0300");
+  check("WASM unknown combining mark stays attached and rejects the whole word",
+    !!unknownCombining && unknownCombining.invalidShape === true &&
+      unknownCombining.analyses.length === 0 && owner.get("e\u0300").invalidShape === true &&
+      owner.get("e\u0300").structured.length === 0,
+    JSON.stringify({token: unknownCombining, owner: owner.get("e\u0300")}));
+
+  check("WASM legacy ASCII apostrophe remains word material",
+    tokenByText.has("b'b") && tokenByText.get("b'b").invalidShape === true &&
+      tokenByText.get("b'b").analyses.length === 0,
+    JSON.stringify(wordTokens.map(({text, kind, invalidShape}) => ({text, kind, invalidShape}))));
+
+  check("WASM whitespace plus a declared mark remains exact separator text",
+    first.tokens.some((token) => token.kind === "other" && token.text === whitespaceMark),
+    JSON.stringify(first.tokens.map(({kind, text}) => ({kind, text}))));
+
+  const rebuiltText = first.tokens.map((token) => token.text).join("");
+  const exactCacheKeys = Object.keys(first.newCacheEntries).sort();
+  const expectedCacheKeys = [...wordTexts].sort();
+  const replay = runtime.analyzeText(text, first.newCacheEntries);
+  const replayWords = replay.tokens.filter((token) => token.kind === "word");
+  check("WASM authored text and exact surface cache identity are preserved",
+    rebuiltText === text &&
+      canonical(exactCacheKeys) === canonical(expectedCacheKeys) &&
+      replayWords.length === wordTexts.length &&
+      replayWords.every((token, index) => token.text === wordTexts[index] && token.fromCache) &&
+      Object.keys(replay.newCacheEntries).length === 0,
+    JSON.stringify({rebuiltText, exactCacheKeys, replayWords: replayWords.map(({text, fromCache}) => ({text, fromCache}))}));
+}
+
 try {
-  checkGeneratedWasmApi(ROOT);
-  console.log("generated JS/.d.ts API surface ok");
+  if (!process.env.PANGLOSS_WASM_PACKAGE_DIR) {
+    checkGeneratedWasmApi(ROOT);
+    console.log("generated JS/.d.ts API surface ok");
+  }
   pkg.start();
   console.log("start() ok (module loaded, panic hook installed)");
+  checkWasmTokenization();
 
   const runtime = new pkg.PanGlossGrammar(BINDING_FIXTURE.grammarXml, undefined);
   const catalog = runtime.classCatalog();

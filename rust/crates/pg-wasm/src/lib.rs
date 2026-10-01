@@ -6,8 +6,9 @@
 //!
 #![forbid(unsafe_code)]
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
+use unicode_segmentation::UnicodeSegmentation;
 
 use pg_grammar::model::{Grammar, MorphRuleDef};
 use pg_parse::WordAnalysis;
@@ -157,6 +158,7 @@ pub struct PanGlossGrammar {
     runtime: pg_lexicon::SuppliedLexiconRuntime,
     realize_map: RealizeMap,
     realizer: TableRealizer,
+    orthographic_characters: BTreeSet<char>,
 }
 
 /// Every affix-morpheme `<Gloss>` string in `grammar` (`AffixProcess`/`Realizational` rules' own morpheme gloss, never lexical-entry root glosses); this is the vocabulary `pg_realize::infer_english` matches its English alias table against, where a root gloss like "house" would only ever add noise.
@@ -202,11 +204,13 @@ impl PanGlossGrammar {
         let realize_map = build_realize_map(&grammar, realize_toml.as_deref())?;
         let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), xml)
             .map_err(|e| js_err("initialize supplied lexicon", &e))?;
+        let orthographic_characters = grammar.orthographic_characters();
         Ok(PanGlossGrammar {
             grammar,
             runtime,
             realize_map,
             realizer,
+            orthographic_characters,
         })
     }
 
@@ -235,7 +239,7 @@ impl PanGlossGrammar {
         let mut new_cache_entries: HashMap<String, CachedWord> = HashMap::new();
 
         let mut tokens: Vec<TokenOut> = Vec::new();
-        for piece in tokenize(text) {
+        for piece in tokenize(text, &self.orthographic_characters) {
             let token = match piece {
                 Piece::Other(s) => TokenOut {
                     kind: "other",
@@ -693,26 +697,25 @@ enum Piece<'a> {
     Other(&'a str),
 }
 
-/// Splits `text` into alternating word/other runs; a "word" run is a maximal span of alphabetic-or-apostrophe characters (apostrophe included since it's phonemic in some orthographies), anything else is an "other" run passed through unanalyzed. Concatenating every piece's text reconstructs `text` exactly.
-fn tokenize(text: &str) -> Vec<Piece<'_>> {
+/// Splits text into word and other runs, preserving exact grapheme and authored text boundaries.
+fn tokenize<'a>(text: &'a str, orthographic_characters: &BTreeSet<char>) -> Vec<Piece<'a>> {
     let mut pieces = Vec::new();
     let mut start = 0;
-    let mut in_word: Option<bool> = None; // None = no run yet; Some(is_word) = current run's kind
+    let mut in_word: Option<bool> = None;
 
-    let is_word_char = |c: char| c.is_alphabetic() || c == '\'';
-
-    for (i, c) in text.char_indices() {
-        let this_is_word = is_word_char(c);
+    for (i, grapheme) in text.grapheme_indices(true) {
+        let this_is_word = !grapheme.chars().any(|c| c.is_whitespace())
+            && grapheme
+                .chars()
+                .any(|c| c.is_alphabetic() || c == '\'' || orthographic_characters.contains(&c));
         match in_word {
-            Some(cur) if cur == this_is_word => {} // extend current run
+            Some(cur) if cur == this_is_word => {}
             Some(cur) => {
                 push_piece(&mut pieces, &text[start..i], cur);
                 start = i;
                 in_word = Some(this_is_word);
             }
-            None => {
-                in_word = Some(this_is_word);
-            }
+            None => in_word = Some(this_is_word),
         }
     }
     if let Some(cur) = in_word {
