@@ -3,6 +3,38 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.5.2
+
+### HC runtime, interfaces and evidence
+
+- Native option APIs use the supplied-lexicon analysis owner for add, override and remove,
+  with the requested guessing option. Rich JSON generation retains complete analysis identity,
+  validates supplied roots against their revision, and rejects stale or forged requests. Legacy
+  numeric generation explicitly rejects supplied-root sentinels; authored-root ABI v3 remains.
+- WASM text analysis uses the grammar's orthographic inventory, preserving NFC/NFD spellings,
+  supported punctuation, combining marks, whitespace boundaries and exact cache keys.
+- Plain and ordinary trace parsing report incomplete searches and return failure after writing
+  their results. Complete-result stdout remains compatible; HC step-cap and timeout options
+  are exposed without changing default budgets.
+- Successful auto-create phonology carries the compiler's substrate evidence through the CLI,
+  including warning-free inferred boundaries. Selected grammar constraints are retained.
+- Statistics reuse each word only when its owning run has matching effective options and
+  counter semantics. Replacement is atomic, per-word counters reset, exports include complete
+  status/filter evidence, and persisted build identity belongs to the executable.
+- Assessment and oracle readers reject corrupt, ambiguous or incomplete evidence. Native,
+  executable, PowerShell and actual JavaScript/WASM seam regressions accompany the fixes;
+  HC WASM transport is a required CI job.
+- The Machine submodule advances to `18cf242f`, repairing PR 480's template trace callback while
+  preserving its failure reason. Existing shared C# divergences and the catalog classification
+  backlog remain recorded in the architecture review.
+
+### Scope and known limits
+
+- Optional Foma tooling is disconnected from default builds and requires explicit selection.
+  Foma/FST architecture and readiness work remains deferred. HC's internal `pg-fst` is required.
+- Rich generation reports completion as `notAssessed`: the synthesis owner does not yet expose
+  aggregate stop outcomes. This release does not certify generation completeness or full C# parity.
+
 ## 0.5.1
 
 ### PanGloss now ships for Windows, Linux and macOS
