@@ -3,9 +3,11 @@
 use std::ffi::c_void;
 
 use pangloss_ffi::{
-    decode, decode_guess, encode_single, encode_single_guess, hc_buf_free, hc_grammar_free,
-    hc_grammar_load, hc_parse_batch, hc_parse_batch_opts, hc_parse_word, hc_parse_word_opts,
-    DecodedWordGuess, HcError, HcResultBuf, HcStr, DEFAULT_STEP_CAP, HC_OK,
+    decode, decode_guess, encode_single, encode_single_guess, hc_analyze_word_json, hc_buf_free,
+    hc_grammar_free, hc_grammar_load, hc_lexicon_add_json, hc_lexicon_catalog_json,
+    hc_lexicon_export_json, hc_lexicon_import_json, hc_lexicon_remove_json, hc_parse_batch,
+    hc_parse_batch_opts, hc_parse_word, hc_parse_word_opts, DecodedWordGuess, HcError, HcResultBuf,
+    HcStr, DEFAULT_STEP_CAP, HC_OK,
 };
 
 const GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -56,7 +58,7 @@ const GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
             <Allomorphs><Allomorph id="aPattern"><PhoneticShape>[Any]*</PhoneticShape></Allomorph></Allomorphs>
             <Gloss>pattern</Gloss>
           </LexicalEntry>
-          <LexicalEntry id="eKad" partOfSpeech="posV">
+          <LexicalEntry id="00000000-0000-0000-0000-000000000000" partOfSpeech="posV">
             <MorphemeId>KAD</MorphemeId>
             <Allomorphs><Allomorph id="aKad"><PhoneticShape>kad</PhoneticShape></Allomorph></Allomorphs>
             <Gloss>kad</Gloss>
@@ -98,6 +100,118 @@ fn parse_opts_one(handle: *mut c_void, word: &str, guess_root: i32) -> DecodedWo
     unsafe { hc_buf_free(&mut out) };
     assert_eq!(decoded.len(), 1);
     decoded.pop().unwrap()
+}
+
+fn parse_opts_batch(handle: *mut c_void, words: &[&str], guess_root: i32) -> Vec<DecodedWordGuess> {
+    let hcstrs: Vec<_> = words
+        .iter()
+        .map(|word| HcStr {
+            ptr: word.as_ptr(),
+            len: word.len(),
+        })
+        .collect();
+    let mut out = HcResultBuf::EMPTY;
+    let code = unsafe {
+        hc_parse_batch_opts(
+            handle,
+            hcstrs.as_ptr(),
+            hcstrs.len(),
+            2,
+            guess_root,
+            &mut out,
+        )
+    };
+    assert_eq!(code, HC_OK, "hc_parse_batch_opts failed: code={code}");
+    let bytes = unsafe { std::slice::from_raw_parts(out.data, out.len) }.to_vec();
+    let decoded = decode_guess(&bytes).expect("decode batch opts");
+    unsafe { hc_buf_free(&mut out) };
+    decoded
+}
+
+fn json_call(
+    call: unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut HcResultBuf) -> i32,
+    handle: *mut c_void,
+    request: &str,
+) -> serde_json::Value {
+    let mut out = HcResultBuf::EMPTY;
+    let code = unsafe { call(handle, request.as_ptr(), request.len(), &mut out) };
+    assert_eq!(code, HC_OK, "JSON call failed: code={code}");
+    let bytes = unsafe { std::slice::from_raw_parts(out.data, out.len) };
+    let value: serde_json::Value = serde_json::from_slice(bytes).expect("JSON response");
+    unsafe { hc_buf_free(&mut out) };
+    assert_eq!(value["ok"], true, "JSON request failed: {value}");
+    value["value"].clone()
+}
+
+fn add_supplied_root(handle: *mut c_void, stem: &str) -> String {
+    let catalog = json_call(hc_lexicon_catalog_json, handle, "{}");
+    let signature = catalog["signatures"][0]["id"]
+        .as_str()
+        .expect("catalog signature id");
+    let request = serde_json::json!({
+        "stem": stem,
+        "gloss": "",
+        "signatures": [signature],
+        "expectedRevision": catalog["revision"],
+    })
+    .to_string();
+    json_call(hc_lexicon_add_json, handle, &request)["value"]["id"]
+        .as_str()
+        .expect("new supplied root id")
+        .to_string()
+}
+
+fn assert_wire_matches_owner(
+    wire: &DecodedWordGuess,
+    owner: &pg_lexicon::UnifiedAnalysis,
+    word: &str,
+) {
+    let expected_outcome = pg_parse::ParseOutcome {
+        analyses: owner.analyses.clone(),
+        structured: owner.structured.clone(),
+        capped: owner.capped,
+        invalid_shape: owner.invalid_shape,
+        steps: 0,
+        timed_out: owner.timed_out,
+        guessed: owner.guessed,
+        candidates_generated: owner.candidates_generated,
+    };
+    let mut expected =
+        decode_guess(&encode_single_guess(&expected_outcome)).expect("encode direct owner outcome");
+    assert_eq!(expected.len(), 1);
+    assert_eq!(wire, &expected.pop().unwrap(), "word={word:?}");
+}
+
+fn assert_opts_owner_matrix(handle: *mut c_void, words: &[&str]) {
+    let exported = json_call(hc_lexicon_export_json, handle, "{}");
+    let document: pg_lexicon::LexiconDocument =
+        serde_json::from_value(exported).expect("decode published lexicon document");
+    let grammar = std::sync::Arc::new(pg_grammar::load(GRAMMAR_XML).expect("load owner grammar"));
+    let owner = pg_lexicon::SuppliedLexiconRuntime::with_policy(
+        grammar,
+        GRAMMAR_XML,
+        pg_lexicon::AnalysisPolicy {
+            step_cap: DEFAULT_STEP_CAP,
+        },
+    )
+    .expect("construct independent owner");
+    owner
+        .import_document(document)
+        .expect("import published lexicon snapshot");
+
+    for guess_root in [0, 1] {
+        let batch = parse_opts_batch(handle, words, guess_root);
+        assert_eq!(batch.len(), words.len());
+        for (index, word) in words.iter().enumerate() {
+            let single = parse_opts_one(handle, word, guess_root);
+            assert_eq!(
+                batch[index], single,
+                "word={word:?}, guess_root={guess_root}"
+            );
+            let owner_outcome = owner.analyze_word_opts(word, None, guess_root != 0);
+            assert_wire_matches_owner(&single, &owner_outcome, word);
+        }
+    }
 }
 
 /// In-process baseline: an independent grammar load + `Morpher::parse_word_opts`, encoded through the same public encoder the FFI entry point uses ("same encoder, two callers"), never a hand-rolled reimplementation that could disagree with the real one.
@@ -164,6 +278,108 @@ fn ordinary_root_is_never_marked_guessed_through_ffi() {
         assert_eq!(ffi.analyses.len(), 1);
         assert!(!ffi.analyses[0].guessed);
     }
+    unsafe { hc_grammar_free(handle) };
+}
+
+/// Options endpoints preserve owner identities across supplied-root CRUD and guess modes.
+#[test]
+fn opts_single_and_batch_follow_owner_across_add_override_and_remove() {
+    const OFFICIAL_ID: &str = "00000000-0000-0000-0000-000000000000";
+    let handle = load_handle();
+    let words = ["ga", "kad", "gag", "gagd"];
+
+    let added_id = add_supplied_root(handle, "ga");
+    let added_owner = json_call(
+        hc_analyze_word_json,
+        handle,
+        &serde_json::json!({"word": "ga"}).to_string(),
+    );
+    let added_analysis = added_owner["structured"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|analysis| !analysis["suppliedRoot"].is_null())
+        .expect("JSON owner transports active supplied root");
+    assert_eq!(added_analysis["provenance"]["kind"], "supplied");
+    assert_eq!(added_analysis["suppliedRoot"]["entryId"], added_id);
+    assert_eq!(added_analysis["suppliedRoot"]["lexicalSpelling"], "ga");
+    assert_eq!(
+        added_analysis["suppliedRoot"]["authority"]["kind"],
+        "supplied"
+    );
+    assert_opts_owner_matrix(handle, &words);
+
+    let _generated_override_id = add_supplied_root(handle, "kad");
+    let override_id = pg_lexicon::EntryId::from_dotnet_guid_string(OFFICIAL_ID)
+        .expect("authored GUID has a canonical PGL entry ID")
+        .as_str()
+        .to_string();
+    let mut document = json_call(hc_lexicon_export_json, handle, "{}");
+    let entry = document["entries"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|entry| entry["stem"] == "kad")
+        .expect("new override entry");
+    entry["id"] = serde_json::json!(override_id);
+    entry["authority"] = serde_json::json!({
+        "suppliedOverride": {"officialEntryId": OFFICIAL_ID, "note": null}
+    });
+    let imported = json_call(
+        hc_lexicon_import_json,
+        handle,
+        &serde_json::json!({"document": document}).to_string(),
+    );
+    assert_eq!(imported["changed"], true);
+    let override_owner = json_call(
+        hc_analyze_word_json,
+        handle,
+        &serde_json::json!({"word": "kad"}).to_string(),
+    );
+    let override_analysis = override_owner["structured"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|analysis| !analysis["suppliedRoot"].is_null())
+        .expect("JSON owner transports override root");
+    assert_eq!(override_analysis["provenance"]["kind"], "suppliedOverride");
+    assert_eq!(
+        override_analysis["provenance"]["overriddenGrammarEntryId"],
+        OFFICIAL_ID
+    );
+    assert_eq!(override_analysis["suppliedRoot"]["entryId"], override_id);
+    assert_eq!(override_analysis["suppliedRoot"]["lexicalSpelling"], "kad");
+    assert_eq!(
+        override_analysis["suppliedRoot"]["authority"]["kind"],
+        "suppliedOverride"
+    );
+    assert!(!override_owner["structured"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|analysis| analysis["provenance"]["kind"] == "grammar"));
+    assert_opts_owner_matrix(handle, &words);
+
+    for entry_id in [&added_id, &override_id] {
+        let removed = json_call(
+            hc_lexicon_remove_json,
+            handle,
+            &serde_json::json!({"id": entry_id}).to_string(),
+        );
+        assert_eq!(removed["changed"], true);
+    }
+    let removed_owner = json_call(
+        hc_analyze_word_json,
+        handle,
+        &serde_json::json!({"word": "ga"}).to_string(),
+    );
+    assert!(removed_owner["structured"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|analysis| analysis["suppliedRoot"].is_null()));
+    assert_opts_owner_matrix(handle, &words);
+
     unsafe { hc_grammar_free(handle) };
 }
 
