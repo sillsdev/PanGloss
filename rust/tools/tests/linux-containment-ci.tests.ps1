@@ -49,6 +49,12 @@ function Get-LinuxContainmentJob {
 $linuxJob = Get-LinuxContainmentJob
 $wasmJobMatch = [regex]::Match($workflowText, '(?ms)^  wasm-js-smoke:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*\r?\n|\z)')
 $wasmJob = if ($wasmJobMatch.Success) { "wasm-js-smoke:`n$($wasmJobMatch.Groups['body'].Value)" } else { '' }
+$memoryProofMatch = [regex]::Match($serviceScriptText, '(?ms)^prove_delegated_memory_child\(\) \{\r?\n(?<body>.*?)^\}')
+$memoryProof = if ($memoryProofMatch.Success) { $memoryProofMatch.Groups['body'].Value } else { '' }
+$gateChildMatch = [regex]::Match($serviceScriptText, '(?ms)^run_gate_child\(\) \{\r?\n(?<body>.*?)^\}')
+$gateChild = if ($gateChildMatch.Success) { $gateChildMatch.Groups['body'].Value } else { '' }
+$wasmChildMatch = [regex]::Match($serviceScriptText, '(?ms)^run_wasm_gate_child\(\) \{\r?\n(?<body>.*?)^\}')
+$wasmChild = if ($wasmChildMatch.Success) { $wasmChildMatch.Groups['body'].Value } else { '' }
 
 Test-Case 'workflow has a dedicated required containment job pinned to Ubuntu 24.04' {
     Assert-True ($linuxJob.Length -gt 0) 'rust-ci.yml must define a dedicated Linux containment job'
@@ -154,6 +160,28 @@ Test-Case 'required HC-only WASM smoke uses pinned tooling and the bounded manag
         'the build and smoke must enter the bounded managed Linux launcher'
     Assert-DoesNotMatch $wasmJob '(?im)^\s*continue-on-error:\s*true\s*$' `
         'the required WASM smoke job must not convert failures into success'
+}
+
+Test-Case 'both bounded child modes share the delegated memory-controller proof' {
+    Assert-True ($memoryProof.Length -gt 0) 'the script must define one shared delegated-memory proof'
+    Assert-Matches $gateChild '(?m)^\s*prove_delegated_memory_child "\$unit"$' `
+        'the containment child must call the shared proof'
+    Assert-Matches $wasmChild '(?m)^\s*prove_delegated_memory_child "\$unit"$' `
+        'the WASM child must call the shared proof'
+    Assert-Matches $memoryProof '(?m)self_leaf.*pangloss-supervisor' `
+        'the shared proof must verify the exact delegated supervisor membership'
+    Assert-Matches $memoryProof '(?m)cgroup\.procs' `
+        'the shared proof must preserve the empty delegated-root requirement'
+    Assert-Matches $memoryProof '(?m)cgroup\.controllers' `
+        'the shared proof must verify memory-controller availability'
+    Assert-Matches $memoryProof '(?m)printf.*\+memory' `
+        'the shared proof must enable memory in the delegated root'
+    Assert-Matches $memoryProof '(?s)cgroup\.subtree_control.*grep -qw memory' `
+        'the shared proof must read back that memory was enabled'
+    Assert-Matches $memoryProof '(?s)self_leaf.*memory\.max.*-r' `
+        'the shared proof must verify that enabling memory created a readable supervisor memory.max'
+    Assert-Matches $memoryProof '(?s)memory_max=.*memory\.max.*memory_max.*max.*memory_max > 0' `
+        'the shared proof must verify the finite positive unit memory cap'
 }
 
 Test-Case 'WASM smoke runs only from the finite-memory service and fails on each missing or failed stage' {

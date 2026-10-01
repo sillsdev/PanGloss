@@ -37,13 +37,10 @@ cleanup_exact_unit() {
     sudo --non-interactive systemctl reset-failed "$unit.service" >/dev/null 2>&1 || true
 }
 
-run_gate_child() {
-    local unit=$1 membership_line self_leaf unit_root root_path memory_max
+prove_delegated_memory_child() {
+    local unit=$1 membership_line self_leaf unit_root root_path leaf_path memory_max leaf_memory_max
 
-    [[ "${PANGLOSS_CGROUP_TEST_REQUIRED:-}" == 1 ]] ||
-        fail 'PANGLOSS_CGROUP_TEST_REQUIRED=1 is required'
     [[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]] || fail 'the host is not using cgroup v2'
-
     mapfile -t memberships < <(grep '^0::' /proc/self/cgroup)
     [[ ${#memberships[@]} -eq 1 ]] || fail 'expected exactly one unified /proc/self/cgroup membership'
     membership_line=${memberships[0]}
@@ -65,35 +62,38 @@ run_gate_child() {
     # A readback contains "memory" (without the enabling write's plus sign).
     grep -qw memory "$root_path/cgroup.subtree_control" || fail '+memory is not enabled in cgroup.subtree_control'
 
+    leaf_path="/sys/fs/cgroup$self_leaf"
+    [[ -r "$leaf_path/memory.max" ]] || fail 'delegated supervisor memory.max is unavailable after enabling memory'
+    leaf_memory_max=$(<"$leaf_path/memory.max")
+    if [[ "$leaf_memory_max" != max ]]; then
+        [[ "$leaf_memory_max" =~ ^[0-9]+$ ]] || fail "delegated supervisor memory.max is not numeric: $leaf_memory_max"
+        (( leaf_memory_max > 0 )) || fail 'delegated supervisor memory.max must be positive when finite'
+    fi
+
+    [[ -r "$root_path/memory.max" ]] || fail 'delegated root memory.max is unavailable'
     memory_max=$(<"$root_path/memory.max")
     [[ "$memory_max" != max ]] || fail 'delegated root memory.max is unlimited'
     [[ "$memory_max" =~ ^[0-9]+$ ]] || fail "delegated root memory.max is not numeric: $memory_max"
     (( memory_max > 0 )) || fail 'delegated root memory.max must be positive'
 
     export PANGLOSS_CGROUP_DELEGATED_ROOT="$unit_root"
+}
+
+run_gate_child() {
+    local unit=$1
+
+    [[ "${PANGLOSS_CGROUP_TEST_REQUIRED:-}" == 1 ]] ||
+        fail 'PANGLOSS_CGROUP_TEST_REQUIRED=1 is required'
+    prove_delegated_memory_child "$unit"
     exec pwsh -NoProfile -File ./tools/pg.ps1 -Mode test -Package pg-worker-containment -TestTarget linux_containment -NoNextest -MaxConcurrent 1 -Jobs 2 -TestThreads 1
 }
 
 run_wasm_gate_child() {
-    local unit=$1 membership_line self_leaf unit_root root_path memory_max
+    local unit=$1
 
     [[ "${PANGLOSS_WASM_SMOKE_REQUIRED:-}" == 1 ]] ||
         fail 'PANGLOSS_WASM_SMOKE_REQUIRED=1 is required'
-    [[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]] || fail 'the host is not using cgroup v2'
-    mapfile -t memberships < <(grep '^0::' /proc/self/cgroup)
-    [[ ${#memberships[@]} -eq 1 ]] || fail 'expected exactly one unified /proc/self/cgroup membership'
-    membership_line=${memberships[0]}
-    self_leaf=${membership_line#0::}
-    unit_root=$(unit_control_group "$unit")
-    [[ "$self_leaf" == "$unit_root/pangloss-supervisor" ]] ||
-        fail "self cgroup $self_leaf is not the bounded supervisor leaf below $unit_root"
-    root_path="/sys/fs/cgroup$unit_root"
-    [[ -d "$root_path" ]] || fail "bounded unit cgroup does not exist: $root_path"
-    [[ -r "$root_path/memory.max" ]] || fail 'bounded unit memory.max is unavailable'
-    memory_max=$(<"$root_path/memory.max")
-    [[ "$memory_max" != max && "$memory_max" =~ ^[0-9]+$ ]] ||
-        fail "bounded unit memory.max is not finite numeric data: $memory_max"
-    (( memory_max > 0 )) || fail 'bounded unit memory.max must be positive'
+    prove_delegated_memory_child "$unit"
 
     command -v pwsh >/dev/null || fail 'pwsh is unavailable'
     command -v wasm-bindgen >/dev/null || fail 'wasm-bindgen is unavailable'
