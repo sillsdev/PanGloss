@@ -245,3 +245,22 @@ threshold/refusal/retry/containment/admission work. Generation completion remain
 The repaired-source strict C# evidence remains exit 26 with its known attribution failure and changed
 zero-width identity failure; the upstream catalog classification backlog also remains visible.
 No waiver or generation completeness claim was added to obtain a passing result.
+
+
+## Hosted integration checkpoint
+
+Main was fast-forwarded and pushed at `ba055fe7`. Its Rust CI run
+[36800899745](https://github.com/sillsdev/PanGloss/actions/runs/36800899745)
+passed formatting, clippy, the default build/test job and the actual Linux containment proof.
+The new required WASM job failed before Cargo: its supervisor leaf had no `memory.max`,
+because that child had omitted the memory-controller setup already owned by the containment child.
+
+The repair extracts that existing setup into one shared Bash helper called by both children.
+It preserves exact supervisor membership, empty unit root, controller availability,
+`+memory` enable/readback and the finite positive parent cap, and explicitly checks the
+supervisor's readable `memory.max` before managed tools run. A leaf value of `max` remains
+valid under the finite 6 GiB parent. The adapter preflight and cap are unchanged.
+The per-child contract regression fails on the previous script and passes 12/12 after repair;
+Bash syntax and the delegated managed package check also pass. Actual hosted execution at
+the repaired main tip remains the acceptance condition; source checks alone do not certify it.
+This is launcher setup for HC WASM, with optional Foma/FST engine work still deferred.

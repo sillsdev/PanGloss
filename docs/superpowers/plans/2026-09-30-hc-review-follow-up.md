@@ -43,3 +43,11 @@ Needs to be done later: A20 optional Foma health missing-measurement contract; F
 - [x] Review ledger distinguishes fixed HC findings, notAssessed generation completeness, unresolved oracle divergence/catalog backlog, and explicit Foma/FST deferrals.
 
 The authorized integration/release phase follows this local verification checkpoint: fast-forward and push main, verify Rust CI at its exact tip, then dispatch and verify CI Release 0.5.2. The workflow owns the version stamp, tag and four platform artifacts.
+
+
+Integration checkpoint: main was merged and pushed at ba055fe7. Hosted formatting, clippy,
+default build/test and Linux containment pass. The required WASM job exposed an omitted
+memory-controller setup before Cargo; a bounded repair shares the existing setup across
+both child paths, retaining the 6 GiB cap and adapter preflight. The exact repaired main
+Rust CI result must pass before the authorized release dispatch. See the review ledger
+for the first hosted run and the discriminating local regression.

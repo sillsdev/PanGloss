@@ -164,9 +164,9 @@ Test-Case 'required HC-only WASM smoke uses pinned tooling and the bounded manag
 
 Test-Case 'both bounded child modes share the delegated memory-controller proof' {
     Assert-True ($memoryProof.Length -gt 0) 'the script must define one shared delegated-memory proof'
-    Assert-Matches $gateChild '(?m)^\s*prove_delegated_memory_child "\$unit"$' `
+    Assert-Matches $gateChild '(?m)^\s*prove_delegated_memory_child "\$unit"\r?$' `
         'the containment child must call the shared proof'
-    Assert-Matches $wasmChild '(?m)^\s*prove_delegated_memory_child "\$unit"$' `
+    Assert-Matches $wasmChild '(?m)^\s*prove_delegated_memory_child "\$unit"\r?$' `
         'the WASM child must call the shared proof'
     Assert-Matches $memoryProof '(?m)self_leaf.*pangloss-supervisor' `
         'the shared proof must verify the exact delegated supervisor membership'
@@ -178,7 +178,7 @@ Test-Case 'both bounded child modes share the delegated memory-controller proof'
         'the shared proof must enable memory in the delegated root'
     Assert-Matches $memoryProof '(?s)cgroup\.subtree_control.*grep -qw memory' `
         'the shared proof must read back that memory was enabled'
-    Assert-Matches $memoryProof '(?s)self_leaf.*memory\.max.*-r' `
+    Assert-Matches $memoryProof '(?m)^\s*\[\[ -r "\$leaf_path/memory\.max" \]\]' `
         'the shared proof must verify that enabling memory created a readable supervisor memory.max'
     Assert-Matches $memoryProof '(?s)memory_max=.*memory\.max.*memory_max.*max.*memory_max > 0' `
         'the shared proof must verify the finite positive unit memory cap'
