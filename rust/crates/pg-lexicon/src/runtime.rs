@@ -51,6 +51,7 @@ pub struct LexiconSnapshot {
     mappings: BTreeMap<crate::SignatureId, ClassSignature>,
     gloss_language: Option<String>,
     overlay: SuppliedRootOverlay,
+    roots: BTreeMap<String, SuppliedRoot>,
 }
 
 impl LexiconSnapshot {
@@ -62,6 +63,12 @@ impl LexiconSnapshot {
     }
     pub fn overlay(&self) -> &SuppliedRootOverlay {
         &self.overlay
+    }
+
+    pub(crate) fn canonical_root(&self, root: &SuppliedRoot) -> Option<&SuppliedRoot> {
+        self.roots
+            .get(&root.realization_id)
+            .filter(|canonical| *canonical == root)
     }
 }
 
@@ -144,6 +151,7 @@ impl SuppliedLexiconRuntime {
             mappings: BTreeMap::new(),
             gloss_language: None,
             overlay: SuppliedRootOverlay::empty(&grammar),
+            roots: BTreeMap::new(),
         };
         Ok(Self {
             grammar,
@@ -775,6 +783,10 @@ impl SuppliedLexiconRuntime {
                 changed: false,
             });
         }
+        let canonical_roots = roots
+            .iter()
+            .map(|root| (root.realization_id.clone(), root.clone()))
+            .collect();
         let overlay = SuppliedRootOverlay::build(&self.grammar, roots)
             .map_err(|message| error("invalid_overlay", message))?;
         let snapshot = Arc::new(LexiconSnapshot {
@@ -783,6 +795,7 @@ impl SuppliedLexiconRuntime {
             mappings,
             gloss_language: document.gloss_language,
             overlay,
+            roots: canonical_roots,
         });
         let revision = snapshot.revision().clone();
         *self

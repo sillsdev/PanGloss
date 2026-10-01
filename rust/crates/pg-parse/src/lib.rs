@@ -29,7 +29,8 @@ pub use root_trie::{RootAllomorphIndex, RootAllomorphTrie};
 
 /// One analysis of a word: ordered morpheme ids, the root's index within that sequence, and an
 /// optional part-of-speech id — the Rust mirror of C# `WordAnalysis` (Morpher.cs:637).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WordAnalysis {
     pub morpheme_ids: Vec<u32>,
     /// Every final annotation record in surface order, including repeated applications and
@@ -57,7 +58,8 @@ pub struct WordAnalysis {
 }
 
 /// Dense runtime identity and surface position for one final annotation record.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MorphOccurrence {
     pub allomorph_id: u32,
     pub morpheme_id: u32,

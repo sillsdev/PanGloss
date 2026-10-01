@@ -3,6 +3,7 @@
 
 pub mod analysis;
 pub mod classification;
+pub mod generation;
 pub mod runtime;
 pub mod shape;
 pub mod signature;
@@ -10,6 +11,7 @@ pub mod store;
 
 pub use analysis::*;
 pub use classification::*;
+pub use generation::*;
 pub use runtime::*;
 pub use shape::validate_shape;
 pub use signature::{

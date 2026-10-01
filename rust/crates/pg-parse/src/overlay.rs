@@ -188,6 +188,21 @@ impl OverlayTrie {
 }
 
 impl SuppliedRoot {
+    /// Head-analysis provenance from this canonical root's published authority.
+    pub fn provenance(&self) -> crate::AnalysisProvenance {
+        match &self.authority {
+            RootAuthority::Supplied => crate::AnalysisProvenance::Supplied {
+                entry_id: self.entry_id.clone(),
+            },
+            RootAuthority::SuppliedOverride { official_entry_id } => {
+                crate::AnalysisProvenance::SuppliedOverride {
+                    entry_id: self.entry_id.clone(),
+                    overridden_grammar_entry_id: official_entry_id.clone(),
+                }
+            }
+        }
+    }
+
     pub(crate) fn to_data(&self) -> SuppliedRootData {
         let authority = match &self.authority {
             RootAuthority::Supplied => SuppliedAuthorityData::Supplied,

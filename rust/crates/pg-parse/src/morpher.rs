@@ -17,9 +17,7 @@ use pg_rules::stats::OverlayPhase;
 use pg_rules::stratum::{AnalyzerConfig, NonHeadRootFilter};
 use pg_rules::stratum::{FinalTemplateAnalysisPolicy, FinalTemplateSynthesisPolicy};
 use pg_rules::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
-use pg_rules::word::{
-    MorphRecord, ResolvedRoot, RuntimeRoot, SuppliedAuthorityData, Word, WordKey,
-};
+use pg_rules::word::{MorphRecord, ResolvedRoot, RuntimeRoot, Word, WordKey};
 use rustc_hash::FxHashMap as HashMap;
 
 use crate::alt_yield;
@@ -1075,6 +1073,10 @@ impl<'g> Morpher<'g> {
             Some(FeatureValue::Symbolic(bits)) => bits.first(),
             _ => None,
         };
+        let supplied_root = w.root_runtime().and_then(|root| match root {
+            RuntimeRoot::Supplied(root) => Some(crate::SuppliedRoot::from_data(root)),
+            RuntimeRoot::Guessed(_) => None,
+        });
         WordAnalysis {
             morpheme_ids,
             morph_occurrences,
@@ -1095,23 +1097,13 @@ impl<'g> Morpher<'g> {
                 .filter(|text| !text.is_empty()),
             provenance: match w.root_runtime() {
                 Some(RuntimeRoot::Guessed(_)) => AnalysisProvenance::Guessed,
-                Some(RuntimeRoot::Supplied(root)) => match &root.authority {
-                    SuppliedAuthorityData::Supplied => AnalysisProvenance::Supplied {
-                        entry_id: root.entry_id.clone(),
-                    },
-                    SuppliedAuthorityData::Override { official_entry_id } => {
-                        AnalysisProvenance::SuppliedOverride {
-                            entry_id: root.entry_id.clone(),
-                            overridden_grammar_entry_id: official_entry_id.clone(),
-                        }
-                    }
-                },
+                Some(RuntimeRoot::Supplied(_)) => supplied_root
+                    .as_ref()
+                    .expect("supplied root was projected from the same runtime root")
+                    .provenance(),
                 None => AnalysisProvenance::Grammar,
             },
-            supplied_root: w.root_runtime().and_then(|root| match root {
-                RuntimeRoot::Supplied(root) => Some(crate::SuppliedRoot::from_data(root)),
-                RuntimeRoot::Guessed(_) => None,
-            }),
+            supplied_root,
             morpheme_roots: seq
                 .iter()
                 .map(|m| match m.runtime_root.as_deref() {
