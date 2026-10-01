@@ -24,6 +24,7 @@ void pangloss_header_c_smoke(void) {
     (void)&hc_lexicon_remove_json; (void)&hc_lexicon_clear_json;
     (void)&hc_lexicon_set_gloss_language_json; (void)&hc_lexicon_set_authority_json;
     (void)&hc_lexicon_import_json; (void)&hc_lexicon_export_json;
+    (void)&hc_generate_words_json;
     (void)&hc_classification_matrix_json; (void)&hc_analyze_word_json;
     (void)&hc_classification_guide_new_json; (void)&hc_classification_guide_answer_json;
     (void)&hc_classification_guide_undo_json; (void)&hc_classification_guide_remaining_json;

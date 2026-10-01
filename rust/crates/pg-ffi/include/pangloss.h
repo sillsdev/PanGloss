@@ -29,13 +29,15 @@ int32_t hc_grammar_load(const uint8_t *xml_utf8, size_t len, HcGrammarHandle *ou
 void hc_grammar_free(HcGrammarHandle handle);
 int32_t hc_parse_word(HcGrammarHandle handle, const uint8_t *word_utf8, size_t len, HcResultBuf *out);
 int32_t hc_parse_batch(HcGrammarHandle handle, const HcStr *words, size_t count, int32_t max_threads, HcResultBuf *out);
-/* ABI v3 (HC-rust port gap G3): additive guess-opt-in siblings. guess_root == 0 reproduces
- * hc_parse_word/hc_parse_batch's analysis set byte-for-byte (guess off, the default); nonzero
+/* ABI v3: option endpoints consume the same lexical authority as ordinary endpoints.
+ * guess_root == 0 disables guessing; nonzero
  * enables the lexical-pattern guesser on a total normal-lexicon miss. Encode through a distinct
  * wire format/magic from hc_parse_word/hc_parse_batch's (see buffer.rs), carrying a `guessed` bit
  * per word and per analysis so a guessed analysis is never indistinguishable from a confirmed one. */
 int32_t hc_parse_word_opts(HcGrammarHandle handle, const uint8_t *word_utf8, size_t len, int32_t guess_root, HcResultBuf *out);
 int32_t hc_parse_batch_opts(HcGrammarHandle handle, const HcStr *words, size_t count, int32_t max_threads, int32_t guess_root, HcResultBuf *out);
+/* Numeric generation supports authored roots. Runtime sentinel UINT32_MAX returns
+ * HC_ERR_INVALID_ARG; use hc_generate_words_json to retain supplied-root identities. */
 int32_t hc_generate_words(HcGrammarHandle handle, const uint32_t *morpheme_ids, size_t morpheme_count, int32_t root_morpheme_index, HcResultBuf *out);
 void hc_buf_free(HcResultBuf *buf);
 
@@ -58,6 +60,10 @@ HC_GRAMMAR_JSON_FN(hc_lexicon_import_json);
 HC_GRAMMAR_JSON_FN(hc_lexicon_export_json);
 HC_GRAMMAR_JSON_FN(hc_classification_matrix_json);
 HC_GRAMMAR_JSON_FN(hc_analyze_word_json);
+/* Request: {"revision": <analyze revision>, "analysis": <complete structured analysis>}.
+ * Value retains revision/analysis plus words and completion="notAssessed". The existing
+ * synthesis owner does not publish completion; guessed generation is unsupported. */
+HC_GRAMMAR_JSON_FN(hc_generate_words_json);
 #undef HC_GRAMMAR_JSON_FN
 
 int32_t hc_classification_guide_new_json(const uint8_t *, size_t, HcClassificationGuideHandle *, HcResultBuf *);

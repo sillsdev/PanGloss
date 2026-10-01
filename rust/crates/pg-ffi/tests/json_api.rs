@@ -409,8 +409,19 @@ fn shared_binding_fixture_normalizes_native_json_contract() {
         "authoredCase":{"add":case_added["value"],"get":case_get["value"],"list":case_list["value"],"search":case_search["value"],"export":case_export["value"],"analysis":case_analysis["value"]}
     });
     let normalized = normalize_binding(transcript, signature);
-    let expected =
+    let mut expected =
         expand_fixture_refs(fixture["expectedTranscript"].clone(), &fixture["fragments"]);
+    // Native generation retains additional full-analysis fields; shared WASM projections stay exact.
+    for (path, name) in [
+        ("/analysis/supplied/structured/0", "supplied"),
+        ("/analysis/grammar/structured/0", "grammar"),
+        ("/authoredCase/analysis/structured/0", "case"),
+    ] {
+        let analysis = expected.pointer_mut(path).unwrap().as_object_mut().unwrap();
+        for (field, value) in fixture["nativeStructuredFields"][name].as_object().unwrap() {
+            assert!(analysis.insert(field.clone(), value.clone()).is_none());
+        }
+    }
     #[cfg(feature = "foma-tools")]
     let expected = {
         let mut expected = expected;

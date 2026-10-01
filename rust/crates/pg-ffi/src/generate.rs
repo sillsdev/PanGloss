@@ -8,12 +8,12 @@
 //! UTF-8 strings). The `WordAnalysis` overload's `realizationalFS` is always empty (C# `new
 //! FeatureStruct()`, Morpher.cs:666), so it never needs one: the natural, self-contained FFI
 //! surface for a native host that already has a `WordAnalysis` in hand (e.g. from a prior
-//! `hc_parse_word`/`hc_parse_batch` call's numeric `structured` output) and wants to regenerate
+//! `hc_parse_word`/`hc_parse_batch` call's authored numeric `structured` output) and wants to regenerate
 //! surface forms from it — round-tripping analysis into generation without ever touching a raw
 //! `FeatureStruct`. A future revision can add a `hc_generate_words_direct` entry point alongside a
 //! syntactic-FS wire format if a caller needs the direct overload's extra generality.
 
-use crate::error::{HcResultBuf, HC_ERR_NULL_ARG};
+use crate::error::{HcResultBuf, HC_ERR_INVALID_ARG, HC_ERR_NULL_ARG};
 use crate::grammar::HcGrammarHandle;
 use crate::parse::finish;
 use pg_parse::WordAnalysis;
@@ -26,6 +26,10 @@ use pg_parse::WordAnalysis;
 /// root index into the sequence (`-1` or out-of-range yields zero words, matching
 /// `Morpher::generate_words_from_analysis`'s own defensive empty-result handling — see that
 /// method's doc for why this differs from C#'s unchecked array-index cast).
+///
+/// Runtime sentinels (`u32::MAX`) return `HC_ERR_INVALID_ARG`: this numeric format cannot
+/// retain supplied or guessed root identities. Use `hc_generate_words_json` for revision-bound
+/// supplied-root generation from the full `hc_analyze_word_json` analysis.
 ///
 /// Returns/leaves `*out` under the same contract as `crate::parse::hc_parse_word`: `HC_OK` (0) on
 /// success (an `hc_generate_words`-specific buffer, see `buffer::encode_generated_words`), otherwise
@@ -57,6 +61,9 @@ pub unsafe extern "C" fn hc_generate_words(
         } else {
             unsafe { std::slice::from_raw_parts(morpheme_ids, morpheme_count) }
         };
+        if ids.contains(&u32::MAX) {
+            return Err(HC_ERR_INVALID_ARG);
+        }
         let wa = WordAnalysis {
             morpheme_ids: ids.to_vec(),
             morph_occurrences: Vec::new(),

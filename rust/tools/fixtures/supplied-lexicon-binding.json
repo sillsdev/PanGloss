@@ -13,6 +13,7 @@
     "entryUpdated": {"authority":"supplied","dateCreated":"$date","dateModified":"$date","gloss":"letter bee","id":"$entry","signatures":["$signature"],"state":"active","stem":"b"},
     "entryCase": {"authority":"supplied","dateCreated":"$date","dateModified":"$date","gloss":"","id":"$entry","signatures":["$signature"],"state":"active","stem":"B"}
   },
+  "nativeStructuredFields": {"supplied":{"synFs":{"entries":[[0,{"Symbolic":1}]]},"mpr":0,"morphOccurrences":[{"allomorphId":4294967295,"morphemeId":4294967295,"order":0}],"guessedString":null,"morphemeRoots":[{"authority":{"kind":"supplied"},"entryId":"$entry","gloss":"letter bee","lexicalSpelling":"b","mpr":0,"realizationId":"$entry","stratum":0,"synFs":{"entries":[[0,{"Symbolic":1}]]}}]},"grammar":{"synFs":{"entries":[[0,{"Symbolic":1}]]},"mpr":0,"morphOccurrences":[{"allomorphId":0,"morphemeId":0,"order":0}],"guessedString":null,"morphemeRoots":[null]},"case":{"synFs":{"entries":[[0,{"Symbolic":1}]]},"mpr":0,"morphOccurrences":[{"allomorphId":4294967295,"morphemeId":4294967295,"order":0}],"guessedString":null,"morphemeRoots":[{"authority":{"kind":"supplied"},"entryId":"$entry","gloss":"","lexicalSpelling":"B","mpr":0,"realizationId":"$entry","stratum":0,"synFs":{"entries":[[0,{"Symbolic":1}]]}}]}},
   "expectedTranscript": {
     "catalog":{"revision":"rev_0","signatures":[{"$ref":"signature"}]},
     "invalidAdd":{"code":"invalid_stem","details":null,"message":"stem cannot be empty"},

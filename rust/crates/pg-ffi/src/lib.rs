@@ -10,14 +10,14 @@
 //! - `parse::hc_parse_batch` — parse many words, internally parallel (rayon).
 //! - `parse::hc_parse_word_opts` / `parse::hc_parse_batch_opts` (HC-rust port gap G3,
 //!   `docs/hermitcrab-rust-port-audit.md` sec 2/3 item 1) — additive `guess_root`-parameterized
-//!   siblings of the two entry points above, routing through the plain `pg_parse::Morpher` (the
-//!   same engine `pg-cli`'s `--guess` flag uses) rather than the supplied-lexicon/foma union;
+//!   siblings of the two entry points above, consuming the unified lexical-authority owner;
 //!   encode through a distinct wire format (`buffer::encode_single_guess`/`encode_batch_guess`)
 //!   carrying the `guessed` bit so a guessed analysis is never wire-indistinguishable from a
 //!   confirmed one. See `parse` module's own doc for the full contract.
 //! - `parse::hc_buf_free` — free a result/error-message buffer.
 //! - `generate::hc_generate_words` — generate surface forms from a `WordAnalysis`-shaped
-//!   morpheme sequence (C# `Morpher.GenerateWords(WordAnalysis)`, W7).
+//!   authored morpheme sequence (C# `Morpher.GenerateWords(WordAnalysis)`, W7).
+//! - `json::hc_generate_words_json` — revision-bound generation from the complete JSON analysis.
 //!
 //! ## No panic crosses the boundary (plan §8 layer 7)
 //! **Every** entry point's entire body is wrapped in `std::panic::catch_unwind`, converting any

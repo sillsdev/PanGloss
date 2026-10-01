@@ -237,7 +237,7 @@ grammar_api!(
 #[serde(rename_all = "camelCase")]
 struct AnalysisJson {
     analyses: Vec<(String, String)>,
-    structured: Vec<AnalysisItem>,
+    structured: Vec<pg_parse::WordAnalysis>,
     capped: bool,
     invalid_shape: bool,
     timed_out: bool,
@@ -245,34 +245,12 @@ struct AnalysisJson {
     candidates_generated: usize,
     revision: pg_lexicon::Revision,
 }
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AnalysisItem {
-    morpheme_ids: Vec<u32>,
-    root_morpheme_index: i32,
-    pos_id: Option<u32>,
-    guessed: bool,
-    provenance: pg_parse::AnalysisProvenance,
-    supplied_root: Option<pg_parse::SuppliedRoot>,
-}
 grammar_api!(hc_analyze_word_json, WordRequest, |h, r| {
     // guess_fallback: true, since this JSON envelope already carries `guessed` honestly at both the word and per-analysis level, so it explicitly opts back into the retry that analyze_word now defaults off.
     let a = h.analyze_word(&r.word, true);
-    let structured = a
-        .structured
-        .iter()
-        .map(|x| AnalysisItem {
-            morpheme_ids: x.morpheme_ids.clone(),
-            root_morpheme_index: x.root_morpheme_index,
-            pos_id: x.pos_id,
-            guessed: x.guessed,
-            provenance: x.provenance.clone(),
-            supplied_root: x.supplied_root.clone(),
-        })
-        .collect();
     Ok(AnalysisJson {
         analyses: a.analyses,
-        structured,
+        structured: a.structured,
         capped: a.capped,
         invalid_shape: a.invalid_shape,
         timed_out: a.timed_out,
@@ -281,6 +259,13 @@ grammar_api!(hc_analyze_word_json, WordRequest, |h, r| {
         revision: a.revision,
     })
 });
+
+// The runtime owns revision and canonical-root validation; the ABI only transports its result.
+grammar_api!(
+    hc_generate_words_json,
+    pg_lexicon::GenerationRequest,
+    |h, r| h.runtime.generate_analysis(r)
+);
 
 #[no_mangle]
 /// Creates an opaque classification-guide handle from a matrix JSON document.
