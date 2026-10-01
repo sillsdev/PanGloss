@@ -47,6 +47,8 @@ function Get-LinuxContainmentJob {
 }
 
 $linuxJob = Get-LinuxContainmentJob
+$wasmJobMatch = [regex]::Match($workflowText, '(?ms)^  wasm-js-smoke:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*\r?\n|\z)')
+$wasmJob = if ($wasmJobMatch.Success) { "wasm-js-smoke:`n$($wasmJobMatch.Groups['body'].Value)" } else { '' }
 
 Test-Case 'workflow has a dedicated required containment job pinned to Ubuntu 24.04' {
     Assert-True ($linuxJob.Length -gt 0) 'rust-ci.yml must define a dedicated Linux containment job'
@@ -132,6 +134,49 @@ Test-Case 'service-main death probe proves a stubborn descendant and the unit cg
         'the probe must check the stubborn descendant PID after service-main death'
     Assert-Matches $serviceScriptText '(?m)(?:!\s+-[de]\s+[^\r\n]*(?:unit_cgroup|unitCgroup|cgroup_path)|(?:unit_cgroup|unitCgroup|cgroup_path)[^\r\n]*-[de])' `
         'the probe must assert that the unit cgroup path disappears'
+}
+
+Test-Case 'required HC-only WASM smoke uses pinned tooling and the bounded managed launcher' {
+    Assert-True ($wasmJob.Length -gt 0) 'rust-ci.yml must define the separate HC-only WASM smoke job'
+    Assert-Matches $wasmJob '(?im)^\s*name:\s*HC-only WASM JS smoke \(required\)\s*$' `
+        'the WASM JavaScript smoke job must be explicitly required'
+    Assert-Matches $wasmJob '(?im)^\s*runs-on:\s*ubuntu-24\.04\s*$' `
+        'the WASM smoke job must use the established bounded Ubuntu image'
+    Assert-Matches $wasmJob '(?im)^\s*targets:\s*wasm32-unknown-unknown\s*$' `
+        'the WASM target must be installed before the managed build'
+    Assert-Matches $wasmJob '(?im)^\s*node-version:\s*22\s*$' `
+        'the Node runtime version must be explicit'
+    Assert-Matches $wasmJob '(?im)^\s*tool:\s*wasm-bindgen-cli@0\.2\.126\s*$' `
+        'wasm-bindgen-cli must match the repository lockfile version'
+    Assert-Matches $wasmJob '(?im)^\s*fallback:\s*none\s*$' `
+        'a missing pinned wasm-bindgen tool must fail the job'
+    Assert-Matches $wasmJob '(?im)^\s*run:\s*bash tools/linux-containment-ci\.sh --wasm-js-smoke\s*$' `
+        'the build and smoke must enter the bounded managed Linux launcher'
+    Assert-DoesNotMatch $wasmJob '(?im)^\s*continue-on-error:\s*true\s*$' `
+        'the required WASM smoke job must not convert failures into success'
+}
+
+Test-Case 'WASM smoke runs only from the finite-memory service and fails on each missing or failed stage' {
+    Assert-Matches $serviceScriptText '(?m)--setenv=PANGLOSS_WASM_SMOKE_REQUIRED=1' `
+        'the bounded service must mark its required WASM child invocation'
+    Assert-Matches $serviceScriptText '(?m)--property=Delegate=memory' `
+        'the WASM service must use the reviewed delegated-cgroup launch path'
+    Assert-Matches $serviceScriptText '(?m)--property=DelegateSubgroup=pangloss-supervisor' `
+        'the child must run in the bounded supervisor subgroup'
+    Assert-Matches $serviceScriptText '(?m)--property=MemoryMax=6G' `
+        'the WASM service must impose the established finite 6G memory cap'
+    Assert-Matches $serviceScriptText '(?m)self_leaf\" == \"\$unit_root/pangloss-supervisor' `
+        'the WASM child must prove it is in the expected managed subgroup'
+    Assert-Matches $serviceScriptText '(?m)memory_max\" != max' `
+        'the WASM child must reject an unlimited service memory cap'
+    Assert-Matches $serviceScriptText '(?s)pwsh -NoProfile -File ./tools/pg\.ps1 -Mode build -Package pg-wasm -DebugProfile.*?wasm-bindgen target/wasm32-unknown-unknown/debug/pg_wasm\.wasm --target nodejs --out-dir crates/pg-wasm/pkg.*?node tools/f4-wasm-smoke\.js' `
+        'the managed WASM build, binding generation, and JavaScript smoke must all run in the service'
+    Assert-Matches $serviceScriptText '(?m)managed pg-wasm build failed' `
+        'a failed managed build must fail the required job'
+    Assert-Matches $serviceScriptText '(?m)wasm-bindgen Node package generation failed' `
+        'a failed package generation must fail the required job'
+    Assert-Matches $serviceScriptText '(?m)HC WASM JavaScript smoke failed' `
+        'a failed JavaScript smoke must fail the required job'
 }
 
 Write-TestSummary

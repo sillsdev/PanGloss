@@ -271,16 +271,14 @@ fn finish_stats_flush(
     skipped: usize,
     elapsed: Duration,
 ) -> Result<(), String> {
-    let options_json =
-        serde_json::to_string(options).map_err(|e| format!("serialize stats options: {e}"))?;
-    let options_hash = sha256_hex(options_json.as_bytes());
+    let identity = stats_options_identity(options)?;
     let run = pg_stats::RunMetadata {
-        build_info: format!("pangloss/{}", env!("CARGO_PKG_VERSION")),
+        build_info: crate::build_info::embedded_build_info().to_string(),
         fwdata_path: canonical_or_raw(grammar_path),
         grammar_hash: grammar_hash.to_string(),
         engine: options.engine.to_string(),
-        options_hash,
-        options_json,
+        options_hash: identity.hash,
+        options_json: identity.json,
         created_utc: now_utc_string(),
         step_cap: options.step_cap,
     };
@@ -299,6 +297,18 @@ fn finish_stats_flush(
         elapsed.as_secs_f64() * 1e3
     );
     Ok(())
+}
+
+struct StatsOptionsIdentity {
+    json: String,
+    hash: String,
+}
+
+fn stats_options_identity(options: &StatsOptionsRecord) -> Result<StatsOptionsIdentity, String> {
+    let json =
+        serde_json::to_string(options).map_err(|e| format!("serialize stats options: {e}"))?;
+    let hash = sha256_hex(json.as_bytes());
+    Ok(StatsOptionsIdentity { json, hash })
 }
 
 pub(crate) struct BatchStatsWord {
@@ -388,10 +398,18 @@ pub(crate) fn prepare_batch_stats_hc(
         .refuse_if_step_cap_differs(step_cap)
         .map_err(|e| e.to_string())?;
 
+    let options = StatsOptionsRecord {
+        engine: "hc",
+        step_cap: Some(step_cap),
+        word_timeout_ms,
+        guess,
+        always_enforce_final_templates,
+    };
+    let identity = stats_options_identity(&options)?;
     let refs: Vec<&str> = words.iter().map(String::as_str).collect();
     let existing = outcome
         .cache
-        .existing_words(&refs)
+        .reusable_words(&refs, &identity.hash)
         .map_err(|e| e.to_string())?;
     let skipped = words
         .iter()
@@ -404,13 +422,7 @@ pub(crate) fn prepare_batch_stats_hc(
         grammar_hash,
         existing_words: existing,
         skipped,
-        options: StatsOptionsRecord {
-            engine: "hc",
-            step_cap: Some(step_cap),
-            word_timeout_ms,
-            guess,
-            always_enforce_final_templates,
-        },
+        options,
     })
 }
 

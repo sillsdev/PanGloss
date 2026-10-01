@@ -120,6 +120,7 @@ impl BatchParseCounter {
 }
 
 mod assess;
+pub(crate) mod build_info;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 #[cfg(feature = "foma-tools")]
 pub mod backend_report;

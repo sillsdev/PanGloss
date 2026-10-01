@@ -419,6 +419,134 @@ fn batch_stats_parses_each_uncached_word_once() {
     }
 }
 
+fn cached_run_id(path: &std::path::Path, word: &str) -> i64 {
+    rusqlite::Connection::open(path)
+        .expect("open stats cache")
+        .query_row("SELECT run_id FROM word WHERE form = ?1", [word], |row| {
+            row.get(0)
+        })
+        .expect("word has an owning run")
+}
+
+fn run_stats_with_options(
+    dir: &std::path::Path,
+    grammar_xml: &str,
+    words: &[String],
+    cache_path: &std::path::Path,
+    guess: bool,
+    timeout_ms: Option<u64>,
+) -> usize {
+    let mut extra = vec![
+        "--threads".to_string(),
+        "1".to_string(),
+        "--stats".to_string(),
+        "--cache".to_string(),
+        cache_path.to_string_lossy().into_owned(),
+    ];
+    if guess {
+        extra.push("--guess".to_string());
+    }
+    if let Some(timeout_ms) = timeout_ms {
+        extra.extend(["--word-timeout-ms".to_string(), timeout_ms.to_string()]);
+    }
+    let extra_refs = extra.iter().map(String::as_str).collect::<Vec<_>>();
+    let words_text = format!("{}\n", words.join("\n"));
+    let (args, _) = run_batch_args(dir, grammar_xml, &words_text, &extra_refs);
+    crate::run_batch_counted(&args).expect("batch stats run succeeds");
+    let analyzed: i64 = rusqlite::Connection::open(cache_path)
+        .expect("open stats cache after run")
+        .query_row(
+            "SELECT word_count FROM run ORDER BY run_id DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("stats run records analyzed word count");
+    usize::try_from(analyzed).expect("analyzed word count is nonnegative")
+}
+
+#[test]
+fn batch_stats_reuses_only_words_owned_by_the_current_measurement_options() {
+    let (grammar_xml, first_word) = primary_fixture();
+    let second_word = format!("{first_word}x");
+    let dir = scratch_dir("option-aware-cache-ownership");
+    let cache_path = dir.join("cache.sqlite3");
+    let unchanged_word = second_word.as_str();
+
+    assert_eq!(
+        run_stats_with_options(
+            &dir,
+            &grammar_xml,
+            &[first_word.clone(), second_word.clone()],
+            &cache_path,
+            false,
+            None,
+        ),
+        2,
+        "initial options record both words as analyzed"
+    );
+    let first_owner = cached_run_id(&cache_path, &first_word);
+    let unchanged_owner = cached_run_id(&cache_path, unchanged_word);
+
+    assert_eq!(
+        run_stats_with_options(
+            &dir,
+            &grammar_xml,
+            &[first_word.clone(), second_word.clone()],
+            &cache_path,
+            false,
+            None,
+        ),
+        0,
+        "an exact options match reuses both words"
+    );
+    assert_eq!(cached_run_id(&cache_path, &first_word), first_owner);
+
+    for (guess, timeout_ms, label) in [
+        (true, None, "guess on"),
+        (false, None, "guess off again"),
+        (false, Some(10_000), "timeout added"),
+        (false, Some(20_000), "timeout changed"),
+    ] {
+        assert_eq!(
+            run_stats_with_options(
+                &dir,
+                &grammar_xml,
+                std::slice::from_ref(&first_word),
+                &cache_path,
+                guess,
+                timeout_ms,
+            ),
+            1,
+            "changing measurement options must reanalyze the overlapping word ({label})"
+        );
+        assert_ne!(
+            cached_run_id(&cache_path, &first_word),
+            first_owner,
+            "the changed stats observation must become the word's owner ({label})"
+        );
+        assert_eq!(
+            cached_run_id(&cache_path, unchanged_word),
+            unchanged_owner,
+            "a different word retains its prior compatible stats owner ({label})"
+        );
+    }
+
+    let latest_owner = cached_run_id(&cache_path, &first_word);
+    assert_eq!(
+        run_stats_with_options(
+            &dir,
+            &grammar_xml,
+            std::slice::from_ref(&first_word),
+            &cache_path,
+            false,
+            Some(20_000),
+        ),
+        0,
+        "the latest exact options match reuses its stats record"
+    );
+    assert_eq!(cached_run_id(&cache_path, &first_word), latest_owner);
+}
+
 #[test]
 fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options() {
     let (grammar_xml, word) = primary_fixture();

@@ -118,6 +118,45 @@ impl StatsCache {
         rows.collect::<Result<HashSet<_>, _>>().map_err(Into::into)
     }
 
+    /// Which requested words are still reusable under the owning run's measurement identity.
+    ///
+    /// A cache can accumulate words measured under different options. Reuse is therefore decided
+    /// per word by joining its current owner run, never by comparing against a cache-global latest
+    /// run. Build revision remains provenance; the reusable measurement contract is options plus
+    /// counter semantics.
+    pub fn reusable_words(
+        &self,
+        forms: &[&str],
+        options_hash: &str,
+    ) -> Result<HashSet<String>, StatsError> {
+        const QUERY_FORM_LIMIT: usize = 500;
+        let mut reusable = HashSet::new();
+        for chunk in forms.chunks(QUERY_FORM_LIMIT) {
+            let placeholders = vec!["?"; chunk.len()].join(",");
+            let sql = format!(
+                "SELECT w.form FROM word AS w \
+                 JOIN run AS r ON r.run_id = w.run_id \
+                 WHERE w.form IN ({placeholders}) \
+                   AND r.options_hash = ? \
+                   AND r.counter_semantics = ?"
+            );
+            let mut values = chunk
+                .iter()
+                .map(|form| rusqlite::types::Value::Text((*form).to_string()))
+                .collect::<Vec<_>>();
+            values.push(rusqlite::types::Value::Text(options_hash.to_string()));
+            values.push(rusqlite::types::Value::Integer(
+                schema::COUNTER_SEMANTICS_VERSION,
+            ));
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                row.get::<_, String>(0)
+            })?;
+            reusable.extend(rows.collect::<Result<HashSet<_>, _>>()?);
+        }
+        Ok(reusable)
+    }
+
     /// Errors when this cache already holds a run recorded under a step cap other than
     /// `requested`. Unlike engine or grammar hash, an absent recorded step cap imposes no
     /// constraint by itself (a run that recorded none, e.g. `foma`, cannot conflict with anything)

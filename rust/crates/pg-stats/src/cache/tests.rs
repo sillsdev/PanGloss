@@ -538,3 +538,111 @@ fn replacing_word_replaces_all_facts_and_failure_rolls_back() {
         "an observation with no facts must remove all previous facts"
     );
 }
+
+#[test]
+fn cached_words_are_reusable_only_under_their_options_and_counter_semantics() {
+    let mut opened = StatsCache::open_in_memory("hash-a").unwrap();
+    assert!(opened
+        .cache
+        .reusable_words(&[], "options-a")
+        .unwrap()
+        .is_empty());
+
+    let mut options_a = sample_run();
+    options_a.options_hash = "options-a".into();
+    opened
+        .cache
+        .flush(&options_a, &[sample_word("alpha")])
+        .unwrap();
+
+    let mut options_b = sample_run();
+    options_b.options_hash = "options-b".into();
+    opened
+        .cache
+        .flush(&options_b, &[sample_word("beta")])
+        .unwrap();
+
+    assert_eq!(
+        opened
+            .cache
+            .reusable_words(&["alpha", "beta", "missing"], "options-a")
+            .unwrap(),
+        ["alpha".to_string()].into_iter().collect()
+    );
+    assert_eq!(
+        opened
+            .cache
+            .reusable_words(&["alpha", "beta", "missing"], "options-b")
+            .unwrap(),
+        ["beta".to_string()].into_iter().collect()
+    );
+    assert_eq!(
+        opened
+            .cache
+            .reusable_words(&["beta", "beta", "missing"], "options-b")
+            .unwrap(),
+        ["beta".to_string()].into_iter().collect(),
+        "duplicate and missing requested forms do not affect owner selection"
+    );
+    let mut many_missing = (0..33_000)
+        .map(|index| format!("missing-{index}"))
+        .collect::<Vec<_>>();
+    many_missing.extend(["alpha".to_string(), "beta".to_string()]);
+    let many_form_refs = many_missing.iter().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(
+        opened
+            .cache
+            .reusable_words(&many_form_refs, "options-a")
+            .unwrap(),
+        ["alpha".to_string()].into_iter().collect(),
+        "large requests are split below SQLite's bind-variable limit"
+    );
+
+    let mut overlapping_options = sample_run();
+    overlapping_options.options_hash = "options-b".into();
+    opened
+        .cache
+        .flush(&overlapping_options, &[sample_word("alpha")])
+        .unwrap();
+    assert!(
+        opened
+            .cache
+            .reusable_words(&["alpha"], "options-a")
+            .unwrap()
+            .is_empty(),
+        "the most recent owner run controls reuse for an overlapping word"
+    );
+    assert_eq!(
+        opened
+            .cache
+            .reusable_words(&["alpha", "beta"], "options-b")
+            .unwrap(),
+        ["alpha".to_string(), "beta".to_string()]
+            .into_iter()
+            .collect()
+    );
+
+    let beta_run: i64 = opened
+        .cache
+        .connection()
+        .query_row("SELECT run_id FROM word WHERE form = 'beta'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    opened
+        .cache
+        .connection()
+        .execute(
+            "UPDATE run SET counter_semantics = counter_semantics + 1 WHERE run_id = ?1",
+            [beta_run],
+        )
+        .unwrap();
+    assert!(
+        opened
+            .cache
+            .reusable_words(&["beta"], "options-b")
+            .unwrap()
+            .is_empty(),
+        "same options do not make counters reusable under a different counter contract"
+    );
+}

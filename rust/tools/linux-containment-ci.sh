@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Hosted-Linux proof for the delegated cgroup-v2 contract. The outer process owns only two exact,
-# run-scoped transient units; the build itself runs as the unprivileged Actions runner.
+# Hosted-Linux checks use exact, run-scoped transient units; managed Rust work runs as the
+# unprivileged Actions runner inside a finite-memory cgroup.
 set -Eeuo pipefail
 
 fail() {
@@ -74,6 +74,39 @@ run_gate_child() {
     exec pwsh -NoProfile -File ./tools/pg.ps1 -Mode test -Package pg-worker-containment -TestTarget linux_containment -NoNextest -MaxConcurrent 1 -Jobs 2 -TestThreads 1
 }
 
+run_wasm_gate_child() {
+    local unit=$1 membership_line self_leaf unit_root root_path memory_max
+
+    [[ "${PANGLOSS_WASM_SMOKE_REQUIRED:-}" == 1 ]] ||
+        fail 'PANGLOSS_WASM_SMOKE_REQUIRED=1 is required'
+    [[ "$(stat -fc %T /sys/fs/cgroup)" == cgroup2fs ]] || fail 'the host is not using cgroup v2'
+    mapfile -t memberships < <(grep '^0::' /proc/self/cgroup)
+    [[ ${#memberships[@]} -eq 1 ]] || fail 'expected exactly one unified /proc/self/cgroup membership'
+    membership_line=${memberships[0]}
+    self_leaf=${membership_line#0::}
+    unit_root=$(unit_control_group "$unit")
+    [[ "$self_leaf" == "$unit_root/pangloss-supervisor" ]] ||
+        fail "self cgroup $self_leaf is not the bounded supervisor leaf below $unit_root"
+    root_path="/sys/fs/cgroup$unit_root"
+    [[ -d "$root_path" ]] || fail "bounded unit cgroup does not exist: $root_path"
+    [[ -r "$root_path/memory.max" ]] || fail 'bounded unit memory.max is unavailable'
+    memory_max=$(<"$root_path/memory.max")
+    [[ "$memory_max" != max && "$memory_max" =~ ^[0-9]+$ ]] ||
+        fail "bounded unit memory.max is not finite numeric data: $memory_max"
+    (( memory_max > 0 )) || fail 'bounded unit memory.max must be positive'
+
+    command -v pwsh >/dev/null || fail 'pwsh is unavailable'
+    command -v wasm-bindgen >/dev/null || fail 'wasm-bindgen is unavailable'
+    command -v node >/dev/null || fail 'node is unavailable'
+
+    export PANGLOSS_EXTRA_ARGS='--target wasm32-unknown-unknown'
+    pwsh -NoProfile -File ./tools/pg.ps1 -Mode build -Package pg-wasm -DebugProfile ||
+        fail 'managed pg-wasm build failed'
+    wasm-bindgen target/wasm32-unknown-unknown/debug/pg_wasm.wasm --target nodejs --out-dir crates/pg-wasm/pkg ||
+        fail 'wasm-bindgen Node package generation failed'
+    node tools/f4-wasm-smoke.js || fail 'HC WASM JavaScript smoke failed'
+}
+
 run_probe_main() {
     local ready_path=$1 pid_path=$2
     (
@@ -96,11 +129,18 @@ case "${1:-}" in
         [[ $# -eq 3 ]] || fail 'invalid lifecycle-probe arguments'
         run_probe_main "$2" "$3"
         ;;
+    --wasm-gate)
+        [[ $# -eq 2 ]] || fail 'invalid WASM gate-child arguments'
+        run_wasm_gate_child "$2"
+        ;;
+    --wasm-js-smoke)
+        [[ $# -eq 1 ]] || fail 'invalid WASM smoke-launch arguments'
+        ;;
     '') ;;
     *) fail "unknown mode: $1" ;;
 esac
 
-[[ $# -eq 0 ]] || exit 0
+[[ $# -eq 0 || "${1:-}" == --wasm-js-smoke ]] || exit 0
 [[ "$(uname -s)" == Linux ]] || fail 'this proof requires Linux'
 command -v systemd-run >/dev/null || fail 'systemd-run is unavailable'
 command -v systemctl >/dev/null || fail 'systemctl is unavailable'
@@ -119,6 +159,7 @@ require_numeric runner_gid "$runner_gid"
 
 gate_unit="pangloss-containment-${run_id}-${run_attempt}"
 probe_unit="pangloss-containment-probe-${run_id}-${run_attempt}"
+wasm_unit="pangloss-wasm-smoke-${run_id}-${run_attempt}"
 workdir=$(pwd -P)
 script_path=$(realpath "$0")
 temp_parent=${RUNNER_TEMP:-/tmp}
@@ -129,6 +170,7 @@ probe_pid="$probe_dir/stubborn.pid"
 cleanup() {
     cleanup_exact_unit "$probe_unit"
     cleanup_exact_unit "$gate_unit"
+    cleanup_exact_unit "$wasm_unit"
     rm -f -- "$probe_ready" "$probe_pid"
     rmdir -- "$probe_dir" >/dev/null 2>&1 || true
 }
@@ -145,6 +187,25 @@ common_properties=(
     --property=TimeoutStopSec=30s
     --property=RuntimeMaxSec=20min
 )
+
+if [[ "${1:-}" == --wasm-js-smoke ]]; then
+    # Keep the managed build and the generated-package smoke inside the same finite-memory unit.
+    sudo --non-interactive systemd-run --quiet --wait --pipe --collect \
+        --unit="$wasm_unit" \
+        --uid="$runner_uid" \
+        --gid="$runner_gid" \
+        --working-directory="$workdir" \
+        --setenv=HOME="$HOME" \
+        --setenv=PATH="$PATH" \
+        --setenv=PANGLOSS_WASM_SMOKE_REQUIRED=1 \
+        --setenv=GITHUB_ACTIONS="${GITHUB_ACTIONS:-true}" \
+        --setenv=CI="${CI:-true}" \
+        --property=Delegate=memory \
+        --property=DelegateSubgroup=pangloss-supervisor \
+        "${common_properties[@]}" \
+        /usr/bin/bash "$script_path" --wasm-gate "$wasm_unit"
+    exit 0
+fi
 
 # First prove the host's service-main-death behavior with a descendant that cannot be stopped by TERM.
 sudo --non-interactive systemd-run --quiet \

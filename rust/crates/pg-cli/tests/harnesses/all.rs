@@ -3,6 +3,8 @@
 
 #[path = "../agent_docs_resolve_gate.rs"]
 mod agent_docs_resolve_gate;
+#[path = "../build_context_provenance.rs"]
+mod build_context_provenance;
 #[path = "../developer_flags_contract.rs"]
 mod developer_flags_contract;
 #[path = "../divergence_catalogue_gate.rs"]
