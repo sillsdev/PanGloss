@@ -29,9 +29,10 @@ int32_t hc_grammar_load(const uint8_t *xml_utf8, size_t len, HcGrammarHandle *ou
 void hc_grammar_free(HcGrammarHandle handle);
 int32_t hc_parse_word(HcGrammarHandle handle, const uint8_t *word_utf8, size_t len, HcResultBuf *out);
 int32_t hc_parse_batch(HcGrammarHandle handle, const HcStr *words, size_t count, int32_t max_threads, HcResultBuf *out);
-/* ABI v3: option endpoints consume the same lexical authority as ordinary endpoints.
- * guess_root == 0 disables guessing; nonzero
- * enables the lexical-pattern guesser on a total normal-lexicon miss. Encode through a distinct
+/* ABI v3: zero disables guess fallback; both options endpoints use the unified analysis
+ * owner, whose representative ordinary-root results are covered by parity tests. This does
+ * not promise byte identity with the grammar-only compatibility endpoints. Nonzero enables
+ * the lexical-pattern guesser on a total normal-lexicon miss. Encode through a distinct
  * wire format/magic from hc_parse_word/hc_parse_batch's (see buffer.rs), carrying a `guessed` bit
  * per word and per analysis so a guessed analysis is never indistinguishable from a confirmed one. */
 int32_t hc_parse_word_opts(HcGrammarHandle handle, const uint8_t *word_utf8, size_t len, int32_t guess_root, HcResultBuf *out);

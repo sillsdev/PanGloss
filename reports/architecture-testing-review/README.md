@@ -4,9 +4,9 @@ Worktree: `.worktrees/architecture-assurance`, branch `review/architecture-assur
 
 Baseline PanGloss: `ac13fc17a5bef39c5419b97ea02886113b1178b4`.
 
-Historical pinned Machine control: `f412c252172d6589339d8f25ff6a7258ff33b432`. Current user-requested PR 480 head: `d8ff628dc53b3ba9c96cffc712cc5909fdfe961b`.
+Historical pinned Machine control: `f412c252172d6589339d8f25ff6a7258ff33b432`. The requested force-pushed PR 480 head was `d8ff628dc53b3ba9c96cffc712cc5909fdfe961b`; the repaired and pushed current head is `18cf242f4b114b0eb9bac304b4b171ca2f499a39`.
 
-Original user's Machine checkout: `34215889c7adf3012f700c9ee1c1d6712c056d15`, was clean internally and differed from the original superproject pin. The subsequent explicit request to update PR 480 authorized replacing this checkout; both main and the review worktree now use `d8ff628d`.
+Original user's Machine checkout: `34215889c7adf3012f700c9ee1c1d6712c056d15`, was clean internally and differed from the original superproject pin. The subsequent explicit request to update PR 480 authorized replacing this checkout; the actual main and review Machine checkouts now use `18cf242f`. The review branch commits that gitlink; main has not received this review or its gitlink commit.
 
 This is an architecture and evidence audit with focused corrections, not a certificate that every engine/API is interchangeable. Findings distinguish inspected source, demonstrated failing regression, corrected regression, and unavailable evidence. The optional whole-grammar Foma subsystem is a separate default-build requirement. HC's internal `pg-fst` remains required.
 
@@ -54,25 +54,25 @@ Selection and admission belong to compiler owners; interface adapters consume pu
 | A11 | P1 | Stats replacement leaves stale facts absent from new observation | Transaction upserts incoming keys but never deletes old keys | Transactional replacement corrected; all 50 stats unit tests pass, including empty replacement and rollback |
 | A12 | P2 | CLI diagnostic counters mislabeled per word but cumulative | Snapshot collector contracts vs per-word emission | Owner resets and sequential CLI boundaries corrected; actual repeat-word failure changed expansion totals from 1/2 to 1/1; delegated check and scoped tests pass; final default suite recorded below |
 | A13 | P2 | Stats exports omit invalid_shape; some filters ineffective; censor attribution denominator unclear | Sol source review; explicit all-cache denominator documented in original implementation | Corrected status export, censor/top filters and matched/displayed counts. Comparison elapsed is explicitly labeled; word filter narrows denominator, censor/top do not. Final default suite recorded below |
-| A14 | P2 | Guess/timeout changes retain prior cached metrics for overlapping words | Source-supported; mixed-options allowed by existing spec | Policy/test gap: decide recompute or explicit refusal; do not silently redefine policy |
-| A15 | P2 | Legacy ABI erases supplied-root payload and generation round trip | Source-supported sentinel/output reconstruction | Additive rich contract or explicit unsupported legacy round trip required |
+| A14 | P2 | Guess/timeout changes retain prior cached metrics for overlapping words | Source-supported; mixed-options allowed by existing spec | Fixed in the HC follow-up: owning-run options and counter semantics determine reuse; exact baseline cache replay remains pending |
+| A15 | P2 | Legacy ABI erases supplied-root payload and generation round trip | Source-supported sentinel/output reconstruction | Fixed: revision-bound rich runtime/native generation preserves full payload; numeric sentinels explicitly refuse; completion remains notAssessed |
 | A16 | P2 | Native opts and ordinary API use different lexical authority | Unified runtime vs grammar-only Morpher call graph | Add/override/remove × single/batch × guess differential coverage required |
 | A17 | P2 | WASM analyzeText splits combining marks/supported punctuation | Tokenizer alphabetic/ASCII apostrophe only | NFC/NFD whole-word/text parity regression required |
-| A18 | P2 | Plain CLI parse hides capped/invalid-shape completion | Source output prints signature only; rich trace publishes status | Public incomplete-search status policy required |
-| A19 | P2 | Reports identify invocation checkout instead of executable build | make-report git HEAD / stats version only | Build revision vs context revision must be distinct; unknown remains unknown |
-| A20 | P2 | Optional Foma health evaluator accepts nominal phase with no measurements | Public evaluate API source-supported; actual worker has emit report | Explicit not-assessed/error state required in optional subsystem |
+| A18 | P2 | Plain CLI parse hides capped/invalid-shape completion | Actual invalid-shape and capped owner regressions failed | Fixed in 05c32532: plain/ordinary trace return failure with all completion flags; actual executable matrix passes |
+| A19 | P2 | Reports identify invocation checkout instead of executable build | make-report git HEAD / stats version only | HC stats fixed: executable embeds its source revision and keeps it outside/inside other checkouts; Foma report provenance deferred |
+| A20 | P2 | Optional Foma health evaluator accepts nominal phase with no measurements | Public evaluate API source-supported; actual worker has emit report | Needs to be done later: deliberately deferred optional Foma health contract |
 | A22 | P1 | Duplicate report case IDs erase earlier comparison evidence | Independent Sol review plus conflicting-duplicate construction regression fails | Report construction owns uniqueness for all consumers; final default suite recorded below |
 | A23 | P2 | Reader repairs missing nullable fields and ignores unknown keys before digest checks | Three reader/construction regressions fail among 26 report tests | Required types/nullable fields, unknown keys and outcome field guards implemented; final default suite recorded below |
-| A21 | Coverage | Host tests do not execute JS/WASM transport smoke in required CI | Existing f4-wasm-smoke.js, host CI only | Actual generated JS/WASM checks executed; required CI still lacks this smoke |
+| A21 | Coverage | Host tests do not execute JS/WASM transport smoke in required CI | Existing f4-wasm-smoke.js, host CI only | Required HC-only generated JS/WASM job added through a finite-memory managed service; actual CI proof pending main push |
 
 ## Evidence matrix and remaining acceptance work
 
 | Behavior | Owner-level tests | Integration/differential evidence | Required remaining check |
 |---|---|---|---|
-| Core HC identities/statuses | Existing engine and conformance replay tests preserve multiplicity | Pinned C# control, staged expectations, Rust replay | Fresh C# oracle blocked at new pin; historical strict mismatch evidence remains separate |
-| Auto-create phonology | Auto selection, featureless inferred/authored comparison; ignored env test now active | Add restriction effect control: allowed q context vs forbidden other context | Inferred count alone insufficient |
+| Core HC identities/statuses | Existing engine and conformance replay tests preserve multiplicity | Repaired 18cf242f C# oracle: upstream43/filtermirror9 pass; staged27 pass/two fail | Strict exit26 retained; shared zero-width issue #506 remains open |
+| Auto-create phonology | Auto selection, inference/authored controls and actual environment restriction effect | Compiler-owned substrate report reaches CLI even with no warnings | A27 transport regressions pass; final integrated suite pending |
 | Import provenance/admission | Existing direct validator tests; new actual compiler regressions | Referenced invalid restriction/rule refuses production; MeasureOnly remains explicit | Unreferenced invalid data must not cause spurious refusal |
-| Stats/timing | Stats-on/off full outcomes, deterministic timing-stripped records, bounded attribution tests exist | Repeat word replacement and rollback; per-word reset effect | Changed result-affecting cache options policy unresolved |
+| Stats/timing | Stats-on/off full outcomes, deterministic timing-stripped records, bounded attribution tests exist | Repeat word replacement, rollback and per-word reset effect; actual changed-option baseline | Owning-run option identity reuse fixed in reporting lane; final replay pending |
 | Try-a-word/trace | Trace+stats compare full outcomes/tree; rich trace publishes completion | Single/batch/native/WASM lexical authority and transport | Runtime root identity/ABI serialization gaps remain |
 | Health | Grammar warning identity/dedup and typed report validation | Default generic grammar-health command independent of optional compiler | Optional compiler health is not generic grammar health |
 | Assessment | Stable identities/multisets, certification nonempty denominator gates | Strict artifact read and full golden case reconciliation | Corrupt/missing evidence must fail closed |
@@ -100,7 +100,7 @@ pwsh -NoProfile -File rust/tools/oracle-conformance.ps1 -Scope all -ExePath mach
 
 Outcome: exit 26; staged 27 PASS / one exact known failure / one changed detailed failure; upstream 43 PASS; mirrored filter-pass subset 9 PASS. Pathological exclusions are printed and reconciled against discovery; zero executed assertions cannot pass the wrapper.
 
-## Updated Machine PR 480
+## Historical force-pushed Machine PR 480 checkpoint
 
 The explicitly requested force-push update fetched `refs/pull/480/head` and checked out `d8ff628dc53b3ba9c96cffc712cc5909fdfe961b` in the main and review Machine submodules, after verifying both were clean. Local backup refs retain the earlier revisions. No tracked Machine source was changed.
 
@@ -114,7 +114,8 @@ Fresh C# differential evidence for this revision is unavailable. The prior execu
 |---|---|---|---|
 | A24 | P1 | Managed native argument transport split a filter expression and lost argv boundaries; actual subprocess received 8 arguments instead of 4 | Windows quoting fixed at `Invoke-ManagedProcess`; actual value/count regression passes, including empty values, quotes and trailing backslashes |
 | A25 | P2 | Schema test helper skipped integer bounds above signed i64, and published report schema permitted absent or conflicting outcome evidence | i128 integer comparison and outcome-specific oneOf/boolean schemas added. Independent review corrected a wrong-case test fixture; final default schema suite recorded below |
-| A26 | P1 / upstream | New Machine PR 480 head cannot compile its conformance oracle | CS0535 reproduced by required strict check; fresh founding-oracle evidence blocked |
+| A26 | P1 / upstream | New Machine PR 480 head cannot compile its conformance oracle | CS0535 reproduced by required strict check | Fixed and pushed upstream 18cf242f; descendant PanGloss gitlink committed; fresh oracle evidence below |
+| A27 | P2 | Successful auto-create substrate report discarded at CLI loader | Actual inferred-segment and warning-free boundary transport regressions failed | Fixed in 05c32532 through additive compiler full-output owner; both executable transport controls pass |
 
 ## Default Foma disconnection
 
@@ -138,13 +139,13 @@ Assessment reader/construction fixes reject duplicate keys, digest corruption, d
 
 ## Remaining contracts to settle
 
-The open findings A14–A20 and the required-CI part of A21 are source-supported follow-up work, not silently completed fixes. They need explicit API/cache policy and discriminating regressions. Prioritize the native rich identity/lexical-authority matrix, NFC/NFD word-versus-text behavior, incomplete-search CLI output, and changed-option cache policy. Pin full statuses and identity multisets before refactoring these seams.
+At the original audit checkpoint, A14–A20 and the required-CI part of A21 were source-supported follow-up work. The authorized HC follow-up and its current evidence are recorded below; optional Foma work remains deferred. They need explicit API/cache policy and discriminating regressions. Prioritize the native rich identity/lexical-authority matrix, NFC/NFD word-versus-text behavior, incomplete-search CLI output, and changed-option cache policy. Pin full statuses and identity multisets before refactoring these seams.
 
-Individual unsegmentable allomorph handling remains the existing nonfatal recall policy. The accepted policy and a later gap plan differ in their intended direction; this review does not replace that policy by an incidental restriction fix. Successful auto-inference is also dropped from the CLI's wrapper output when no warnings exist; surfacing that compiler-owned substrate report is a remaining observability gap.
+Individual unsegmentable allomorph handling remains the existing nonfatal recall policy. The accepted policy and a later gap plan differ in their intended direction; this review does not replace that policy by an incidental restriction fix. At the original checkpoint, successful auto-inference was dropped from the CLI wrapper when no warnings existed. The authorized follow-up fixes this at the compiler-owned output seam (A27 below).
 
-Featureless inferred/authored comparisons demonstrate each engine's local inference semantics. They do not establish HC/Foma equivalence. Missing private corpora and pathological exclusions remain outside the demonstrated denominator. A fresh founding-oracle run requires PR 480's build defect to be corrected upstream first; the changing historical zero-width failure must still pass exact evidence review afterward.
+Featureless inferred/authored comparisons demonstrate each engine's local inference semantics. They do not establish HC/Foma equivalence. Missing private corpora and pathological exclusions remain outside the demonstrated denominator. The repaired PR 480 source now builds the founding oracle. Its fresh strict run retains the changing zero-width failure and exact-evidence exit26; shared Machine issue #506 remains open.
 
-## Authoritative verification
+## Original audit authoritative verification
 
 All Rust invocations below use a fresh `pwsh -NoProfile` and `rust/tools/pg.ps1`; no bare Cargo compile/test bypass was used. The final pair of managed builds ran with about 24.8 GiB free physical memory and the repository's two-build-slot limit. Formatting, comment hygiene and clippy with `-D warnings` run before compilation/execution.
 
@@ -180,3 +181,19 @@ PanGloss's root and three review Machine checkouts were updated only after check
 Fresh strict C# oracle evidence uses the repaired isolated checkout's Release `hc-conformance.exe`, with both ExePath and PinExePath explicitly supplied. Artifact SHA-256: `6e6cc41247a8f6a8f487bc82cbfc8167d6717f0879d3d6a2e348cf81e5f056e4`. Staged: 29 attempted, 27 PASS, one exact known head-ambiguous rule-attribution failure, one changed zero-width identity failure; upstream: 43/43 PASS; filter-pass mirror: 9/9 PASS. Overall exit 26 remains correct. The zero-width issue already has Machine issue #506 and the divergence evidence in `docs/divergences/036-zero-width-morpheme-identity.md`; this is not grounds to enlarge a waiver or claim new founding-oracle parity. Historical evidence above remains labeled separately.
 
 A26's interface/build defect is fixed. The intentional semantic catalog classification backlog and existing shared-oracle issue remain visible as independent limitations. A14-A19/A21 and successful substrate report propagation are being implemented under the follow-up plan. Needs to be done later: A20 Foma health, Foma-only make-report provenance, explicit --workspace Foma coverage scope, and all Foma/FST mechanisms. This follow-up changes none of them.
+
+
+Primary HC follow-up checkpoint (`05c32532`): A18 is fixed with unchanged complete-result stdout, explicit incomplete flags/failure exit for plain and ordinary trace, additive HC step-cap/timeout flags, and actual subprocess hit/rejection/invalid/cap/timeout controls. Successful substrate report propagation is fixed through the compiler's additive full-output/import-warnings owner API and CLI loader; inferred segment positive and authored controls plus warning-free inferred boundary transport checks pass. This is additional finding A27 (P2): successful auto-create phonology evidence had been discarded at the CLI tuple-returning loader seam. The compiler's selection/admission decisions and default budgets are unchanged. Independent Sol review found no blocker; its nonempty-analysis test strengthening was applied and rerun. Managed pg-cli all-target check, two completion owner regressions, two real inference transport regressions, and the completion subprocess matrix pass. The isolated PowerShell aggregator reports 29 files PASS / 0 FAIL.
+
+The pushed Machine `18cf242f` head's Linux and Windows build checks, both conformance jobs, comment-hygiene jobs, and NuGet package job are now SUCCESS (verified GitHub check rollup and remote branch SHA). This CI evidence does not turn the separately executed full strict catalog-authority failure into a pass. A14 actual executable baseline is independently measured: initial `gag,kad` stats batch without guessing analyzed two words; overlapping `gag` with guessing enabled produced a current parse but stats reported analyzed=0 / skipped=1 and retained its earlier metrics. Its before/after replay is still pending delegated integration.
+
+
+A15 runtime-owner checkpoint: the previous generation caller accepted a forged supplied lexical spelling and returned ["panu"]. The additive revision-bound runtime API now validates against the same immutable canonical-root snapshot used by the import/overlay owner. Eight actual owner regressions pass: full structured serialization and root-plus-affix homographs, eight forged payload fields, stale/removed/inactive/superseded identities, active overrides, aligned sentinel/head/provenance checks, authored controls, and grammar-head/supplied-nonhead compounds. Parse projection and generation validation share the extracted SuppliedRoot provenance fact. Independent Sol review reports GO for owner and native adapter with the completion limitation below.
+
+Generation completion limitation: existing synthesis caps are enforced by independent local counters without publishing their stop outcomes. The rich API reports completion="notAssessed" explicitly; it does not claim an empty or partial generation result is complete. Instrumenting and aggregating those owner stop outcomes needs separate engine work. This pass does not change synthesis counting or budgets.
+
+Native HC integration checkpoint (`4edee38d`): two actual ABI baseline regressions fail because the JSON projection omits synthesis fields and legacy sentinel generation returns HC_OK. Both now pass. The full native consolidated harness reports 21 PASS / 0 FAIL / three private-corpus SKIP, including independent full WordAnalysis owner comparisons, supplied homographs plus affixes, forged/stale/removed/guessed/unknown requests, authored numeric controls, exact shared-plus-native fixture reconciliation, and actual C/C++ header compile/link/run. Explicit managed pg-ffi all-target check passes and the temporary diagnostic output was removed.
+
+Reporting integration checkpoint (`dbde3529`, delegated `96affa66`): per-word owning-run option/counter reuse, shared options hashing and embedded executable revision are integrated. Focused stats unit tests 51/51, CLI option-ownership test 1/1 and actual foreign-checkout/non-checkout child provenance test 1/1 pass. The mandatory HC-only WASM job enters the reviewed finite 6G systemd service before managed Rust work. Independent Sol review is GO; the Linux launch is source/contract-tested locally, with actual hosted execution pending main CI.
+
+The user additionally authorizes merging the finished review onto main, pushing and releasing 0.5.2 after verification. Current remote main is 5abf4842 and includes the 0.5.1 multiplatform release workflow; this work will preserve those changes. No review changes have been merged or released at this checkpoint.

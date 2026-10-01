@@ -210,7 +210,14 @@ fn native_rich_generation_roundtrips_owner_identities_and_affixes() {
     );
     assert_eq!(exported["ok"], true);
     let grammar = std::sync::Arc::new(pg_grammar::load(RICH_XML).unwrap());
-    let owner = pg_lexicon::SuppliedLexiconRuntime::new(grammar, RICH_XML).unwrap();
+    let owner = pg_lexicon::SuppliedLexiconRuntime::with_policy(
+        grammar,
+        RICH_XML,
+        pg_lexicon::AnalysisPolicy {
+            step_cap: pangloss_ffi::DEFAULT_STEP_CAP,
+        },
+    )
+    .unwrap();
     owner
         .import_document(serde_json::from_value(exported["value"].clone()).unwrap())
         .unwrap();

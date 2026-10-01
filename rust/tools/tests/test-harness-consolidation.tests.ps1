@@ -157,7 +157,7 @@ $crateSpecs = @(
         MinTargets = 2
         MaxTargets = 2
         ExpectedSourceNames = @(
-            'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'skills_never_instruct_bare_cargo.rs')
+            'build_context_provenance.rs', 'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'skills_never_instruct_bare_cargo.rs')
     }
     @{
         Name = 'pg-conformance-fixtures'
