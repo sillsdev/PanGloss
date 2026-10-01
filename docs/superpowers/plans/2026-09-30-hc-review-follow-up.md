@@ -35,9 +35,11 @@ Needs to be done later: A20 optional Foma health missing-measurement contract; F
 
 - [x] Machine focused regression and full strict check executed; descendant commit and remote PR head verified. Build/tests/fixtures/parity and pushed Linux/Windows CI pass; strict catalog authority remains red at its unchanged unclassified bootstrap catalog.
 - [x] PanGloss root and review Machine checkout/gitlink updated to verified head; review gitlink commit a786eed9.
-- [ ] Each HC contract has red/green regression evidence at its owning seam.
-- [ ] Delegated source and diffs personally inspected; independent Sol review resolved.
-- [ ] Managed all-target check and full default tests pass, with exact attempted/pass/fail/skip counts.
-- [ ] Actual JavaScript/WASM transport and managed PowerShell gates pass.
+- [x] HC owning-seam regressions pass; native authority and final WASM fixtures independently reproduce baseline failures; six-run preserved-cache replay passes. CI transport requirement has source/contract evidence pending hosted execution.
+- [x] Delegated source and diffs personally inspected; independent Sol review GO at final source 665b7d6b.
+- [x] Managed all-target check and full default suite pass: 1,641 attempted / 1,641 PASS / 0 FAIL / 64 explicit SKIP; default rustdoc also passes.
+- [x] Actual generated default Node/WASM package and API check pass: 10 assertions PASS / 0 FAIL / 2 private-corpus SKIP; all 29 PowerShell files PASS.
 - [x] Fresh C# oracle evidence recorded separately: staged 27 PASS / one exact known FAIL / one changed zero-width identity FAIL, upstream43 PASS, filtermirror9 PASS; strict overall exit26 preserved.
-- [ ] Review ledger distinguishes fixed findings, unresolved oracle divergence, and explicit Foma/FST deferrals.
+- [x] Review ledger distinguishes fixed HC findings, notAssessed generation completeness, unresolved oracle divergence/catalog backlog, and explicit Foma/FST deferrals.
+
+The authorized integration/release phase follows this local verification checkpoint: fast-forward and push main, verify Rust CI at its exact tip, then dispatch and verify CI Release 0.5.2. The workflow owns the version stamp, tag and four platform artifacts.
