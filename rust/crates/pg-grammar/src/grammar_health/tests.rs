@@ -1,13 +1,144 @@
 use super::*;
+
+#[test]
+fn schema_four_supplies_owned_advice_for_every_registered_code() {
+    let codes = GrammarHealthCode::ALL.iter().cloned().chain(
+        ImportWarningCode::ALL
+            .iter()
+            .map(|code| GrammarHealthCode::ImportWarning(code.wire().to_string())),
+    );
+    for code in codes {
+        let diagnostic = match &code {
+            GrammarHealthCode::ImportWarning(wire) => GrammarHealthDiagnostic::from_import_warning(
+                &pg_snapshot::Warning::new(
+                    ImportWarningCode::from_wire_or_unregistered(wire),
+                    "Producer detail.",
+                )
+                .with_subject(
+                    FwObjectRef::new(FwClass::Project)
+                        .name("Project settings")
+                        .project_settings(),
+                ),
+            ),
+            _ => GrammarHealthDiagnostic::checked(
+                code.clone(),
+                "Producer detail.".to_string(),
+                vec![GrammarHealthSubject::from_source(
+                    FwObjectRef::new(FwClass::Project)
+                        .name("Project settings")
+                        .project_settings(),
+                )],
+            ),
+        };
+        let value =
+            serde_json::to_value(GrammarHealthReport::new(vec![diagnostic]).unwrap()).unwrap();
+        assert_eq!(value["schema_version"], 4);
+        assert_eq!(value["locale"], "en");
+        let finding = &value["diagnostics"][0];
+        assert!(
+            finding["explanation"]
+                .as_str()
+                .is_some_and(|text| !text.trim().is_empty()),
+            "{}",
+            code.wire()
+        );
+        assert!(
+            finding["guidance"]
+                .as_str()
+                .is_some_and(|text| !text.trim().is_empty()),
+            "{}",
+            code.wire()
+        );
+        assert!(finding.get("help_path").is_some());
+        assert!(finding["fieldworks_places"].is_array());
+    }
+}
+
+#[test]
+fn unknown_code_preserves_message_without_invented_advice() {
+    let warning = pg_snapshot::Warning::new(
+        ImportWarningCode::from_wire_or_unregistered("future.code"),
+        "New finding.",
+    )
+    .with_subject(
+        FwObjectRef::new(FwClass::Project)
+            .name("Project settings")
+            .project_settings(),
+    );
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+            .unwrap();
+    let value = serde_json::to_value(&report).unwrap();
+    assert!(value["diagnostics"][0].get("explanation").is_some());
+    assert!(value["diagnostics"][0]["explanation"].is_null());
+    assert!(value["diagnostics"][0]["guidance"].is_null());
+    assert_eq!(
+        GrammarHealthReport::from_json(&report.to_json().unwrap()).unwrap(),
+        report
+    );
+}
+
+#[test]
+fn schema_four_reader_rejects_inconsistent_summary_and_navigation() {
+    let warning = pg_snapshot::Warning::new(
+        ImportWarningCode::PhonemeNoRepresentation,
+        "Missing spelling.",
+    )
+    .with_subject(
+        pg_snapshot::FwObjectRef::new(FwClass::PhPhoneme)
+            .guid("12345678-1234-1234-1234-123456789abc")
+            .name("a"),
+    );
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+            .unwrap()
+            .with_fieldworks_project(FieldWorksProject {
+                name: Some("Demo".to_string()),
+                source: Some(FieldWorksProjectSource::Argument),
+            });
+    let original = serde_json::to_value(&report).unwrap();
+    let mut invalid = original.clone();
+    invalid["summary"][0]["count"] = serde_json::json!(9);
+    assert!(GrammarHealthReport::from_json(&invalid.to_string()).is_err());
+    let mut invalid = original.clone();
+    invalid["diagnostics"][0]["subjects"][0]["fieldworks"]["url"] =
+        serde_json::json!("https://example.invalid/");
+    assert!(GrammarHealthReport::from_json(&invalid.to_string()).is_err());
+    let mut invalid = original;
+    invalid["diagnostics"][0]["scope"] = serde_json::json!("project_settings");
+    assert!(GrammarHealthReport::from_json(&invalid.to_string()).is_err());
+}
+
+#[test]
+fn affix_without_slot_explains_partial_behavior_and_carries_help() {
+    let diagnostic = GrammarHealthDiagnostic::checked(
+        GrammarHealthCode::InflectionalAffixWithoutTemplateSlot,
+        "No template slot.".to_string(),
+        vec![GrammarHealthSubject::from_source(
+            FwObjectRef::new(FwClass::MoInflAffMsa).name("Affix"),
+        )],
+    );
+    let value = serde_json::to_value(diagnostic).unwrap();
+    assert!(value["explanation"]
+        .as_str()
+        .is_some_and(|text| text.contains("partial")));
+    assert!(value["help_body"]
+        .as_str()
+        .is_some_and(|text| text.contains("Affix Templates")));
+    assert!(!value["explanation"]
+        .as_str()
+        .unwrap()
+        .contains("never adds"));
+}
 use crate::grammar_health_presentation::fieldworks_link_from_identity;
 use pg_shape::ShapeBuilder;
 
 #[test]
-fn grammar_health_report_uses_v3_envelope() {
+fn grammar_health_report_uses_v4_envelope() {
     let report = GrammarHealthReport::new(Vec::new()).expect("empty report is valid");
     let json = serde_json::to_value(report).expect("report serializes");
 
-    assert_eq!(json["schema_version"], 3);
+    assert_eq!(json["schema_version"], 4);
     assert!(json["fieldworks_project"].is_object());
     assert!(json["summary"].is_array());
     assert!(json["diagnostics"].is_array());
@@ -98,7 +229,10 @@ fn import_warning_constructor_preserves_source_identity_without_compiled_ids() {
     assert_eq!(diagnostic.origin, DiagnosticOrigin::Import);
     assert_eq!(diagnostic.level, DiagnosticLevel::Info);
     assert_eq!(diagnostic.message, "Unused natural class.");
-    assert_eq!(diagnostic.guidance, None);
+    assert!(diagnostic
+        .guidance
+        .as_deref()
+        .is_some_and(|text| text.contains("No change") || text.contains("no change")));
     assert_eq!(diagnostic.subjects[0].internal_id, None);
     assert_eq!(diagnostic.subjects[0].title, "unnamed natural class");
     assert_eq!(
@@ -142,7 +276,8 @@ fn import_warning_uses_human_group_name_and_table_guidance() {
     let guidance = diagnostic
         .guidance
         .expect("import metadata supplies guidance");
-    assert!(guidance.contains(pg_snapshot::fieldworks_paths::GRAMMAR_CATEGORY_AFFIX_TEMPLATES));
+    assert!(guidance.contains(pg_snapshot::fieldworks_paths::GRAMMAR_CATEGORY_EDIT));
+    assert!(guidance.contains("Affix Templates"));
 }
 
 #[test]
@@ -189,10 +324,10 @@ fn import_warning_guidance_template_uses_its_subject_name() {
 
     let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
 
-    assert_eq!(
-        diagnostic.guidance.as_deref(),
-        Some("In Grammar > Environments, correct the expression for phonological environment 'bad environment'.")
-    );
+    let guidance = diagnostic.guidance.as_deref().unwrap();
+    assert!(guidance.contains("Grammar > Environments"));
+    assert!(guidance.contains("bad environment"));
+    assert!(!guidance.contains("{subject}"));
 }
 
 #[test]
@@ -310,8 +445,8 @@ fn every_import_warning_code_has_exactly_one_metadata_entry() {
         }
         if let Some(guidance) = metadata.guidance {
             assert!(
-                guidance.contains(" > "),
-                "{code:?} guidance must use a FieldWorks path: {guidance}"
+                !guidance.trim().is_empty(),
+                "{code:?} must supply actionable advice or an explicit no-change explanation"
             );
         }
     }
@@ -371,10 +506,6 @@ fn import_warning_guidance_uses_the_tool_that_edits_each_object() {
             "Lists > Variant Types",
         ),
         (
-            ImportWarningCode::NullAffixSegmentFailed,
-            "Lists > Variant Types",
-        ),
-        (
             ImportWarningCode::StemNameBuildFailed,
             "Grammar > Category Edit",
         ),
@@ -383,19 +514,7 @@ fn import_warning_guidance_uses_the_tool_that_edits_each_object() {
             "Grammar > Category Edit",
         ),
         (
-            ImportWarningCode::BoundaryMorphMarkerUnresolved,
-            "Words > Edit Parser Parameters...",
-        ),
-        (
             ImportWarningCode::FwdataInvalidParserParameter,
-            "Words > Edit Parser Parameters...",
-        ),
-        (
-            ImportWarningCode::InvalidSourceActiveParser,
-            "Words > Edit Parser Parameters...",
-        ),
-        (
-            ImportWarningCode::StrataCustomUnsupported,
             "Words > Edit Parser Parameters...",
         ),
         (
@@ -466,7 +585,7 @@ fn two_segments_share_feature_bundle_reports_both_by_name() {
     assert!(diagnostic.message.contains("share the same feature values"));
     assert_eq!(
         diagnostic.guidance.as_deref(),
-        Some("In Grammar > Phonemes, assign distinct feature values to these phonemes.")
+        Some(diagnostic_advice(&diagnostic.code).unwrap().guidance)
     );
     assert!(matches!(
         &diagnostic.subjects[0],
@@ -672,7 +791,7 @@ fn affix_process_rule_insert_segments_undeclared_reports_diagnostic() {
     );
     assert_eq!(
         diagnostics[0].guidance.as_deref(),
-        Some("In Lexicon > Lexicon Edit, correct the affix form or add the missing phoneme in Grammar > Phonemes.")
+        Some(diagnostic_advice(&diagnostics[0].code).unwrap().guidance)
     );
 }
 
@@ -764,7 +883,7 @@ fn compounding_rule_insert_segments_undeclared_reports_diagnostic() {
     );
     assert_eq!(
         diagnostics[0].guidance.as_deref(),
-        Some("In Grammar > Compound Rules, correct the rule or add the missing phoneme in Grammar > Phonemes.")
+        Some(diagnostic_advice(&diagnostics[0].code).unwrap().guidance)
     );
 }
 
@@ -943,7 +1062,7 @@ fn partial_template_rule_referenced_twice_reports_once() {
     );
     assert_eq!(
         diagnostics[0].guidance.as_deref(),
-        Some("In Grammar > Category Edit > the category's Affix Templates, check the affix's category and template slot assignments.")
+        Some(diagnostic_advice(&diagnostics[0].code).unwrap().guidance)
     );
 }
 
@@ -1148,6 +1267,10 @@ fn report_rejects_an_incomplete_diagnostic_instead_of_dropping_it() {
         origin: DiagnosticOrigin::Check,
         message: " ".to_string(),
         guidance: None,
+        explanation: None,
+        help_path: None,
+        help_body: None,
+        fieldworks_places: Vec::new(),
         subjects: Vec::new(),
     };
     let error = GrammarHealthReport::new(vec![incomplete])
@@ -1207,6 +1330,8 @@ fn authored_names_resembling_ids_are_accepted_as_titles() {
         "slot2",
         "entry3",
         "Rule #1",
+        "table#2nd edition",
+        "mrule#1a",
         "0a1b2c3d-0000-0000-0000-000000000000",
     ] {
         assert!(!is_internal_subject_label(authored), "{authored}");
@@ -1335,7 +1460,7 @@ fn log_and_json_render_the_same_guid_fixture_with_explicit_link_state() {
     assert!(!log_with_guids.contains("entry0"));
 
     let json = render_json(&with_project).expect("structured diagnostics serialize");
-    assert!(json.contains("\"schema_version\": 3"));
+    assert!(json.contains("\"schema_version\": 4"));
     assert!(json.contains("\"group_name\": \"Stem has no category\""));
     assert!(json.contains("silfw://localhost/link?database%3DFieldWorks+Demo%26tool%3DlexiconEdit"));
     assert!(json.contains("\"internal_id\""));
@@ -1705,11 +1830,15 @@ fn report_constructor_owns_validation_and_renderers_accept_only_reports() {
         origin: DiagnosticOrigin::Check,
         message: "partial".to_string(),
         guidance: None,
+        explanation: None,
+        help_path: None,
+        help_body: None,
+        fieldworks_places: Vec::new(),
         subjects: vec![],
     };
-    let report = GrammarHealthReport::new(vec![diagnostic])
-        .expect("project diagnostics may have no subjects");
-    assert_eq!(report.len(), 1);
+    let error = GrammarHealthReport::new(vec![diagnostic])
+        .expect_err("every diagnostic must name a structured subject");
+    assert_eq!(error.field.as_deref(), Some("subjects"));
 }
 
 #[test]
@@ -1742,17 +1871,187 @@ fn diagnostics_reference_is_current() {
 }
 
 #[test]
+fn diagnostic_page_background_is_independent_of_help_source_line_endings() {
+    const LF_HELP: &str = " First paragraph.\n\n```text\nexample\n```\n\nLast paragraph. \n";
+    const CRLF_HELP: &str =
+        " First paragraph.\r\n\r\n```text\r\nexample\r\n```\r\n\r\nLast paragraph. \r\n";
+
+    for code in registered_diagnostic_codes() {
+        let mut advice = diagnostic_advice(&code).expect("registered code has owned advice");
+        advice.help_body = Some(LF_HELP);
+        let expected = render_diagnostic_page(&code, advice.clone());
+        assert!(expected.contains(
+            "## Background\n\nFirst paragraph.\n\n```text\nexample\n```\n\nLast paragraph.\n"
+        ));
+
+        advice.help_body = Some(CRLF_HELP);
+        assert_eq!(
+            render_diagnostic_page(&code, advice),
+            expected,
+            "{} must render the same page from LF and CRLF help",
+            code.wire()
+        );
+    }
+}
+
+#[test]
+fn every_registered_code_has_a_current_version_pinnable_page() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let pages = render_diagnostic_pages();
+    assert_eq!(
+        pages.len(),
+        GrammarHealthCode::ALL.len() + ImportWarningCode::ALL.len()
+    );
+    let mut stale = Vec::new();
+    for (relative, expected) in pages {
+        let path = root.join(&relative);
+        let actual = std::fs::read_to_string(&path).unwrap_or_default();
+        let code = path.file_stem().unwrap().to_str().unwrap();
+        assert!(expected.starts_with(&format!("# {code}\n")));
+        assert!(!expected.contains("<!--"));
+        assert!(!expected.contains("{subject}"));
+        if actual.replace("\r\n", "\n") != expected {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, expected).unwrap();
+            stale.push(relative);
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "stale/missing diagnostic pages regenerated; review and commit: {stale:?}"
+    );
+}
+
+#[test]
+fn unresolved_subject_never_becomes_a_live_link_when_project_is_supplied() {
+    let guid = "00000000-0000-0000-0000-000000000042";
+    let warning = Warning::new(
+        ImportWarningCode::SnapshotDanglingReference,
+        "Missing environment.",
+    )
+    .with_subject(
+        FwObjectRef::new(FwClass::PhEnvironment)
+            .guid(guid)
+            .unresolved_reference(),
+    );
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+            .unwrap()
+            .with_fieldworks_project(FieldWorksProject {
+                name: Some("Demo".to_string()),
+                source: Some(FieldWorksProjectSource::Argument),
+            });
+    assert!(matches!(
+        report[0].subjects[0].fieldworks,
+        FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::UnresolvedReference,
+            ..
+        }
+    ));
+    assert_eq!(
+        GrammarHealthReport::from_json(&report.to_json().unwrap()).unwrap(),
+        report
+    );
+}
+
+#[test]
+fn schema_four_preserves_producer_advice_across_catalog_versions() {
+    let warning = Warning::new(
+        ImportWarningCode::PhonemeNoRepresentation,
+        "Missing spelling.",
+    )
+    .with_subject(FwObjectRef::new(FwClass::PhPhoneme).name("a"));
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+            .unwrap();
+    for wire in ["grammar.phoneme.no-representation", "future.finding"] {
+        let mut value = serde_json::to_value(&report).unwrap();
+        value["locale"] = serde_json::json!("fr");
+        let finding = &mut value["diagnostics"][0];
+        finding["code"] = serde_json::json!(wire);
+        finding["title"] = serde_json::json!("Producer title");
+        finding["group_name"] = serde_json::json!("Producer title");
+        finding["explanation"] = serde_json::json!("Explanation from the producing tag.");
+        finding["help_body"] = serde_json::json!("**Background** from that tag.");
+        finding["guidance"] = serde_json::json!("Advice from that tag.");
+        finding["help_path"] = serde_json::json!(format!("docs/diagnostics/{wire}.md"));
+        finding["fieldworks_places"] =
+            serde_json::json!([{ "tool": "phonemeEdit", "field": "Representation" }]);
+        value["summary"][0]["code"] = serde_json::json!(wire);
+        value["summary"][0]["group_name"] = serde_json::json!("Producer title");
+        let decoded = GrammarHealthReport::from_json(&value.to_string()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), value);
+    }
+}
+
+#[test]
+fn subjectless_import_findings_are_rejected_instead_of_claiming_project_scope() {
+    let warning = Warning::new(
+        ImportWarningCode::SnapshotDanglingReference,
+        "Missing item.",
+    );
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
+    let error = GrammarHealthReport::new(vec![diagnostic]).unwrap_err();
+    assert_eq!(error.field.as_deref(), Some("subjects"));
+    let explicit = warning.with_subject(
+        FwObjectRef::new(FwClass::Project)
+            .name("Demo")
+            .project_settings(),
+    );
+    let report = GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(
+        &explicit,
+    )])
+    .unwrap();
+    assert_eq!(report[0].scope(), "project_settings");
+}
+
+#[test]
+fn report_rejects_conflicting_metadata_for_one_code() {
+    let warning = Warning::new(
+        ImportWarningCode::SnapshotDanglingReference,
+        "Missing item.",
+    )
+    .with_subject(
+        FwObjectRef::new(FwClass::PhEnvironment)
+            .guid("missing-environment")
+            .name("Absent")
+            .unresolved_reference(),
+    );
+    let first = GrammarHealthDiagnostic::from_import_warning(&warning);
+    let mut conflicting = first.clone();
+    conflicting.group_name = "Different title".to_string();
+    assert_eq!(
+        GrammarHealthReport::new(vec![first.clone(), conflicting])
+            .unwrap_err()
+            .field
+            .as_deref(),
+        Some("code")
+    );
+    let mut conflicting = first.clone();
+    conflicting.level = DiagnosticLevel::Info;
+    assert!(GrammarHealthReport::new(vec![first, conflicting]).is_err());
+}
+
+#[test]
 fn every_code_has_a_level_and_errors_carry_guidance() {
     let reference = render_diagnostics_reference();
     for code in GrammarHealthCode::ALL {
         assert!(
-            reference.contains(&format!("`{}`", code.wire())),
+            reference.contains(&format!(
+                "[{}](diagnostics/{}.md)",
+                code.wire(),
+                code.wire()
+            )),
             "{code:?}"
         );
     }
     for code in ImportWarningCode::ALL {
         assert!(
-            reference.contains(&format!("`{}`", code.wire())),
+            reference.contains(&format!(
+                "[{}](diagnostics/{}.md)",
+                code.wire(),
+                code.wire()
+            )),
             "{code:?}"
         );
         let metadata = pg_snapshot::import_warning_metadata(code.clone());
@@ -1771,4 +2070,196 @@ fn every_code_has_a_level_and_errors_carry_guidance() {
         GrammarHealthCode::UndeclaredSegment.level(),
         DiagnosticLevel::Warning
     );
+}
+
+#[test]
+fn report_normalizes_manually_supplied_navigation() {
+    let mut diagnostic = GrammarHealthDiagnostic::from_import_warning(
+        &Warning::new(
+            ImportWarningCode::PhonemeNoRepresentation,
+            "Missing spelling.",
+        )
+        .with_subject(FwObjectRef::new(FwClass::PhPhoneme).name("a")),
+    );
+    diagnostic.subjects[0].fieldworks = FieldWorksLink::Available {
+        guid: "invalid-navigation-guid".to_string(),
+        tool: String::new(),
+        url: String::new(),
+    };
+    let report = GrammarHealthReport::new(vec![diagnostic]).unwrap();
+    assert!(matches!(
+        report[0].subjects[0].fieldworks,
+        FieldWorksLink::Unavailable { .. }
+    ));
+    assert_eq!(
+        GrammarHealthReport::from_json(&report.to_json().unwrap()).unwrap(),
+        report
+    );
+}
+
+#[test]
+fn report_rejects_conflicting_stable_advice_and_missing_reference_identity() {
+    let warning = Warning::new(
+        ImportWarningCode::SnapshotDanglingReference,
+        "Missing item.",
+    )
+    .with_subject(
+        FwObjectRef::new(FwClass::PhEnvironment)
+            .guid("missing-environment")
+            .name("Absent")
+            .unresolved_reference(),
+    );
+    let first = GrammarHealthDiagnostic::from_import_warning(&warning);
+    let mut conflicting = first.clone();
+    conflicting.explanation = Some("A different meaning.".to_string());
+    assert_eq!(
+        GrammarHealthReport::new(vec![first.clone(), conflicting])
+            .unwrap_err()
+            .field
+            .as_deref(),
+        Some("code")
+    );
+    let mut conflicting = first.clone();
+    conflicting
+        .fieldworks_places
+        .push(place("lexiconEdit", "Form"));
+    assert!(GrammarHealthReport::new(vec![first.clone(), conflicting]).is_err());
+    let report = GrammarHealthReport::new(vec![first.clone()]).unwrap();
+    let mut value = serde_json::to_value(&report).unwrap();
+    value["diagnostics"][0]["subjects"][0]["kind"] = serde_json::json!("FutureClass");
+    assert_eq!(
+        GrammarHealthReport::from_json(&value.to_string())
+            .unwrap_err()
+            .field
+            .as_deref(),
+        Some("subjects.kind")
+    );
+    let mut invalid = first;
+    invalid.subjects[0].guid = None;
+    assert!(GrammarHealthReport::new(vec![invalid]).is_err());
+}
+
+#[test]
+fn raw_owner_classes_use_verified_fieldworks_destinations() {
+    for (class, tool) in [("PartOfSpeech", "posEdit"), ("LexEntryRef", "lexiconEdit")] {
+        let warning = Warning::new(
+            ImportWarningCode::SnapshotDanglingReference,
+            "Missing reference.",
+        )
+        .with_subject(
+            FwObjectRef::new(FwClass::Unknown)
+                .source_class(class)
+                .guid("12345678-1234-1234-1234-123456789abc")
+                .name("Named owner"),
+        );
+        let report =
+            GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+                .unwrap()
+                .with_fieldworks_project(FieldWorksProject {
+                    name: Some("Demo".to_string()),
+                    source: Some(FieldWorksProjectSource::Argument),
+                });
+        assert!(
+            matches!(&report[0].subjects[0].fieldworks, FieldWorksLink::Available { tool: actual, .. } if actual == tool)
+        );
+        assert_eq!(
+            GrammarHealthReport::from_json(&report.to_json().unwrap()).unwrap(),
+            report
+        );
+    }
+}
+
+#[test]
+fn report_rejects_blank_open_target_before_project_attachment() {
+    let warning = pg_snapshot::Warning::new(
+        ImportWarningCode::PhonemeNoRepresentation,
+        "Missing spelling.",
+    )
+    .with_subject(
+        FwObjectRef::new(FwClass::PhPhoneme)
+            .guid("12345678-1234-1234-1234-123456789abc")
+            .name("a")
+            .opens_in("phonemeEdit", "12345678-1234-1234-1234-123456789abc"),
+    );
+    let diagnostic = GrammarHealthDiagnostic::from_import_warning(&warning);
+    let report = GrammarHealthReport::new(vec![diagnostic.clone()]).unwrap();
+    let mut invalid = serde_json::to_value(&report).unwrap();
+    invalid["diagnostics"][0]["subjects"][0]["opens_in"]["tool"] = serde_json::json!("");
+    assert!(GrammarHealthReport::from_json(&invalid.to_string()).is_err());
+    let mut invalid = diagnostic;
+    invalid.subjects[0].opens_in.as_mut().unwrap().tool.clear();
+    assert!(GrammarHealthReport::new(vec![invalid]).is_err());
+    let rebound = GrammarHealthReport::from_json(&report.to_json().unwrap())
+        .unwrap()
+        .with_fieldworks_project(FieldWorksProject {
+            name: Some("Demo".to_string()),
+            source: Some(FieldWorksProjectSource::Argument),
+        });
+    assert!(matches!(
+        &rebound.diagnostics()[0].subjects[0].fieldworks,
+        FieldWorksLink::Available { tool, .. } if tool == "phonemeEdit"
+    ));
+}
+
+#[test]
+fn unknown_diagnostic_codes_must_be_valid_stable_identifiers_without_help() {
+    let warning = pg_snapshot::Warning::new(
+        ImportWarningCode::from_wire_or_unregistered("future.code"),
+        "Producer detail.",
+    )
+    .with_subject(
+        FwObjectRef::new(FwClass::Project)
+            .name("Project settings")
+            .project_settings(),
+    );
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+            .unwrap();
+    for code in ["", "../x", "future code", "future/code"] {
+        let mut value = serde_json::to_value(&report).unwrap();
+        value["diagnostics"][0]["code"] = serde_json::json!(code);
+        value["summary"][0]["code"] = serde_json::json!(code);
+        assert!(
+            GrammarHealthReport::from_json(&value.to_string()).is_err(),
+            "{code:?}"
+        );
+    }
+}
+
+#[test]
+fn unknown_code_advice_is_complete_or_absent_independently_of_the_local_catalog() {
+    let warning = pg_snapshot::Warning::new(
+        ImportWarningCode::from_wire_or_unregistered("future.code"),
+        "Producer detail.",
+    )
+    .with_subject(
+        FwObjectRef::new(FwClass::Project)
+            .name("Project settings")
+            .project_settings(),
+    );
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(&warning)])
+            .unwrap();
+    for field in [
+        "explanation",
+        "guidance",
+        "help_path",
+        "help_body",
+        "fieldworks_places",
+    ] {
+        let mut value = serde_json::to_value(&report).unwrap();
+        value["diagnostics"][0][field] = if field == "fieldworks_places" {
+            serde_json::json!([{ "tool": "lexiconEdit", "field": "Allomorphs" }])
+        } else {
+            serde_json::json!(if field == "help_path" {
+                "docs/diagnostics/future.code.md"
+            } else {
+                "Producer advice."
+            })
+        };
+        assert!(
+            GrammarHealthReport::from_json(&value.to_string()).is_err(),
+            "{field}"
+        );
+    }
 }

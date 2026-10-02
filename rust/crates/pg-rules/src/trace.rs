@@ -27,7 +27,10 @@
 //! Ordinary tracing retains its existing snapshots without formatting this extra evidence.
 use std::cell::{Cell, RefCell};
 
-use pg_grammar_model::model::{MRuleId, PRuleId, StratumId, TemplateId};
+use pg_grammar_model::model::{
+    AllomorphId, CoOccurrenceAdjacency, LexEntryId, MRuleId, MorphemeId, MprSet, PRuleId,
+    StratumId, TemplateId,
+};
 
 use crate::word::Word;
 
@@ -44,6 +47,12 @@ impl TraceHandle {
     /// `TraceSink` and never valid to pass to one — `NoopSink`'s methods that would read it are
     /// all `unreachable!()`, so this value is never actually looked up.
     pub const DUMMY: TraceHandle = TraceHandle(u32::MAX);
+
+    /// The document-local arena index, for linking published events within one trace.
+    pub fn index(self) -> u32 {
+        assert_ne!(self, Self::DUMMY, "a dummy handle has no document identity");
+        self.0
+    }
 }
 
 /// `TraceType` (C# `TraceType`, `Trace.cs`, 19 real values ported 1:1 by name; no `None` variant —
@@ -75,7 +84,7 @@ pub enum TraceType {
 
 /// The rule/stratum/template/language object that produced a `TraceNode` (C#'s `IHCRule Source`,
 /// replacing C#'s OOP polymorphism with a closed enum — every concrete source kind is already known
-/// to the grammar model, per §4.3). `None` for the leaf-most `Successful`/`Failed`/`Blocked` nodes,
+/// to the grammar model, per §4.3). `None` for the leaf-most `Successful`/`Failed` nodes,
 /// which are keyed off a `Word`, not a rule (matching C#'s `Source == null` for those).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraceSource {
@@ -127,13 +136,105 @@ pub enum FailureReason {
     MaxApplicationCount,
 }
 
+/// The lookup strategy that produced a lexical lookup's candidate roots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LookupMode {
+    Lexicon,
+    Guesser,
+}
+
+/// A completed lookup result. `match_count` counts root candidates materialized and returned by
+/// the lookup owner: grammar entries are expanded by allomorph, while guesser outputs are counted
+/// after the guesser's per-pattern deduplication. It does not count distinct lexical entries or
+/// candidates accepted by later synthesis and validity gates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LookupResult {
+    pub mode: LookupMode,
+    pub match_count: usize,
+}
+
+/// The evaluator's outcome for one slot on one retained template path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TemplateSlotStatus {
+    Applied,
+    OptionalSkipped,
+    RequiredUnfilled,
+    NotReached,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TemplateSlotOutcome {
+    pub slot_index: usize,
+    pub status: TemplateSlotStatus,
+    pub selected_rule: Option<MRuleId>,
+}
+
+/// The completion gate that rejected this candidate; it does not identify a prior causal event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PartialParseCause {
+    RemainingAnalyzedRules,
+    RemainingRulesInStratum,
+    NonFinalTemplateAppliedLast,
+    ApplicableTemplatesNotApplied,
+}
+
+/// Runtime identity captured by the rejecting owner, resolved only for display.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraceObject {
+    Allomorph(AllomorphId),
+    Morpheme(MorphemeId),
+    MorphRule(MRuleId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnvironmentResult {
+    pub index: usize,
+    pub require: bool,
+    pub accepted: bool,
+    pub source_id: Option<String>,
+    pub authored_text: Option<String>,
+}
+
+/// A typed payload whose operands come from one existing rejection computation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RejectionEvidence {
+    SyntacticFeatures {
+        object: TraceObject,
+        required: pg_featstruct::FeatureStruct,
+        actual: pg_featstruct::FeatureStruct,
+    },
+    MprFeatures {
+        object: TraceObject,
+        required: MprSet,
+        excluded: MprSet,
+        actual: MprSet,
+    },
+    CoOccurrence {
+        object: TraceObject,
+        constraint_owner: TraceObject,
+        rule_index: usize,
+        require: bool,
+        adjacency: CoOccurrenceAdjacency,
+        others: Vec<TraceObject>,
+        actual: Vec<TraceObject>,
+    },
+    Environments {
+        object: TraceObject,
+        constraint_owner: TraceObject,
+        start: u32,
+        end: u32,
+        alternatives: Vec<EnvironmentResult>,
+    },
+}
+
 /// Evidence captured by the rejection owner, without re-evaluating a predicate.
 /// Values are display representations of the actual gate inputs, not new parser decisions.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FailureContext {
     pub required: Option<String>,
     pub actual: Option<String>,
     pub environment: Option<String>,
+    pub evidence: Option<RejectionEvidence>,
 }
 
 /// One node in the trace tree (C# `Trace`, `Trace.cs`). `input`/`output` are owned snapshots (see
@@ -150,6 +251,12 @@ pub struct TraceNode {
     pub output: Option<Word>,
     pub failure_reason: Option<FailureReason>,
     pub failure_context: Option<FailureContext>,
+    /// Present only when rich trace capture recorded the lookup's completed output.
+    pub lookup_result: Option<LookupResult>,
+    pub template_slots: Option<Vec<TemplateSlotOutcome>>,
+    pub partial_parse_cause: Option<PartialParseCause>,
+    /// On a `Blocked` node, the family entry whose seed replaced the rule's output.
+    pub blocked_by_entry: Option<LexEntryId>,
     pub children: Vec<TraceHandle>,
 }
 
@@ -163,6 +270,10 @@ impl TraceNode {
             output: None,
             failure_reason: None,
             failure_context: None,
+            lookup_result: None,
+            template_slots: None,
+            partial_parse_cause: None,
+            blocked_by_entry: None,
             children: Vec::new(),
         }
     }
@@ -194,9 +305,50 @@ pub trait TraceSink {
         false
     }
 
+    /// Opt-in owner facts beyond rejection operands, including completed lookup and slot results.
+    fn captures_details(&self) -> bool {
+        false
+    }
+
+    fn end_unapply_template_with_slots(
+        &self,
+        _parent: TraceHandle,
+        _template: TemplateId,
+        _output: &Word,
+        _unapplied: bool,
+        _slots: &[TemplateSlotOutcome],
+    ) -> TraceHandle {
+        panic!("this trace sink cannot capture template slot outcomes");
+    }
+
+    fn end_apply_template_with_slots(
+        &self,
+        _parent: TraceHandle,
+        _template: TemplateId,
+        _output: &Word,
+        _applied: bool,
+        _slots: &[TemplateSlotOutcome],
+    ) -> TraceHandle {
+        panic!("this trace sink cannot capture template slot outcomes");
+    }
+
+    fn failed_partial_parse(
+        &self,
+        _parent: TraceHandle,
+        _word: &Word,
+        _cause: PartialParseCause,
+    ) -> TraceHandle {
+        panic!("this trace sink cannot capture partial parse causes");
+    }
+
     /// Called only after the owner has emitted the exact failed event.
     fn set_failure_context(&self, _event: TraceHandle, _context: FailureContext) {
         panic!("this trace sink cannot capture failure context");
+    }
+
+    /// Attach the result from the lexical lookup owner after its candidate list is fully built.
+    fn complete_lexical_lookup(&self, _event: TraceHandle, _result: LookupResult) {
+        panic!("this trace sink cannot capture lexical lookup results");
     }
 
     /// Mint the root node for one `parse_word` call (`AnalyzeWord`). Returns the handle later events
@@ -353,8 +505,19 @@ pub trait TraceSink {
         &self,
         parent: TraceHandle,
         rule: MRuleId,
+        subrule: i32,
         input: &Word,
+        reason: FailureReason,
     ) -> TraceHandle;
+    fn compounding_rule_unapplied(
+        &self,
+        _parent: TraceHandle,
+        _rule: MRuleId,
+        _subrule: i32,
+        _output: &Word,
+    ) -> TraceHandle {
+        panic!("this trace sink cannot record compound analysis results");
+    }
     fn compounding_rule_not_applied(
         &self,
         parent: TraceHandle,
@@ -367,9 +530,16 @@ pub trait TraceSink {
     /// lexicon path and P11's guesser pattern-match path reuse this exact hook).
     fn lexical_lookup(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle;
 
-    /// A rule that would have applied again but was blocked by the "don't re-apply to your own
-    /// output" guard.
-    fn blocked(&self, parent: TraceHandle, rule: MRuleId, output: &Word) -> TraceHandle;
+    /// An applied rule's output was replaced by `by_entry`, an entry in the root's lexical family
+    /// whose syntactic features the output subsumes (C# `Word.CheckBlocking`). `output` is the
+    /// replacement word.
+    fn blocked(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        output: &Word,
+        by_entry: LexEntryId,
+    ) -> TraceHandle;
 
     fn successful(&self, parent: TraceHandle, word: &Word) -> TraceHandle;
     fn failed(&self, parent: TraceHandle, word: &Word, reason: FailureReason) -> TraceHandle;
@@ -530,7 +700,9 @@ impl TraceSink for NoopSink {
         &self,
         _p: TraceHandle,
         _r: MRuleId,
+        _s: i32,
         _i: &Word,
+        _reason: FailureReason,
     ) -> TraceHandle {
         unreachable!()
     }
@@ -546,7 +718,7 @@ impl TraceSink for NoopSink {
     fn lexical_lookup(&self, _p: TraceHandle, _s: StratumId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
-    fn blocked(&self, _p: TraceHandle, _r: MRuleId, _o: &Word) -> TraceHandle {
+    fn blocked(&self, _p: TraceHandle, _r: MRuleId, _o: &Word, _e: LexEntryId) -> TraceHandle {
         unreachable!()
     }
     fn successful(&self, _p: TraceHandle, _w: &Word) -> TraceHandle {
@@ -646,6 +818,59 @@ impl TraceSink for TreeTraceSink {
         self.capture_failure_context
     }
 
+    fn captures_details(&self) -> bool {
+        self.capture_failure_context
+    }
+
+    fn end_unapply_template_with_slots(
+        &self,
+        parent: TraceHandle,
+        template: TemplateId,
+        output: &Word,
+        unapplied: bool,
+        slots: &[TemplateSlotOutcome],
+    ) -> TraceHandle {
+        assert!(
+            self.captures_details(),
+            "template slot capture was not enabled"
+        );
+        let event = self.end_unapply_template(parent, template, output, unapplied);
+        self.nodes.borrow_mut()[event.0 as usize].template_slots = Some(slots.to_vec());
+        event
+    }
+
+    fn end_apply_template_with_slots(
+        &self,
+        parent: TraceHandle,
+        template: TemplateId,
+        output: &Word,
+        applied: bool,
+        slots: &[TemplateSlotOutcome],
+    ) -> TraceHandle {
+        assert!(
+            self.captures_details(),
+            "template slot capture was not enabled"
+        );
+        let event = self.end_apply_template(parent, template, output, applied);
+        self.nodes.borrow_mut()[event.0 as usize].template_slots = Some(slots.to_vec());
+        event
+    }
+
+    fn failed_partial_parse(
+        &self,
+        parent: TraceHandle,
+        word: &Word,
+        cause: PartialParseCause,
+    ) -> TraceHandle {
+        assert!(
+            self.captures_details(),
+            "partial parse capture was not enabled"
+        );
+        let event = self.failed(parent, word, FailureReason::PartialParse);
+        self.nodes.borrow_mut()[event.0 as usize].partial_parse_cause = Some(cause);
+        event
+    }
+
     fn set_failure_context(&self, event: TraceHandle, context: FailureContext) {
         assert!(
             self.capture_failure_context,
@@ -658,6 +883,20 @@ impl TraceSink for TreeTraceSink {
             "failure context requires a failed event"
         );
         node.failure_context = Some(context);
+    }
+    fn complete_lexical_lookup(&self, event: TraceHandle, result: LookupResult) {
+        assert!(
+            self.capture_failure_context,
+            "lexical lookup result capture was not enabled"
+        );
+        let mut nodes = self.nodes.borrow_mut();
+        let node = &mut nodes[event.0 as usize];
+        assert_eq!(node.type_, TraceType::LexicalLookup);
+        assert!(
+            node.lookup_result.is_none(),
+            "lexical lookup completion already recorded"
+        );
+        node.lookup_result = Some(result);
     }
     #[inline(always)]
     fn is_tracing(&self) -> bool {
@@ -803,6 +1042,9 @@ impl TraceSink for TreeTraceSink {
         );
         n.output = Some(output.clone());
         n.failure_reason = Some(FailureReason::PartialParse);
+        if self.captures_details() {
+            n.partial_parse_cause = Some(PartialParseCause::NonFinalTemplateAppliedLast);
+        }
         self.append(parent, n)
     }
     fn applicable_templates_not_applied(
@@ -817,6 +1059,9 @@ impl TraceSink for TreeTraceSink {
         );
         n.input = Some(input.clone());
         n.failure_reason = Some(FailureReason::PartialParse);
+        if self.captures_details() {
+            n.partial_parse_cause = Some(PartialParseCause::ApplicableTemplatesNotApplied);
+        }
         self.append(parent, n)
     }
 
@@ -952,13 +1197,32 @@ impl TraceSink for TreeTraceSink {
         &self,
         parent: TraceHandle,
         rule: MRuleId,
+        subrule: i32,
         input: &Word,
+        reason: FailureReason,
     ) -> TraceHandle {
         let mut n = TraceNode::new(
             TraceType::CompoundingRuleAnalysis,
             TraceSource::MorphRule(rule),
         );
         n.input = Some(input.clone());
+        n.subrule_index = (subrule >= 0).then_some(subrule);
+        n.failure_reason = Some(reason);
+        self.append(parent, n)
+    }
+    fn compounding_rule_unapplied(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        subrule: i32,
+        output: &Word,
+    ) -> TraceHandle {
+        let mut n = TraceNode::new(
+            TraceType::CompoundingRuleAnalysis,
+            TraceSource::MorphRule(rule),
+        );
+        n.output = Some(output.clone());
+        n.subrule_index = (subrule >= 0).then_some(subrule);
         self.append(parent, n)
     }
     fn compounding_rule_not_applied(
@@ -983,9 +1247,16 @@ impl TraceSink for TreeTraceSink {
         self.append(parent, n)
     }
 
-    fn blocked(&self, parent: TraceHandle, rule: MRuleId, output: &Word) -> TraceHandle {
+    fn blocked(
+        &self,
+        parent: TraceHandle,
+        rule: MRuleId,
+        output: &Word,
+        by_entry: LexEntryId,
+    ) -> TraceHandle {
         let mut n = TraceNode::new(TraceType::Blocked, TraceSource::MorphRule(rule));
         n.output = Some(output.clone());
+        n.blocked_by_entry = Some(by_entry);
         self.append(parent, n)
     }
 

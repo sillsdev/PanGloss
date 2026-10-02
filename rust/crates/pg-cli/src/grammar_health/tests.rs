@@ -69,7 +69,7 @@ fn clean_grammar_serializes_to_an_empty_versioned_report() {
     assert!(report.is_empty());
     let json = render_json(&report).expect("empty diagnostics serialize");
     let report_value: serde_json::Value = serde_json::from_str(&json).expect("versioned report");
-    assert_eq!(report_value["schema_version"], 3);
+    assert_eq!(report_value["schema_version"], 4);
     assert!(report_value["diagnostics"].is_array());
     assert_eq!(
         render_level_counts(&report),
@@ -83,7 +83,7 @@ fn json_is_versioned_by_default() {
     let report = check_grammar_health(&g, None).expect("clean grammar checks");
     let json = render_json(&report).expect("structured diagnostics serialize");
     let value: serde_json::Value = serde_json::from_str(&json).expect("structured JSON");
-    assert_eq!(value["schema_version"], 3);
+    assert_eq!(value["schema_version"], 4);
     assert!(value["diagnostics"].is_array());
 }
 
@@ -105,10 +105,24 @@ fn command_emits_versioned_json_by_default() {
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
             .expect("the report is still written");
-    assert_eq!(report["schema_version"], 3);
+    assert_eq!(report["schema_version"], 4);
     assert!(report["diagnostics"].is_array());
     assert_eq!(report["diagnostics"][0]["level"], "error");
     assert_eq!(report["diagnostics"].as_array().unwrap().len(), 1);
+    assert_eq!(report["locale"], "en");
+    let finding = &report["diagnostics"][0];
+    assert!(finding["explanation"]
+        .as_str()
+        .is_some_and(|text| !text.trim().is_empty()));
+    assert_eq!(
+        finding["help_path"],
+        "docs/diagnostics/hc-stem-no-grammatical-category.md"
+    );
+    assert!(finding["help_body"]
+        .as_str()
+        .is_some_and(|text| text.contains("stem")));
+    assert_eq!(finding["fieldworks_places"][0]["tool"], "lexiconEdit");
+    assert_eq!(finding["subjects"][0]["status"], "object");
 
     let _ = fs::remove_file(grammar_path);
     let _ = fs::remove_file(output_path);
@@ -142,7 +156,7 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
             .expect("the report is still written");
 
-    assert_eq!(report["schema_version"], 3);
+    assert_eq!(report["schema_version"], 4);
     let error_count = report["diagnostics"]
         .as_array()
         .expect("diagnostics array")

@@ -293,6 +293,32 @@ fn mpr_gate_reason(
     None
 }
 
+fn capture_mpr_failure(
+    trace: &dyn TraceSink,
+    event: TraceHandle,
+    object: crate::trace::TraceObject,
+    required: pg_grammar_model::model::MprSet,
+    excluded: pg_grammar_model::model::MprSet,
+    actual: pg_grammar_model::model::MprSet,
+) {
+    if trace.captures_failure_context() {
+        trace.set_failure_context(
+            event,
+            crate::trace::FailureContext {
+                required: Some(format!("{required:?}")),
+                actual: Some(format!("{actual:?}")),
+                evidence: Some(crate::trace::RejectionEvidence::MprFeatures {
+                    object,
+                    required,
+                    excluded,
+                    actual,
+                }),
+                ..Default::default()
+            },
+        );
+    }
+}
+
 /// Un-apply `rule` to `word` (analysis); empty if it cannot be un-applied. Recompiles on every
 /// call — see `synthesize`'s doc for why. The real pipeline calls `analyze_cached`.
 pub fn analyze(g: &Grammar, word: &Word, rule: &MorphRuleDef) -> Vec<Word> {
@@ -659,7 +685,7 @@ fn ana_compound_cached_traced(
     parent: TraceHandle,
 ) -> Vec<Word> {
     let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
-        trace.morphological_rule_not_unapplied(
+        trace.compounding_rule_not_unapplied(
             parent,
             mrid,
             -1,
@@ -697,13 +723,13 @@ fn ana_compound_cached_traced(
             )
         };
         for mut w in matches {
-            w.trace = Some(trace.morphological_rule_unapplied(parent, mrid, i as i32, &w));
+            w.trace = Some(trace.compounding_rule_unapplied(parent, mrid, i as i32, &w));
             output.push(w);
         }
         let n = (output.len() - before) as u64;
         record_mrule_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
         if output.len() == before {
-            trace.morphological_rule_not_unapplied(
+            trace.compounding_rule_not_unapplied(
                 parent,
                 mrid,
                 i as i32,
@@ -722,13 +748,13 @@ fn ana_compound_cached_traced(
 /// entries in document order for one in the SAME stratum whose lexical syntactic FS is subsumed by
 /// this word's accumulated syntactic FS. The first match wins and the word is replaced by a fresh
 /// root-level word seeded from that entry's primary allomorph, discarding every rule applied so
-/// far. `None` when not blocked. Compounding outputs carry the head's root allomorph forward, so no
+/// far. Returns the blocking entry with its seed, or `None` when not blocked. Compounding outputs carry the head's root allomorph forward, so no
 /// rule-kind branch is needed.
 ///
 /// The guessed-root arm is load-bearing, not defensive: blocking runs on the output of any
 /// blockable rule, including one applied over a guessed root, and indexing `allomorph_owners` with
 /// the sentinel panics. `None` is also the faithful answer — a guessed root has no family.
-pub(crate) fn check_blocking(g: &Grammar, w: &Word) -> Option<Word> {
+pub(crate) fn check_blocking(g: &Grammar, w: &Word) -> Option<(LexEntryId, Word)> {
     let root_id = w.root_allomorph?;
     if root_id == AllomorphId::GUESSED {
         return None;
@@ -746,7 +772,7 @@ pub(crate) fn check_blocking(g: &Grammar, w: &Word) -> Option<Word> {
             continue;
         }
         if pg_featstruct::subsumes(&w.syn_fs, g.fs_interner.get(entry.syn_fs)) {
-            return Some(seed_from_entry(g, other, w.real_fs.clone()));
+            return Some((other, seed_from_entry(g, other, w.real_fs.clone())));
         }
     }
     None
@@ -759,7 +785,7 @@ fn apply_blocking(g: &Grammar, words: Vec<Word>, blockable: bool) -> Vec<Word> {
     }
     words
         .into_iter()
-        .map(|w| check_blocking(g, &w).unwrap_or(w))
+        .map(|w| check_blocking(g, &w).map_or(w, |(_, replacement)| replacement))
         .collect()
 }
 
@@ -778,9 +804,9 @@ fn apply_blocking_traced(
     words
         .into_iter()
         .map(|w| match check_blocking(g, &w) {
-            Some(mut new_word) => {
+            Some((entry, mut new_word)) => {
                 if trace.is_tracing() {
-                    trace.blocked(parent, mrid, &new_word);
+                    trace.blocked(parent, mrid, &new_word, entry);
                 }
                 new_word.trace = w.trace;
                 new_word
@@ -1694,7 +1720,16 @@ fn synth_affix_cached(
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
-                trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
+                let event =
+                    trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
+                capture_mpr_failure(
+                    trace,
+                    event,
+                    crate::trace::TraceObject::Allomorph(allo.id),
+                    allo.required_mpr,
+                    allo.excluded_mpr,
+                    word.mpr,
+                );
             }
             continue;
         }
@@ -1902,7 +1937,16 @@ fn synth_realizational_cached(
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
-                trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
+                let event =
+                    trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
+                capture_mpr_failure(
+                    trace,
+                    event,
+                    crate::trace::TraceObject::Allomorph(allo.id),
+                    allo.required_mpr,
+                    allo.excluded_mpr,
+                    word.mpr,
+                );
             }
             continue;
         }
@@ -3049,11 +3093,19 @@ fn synth_compound_cached(
     }
     if !rule.head_prod_restrictions_mpr.compound_match(word.mpr) {
         if trace.is_tracing() {
-            trace.compounding_rule_not_applied(
+            let event = trace.compounding_rule_not_applied(
                 parent,
                 mrid,
                 word,
                 FailureReason::HeadProdRestrictMprFeatures,
+            );
+            capture_mpr_failure(
+                trace,
+                event,
+                crate::trace::TraceObject::MorphRule(mrid),
+                rule.head_prod_restrictions_mpr,
+                pg_grammar_model::model::MprSet::EMPTY,
+                word.mpr,
             );
         }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -3069,7 +3121,16 @@ fn synth_compound_cached(
     for (i, sr) in rule.subrules.iter().enumerate() {
         if let Some(reason) = mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
-                trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
+                let event =
+                    trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
+                capture_mpr_failure(
+                    trace,
+                    event,
+                    crate::trace::TraceObject::MorphRule(mrid),
+                    sr.required_mpr,
+                    sr.excluded_mpr,
+                    word.mpr,
+                );
             }
             continue;
         }

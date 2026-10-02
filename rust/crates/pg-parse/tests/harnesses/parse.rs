@@ -39,6 +39,8 @@ mod trace_gate;
 mod trace_phon_gate;
 #[path = "../trace_rule_sequence_gate.rs"]
 mod trace_rule_sequence_gate;
+#[path = "../trace_template_outcomes.rs"]
+mod trace_template_outcomes;
 #[path = "../xample_migration_differential_gate.rs"]
 mod xample_migration_differential_gate;
 #[path = "../zero_width_morph_identity.rs"]

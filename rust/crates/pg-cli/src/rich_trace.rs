@@ -1,11 +1,14 @@
-//! Renders opt-in rich trace-details v2 envelopes.
+//! Renders opt-in rich trace-details v3 envelopes.
 
 use std::time::Duration;
 
 use pg_grammar::model::Grammar;
 use pg_parse::{project_parse_analysis, ParseOutcome, ParseProjectionError};
 use pg_rules::stats::{self, Direction, ObjectKind, OverlayPhase, StatsRow};
-use pg_rules::trace::{FailureContext, TraceHandle, TraceSource, TraceType, TreeTraceSink};
+use pg_rules::trace::{
+    FailureContext, LookupMode, RejectionEvidence, TraceHandle, TraceObject, TraceSource,
+    TraceType, TreeTraceSink,
+};
 use pg_rules::word::{RuntimeRoot, Word};
 use pg_snapshot::{AffixSlot, InflectionClass, Msa, PartOfSpeech, Snapshot};
 use serde_json::{json, Value};
@@ -527,7 +530,7 @@ fn attempted_morphs(grammar: &Grammar, metadata: &TraceMetadata, word: &Word) ->
     }).collect()
 }
 fn source_identity(grammar: &Grammar, source: TraceSource) -> Value {
-    use pg_grammar::stats_identity::{morph_rule_identity, phon_rule_identity, IdentityQuality};
+    use pg_grammar::stats_identity::{morph_rule_identity, phon_rule_identity};
     let (kind, identity) = match source {
         TraceSource::Language | TraceSource::None => return Value::Null,
         TraceSource::Stratum(id) => {
@@ -539,12 +542,19 @@ fn source_identity(grammar: &Grammar, source: TraceSource) -> Value {
         TraceSource::MorphRule(id) => ("morphRule", morph_rule_identity(grammar, id)),
         TraceSource::PhonRule(id) => ("phonRule", phon_rule_identity(grammar, id)),
     };
-    let quality = match identity.quality {
+    json!({ "kind": kind, "id": identity.key, "quality": identity_quality(identity.quality) })
+}
+fn identity_quality(quality: pg_grammar::stats_identity::IdentityQuality) -> &'static str {
+    use pg_grammar::stats_identity::IdentityQuality;
+    match quality {
         IdentityQuality::Authored => "authored",
         IdentityQuality::Structural => "grammar-local",
         IdentityQuality::Synthetic => "synthetic",
-    };
-    json!({ "kind": kind, "id": identity.key, "quality": quality })
+    }
+}
+fn lex_entry_identity_json(grammar: &Grammar, entry: pg_grammar::model::LexEntryId) -> Value {
+    let identity = pg_grammar::stats_identity::lex_entry_identity(grammar, entry);
+    json!({ "kind": "lexEntry", "id": identity.key, "quality": identity_quality(identity.quality) })
 }
 fn outcome_status(type_: TraceType) -> &'static str {
     match type_ {
@@ -584,7 +594,94 @@ fn failure_context(reason: pg_rules::trace::FailureReason) -> Value {
     })
 }
 
+fn trace_object_identity(grammar: &Grammar, object: TraceObject) -> Value {
+    match object {
+        TraceObject::MorphRule(id) => source_identity(grammar, TraceSource::MorphRule(id)),
+        TraceObject::Allomorph(id) => {
+            let identity = pg_grammar::stats_identity::allomorph_identity(grammar, id);
+            let mut value = json!({"kind": "allomorph", "id": identity.key, "quality": identity_quality(identity.quality)});
+            if let Some(source) = grammar.allomorph_sources.get(id.0 as usize) {
+                value["sourceFormIds"] = json!(source.form_guids);
+            }
+            value
+        }
+        TraceObject::Morpheme(id) => {
+            let identity = pg_grammar::stats_identity::morpheme_identity(grammar, id);
+            json!({"kind": "morpheme", "id": identity.key, "quality": identity_quality(identity.quality)})
+        }
+    }
+}
+
+fn mpr_operands(grammar: &Grammar, set: pg_grammar::model::MprSet) -> Value {
+    json!((0..64)
+        .filter(|&index| set.0 & (1u64 << index) != 0)
+        .map(|index| {
+            match grammar.mpr_features.get(index) {
+                Some(feature) => {
+                    json!({"id": feature.xml_id, "name": feature.name, "quality": "authored"})
+                }
+                None => json!({"index": index, "quality": "grammar-local"}),
+            }
+        })
+        .collect::<Vec<_>>())
+}
+
+fn rejection_evidence(grammar: &Grammar, evidence: &RejectionEvidence) -> Value {
+    match evidence {
+        RejectionEvidence::SyntacticFeatures {
+            object,
+            required,
+            actual,
+        } => json!({
+            "kind": "syntacticFeatures", "failedObject": trace_object_identity(grammar, *object),
+            "operands": {"representation": "grammar-local-feature-struct", "required": required, "actual": actual},
+        }),
+        RejectionEvidence::MprFeatures {
+            object,
+            required,
+            excluded,
+            actual,
+        } => json!({
+            "kind": "mprFeatures", "failedObject": trace_object_identity(grammar, *object),
+            "operands": {"required": mpr_operands(grammar, *required), "excluded": mpr_operands(grammar, *excluded), "actual": mpr_operands(grammar, *actual)},
+        }),
+        RejectionEvidence::CoOccurrence {
+            object,
+            constraint_owner,
+            rule_index,
+            require,
+            adjacency,
+            others,
+            actual,
+        } => json!({
+            "kind": "coOccurrence", "failedObject": trace_object_identity(grammar, *object),
+            "constraintOwner": trace_object_identity(grammar, *constraint_owner),
+            "ruleIndex": rule_index, "require": require, "adjacency": format!("{adjacency:?}"),
+            "others": others.iter().map(|id| trace_object_identity(grammar, *id)).collect::<Vec<_>>(),
+            "actual": actual.iter().map(|id| trace_object_identity(grammar, *id)).collect::<Vec<_>>(),
+        }),
+        RejectionEvidence::Environments {
+            object,
+            constraint_owner,
+            start,
+            end,
+            alternatives,
+        } => json!({
+            "kind": "environments", "failedObject": trace_object_identity(grammar, *object),
+            "constraintOwner": trace_object_identity(grammar, *constraint_owner),
+            "span": {"start": start, "end": end, "coordinateSystem": "interior-inclusive"},
+            "alternatives": alternatives.iter().map(|env| json!({
+                "index": env.index, "require": env.require, "accepted": env.accepted,
+                "sourceIdentity": env.source_id.as_ref().map(|id| json!({"kind":"environment","id":id,"quality":"authored"})),
+                "authoredText": env.authored_text,
+                "sourceStatus": if env.source_id.is_some() || env.authored_text.is_some() {"captured"} else {"unavailable"},
+            })).collect::<Vec<_>>(),
+        }),
+    }
+}
+
 fn captured_failure_context(
+    grammar: &Grammar,
     reason: pg_rules::trace::FailureReason,
     context: &FailureContext,
 ) -> Value {
@@ -596,6 +693,9 @@ fn captured_failure_context(
         object.insert("environment".to_string(), json!(context.environment));
         object.insert("source".to_string(), json!("rejection-owner"));
         object.remove("unavailableReason");
+        if let Some(evidence) = &context.evidence {
+            object.insert("evidence".into(), rejection_evidence(grammar, evidence));
+        }
     }
     value
 }
@@ -611,6 +711,10 @@ fn decorate_trace_node(
         return Ok(());
     };
     object.insert(
+        "stepId".to_string(),
+        json!(format!("step-{}", handle.index())),
+    );
+    object.insert(
         "sourceIdentity".to_string(),
         source_identity(grammar, node.source),
     );
@@ -621,10 +725,54 @@ fn decorate_trace_node(
             "eventType": format!("{:?}", node.type_),
         }),
     );
+    if let Some(entry) = node.blocked_by_entry {
+        object.insert("blockReason".to_string(), json!("LexicalFamilyReplacement"));
+        object.insert(
+            "blockedByEntry".to_string(),
+            lex_entry_identity_json(grammar, entry),
+        );
+    }
+    if let Some(result) = node.lookup_result {
+        object.insert(
+            "lookupResult".to_string(),
+            json!({
+                "status": if result.match_count == 0 { "zeroMatches" } else { "matches" },
+                "completed": true,
+                "matchCount": result.match_count,
+                "mode": match result.mode {
+                    LookupMode::Lexicon => "lexicon",
+                    LookupMode::Guesser => "guesser",
+                },
+            }),
+        );
+    }
+    if let Some(cause) = node.partial_parse_cause {
+        object.insert("partialParseCause".to_string(), json!(format!("{cause:?}")));
+    }
+    if let Some(slots) = &node.template_slots {
+        let TraceSource::Template(tid) = node.source else {
+            return Err("slot outcomes require a template event".into());
+        };
+        object.insert("slots".to_string(), json!(slots.iter().map(|slot| json!({
+            "slotIndex": slot.slot_index,
+            "slotIdentity": {"kind": "templateSlot", "template": source_identity(grammar, node.source), "index": slot.slot_index, "quality": "grammar-local"},
+            "name": grammar.templates[tid.0 as usize].slots[slot.slot_index].name,
+            "status": format!("{:?}", slot.status),
+            "selectedRule": slot.selected_rule.map(|id| source_identity(grammar, TraceSource::MorphRule(id))),
+        })).collect::<Vec<_>>()));
+    }
+    if node.type_ == TraceType::PhonologicalRuleAnalysis && node.output.is_none() {
+        object.insert(
+            "nonUnapplicationReason".to_string(),
+            json!({
+                "status": "unavailable", "unavailableReason": "evaluator-returned-boolean-only",
+            }),
+        );
+    }
     if let Some(reason) = node.failure_reason {
         let context = node.failure_context.as_ref().map_or_else(
             || failure_context(reason),
-            |context| captured_failure_context(reason, context),
+            |context| captured_failure_context(grammar, reason, context),
         );
         object.insert("failureContext".to_string(), context);
     } else {
@@ -721,13 +869,13 @@ fn envelope_json(
         total.saturating_add(row.counters.self_time_ns)
     });
     serde_json::to_string(&json!({
-        "schemaVersion": "pangloss.trace-details.v2",
+        "schemaVersion": "pangloss.trace-details.v3",
         "word": word,
         "provenance": {
             "parser": {
                 "name": "pangloss",
                 "version": env!("CARGO_PKG_VERSION"),
-                "traceProfile": "pangloss.trace-details.v2"
+                "traceProfile": "pangloss.trace-details.v3"
             },
             "grammar": {
                 "name": metadata.grammar_name,

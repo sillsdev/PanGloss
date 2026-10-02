@@ -310,10 +310,12 @@ pub fn lexical_guess(
     parent: TraceHandle,
 ) -> Vec<Word> {
     // Mirrors `Morpher::lexical_lookup_filtered`'s trace hook (Morpher.cs:378-379): once per call, before pattern matching.
-    if trace.is_tracing() {
+    let lookup = if trace.is_tracing() {
         let node_parent = aw.trace.unwrap_or(parent);
-        trace.lexical_lookup(node_parent, aw.stratum, aw);
-    }
+        Some(trace.lexical_lookup(node_parent, aw.stratum, aw))
+    } else {
+        None
+    };
     let table = &g.char_tables[g.strata[aw.stratum.0 as usize].table.0 as usize];
     let feat_width = g.phon_features.len();
     let input_nodes = nodes_of(&aw.shape, table, feat_width);
@@ -365,6 +367,15 @@ pub fn lexical_guess(
             ];
             out.push(nw);
         }
+    }
+    if let Some(lookup) = lookup.filter(|_| trace.captures_details()) {
+        trace.complete_lexical_lookup(
+            lookup,
+            pg_rules::trace::LookupResult {
+                mode: pg_rules::trace::LookupMode::Guesser,
+                match_count: out.len(),
+            },
+        );
     }
     out
 }

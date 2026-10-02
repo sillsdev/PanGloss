@@ -175,7 +175,7 @@ pub fn compile_project_with_options_and_import_warnings(
     }
     let mut issues = external_issues.clone();
 
-    let (grammar, recorder, substrate, substrate_issues) =
+    let (grammar, recorder, substrate, substrate_issues, owner_warnings) =
         compile_project_recording(snapshot, options.substrate)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
@@ -184,8 +184,17 @@ pub fn compile_project_with_options_and_import_warnings(
     issues.extend(recorded_issues.iter().cloned());
     issues.extend(substrate_issues.iter().cloned());
     let mut warnings: Vec<_> = import_warnings.into_iter().collect();
-    warnings.extend(warnings::from_issues(snapshot, &external_issues));
-    warnings.extend(warnings::from_issues(snapshot, &recorded_issues));
+    warnings.extend(warnings::from_import_issues(
+        snapshot,
+        &external_issues,
+        &warnings,
+    ));
+    warnings.extend(warnings::from_import_issues(
+        snapshot,
+        &recorded_issues,
+        &owner_warnings,
+    ));
+    warnings.extend(owner_warnings);
     warnings.extend(warnings::from_issues(snapshot, &substrate_issues));
     warnings::add_open_targets(snapshot, &mut warnings);
     let warnings = warnings::deduplicate(warnings);
@@ -209,16 +218,17 @@ pub fn compile_project_with_options_and_import_warnings(
     })
 }
 
-/// What [`compile_project_recording`] yields: the grammar and its three recording seams.
+/// What [`compile_project_recording`] yields: the grammar, recording seams, and owner-published warning subjects.
 pub(crate) type CompiledProject = (
     Grammar,
     SelectionRecorder,
     SubstrateReport,
     Vec<ConversionIssue>,
+    Vec<pg_snapshot::Warning>,
 );
 
 /// As [`compile_project`], but also returns the [`SelectionRecorder`], [`SubstrateReport`], and
-/// substrate-only issues -- the seams a later slice's measured API and [`compile_project_with`]
+/// substrate-only issues and owner warnings -- the seams the measured API and [`compile_project_with`]
 /// read. Recording happens before
 /// `reachability::compact_mrules`/`trim_unreachable_morpheme_coocurrence`/`natclass::compact_to_referenced`
 /// run, so `represented` is a pre-compaction claim, not a claim about the returned `Grammar` after
@@ -339,6 +349,7 @@ pub(crate) fn compile_project_recording(
         default_vernacular_ws: snapshot.project.vernacular_writing_systems.first().cloned(),
         default_analysis_ws: snapshot.project.analysis_writing_systems.first().cloned(),
         recorder: RefCell::new(recorder),
+        owner_warnings: RefCell::new(Vec::new()),
         lineage: RefCell::new(lineage),
         pending_rule_refusals: RefCell::new(Vec::new()),
     };
@@ -424,6 +435,7 @@ pub(crate) fn compile_project_recording(
     }
     strata_assign_co_occurrence(snapshot, &ctx, &mut acc);
     // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
+    let owner_warnings = ctx.owner_warnings.into_inner();
     let mut recorder = ctx.recorder.into_inner();
     let lineage = ctx.lineage.into_inner();
     let pending_rule_refusals = ctx.pending_rule_refusals.into_inner();
@@ -519,7 +531,13 @@ pub(crate) fn compile_project_recording(
 
     grammar.final_template_prune_facts()?;
 
-    Ok((grammar, recorder, substrate_report, substrate_issues))
+    Ok((
+        grammar,
+        recorder,
+        substrate_report,
+        substrate_issues,
+        owner_warnings,
+    ))
 }
 
 /// Ad-hoc co-occurrence rules resolved against the now-complete `acc.allomorph_guid_index`/`acc.msa_guid_index` registries; a dangling reference is a warning, never a hard failure.
@@ -787,6 +805,8 @@ pub(crate) struct Ctx<'a> {
     pub default_analysis_ws: Option<String>,
     /// The snapshot-to-grammar selection recorder every owner below writes its considered/selected/represented/rejected/synthesized calls into; behind a `RefCell` since `Ctx` itself is shared by shared reference everywhere.
     pub recorder: RefCell<SelectionRecorder>,
+    /// Rich source facts published by the deciding owner, supplementing the coarse inventory issue.
+    pub owner_warnings: RefCell<Vec<pg_snapshot::Warning>>,
     /// Which owner published which `represented` keys, read only by `inventory::finalize`.
     pub lineage: RefCell<Lineage>,
     /// Co-occurrence refusals whose primary is affix-owned, so reachability (running after this
@@ -869,6 +889,18 @@ impl Ctx<'_> {
         self.reject_with_source(key, code, class, None, msg);
     }
 
+    pub(crate) fn reject_with_subjects(
+        &self,
+        key: InventoryKey,
+        code: ImportWarningCode,
+        class: IssueClass,
+        warning: pg_snapshot::Warning,
+    ) {
+        assert_eq!(warning.code, code.wire());
+        self.reject(key, code, class, warning.message.clone());
+        self.owner_warnings.borrow_mut().push(warning);
+    }
+
     pub(crate) fn reject_with_source(
         &self,
         key: InventoryKey,
@@ -946,12 +978,13 @@ impl Ctx<'_> {
         message: String,
         mrule: MRuleId,
     ) {
+        let source = warnings::source_for_key(self.snapshot, &key);
         self.defer_rule_refusal(
             key,
             ConversionIssue {
                 code,
                 class,
-                source: None,
+                source,
                 fatal: true,
                 message,
             },

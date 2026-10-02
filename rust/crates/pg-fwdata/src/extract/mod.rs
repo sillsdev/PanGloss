@@ -12,8 +12,9 @@ pub(crate) mod codes;
 pub(crate) use inventory::tracked_kind;
 
 use pg_snapshot::{
-    ConversionProvenance, ImportWarningCode, InventoryKey, IssueClass, SelectionRecorder, Snapshot,
-    SourceInventoryStatus, SourceRef, Warning, CONVERSION_PROVENANCE_SCHEMA_VERSION,
+    ConversionProvenance, FwClass, FwObjectRef, ImportWarningCode, InventoryKey, IssueClass,
+    SelectionRecorder, Snapshot, SourceInventoryStatus, SourceRef, Warning,
+    CONVERSION_PROVENANCE_SCHEMA_VERSION,
 };
 
 use crate::{
@@ -33,6 +34,13 @@ pub struct Ctx<'a> {
     pub(crate) recorder: SelectionRecorder,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum ReferenceResolution<'a> {
+    Found(&'a Record),
+    WrongClass(&'a Record),
+    Missing,
+}
+
 impl<'a> Ctx<'a> {
     fn new(graph: &'a RawGraph) -> Self {
         let mut recorder = SelectionRecorder::default();
@@ -46,9 +54,45 @@ impl<'a> Ctx<'a> {
         }
     }
 
-    /// Record a warning: `code` is a stable short identifier naming the situation (see the `codes` module); `msg` is the human-readable prose.
-    pub fn warn(&mut self, code: ImportWarningCode, msg: impl Into<String>) {
-        self.warnings.push(Warning::new(code, msg));
+    pub(crate) fn warn_with_subjects(
+        &mut self,
+        code: ImportWarningCode,
+        msg: impl Into<String>,
+        subjects: impl IntoIterator<Item = FwObjectRef>,
+    ) {
+        let mut warning = Warning::new(code, msg);
+        warning.subjects.extend(subjects);
+        self.warnings.push(warning);
+    }
+
+    pub(crate) fn subject_for_record(&self, record: &Record, field: Option<&str>) -> FwObjectRef {
+        let name = record_name(record, self);
+        let mut subject = FwObjectRef::new(FwClass::from_wire(&record.class))
+            .guid(record.guid.clone())
+            .source_class(record.class.clone());
+        if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
+            subject = subject.name(name);
+        }
+        if let Some(field) = field {
+            subject = subject.field(field);
+        }
+        subject
+    }
+
+    pub(crate) fn unresolved_subject(
+        &self,
+        guid: &str,
+        want_class: &str,
+        field: Option<&str>,
+    ) -> FwObjectRef {
+        let mut subject = FwObjectRef::new(FwClass::from_wire(want_class))
+            .guid(guid)
+            .unresolved_reference()
+            .source_class(want_class);
+        if let Some(field) = field {
+            subject = subject.field(field);
+        }
+        subject
     }
 
     pub(crate) fn reject_with_warning(
@@ -101,30 +145,6 @@ impl<'a> Ctx<'a> {
         self.recorder.is_represented(key)
     }
 
-    /// Records `key` rejected and emits the SAME warning a caller would otherwise have emitted alone, so converting a warn-only site to also reject never changes warning prose or counts.
-    pub(crate) fn reject(
-        &mut self,
-        key: InventoryKey,
-        code: ImportWarningCode,
-        class: IssueClass,
-        fatal: bool,
-        source: Option<SourceRef>,
-        msg: impl Into<String>,
-    ) {
-        let msg = msg.into();
-        self.warn(code.clone(), msg.clone());
-        self.recorder.rejected(
-            key,
-            pg_snapshot::ConversionIssue {
-                code,
-                class,
-                source,
-                fatal,
-                message: msg,
-            },
-        );
-    }
-
     /// Records `key` rejected with no new warning, for a failure a caller has already warned about through another path (e.g. `Ctx::require` or `parser_params`'s own issues).
     pub(crate) fn record_rejected(
         &mut self,
@@ -134,21 +154,85 @@ impl<'a> Ctx<'a> {
         self.recorder.rejected(key, issue);
     }
 
-    /// Resolve `guid` expecting a specific class; warns and returns `None` if it is dangling or resolves to a surprising class.
-    pub fn require(&mut self, guid: &str, want_class: &str, context: &str) -> Option<&'a Record> {
+    pub(crate) fn require_from(
+        &mut self,
+        guid: &str,
+        want_class: &str,
+        context: &str,
+        owner: &Record,
+        field: &str,
+    ) -> Option<&'a Record> {
+        let resolution = self.resolve_reference(guid, want_class);
+        self.require_resolution(guid, want_class, context, resolution, (owner, field))
+    }
+
+    /// Shares one missing/wrong-class decision between diagnostics and extraction.
+    pub(crate) fn resolve_reference(
+        &self,
+        guid: &str,
+        want_class: &str,
+    ) -> ReferenceResolution<'a> {
         match self.get(guid) {
-            Some(r) if r.class == want_class => Some(r),
-            Some(r) => {
-                self.warn(
+            Some(record) if record.class == want_class => ReferenceResolution::Found(record),
+            Some(record) => ReferenceResolution::WrongClass(record),
+            None => ReferenceResolution::Missing,
+        }
+    }
+
+    pub(crate) fn subjects_for_reference(
+        &self,
+        guid: &str,
+        want_class: &str,
+        resolution: ReferenceResolution<'a>,
+        owner_field: (&Record, &str),
+    ) -> Vec<FwObjectRef> {
+        let (owner, field) = owner_field;
+        let mut subjects = vec![self.subject_for_record(owner, Some(field))];
+        match resolution {
+            ReferenceResolution::Found(record) => {
+                subjects.push(self.subject_for_record(record, Some(field)));
+            }
+            ReferenceResolution::WrongClass(record) => {
+                subjects.push(self.unresolved_subject(guid, want_class, Some(field)));
+                subjects.push(self.subject_for_record(record, Some(field)));
+            }
+            ReferenceResolution::Missing => {
+                subjects.push(self.unresolved_subject(guid, want_class, Some(field)));
+            }
+        }
+        subjects
+    }
+
+    pub(crate) fn require_resolution(
+        &mut self,
+        guid: &str,
+        want_class: &str,
+        context: &str,
+        resolution: ReferenceResolution<'a>,
+        owner_field: (&Record, &str),
+    ) -> Option<&'a Record> {
+        match resolution {
+            ReferenceResolution::Found(record) => Some(record),
+            ReferenceResolution::WrongClass(record) => {
+                let subjects =
+                    self.subjects_for_reference(guid, want_class, resolution, owner_field);
+                self.warn_with_subjects(
                     codes::UNEXPECTED_CLASS,
-                    format!("{context}: expected {want_class} but {guid} is {}", r.class),
+                    format!(
+                        "{context}: expected {want_class} but {guid} is {}",
+                        record.class
+                    ),
+                    subjects,
                 );
                 None
             }
-            None => {
-                self.warn(
+            ReferenceResolution::Missing => {
+                let subjects =
+                    self.subjects_for_reference(guid, want_class, resolution, owner_field);
+                self.warn_with_subjects(
                     codes::DANGLING_REFERENCE,
                     format!("{context}: dangling reference to {want_class} {guid}"),
+                    subjects,
                 );
                 None
             }
@@ -164,6 +248,39 @@ impl<'a> Ctx<'a> {
     pub fn best_vernacular(&self, forms: &[pg_snapshot::WsForm]) -> String {
         best_alt(forms, &self.vernacular_ws)
     }
+}
+
+fn record_name(record: &Record, ctx: &Ctx<'_>) -> Option<String> {
+    if record.class == "LexEntry" {
+        let citation = ctx.best_analysis(&record.node.ws_forms("CitationForm"));
+        if !citation.trim().is_empty() {
+            return Some(citation);
+        }
+        if let Some(name) = record
+            .node
+            .objsur_one("LexemeForm")
+            .and_then(|guid| ctx.get(&guid))
+            .map(|lexeme_form| ctx.best_vernacular(&lexeme_form.node.ws_forms("Form")))
+            .filter(|name| !name.trim().is_empty())
+        {
+            return Some(name);
+        }
+    }
+    let fields = match record.class.as_str() {
+        "LexEntry" => ["CitationForm", "Name", "Abbreviation"],
+        "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess" | "MoForm" => {
+            ["Form", "Name", "CitationForm"]
+        }
+        _ => ["Name", "Abbreviation", "Form"],
+    };
+    for field in fields {
+        let forms = record.node.ws_forms(field);
+        let name = ctx.best_analysis(&forms);
+        if !name.trim().is_empty() {
+            return Some(name);
+        }
+    }
+    None
 }
 
 fn best_alt(forms: &[pg_snapshot::WsForm], priority: &[String]) -> String {

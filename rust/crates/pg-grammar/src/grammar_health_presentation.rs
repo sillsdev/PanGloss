@@ -78,6 +78,21 @@ pub(crate) mod tool {
     pub const VARIANT_TYPES: &str = "variantEntryTypeEdit";
 }
 
+pub(crate) fn open_target_for_raw_class(
+    class: Option<&str>,
+    guid: Option<&str>,
+) -> Option<FwOpenTarget> {
+    let tool = match class? {
+        "PartOfSpeech" => tool::CATEGORY_EDIT,
+        "LexEntryRef" => tool::LEXICON_EDIT,
+        _ => return None,
+    };
+    Some(FwOpenTarget {
+        tool: tool.to_string(),
+        guid: guid?.to_string(),
+    })
+}
+
 /// Owned objects open through their owner (`RecordClerk.IndexOfObjOrChildOrParent`).
 fn verified_tool_for_class(class: FwClass) -> Option<&'static str> {
     match class {
@@ -164,7 +179,7 @@ pub(crate) fn fieldworks_identity(grammar: &Grammar, source: &FieldWorksSource) 
                     .and_then(|morpheme| grammar.morphemes.get(morpheme.0 as usize));
                 match info {
                     Some(info) if info.source_msa_guid.is_some() => (
-                        info.source_msa_class.unwrap_or(FwClass::Project),
+                        info.source_msa_class.unwrap_or(FwClass::Unknown),
                         info.source_msa_guid.as_deref(),
                     ),
                     Some(info) if info.source_infl_type_guid.is_some() => (

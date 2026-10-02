@@ -1,7 +1,8 @@
 //! Parses the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a string into a `ParserParameters` value, matching `HCLoader`'s constructor: `<HC>` may be entirely absent (e.g. an XAmple-configured project), `notOnClitics` then defaults true, `<CompoundRules>` is a sibling of `<HC>`, not nested inside it, and `<ActiveParser>`/`<XAmple>` are siblings read the same way.
 
 use pg_snapshot::{
-    ActiveParser, CompoundRuleMaxApplications, ParserParameters, Warning, XAmpleParameters,
+    ActiveParser, CompoundRuleMaxApplications, FwClass, FwObjectRef, ParserParameters, Warning,
+    XAmpleParameters,
 };
 
 use crate::node::parse_full_document;
@@ -82,10 +83,17 @@ pub fn parse_with_issues(
                 Some(value)
             }
             Err(_) => {
-                issues.push(Warning::new(
-                    codes::INVALID_PARSER_PARAMETER,
-                    format!("Parser parameter '{tag}' has an invalid numeric value."),
-                ));
+                issues.push(
+                    Warning::new(
+                        codes::INVALID_PARSER_PARAMETER,
+                        format!("Parser parameter '{tag}' has an invalid numeric value."),
+                    )
+                    .with_subject(
+                        FwObjectRef::new(FwClass::Project)
+                            .project_settings()
+                            .field(format!("XAmple.{tag}")),
+                    ),
+                );
                 presence.push((tag, false));
                 None
             }

@@ -9,6 +9,40 @@ pub(super) fn from_issues(snapshot: &Snapshot, issues: &[ConversionIssue]) -> Ve
         .collect()
 }
 
+pub(super) fn from_import_issues(
+    snapshot: &Snapshot,
+    issues: &[ConversionIssue],
+    imported: &[Warning],
+) -> Vec<Warning> {
+    issues
+        .iter()
+        .filter(|issue| {
+            if issue.source.is_none()
+                && issue.code == ImportWarningCode::FwdataInvalidParserParameter
+            {
+                return !imported.iter().any(|warning| {
+                    warning.code == issue.code.wire()
+                        && warning.subjects.iter().any(|subject| {
+                            subject.status == pg_snapshot::FwSubjectStatus::ProjectSettings
+                        })
+                });
+            }
+            !issue.source.as_ref().is_some_and(|source| {
+                let id =
+                    pg_snapshot::canonical_guid(&source.id).unwrap_or_else(|| source.id.clone());
+                imported.iter().any(|warning| {
+                    warning.code == issue.code.wire()
+                        && warning.subjects.iter().any(|subject| {
+                            subject.class == source.kind
+                                && subject.guid.as_deref() == Some(id.as_str())
+                        })
+                })
+            })
+        })
+        .map(|issue| from_issue(snapshot, issue))
+        .collect()
+}
+
 pub(super) fn deduplicate(warnings: impl IntoIterator<Item = Warning>) -> Vec<Warning> {
     let mut unique = Vec::new();
     for warning in warnings {
@@ -61,6 +95,42 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
     }
 
     let mut warning = Warning::from_conversion_issue(issue);
+    if matches!(
+        issue.code,
+        ImportWarningCode::FeatureConstraintUnresolved
+            | ImportWarningCode::FeatureConstraintPhonFeatureUnresolved
+    ) {
+        if let Some(subject) = warning.subjects.first_mut() {
+            *subject = subject.clone().source_class("PhFeatureConstraint");
+            if issue.code == ImportWarningCode::FeatureConstraintUnresolved {
+                *subject = subject.clone().unresolved_reference();
+            } else {
+                *subject = subject.clone().field("Feature");
+            }
+        }
+    }
+    if issue.code == ImportWarningCode::InvalidSourceMissingGuid {
+        if let Some(subject) = warning.subjects.first_mut() {
+            subject.guid = None;
+        }
+    }
+    if issue.source.is_none()
+        && matches!(
+            issue.code,
+            ImportWarningCode::SourceProvenanceUnknown
+                | ImportWarningCode::StrataCustomUnsupported
+                | ImportWarningCode::BoundaryMorphMarkerUnresolved
+                | ImportWarningCode::FwdataInvalidParserParameter
+        )
+    {
+        let mut subject = pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::Project)
+            .name(snapshot.project.name.clone())
+            .project_settings();
+        if issue.code == ImportWarningCode::StrataCustomUnsupported {
+            subject = subject.field("Strata");
+        }
+        warning.subjects.push(subject);
+    }
     if let Some(source) = issue.source.as_ref() {
         let inferred_segment =
             issue.code == super::issues::SUBSTRATE_INFERRED_SEGMENT_WITH_FEATURE_RULE;
@@ -160,12 +230,12 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                 }
                 ImportWarningCode::MsaNoRuleFormAllomorphs => {
                     warning.message = format!(
-                        "Grammatical analysis '{name}' has no affix form FieldWorks can use."
+                        "Grammatical analysis '{name}' has no affix form PanGloss can load."
                     );
                 }
                 ImportWarningCode::StemNameBuildFailed => {
                     warning.message = format!(
-                        "Stem name '{name}' could not be loaded; check its category and regions."
+                        "Stem allomorph label '{name}' could not be loaded; inspect its Feature Sets."
                     );
                 }
                 ImportWarningCode::AllomorphMorphTypeUnsupported => {
@@ -207,11 +277,11 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                                 .name(entry_name.clone()),
                         );
                         warning.message = format!(
-                            "Affix allomorph in lexical entry '{entry_name}' has no form to use in this affix analysis."
+                            "Affix allomorph in lexical entry '{entry_name}' cannot be used in this affix analysis: {}", issue.message
                         );
                     } else {
                         warning.message = format!(
-                            "Affix allomorph '{allomorph_name}' has no form to use in this affix analysis."
+                            "Affix allomorph '{allomorph_name}' cannot be used in this affix analysis: {}", issue.message
                         );
                     }
                 }
@@ -261,7 +331,10 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                     );
                 }
                 ImportWarningCode::TemplateNoSlots => {
-                    warning.message = format!("Affix template '{name}' has no slots.");
+                    warning.message = format!(
+                        "Affix template '{name}' cannot be loaded: {}",
+                        issue.message
+                    );
                 }
                 ImportWarningCode::TemplateSlotNoRules => {
                     warning.message =
@@ -279,12 +352,12 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                 }
                 ImportWarningCode::NullAffixSegmentFailed => {
                     warning.message = format!(
-                        "Entry inflection type '{name}' cannot be used to build its null-affix form; check its form and phoneme inventory."
+                        "Entry inflection type '{name}' cannot be used to build its null-affix form: {}", issue.message
                     );
                 }
                 ImportWarningCode::AllomorphUnsegmentable => {
                     warning.message = format!(
-                        "Allomorph '{name}' could not be segmented with this project's phonemes."
+                        "Allomorph '{name}' could not be segmented with this project's phonemes: {}", issue.message
                     );
                 }
                 ImportWarningCode::CircumfixMissingHalf => {
@@ -340,8 +413,13 @@ pub(super) fn source_for_key(
 ) -> Option<pg_snapshot::SourceRef> {
     use pg_snapshot::{InventoryIdentity, InventoryKind};
 
-    let InventoryIdentity::Object { guid } = &key.identity else {
-        return None;
+    let guid = match &key.identity {
+        InventoryIdentity::Object { guid } => guid,
+        InventoryIdentity::Attachment { owner_guid, .. }
+        | InventoryIdentity::Expansion { owner_guid, .. } => {
+            return Some(source_for_owner_guid(snapshot, owner_guid));
+        }
+        InventoryIdentity::Setting { .. } => return None,
     };
     let kind = match key.kind {
         InventoryKind::Entry | InventoryKind::EntryReference => pg_snapshot::FwClass::LexEntry,
@@ -358,6 +436,7 @@ pub(super) fn source_for_key(
         InventoryKind::Phoneme => pg_snapshot::FwClass::PhPhoneme,
         InventoryKind::BoundaryMarker => pg_snapshot::FwClass::PhBdryMarker,
         InventoryKind::NaturalClass => pg_snapshot::FwClass::PhNaturalClass,
+        InventoryKind::FeatureConstraint => pg_snapshot::FwClass::Unknown,
         InventoryKind::FeatureDefinition => {
             let systems = [
                 &snapshot.feature_systems.phonological,
@@ -422,6 +501,81 @@ pub(super) fn source_for_key(
         kind,
         id: guid.clone(),
     })
+}
+
+fn source_for_owner_guid(snapshot: &Snapshot, guid: &str) -> pg_snapshot::SourceRef {
+    use pg_snapshot::{FwClass, SourceRef};
+
+    let source = |kind| SourceRef {
+        kind,
+        id: guid.to_string(),
+    };
+    if snapshot
+        .lexicon
+        .entries
+        .iter()
+        .any(|entry| entry.guid == guid)
+    {
+        return source(FwClass::LexEntry);
+    }
+    if let Some(msa) = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.msas)
+        .find(|msa| msa.guid() == guid)
+    {
+        return source(msa.fw_class());
+    }
+    if snapshot
+        .lexicon
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.allomorphs)
+        .any(|allomorph| allomorph.guid == guid)
+    {
+        return source(FwClass::MoForm);
+    }
+    if template_exists(snapshot, guid) {
+        return source(FwClass::MoInflAffixTemplate);
+    }
+    if snapshot
+        .morphology
+        .compound_rules
+        .iter()
+        .any(|rule| rule.guid() == guid)
+    {
+        return source(FwClass::MoCompoundRule);
+    }
+    if let Some(kind) = snapshot.phonology.rules.iter().find_map(|rule| match rule {
+        pg_snapshot::phonology::PhonologicalRule::Rewrite(rule) if rule.guid == guid => {
+            Some(FwClass::PhRegularRule)
+        }
+        pg_snapshot::phonology::PhonologicalRule::Metathesis(rule) if rule.guid == guid => {
+            Some(FwClass::PhMetathesisRule)
+        }
+        _ => None,
+    }) {
+        return source(kind);
+    }
+
+    // Preserve the attachment owner GUID without guessing its class.
+    source(FwClass::Unknown)
+}
+
+fn template_exists(snapshot: &Snapshot, guid: &str) -> bool {
+    fn find(pos: &pg_snapshot::morphology::PartOfSpeech, guid: &str) -> bool {
+        pos.affix_templates
+            .iter()
+            .any(|template| template.guid == guid)
+            || pos.children.iter().any(|child| find(child, guid))
+    }
+
+    snapshot
+        .morphology
+        .parts_of_speech
+        .iter()
+        .any(|pos| find(pos, guid))
 }
 
 fn name_for_source(snapshot: &Snapshot, source: &pg_snapshot::SourceRef) -> Option<String> {
@@ -800,7 +954,7 @@ pub(super) fn add_open_targets(snapshot: &Snapshot, warnings: &mut [Warning]) {
         .iter_mut()
         .flat_map(|warning| warning.subjects.iter_mut())
     {
-        if subject.opens_in.is_some() {
+        if subject.status != pg_snapshot::FwSubjectStatus::Object || subject.opens_in.is_some() {
             continue;
         }
         let target = match subject.class {

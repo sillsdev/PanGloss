@@ -9,9 +9,10 @@ use pg_snapshot::{
 };
 
 use crate::model::{
-    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, EnvironmentDef, MRuleId,
-    MorphRuleDef, MorphemeId, MorphemeInfo, OutputAction, PartRef, PartialMorphemeReason, Pattern,
-    PatternNode, ReduplicationHint, SimpleContext, SourceMorphPlacement, StratumId,
+    AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, AllomorphOwner, EnvironmentDef,
+    EnvironmentSource, MRuleId, MorphRuleDef, MorphemeId, MorphemeInfo, OutputAction, PartRef,
+    PartialMorphemeReason, Pattern, PatternNode, ReduplicationHint, SimpleContext,
+    SourceMorphPlacement, StratumId,
 };
 
 use super::environment;
@@ -682,8 +683,8 @@ fn build_circumfix_allomorphs(
 
 /// `LoadCircumfixAffixProcessAllomorph`'s Lhs/environment split (HCLoader.cs:1276-1323): each conditioned half's inner (stem-adjacent) context becomes literal nodes next to its `PrefixNull`/`SuffixNull`, and only the outer contexts become one `AllomorphEnvironment`.
 fn build_circumfix_lhs(
-    prefix_env: Option<&(String, String)>,
-    suffix_env: Option<&(String, String)>,
+    prefix_env: Option<&ResolvedEnvironmentPass>,
+    suffix_env: Option<&ResolvedEnvironmentPass>,
     ctx: &Ctx,
 ) -> Result<(Vec<PatternNode>, Vec<EnvironmentDef>), String> {
     let mut nodes = Vec::new();
@@ -692,7 +693,11 @@ fn build_circumfix_lhs(
     if prefix_env.is_none() && suffix_env.is_none() {
         nodes.extend(environment::any_plus(ctx));
     } else {
-        if let Some((left_str, right_str)) = prefix_env {
+        if let Some(ResolvedEnvironmentPass {
+            split: (left_str, right_str),
+            ..
+        }) = prefix_env
+        {
             nodes.push(environment::prefix_null(ctx));
             nodes.extend(environment::pattern_nodes(right_str, ctx)?);
             if !left_str.is_empty() {
@@ -700,7 +705,11 @@ fn build_circumfix_lhs(
             }
         }
         nodes.extend(environment::any_star(ctx));
-        if let Some((left_str, right_str)) = suffix_env {
+        if let Some(ResolvedEnvironmentPass {
+            split: (left_str, right_str),
+            ..
+        }) = suffix_env
+        {
             nodes.extend(environment::pattern_nodes(left_str, ctx)?);
             nodes.push(environment::suffix_null(ctx));
             if !right_str.is_empty() {
@@ -714,6 +723,7 @@ fn build_circumfix_lhs(
             require: true,
             left: left_env_pattern,
             right: right_env_pattern,
+            source: None,
         });
     }
     Ok((nodes, environments))
@@ -943,8 +953,12 @@ fn build_affix_allomorphs_for(
     let pending_start = ctx.pending_rule_refusals.borrow().len();
     let mut out = Vec::new();
     for pass in resolve_environments(&combined_env_guids, &allo.guid, mrule_id, ctx) {
-        let (left_str, right_str) = pass.unwrap_or_default();
-        match build_concatenative(&form, &left_str, &right_str, shape, ctx) {
+        let (left_str, right_str) = pass
+            .as_ref()
+            .map(|pass| pass.split.clone())
+            .unwrap_or_default();
+        let source = pass.and_then(|pass| pass.source);
+        match build_concatenative(&form, &left_str, &right_str, shape, source, ctx) {
             Ok((lhs, rhs, environments)) => {
                 let required_syn_fs = match &allo.ms_env_features {
                     Some(fs) => match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
@@ -1019,11 +1033,17 @@ fn build_affix_allomorphs_for(
 /// LHS/RHS/environment triple a concatenative shape builds.
 type ConcatBuild = (Vec<Pattern>, Vec<OutputAction>, Vec<EnvironmentDef>);
 
+struct ResolvedEnvironmentPass {
+    split: (String, String),
+    source: Option<EnvironmentSource>,
+}
+
 fn build_concatenative(
     form: &str,
     left_str: &str,
     right_str: &str,
     shape: Shape,
+    source: Option<EnvironmentSource>,
     ctx: &Ctx,
 ) -> Result<ConcatBuild, String> {
     match shape {
@@ -1053,6 +1073,7 @@ fn build_concatenative(
                         require: true,
                         left: None,
                         right: Some(p),
+                        source: source.clone(),
                     });
                 }
             }
@@ -1084,6 +1105,7 @@ fn build_concatenative(
                         require: true,
                         left: Some(p),
                         right: None,
+                        source: source.clone(),
                     });
                 }
             }
@@ -1156,7 +1178,7 @@ fn resolve_environments(
     allo_guid: &str,
     mrule_id: MRuleId,
     ctx: &Ctx,
-) -> Vec<Option<(String, String)>> {
+) -> Vec<Option<ResolvedEnvironmentPass>> {
     let mut out = Vec::new();
     let mut has_blank = guids.is_empty();
     for g in guids {
@@ -1218,7 +1240,10 @@ fn resolve_environments(
         }
         match environment::split_environment_string(&env.representation) {
             Ok(pair) => {
-                out.push(Some(pair));
+                out.push(Some(ResolvedEnvironmentPass {
+                    split: pair,
+                    source: Some(environment::snapshot_environment_source(env)),
+                }));
                 ctx.represented(attachment);
                 ctx.represented(env_object);
             }

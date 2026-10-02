@@ -86,6 +86,9 @@ pub fn canonical_guid(value: &str) -> Option<String> {
 
 fn same_subject_identity(left: &FwObjectRef, right: &FwObjectRef) -> bool {
     left.class == right.class
+        && left.status == right.status
+        && left.source_class == right.source_class
+        && left.field == right.field
         && match (&left.guid, &right.guid) {
             (Some(left), Some(right)) => left == right,
             _ => matches!(
@@ -271,13 +274,37 @@ impl DiagnosticLevel {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FwObjectRef {
     pub class: FwClass,
+    /// Whether this identifies a defined object, an unresolved reference, or project-wide settings.
+    #[serde(default)]
+    pub status: FwSubjectStatus,
     /// Lower-case canonical GUID, only when the value is the FieldWorks object's own GUID.
     pub guid: Option<String>,
     /// The name a linguist sees in FieldWorks (form, gloss, rule name, phoneme representation).
     pub name: Option<String>,
+    /// The source XML class when `class` has been normalized (for example, several MoForm subclasses).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_class: Option<String>,
+    /// FieldWorks field through which this object was required or referenced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
     /// Where FieldWorks opens this object when its class alone cannot say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opens_in: Option<FwOpenTarget>,
+}
+
+/// How a warning subject relates to the imported FieldWorks data.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum FwSubjectStatus {
+    /// A GUID identifies a defined FieldWorks object.
+    #[default]
+    Object,
+    /// A GUID is referenced by the source but has no corresponding object of the expected class.
+    UnresolvedReference,
+    /// The subject denotes project-wide settings rather than an object with its own GUID.
+    ProjectSettings,
 }
 
 /// A FieldWorks tool and the GUID it selects, e.g. a boundary marker opens its phoneme set in `phonemeEdit`.
@@ -291,13 +318,43 @@ impl FwObjectRef {
     pub fn new(class: FwClass) -> Self {
         FwObjectRef {
             class,
+            status: FwSubjectStatus::Object,
             guid: None,
             name: None,
+            source_class: None,
+            field: None,
             opens_in: None,
         }
     }
 
+    pub fn unresolved_reference(mut self) -> Self {
+        self.status = FwSubjectStatus::UnresolvedReference;
+        self.opens_in = None;
+        self
+    }
+
+    pub fn project_settings(mut self) -> Self {
+        self.status = FwSubjectStatus::ProjectSettings;
+        self.guid = None;
+        self.opens_in = None;
+        self
+    }
+
+    pub fn source_class(mut self, source_class: impl Into<String>) -> Self {
+        self.source_class = Some(source_class.into());
+        self
+    }
+
+    pub fn field(mut self, field: impl Into<String>) -> Self {
+        self.field = Some(field.into());
+        self
+    }
+
     pub fn opens_in(mut self, tool: impl Into<String>, guid: impl Into<String>) -> Self {
+        if self.status != FwSubjectStatus::Object {
+            self.opens_in = None;
+            return self;
+        }
         let guid = guid.into();
         self.opens_in = Some(FwOpenTarget {
             tool: tool.into(),
@@ -307,8 +364,12 @@ impl FwObjectRef {
     }
 
     pub fn guid(mut self, guid: impl Into<String>) -> Self {
-        let guid = guid.into();
-        self.guid = Some(canonical_guid(&guid).unwrap_or(guid));
+        if self.status != FwSubjectStatus::ProjectSettings {
+            let guid = guid.into();
+            self.guid = Some(canonical_guid(&guid).unwrap_or(guid));
+        } else {
+            self.guid = None;
+        }
         self
     }
 
@@ -376,11 +437,11 @@ impl FwClass {
             "LexEntryInflType" => Self::LexEntryInflType,
             "MoInflAffixTemplate" => Self::MoInflAffixTemplate,
             "MoInflAffixSlot" => Self::MoInflAffixSlot,
-            "MoCompoundRule" => Self::MoCompoundRule,
+            "MoCompoundRule" | "MoEndoCompound" | "MoExoCompound" => Self::MoCompoundRule,
             "MoAdhocProhib" | "MoAlloAdhocProhib" | "MoMorphAdhocProhib" => Self::MoAdhocProhib,
             "PhPhonemeSet" => Self::PhPhonemeSet,
             "PhPhoneme" => Self::PhPhoneme,
-            "PhNaturalClass" => Self::PhNaturalClass,
+            "PhNaturalClass" | "PhNCSegments" | "PhNCFeatures" => Self::PhNaturalClass,
             "PhEnvironment" => Self::PhEnvironment,
             "PhRegularRule" => Self::PhRegularRule,
             "PhMetathesisRule" => Self::PhMetathesisRule,

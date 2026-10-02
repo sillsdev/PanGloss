@@ -629,10 +629,12 @@ impl<'g> Morpher<'g> {
         stats: Option<&pg_rules::stats::StatsCollector>,
     ) -> Vec<Word> {
         // Fires once per call before any root-allomorph search; `aw.trace` resolves to its own node, not the parse root.
-        if trace.is_tracing() {
+        let lookup = if trace.is_tracing() {
             let node_parent = aw.trace.unwrap_or(parent);
-            trace.lexical_lookup(node_parent, aw.stratum, aw);
-        }
+            Some(trace.lexical_lookup(node_parent, aw.stratum, aw))
+        } else {
+            None
+        };
         let g = self.g;
         if let Some(stats) = stats {
             stats.record_root_index_attempt(aw.stratum, aw.shape.len() as u64);
@@ -707,6 +709,15 @@ impl<'g> Morpher<'g> {
                     .with_runtime_root(RuntimeRoot::Supplied(root)),
             ];
             out.push(nw);
+        }
+        if let Some(lookup) = lookup.filter(|_| trace.captures_details()) {
+            trace.complete_lexical_lookup(
+                lookup,
+                pg_rules::trace::LookupResult {
+                    mode: pg_rules::trace::LookupMode::Lexicon,
+                    match_count: out.len(),
+                },
+            );
         }
         out
     }
@@ -935,7 +946,15 @@ impl<'g> Morpher<'g> {
         if w.mrule_app_index != -1 {
             // partial parse — not every unapplied rule was confirmed
             if trace.is_tracing() {
-                trace.failed(parent, w, FailureReason::PartialParse);
+                if trace.captures_details() {
+                    trace.failed_partial_parse(
+                        parent,
+                        w,
+                        pg_rules::trace::PartialParseCause::RemainingAnalyzedRules,
+                    );
+                } else {
+                    trace.failed(parent, w, FailureReason::PartialParse);
+                }
             }
             return false;
         }
@@ -950,6 +969,7 @@ impl<'g> Morpher<'g> {
                                 required: Some(format!("obligatory feature {f:?}")),
                                 actual: Some(format!("{:?}", w.syn_fs)),
                                 environment: None,
+                                ..Default::default()
                             },
                         );
                     }
@@ -985,6 +1005,7 @@ impl<'g> Morpher<'g> {
                             required: Some(word.to_owned()),
                             actual: Some(surface::to_regex_display(surface_table, &w.shape)),
                             environment: None,
+                            ..Default::default()
                         },
                     );
                 }

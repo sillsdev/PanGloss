@@ -86,7 +86,12 @@ fn import_and_compile_warnings_deduplicate_at_the_compile_boundary() {
             message: "compiler wording for the same warning".to_string(),
         });
     let importer_warning = pg_snapshot::Warning::new(code, "Importer wording for the same warning")
-        .with_subject(pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoForm).guid(guid));
+        .with_subject(
+            pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoForm)
+                .guid(guid)
+                .source_class("MoAffixAllomorph")
+                .field("MorphType"),
+        );
 
     let (_, warnings) =
         super::compile_project_with_import_warnings(&snapshot, [importer_warning.clone()])
@@ -97,6 +102,50 @@ fn import_and_compile_warnings_deduplicate_at_the_compile_boundary() {
         .collect();
 
     assert_eq!(matching, vec![importer_warning]);
+}
+
+#[test]
+fn import_issue_projection_keeps_each_rich_owner_and_field() {
+    let (snapshot, _) = fixture();
+    let guid = "00000000-0000-0000-0000-0000000000ff";
+    let code = pg_snapshot::ImportWarningCode::FwdataDanglingReference;
+    let first = pg_snapshot::Warning::new(code.clone(), "Missing environment.")
+        .with_subject(
+            pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoForm)
+                .guid("00000000-0000-0000-0000-000000000042")
+                .field("PhoneEnv"),
+        )
+        .with_subject(
+            pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::PhEnvironment)
+                .guid(guid)
+                .unresolved_reference()
+                .field("PhoneEnv"),
+        );
+    let mut second = first.clone();
+    second.subjects[0].field = Some("Position".to_string());
+    second.subjects[1].field = Some("Position".to_string());
+    let issue = ConversionIssue {
+        code,
+        class: IssueClass::InvalidSource,
+        source: Some(pg_snapshot::SourceRef {
+            kind: pg_snapshot::FwClass::PhEnvironment,
+            id: guid.to_uppercase(),
+        }),
+        fatal: true,
+        message: "Coarse imported issue.".to_string(),
+    };
+    let imported = vec![first.clone(), second.clone()];
+    assert!(super::warnings::from_import_issues(
+        &snapshot,
+        std::slice::from_ref(&issue),
+        &imported
+    )
+    .is_empty());
+    assert_eq!(super::warnings::deduplicate(imported), vec![first, second]);
+    assert_eq!(
+        super::warnings::from_import_issues(&snapshot, &[issue], &[]).len(),
+        1
+    );
 }
 
 #[test]
@@ -160,7 +209,7 @@ fn compile_recording_ok(
     pg_snapshot::ConversionInventory,
     Vec<pg_snapshot::ConversionIssue>,
 ) {
-    let (grammar, recorder, _substrate, substrate_issues) =
+    let (grammar, recorder, _substrate, substrate_issues, owner_warnings) =
         compile_project_recording(snapshot, SubstratePolicy::default()).expect("must compile");
     recorder
         .check_invariants()
@@ -179,7 +228,12 @@ fn compile_recording_ok(
         });
     }
     let mut warnings = super::warnings::from_issues(snapshot, &all_issues);
-    warnings.extend(super::warnings::from_issues(snapshot, &issues));
+    warnings.extend(super::warnings::from_import_issues(
+        snapshot,
+        &issues,
+        &owner_warnings,
+    ));
+    warnings.extend(owner_warnings);
     warnings.extend(super::warnings::from_issues(snapshot, &substrate_issues));
     let warnings = super::warnings::deduplicate(warnings);
     (grammar, warnings, inventory, issues)
@@ -297,6 +351,54 @@ fn import_warning_describes_failed_msa_without_internal_error_text() {
 }
 
 #[test]
+fn diagnostic_adapter_keeps_distinct_affix_and_template_causes() {
+    let (snapshot, _) = fixture();
+    for (code, class, id, cause) in [
+        (
+            pg_snapshot::ImportWarningCode::AllomorphNotRuleForm,
+            pg_snapshot::FwClass::MoForm,
+            snapshot.lexicon.entries[0].allomorphs[0].guid.clone(),
+            "infix allomorph has no position environment",
+        ),
+        (
+            pg_snapshot::ImportWarningCode::AllomorphNotRuleForm,
+            pg_snapshot::FwClass::MoForm,
+            snapshot.lexicon.entries[0].allomorphs[0].guid.clone(),
+            "allomorph form is empty",
+        ),
+        (
+            pg_snapshot::ImportWarningCode::TemplateNoSlots,
+            pg_snapshot::FwClass::MoInflAffixTemplate,
+            "10000000-0000-0000-0000-000000000003".to_string(),
+            "affix template has no slots with any loaded affix rule",
+        ),
+        (
+            pg_snapshot::ImportWarningCode::NullAffixSegmentFailed,
+            pg_snapshot::FwClass::LexEntryInflType,
+            "10000000-0000-0000-0000-000000000004".to_string(),
+            "generated marker ^0+ could not be segmented",
+        ),
+        (
+            pg_snapshot::ImportWarningCode::AllomorphUnsegmentable,
+            pg_snapshot::FwClass::MoForm,
+            snapshot.lexicon.entries[0].allomorphs[0].guid.clone(),
+            "no character definition matches 'x' at position 0",
+        ),
+    ] {
+        let issue = ConversionIssue {
+            code,
+            class: IssueClass::UnrepresentableForHc,
+            source: Some(pg_snapshot::SourceRef { kind: class, id }),
+            fatal: false,
+            message: cause.to_string(),
+        };
+        let warning = super::warnings::from_issue(&snapshot, &issue);
+        assert!(warning.message.contains(cause), "{warning:?}");
+        assert!(!warning.message.contains("form FieldWorks can use"));
+    }
+}
+
+#[test]
 fn import_warning_names_a_phonological_rule_without_internal_error_text() {
     let (mut snapshot, _) = fixture();
     let rule_guid = "10000000-0000-0000-0000-000000000001";
@@ -354,7 +456,7 @@ fn import_warning_sanitizes_rule_form_failure_when_analysis_has_no_name() {
     assert_eq!(warnings.len(), 1);
     assert_eq!(
         warnings[0].message,
-        "Grammatical analysis 'Unnamed grammatical analysis' has no affix form FieldWorks can use."
+        "Grammatical analysis 'Unnamed grammatical analysis' has no affix form PanGloss can load."
     );
     assert_eq!(warnings[0].subjects[0].guid.as_deref(), Some(msa_guid));
     assert_eq!(
@@ -777,7 +879,7 @@ fn compile_project_returns_structured_warnings() {
         warning_guidance(warning).as_deref(),
         Some(
             format!(
-                "In {}, correct the expression for phonological environment 'bad environment'.",
+                "In {}, correct the expression for phonological environment 'bad environment' if the allomorph must be restricted; otherwise report a valid syntax the parser rejects.",
                 pg_snapshot::fieldworks_paths::GRAMMAR_ENVIRONMENTS
             )
             .as_str()
@@ -2360,10 +2462,10 @@ fn unsegmentable_warning_names_the_fieldworks_form_and_action() {
         .find(|warning| warning.code == super::issue_codes::ALLOMORPH_UNSEGMENTABLE.wire())
         .expect("the unsegmentable allomorph must produce a warning");
 
-    assert_eq!(
-        warning.message,
-        "Allomorph 'xyz' could not be segmented with this project's phonemes."
-    );
+    assert!(warning
+        .message
+        .starts_with("Allomorph 'xyz' could not be segmented with this project's phonemes:"));
+    assert!(warning.message.contains("skipped"));
     assert_eq!(
         warnings
             .iter()
@@ -2376,16 +2478,10 @@ fn unsegmentable_warning_names_the_fieldworks_form_and_action() {
     assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::MoForm);
     assert_eq!(warning.subjects[0].guid.as_deref(), Some("allo-stem"));
     assert_eq!(warning.subjects[0].name.as_deref(), Some("xyz"));
-    assert_eq!(
-        warning_guidance(warning).as_deref(),
-        Some(
-            format!(
-                "In {}, check the spelling and phonological environments for allomorph 'xyz'.",
-                pg_snapshot::fieldworks_paths::LEXICON_EDIT
-            )
-            .as_str()
-        )
-    );
+    let advice = warning_guidance(warning).expect("owned advice");
+    assert!(advice.contains(pg_snapshot::fieldworks_paths::LEXICON_EDIT));
+    assert!(advice.contains("diagnostic cause"));
+    assert!(advice.contains("unintended spelling"));
 }
 
 #[test]
@@ -4470,4 +4566,357 @@ fn discarded_affix_environment_does_not_refuse_a_surviving_sibling() {
         !parsed.analyses.is_empty(),
         "valid sibling must remain executable"
     );
+}
+
+#[test]
+fn imported_validated_and_compiled_fixture_warnings_have_reportable_subjects() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    let (snapshot, imported) = pg_fwdata::import_file(&path).expect("fixture imports");
+    let mut inputs = imported.warnings;
+    inputs.extend(pg_snapshot::validate::validate(&snapshot));
+    let output = super::compile_project_with_options_and_import_warnings(
+        &snapshot,
+        CompileOptions {
+            semantic_loss: SemanticLossPolicy::MeasureOnly,
+            ..CompileOptions::default()
+        },
+        inputs,
+    )
+    .expect("fixture compiles permissively");
+    assert!(
+        !output.warnings.is_empty(),
+        "fixture must exercise warnings"
+    );
+    for warning in &output.warnings {
+        assert!(
+            !warning.subjects.is_empty(),
+            "{}: {}",
+            warning.code,
+            warning.message
+        );
+        for subject in &warning.subjects {
+            assert_eq!(
+                subject.class == pg_snapshot::FwClass::Project,
+                subject.status == pg_snapshot::FwSubjectStatus::ProjectSettings,
+                "{warning:?}"
+            );
+            if subject.status == pg_snapshot::FwSubjectStatus::UnresolvedReference {
+                assert!(
+                    subject
+                        .guid
+                        .as_deref()
+                        .is_some_and(|id| !id.trim().is_empty()),
+                    "{warning:?}"
+                );
+                assert!(subject.opens_in.is_none(), "{warning:?}");
+            }
+        }
+    }
+    let report = crate::grammar_health::GrammarHealthReport::new(
+        output
+            .warnings
+            .iter()
+            .map(crate::grammar_health::GrammarHealthDiagnostic::from_import_warning)
+            .collect(),
+    )
+    .expect("all producer warnings are reportable")
+    .with_fieldworks_project(crate::grammar_health::FieldWorksProject {
+        name: Some(snapshot.project.name.clone()),
+        source: Some(crate::grammar_health::FieldWorksProjectSource::Argument),
+    });
+    assert_eq!(
+        crate::grammar_health::GrammarHealthReport::from_json(&report.to_json().unwrap()).unwrap(),
+        report
+    );
+}
+
+#[test]
+fn parser_setting_projection_preserves_distinct_named_settings() {
+    let (snapshot, _) = fixture();
+    let code = pg_snapshot::ImportWarningCode::FwdataInvalidParserParameter;
+    let imported: Vec<_> = ["XAmple.MaxNulls", "XAmple.MaxPrefixes"]
+        .into_iter()
+        .map(|field| {
+            pg_snapshot::Warning::new(code.clone(), "Malformed setting.").with_subject(
+                pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::Project)
+                    .project_settings()
+                    .name("Demo")
+                    .field(field),
+            )
+        })
+        .collect();
+    let issue = ConversionIssue {
+        code,
+        class: IssueClass::MalformedSource,
+        source: None,
+        fatal: false,
+        message: "Malformed setting projection.".to_string(),
+    };
+    assert!(super::warnings::from_import_issues(
+        &snapshot,
+        std::slice::from_ref(&issue),
+        &imported
+    )
+    .is_empty());
+    assert_eq!(super::warnings::deduplicate(imported.clone()), imported);
+    let projected = super::warnings::from_import_issues(&snapshot, &[issue], &[]);
+    assert_eq!(
+        projected[0].subjects[0].status,
+        pg_snapshot::FwSubjectStatus::ProjectSettings
+    );
+}
+
+#[test]
+fn rejected_compound_attachment_names_its_owner_and_is_reportable() {
+    let (mut snapshot, _) = fixture();
+    let rule_guid = "66666666-6666-6666-6666-666666666666";
+    snapshot
+        .morphology
+        .compound_rules
+        .push(CompoundRule::Exocentric {
+            guid: rule_guid.to_string(),
+            name: "Owner title".to_string(),
+            disabled: false,
+            left: CompoundConstituentRequirement::default(),
+            right: CompoundConstituentRequirement::default(),
+            to: CompoundOutcome {
+                part_of_speech: Some("missing-pos-guid".to_string()),
+                ..CompoundOutcome::default()
+            },
+        });
+
+    let (_grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    let warning = warnings
+        .iter()
+        .find(|warning| warning.code == super::issue_codes::COMPOUND_SIDE_POS_UNRESOLVED.wire())
+        .expect("the unresolved compound output POS must be diagnosed");
+    let owner = warning
+        .subjects
+        .first()
+        .expect("attachment warning has owner");
+    assert_eq!(owner.class, pg_snapshot::FwClass::MoCompoundRule);
+    assert_eq!(owner.guid.as_deref(), Some(rule_guid));
+    assert_eq!(owner.name.as_deref(), Some("Owner title"));
+
+    let report = crate::grammar_health::GrammarHealthReport::new(vec![
+        crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(warning),
+    ])
+    .expect("owner-backed attachment warning is reportable");
+    assert_eq!(
+        report.diagnostics()[0].subjects[0].guid.as_deref(),
+        Some(rule_guid)
+    );
+}
+
+#[test]
+fn unresolved_feature_constraint_retains_its_guid_in_a_reportable_subject() {
+    let (snapshot, _) = fixture();
+    let guid = "77777777-7777-7777-7777-777777777777";
+    let key = InventoryKey::object(InventoryKind::FeatureConstraint, guid);
+    let source = super::warnings::source_for_key(&snapshot, &key)
+        .expect("feature-constraint identity is retained");
+    assert_eq!(source.kind, pg_snapshot::FwClass::Unknown);
+    assert_eq!(source.id, guid);
+
+    let issue = ConversionIssue {
+        code: pg_snapshot::ImportWarningCode::FeatureConstraintUnresolved,
+        class: IssueClass::InvalidSource,
+        source: Some(source),
+        fatal: true,
+        message: "feature constraint does not resolve".to_string(),
+    };
+    let warning = super::warnings::from_issue(&snapshot, &issue);
+    let report = crate::grammar_health::GrammarHealthReport::new(vec![
+        crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(&warning),
+    ])
+    .expect("unresolved-reference subject with the original GUID is reportable");
+    let subject = &report.diagnostics()[0].subjects[0];
+    assert_eq!(
+        subject.status,
+        pg_snapshot::FwSubjectStatus::UnresolvedReference
+    );
+    assert_eq!(subject.guid.as_deref(), Some(guid));
+}
+
+#[test]
+fn feature_constraint_feature_failure_names_the_live_constraint_and_field() {
+    let (snapshot, _) = fixture();
+    let issue = ConversionIssue {
+        code: pg_snapshot::ImportWarningCode::FeatureConstraintPhonFeatureUnresolved,
+        class: IssueClass::InvalidSource,
+        source: Some(pg_snapshot::SourceRef {
+            kind: pg_snapshot::FwClass::Unknown,
+            id: "77777777-7777-7777-7777-777777777777".to_string(),
+        }),
+        fatal: true,
+        message: "constraint's Feature does not resolve".to_string(),
+    };
+    let warning = super::warnings::from_issue(&snapshot, &issue);
+    let subject = &warning.subjects[0];
+    assert_eq!(subject.status, pg_snapshot::FwSubjectStatus::Object);
+    assert_eq!(subject.source_class.as_deref(), Some("PhFeatureConstraint"));
+    assert_eq!(subject.field.as_deref(), Some("Feature"));
+    assert!(crate::grammar_health::GrammarHealthReport::new(vec![
+        crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(&warning),
+    ])
+    .is_ok());
+}
+
+#[test]
+fn missing_source_guid_does_not_publish_the_importers_synthetic_id() {
+    let (snapshot, _) = fixture();
+    let issue = ConversionIssue {
+        code: pg_snapshot::ImportWarningCode::InvalidSourceMissingGuid,
+        class: IssueClass::InvalidSource,
+        source: Some(pg_snapshot::SourceRef {
+            kind: pg_snapshot::FwClass::LexEntry,
+            id: "rt#7".to_string(),
+        }),
+        fatal: true,
+        message: "rt#7 has no GUID".to_string(),
+    };
+    let warning = super::warnings::from_issue(&snapshot, &issue);
+    assert_eq!(warning.subjects[0].guid, None);
+    assert!(warning.message.contains("rt#7"));
+    let report = crate::grammar_health::GrammarHealthReport::new(vec![
+        crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(&warning),
+    ])
+    .unwrap();
+    let value = serde_json::to_value(report).unwrap();
+    assert_eq!(
+        value["diagnostics"][0]["subjects"][0]["fieldworks"]["reason"],
+        "guid_not_recorded"
+    );
+}
+
+#[test]
+fn rejected_entry_expansion_retains_its_owner_in_a_reportable_subject() {
+    let (snapshot, _) = fixture();
+    let entry = &snapshot.lexicon.entries[0];
+    let key = InventoryKey::expansion(
+        InventoryKind::Entry,
+        entry.guid.clone(),
+        vec!["generated-variant".to_string()],
+        "variant",
+    );
+    let source = super::warnings::source_for_key(&snapshot, &key).unwrap();
+    assert_eq!(source.kind, pg_snapshot::FwClass::LexEntry);
+    assert_eq!(source.id, entry.guid);
+    let issue = ConversionIssue {
+        code: pg_snapshot::ImportWarningCode::MsaBuildFailed,
+        class: IssueClass::InvalidSource,
+        source: Some(source),
+        fatal: false,
+        message: "variant feature structure failed".to_string(),
+    };
+    let warning = super::warnings::from_issue(&snapshot, &issue);
+    let report = crate::grammar_health::GrammarHealthReport::new(vec![
+        crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(&warning),
+    ])
+    .expect("expanded objects retain their source owner");
+    assert_eq!(
+        report.diagnostics()[0].subjects[0].guid.as_deref(),
+        Some(entry.guid.as_str())
+    );
+}
+
+#[test]
+fn prerelease_missing_template_slots_have_owner_fields_and_unavailable_targets() {
+    for field in ["PrefixSlots", "SuffixSlots"] {
+        let mut snapshot: Snapshot = serde_json::from_str(include_str!(
+            "../../../../../docs/formats/examples/trace-details-v2-sample.snapshot.json"
+        ))
+        .unwrap();
+        let baseline = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        let missing = "11111111-1111-1111-1111-111111111111";
+        let template = &mut snapshot.morphology.parts_of_speech[0].affix_templates[0];
+        let owner_guid = template.guid.clone();
+        if field == "PrefixSlots" {
+            template.prefix_slots.push(missing.into());
+        } else {
+            template.suffix_slots.push(missing.into());
+        }
+        let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        assert_grammars_equal(&baseline.grammar, &output.grammar);
+        let missing_object = InventoryKey::object(InventoryKind::TemplateSlot, missing);
+        assert!(!output
+            .inventory
+            .inventory
+            .authored
+            .contains(&missing_object));
+        let warnings: Vec<_> = output
+            .warnings
+            .iter()
+            .filter(|w| w.code == super::issue_codes::TEMPLATE_SLOT_UNRESOLVED.wire())
+            .collect();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].subjects.len(), 2);
+        let report = crate::grammar_health::GrammarHealthReport::new(
+            warnings
+                .iter()
+                .map(|w| crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(w))
+                .collect(),
+        )
+        .unwrap()
+        .with_fieldworks_project(crate::grammar_health::FieldWorksProject {
+            name: Some("Demo".into()),
+            source: Some(crate::grammar_health::FieldWorksProjectSource::Argument),
+        });
+        let subjects: Vec<_> = report
+            .diagnostics()
+            .iter()
+            .flat_map(|d| &d.subjects)
+            .collect();
+        assert!(subjects
+            .iter()
+            .any(|s| s.guid.as_deref() == Some(owner_guid.as_str())
+                && s.field.as_deref() == Some(field)
+                && s.status == pg_snapshot::FwSubjectStatus::Object));
+        let targets: Vec<_> = subjects
+            .iter()
+            .filter(|s| s.guid.as_deref() == Some(missing))
+            .collect();
+        assert!(!targets.is_empty());
+        assert!(targets
+            .iter()
+            .all(|s| s.status == pg_snapshot::FwSubjectStatus::UnresolvedReference));
+        let json: serde_json::Value = serde_json::from_str(&report.to_json().unwrap()).unwrap();
+        for diagnostic in json["diagnostics"].as_array().unwrap() {
+            for subject in diagnostic["subjects"].as_array().unwrap() {
+                if subject["guid"] == missing {
+                    assert_eq!(subject["fieldworks"]["status"], "unavailable");
+                    assert!(subject["fieldworks"].get("url").is_none());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn prerelease_missing_template_slot_in_both_fields_keeps_distinct_facts() {
+    let mut snapshot: Snapshot = serde_json::from_str(include_str!(
+        "../../../../../docs/formats/examples/trace-details-v2-sample.snapshot.json"
+    ))
+    .unwrap();
+    let template = &mut snapshot.morphology.parts_of_speech[0].affix_templates[0];
+    let missing = "11111111-1111-1111-1111-111111111111";
+    template.prefix_slots.push(missing.into());
+    template.suffix_slots.push(missing.into());
+    let output = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+    let warnings: Vec<_> = output
+        .warnings
+        .iter()
+        .filter(|w| w.code == super::issue_codes::TEMPLATE_SLOT_UNRESOLVED.wire())
+        .collect();
+    assert_eq!(warnings.len(), 2);
+    let mut fields: Vec<_> = warnings
+        .iter()
+        .map(|w| w.subjects[0].field.as_deref().unwrap())
+        .collect();
+    fields.sort();
+    assert_eq!(fields, ["PrefixSlots", "SuffixSlots"]);
+    assert!(warnings.iter().all(|w| w.subjects.len() == 2
+        && w.subjects[1].guid.as_deref() == Some(missing)
+        && w.subjects[1].status == pg_snapshot::FwSubjectStatus::UnresolvedReference));
 }

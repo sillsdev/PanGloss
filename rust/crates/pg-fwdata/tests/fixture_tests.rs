@@ -248,13 +248,26 @@ fn unknown_morph_type_warning_names_the_skipped_form_and_fieldworks_action() {
         warning.message,
         "Allomorph 'xxx' has an unknown morph type and was skipped."
     );
-    assert_eq!(warning.subjects.len(), 1);
+    assert_eq!(warning.subjects.len(), 2);
     assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::MoForm);
     assert_eq!(
         warning.subjects[0].guid.as_deref(),
         Some("00000000-0000-0000-0000-000000000044")
     );
     assert_eq!(warning.subjects[0].name.as_deref(), Some("xxx"));
+    assert_eq!(warning.subjects[1].class, pg_snapshot::FwClass::Unknown);
+    assert_eq!(
+        warning.subjects[1].status,
+        pg_snapshot::FwSubjectStatus::UnresolvedReference
+    );
+    assert_eq!(
+        warning.subjects[1].guid.as_deref(),
+        Some("00000000-0000-0000-0000-00000000abcd")
+    );
+    assert_eq!(
+        warning.subjects[1].source_class.as_deref(),
+        Some("MoMorphType")
+    );
 }
 
 #[test]
@@ -364,6 +377,18 @@ fn malformed_xample_cap_is_a_nonfatal_import_warning() {
         .find(|warning| warning.code == "fwdata.invalid-parser-parameter")
         .expect("invalid cap must be reported");
     assert!(warning.message.contains("MaxPrefixes"));
+    assert_eq!(warning.subjects.len(), 1);
+    assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::Project);
+    assert_eq!(warning.subjects[0].name.as_deref(), Some("variant"));
+    assert_eq!(
+        warning.subjects[0].status,
+        pg_snapshot::FwSubjectStatus::ProjectSettings
+    );
+    assert_eq!(warning.subjects[0].guid, None);
+    assert_eq!(
+        warning.subjects[0].field.as_deref(),
+        Some("XAmple.MaxPrefixes")
+    );
     assert_eq!(
         report
             .warnings
@@ -593,10 +618,12 @@ fn unknown_class_record_is_census_only_and_raises_no_issue() {
 
     let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
     let provenance = &snapshot.conversion_provenance;
-    assert!(!provenance.import_issues.iter().any(|issue| issue
-        .source
-        .as_ref()
-        .is_some_and(|s| s.kind == pg_snapshot::FwClass::Unknown)));
+    assert!(!provenance.import_issues.iter().any(|issue| {
+        issue
+            .source
+            .as_ref()
+            .is_some_and(|s| s.kind == pg_snapshot::FwClass::Unknown)
+    }));
     assert_eq!(
         provenance
             .source_census
@@ -760,7 +787,7 @@ fn crlf(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\n', "\r\n")
 }
 
-/// The fixture is LF in the index and CRLF in a Windows working tree; normalize it as every needle is.
+/// Normalize the fixture to CRLF as every multiline mutation needle is.
 fn fixture_source() -> String {
     crlf(&std::fs::read_to_string(fixture_path()).unwrap())
 }
@@ -966,6 +993,290 @@ fn a_second_phoneme_set_is_considered_but_not_selected() {
     assert!(!snapshot.phonology.phonemes.iter().any(|p| p.name == "z"));
     // The base fixture's own two known issues carry through unchanged; the skipped set adds none.
     assert_eq!(snapshot.conversion_provenance.import_issues.len(), 2);
+}
+
+fn phoneme_set_warning_variant(
+    first_guid: &str,
+    first_record: Option<&str>,
+) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let source = fixture_source();
+    let needle = crlf(
+        r#"<PhonemeSets>
+<objsur guid="00000000-0000-0000-0000-00000000000f" t="o" />
+</PhonemeSets>"#,
+    );
+    assert!(
+        source.contains(&needle),
+        "fixture PhonemeSets shape must match"
+    );
+    let old_set = crlf(
+        r#"<rt class="PhPhonemeSet" guid="00000000-0000-0000-0000-00000000000f" ownerguid="00000000-0000-0000-0000-000000000004">
+<BoundaryMarkers>
+<objsur guid="00000000-0000-0000-0000-000000000014" t="o" />
+</BoundaryMarkers>
+<Name>
+<AUni ws="en">Main</AUni>
+</Name>
+<Phonemes>
+<objsur guid="00000000-0000-0000-0000-000000000010" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000012" t="o" />
+<objsur guid="00000000-0000-0000-0000-00000000001b" t="o" />
+</Phonemes>
+</rt>"#,
+    );
+    assert!(
+        source.contains(&old_set),
+        "fixture first phoneme set must match"
+    );
+    let replacement = crlf(&format!(
+        "<PhonemeSets>\n<objsur guid=\"{first_guid}\" t=\"o\" />\n<objsur guid=\"00000000-0000-0000-0000-000000000070\" t=\"o\" />\n</PhonemeSets>"
+    ));
+    let first_set = first_record.map(crlf).unwrap_or_default();
+    let second_set = crlf(
+        r#"<rt class="PhPhonemeSet" guid="00000000-0000-0000-0000-000000000070" ownerguid="00000000-0000-0000-0000-000000000004">
+<Name><AUni ws="en">Second</AUni></Name>
+</rt>"#,
+    );
+    let variant = source
+        .replacen(&needle, &replacement, 1)
+        .replacen(&old_set, &first_set, 1)
+        .replacen(
+            "</languageproject>",
+            &format!("{second_set}</languageproject>"),
+            1,
+        );
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, variant).unwrap();
+    (dir, path)
+}
+
+fn warning_json(warning: &pg_snapshot::Warning) -> serde_json::Value {
+    use pg_grammar::grammar_health::{
+        render_json, FieldWorksProject, FieldWorksProjectSource, GrammarHealthDiagnostic,
+        GrammarHealthReport,
+    };
+
+    let report =
+        GrammarHealthReport::new(vec![GrammarHealthDiagnostic::from_import_warning(warning)])
+            .unwrap()
+            .with_fieldworks_project(FieldWorksProject {
+                name: Some("fixture".to_string()),
+                source: Some(FieldWorksProjectSource::FwdataPath),
+            });
+    serde_json::from_str(&render_json(&report).unwrap()).unwrap()
+}
+
+#[test]
+fn prerelease_finding3_missing_first_phoneme_set_warning_keeps_owner_and_unresolved_target() {
+    let (_dir, path) = phoneme_set_warning_variant("00000000-0000-0000-0000-0000000000e0", None);
+    let (_, report) = pg_fwdata::import_file(&path).unwrap();
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "fwdata.only-first-used")
+        .unwrap();
+    assert_eq!(warning.subjects.len(), 2);
+    assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::Unknown);
+    assert_eq!(
+        warning.subjects[0].guid.as_deref(),
+        Some("00000000-0000-0000-0000-000000000004")
+    );
+    assert_eq!(warning.subjects[0].field.as_deref(), Some("PhonemeSets"));
+    assert_eq!(
+        warning.subjects[1].class,
+        pg_snapshot::FwClass::PhPhonemeSet
+    );
+    assert_eq!(
+        warning.subjects[1].status,
+        pg_snapshot::FwSubjectStatus::UnresolvedReference
+    );
+    assert_eq!(
+        warning.subjects[1].guid.as_deref(),
+        Some("00000000-0000-0000-0000-0000000000e0")
+    );
+    assert_eq!(
+        warning.subjects[1].source_class.as_deref(),
+        Some("PhPhonemeSet")
+    );
+    assert_eq!(warning.subjects[1].field.as_deref(), Some("PhonemeSets"));
+
+    let json = warning_json(warning);
+    let subjects = json["diagnostics"][0]["subjects"].as_array().unwrap();
+    assert_eq!(json["fieldworks_project"]["name"], "fixture");
+    assert_eq!(subjects[1]["fieldworks"]["status"], "unavailable");
+    assert_eq!(
+        subjects[1]["fieldworks"]["guid"],
+        "00000000-0000-0000-0000-0000000000e0"
+    );
+    assert_eq!(subjects[1]["fieldworks"]["reason"], "unresolved_reference");
+}
+
+#[test]
+fn prerelease_finding3_wrongclass_first_phoneme_set_warning_keeps_expected_and_actual_subjects() {
+    let (_dir, path) = phoneme_set_warning_variant(
+        "00000000-0000-0000-0000-00000000000f",
+        Some(
+            r#"<rt class="CmPossibility" guid="00000000-0000-0000-0000-00000000000f" ownerguid="00000000-0000-0000-0000-000000000004"><Name><AUni ws="en">Wrong first</AUni></Name></rt>"#,
+        ),
+    );
+    let (_, report) = pg_fwdata::import_file(&path).unwrap();
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "fwdata.only-first-used")
+        .unwrap();
+    assert_eq!(warning.subjects.len(), 3);
+    assert_eq!(
+        warning.subjects[0].guid.as_deref(),
+        Some("00000000-0000-0000-0000-000000000004")
+    );
+    assert_eq!(
+        warning.subjects[1].class,
+        pg_snapshot::FwClass::PhPhonemeSet
+    );
+    assert_eq!(
+        warning.subjects[1].status,
+        pg_snapshot::FwSubjectStatus::UnresolvedReference
+    );
+    assert_eq!(
+        warning.subjects[1].guid.as_deref(),
+        Some("00000000-0000-0000-0000-00000000000f")
+    );
+    assert_eq!(
+        warning.subjects[1].source_class.as_deref(),
+        Some("PhPhonemeSet")
+    );
+    assert_eq!(warning.subjects[2].class, pg_snapshot::FwClass::Unknown);
+    assert_eq!(
+        warning.subjects[2].source_class.as_deref(),
+        Some("CmPossibility")
+    );
+    assert_eq!(
+        warning.subjects[2].guid.as_deref(),
+        Some("00000000-0000-0000-0000-00000000000f")
+    );
+    let json = warning_json(warning);
+    let subjects = json["diagnostics"][0]["subjects"].as_array().unwrap();
+    assert_eq!(subjects[1]["fieldworks"]["status"], "unavailable");
+    assert_eq!(subjects[1]["fieldworks"]["reason"], "unresolved_reference");
+    assert_eq!(subjects[2]["status"], "object");
+    assert_eq!(subjects[2]["kind"], "Unknown");
+    assert_eq!(subjects[2]["source_class"], "CmPossibility");
+    assert_eq!(subjects[2]["guid"], "00000000-0000-0000-0000-00000000000f");
+}
+
+fn morph_type_target_variant(record: Option<&str>) -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut source = fixture_source();
+    if let Some(record) = record {
+        source = source.replacen(
+            "</languageproject>",
+            &format!("{}\r\n</languageproject>", crlf(record)),
+            1,
+        );
+    }
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(&path, source).unwrap();
+    (dir, path)
+}
+
+fn unknown_morph_type_warning(path: &Path) -> pg_snapshot::Warning {
+    let (_, report) = pg_fwdata::import_file(path).unwrap();
+    report
+        .warnings
+        .into_iter()
+        .find(|warning| warning.code == "fwdata.unknown-morph-type-guid")
+        .unwrap()
+}
+
+#[test]
+fn prerelease_finding4_missing_morph_type_target_is_unresolved_in_import_and_health_json() {
+    let (_dir, path) = morph_type_target_variant(None);
+    let warning = unknown_morph_type_warning(&path);
+    assert_eq!(warning.subjects.len(), 2);
+    assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::MoForm);
+    assert_eq!(
+        warning.subjects[0].guid.as_deref(),
+        Some("00000000-0000-0000-0000-000000000044")
+    );
+    assert_eq!(warning.subjects[0].field.as_deref(), Some("MorphType"));
+    assert_eq!(warning.subjects[1].class, pg_snapshot::FwClass::Unknown);
+    assert_eq!(
+        warning.subjects[1].status,
+        pg_snapshot::FwSubjectStatus::UnresolvedReference
+    );
+    assert_eq!(
+        warning.subjects[1].guid.as_deref(),
+        Some("00000000-0000-0000-0000-00000000abcd")
+    );
+    assert_eq!(
+        warning.subjects[1].source_class.as_deref(),
+        Some("MoMorphType")
+    );
+    assert_eq!(warning.subjects[1].field.as_deref(), Some("MorphType"));
+
+    let json = warning_json(&warning);
+    let subject = &json["diagnostics"][0]["subjects"][1];
+    assert_eq!(json["fieldworks_project"]["name"], "fixture");
+    assert_eq!(subject["fieldworks"]["status"], "unavailable");
+    assert_eq!(subject["fieldworks"]["reason"], "unresolved_reference");
+    assert!(subject["fieldworks"]["url"].is_null());
+}
+
+#[test]
+fn prerelease_finding4_present_morph_type_target_retains_actual_source_identity() {
+    let (_dir, path) = morph_type_target_variant(Some(
+        r#"<rt class="MoMorphType" guid="00000000-0000-0000-0000-00000000abcd"><Name><AUni ws="en">Unknown type</AUni></Name></rt>"#,
+    ));
+    let warning = unknown_morph_type_warning(&path);
+    assert_eq!(warning.subjects.len(), 2);
+    assert_eq!(warning.subjects[1].class, pg_snapshot::FwClass::Unknown);
+    assert_eq!(
+        warning.subjects[1].status,
+        pg_snapshot::FwSubjectStatus::Object
+    );
+    assert_eq!(
+        warning.subjects[1].guid.as_deref(),
+        Some("00000000-0000-0000-0000-00000000abcd")
+    );
+    assert_eq!(
+        warning.subjects[1].source_class.as_deref(),
+        Some("MoMorphType")
+    );
+    assert_eq!(warning.subjects[1].name.as_deref(), Some("Unknown type"));
+}
+
+#[test]
+fn prerelease_finding4_wrongclass_morph_type_target_keeps_expected_and_actual_subjects() {
+    let (_dir, path) = morph_type_target_variant(Some(
+        r#"<rt class="CmPossibility" guid="00000000-0000-0000-0000-00000000abcd"><Name><AUni ws="en">Wrong type</AUni></Name></rt>"#,
+    ));
+    let warning = unknown_morph_type_warning(&path);
+    assert_eq!(warning.subjects.len(), 3);
+    assert_eq!(warning.subjects[0].class, pg_snapshot::FwClass::MoForm);
+    assert_eq!(warning.subjects[1].class, pg_snapshot::FwClass::Unknown);
+    assert_eq!(
+        warning.subjects[1].status,
+        pg_snapshot::FwSubjectStatus::UnresolvedReference
+    );
+    assert_eq!(
+        warning.subjects[1].source_class.as_deref(),
+        Some("MoMorphType")
+    );
+    assert_eq!(warning.subjects[2].class, pg_snapshot::FwClass::Unknown);
+    assert_eq!(
+        warning.subjects[2].status,
+        pg_snapshot::FwSubjectStatus::Object
+    );
+    assert_eq!(
+        warning.subjects[2].source_class.as_deref(),
+        Some("CmPossibility")
+    );
+    assert_eq!(
+        warning.subjects[2].guid.as_deref(),
+        Some("00000000-0000-0000-0000-00000000abcd")
+    );
 }
 
 fn affix_template_with_dangling_slot_variant(dir: &Path, disabled: &str) -> PathBuf {
@@ -1180,7 +1491,39 @@ fn a_dangling_closed_feature_value_is_fatal() {
     let path = dir.path().join("variant.fwdata");
     std::fs::write(&path, variant).unwrap();
 
-    let (snapshot, _report) = pg_fwdata::import_file(&path).unwrap();
+    let (snapshot, report) = pg_fwdata::import_file(&path).unwrap();
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| {
+            warning.code == "fwdata.dangling-reference"
+                && warning
+                    .message
+                    .contains("00000000-0000-0000-0000-0000000000cc")
+        })
+        .expect("the dangling feature-value warning must be present");
+    let owner = warning
+        .subjects
+        .iter()
+        .find(|subject| subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000007"))
+        .expect("the owning closed feature must be a subject");
+    assert_eq!(owner.class, pg_snapshot::FwClass::FsClosedFeature);
+    assert_eq!(owner.name.as_deref(), Some("Number"));
+    assert_eq!(owner.source_class.as_deref(), Some("FsClosedFeature"));
+    assert_eq!(owner.field.as_deref(), Some("Values"));
+    let unresolved = warning
+        .subjects
+        .iter()
+        .find(|subject| subject.guid.as_deref() == Some("00000000-0000-0000-0000-0000000000cc"))
+        .expect("the missing expected value must be a subject");
+    assert_eq!(unresolved.class, pg_snapshot::FwClass::FsSymFeatVal);
+    assert_eq!(
+        unresolved.status,
+        pg_snapshot::FwSubjectStatus::UnresolvedReference
+    );
+    assert_eq!(unresolved.source_class.as_deref(), Some("FsSymFeatVal"));
+    assert_eq!(unresolved.field.as_deref(), Some("Values"));
+    assert_eq!(unresolved.opens_in, None);
     let inventory = &snapshot.conversion_provenance.graph_to_snapshot;
     let attachment = InventoryKey::attachment(
         InventoryKind::FeatureValue,
@@ -1215,6 +1558,108 @@ fn a_dangling_closed_feature_value_is_fatal() {
         2,
         "the dangling value must not appear in the output"
     );
+}
+
+/// An object reference that resolves to the wrong FW class names the owner, expected target, and actual target.
+#[test]
+fn wrong_class_closed_feature_value_keeps_all_source_identities() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = fixture_source();
+    let needle = crlf(
+        r#"<Values>
+<objsur guid="00000000-0000-0000-0000-000000000008" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000009" t="o" />
+</Values>"#,
+    );
+    assert!(source.contains(&needle), "fixture Values shape must match");
+    let replacement = crlf(
+        r#"<Values>
+<objsur guid="00000000-0000-0000-0000-000000000008" t="o" />
+<objsur guid="00000000-0000-0000-0000-000000000017" t="r" />
+</Values>"#,
+    );
+    let variant = source.replacen(&needle, &replacement, 1);
+    let path = dir.path().join("wrong-class.fwdata");
+    std::fs::write(&path, variant).unwrap();
+
+    let (_, report) = pg_fwdata::import_file(&path).unwrap();
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| {
+            warning.code == "fwdata.unexpected-class"
+                && warning
+                    .message
+                    .contains("00000000-0000-0000-0000-000000000017")
+        })
+        .expect("the wrong-class feature-value warning must be present");
+    let owner = warning
+        .subjects
+        .iter()
+        .find(|subject| {
+            subject.class == pg_snapshot::FwClass::FsClosedFeature
+                && subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000007")
+                && subject.name.as_deref() == Some("Number")
+        })
+        .expect("the source feature must be named");
+    assert_eq!(owner.source_class.as_deref(), Some("FsClosedFeature"));
+    assert_eq!(owner.field.as_deref(), Some("Values"));
+    let unresolved = warning
+        .subjects
+        .iter()
+        .find(|subject| {
+            subject.class == pg_snapshot::FwClass::FsSymFeatVal
+                && subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000017")
+                && subject.status == pg_snapshot::FwSubjectStatus::UnresolvedReference
+        })
+        .expect("the expected feature value must be named");
+    assert_eq!(unresolved.source_class.as_deref(), Some("FsSymFeatVal"));
+    assert_eq!(unresolved.field.as_deref(), Some("Values"));
+    let actual = warning
+        .subjects
+        .iter()
+        .find(|subject| {
+            subject.class == pg_snapshot::FwClass::PhEnvironment
+                && subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000017")
+                && subject.status == pg_snapshot::FwSubjectStatus::Object
+        })
+        .expect("the actual object class must be named");
+    assert_eq!(actual.name.as_deref(), Some("afterVowel"));
+    assert_eq!(actual.source_class.as_deref(), Some("PhEnvironment"));
+    assert_eq!(actual.field.as_deref(), Some("Values"));
+}
+
+/// Missing fields are localized to the object and FieldWorks field that the extractor needs.
+#[test]
+fn missing_lexeme_form_warning_names_its_entry_and_field() {
+    let dir = tempfile::tempdir().unwrap();
+    let needle = crlf(
+        r#"<LexemeForm>
+<objsur guid="00000000-0000-0000-0000-000000000031" t="o" />
+</LexemeForm>"#,
+    );
+    let path = fixture_variant(dir.path(), &needle, "");
+    let (_, report) = pg_fwdata::import_file(&path).unwrap();
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| {
+            warning.code == "fwdata.missing-required-field"
+                && warning
+                    .message
+                    .contains("00000000-0000-0000-0000-000000000030")
+        })
+        .expect("missing LexemeForm must be reported");
+    assert_eq!(warning.subjects.len(), 1);
+    let owner = &warning.subjects[0];
+    assert_eq!(owner.class, pg_snapshot::FwClass::LexEntry);
+    assert_eq!(
+        owner.guid.as_deref(),
+        Some("00000000-0000-0000-0000-000000000030")
+    );
+    assert_eq!(owner.name.as_deref(), Some("kat"));
+    assert_eq!(owner.source_class.as_deref(), Some("LexEntry"));
+    assert_eq!(owner.field.as_deref(), Some("LexemeForm"));
 }
 
 /// Every parser-parameter setting physically present in the fixture's `ParserParameters` `<Uni>` is recorded as authored/considered/selected/represented.

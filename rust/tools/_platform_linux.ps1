@@ -280,9 +280,9 @@ function global:Invoke-LinuxDirectProcess {
         if ($CaptureStdoutPath) {
             & $Exe @($CmdArgs) > $CaptureStdoutPath
         } else {
-            & $Exe @($CmdArgs)
+            & $Exe @($CmdArgs) | ForEach-Object { [Console]::Out.WriteLine([string]$_) }
         }
-        return $LASTEXITCODE
+        return [int]$LASTEXITCODE
     } finally {
         Set-Location -LiteralPath $oldLocation
     }

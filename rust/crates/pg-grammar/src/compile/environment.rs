@@ -2,9 +2,21 @@
 
 use pg_snapshot::{InventoryKey, InventoryKind, IssueClass, SourceRef};
 
-use crate::model::{AnchorSide, EnvironmentDef, Pattern, PatternNode, SimpleContext};
+use crate::model::{
+    AnchorSide, EnvironmentDef, EnvironmentSource, Pattern, PatternNode, SimpleContext,
+};
 
 use super::{issue_codes, roles, Ctx};
+
+/// Retains authored expression text and only nonblank snapshot environment identifiers.
+pub(crate) fn snapshot_environment_source(
+    env: &pg_snapshot::phonology::Environment,
+) -> EnvironmentSource {
+    EnvironmentSource {
+        id: (!env.guid.trim().is_empty()).then(|| env.guid.clone()),
+        text: (!env.representation.trim().is_empty()).then(|| env.representation.clone()),
+    }
+}
 
 /// Resolves environment guids into `EnvironmentDef`s, recording a fatal issue for any active restriction that fails to resolve or parse; shared by `build_root_allomorph` and `build_circumfix_allomorphs`.
 pub(crate) fn resolve_environment_defs<'a>(
@@ -47,6 +59,7 @@ pub(crate) fn resolve_environment_defs<'a>(
                     require: true,
                     left,
                     right,
+                    source: Some(snapshot_environment_source(env)),
                 });
                 ctx.represented(attachment);
                 ctx.represented(env_object);

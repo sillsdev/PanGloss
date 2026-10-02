@@ -3,6 +3,61 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.6.0
+
+### Traces carry reasons from the deciding evaluator
+
+- **Trace details v3.** `--trace-details` emits `pangloss.trace-details.v3`, with rejection
+  operands captured by the evaluator that made the decision. It adds lexical-family replacement
+  identity, lookup completion and candidate counts, template slot paths, partial-parse causes,
+  and typed feature, MPR, co-occurrence and environment evidence. Legacy display strings remain.
+- **Unavailable causes stay unknown.** The renderer does not replay a gate or infer a cause from
+  nearby trace nodes. Step IDs identify nodes within one document; they do not link a node to a
+  result analysis or establish a unique prior cause. Empty authored IDs stay unavailable or use
+  the identity owner's grammar-local locator. Single-source prefix/suffix environments preserve
+  authored GUIDs and text; composite environments remain unavailable. Ordinary traces retain
+  their existing fields and can include the new compound-rule analysis attempt event.
+
+### Grammar health owns advice and source subjects
+
+- **Report schema 4.** Every registered finding carries PanGloss-owned explanation and guidance,
+  optional CommonMark background, and any verified FieldWorks tool and field destinations. The
+  report supplies an explicit locale. The 88-code catalog ports and corrects Motif's warning
+  and parser help text.
+- **Structured source subjects.** Import and snapshot findings name their owners and fields;
+  compiler attachment and expansion failures retain their source owner. Live objects, unresolved
+  references and project settings are distinct; unresolved references carry unavailable navigation.
+  Missing template slots retain their template and slot field; importer references preserve
+  absent or wrong-class phoneme sets and unknown MorphType targets. Specific compiler causes
+  survive instead of being replaced by a generic missing-form message.
+- **Version-pinned help.** Every code has a generated page at `docs/diagnostics/<code>.md`, linked
+  from the reference index and checked against the runtime catalog. Help needs no JSON catalog
+  export or separate release asset. An affix outside every template slot can remain partial;
+  metathesis is skipped by the snapshot compiler, even after an importer approximation.
+
+### Consumer migration
+
+- **Motif and other readers must support both new schemas.** Explicitly accept
+  `pangloss.trace-details.v3` and grammar-health `schema_version: 4`; reject unknown future major
+  versions. Read the trace's optional typed evidence and preserve captured identities, labels and
+  writing systems. Keep unavailable evidence unknown; do not reconstruct reasons from display
+  strings, adjacent nodes or a live project. Lookup counts are materialized root candidates, not
+  successful analyses.
+- **Display PanGloss's advice.** Read `locale`, `explanation`, `guidance`, `help_body`,
+  `fieldworks_places`, and subject `status`, `field` and `source_class`. Replace duplicate consumer
+  warning remedies with the producer's text. Distinguish missing references and project settings
+  from live objects, and show the supplied unavailable-link reason. Pin help links to the parser
+  tag using `https://github.com/sillsdev/PanGloss/blob/<tag>/<help_path>`.
+
+### Build and test
+
+- The Linux managed launcher streams child stdout while returning a scalar process exit code.
+  A failing build or test can no longer appear successful because its output was returned as
+  exit-code data. Both lanes' output-visibility and failing-exit-code regressions are retained.
+- Conformance trace tests load fixtures through runtime discovery instead of compiling
+  staging paths into the binary. The fixture-pin guard also scans nested
+  unit-test source modules and integration tests.
+
 ## 0.5.2
 
 ### HC runtime, interfaces and evidence

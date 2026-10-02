@@ -362,6 +362,10 @@ fn validate_reports_dangling_sense_msa_reference_as_warning_not_error() {
     let warnings = reparsed.validate();
     assert_eq!(warnings.len(), 1, "warnings: {warnings:?}");
     assert!(warnings[0].contains("00000000-0000-0000-0000-000000000000"));
+    assert!(warnings[0].subjects.iter().any(|subject| {
+        subject.status == FwSubjectStatus::UnresolvedReference
+            && subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000000")
+    }));
 }
 
 #[test]
@@ -371,7 +375,97 @@ fn validate_reports_dangling_environment_reference() {
         .environments
         .push("dangling-env-guid".to_string());
     let warnings = snap.validate();
-    assert!(warnings.iter().any(|w| w.contains("dangling-env-guid")));
+    let warning = warnings
+        .iter()
+        .find(|w| w.contains("dangling-env-guid"))
+        .expect("dangling environment reference warning must be present");
+    assert_eq!(warning.subjects.len(), 2);
+    assert_eq!(warning.subjects[0].class, FwClass::MoForm);
+    assert_eq!(
+        warning.subjects[0].guid.as_deref(),
+        Some("77777777-7777-7777-7777-777777777777")
+    );
+    assert_eq!(warning.subjects[0].name.as_deref(), Some("kanga"));
+    assert_eq!(warning.subjects[1].class, FwClass::PhEnvironment);
+    assert_eq!(
+        warning.subjects[1].guid.as_deref(),
+        Some("dangling-env-guid")
+    );
+    assert_eq!(
+        warning.subjects[1].status,
+        FwSubjectStatus::UnresolvedReference
+    );
+}
+
+#[test]
+fn validate_feature_structure_warning_names_its_source_and_missing_value() {
+    let mut snap = sample_snapshot();
+    if let Msa::Stem {
+        features: Some(features),
+        ..
+    } = &mut snap.lexicon.entries[0].msas[0]
+    {
+        if let FeatureValueKind::Closed { value } = &mut features.values[0].value {
+            *value = "missing-value-guid".to_string();
+        } else {
+            panic!("expected a closed feature value");
+        }
+    } else {
+        panic!("expected the sample entry's MSA to have features");
+    }
+
+    let warning = snap
+        .validate()
+        .into_iter()
+        .find(|warning| warning.code == "snapshot.feature-structure-unresolved")
+        .expect("feature-structure warning must be present");
+    assert_eq!(warning.subjects.len(), 2);
+    assert_eq!(warning.subjects[0].class, FwClass::MoStemMsa);
+    assert_eq!(
+        warning.subjects[0].guid.as_deref(),
+        Some("88888888-8888-8888-8888-888888888888")
+    );
+    assert_eq!(warning.subjects[1].class, FwClass::FsSymFeatVal);
+    assert_eq!(
+        warning.subjects[1].guid.as_deref(),
+        Some("missing-value-guid")
+    );
+    assert_eq!(
+        warning.subjects[1].status,
+        FwSubjectStatus::UnresolvedReference
+    );
+}
+
+#[test]
+fn validate_rule_feature_warning_names_its_rule_and_unresolved_feature() {
+    let mut snap = sample_snapshot();
+    snap.phonology
+        .rules
+        .push(crate::phonology::PhonologicalRule::Rewrite(
+            crate::phonology::RewriteRule {
+                guid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa".to_string(),
+                name: "Voicing rule".to_string(),
+                direction: crate::phonology::RuleDirection::LeftToRight,
+                structural_description: vec![],
+                feature_constraint_variables: vec![],
+                right_hand_sides: vec![crate::phonology::RewriteRhs {
+                    required_rule_features: vec!["missing-rule-feature".to_string()],
+                    ..Default::default()
+                }],
+            },
+        ));
+
+    let warning = snap
+        .validate()
+        .into_iter()
+        .find(|warning| warning.code == "snapshot.rule-feature-unresolved")
+        .expect("rule-feature warning must be present");
+    assert_eq!(warning.subjects[0].class, FwClass::PhRegularRule);
+    assert_eq!(warning.subjects[0].name.as_deref(), Some("Voicing rule"));
+    assert!(warning.subjects.iter().any(|subject| {
+        subject.guid.as_deref() == Some("missing-rule-feature")
+            && subject.status == FwSubjectStatus::UnresolvedReference
+    }));
 }
 
 #[test]
@@ -450,8 +544,17 @@ fn validate_dangling_reference_carries_the_expected_code() {
 #[test]
 fn validate_out_of_scope_reference_gets_a_different_code_than_dangling_reference() {
     let mut snap = sample_snapshot();
-    snap.lexicon.entries[0].senses[0].msa =
-        Some("00000000-0000-0000-0000-000000000000".to_string());
+    let target_msa = snap.lexicon.entries[0].msas.pop().unwrap();
+    let target_guid = target_msa.guid().to_string();
+    snap.lexicon.entries.push(LexEntry {
+        guid: "88888888-8888-8888-8888-888888888888".to_string(),
+        citation_form: vec![ws("sen", "second entry")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![],
+        msas: vec![target_msa],
+        senses: vec![],
+        entry_refs: vec![],
+    });
     snap.lexicon.entries[0].allomorphs[0]
         .environments
         .push("dangling-env-guid".to_string());
@@ -467,6 +570,20 @@ fn validate_out_of_scope_reference_gets_a_different_code_than_dangling_reference
     assert_ne!(scope_warning.code, dangling_warning.code);
     assert_eq!(scope_warning.code, "snapshot.reference-out-of-scope");
     assert_eq!(dangling_warning.code, "snapshot.dangling-reference");
+    assert_eq!(scope_warning.subjects.len(), 2);
+    assert_eq!(scope_warning.subjects[0].class, FwClass::LexSense);
+    assert_eq!(
+        scope_warning.subjects[0].guid.as_deref(),
+        Some("99999999-9999-9999-9999-999999999999")
+    );
+    let target = scope_warning
+        .subjects
+        .iter()
+        .find(|subject| subject.guid.as_deref() == Some(target_guid.as_str()))
+        .expect("the globally defined MSA must be identified");
+    assert_eq!(target.status, FwSubjectStatus::Object);
+    assert_eq!(target.class, FwClass::MoStemMsa);
+    assert_eq!(target.name.as_deref(), Some("second entry"));
 }
 
 /// The same check, fired with two different dangling guids (different interpolated `message` text), must still produce the identical `code` both times.

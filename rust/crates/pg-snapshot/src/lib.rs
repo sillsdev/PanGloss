@@ -79,9 +79,13 @@ pub use phonology::{
 };
 pub use project::Project;
 pub use warning::{
-    canonical_guid, DiagnosticLevel, FwClass, FwObjectRef, FwOpenTarget, ImportWarningCode, Warning,
+    canonical_guid, DiagnosticLevel, FwClass, FwObjectRef, FwOpenTarget, FwSubjectStatus,
+    ImportWarningCode, Warning,
 };
-pub use warning_metadata::{import_warning_metadata, ImportWarningMetadata};
+pub use warning_metadata::{
+    import_diagnostic_advice, import_warning_metadata, DiagnosticAdvice, FieldWorksPlace,
+    ImportWarningMetadata,
+};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

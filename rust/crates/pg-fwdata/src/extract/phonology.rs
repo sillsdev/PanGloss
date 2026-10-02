@@ -1,8 +1,8 @@
 //! `phonology` snapshot section — see `docs/snapshot-format.md` §4.
 
 use pg_snapshot::{
-    BoundaryMarker, Environment, FeatureConstraint, FeatureSystems, FwClass, FwObjectRef,
-    InventoryKey, InventoryKind, IssueClass, MetathesisRule, NaturalClass, PhonContext, Phoneme,
+    BoundaryMarker, Environment, FeatureConstraint, FeatureSystems, FwClass, InventoryKey,
+    InventoryKind, IssueClass, MetathesisRule, NaturalClass, PhonContext, Phoneme,
     PhonologicalRule, Phonology, RewriteRhs, RewriteRule, RuleDirection, Warning,
 };
 
@@ -24,7 +24,13 @@ pub fn extract_phonology(
     let Some(phon_data_guid) = lang_project.node.objsur_one("PhonologicalData") else {
         return Phonology::default();
     };
-    let Some(phon_data) = ctx.require(&phon_data_guid, "PhPhonData", "phonology") else {
+    let Some(phon_data) = ctx.require_from(
+        &phon_data_guid,
+        "PhPhonData",
+        "phonology",
+        lang_project,
+        "PhonologicalData",
+    ) else {
         return Phonology::default();
     };
 
@@ -45,18 +51,6 @@ pub fn extract_phonology(
     }
 }
 
-/// The first phoneme set, named as FieldWorks shows it; the project name stands in for an unnamed set.
-fn phoneme_set_subject(ctx: &Ctx, set_guid: &str, project_name: &str) -> FwObjectRef {
-    let name = ctx
-        .get(set_guid)
-        .map(|set| ctx.best_analysis(&set.node.ws_forms("Name")))
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| project_name.to_string());
-    FwObjectRef::new(FwClass::PhPhonemeSet)
-        .guid(set_guid)
-        .name(name)
-}
-
 /// `HCLoader` only ever loads the first phoneme set (HCLoader.cs:204); this does the same, warning if there is more than one.
 fn extract_phoneme_set(
     ctx: &mut Ctx,
@@ -64,17 +58,28 @@ fn extract_phoneme_set(
     project_name: &str,
 ) -> (Vec<Phoneme>, Vec<BoundaryMarker>) {
     let set_guids = phon_data.node.objsur_list("PhonemeSets");
+    let first_set = set_guids
+        .first()
+        .map(|guid| (guid.as_str(), ctx.resolve_reference(guid, "PhPhonemeSet")));
     if set_guids.len() > 1 {
-        ctx.warnings.push(
-            Warning::new(
-                super::codes::ONLY_FIRST_USED,
-                format!(
-                    "FieldWorks project '{project_name}' has {} phoneme sets; only the first is used.",
-                    set_guids.len()
-                ),
-            )
-            .with_subject(phoneme_set_subject(ctx, &set_guids[0], project_name)),
+        let (guid, resolution) = first_set
+            .as_ref()
+            .expect("a multi-set list has a first set");
+        let subjects = ctx.subjects_for_reference(
+            guid,
+            "PhPhonemeSet",
+            *resolution,
+            (phon_data, "PhonemeSets"),
         );
+        let message = format!(
+            "FieldWorks project '{project_name}' has {} phoneme-set references; only the first is eligible for loading.",
+            set_guids.len()
+        );
+        let warning = subjects.into_iter().fold(
+            Warning::new(super::codes::ONLY_FIRST_USED, message),
+            Warning::with_subject,
+        );
+        ctx.warnings.push(warning);
     }
     // Every set beyond the first is looked at only to record it as considered, never selected.
     for skipped_guid in set_guids.iter().skip(1) {
@@ -92,10 +97,16 @@ fn extract_phoneme_set(
             }
         }
     }
-    let Some(set_guid) = set_guids.first() else {
+    let Some((set_guid, resolution)) = first_set else {
         return (Vec::new(), Vec::new());
     };
-    let Some(set) = ctx.require(set_guid, "PhPhonemeSet", "phonology.phonemes") else {
+    let Some(set) = ctx.require_resolution(
+        set_guid,
+        "PhPhonemeSet",
+        "phonology.phonemes",
+        resolution,
+        (phon_data, "PhonemeSets"),
+    ) else {
         return (Vec::new(), Vec::new());
     };
 
@@ -103,35 +114,42 @@ fn extract_phoneme_set(
         .node
         .objsur_list("Phonemes")
         .into_iter()
-        .filter_map(|g| extract_phoneme(ctx, &g))
+        .filter_map(|g| extract_phoneme(ctx, &g, set))
         .collect();
     let boundary_markers = set
         .node
         .objsur_list("BoundaryMarkers")
         .into_iter()
-        .filter_map(|g| extract_boundary_marker(ctx, &g))
+        .filter_map(|g| extract_boundary_marker(ctx, &g, set))
         .collect();
     (phonemes, boundary_markers)
 }
 
-fn extract_phoneme(ctx: &mut Ctx, guid: &str) -> Option<Phoneme> {
-    let rec = ctx.require(guid, "PhPhoneme", "phonology.phonemes")?;
+fn extract_phoneme(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Phoneme> {
+    let rec = ctx.require_from(guid, "PhPhoneme", "phonology.phonemes", owner, "Phonemes")?;
     let key = InventoryKey::object(InventoryKind::Phoneme, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
     let name = ctx.best_analysis(&rec.node.ws_forms("Name"));
     let representations = code_representations(ctx, rec, "phonology.phonemes");
     if representations.is_empty() {
-        ctx.reject(
-            key,
+        let warning = Warning::new(
             super::codes::EMPTY_REPRESENTATION,
-            IssueClass::UnrepresentableForHc,
-            false,
-            None,
             format!(
                 "phonology.phonemes: phoneme {guid} ({name:?}) has no representations after \
                  dotted-circle stripping"
             ),
+        )
+        .with_subject(ctx.subject_for_record(rec, Some("Codes")));
+        ctx.reject_with_warning(
+            key,
+            IssueClass::UnrepresentableForHc,
+            false,
+            Some(pg_snapshot::SourceRef {
+                kind: FwClass::from_wire(&rec.class),
+                id: rec.guid.clone(),
+            }),
+            warning,
         );
     } else {
         ctx.represented(key);
@@ -139,7 +157,9 @@ fn extract_phoneme(ctx: &mut Ctx, guid: &str) -> Option<Phoneme> {
     let features = rec
         .node
         .objsur_one("Features")
-        .and_then(|fs_guid| extract_feature_structure(ctx, &fs_guid, "phonology.phonemes"))
+        .and_then(|fs_guid| {
+            extract_feature_structure(ctx, &fs_guid, "phonology.phonemes", rec, "Features")
+        })
         .filter(|fs| !fs.values.is_empty());
     Some(Phoneme {
         guid: guid.to_string(),
@@ -150,8 +170,14 @@ fn extract_phoneme(ctx: &mut Ctx, guid: &str) -> Option<Phoneme> {
     })
 }
 
-fn extract_boundary_marker(ctx: &mut Ctx, guid: &str) -> Option<BoundaryMarker> {
-    let rec = ctx.require(guid, "PhBdryMarker", "phonology.boundaryMarkers")?;
+fn extract_boundary_marker(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<BoundaryMarker> {
+    let rec = ctx.require_from(
+        guid,
+        "PhBdryMarker",
+        "phonology.boundaryMarkers",
+        owner,
+        "BoundaryMarkers",
+    )?;
     let key = InventoryKey::object(InventoryKind::BoundaryMarker, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
@@ -169,9 +195,13 @@ fn code_representations(ctx: &mut Ctx, rec: &Record, label: &str) -> Vec<pg_snap
     let mut out = Vec::new();
     for code_guid in rec.node.objsur_list("Codes") {
         let Some(code) = ctx.get(&code_guid) else {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::DANGLING_REFERENCE,
                 format!("{label}: dangling PhCode reference {code_guid}"),
+                [
+                    ctx.subject_for_record(rec, Some("Codes")),
+                    ctx.unresolved_subject(&code_guid, "PhCode", Some("Codes")),
+                ],
             );
             continue;
         };
@@ -222,11 +252,11 @@ fn extract_natural_classes(ctx: &mut Ctx, phon_data: &Record) -> Vec<NaturalClas
         .node
         .objsur_list("NaturalClasses")
         .into_iter()
-        .filter_map(|guid| extract_natural_class(ctx, &guid))
+        .filter_map(|guid| extract_natural_class(ctx, &guid, phon_data))
         .collect()
 }
 
-fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
+fn extract_natural_class(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<NaturalClass> {
     let rec = ctx.get(guid)?;
     let name = ctx.best_analysis(&rec.node.ws_forms("Abbreviation"));
     let display_name =
@@ -249,7 +279,9 @@ fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
             let features = rec
                 .node
                 .objsur_one("Features")
-                .and_then(|fs| extract_feature_structure(ctx, &fs, "phonology.naturalClasses"))
+                .and_then(|fs| {
+                    extract_feature_structure(ctx, &fs, "phonology.naturalClasses", rec, "Features")
+                })
                 .unwrap_or_default();
             ctx.considered(key.clone());
             ctx.selected(key.clone());
@@ -262,9 +294,14 @@ fn extract_natural_class(ctx: &mut Ctx, guid: &str) -> Option<NaturalClass> {
             })
         }
         other => {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::UNEXPECTED_CLASS,
                 format!("phonology.naturalClasses: {guid} has unexpected class {other}"),
+                [
+                    ctx.subject_for_record(owner, Some("NaturalClasses")),
+                    ctx.unresolved_subject(guid, "PhNaturalClass", Some("NaturalClasses")),
+                    ctx.subject_for_record(rec, None),
+                ],
             );
             None
         }
@@ -276,12 +313,18 @@ fn extract_environments(ctx: &mut Ctx, phon_data: &Record) -> Vec<Environment> {
         .node
         .objsur_list("Environments")
         .into_iter()
-        .filter_map(|guid| extract_environment(ctx, &guid))
+        .filter_map(|guid| extract_environment(ctx, &guid, phon_data))
         .collect()
 }
 
-fn extract_environment(ctx: &mut Ctx, guid: &str) -> Option<Environment> {
-    let rec = ctx.require(guid, "PhEnvironment", "phonology.environments")?;
+fn extract_environment(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Environment> {
+    let rec = ctx.require_from(
+        guid,
+        "PhEnvironment",
+        "phonology.environments",
+        owner,
+        "Environments",
+    )?;
     let key = InventoryKey::object(InventoryKind::Environment, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
@@ -303,8 +346,23 @@ fn extract_feature_constraints(ctx: &mut Ctx, phon_data: &Record) -> Vec<Feature
         .objsur_list("FeatConstraints")
         .into_iter()
         .filter_map(|guid| {
-            let rec = ctx.require(&guid, "PhFeatureConstraint", "phonology.featureConstraints")?;
-            let feature = rec.node.objsur_one("Feature")?;
+            let rec = ctx.require_from(
+                &guid,
+                "PhFeatureConstraint",
+                "phonology.featureConstraints",
+                phon_data,
+                "FeatConstraints",
+            )?;
+            let Some(feature) = rec.node.objsur_one("Feature") else {
+                ctx.warn_with_subjects(
+                    super::codes::MISSING_REQUIRED_FIELD,
+                    format!(
+                        "phonology.featureConstraints: feature constraint {guid} has no Feature"
+                    ),
+                    [ctx.subject_for_record(rec, Some("Feature"))],
+                );
+                return None;
+            };
             let key = InventoryKey::object(InventoryKind::FeatureConstraint, guid.clone());
             ctx.considered(key.clone());
             ctx.selected(key.clone());
@@ -351,9 +409,14 @@ fn extract_rules(ctx: &mut Ctx, phon_data: &Record) -> Vec<PhonologicalRule> {
                     rule
                 }
                 other => {
-                    ctx.warn(
+                    ctx.warn_with_subjects(
                         super::codes::UNEXPECTED_CLASS,
                         format!("phonology.rules: {guid} has unexpected class {other}"),
+                        [
+                            ctx.subject_for_record(phon_data, Some("PhonRules")),
+                            ctx.unresolved_subject(&guid, "PhonologicalRule", Some("PhonRules")),
+                            ctx.subject_for_record(rec, None),
+                        ],
                     );
                     None
                 }
@@ -368,12 +431,13 @@ fn rule_direction(rec: &Record, ctx: &mut Ctx, label: &str) -> RuleDirection {
         Some(1) => RuleDirection::RightToLeft,
         Some(2) => RuleDirection::Simultaneous,
         other => {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::UNRECOGNIZED_ENUM_VALUE,
                 format!(
                     "{label}: unexpected Direction {other:?} on rule {}, defaulting to leftToRight",
                     rec.guid
                 ),
+                [ctx.subject_for_record(rec, Some("Direction"))],
             );
             RuleDirection::LeftToRight
         }
@@ -387,13 +451,13 @@ fn extract_rewrite_rule(ctx: &mut Ctx, rec: &Record) -> Option<RewriteRule> {
         .node
         .objsur_list("StrucDesc")
         .into_iter()
-        .filter_map(|g| resolve_phon_context(ctx, &g, label))
+        .filter_map(|g| resolve_phon_context(ctx, &g, label, rec, "StrucDesc"))
         .collect();
     let right_hand_sides: Vec<RewriteRhs> = rec
         .node
         .objsur_list("RightHandSides")
         .into_iter()
-        .filter_map(|g| extract_rewrite_rhs(ctx, &g))
+        .filter_map(|g| extract_rewrite_rhs(ctx, &g, rec))
         .collect();
     // `PhRegularRule.FeatureConstraints` is a virtual LCM property; recomputed here to match HCLoader's own collection order.
     // See `docs/research/pg-fwdata-phonology-extract-notes.md`.
@@ -446,23 +510,23 @@ fn collect_feature_constraint_vars(c: &PhonContext, out: &mut Vec<String>) {
     }
 }
 
-fn extract_rewrite_rhs(ctx: &mut Ctx, guid: &str) -> Option<RewriteRhs> {
+fn extract_rewrite_rhs(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<RewriteRhs> {
     let label = "phonology.rules(rewrite).rightHandSides";
-    let rec = ctx.require(guid, "PhSegRuleRHS", label)?;
+    let rec = ctx.require_from(guid, "PhSegRuleRHS", label, owner, "RightHandSides")?;
     let structural_change = rec
         .node
         .objsur_list("StrucChange")
         .into_iter()
-        .filter_map(|g| resolve_phon_context(ctx, &g, label))
+        .filter_map(|g| resolve_phon_context(ctx, &g, label, rec, "StrucChange"))
         .collect();
     let left_context = rec
         .node
         .objsur_one("LeftContext")
-        .and_then(|g| resolve_phon_context(ctx, &g, label));
+        .and_then(|g| resolve_phon_context(ctx, &g, label, rec, "LeftContext"));
     let right_context = rec
         .node
         .objsur_one("RightContext")
-        .and_then(|g| resolve_phon_context(ctx, &g, label));
+        .and_then(|g| resolve_phon_context(ctx, &g, label, rec, "RightContext"));
     let required_parts_of_speech = rec.node.objsur_list("InputPOSes");
     let required_rule_features = resolve_rule_features(ctx, rec, "ReqRuleFeats", label);
     let excluded_rule_features = resolve_rule_features(ctx, rec, "ExclRuleFeats", label);
@@ -482,12 +546,13 @@ fn resolve_rule_features(ctx: &mut Ctx, rec: &Record, field: &str, label: &str) 
         .objsur_list(field)
         .into_iter()
         .filter_map(|wrapper_guid| {
-            let wrapper = ctx.require(&wrapper_guid, "PhPhonRuleFeat", label)?;
+            let wrapper = ctx.require_from(&wrapper_guid, "PhPhonRuleFeat", label, rec, field)?;
             let item = wrapper.node.objsur_one("Item");
             if item.is_none() {
-                ctx.warn(
+                ctx.warn_with_subjects(
                     super::codes::MISSING_REQUIRED_FIELD,
                     format!("{label}: PhPhonRuleFeat {wrapper_guid} has no Item reference"),
+                    [ctx.subject_for_record(wrapper, Some("Item"))],
                 );
             }
             item
@@ -504,7 +569,7 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
         .node
         .objsur_list("StrucDesc")
         .into_iter()
-        .filter_map(|g| resolve_phon_context(ctx, &g, label))
+        .filter_map(|g| resolve_phon_context(ctx, &g, label, rec, "StrucDesc"))
         .collect();
 
     let struc_change_text = rec
@@ -517,7 +582,7 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
         .filter_map(|tok| tok.parse::<usize>().ok())
         .collect();
     if permutation.len() != structural_description.len() {
-        ctx.warn(
+        ctx.warn_with_subjects(
             super::codes::METATHESIS_APPROXIMATION,
             format!(
                 "{label}: rule {} StrucChange {:?} does not enumerate all {} structural-description \
@@ -526,6 +591,7 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
                 struc_change_text,
                 structural_description.len()
             ),
+            [ctx.subject_for_record(rec, Some("StrucChange"))],
         );
     }
     let differing: Vec<usize> = permutation
@@ -535,13 +601,14 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
         .map(|(i, _)| i)
         .collect();
     if !differing.is_empty() && differing.len() != 2 {
-        ctx.warn(
+        ctx.warn_with_subjects(
             super::codes::METATHESIS_APPROXIMATION,
             format!(
                 "{label}: rule {} has a StrucChange permutation more complex than a simple two-part \
                  swap ({:?}); left/right switch indices are an approximation",
                 rec.guid, struc_change_text
             ),
+            [ctx.subject_for_record(rec, Some("StrucChange"))],
         );
     }
     let left_switch_index = differing.first().copied().unwrap_or(0) as i32;
@@ -559,7 +626,13 @@ fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule
 
 /// Resolve a `PhContextOrVar` guid into a `PhonContext` tree, shared by phonological rules and `extract::lexicon`.
 /// See `docs/research/pg-fwdata-phonology-extract-notes.md`.
-pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Option<PhonContext> {
+pub(crate) fn resolve_phon_context(
+    ctx: &mut Ctx,
+    guid: &str,
+    label: &str,
+    owner: &Record,
+    field: &str,
+) -> Option<PhonContext> {
     let rec = ctx.get(guid)?;
     let key = InventoryKey::object(InventoryKind::PhonologicalContext, guid.to_string());
     let record_represented = |ctx: &mut Ctx| {
@@ -573,7 +646,7 @@ pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Op
                 .node
                 .objsur_list("Members")
                 .into_iter()
-                .filter_map(|g| resolve_phon_context(ctx, &g, label))
+                .filter_map(|g| resolve_phon_context(ctx, &g, label, rec, "Members"))
                 .collect();
             record_represented(ctx);
             Some(PhonContext::Sequence { members })
@@ -582,7 +655,7 @@ pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Op
             let min = rec.node.val_int("Minimum").unwrap_or(0) as i32;
             let max = rec.node.val_int("Maximum").unwrap_or(-1) as i32;
             let member_guid = rec.node.objsur_one("Member")?;
-            let member = resolve_phon_context(ctx, &member_guid, label)?;
+            let member = resolve_phon_context(ctx, &member_guid, label, rec, "Member")?;
             record_represented(ctx);
             Some(PhonContext::Iteration {
                 min,
@@ -618,9 +691,14 @@ pub(crate) fn resolve_phon_context(ctx: &mut Ctx, guid: &str, label: &str) -> Op
         }
         "PhVariable" => Some(PhonContext::Variable),
         other => {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::UNEXPECTED_CLASS,
                 format!("{label}: {guid} has unexpected PhContextOrVar class {other}"),
+                [
+                    ctx.subject_for_record(owner, Some(field)),
+                    ctx.unresolved_subject(guid, "PhContextOrVar", Some(field)),
+                    ctx.subject_for_record(rec, None),
+                ],
             );
             None
         }

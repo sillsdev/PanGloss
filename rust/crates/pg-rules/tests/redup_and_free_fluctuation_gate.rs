@@ -289,6 +289,7 @@ fn constraint_unequal_adjacent_allomorphs_still_break_after_the_first() {
                     require: true,
                     left: None,
                     right: None,
+                    source: None,
                 }];
                 a
             },

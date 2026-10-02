@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic grammar copied from pg-foma-backend/tests/cover_realizational_morphology_constraints.rs. -->
+<HermitCrabInput>
+  <Language>
+    <Name>CoverRealizationalMorphologyConstraintsFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <HeadFeatures>
+      <SymbolicFeature id="featTense"><Name>tense</Name><Symbols><Symbol id="symPres">pres</Symbol><Symbol id="symPast">past</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featNum"><Name>num</Name><Symbols><Symbol id="symSg">sg</Symbol><Symbol id="symPl">pl</Symbol></Symbols></SymbolicFeature>
+    </HeadFeatures>
+    <StemNames>
+      <StemName id="snPast" partsOfSpeech="posV">
+        <Name>PastStem</Name>
+        <Regions>
+          <Region><AssignedHeadFeatures><FeatureValue feature="featTense" symbolValues="symPast" /></AssignedHeadFeatures></Region>
+        </Regions>
+      </StemName>
+    </StemNames>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cd"><Representations><Representation>d</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ce"><Representations><Representation>e</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cf"><Representations><Representation>f</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cm"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cn"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="co"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cu"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cv"><Representations><Representation>v</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cy"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cz"><Representations><Representation>z</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Families>
+      <Family id="famZ">FamZ</Family>
+    </Families>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="linear" morphologicalRules="mrTense rrPast mrPast2 mrPl">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrTense" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>tense</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subTense">
+                <MorphologicalInput><PhoneticSequence id="stemTense"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemTense" /><InsertSegments><PhoneticShape>es</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featTense" symbolValues="symPres" /></OutputHeadFeatures>
+            <MorphemeId>TENSE</MorphemeId>
+          </MorphologicalRule>
+          <RealizationalRule id="rrPast">
+            <Name>realizPast</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subRPast">
+                <MorphologicalInput><PhoneticSequence id="stemRPast"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemRPast" /><InsertSegments><PhoneticShape>id</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <RealizationalFeatures><FeatureValue feature="featTense" symbolValues="symPast" /></RealizationalFeatures>
+            <MorphemeId>RPAST</MorphemeId>
+          </RealizationalRule>
+          <MorphologicalRule id="mrPast2" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>past2</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subPast2">
+                <MorphologicalInput><PhoneticSequence id="stemPast2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemPast2" /><InsertSegments><PhoneticShape>ut</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featTense" symbolValues="symPast" /></OutputHeadFeatures>
+            <MorphemeId>PAST2</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrPl" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">
+            <Name>plural</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subPl">
+                <MorphologicalInput><PhoneticSequence id="stemPl"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemPl" /><InsertSegments><PhoneticShape>on</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <OutputHeadFeatures><FeatureValue feature="featNum" symbolValues="symPl" /></OutputHeadFeatures>
+            <MorphemeId>PL</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eKib" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aKib"><PhoneticShape>kib</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>KIB</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eZod" partOfSpeech="posV" family="famZ">
+            <Allomorphs><Allomorph id="aZod"><PhoneticShape>zod</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ZOD</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eVem" partOfSpeech="posV" family="famZ">
+            <Allomorphs><Allomorph id="aVem"><PhoneticShape>vem</PhoneticShape></Allomorph></Allomorphs>
+            <AssignedHeadFeatures><FeatureValue feature="featTense" symbolValues="symPast" /></AssignedHeadFeatures>
+            <MorphemeId>VEM</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eFom" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aFom"><PhoneticShape>fom</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>FOM</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eTay" partOfSpeech="posV">
+            <Allomorphs>
+              <Allomorph id="aTayDefault"><PhoneticShape>tay</PhoneticShape></Allomorph>
+              <Allomorph id="aTayRestricted" stemName="snPast"><PhoneticShape>toy</PhoneticShape></Allomorph>
+            </Allomorphs>
+            <MorphemeId>TAY</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+    <MorphemeCoOccurrenceRules>
+      <MorphemeCoOccurrenceRule type="exclude" primaryMorpheme="mrPl" otherMorphemes="mrPast2" adjacency="anywhere" />
+    </MorphemeCoOccurrenceRules>
+  </Language>
+</HermitCrabInput>

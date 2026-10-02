@@ -165,17 +165,22 @@ pub fn phon_rule_identity(grammar: &Grammar, id: PRuleId) -> ObjectIdentity {
 /// (what a human recognizes in FLEx) and falls back to the authored id when no gloss is reachable.
 pub fn lex_entry_identity(grammar: &Grammar, id: LexEntryId) -> ObjectIdentity {
     let entry = &grammar.entries[id.0 as usize];
+    let (key, quality) = if entry.authored_id.trim().is_empty() {
+        (format!("lex_entry#{}", id.0), IdentityQuality::Structural)
+    } else {
+        (entry.authored_id.clone(), IdentityQuality::Authored)
+    };
     let label = grammar
         .morphemes
         .get(entry.morpheme.0 as usize)
         .and_then(|m| m.gloss.clone())
         .filter(|g| !g.is_empty())
-        .unwrap_or_else(|| entry.authored_id.clone());
+        .unwrap_or_else(|| key.clone());
     ObjectIdentity {
-        key: entry.authored_id.clone(),
+        key,
         kind: ObjectKind::LexEntry,
         label,
-        quality: IdentityQuality::Authored,
+        quality,
     }
 }
 

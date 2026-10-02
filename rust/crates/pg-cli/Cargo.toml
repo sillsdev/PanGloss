@@ -69,6 +69,9 @@ pg-stats.workspace = true
 # destroy data) via `pg_stats::report`'s `&rusqlite::Connection`-based queries.
 rusqlite.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true

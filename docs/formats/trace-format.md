@@ -25,9 +25,16 @@ pangloss parse <grammar> <word> --trace --trace-format=json --trace-details
 
 This flag is valid only for JSON tracing on `parse`. With `--trace` alone it writes the document to standard output; with `--trace=<path>` it writes the document to that file. `--gloss` and `--natural-gloss` cannot be combined with it because they produce text output.
 
-The `pangloss.trace-details.v2` object contains the v1 search and category fields plus parser provenance, writing systems, stable document-local analysis IDs, FieldWorks projection status, captured morph display data when a snapshot supplies it, typed source identities, attempted morph snapshots, branch outcomes, and owner-published failure context. The exact contract is in [trace-details-v2.md](trace-details-v2.md), with a CLI-emitted example at [examples/trace-details-v2-matinlu.json](examples/trace-details-v2-matinlu.json). `search` reports completion flags, parser steps, and parser `elapsedNs`; it does not contain per-node timers. `categories` retains the existing aggregate counters and timing availability. The ordinary `--trace` tree remains embedded under `trace`, with its source order and fields preserved.
+The `pangloss.trace-details.v3` object contains the v1 search and category fields plus parser provenance, writing systems, stable document-local analysis IDs, FieldWorks projection status, captured morph display data when a snapshot supplies it, typed source identities, attempted morph snapshots, branch outcomes, and owner-published failure context. The exact contract is in [trace-details-v2.md](trace-details-v2.md). The CLI-emitted [historical v2 example](examples/trace-details-v2-matinlu.json) documents the previous profile. `search` reports completion flags, parser steps, and parser `elapsedNs`; it does not contain per-node timers. `categories` retains the existing aggregate counters and timing availability. The ordinary `--trace` tree remains embedded under `trace`, with its source order and fields preserved.
 
-The detailed mode runs the same unmerged traced search described below. It adds no per-node timers or inferred failure details. Omitting `--trace-details` keeps the existing output and execution path.
+The detailed mode runs the same unmerged traced search described below. It adds no per-node timers or inferred failure details. Omitting `--trace-details` uses the ordinary trace tree without rich payload fields. Compound analysis attempts use their own `CompoundingRuleAnalysis` event type in both modes.
+
+Version 3 adds document-local `stepId`, family blocking identity, completed `lookupResult`,
+template `slots`, `partialParseCause`, typed `failureContext.evidence`, and explicit unavailable
+phonological `nonUnapplicationReason`. Each field is optional except `stepId` on rich nodes.
+For example, a completed lookup with no root candidates carries
+`"lookupResult": {"status":"zeroMatches","completed":true,"matchCount":0,"mode":"lexicon"}`.
+The [details contract](trace-details-v2.md) documents every new payload and its capture boundary.
 `--trace-format` also accepts `text`, an indented, one-line-per-step rendering of exactly the same
 tree, meant for a person reading a terminal rather than a program or a model reading JSON. Nothing
 in the tree differs between the two — `text` and `json` are two renderings of the same underlying
@@ -111,9 +118,13 @@ inside one matters):
   unapply (analysis) or apply (synthesis). Carries `subrule` and, on failure, `failureReason`.
 - `PhonologicalRuleAnalysis` / `PhonologicalRuleSynthesis` — the same, for a phonological rule.
 - `CompoundingRuleAnalysis` / `CompoundingRuleSynthesis` — the same, for a compounding rule
-  (compounding has no subrule concept, so `subrule` never appears here).
-- `Blocked` — a rule that would otherwise have applied again to its own output, but is refused by
-  the guard against a rule feeding itself indefinitely.
+  (analysis records the attempted subrule index, when one was reached, and the owner's existing
+  rejection code). `Pattern` remains an aggregate rejection code, not proof that letters failed
+  to match.
+- `Blocked` — an applied rule's result was replaced by a compatible entry in the root's lexical
+  family. `source` names the rule and `outputShape` is the replacement form. In the details
+  envelope, `blockReason` is `LexicalFamilyReplacement` and `blockedByEntry` identifies the entry
+  selected by `check_blocking`; this event does not carry a `failureReason`.
 
 **Looking a stem up, and checking a candidate all the way through.**
 - `LexicalLookup` — the search of the lexicon (or, with `--guess`, the pattern-matching guesser)

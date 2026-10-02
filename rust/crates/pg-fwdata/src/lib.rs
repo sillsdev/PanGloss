@@ -187,7 +187,12 @@ fn writing_system_store_warning(project_name: &str) -> Warning {
         extract::codes::WRITING_SYSTEM_STORE_UNREADABLE,
         format!("Writing-system data for FieldWorks project '{project_name}' could not be read."),
     )
-    .with_subject(FwObjectRef::new(FwClass::Project).name(project_name))
+    .with_subject(
+        FwObjectRef::new(FwClass::Project)
+            .name(project_name)
+            .project_settings()
+            .field("WritingSystemStore"),
+    )
 }
 
 pub(crate) fn file_stem(path: &Path) -> String {

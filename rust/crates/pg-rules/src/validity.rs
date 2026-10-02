@@ -68,7 +68,10 @@ use pg_shape::Shape;
 use crate::cache::RuleCache;
 use crate::morph::segs_of;
 use crate::rewrite::{compile_env_allomorph, left_env_ok, right_env_ok, EnvFst};
-use crate::trace::{FailureReason, NoopSink, TraceHandle, TraceSink};
+use crate::trace::{
+    EnvironmentResult, FailureReason, NoopSink, RejectionEvidence, TraceHandle, TraceObject,
+    TraceSink,
+};
 use crate::word::{MorphRecord, Word};
 
 /// Every reference grammar resolves char-defs/patterns against table 0, matching `morph.rs`/`rewrite.rs`.
@@ -95,36 +98,12 @@ pub fn environments_ok(
     start: u32,
     end: u32,
 ) -> bool {
-    if envs.is_empty() {
-        return true;
-    }
-    let (segs, _node_of) = segs_of(g, TABLE, shape, true);
-    envs.iter().any(|env| {
-        let left = compile_env_allomorph(g, TABLE, env.left.as_ref());
-        let right = compile_env_allomorph(g, TABLE, env.right.as_ref());
-        env_side_ok(env, &left, &right, &segs, start, end)
-    })
+    EnvCheck::Fresh
+        .evaluate(g, AllomorphId::GUESSED, envs, shape, (start, end), false)
+        .is_ok()
 }
 
-/// Cached sibling of `environments_ok`; `env_cache[i]` must be `(left, right)` for `envs[i]`, positionally.
-fn environments_ok_cached(
-    g: &Grammar,
-    envs: &[EnvironmentDef],
-    env_cache: &[(Option<EnvFst>, Option<EnvFst>)],
-    shape: &Shape,
-    start: u32,
-    end: u32,
-) -> bool {
-    if envs.is_empty() {
-        return true;
-    }
-    let (segs, _node_of) = segs_of(g, TABLE, shape, true);
-    envs.iter()
-        .zip(env_cache)
-        .any(|(env, (left, right))| env_side_ok(env, left, right, &segs, start, end))
-}
-
-/// One environment's require/exclude check, shared by `environments_ok` and `environments_ok_cached`.
+/// One environment's require/exclude check, shared by the boolean and traced walks.
 fn env_side_ok(
     env: &EnvironmentDef,
     left: &Option<EnvFst>,
@@ -158,12 +137,57 @@ impl EnvCheck<'_> {
         start: u32,
         end: u32,
     ) -> bool {
-        match self {
-            EnvCheck::Fresh => environments_ok(g, envs, shape, start, end),
-            EnvCheck::Cached(cache) => {
-                environments_ok_cached(g, envs, &cache.allomorph(id).envs, shape, start, end)
+        self.evaluate(g, id, envs, shape, (start, end), false)
+            .is_ok()
+    }
+
+    /// Retain evaluated alternatives on rejection without visiting any successful branch's remainder.
+    fn evaluate(
+        &self,
+        g: &Grammar,
+        id: AllomorphId,
+        envs: &[EnvironmentDef],
+        shape: &Shape,
+        span: (u32, u32),
+        capture: bool,
+    ) -> Result<(), Vec<EnvironmentResult>> {
+        let (start, end) = span;
+        if envs.is_empty() {
+            return Ok(());
+        }
+        let (segs, _node_of) = segs_of(g, TABLE, shape, true);
+        let cached = match self {
+            EnvCheck::Fresh => None,
+            EnvCheck::Cached(cache) => Some(&cache.allomorph(id).envs),
+        };
+        let mut results = Vec::new();
+        for (index, env) in envs.iter().enumerate() {
+            let accepted = match cached {
+                Some(cache) => {
+                    let (left, right) = &cache[index];
+                    env_side_ok(env, left, right, &segs, start, end)
+                }
+                None => {
+                    let left = compile_env_allomorph(g, TABLE, env.left.as_ref());
+                    let right = compile_env_allomorph(g, TABLE, env.right.as_ref());
+                    env_side_ok(env, &left, &right, &segs, start, end)
+                }
+            };
+            if accepted {
+                return Ok(());
+            }
+            if capture {
+                let source = env.source.as_ref();
+                results.push(EnvironmentResult {
+                    index,
+                    require: env.require,
+                    accepted,
+                    source_id: source.and_then(|s| s.id.clone()),
+                    authored_text: source.and_then(|s| s.text.clone()),
+                });
             }
         }
+        Err(results)
     }
 }
 
@@ -349,8 +373,17 @@ fn morpheme_co_occurrence_rules_ok(
     key: MorphemeId,
     morph_list_morphemes: &[MorphemeId],
 ) -> bool {
-    rules.iter().all(|rule| {
-        co_occurrence_rule_ok(
+    first_failed_morpheme_co_occurrence_rule(rules, key, morph_list_morphemes).is_none()
+}
+
+/// Preserve the first failed rule from the same ordered traversal used for validity.
+fn first_failed_morpheme_co_occurrence_rule(
+    rules: &[MorphemeCoOccurrenceRuleDef],
+    key: MorphemeId,
+    morph_list_morphemes: &[MorphemeId],
+) -> Option<usize> {
+    rules.iter().position(|rule| {
+        !co_occurrence_rule_ok(
             rule.require,
             key,
             &rule.others,
@@ -358,6 +391,30 @@ fn morpheme_co_occurrence_rules_ok(
             morph_list_morphemes,
         )
     })
+}
+
+fn morpheme_co_occurrence_evidence(
+    rules: &[MorphemeCoOccurrenceRuleDef],
+    rule_index: usize,
+    object: MorphemeId,
+    constraint_owner: MorphemeId,
+    actual: &[MorphemeId],
+) -> RejectionEvidence {
+    let rule = &rules[rule_index];
+    RejectionEvidence::CoOccurrence {
+        object: TraceObject::Morpheme(object),
+        constraint_owner: TraceObject::Morpheme(constraint_owner),
+        rule_index,
+        require: rule.require,
+        adjacency: rule.adjacency,
+        others: rule
+            .others
+            .iter()
+            .copied()
+            .map(TraceObject::Morpheme)
+            .collect(),
+        actual: actual.iter().copied().map(TraceObject::Morpheme).collect(),
+    }
 }
 
 /// Every `MorphemeCoOccurrenceRule` attached to `morpheme` must pass (AND across rules).
@@ -389,8 +446,17 @@ fn allomorph_co_occurrence_ok(
     key: AllomorphId,
     morph_list_allomorphs: &[AllomorphId],
 ) -> bool {
-    rules.iter().all(|rule| {
-        co_occurrence_rule_ok(
+    first_failed_allomorph_co_occurrence_rule(rules, key, morph_list_allomorphs).is_none()
+}
+
+/// Same single-pass result for allomorph-level constraints.
+fn first_failed_allomorph_co_occurrence_rule(
+    rules: &[AllomorphCoOccurrenceRuleDef],
+    key: AllomorphId,
+    morph_list_allomorphs: &[AllomorphId],
+) -> Option<usize> {
+    rules.iter().position(|rule| {
+        !co_occurrence_rule_ok(
             rule.require,
             key,
             &rule.others,
@@ -398,6 +464,30 @@ fn allomorph_co_occurrence_ok(
             morph_list_allomorphs,
         )
     })
+}
+
+fn allomorph_co_occurrence_evidence(
+    rules: &[AllomorphCoOccurrenceRuleDef],
+    rule_index: usize,
+    object: AllomorphId,
+    constraint_owner: AllomorphId,
+    actual: &[AllomorphId],
+) -> RejectionEvidence {
+    let rule = &rules[rule_index];
+    RejectionEvidence::CoOccurrence {
+        object: TraceObject::Allomorph(object),
+        constraint_owner: TraceObject::Allomorph(constraint_owner),
+        rule_index,
+        require: rule.require,
+        adjacency: rule.adjacency,
+        others: rule
+            .others
+            .iter()
+            .copied()
+            .map(TraceObject::Allomorph)
+            .collect(),
+        actual: actual.iter().copied().map(TraceObject::Allomorph).collect(),
+    }
 }
 
 /// C# `Morpher.IsWordValid`'s final clause (Morpher.cs:581): every *distinct* allomorph used
@@ -443,6 +533,41 @@ fn fail_with_context(
         }
     }
     false
+}
+
+struct EnvironmentRejection {
+    object: AllomorphId,
+    constraint_owner: AllomorphId,
+    span: (u32, u32),
+    alternatives: Vec<EnvironmentResult>,
+}
+
+fn fail_with_environment_context(
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    w: &Word,
+    rejection: EnvironmentRejection,
+    legacy_environment: impl FnOnce() -> String,
+) -> bool {
+    fail_with_context(trace, parent, w, FailureReason::Environments, || {
+        let (start, end) = rejection.span;
+        let allomorph = rejection.object;
+        crate::trace::FailureContext {
+            required: Some("at least one declared environment must accept this morph span".into()),
+            actual: Some(format!(
+                "allomorph {allomorph:?}, interior span {start}..={end}, shape {:?}",
+                w.shape
+            )),
+            environment: Some(legacy_environment()),
+            evidence: Some(RejectionEvidence::Environments {
+                object: TraceObject::Allomorph(allomorph),
+                constraint_owner: TraceObject::Allomorph(rejection.constraint_owner),
+                start,
+                end,
+                alternatives: rejection.alternatives,
+            }),
+        }
+    })
 }
 fn allomorphs_valid_impl(
     g: &Grammar,
@@ -509,32 +634,73 @@ fn allomorphs_valid_impl(
                 }
             }
             // Keyed on the guessed sentinel ids, which never equal any real id in the morph lists.
-            if !allomorph_co_occurrence_ok(&def.co_occurrence, m.allomorph, &morph_list_allomorphs)
-            {
-                return fail(trace, parent, w, FailureReason::AllomorphCoOccurrenceRules);
+            if let Some(rule_index) = first_failed_allomorph_co_occurrence_rule(
+                &def.co_occurrence,
+                m.allomorph,
+                &morph_list_allomorphs,
+            ) {
+                return fail_with_context(
+                    trace,
+                    parent,
+                    w,
+                    FailureReason::AllomorphCoOccurrenceRules,
+                    || crate::trace::FailureContext {
+                        evidence: Some(allomorph_co_occurrence_evidence(
+                            &def.co_occurrence,
+                            rule_index,
+                            m.allomorph,
+                            gr.pattern_allo,
+                            &morph_list_allomorphs,
+                        )),
+                        ..Default::default()
+                    },
+                );
             }
             let pattern_morpheme = g.entries[gr.pattern_entry.0 as usize].morpheme;
-            if !morpheme_co_occurrence_rules_ok(
-                &g.morphemes[pattern_morpheme.0 as usize].co_occurrence,
+            let pattern_rules = &g.morphemes[pattern_morpheme.0 as usize].co_occurrence;
+            if let Some(rule_index) = first_failed_morpheme_co_occurrence_rule(
+                pattern_rules,
                 m.morpheme,
                 &morph_list_morphemes,
             ) {
-                return fail(trace, parent, w, FailureReason::MorphemeCoOccurrenceRules);
+                return fail_with_context(
+                    trace,
+                    parent,
+                    w,
+                    FailureReason::MorphemeCoOccurrenceRules,
+                    || crate::trace::FailureContext {
+                        evidence: Some(morpheme_co_occurrence_evidence(
+                            pattern_rules,
+                            rule_index,
+                            m.morpheme,
+                            pattern_morpheme,
+                            &morph_list_morphemes,
+                        )),
+                        ..Default::default()
+                    },
+                );
             }
             // Reuses the pattern allomorph's own cached environment matcher; no per-guess compilation.
-            if !check.envs_ok(g, gr.pattern_allo, &def.environments, &w.shape, start, end) {
-                return fail_with_context(trace, parent, w, FailureReason::Environments, || {
-                    crate::trace::FailureContext {
-                        required: Some(
-                            "at least one declared environment must accept this morph span".into(),
-                        ),
-                        actual: Some(format!(
-                            "allomorph {:?}, interior span {start}..={end}, shape {:?}",
-                            m.allomorph, w.shape
-                        )),
-                        environment: Some(format!("{:?}", def.environments)),
-                    }
-                });
+            if let Err(alternatives) = check.evaluate(
+                g,
+                gr.pattern_allo,
+                &def.environments,
+                &w.shape,
+                (start, end),
+                trace.is_tracing() && trace.captures_failure_context(),
+            ) {
+                return fail_with_environment_context(
+                    trace,
+                    parent,
+                    w,
+                    EnvironmentRejection {
+                        object: m.allomorph,
+                        constraint_owner: gr.pattern_allo,
+                        span: (start, end),
+                        alternatives,
+                    },
+                    || format!("{:?}", def.environments),
+                );
             }
             // No disjunctive re-check: the fabricated entry has exactly one allomorph, so the candidate set is empty.
             continue;
@@ -552,33 +718,70 @@ fn allomorphs_valid_impl(
                     return fail(trace, parent, w, reason);
                 }
                 // Allomorph-level rules, then morpheme-level rules, both before the environments check below, matching C#'s order.
-                if !allomorph_co_occurrence_ok(
+                if let Some(rule_index) = first_failed_allomorph_co_occurrence_rule(
                     &def.co_occurrence,
                     m.allomorph,
                     &morph_list_allomorphs,
                 ) {
-                    return fail(trace, parent, w, FailureReason::AllomorphCoOccurrenceRules);
-                }
-                if !morpheme_co_occurrence_ok(g, m.morpheme, &morph_list_morphemes) {
-                    return fail(trace, parent, w, FailureReason::MorphemeCoOccurrenceRules);
-                }
-                if !check.envs_ok(g, m.allomorph, &def.environments, &w.shape, start, end) {
                     return fail_with_context(
                         trace,
                         parent,
                         w,
-                        FailureReason::Environments,
+                        FailureReason::AllomorphCoOccurrenceRules,
                         || crate::trace::FailureContext {
-                            required: Some(
-                                "at least one declared environment must accept this morph span"
-                                    .into(),
-                            ),
-                            actual: Some(format!(
-                                "allomorph {:?}, interior span {start}..={end}, shape {:?}",
-                                m.allomorph, w.shape
+                            evidence: Some(allomorph_co_occurrence_evidence(
+                                &def.co_occurrence,
+                                rule_index,
+                                m.allomorph,
+                                m.allomorph,
+                                &morph_list_allomorphs,
                             )),
-                            environment: Some(format!("{:?}", def.environments)),
+                            ..Default::default()
                         },
+                    );
+                }
+                let morpheme_rules = &g.morphemes[m.morpheme.0 as usize].co_occurrence;
+                if let Some(rule_index) = first_failed_morpheme_co_occurrence_rule(
+                    morpheme_rules,
+                    m.morpheme,
+                    &morph_list_morphemes,
+                ) {
+                    return fail_with_context(
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::MorphemeCoOccurrenceRules,
+                        || crate::trace::FailureContext {
+                            evidence: Some(morpheme_co_occurrence_evidence(
+                                morpheme_rules,
+                                rule_index,
+                                m.morpheme,
+                                m.morpheme,
+                                &morph_list_morphemes,
+                            )),
+                            ..Default::default()
+                        },
+                    );
+                }
+                if let Err(alternatives) = check.evaluate(
+                    g,
+                    m.allomorph,
+                    &def.environments,
+                    &w.shape,
+                    (start, end),
+                    trace.is_tracing() && trace.captures_failure_context(),
+                ) {
+                    return fail_with_environment_context(
+                        trace,
+                        parent,
+                        w,
+                        EnvironmentRejection {
+                            object: m.allomorph,
+                            constraint_owner: m.allomorph,
+                            span: (start, end),
+                            alternatives,
+                        },
+                        || format!("{:?}", def.environments),
                     );
                 }
                 // The candidate's own allomorph-co-occurrence rules are checked here; morpheme-level rules are provably a
@@ -617,37 +820,79 @@ fn allomorphs_valid_impl(
                             required: Some(format!("{:?}", g.fs_interner.get(def.required_syn_fs))),
                             actual: Some(format!("{:?}", w.syn_fs)),
                             environment: None,
+                            evidence: Some(RejectionEvidence::SyntacticFeatures {
+                                object: TraceObject::Allomorph(m.allomorph),
+                                required: g.fs_interner.get(def.required_syn_fs).clone(),
+                                actual: w.syn_fs.clone(),
+                            }),
                         },
                     );
                 }
                 // Same allomorph-then-morpheme co-occurrence ordering as the root arm above.
-                if !allomorph_co_occurrence_ok(
+                if let Some(rule_index) = first_failed_allomorph_co_occurrence_rule(
                     &def.co_occurrence,
                     m.allomorph,
                     &morph_list_allomorphs,
                 ) {
-                    return fail(trace, parent, w, FailureReason::AllomorphCoOccurrenceRules);
-                }
-                if !morpheme_co_occurrence_ok(g, m.morpheme, &morph_list_morphemes) {
-                    return fail(trace, parent, w, FailureReason::MorphemeCoOccurrenceRules);
-                }
-                if !check.envs_ok(g, m.allomorph, &def.environments, &w.shape, start, end) {
                     return fail_with_context(
                         trace,
                         parent,
                         w,
-                        FailureReason::Environments,
+                        FailureReason::AllomorphCoOccurrenceRules,
                         || crate::trace::FailureContext {
-                            required: Some(
-                                "at least one declared environment must accept this morph span"
-                                    .into(),
-                            ),
-                            actual: Some(format!(
-                                "allomorph {:?}, interior span {start}..={end}, shape {:?}",
-                                m.allomorph, w.shape
+                            evidence: Some(allomorph_co_occurrence_evidence(
+                                &def.co_occurrence,
+                                rule_index,
+                                m.allomorph,
+                                m.allomorph,
+                                &morph_list_allomorphs,
                             )),
-                            environment: Some(format!("{:?}", def.environments)),
+                            ..Default::default()
                         },
+                    );
+                }
+                let morpheme_rules = &g.morphemes[m.morpheme.0 as usize].co_occurrence;
+                if let Some(rule_index) = first_failed_morpheme_co_occurrence_rule(
+                    morpheme_rules,
+                    m.morpheme,
+                    &morph_list_morphemes,
+                ) {
+                    return fail_with_context(
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::MorphemeCoOccurrenceRules,
+                        || crate::trace::FailureContext {
+                            evidence: Some(morpheme_co_occurrence_evidence(
+                                morpheme_rules,
+                                rule_index,
+                                m.morpheme,
+                                m.morpheme,
+                                &morph_list_morphemes,
+                            )),
+                            ..Default::default()
+                        },
+                    );
+                }
+                if let Err(alternatives) = check.evaluate(
+                    g,
+                    m.allomorph,
+                    &def.environments,
+                    &w.shape,
+                    (start, end),
+                    trace.is_tracing() && trace.captures_failure_context(),
+                ) {
+                    return fail_with_environment_context(
+                        trace,
+                        parent,
+                        w,
+                        EnvironmentRejection {
+                            object: m.allomorph,
+                            constraint_owner: m.allomorph,
+                            span: (start, end),
+                            alternatives,
+                        },
+                        || format!("{:?}", def.environments),
                     );
                 }
                 // Same disjunctive re-check shape as the root arm above (see its comment).

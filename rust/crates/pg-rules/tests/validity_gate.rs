@@ -1,9 +1,12 @@
 //! Regression gate for `Allomorph.IsWordValid`'s sub-gates: environments, bound roots, and per-allomorph required syntactic FS.
 
 use pg_grammar_model::model::{
-    AllomorphId, EnvironmentDef, Grammar, MorphRuleDef, Pattern, PatternNode,
+    AllomorphCoOccurrenceRuleDef, AllomorphId, CoOccurrenceAdjacency, EnvironmentDef,
+    EnvironmentSource, Grammar, MorphRuleDef, Pattern, PatternNode,
 };
-use pg_rules::validity::{allomorphs_valid, environments_ok};
+use pg_rules::cache::RuleCache;
+use pg_rules::trace::{FailureReason, RejectionEvidence, TraceSink, TraceType, TreeTraceSink};
+use pg_rules::validity::{allomorphs_valid, allomorphs_valid_cached_traced, environments_ok};
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
@@ -45,11 +48,23 @@ fn single(g: &Grammar, nc: &str) -> Pattern {
 }
 
 fn env(require: bool, left: Option<Pattern>, right: Option<Pattern>) -> EnvironmentDef {
-    EnvironmentDef {
-        require,
-        left,
-        right,
-    }
+    EnvironmentDef::new(require, left, right)
+}
+
+#[test]
+fn environment_source_metadata_does_not_change_semantic_equality() {
+    let pattern = Some(single(&load_probe_grammar(), "nc_d"));
+    let parsed = env(true, pattern.clone(), None);
+    let authored = EnvironmentDef {
+        source: Some(EnvironmentSource {
+            id: Some("authored-guid".into()),
+            text: Some("/d_".into()),
+        }),
+        ..env(true, pattern, None)
+    };
+
+    assert_eq!(parsed, authored);
+    assert_eq!(format!("{parsed:?}"), format!("{authored:?}"));
 }
 
 /// A required environment with both sides declared must anchor each side to the correct edge of the morph span; every permutation but the true `d _ t` orientation on "dat" fails at least one side.
@@ -348,6 +363,30 @@ fn required_syntactic_fs_gates_on_the_words_accumulated_syn_fs() {
         !allomorphs_valid(&g, &w_cat),
         "cat is num=sg; the suffix requires num=pl -- must reject"
     );
+    let cache = RuleCache::build(&g);
+    let sink = TreeTraceSink::with_failure_context();
+    let root = sink.analyze_word(&w_cat);
+    assert!(!allomorphs_valid_cached_traced(
+        &g, &w_cat, &cache, &sink, root
+    ));
+    let failure = sink
+        .node(root)
+        .children
+        .into_iter()
+        .map(|handle| sink.node(handle))
+        .find(|node| node.failure_reason == Some(FailureReason::RequiredSyntacticFeatureStruct))
+        .unwrap();
+    let Some(RejectionEvidence::SyntacticFeatures {
+        object,
+        required,
+        actual,
+    }) = failure.failure_context.unwrap().evidence
+    else {
+        panic!("the rejecting allomorph must publish its actual feature operands");
+    };
+    assert_eq!(object, pg_rules::trace::TraceObject::Allomorph(affix_allo));
+    assert_eq!(actual, w_cat.syn_fs);
+    assert_ne!(required, actual);
 
     let dog = find_entry(&g, "dog");
     let mut w_dog = Word::new(
@@ -362,5 +401,157 @@ fn required_syntactic_fs_gates_on_the_words_accumulated_syn_fs() {
     assert!(
         allomorphs_valid(&g, &w_dog),
         "dog is num=pl; the suffix's requirement is satisfied"
+    );
+}
+
+#[test]
+fn rich_environment_rejection_records_only_the_failed_alternatives() {
+    let mut g = load_gate_grammar();
+    let cat = find_entry(&g, "cat");
+    let cat_index = g
+        .entries
+        .iter()
+        .position(|entry| entry.authored_id == cat.authored_id)
+        .expect("cat entry index");
+    let cat_allo = cat.allomorphs[0].id;
+    let cat_morpheme = cat.morpheme;
+    let environments = vec![
+        EnvironmentDef {
+            source: Some(EnvironmentSource {
+                id: Some("env-first".into()),
+                text: Some("/[All]_".into()),
+            }),
+            ..env(true, Some(single(&g, "ncAll")), None)
+        },
+        EnvironmentDef {
+            source: Some(EnvironmentSource {
+                id: Some("env-second".into()),
+                text: Some("/[All]_".into()),
+            }),
+            ..env(true, Some(single(&g, "ncAll")), None)
+        },
+    ];
+    g.entries[cat_index].allomorphs[0].environments = environments;
+    let mut w = Word::new(
+        entry_shape(&g, "cat"),
+        pg_grammar_model::model::StratumId(0),
+    );
+    w.syn_fs = g.fs_interner.get(g.entries[cat_index].syn_fs).clone();
+    w.morphs = vec![MorphRecord::new(cat_allo, cat_morpheme, 0)];
+
+    let expected = allomorphs_valid(&g, &w);
+    let cache = RuleCache::build(&g);
+    let sink = TreeTraceSink::with_failure_context();
+    let root = sink.analyze_word(&w);
+    let traced = allomorphs_valid_cached_traced(&g, &w, &cache, &sink, root);
+    assert_eq!(traced, expected);
+    assert!(!traced);
+
+    let failure = sink
+        .node(root)
+        .children
+        .into_iter()
+        .map(|handle| sink.node(handle))
+        .find(|node| {
+            node.type_ == TraceType::Failed
+                && node.failure_reason == Some(FailureReason::Environments)
+        })
+        .expect("environment gate emits its rejection");
+    let context = failure.failure_context.expect("rich evidence is enabled");
+    assert!(
+        context.environment.is_some(),
+        "legacy display field remains populated"
+    );
+    let Some(RejectionEvidence::Environments {
+        object,
+        constraint_owner,
+        alternatives,
+        ..
+    }) = context.evidence
+    else {
+        panic!("expected typed environment evidence");
+    };
+    assert_eq!(object, pg_rules::trace::TraceObject::Allomorph(cat_allo));
+    assert_eq!(constraint_owner, object);
+    assert_eq!(alternatives.len(), 2);
+    assert!(alternatives.iter().all(|result| !result.accepted));
+    assert_eq!(alternatives[0].source_id.as_deref(), Some("env-first"));
+    assert_eq!(alternatives[1].source_id.as_deref(), Some("env-second"));
+}
+
+#[test]
+fn rich_co_occurrence_rejection_records_the_first_failed_rule_operands() {
+    let mut g = load_gate_grammar();
+    let cat_index = g
+        .entries
+        .iter()
+        .position(|entry| {
+            entry
+                .allomorphs
+                .first()
+                .is_some_and(|a| a.shape.text == "cat")
+        })
+        .expect("cat entry index");
+    let cat_allo = g.entries[cat_index].allomorphs[0].id;
+    let cat_morpheme = g.entries[cat_index].morpheme;
+    let absent_other = AllomorphId(123_456);
+    g.entries[cat_index].allomorphs[0].co_occurrence = vec![AllomorphCoOccurrenceRuleDef {
+        require: true,
+        others: vec![absent_other],
+        adjacency: CoOccurrenceAdjacency::Anywhere,
+    }];
+    let mut w = Word::new(
+        entry_shape(&g, "cat"),
+        pg_grammar_model::model::StratumId(0),
+    );
+    w.syn_fs = g.fs_interner.get(g.entries[cat_index].syn_fs).clone();
+    w.morphs = vec![MorphRecord::new(cat_allo, cat_morpheme, 0)];
+
+    let expected = allomorphs_valid(&g, &w);
+    let cache = RuleCache::build(&g);
+    let sink = TreeTraceSink::with_failure_context();
+    let root = sink.analyze_word(&w);
+    let traced = allomorphs_valid_cached_traced(&g, &w, &cache, &sink, root);
+    assert_eq!(traced, expected);
+    assert!(!traced);
+
+    let failure = sink
+        .node(root)
+        .children
+        .into_iter()
+        .map(|handle| sink.node(handle))
+        .find(|node| {
+            node.type_ == TraceType::Failed
+                && node.failure_reason == Some(FailureReason::AllomorphCoOccurrenceRules)
+        })
+        .expect("co-occurrence gate emits its rejection");
+    let evidence = failure
+        .failure_context
+        .expect("rich evidence is enabled")
+        .evidence
+        .expect("co-occurrence operands are captured");
+    let RejectionEvidence::CoOccurrence {
+        object,
+        constraint_owner,
+        rule_index,
+        require,
+        others,
+        actual,
+        ..
+    } = evidence
+    else {
+        panic!("expected typed co-occurrence evidence");
+    };
+    assert_eq!(object, pg_rules::trace::TraceObject::Allomorph(cat_allo));
+    assert_eq!(constraint_owner, object);
+    assert_eq!(rule_index, 0);
+    assert!(require);
+    assert_eq!(
+        others,
+        vec![pg_rules::trace::TraceObject::Allomorph(absent_other)]
+    );
+    assert_eq!(
+        actual,
+        vec![pg_rules::trace::TraceObject::Allomorph(cat_allo)]
     );
 }

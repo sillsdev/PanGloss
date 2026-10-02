@@ -1,36 +1,9 @@
-//! The `hc-*` grammar-authoring health checks, ported from C#
-//! `SIL.Machine.Morphology.HermitCrab.GrammarHealthChecker`/`GrammarHealthCheckFinding`
-//! (`sillsdev/machine` PR 475, branch `feature/grammar-health-checker`). Diagnostic only: running
-//! these checks never refuses or changes how a [`Grammar`] compiles or parses. If the model cannot
-//! provide a canonical diagnostic fact, the inspection error is returned to the caller.
+//! Grammar-authoring health checks and versioned reports with source subjects and owned advice.
 //!
-//! This answers a *different* question from `pg_health::health`'s FST-compilation vocabulary
-//! (`Severity`/`FindingCode`/`FindingClass`): that module asks "can this grammar be compiled to an
-//! FST and published" (gated on `FindingClass`: Representability/Readiness/Containment/Process).
-//! These checks ask "is this grammar well-formed for its author" -- an authoring-correctness
-//! question with no publication-blocking tier and no representability/containment axis, so a
-//! separate, smaller vocabulary lives here rather than contorting the FST schema's severity/class
-//! pair to fit it. `hc-undeclared-segment` and `hc-duplicate-feature-bundle` are the stable C#
-//! strings; C#'s single `hc-partial-morpheme` is split here into `hc-stem-no-grammatical-category`
-//! and `hc-inflectional-affix-missing-template-slot`, so compare partial findings by subject.
-//!
-//! Lives in `pg-grammar`, not `pg-health`, because the checks read [`Grammar`] directly.
-//! `pg-health` is a leaf crate whose only dependencies are `serde`/`serde_json`, kept that way so
-//! it builds for `wasm32-unknown-unknown` with no compiler/model machinery in its graph
-//! (`pg-wasm/tests/wasm_excludes_compiler.rs`); adding a `pg-grammar` dependency there would be a
-//! new, unnecessary edge. `pg-grammar` is already an unconditional dependency of `pg-wasm` (see
-//! that crate's `Cargo.toml`), so this module adds no new wasm32 exposure of its own.
-//!
-//! # What is NOT ported
-//! C#'s `CheckUndeclaredSegments` also flags a `SegmentNaturalClass` member whose
-//! `CharacterDefinition.CharacterDefinitionTable` is not one of the language's declared tables.
-//! [`crate::model::NaturalClassKind::Segments`] stores only a per-table
-//! [`crate::chardef::CharDefId`] with no owning-table reference, and `load.rs`'s natural-class pass
-//! resolves every `<Segment segment="...">` reference through an index built ONLY from
-//! already-declared tables -- so a member naming an undeclared table cannot exist once a grammar
-//! has loaded, and the model carries no field this check could read even by hand construction.
-//! Porting it would require adding a table reference to every `Segments` member, a model-shape
-//! change out of scope for this port.
+//! Reports inspect the compiled grammar without changing compilation or parsing. Canonical-fact
+//! inspection errors propagate to the caller. FST publication policy remains in `pg-health`.
+//! Segment natural-class membership cannot identify undeclared tables after grammar loading;
+//! the model records only per-table character IDs, so that C# inspection is not represented here.
 
 use crate::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use crate::grammar_health_presentation::{fieldworks_identity, fieldworks_link, FieldWorksSource};
@@ -39,8 +12,10 @@ use crate::model::{
     PartialMorphemeIdentity, PartialMorphemeReason, TableId,
 };
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
+use pg_snapshot::warning_metadata::{DiagnosticAdvice, FieldWorksPlace};
 use pg_snapshot::{
-    DiagnosticLevel, FwClass, FwObjectRef, FwOpenTarget, ImportWarningCode, Warning,
+    DiagnosticLevel, FwClass, FwObjectRef, FwOpenTarget, FwSubjectStatus, ImportWarningCode,
+    Warning,
 };
 
 /// The stable diagnostic codes this module reports (C# `GrammarHealthCodes`). Treat
@@ -113,112 +88,92 @@ impl GrammarHealthCode {
     }
 }
 
-#[derive(Clone, Copy)]
-enum CheckGuidance {
-    UndeclaredSegment,
-    DuplicateFeatureBundle,
-    StemWithoutCategory,
-    InflectionalAffixWithoutTemplateSlot,
-    UnclassifiedAffix,
-    PartialReasonUnspecified,
-}
-
 struct CheckDiagnosticMetadata {
     group_name: &'static str,
     level: DiagnosticLevel,
-    guidance: CheckGuidance,
+    advice: DiagnosticAdvice,
 }
 
 /// Each level's rationale is in docs/grammar-diagnostics.md.
 fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnosticMetadata> {
+    use pg_snapshot::warning_metadata::{ALLOMORPHS_HELP, MODELLING_HELP, STEMS_HELP};
     use DiagnosticLevel::{Error, Warning};
-    let (group_name, level, guidance) = match code {
+    let (title, level, explanation, guidance, places, help) = match code {
         GrammarHealthCode::UndeclaredSegment => (
-            "Missing segment definition",
-            Warning,
-            CheckGuidance::UndeclaredSegment,
+            "Missing segment definition", Warning,
+            "A loaded allomorph or morphological rule uses a segment absent from the grammar's declared phoneme inventory. Check the description for the form and segment; this check does not inspect every natural-class reference.",
+            "In Lexicon > Lexicon Edit, check the named form's spelling. If the spelling is intended, add its phoneme and grapheme representation in Grammar > Phonemes; for an inserted compound-rule segment, check the named rule in Grammar > Compound Rules instead.",
+            vec![place("lexiconEdit", "Form"), place("phonemeEdit", "In Orthography as"), place("compoundRuleAdvancedEdit", "Output")], ALLOMORPHS_HELP,
         ),
         GrammarHealthCode::DuplicateFeatureBundle => (
-            "Duplicate segment features",
-            Error,
-            CheckGuidance::DuplicateFeatureBundle,
+            "Duplicate segment features", Error,
+            "Two declared phonemes have the same phonological feature values, so feature-based lookup cannot distinguish them. This check runs only when a phonological feature system exists.",
+            "In Grammar > Phonemes, assign distinct feature values to the named phonemes if they represent different sounds. If the feature match is intentional, no change is needed.",
+            vec![place("phonemeEdit", "Phonological Features")], ALLOMORPHS_HELP,
         ),
         GrammarHealthCode::StemWithoutCategory => (
-            "Stem has no category",
-            Error,
-            CheckGuidance::StemWithoutCategory,
+            "Stem has no category", Error,
+            "This stem is marked partial because its grammatical category is missing. Its category restrictions cannot be enforced as authored.",
+            "In Lexicon > Lexicon Edit, open the named entry and set Grammatical Info. > Category for its stem analysis.",
+            vec![place("lexiconEdit", "Grammatical Info. > Category")], STEMS_HELP,
         ),
         GrammarHealthCode::InflectionalAffixWithoutTemplateSlot => (
-            "Inflectional affix has no slot",
-            Error,
-            CheckGuidance::InflectionalAffixWithoutTemplateSlot,
+            "Inflectional affix has no slot", Error,
+            "This inflectional affix is marked partial because it has no template slot. PanGloss can retain a partial rule with incomplete template restrictions. Check the finding against the intended template restrictions.",
+            "In Grammar > Category Edit > the category's Affix Templates, assign the affix's inflectional analysis to the intended slot. Check the category and slot assignment in Lexicon > Lexicon Edit too.",
+            vec![place("posEdit", "Affix Templates"), place("lexiconEdit", "Grammatical Info. > Slots")], MODELLING_HELP,
         ),
         GrammarHealthCode::UnclassifiedAffix => (
-            "Affix is unclassified",
-            Error,
-            CheckGuidance::UnclassifiedAffix,
+            "Affix is unclassified", Error,
+            "The affix has neither an inflectional nor a derivational analysis. It is partial and can attach without the intended classification restrictions.",
+            "In Lexicon > Lexicon Edit, classify the affix's Grammatical Info. as inflectional or derivational if that describes it, then supply the category and restrictions that analysis requires.",
+            vec![place("lexiconEdit", "Grammatical Info.")], MODELLING_HELP,
         ),
         GrammarHealthCode::PartialReasonUnspecified => (
-            "Partial reason is unknown",
-            Error,
-            CheckGuidance::PartialReasonUnspecified,
+            "Partial reason is unknown", Error,
+            "The grammar marks this morpheme partial but records no reason. PanGloss cannot identify a specific missing FieldWorks field from this finding.",
+            "Inspect the named morpheme and its grammatical analysis in Lexicon > Lexicon Edit. If the analysis is complete, report the finding with its description and PanGloss version; no specific correction has been verified.",
+            vec![], MODELLING_HELP,
         ),
         GrammarHealthCode::ImportWarning(_) => return None,
     };
     Some(CheckDiagnosticMetadata {
-        group_name,
+        group_name: title,
         level,
-        guidance,
+        advice: DiagnosticAdvice {
+            title,
+            explanation,
+            guidance,
+            fieldworks_places: places,
+            help_body: Some(help),
+        },
     })
 }
 
-fn check_guidance(code: &GrammarHealthCode, subjects: &[GrammarHealthSubject]) -> Option<String> {
-    let metadata = check_diagnostic_metadata(code)?;
-    use pg_snapshot::fieldworks_paths as path;
-    let guidance = match metadata.guidance {
-        CheckGuidance::UndeclaredSegment => {
-            let kind = subjects.get(1).map(|subject| subject.kind)?;
-            let (edit_path, action) = match kind {
-                FwClass::MoForm | FwClass::MoStemMsa => (
-                    path::LEXICON_EDIT,
-                    "correct the form or add the missing phoneme",
-                ),
-                FwClass::MoInflAffMsa
-                | FwClass::MoDerivAffMsa
-                | FwClass::MoUnclassifiedAffixMsa => (
-                    path::LEXICON_EDIT,
-                    "correct the affix form or add the missing phoneme",
-                ),
-                FwClass::MoCompoundRule => (
-                    path::GRAMMAR_COMPOUND_RULES,
-                    "correct the rule or add the missing phoneme",
-                ),
-                _ => (path::GRAMMAR_PHONEMES, "add the missing phoneme"),
-            };
-            format!("In {edit_path}, {action} in {}.", path::GRAMMAR_PHONEMES)
+fn place(tool: &str, field: &str) -> FieldWorksPlace {
+    FieldWorksPlace {
+        tool: tool.to_string(),
+        field: field.to_string(),
+    }
+}
+
+fn diagnostic_advice(code: &GrammarHealthCode) -> Option<DiagnosticAdvice> {
+    match code {
+        GrammarHealthCode::ImportWarning(wire) => {
+            pg_snapshot::warning_metadata::import_diagnostic_advice(
+                &ImportWarningCode::from_wire_or_unregistered(wire),
+            )
         }
-        CheckGuidance::DuplicateFeatureBundle => format!(
-            "In {}, assign distinct feature values to these phonemes.",
-            path::GRAMMAR_PHONEMES
-        ),
-        CheckGuidance::StemWithoutCategory => format!(
-            "In {}, open the entry and set Grammatical Info. > Category.",
-            path::LEXICON_EDIT
-        ),
-        CheckGuidance::InflectionalAffixWithoutTemplateSlot => format!(
-            "In {}, assign the affix to a template slot.",
-            path::GRAMMAR_CATEGORY_AFFIX_TEMPLATES
-        ),
-        CheckGuidance::UnclassifiedAffix => format!(
-            "In {}, set the affix's Grammatical Info. to an inflectional or derivational affix.",
-            path::LEXICON_EDIT
-        ),
-        CheckGuidance::PartialReasonUnspecified => format!(
-            "In {}, check the affix's category and template slot assignments.",
-            path::GRAMMAR_CATEGORY_AFFIX_TEMPLATES
-        ),
-    };
-    Some(guidance)
+        _ => check_diagnostic_metadata(code).map(|metadata| metadata.advice),
+    }
+}
+
+fn check_guidance(code: &GrammarHealthCode, _subjects: &[GrammarHealthSubject]) -> Option<String> {
+    check_diagnostic_metadata(code).map(|metadata| metadata.advice.guidance.to_string())
+}
+
+fn diagnostic_help_path(code: &GrammarHealthCode) -> Option<String> {
+    diagnostic_advice(code).map(|_| format!("docs/diagnostics/{}.md", code.wire()))
 }
 
 impl serde::Serialize for GrammarHealthCode {
@@ -291,6 +246,8 @@ pub enum FieldWorksUnavailableReason {
     GuidNotRecorded,
     InvalidGuid,
     UnsupportedKind,
+    UnresolvedReference,
+    ProjectSettings,
 }
 
 impl FieldWorksUnavailableReason {
@@ -300,6 +257,10 @@ impl FieldWorksUnavailableReason {
             Self::GuidNotRecorded => "source item has no FieldWorks GUID",
             Self::InvalidGuid => "source item has an invalid FieldWorks GUID",
             Self::UnsupportedKind => "source item has no verified FieldWorks tool",
+            Self::UnresolvedReference => {
+                "referenced item is absent or not usable as the expected class"
+            }
+            Self::ProjectSettings => "project-wide setting has no individual FieldWorks object",
         }
     }
 }
@@ -333,6 +294,9 @@ impl FieldWorksLink {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GrammarHealthSubject {
     pub kind: FwClass,
+    pub status: FwSubjectStatus,
+    pub field: Option<String>,
+    pub source_class: Option<String>,
     pub title: String,
     pub subtitle: Option<String>,
     pub guid: Option<String>,
@@ -349,12 +313,20 @@ fn is_internal_subject_label(title: &str) -> bool {
     let Some((prefix, suffix)) = lower.split_once('#') else {
         return false;
     };
+    let digit_count = suffix.bytes().take_while(u8::is_ascii_digit).count();
     ["char_def", "lex_entry", "mrule", "morph_rule", "table"].contains(&prefix)
-        && suffix.starts_with(|character: char| character.is_ascii_digit())
+        && digit_count > 0
+        && (digit_count == suffix.len() || suffix[digit_count..].starts_with(':'))
 }
 
 impl GrammarHealthSubject {
-    fn from_source(source: FwObjectRef) -> Self {
+    fn from_source(mut source: FwObjectRef) -> Self {
+        if source.status == FwSubjectStatus::Object && source.opens_in.is_none() {
+            source.opens_in = crate::grammar_health_presentation::open_target_for_raw_class(
+                source.source_class.as_deref(),
+                source.guid.as_deref(),
+            );
+        }
         let title = source
             .name
             .as_deref()
@@ -362,7 +334,8 @@ impl GrammarHealthSubject {
             .filter(|name| !name.is_empty())
             .map_or_else(|| unnamed_subject_title(source.class), str::to_string);
         let guid = source.guid;
-        let fieldworks = fieldworks_link(
+        let fieldworks = subject_link(
+            source.status,
             source.class,
             guid.as_deref(),
             source.opens_in.as_ref(),
@@ -370,6 +343,9 @@ impl GrammarHealthSubject {
         );
         Self {
             kind: source.class,
+            status: source.status,
+            field: source.field,
+            source_class: source.source_class,
             title,
             subtitle: None,
             fieldworks,
@@ -412,6 +388,26 @@ impl GrammarHealthSubject {
     }
 }
 
+fn subject_link(
+    status: FwSubjectStatus,
+    class: FwClass,
+    guid: Option<&str>,
+    target: Option<&FwOpenTarget>,
+    project: Option<&str>,
+) -> FieldWorksLink {
+    match status {
+        FwSubjectStatus::Object => fieldworks_link(class, guid, target, project),
+        FwSubjectStatus::UnresolvedReference => FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::UnresolvedReference,
+            guid: guid.map(str::to_string),
+        },
+        FwSubjectStatus::ProjectSettings => FieldWorksLink::Unavailable {
+            reason: FieldWorksUnavailableReason::ProjectSettings,
+            guid: None,
+        },
+    }
+}
+
 /// A FieldWorks item left unnamed there is still reported, as "Unnamed affix template" etc.
 fn unnamed_subject_title(kind: FwClass) -> String {
     format!(
@@ -429,6 +425,10 @@ pub struct GrammarHealthDiagnostic {
     pub origin: DiagnosticOrigin,
     pub message: String,
     pub guidance: Option<String>,
+    pub explanation: Option<String>,
+    pub help_path: Option<String>,
+    pub help_body: Option<String>,
+    pub fieldworks_places: Vec<FieldWorksPlace>,
     pub subjects: Vec<GrammarHealthSubject>,
 }
 
@@ -445,11 +445,23 @@ impl serde::Serialize for GrammarHealthDiagnostic {
             origin: DiagnosticOrigin,
             description: &'a str,
             guidance: &'a Option<String>,
+            title: &'a str,
+            explanation: &'a Option<String>,
+            help_path: &'a Option<String>,
+            help_body: &'a Option<String>,
+            fieldworks_places: &'a [FieldWorksPlace],
+            scope: &'static str,
             #[serde(borrow)]
             subjects: &'a [GrammarHealthSubject],
         }
 
         Wire {
+            title: &self.group_name,
+            explanation: &self.explanation,
+            help_path: &self.help_path,
+            help_body: &self.help_body,
+            fieldworks_places: &self.fieldworks_places,
+            scope: self.scope(),
             level: self.level,
             code: self.code.clone(),
             group_name: &self.group_name,
@@ -463,12 +475,38 @@ impl serde::Serialize for GrammarHealthDiagnostic {
 }
 
 impl GrammarHealthDiagnostic {
+    fn scope(&self) -> &'static str {
+        if self
+            .subjects
+            .iter()
+            .any(|subject| subject.status == FwSubjectStatus::Object)
+        {
+            "object"
+        } else if self
+            .subjects
+            .iter()
+            .any(|subject| subject.status == FwSubjectStatus::UnresolvedReference)
+        {
+            "unresolved_reference"
+        } else {
+            "project_settings"
+        }
+    }
+
     pub fn from_import_warning(warning: &Warning) -> Self {
         let import_code = ImportWarningCode::from_wire_or_unregistered(&warning.code);
         let metadata = pg_snapshot::import_warning_metadata(import_code);
         let code = GrammarHealthCode::ImportWarning(warning.code.to_owned());
         let group_name = metadata.group_name.to_string();
+        let advice = diagnostic_advice(&code);
         Self {
+            explanation: advice.as_ref().map(|advice| advice.explanation.to_string()),
+            help_path: diagnostic_help_path(&code),
+            help_body: advice
+                .as_ref()
+                .and_then(|advice| advice.help_body)
+                .map(str::to_string),
+            fieldworks_places: advice.map_or_else(Vec::new, |advice| advice.fieldworks_places),
             level: metadata.level,
             code,
             group_name,
@@ -495,7 +533,15 @@ impl GrammarHealthDiagnostic {
         message: String,
         subjects: Vec<GrammarHealthSubject>,
     ) -> Self {
+        let advice = diagnostic_advice(&code);
         Self {
+            explanation: advice.as_ref().map(|advice| advice.explanation.to_string()),
+            help_path: diagnostic_help_path(&code),
+            help_body: advice
+                .as_ref()
+                .and_then(|advice| advice.help_body)
+                .map(str::to_string),
+            fieldworks_places: advice.map_or_else(Vec::new, |advice| advice.fieldworks_places),
             level: code.level(),
             group_name: code.group_name(),
             guidance: check_guidance(&code, &subjects),
@@ -530,7 +576,7 @@ impl GrammarHealthDiagnostic {
     }
 }
 
-pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 3;
+pub const GRAMMAR_HEALTH_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GrammarHealthReportErrorCode {
@@ -581,18 +627,54 @@ impl std::fmt::Display for GrammarHealthReportErrorCode {
 pub struct GrammarHealthReport {
     diagnostics: Vec<GrammarHealthDiagnostic>,
     fieldworks_project: FieldWorksProject,
+    locale: String,
 }
 
 impl GrammarHealthReport {
     pub fn new(
         diagnostics: Vec<GrammarHealthDiagnostic>,
     ) -> Result<Self, GrammarHealthReportError> {
+        let report = Self {
+            diagnostics,
+            fieldworks_project: FieldWorksProject::default(),
+            locale: "en".to_string(),
+        }
+        .with_fieldworks_project(FieldWorksProject::default());
+        Self::validated(report.diagnostics, report.fieldworks_project)
+    }
+
+    fn validated(
+        diagnostics: Vec<GrammarHealthDiagnostic>,
+        fieldworks_project: FieldWorksProject,
+    ) -> Result<Self, GrammarHealthReportError> {
+        let mut metadata = std::collections::HashMap::new();
         for (diagnostic_index, diagnostic) in diagnostics.iter().enumerate() {
             validate_diagnostic(diagnostic, diagnostic_index)?;
+            let details = (
+                &diagnostic.group_name,
+                diagnostic.level,
+                diagnostic.origin,
+                &diagnostic.explanation,
+                &diagnostic.help_path,
+                &diagnostic.help_body,
+                &diagnostic.fieldworks_places,
+            );
+            if metadata
+                .insert(diagnostic.code.wire(), details)
+                .is_some_and(|previous| previous != details)
+            {
+                return Err(report_error(
+                    GrammarHealthReportErrorCode::InvalidDiagnostic,
+                    Some(diagnostic_index),
+                    Some("code"),
+                    "conflicting metadata for one code".to_string(),
+                ));
+            }
         }
         Ok(Self {
             diagnostics,
-            fieldworks_project: FieldWorksProject::default(),
+            fieldworks_project,
+            locale: "en".to_string(),
         })
     }
 
@@ -600,7 +682,8 @@ impl GrammarHealthReport {
         let fieldworks_project = fieldworks_project.normalized();
         for diagnostic in &mut self.diagnostics {
             for subject in &mut diagnostic.subjects {
-                subject.fieldworks = fieldworks_link(
+                subject.fieldworks = subject_link(
+                    subject.status,
                     subject.kind,
                     subject.guid.as_deref(),
                     subject.opens_in.as_ref(),
@@ -668,7 +751,55 @@ impl GrammarHealthReport {
         for (diagnostic_index, value) in diagnostic_values.into_iter().enumerate() {
             diagnostics.push(decode_diagnostic(value, diagnostic_index)?);
         }
-        Self::new(diagnostics).map(|report| report.with_fieldworks_project(fieldworks_project))
+        let locale = required_field::<String>(object, "locale", None)?;
+        if locale.trim().is_empty() {
+            return Err(report_error(
+                GrammarHealthReportErrorCode::InvalidField,
+                None,
+                Some("locale"),
+                "missing advice locale".to_string(),
+            ));
+        }
+        let summary: Vec<GrammarHealthSummaryRow> = required_field(object, "summary", None)?;
+        let mut report = Self::validated(diagnostics, fieldworks_project)?;
+        report.locale = locale;
+        if report.fieldworks_project.clone().normalized() != report.fieldworks_project {
+            return Err(report_error(
+                GrammarHealthReportErrorCode::InvalidField,
+                None,
+                Some("fieldworks_project"),
+                "inconsistent project identity".to_string(),
+            ));
+        }
+        if summary != report.summary() {
+            return Err(report_error(
+                GrammarHealthReportErrorCode::InvalidField,
+                None,
+                Some("summary"),
+                "summary does not agree with diagnostics".to_string(),
+            ));
+        }
+        for (index, diagnostic) in report.diagnostics.iter().enumerate() {
+            for subject in &diagnostic.subjects {
+                if subject.fieldworks
+                    != subject_link(
+                        subject.status,
+                        subject.kind,
+                        subject.guid.as_deref(),
+                        subject.opens_in.as_ref(),
+                        report.fieldworks_project.name.as_deref(),
+                    )
+                {
+                    return Err(report_error(
+                        GrammarHealthReportErrorCode::InvalidDiagnostic,
+                        Some(index),
+                        Some("fieldworks"),
+                        "navigation does not agree with subject and project".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(report)
     }
 
     fn summary(&self) -> Vec<GrammarHealthSummaryRow> {
@@ -711,6 +842,7 @@ impl serde::Serialize for GrammarHealthReport {
         #[derive(serde::Serialize)]
         struct Wire<'a> {
             schema_version: u32,
+            locale: &'a str,
             fieldworks_project: &'a FieldWorksProject,
             summary: Vec<GrammarHealthSummaryRow>,
             diagnostics: &'a [GrammarHealthDiagnostic],
@@ -718,6 +850,7 @@ impl serde::Serialize for GrammarHealthReport {
 
         Wire {
             schema_version: GRAMMAR_HEALTH_SCHEMA_VERSION,
+            locale: &self.locale,
             fieldworks_project: &self.fieldworks_project,
             summary: self.summary(),
             diagnostics: &self.diagnostics,
@@ -781,16 +914,64 @@ fn decode_diagnostic(
     let origin = required_field(object, "origin", Some(diagnostic_index))?;
     let message = required_field(object, "description", Some(diagnostic_index))?;
     let guidance = required_field(object, "guidance", Some(diagnostic_index))?;
-    let subjects = required_field(object, "subjects", Some(diagnostic_index))?;
-    Ok(GrammarHealthDiagnostic {
+    let subject_values: Vec<serde_json::Value> =
+        required_field(object, "subjects", Some(diagnostic_index))?;
+    for subject in &subject_values {
+        let kind = subject
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        if kind
+            != serde_json::to_value(FwClass::from_wire(kind))
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .unwrap_or_default()
+        {
+            return Err(report_error(
+                GrammarHealthReportErrorCode::InvalidField,
+                Some(diagnostic_index),
+                Some("subjects.kind"),
+                "unsupported subject kind".to_string(),
+            ));
+        }
+    }
+    let subjects =
+        serde_json::from_value(serde_json::Value::Array(subject_values)).map_err(|error| {
+            report_error(
+                GrammarHealthReportErrorCode::InvalidField,
+                Some(diagnostic_index),
+                Some("subjects"),
+                error.to_string(),
+            )
+        })?;
+    let explanation = required_field(object, "explanation", Some(diagnostic_index))?;
+    let help_path = required_field(object, "help_path", Some(diagnostic_index))?;
+    let help_body = required_field(object, "help_body", Some(diagnostic_index))?;
+    let fieldworks_places = required_field(object, "fieldworks_places", Some(diagnostic_index))?;
+    let title: String = required_field(object, "title", Some(diagnostic_index))?;
+    let diagnostic = GrammarHealthDiagnostic {
         level,
         code,
         group_name,
         origin,
         message,
         guidance,
+        explanation,
+        help_path,
+        help_body,
+        fieldworks_places,
         subjects,
-    })
+    };
+    let scope: String = required_field(object, "scope", Some(diagnostic_index))?;
+    if title != diagnostic.group_name || scope != diagnostic.scope() {
+        return Err(report_error(
+            GrammarHealthReportErrorCode::InvalidDiagnostic,
+            Some(diagnostic_index),
+            Some("scope/title"),
+            "scope or title does not agree with diagnostic".to_string(),
+        ));
+    }
+    Ok(diagnostic)
 }
 
 fn validate_diagnostic(
@@ -809,14 +990,98 @@ fn validate_diagnostic(
             message,
         ))
     };
+    let code = diagnostic.code.wire();
+    if code.is_empty()
+        || code.contains("..")
+        || !code
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+    {
+        return missing("code", format!("{prefix}: invalid diagnostic code"));
+    }
     if diagnostic.message.trim().is_empty() {
         return missing("description", format!("{prefix}: missing description"));
     }
     if diagnostic.group_name.trim().is_empty() {
         return missing("group_name", format!("{prefix}: missing group_name"));
     }
+    if diagnostic.subjects.is_empty() {
+        return missing("subjects", format!("{prefix}: no structured subject"));
+    }
+    let advice_presence = [
+        diagnostic.explanation.is_some(),
+        diagnostic.guidance.is_some(),
+        diagnostic.help_path.is_some(),
+    ];
+    if (advice_presence.iter().any(|present| *present)
+        || diagnostic.help_body.is_some()
+        || !diagnostic.fieldworks_places.is_empty())
+        && !advice_presence.iter().all(|present| *present)
+    {
+        return missing(
+            "advice",
+            format!("{prefix}: incomplete owned diagnostic advice"),
+        );
+    }
+    if diagnostic_advice(&diagnostic.code).is_some()
+        && (diagnostic.explanation.is_none()
+            || diagnostic.guidance.is_none()
+            || diagnostic.help_path.is_none())
+    {
+        return missing(
+            "advice",
+            format!("{prefix}: missing owned diagnostic advice"),
+        );
+    }
+    for (field, text) in [
+        ("explanation", &diagnostic.explanation),
+        ("guidance", &diagnostic.guidance),
+        ("help_body", &diagnostic.help_body),
+    ] {
+        if text.as_deref().is_some_and(|text| text.trim().is_empty()) {
+            return missing(field, format!("{prefix}: blank {field}"));
+        }
+    }
+    if let Some(path) = &diagnostic.help_path {
+        if path != &format!("docs/diagnostics/{code}.md") {
+            return missing(
+                "help_path",
+                format!("{prefix}: help path does not identify its code page"),
+            );
+        }
+    }
+    if diagnostic
+        .fieldworks_places
+        .iter()
+        .any(|place| place.tool.trim().is_empty())
+    {
+        return missing(
+            "fieldworks_places",
+            format!("{prefix}: missing FieldWorks tool"),
+        );
+    }
     for (subject_index, subject) in diagnostic.subjects.iter().enumerate() {
+        if (subject.kind == FwClass::Project)
+            != (subject.status == FwSubjectStatus::ProjectSettings)
+            || (subject.status == FwSubjectStatus::ProjectSettings
+                && (subject.guid.is_some() || subject.opens_in.is_some()))
+            || (subject.status == FwSubjectStatus::UnresolvedReference
+                && (subject.opens_in.is_some()
+                    || subject
+                        .guid
+                        .as_deref()
+                        .is_none_or(|id| id.trim().is_empty())))
+        {
+            return missing("status", format!("{prefix}: inconsistent subject status"));
+        }
         let subject_prefix = format!("{prefix} subject {subject_index}");
+        if subject
+            .opens_in
+            .as_ref()
+            .is_some_and(|target| target.tool.trim().is_empty())
+        {
+            return missing("opens_in.tool", format!("{subject_prefix}: missing tool"));
+        }
         if subject.title.trim().is_empty() {
             return missing("title", format!("{subject_prefix}: missing title"));
         }
@@ -874,93 +1139,81 @@ pub fn render_json(report: &GrammarHealthReport) -> Result<String, GrammarHealth
 /// Checked-in path, relative to the repository root, of [`render_diagnostics_reference`]'s output.
 pub const DIAGNOSTICS_REFERENCE_PATH: &str = "docs/grammar-diagnostics-reference.md";
 
-/// Render every registered diagnostic code as a Markdown reference, grouped by level.
-///
-/// Generated from the same metadata the report uses, so the reference cannot drift from what
-/// `pangloss grammar-health` prints. A gate test regenerates the checked-in copy and fails while it
-/// is stale.
-pub fn render_diagnostics_reference() -> String {
-    struct Row {
-        wire: String,
-        name: String,
-        origin: &'static str,
-        guidance: String,
-    }
-    let mut rows: Vec<(DiagnosticLevel, Row)> = Vec::new();
-    for code in GrammarHealthCode::ALL {
-        let guidance = check_guidance(code, &[]).unwrap_or_else(|| {
-            "Depends on the item that uses the phoneme; the report names the FieldWorks tool."
-                .to_string()
-        });
-        rows.push((
-            code.level(),
-            Row {
-                wire: code.wire().to_string(),
-                name: code.group_name(),
-                origin: "check",
-                guidance,
-            },
-        ));
-    }
-    for code in ImportWarningCode::ALL {
-        let metadata = pg_snapshot::import_warning_metadata(code.clone());
-        rows.push((
-            metadata.level,
-            Row {
-                wire: code.wire().to_string(),
-                name: metadata.group_name.to_string(),
-                origin: "import",
-                guidance: metadata
-                    .guidance_for_subject(Some("_name_"), None)
-                    .unwrap_or_else(|| "Nothing to fix.".to_string()),
-            },
-        ));
-    }
-
-    let mut out = String::new();
-    out.push_str("# Grammar diagnostics reference\n\n");
-    out.push_str(
-        "<!-- Generated by pg_grammar::grammar_health::render_diagnostics_reference. Do not edit by \
-         hand: the diagnostics_reference_is_current test rewrites this file when it is stale. -->\n\n",
-    );
-    out.push_str(
-        "Every diagnostic `pangloss grammar-health` can report, grouped by level. Why each level \
-         exists, and the report format, are in [grammar-diagnostics.md](grammar-diagnostics.md).\n",
-    );
-    let sections = [
-        (
-            DiagnosticLevel::Error,
-            "Errors",
-            "Known bad: a restriction is dropped, two items become indistinguishable, or a whole \
-             morpheme is lost. Any error makes `pangloss grammar-health` exit non-zero.",
-        ),
-        (
-            DiagnosticLevel::Warning,
-            "Warnings",
-            "Something in FieldWorks should change, but the grammar still behaves as authored \
-             or only loses one alternative.",
-        ),
-        (
-            DiagnosticLevel::Info,
-            "Info",
-            "Something was left out on purpose; nothing to fix.",
-        ),
-    ];
-    for (level, title, blurb) in sections {
-        let section: Vec<&Row> = rows
+fn registered_diagnostic_codes() -> impl Iterator<Item = GrammarHealthCode> {
+    GrammarHealthCode::ALL.iter().cloned().chain(
+        ImportWarningCode::ALL
             .iter()
-            .filter(|(row_level, _)| *row_level == level)
-            .map(|(_, row)| row)
+            .map(|code| GrammarHealthCode::ImportWarning(code.wire().to_string())),
+    )
+}
+
+/// Generate the version-pinnable CommonMark page for each registered code.
+pub fn render_diagnostic_pages() -> std::collections::BTreeMap<String, String> {
+    registered_diagnostic_codes()
+        .map(|code| {
+            let advice = diagnostic_advice(&code).expect("registered code has owned advice");
+            (
+                format!("docs/diagnostics/{}.md", code.wire()),
+                render_diagnostic_page(&code, advice),
+            )
+        })
+        .collect()
+}
+
+fn render_diagnostic_page(code: &GrammarHealthCode, advice: DiagnosticAdvice) -> String {
+    let mut page = format!(
+        "# {}\n\n{}\n\nLevel: **{}**\n\n## Explanation\n\n{}\n\n## What to do\n\n{}\n",
+        code.wire(),
+        advice.title,
+        code.level().wire(),
+        advice.explanation,
+        advice.guidance.replace("{subject}", "the named item")
+    );
+    if !advice.fieldworks_places.is_empty() {
+        page.push_str("\n## FieldWorks places\n\n| Tool | Field |\n|---|---|\n");
+        for place in advice.fieldworks_places {
+            page.push_str(&format!(
+                "| `{}` | {} |\n",
+                place.tool,
+                place.field.replace('|', "\\|")
+            ));
+        }
+    }
+    if let Some(help) = advice.help_body {
+        page.push_str("\n## Background\n\n");
+        page.push_str(help.replace("\r\n", "\n").trim());
+        page.push('\n');
+    }
+    page.push_str("\n[All diagnostic codes](../grammar-diagnostics-reference.md) · [Report format](../grammar-diagnostics.md)\n");
+    page
+}
+
+/// Render the index from the same catalog that supplies runtime explanations and advice.
+pub fn render_diagnostics_reference() -> String {
+    let mut out = "# Grammar diagnostics reference\n\nEvery registered `pangloss grammar-health` finding has a page generated from PanGloss's runtime advice catalog. The [report format](grammar-diagnostics.md) describes levels and navigation.\n\nPin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/docs/diagnostics/<code>.md`. Each page's first heading is its code; GitHub also renders an anchor from that heading. The file path is stable even for dotted codes.\n".to_string();
+    for (level, title) in [
+        (DiagnosticLevel::Error, "Errors"),
+        (DiagnosticLevel::Warning, "Warnings"),
+        (DiagnosticLevel::Info, "Information"),
+    ] {
+        let codes: Vec<_> = registered_diagnostic_codes()
+            .filter(|code| code.level() == level)
             .collect();
-        out.push_str(&format!("\n## {title} ({})\n\n{blurb}\n\n", section.len()));
-        out.push_str("| Code | Name | Origin | What to do |\n|---|---|---|---|\n");
-        for row in section {
+        out.push_str(&format!(
+            "\n## {title} ({})\n\n| Code | Title | What to do |\n|---|---|---|\n",
+            codes.len()
+        ));
+        for code in codes {
+            let advice = diagnostic_advice(&code).expect("registered code has advice");
             out.push_str(&format!(
-                "| `{}` | {} | {} | {} |\n",
-                row.wire,
-                row.name.replace('|', "\\|"),
-                row.origin,
-                row.guidance.replace('|', "\\|")
+                "| [{}](diagnostics/{}.md) | {} | {} |\n",
+                code.wire(),
+                code.wire(),
+                advice.title.replace('|', "\\|"),
+                advice
+                    .guidance
+                    .replace("{subject}", "the named item")
+                    .replace('|', "\\|")
             ));
         }
     }
@@ -1094,7 +1347,8 @@ fn make_subject(
     fieldworks_project: Option<&str>,
 ) -> GrammarHealthSubject {
     let source = source.name(title.clone());
-    let fieldworks = fieldworks_link(
+    let fieldworks = subject_link(
+        source.status,
         source.class,
         source.guid.as_deref(),
         source.opens_in.as_ref(),
@@ -1102,6 +1356,9 @@ fn make_subject(
     );
     GrammarHealthSubject {
         kind: source.class,
+        status: source.status,
+        field: source.field,
+        source_class: source.source_class,
         title,
         subtitle,
         guid: source.guid,

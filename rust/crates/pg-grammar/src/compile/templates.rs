@@ -97,28 +97,39 @@ fn build_template(
             roles::SLOT,
         );
         ctx.authored(attachment.clone());
-        ctx.considered(slot_key.clone());
         ctx.considered(attachment.clone());
         let Some(&affix_slot) = slot_registry.get(slot_guid) else {
-            ctx.selected(slot_key.clone());
             ctx.selected(attachment.clone());
-            ctx.reject(
-                slot_key,
+            let field = if is_prefix {
+                "PrefixSlots"
+            } else {
+                "SuffixSlots"
+            };
+            let warning = pg_snapshot::Warning::new(
                 issue_codes::TEMPLATE_SLOT_UNRESOLVED,
-                IssueClass::InvalidSource,
-                format!(
-                    "affix template {:?}: slot {slot_guid:?} does not resolve; skipped",
-                    tmpl.guid
-                ),
+                "Affix template references a slot that does not resolve; the slot was skipped.",
+            )
+            .with_subject(
+                pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoInflAffixTemplate)
+                    .guid(tmpl.guid.clone())
+                    .name(tmpl.name.clone())
+                    .field(field),
+            )
+            .with_subject(
+                pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoInflAffixSlot)
+                    .guid(slot_guid)
+                    .unresolved_reference()
+                    .field(field),
             );
-            ctx.reject(
+            ctx.reject_with_subjects(
                 attachment,
                 issue_codes::TEMPLATE_SLOT_UNRESOLVED,
                 IssueClass::InvalidSource,
-                "template-slot attachment: slot does not resolve",
+                warning,
             );
             continue;
         };
+        ctx.considered(slot_key.clone());
         ctx.selected(slot_key.clone());
         ctx.selected(attachment.clone());
         let mut rules = acc.slot_rules.get(slot_guid).cloned().unwrap_or_default();

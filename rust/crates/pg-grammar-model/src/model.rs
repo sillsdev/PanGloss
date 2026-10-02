@@ -366,12 +366,51 @@ pub enum NaturalClassKind {
 /// An allomorph environment (`RequiredEnvironments`/`ExcludedEnvironments` → C#
 /// `AllomorphEnvironment`). `left`/`right` are phonetic templates (anchors encoded as
 /// pattern nodes); `None` = no template on that side.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct EnvironmentDef {
     /// true = required (`ConstraintType.Require`), false = excluded.
     pub require: bool,
     pub left: Option<Pattern>,
     pub right: Option<Pattern>,
+    /// Authored source identity/text for diagnostics. This is deliberately excluded from semantic
+    /// environment equality: equivalent loaded patterns remain equivalent regardless of provenance.
+    pub source: Option<EnvironmentSource>,
+}
+
+impl std::fmt::Debug for EnvironmentDef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EnvironmentDef")
+            .field("require", &self.require)
+            .field("left", &self.left)
+            .field("right", &self.right)
+            .finish()
+    }
+}
+
+/// Optional authored representation retained for trace explanations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvironmentSource {
+    pub id: Option<String>,
+    pub text: Option<String>,
+}
+
+impl PartialEq for EnvironmentDef {
+    fn eq(&self, other: &Self) -> bool {
+        self.require == other.require && self.left == other.left && self.right == other.right
+    }
+}
+
+impl Eq for EnvironmentDef {}
+
+impl EnvironmentDef {
+    pub fn new(require: bool, left: Option<Pattern>, right: Option<Pattern>) -> Self {
+        Self {
+            require,
+            left,
+            right,
+            source: None,
+        }
+    }
 }
 
 // --- Phonological rules --------------------------------------------------------------------------

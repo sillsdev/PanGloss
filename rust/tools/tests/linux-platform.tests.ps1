@@ -526,6 +526,34 @@ Committed_AS:   2048 kB
         Assert-True ($output -match 'linux-fixture') 'direct process stdout must be captured'
     }
 
+    Test-Case 'Linux direct process streams stdout without corrupting its returned exit code' {
+        $code = Invoke-ManagedProcess -Exe 'pwsh' -CmdArgs @('-NoProfile', '-Command', "Write-Output 'linux-uncaptured-fixture'; exit 23") -WorkingDirectory $fixtureRoot -SelfCgroupText "0::/delegated/supervisor/worker`n" -MountInfoText $mountInfo -ReadFile (New-Reader -Files $validCgroupFiles)
+        Assert-Equal 1 @($code).Count 'child stdout must not be returned as exit-code data'
+        Assert-Equal 23 $code 'an uncaptured child failure must remain a numeric failure'
+    }
+
+    Test-Case 'Linux direct process streams stdout while returning a scalar failing exit code' {
+        Assert-LinuxAdapterReady
+        $driver = Join-Path $fixtureRoot 'direct-process-visible-output.ps1'
+        $outputPath = Join-Path $fixtureRoot 'direct-process-visible-output.out'
+        Set-Content -LiteralPath $driver -Encoding utf8 -Value @'
+. $args[0]
+$null = Import-PanGlossPlatformAdapter -Platform Linux -ToolRoot $args[1]
+$proof = [PSCustomObject]@{ Ok = $true; Detail = 'fixture proof' }
+$code = Invoke-ManagedProcess -Exe 'pwsh' -CmdArgs @('-NoProfile', '-Command', "Write-Output 'linux-visible-marker'; exit 23") `
+    -WorkingDirectory (Get-Location).Path -HostCgroupProof $proof
+[Console]::Out.WriteLine("RESULT_TYPE=$($code.GetType().FullName)")
+[Console]::Out.WriteLine("RESULT=$code")
+'@
+        $process = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -Wait -RedirectStandardOutput $outputPath `
+            -ArgumentList @('-NoProfile', '-File', $driver, $commonPath, $toolRoot)
+        $output = Get-Content -LiteralPath $outputPath -Raw
+        Assert-Equal 0 $process.ExitCode 'the driver must report its assertions through captured stdout'
+        Assert-True ($output -match '(?m)^linux-visible-marker\s*$') 'child stdout must remain visible to the host'
+        Assert-True ($output -match '(?m)^RESULT_TYPE=System\.Int32\s*$') 'the wrapper result must be a scalar integer'
+        Assert-True ($output -match '(?m)^RESULT=23\s*$') 'the scalar result must preserve the child failure exit code'
+    }
+
     Test-Case 'Linux resource-slot exclusion is shared with an independent pwsh process' {
         Assert-LinuxAdapterReady
         $prefix = "Global\PanGlossLinuxCrossProcessSlot$PID-"

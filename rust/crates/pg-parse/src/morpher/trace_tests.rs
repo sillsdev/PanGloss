@@ -50,6 +50,21 @@ fn partial_parse_is_reported_when_an_unapplied_rule_never_confirms() {
         sink.node(child).failure_reason,
         Some(FailureReason::PartialParse)
     );
+    assert!(sink.node(child).partial_parse_cause.is_none());
+
+    let rich = TreeTraceSink::with_failure_context();
+    let root = rich.analyze_word(&word);
+    assert!(!m.is_word_valid_traced(&word, &rich, root));
+    assert!(!m.is_word_valid(&word));
+    let child = rich.node(root).children[0];
+    assert_eq!(
+        rich.node(child).failure_reason,
+        Some(FailureReason::PartialParse)
+    );
+    assert_eq!(
+        rich.node(child).partial_parse_cause,
+        Some(pg_rules::trace::PartialParseCause::RemainingAnalyzedRules)
+    );
 }
 
 #[test]

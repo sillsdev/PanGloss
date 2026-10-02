@@ -82,6 +82,7 @@ fn failure_context_is_opt_in_and_attached_to_exact_event() {
             required: Some("cats".into()),
             actual: Some("cat".into()),
             environment: None,
+            ..Default::default()
         },
     );
     assert_eq!(

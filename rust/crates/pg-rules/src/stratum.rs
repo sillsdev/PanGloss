@@ -84,7 +84,9 @@ pub(crate) enum RuleInvocationRole {
 use crate::cache::RuleCache;
 use crate::cascade::Cascade;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
-use crate::trace::{FailureReason, TraceHandle, TraceSink};
+use crate::trace::{
+    FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
+};
 use crate::word::{estimate_word_bytes, runtime_id, FinalTemplateState, Word, WordKey};
 use crate::{metathesis, morph, rewrite};
 
@@ -963,17 +965,42 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             self.trace.begin_unapply_template(node_parent, tid, input);
         }
         let mut out: HashMap<WordKey, Word> = HashMap::default();
+        let slot_outcomes =
+            (self.trace.is_tracing() && self.trace.captures_details()).then(Vec::new);
         // Descend from the last slot.
-        self.template_unapply_slots(tid, tmpl, input, tmpl.slots.len() as isize - 1, &mut out);
+        self.template_unapply_slots(
+            tid,
+            tmpl,
+            input,
+            tmpl.slots.len() as isize - 1,
+            &mut out,
+            slot_outcomes,
+        );
         out.into_values().collect()
     }
 
     /// Fires `EndUnapplyTemplate` against `w`'s own resolved cursor, if tracing is on at all.
-    fn end_unapply_template(&self, tid: TemplateId, w: &Word, unapplied: bool) {
+    fn end_unapply_template(
+        &self,
+        tid: TemplateId,
+        w: &Word,
+        unapplied: bool,
+        slot_outcomes: Option<&[TemplateSlotOutcome]>,
+    ) {
         if self.trace.is_tracing() {
             let node_parent = w.trace.unwrap_or(self.parent);
-            self.trace
-                .end_unapply_template(node_parent, tid, w, unapplied);
+            if let Some(slot_outcomes) = slot_outcomes.filter(|_| self.trace.captures_details()) {
+                self.trace.end_unapply_template_with_slots(
+                    node_parent,
+                    tid,
+                    w,
+                    unapplied,
+                    slot_outcomes,
+                );
+            } else {
+                self.trace
+                    .end_unapply_template(node_parent, tid, w, unapplied);
+            }
         }
     }
 
@@ -985,6 +1012,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         in_word: &Word,
         index: isize,
         out: &mut HashMap<WordKey, Word>,
+        mut slot_outcomes: Option<Vec<TemplateSlotOutcome>>,
     ) {
         if self.over_budget() {
             return;
@@ -992,37 +1020,70 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let mut i = index;
         while i >= 0 {
             let slot = &tmpl.slots[i as usize];
-            for ow in self.apply_slot_batch(slot, in_word) {
-                self.template_unapply_slots(tid, tmpl, &ow, i - 1, out);
+            let slot_index = i as usize;
+            for (ow, rid) in self.apply_slot_batch(slot, in_word) {
+                let mut applied_outcomes = slot_outcomes.clone();
+                if let Some(outcomes) = &mut applied_outcomes {
+                    outcomes.push(TemplateSlotOutcome {
+                        slot_index,
+                        status: TemplateSlotStatus::Applied,
+                        selected_rule: Some(rid),
+                    });
+                }
+                self.template_unapply_slots(tid, tmpl, &ow, i - 1, out, applied_outcomes);
             }
             if !slot_optional(slot) {
                 // This level's `in_word` could not get past a non-optional slot.
-                self.end_unapply_template(tid, in_word, false);
+                if let Some(outcomes) = &mut slot_outcomes {
+                    outcomes.push(TemplateSlotOutcome {
+                        slot_index,
+                        status: TemplateSlotStatus::RequiredUnfilled,
+                        selected_rule: None,
+                    });
+                    outcomes.extend((0..slot_index).map(|not_reached| TemplateSlotOutcome {
+                        slot_index: not_reached,
+                        status: TemplateSlotStatus::NotReached,
+                        selected_rule: None,
+                    }));
+                    outcomes.sort_by_key(|outcome| outcome.slot_index);
+                }
+                self.end_unapply_template(tid, in_word, false, slot_outcomes.as_deref());
                 return;
+            }
+            if let Some(outcomes) = &mut slot_outcomes {
+                outcomes.push(TemplateSlotOutcome {
+                    slot_index,
+                    status: TemplateSlotStatus::OptionalSkipped,
+                    selected_rule: None,
+                });
             }
             i -= 1;
         }
         // Fell through every slot: all optional, or consumed.
-        self.end_unapply_template(tid, in_word, true);
+        if let Some(outcomes) = &mut slot_outcomes {
+            outcomes.sort_by_key(|outcome| outcome.slot_index);
+        }
+        self.end_unapply_template(tid, in_word, true, slot_outcomes.as_deref());
         out.entry(in_word.dedup_key())
             .or_insert_with(|| in_word.clone());
     }
 
     /// One slot's non-disjunctive `RuleBatch`: the deduped union of its alternative rules' outputs.
-    fn apply_slot_batch(&self, slot: &SlotDef, in_word: &Word) -> Vec<Word> {
+    fn apply_slot_batch(&self, slot: &SlotDef, in_word: &Word) -> Vec<(Word, MRuleId)> {
         let mut seen: HashMap<WordKey, usize> = HashMap::default();
-        let mut out: Vec<Word> = Vec::new();
+        let mut out: Vec<(Word, MRuleId)> = Vec::new();
         for &rid in &slot.rules {
             for w in self.apply_one_mrule(rid, in_word, RuleInvocationRole::TemplateSlot) {
                 let key = w.dedup_key();
                 match seen.get(&key) {
                     // Same FS-blind collapse as `run_template_batch_raw`, one slot rule down: widen rather than drop.
                     Some(&idx) => {
-                        generalize_syn_fs(&mut out[idx], &w, &|f| self.g.syn_features.mask(f))
+                        generalize_syn_fs(&mut out[idx].0, &w, &|f| self.g.syn_features.mask(f))
                     }
                     None => {
                         seen.insert(key, out.len());
-                        out.push(w);
+                        // Retain the first dedup representative's producer, without asserting unique provenance.
+                        out.push((w, rid));
                     }
                 }
             }
@@ -1302,6 +1363,7 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         tid,
         TraceHandle::DUMMY,
         &budget,
+        None,
     );
     out.into_values().collect()
 }
@@ -1343,7 +1405,19 @@ fn guided_template_apply(
         trace.begin_apply_template(node_parent, tid, input);
     }
     synth_slots_generic(
-        g, tmpl, input, 0, &mut out, cap, steps, &apply, trace, tid, parent, budget,
+        g,
+        tmpl,
+        input,
+        0,
+        &mut out,
+        cap,
+        steps,
+        &apply,
+        trace,
+        tid,
+        parent,
+        budget,
+        (trace.is_tracing() && trace.captures_details()).then(Vec::new),
     );
     out.into_values().collect()
 }
@@ -1355,9 +1429,15 @@ fn end_apply_template(
     w: &Word,
     parent: TraceHandle,
     applied: bool,
+    slot_outcomes: Option<&[TemplateSlotOutcome]>,
 ) {
     if trace.is_tracing() {
-        trace.end_apply_template(w.trace.unwrap_or(parent), tid, w, applied);
+        let node_parent = w.trace.unwrap_or(parent);
+        if let Some(slot_outcomes) = slot_outcomes.filter(|_| trace.captures_details()) {
+            trace.end_apply_template_with_slots(node_parent, tid, w, applied, slot_outcomes);
+        } else {
+            trace.end_apply_template(node_parent, tid, w, applied);
+        }
     }
 }
 
@@ -1376,6 +1456,7 @@ fn synth_slots_generic<F>(
     tid: TemplateId,
     parent: TraceHandle,
     budget: &StepBudget,
+    mut slot_outcomes: Option<Vec<TemplateSlotOutcome>>,
 ) where
     F: Fn(&Grammar, MRuleId, &Word) -> Vec<Word>,
 {
@@ -1400,6 +1481,14 @@ fn synth_slots_generic<F>(
             steps.set(steps.get() + 1);
             for w in apply(g, rid, input) {
                 if seen.insert(w.dedup_key(), ()).is_none() {
+                    let mut applied_outcomes = slot_outcomes.clone();
+                    if let Some(outcomes) = &mut applied_outcomes {
+                        outcomes.push(TemplateSlotOutcome {
+                            slot_index: i,
+                            status: TemplateSlotStatus::Applied,
+                            selected_rule: Some(rid),
+                        });
+                    }
                     synth_slots_generic(
                         g,
                         tmpl,
@@ -1413,17 +1502,43 @@ fn synth_slots_generic<F>(
                         tid,
                         parent,
                         budget,
+                        applied_outcomes,
                     );
                 }
             }
         }
         if !slot_optional(slot) {
-            end_apply_template(trace, tid, input, parent, false);
+            if let Some(outcomes) = &mut slot_outcomes {
+                outcomes.push(TemplateSlotOutcome {
+                    slot_index: i,
+                    status: TemplateSlotStatus::RequiredUnfilled,
+                    selected_rule: None,
+                });
+                outcomes.extend(
+                    (i + 1..tmpl.slots.len()).map(|not_reached| TemplateSlotOutcome {
+                        slot_index: not_reached,
+                        status: TemplateSlotStatus::NotReached,
+                        selected_rule: None,
+                    }),
+                );
+                outcomes.sort_by_key(|outcome| outcome.slot_index);
+            }
+            end_apply_template(trace, tid, input, parent, false, slot_outcomes.as_deref());
             return;
+        }
+        if let Some(outcomes) = &mut slot_outcomes {
+            outcomes.push(TemplateSlotOutcome {
+                slot_index: i,
+                status: TemplateSlotStatus::OptionalSkipped,
+                selected_rule: None,
+            });
         }
         i += 1;
     }
-    end_apply_template(trace, tid, input, parent, true);
+    if let Some(outcomes) = &mut slot_outcomes {
+        outcomes.sort_by_key(|outcome| outcome.slot_index);
+    }
+    end_apply_template(trace, tid, input, parent, true, slot_outcomes.as_deref());
     out.entry(input.dedup_key())
         .or_insert_with(|| input.clone());
 }
@@ -1656,7 +1771,15 @@ pub fn synthesize_stratum_traced_with_policy(
         // Drop partial parses that still owe this stratum a rule.
         if has_remaining_rules_from_stratum(g, &w, stratum) {
             if trace.is_tracing() {
-                trace.failed(w_parent, &w, FailureReason::PartialParse);
+                if trace.captures_details() {
+                    trace.failed_partial_parse(
+                        w_parent,
+                        &w,
+                        crate::trace::PartialParseCause::RemainingRulesInStratum,
+                    );
+                } else {
+                    trace.failed(w_parent, &w, FailureReason::PartialParse);
+                }
             }
             continue;
         }

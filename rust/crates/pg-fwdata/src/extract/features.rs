@@ -16,12 +16,28 @@ pub fn extract_feature_systems(ctx: &mut Ctx, lang_project: Option<&Record>) -> 
     let phonological = lang_project
         .node
         .objsur_one("PhFeatureSystem")
-        .map(|g| extract_feature_system(ctx, &g, "featureSystems.phonological"))
+        .map(|g| {
+            extract_feature_system(
+                ctx,
+                &g,
+                "featureSystems.phonological",
+                lang_project,
+                "PhFeatureSystem",
+            )
+        })
         .unwrap_or_default();
     let morphosyntactic = lang_project
         .node
         .objsur_one("MsFeatureSystem")
-        .map(|g| extract_feature_system(ctx, &g, "featureSystems.morphosyntactic"))
+        .map(|g| {
+            extract_feature_system(
+                ctx,
+                &g,
+                "featureSystems.morphosyntactic",
+                lang_project,
+                "MsFeatureSystem",
+            )
+        })
         .unwrap_or_default();
     FeatureSystems {
         phonological,
@@ -29,8 +45,14 @@ pub fn extract_feature_systems(ctx: &mut Ctx, lang_project: Option<&Record>) -> 
     }
 }
 
-fn extract_feature_system(ctx: &mut Ctx, guid: &str, label: &str) -> FeatureSystem {
-    let Some(rec) = ctx.require(guid, "FsFeatureSystem", label) else {
+fn extract_feature_system(
+    ctx: &mut Ctx,
+    guid: &str,
+    label: &str,
+    owner: &Record,
+    field: &str,
+) -> FeatureSystem {
+    let Some(rec) = ctx.require_from(guid, "FsFeatureSystem", label, owner, field) else {
         return FeatureSystem::default();
     };
     let mut closed_features = Vec::new();
@@ -43,16 +65,25 @@ fn extract_feature_system(ctx: &mut Ctx, guid: &str, label: &str) -> FeatureSyst
             Some(r) if r.class == "FsComplexFeature" => {
                 complex_features.push(extract_complex_feature(ctx, r))
             }
-            Some(r) => ctx.warn(
+            Some(r) => ctx.warn_with_subjects(
                 super::codes::UNEXPECTED_CLASS,
                 format!(
                     "{label}: feature {feature_guid} has unexpected class {}",
                     r.class
                 ),
+                [
+                    ctx.subject_for_record(rec, Some("Features")),
+                    ctx.unresolved_subject(&feature_guid, "FsFeatureDefinition", Some("Features")),
+                    ctx.subject_for_record(r, None),
+                ],
             ),
-            None => ctx.warn(
+            None => ctx.warn_with_subjects(
                 super::codes::DANGLING_REFERENCE,
                 format!("{label}: dangling feature reference {feature_guid}"),
+                [
+                    ctx.subject_for_record(rec, Some("Features")),
+                    ctx.unresolved_subject(&feature_guid, "FsFeatureDefinition", Some("Features")),
+                ],
             ),
         }
     }
@@ -70,7 +101,13 @@ fn extract_closed_feature(ctx: &mut Ctx, rec: &Record) -> ClosedFeature {
     let abbreviation = ctx.best_analysis(&rec.node.ws_forms("Abbreviation"));
     let mut values = Vec::new();
     for value_guid in rec.node.objsur_list("Values") {
-        let resolved = ctx.require(&value_guid, "FsSymFeatVal", "closedFeature.values");
+        let resolved = ctx.require_from(
+            &value_guid,
+            "FsSymFeatVal",
+            "closedFeature.values",
+            rec,
+            "Values",
+        );
         let attachment = InventoryKey::attachment(
             InventoryKind::FeatureValue,
             rec.guid.clone(),
@@ -139,8 +176,10 @@ pub fn extract_feature_structure(
     ctx: &mut Ctx,
     guid: &str,
     label: &str,
+    owner: &Record,
+    field: &str,
 ) -> Option<FeatureStructure> {
-    let rec = ctx.require(guid, "FsFeatStruc", label)?;
+    let rec = ctx.require_from(guid, "FsFeatStruc", label, owner, field)?;
     let key = InventoryKey::object(InventoryKind::FeatureStructure, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
@@ -153,16 +192,21 @@ fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> Feat
     let mut values = Vec::new();
     for spec_guid in rec.node.objsur_list("FeatureSpecs") {
         let Some(spec) = ctx.get(&spec_guid) else {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::DANGLING_REFERENCE,
                 format!("{label}: dangling feature-spec reference {spec_guid}"),
+                [
+                    ctx.subject_for_record(rec, Some("FeatureSpecs")),
+                    ctx.unresolved_subject(&spec_guid, "FsFeatureSpec", Some("FeatureSpecs")),
+                ],
             );
             continue;
         };
         let Some(feature) = spec.node.objsur_one("Feature") else {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::MISSING_REQUIRED_FIELD,
                 format!("{label}: feature spec {spec_guid} has no Feature reference"),
+                [ctx.subject_for_record(spec, Some("Feature"))],
             );
             continue;
         };
@@ -170,9 +214,10 @@ fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> Feat
             "FsClosedValue" => match spec.node.objsur_one("Value") {
                 Some(v) => FeatureValueKind::Closed { value: v },
                 None => {
-                    ctx.warn(
+                    ctx.warn_with_subjects(
                         super::codes::MISSING_REQUIRED_FIELD,
                         format!("{label}: closed feature value {spec_guid} has no Value"),
+                        [ctx.subject_for_record(spec, Some("Value"))],
                     );
                     continue;
                 }
@@ -190,28 +235,42 @@ fn extract_feature_struct_node(ctx: &mut Ctx, rec: &Record, label: &str) -> Feat
                         ctx.represented(nested_key);
                         FeatureValueKind::Complex { value: nested }
                     }
-                    _ => {
-                        ctx.warn(
+                    actual => {
+                        let mut subjects = vec![
+                            ctx.subject_for_record(spec, Some("Value")),
+                            ctx.unresolved_subject(&nested_guid, "FsFeatStruc", Some("Value")),
+                        ];
+                        if let Some(actual) = actual {
+                            subjects.push(ctx.subject_for_record(actual, None));
+                        }
+                        ctx.warn_with_subjects(
                             super::codes::DANGLING_REFERENCE,
                             format!(
                                 "{label}: complex feature value {spec_guid} references missing FsFeatStruc {nested_guid}"
                             ),
+                            subjects,
                         );
                         continue;
                     }
                 },
                 None => {
-                    ctx.warn(
+                    ctx.warn_with_subjects(
                         super::codes::MISSING_REQUIRED_FIELD,
                         format!("{label}: complex feature value {spec_guid} has no Value"),
+                        [ctx.subject_for_record(spec, Some("Value"))],
                     );
                     continue;
                 }
             },
             other => {
-                ctx.warn(
+                ctx.warn_with_subjects(
                     super::codes::UNEXPECTED_CLASS,
                     format!("{label}: feature spec {spec_guid} has unexpected class {other}"),
+                    [
+                        ctx.subject_for_record(rec, Some("FeatureSpecs")),
+                        ctx.unresolved_subject(&spec_guid, "FsFeatureSpec", Some("FeatureSpecs")),
+                        ctx.subject_for_record(spec, None),
+                    ],
                 );
                 continue;
             }

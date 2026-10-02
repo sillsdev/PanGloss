@@ -125,6 +125,80 @@ fn warning_deduplication_compares_subject_sets_without_order() {
 }
 
 #[test]
+fn old_subject_json_defaults_to_an_owned_object() {
+    let subject: FwObjectRef = serde_json::from_value(serde_json::json!({
+        "class": "MoForm",
+        "guid": "00000000-0000-0000-0000-000000000042",
+        "name": "-s"
+    }))
+    .expect("pre-status subject JSON remains readable");
+
+    assert_eq!(subject.status, FwSubjectStatus::Object);
+    assert_eq!(subject.source_class, None);
+}
+
+#[test]
+fn unresolved_reference_status_is_serialized_and_changes_fact_identity() {
+    let guid = "00000000-0000-0000-0000-000000000042";
+    let owned = FwObjectRef::new(FwClass::PhEnvironment).guid(guid);
+    let unresolved = FwObjectRef::new(FwClass::PhEnvironment)
+        .guid(guid)
+        .unresolved_reference();
+
+    let wire = serde_json::to_value(&unresolved).expect("subject serializes");
+    assert_eq!(wire["status"], "unresolved_reference");
+    assert!(
+        !Warning::new(ImportWarningCode::SnapshotDanglingReference, "same prose")
+            .with_subject(owned)
+            .same_fact_as(
+                &Warning::new(ImportWarningCode::SnapshotDanglingReference, "same prose")
+                    .with_subject(unresolved)
+            )
+    );
+    let in_values = FwObjectRef::new(FwClass::FsSymFeatVal)
+        .guid(guid)
+        .unresolved_reference()
+        .field("Values");
+    let in_feature = FwObjectRef::new(FwClass::FsSymFeatVal)
+        .guid(guid)
+        .unresolved_reference()
+        .field("Feature");
+    assert!(
+        !Warning::new(ImportWarningCode::SnapshotDanglingReference, "same prose")
+            .with_subject(in_values)
+            .same_fact_as(
+                &Warning::new(ImportWarningCode::SnapshotDanglingReference, "same prose")
+                    .with_subject(in_feature)
+            )
+    );
+}
+
+#[test]
+fn project_settings_subject_is_explicit_and_does_not_claim_an_object_guid() {
+    let subject = FwObjectRef::new(FwClass::Project)
+        .name("Fixture")
+        .project_settings()
+        .guid("00000000-0000-0000-0000-000000000042")
+        .opens_in("projectSettings", "00000000-0000-0000-0000-000000000042");
+
+    assert_eq!(subject.status, FwSubjectStatus::ProjectSettings);
+    assert_eq!(subject.guid, None);
+    assert_eq!(subject.opens_in, None);
+}
+
+#[test]
+fn unresolved_reference_cannot_have_a_fieldworks_open_target() {
+    let subject = FwObjectRef::new(FwClass::PhEnvironment)
+        .guid("00000000-0000-0000-0000-000000000042")
+        .opens_in("environmentEdit", "00000000-0000-0000-0000-000000000042")
+        .unresolved_reference()
+        .opens_in("environmentEdit", "00000000-0000-0000-0000-000000000042");
+
+    assert_eq!(subject.status, FwSubjectStatus::UnresolvedReference);
+    assert_eq!(subject.opens_in, None);
+}
+
+#[test]
 fn conversion_issue_retains_unknown_code_and_noncanonical_guid() {
     let canonical_guid = "00000000-0000-0000-0000-000000000042";
     let issue = crate::ConversionIssue {
@@ -215,4 +289,18 @@ fn fieldworks_path_table_uses_configured_tool_labels() {
         crate::fieldworks_paths::FILE_RESTORE_PROJECT,
         "File > Restore a Project..."
     );
+}
+
+#[test]
+fn concrete_fieldworks_subclasses_keep_their_normalized_navigation_kind() {
+    for (raw, expected) in [
+        ("PhNCSegments", FwClass::PhNaturalClass),
+        ("PhNCFeatures", FwClass::PhNaturalClass),
+        ("MoEndoCompound", FwClass::MoCompoundRule),
+        ("MoExoCompound", FwClass::MoCompoundRule),
+    ] {
+        assert_eq!(FwClass::from_wire(raw), expected);
+        let subject = FwObjectRef::new(FwClass::from_wire(raw)).source_class(raw);
+        assert_eq!(subject.source_class.as_deref(), Some(raw));
+    }
 }

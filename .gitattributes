@@ -11,3 +11,14 @@ rust/crates/pg-foma/src/coverage_ledger_golden.json text eol=lf
 rust/crates/pg-foma/src/readiness_verdict_golden.json text eol=lf
 rust/crates/pg-foma/src/plan_diagram_golden.mmd text eol=lf
 rust/crates/pg-cli/src/make_report_golden.md text eol=lf
+
+# Generated diagnostics normalize embedded help to LF. Keep the source fragments and
+# generated pages LF on checkout too, including the compile-time include_str! inputs.
+docs/diagnostics/*.md text eol=lf
+docs/grammar-diagnostics-reference.md text eol=lf
+rust/crates/pg-snapshot/help/*.md text eol=lf
+
+# Tests mutate these XML fixtures by text, including multiline LF needles.
+conformance-staging/**/grammar.xml text eol=lf
+rust/crates/pg-cli/tests/data/*.xml text eol=lf
+rust/crates/pg-fwdata/tests/data/fixture.fwdata text eol=lf

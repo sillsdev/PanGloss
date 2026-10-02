@@ -1068,6 +1068,13 @@ fn load_allomorph_environments(
                 require,
                 left: load_phonetic_template(left_pt, &empty_vars, default_table, ro)?,
                 right: load_phonetic_template(right_pt, &empty_vars, default_table, ro)?,
+                source: Some(EnvironmentSource {
+                    id: env
+                        .attr("id")
+                        .filter(|id| !id.trim().is_empty())
+                        .map(str::to_owned),
+                    text: (!env.text.trim().is_empty()).then(|| env.text.clone()),
+                }),
             });
         }
     }

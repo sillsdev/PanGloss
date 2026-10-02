@@ -14,7 +14,12 @@ pub fn find_lang_project<'a>(ctx: &mut Ctx<'a>, project_name: &str) -> Option<&'
                 super::codes::MISSING_LANG_PROJECT,
                 format!("FieldWorks project '{project_name}' has no language project data."),
             )
-            .with_subject(FwObjectRef::new(FwClass::Project).name(project_name)),
+            .with_subject(
+                FwObjectRef::new(FwClass::Project)
+                    .name(project_name)
+                    .project_settings()
+                    .field("LangProject"),
+            ),
         );
     }
     rec

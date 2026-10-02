@@ -12,21 +12,29 @@ fn repo_root() -> PathBuf {
 /// predicates below are pure and unit-tested instead: docs/design/fixture-pins.md
 const SELF: &str = "fixture_pins_never_self_skip.rs";
 
+fn collect_rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    if !dir.is_dir() {
+        return;
+    }
+    for entry in fs::read_dir(dir).expect("source or tests dir") {
+        let path = entry.expect("source or test entry").path();
+        if path.is_dir() {
+            collect_rust_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs")
+            && !path.file_name().is_some_and(|n| n == SELF)
+        {
+            out.push(path);
+        }
+    }
+}
+
 fn test_files() -> Vec<PathBuf> {
     let mut out = Vec::new();
     let crates = repo_root().join("rust/crates");
-    for krate in fs::read_dir(&crates).expect("rust/crates").flatten() {
-        let dir = krate.path().join("tests");
-        if !dir.is_dir() {
-            continue;
-        }
-        for entry in fs::read_dir(&dir).expect("tests dir").flatten() {
-            let path = entry.path();
-            let is_rs = path.extension().is_some_and(|e| e == "rs");
-            let is_self = path.file_name().is_some_and(|n| n == SELF);
-            if is_rs && !is_self {
-                out.push(path);
-            }
+    for krate in fs::read_dir(&crates).expect("rust/crates") {
+        let krate = krate.expect("crate entry").path();
+        for tree in ["src", "tests"] {
+            collect_rust_files(&krate.join(tree), &mut out);
         }
     }
     out
@@ -34,7 +42,10 @@ fn test_files() -> Vec<PathBuf> {
 
 /// The fixture layout the v1 -> v2 migration retired; it has never existed in this tree.
 fn names_the_retired_v1_root(text: &str) -> bool {
-    text.contains("rust/conformance/") || text.contains("../../conformance/")
+    text.lines().any(|line| {
+        !line.trim_start().starts_with("//")
+            && (line.contains("rust/conformance/") || line.contains("../../conformance/"))
+    })
 }
 
 /// Only a skip naming a FIXTURE file counts; a missing private corpus is a separate fail-closed
@@ -63,7 +74,10 @@ fn bakes_in_a_fixture_path(text: &str) -> bool {
 }
 
 fn label(path: &Path) -> String {
-    path.file_name().unwrap().to_string_lossy().to_string()
+    path.strip_prefix(repo_root())
+        .unwrap_or(path)
+        .display()
+        .to_string()
 }
 
 fn scan(predicate: fn(&str) -> bool) -> Vec<String> {
@@ -119,7 +133,7 @@ fn the_gate_can_actually_see_test_files() {
     let found = test_files();
     assert!(
         found.len() >= 100,
-        "scanned only {} test files across rust/crates/*/tests — the layout changed and both \
+        "scanned only {} test files across rust/crates/*/{{src,tests}} — the layout changed and both \
          checks above now assert nothing",
         found.len()
     );
@@ -136,6 +150,12 @@ fn the_predicates_catch_the_real_shapes_and_spare_the_legitimate_ones() {
     ));
     assert!(!names_the_retired_v1_root(
         r#".join("../../../machine/conformance/edge-cases/loader-isactive")"#
+    ));
+    assert!(!names_the_retired_v1_root(
+        "//! Historical fixture citation: rust/conformance/realizational/"
+    ));
+    assert!(names_the_retired_v1_root(
+        r#"let path = "rust/conformance/realizational/"; // a runtime path"#
     ));
 
     assert!(skips_on_a_missing_fixture("fn have_fixture() -> bool {"));
@@ -161,4 +181,40 @@ fn the_predicates_catch_the_real_shapes_and_spare_the_legitimate_ones() {
     assert!(!bakes_in_a_fixture_path(
         r#"const HELP: &str = include_str!("../docs/help.txt");"#
     ));
+}
+
+#[test]
+fn prerelease_fixture_guard_scans_nested_unit_tests() {
+    let found = test_files();
+    for relative in [
+        "rust/crates/pg-cli/src/rich_trace/tests.rs",
+        "rust/crates/pg-cli/src/rich_trace/tests/prerelease_evidence_tests.rs",
+        "rust/crates/pg-cli/tests/fixture_pins_never_self_skip.rs",
+    ] {
+        let path = repo_root().join(relative);
+        if path.file_name().is_some_and(|name| name == SELF) {
+            assert!(
+                !found.contains(&path),
+                "the guard must exclude its own pattern examples"
+            );
+        } else {
+            assert!(found.contains(&path), "guard missed {}", path.display());
+        }
+    }
+}
+
+#[test]
+fn prerelease_fixture_guard_catches_compile_pins_in_nested_sources() {
+    let dir = tempfile::tempdir().unwrap();
+    let nested = dir.path().join("src/rich_trace/tests");
+    fs::create_dir_all(&nested).unwrap();
+    let pin = nested.join("pin.rs");
+    fs::write(&pin, r#"const XML: &str = include_str!("../../conformance-staging/edge-cases/moved/grammar.xml");"#).unwrap();
+    let mut files = Vec::new();
+    collect_rust_files(&dir.path().join("src"), &mut files);
+    let offenders: Vec<_> = files
+        .into_iter()
+        .filter(|path| bakes_in_a_fixture_path(&fs::read_to_string(path).unwrap()))
+        .collect();
+    assert_eq!(offenders, vec![pin]);
 }

@@ -1,8 +1,8 @@
 //! `lexicon` snapshot section — see `docs/snapshot-format.md` §6.
 
 use pg_snapshot::{
-    AffixProcess, Allomorph, EntryRef, FeatureSystems, FwClass, FwObjectRef, InventoryKey,
-    InventoryKind, IssueClass, LexEntry, Lexicon, Morphology, Msa, RuleMapping, Sense, SourceRef,
+    AffixProcess, Allomorph, EntryRef, FeatureSystems, InventoryKey, InventoryKind, IssueClass,
+    LexEntry, Lexicon, Morphology, Msa, RuleMapping, Sense, SourceRef,
 };
 
 use super::features::extract_feature_structure;
@@ -30,27 +30,34 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
     let citation_form = rec.node.ws_forms("CitationForm");
     let lexeme_form_guid = rec.node.objsur_one("LexemeForm");
     if lexeme_form_guid.is_none() {
-        ctx.warn(
+        ctx.warn_with_subjects(
             super::codes::MISSING_REQUIRED_FIELD,
             format!("lexicon.entries: entry {guid} has no LexemeForm"),
+            [ctx.subject_for_record(rec, Some("LexemeForm"))],
         );
     }
     // Alternates first, lexeme form last (HCLoader.cs:263); this order is disjunctive-ordering-significant, not cosmetic.
-    let mut allomorph_guids = rec.node.objsur_list("AlternateForms");
-    allomorph_guids.extend(lexeme_form_guid);
-    let allomorphs: Vec<Allomorph> = allomorph_guids
+    let mut allomorph_refs: Vec<_> = rec
+        .node
+        .objsur_list("AlternateForms")
+        .into_iter()
+        .map(|guid| (guid, "AlternateForms"))
+        .collect();
+    allomorph_refs.extend(lexeme_form_guid.map(|guid| (guid, "LexemeForm")));
+    let allomorphs: Vec<Allomorph> = allomorph_refs
         .iter()
-        .filter_map(|g| extract_allomorph(ctx, g))
+        .filter_map(|(g, field)| extract_allomorph(ctx, g, rec, field))
         .collect();
     let lexeme_morph_type = match allomorphs.last() {
         Some(a) => a.morph_type,
         None => {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::NO_USABLE_ALLOMORPHS,
                 format!(
                     "lexicon.entries: entry {guid} has no usable allomorphs; defaulting \
                      lexemeMorphType to stem"
                 ),
+                [ctx.subject_for_record(rec, Some("LexemeForm"))],
             );
             ctx.synthesized(key.clone());
             pg_snapshot::MorphType::Stem
@@ -60,7 +67,7 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
         .node
         .objsur_list("MorphoSyntaxAnalyses")
         .iter()
-        .filter_map(|g| extract_msa(ctx, g))
+        .filter_map(|g| extract_msa(ctx, g, rec))
         .collect();
     // Flattens the whole sense tree (not just direct Senses), pre-order, mirroring C#'s `AllSenses` -- needed so `sense_gloss`'s per-MSA lookup can find a subsense's gloss for its own MSA.
     let senses: Vec<Sense> = extract_senses_recursive(ctx, &rec.node.objsur_list("Senses"));
@@ -68,7 +75,7 @@ fn extract_entry(ctx: &mut Ctx, guid: &str) -> Option<LexEntry> {
         .node
         .objsur_list("EntryRefs")
         .iter()
-        .filter_map(|g| extract_entry_ref(ctx, g))
+        .filter_map(|g| extract_entry_ref(ctx, g, rec))
         .collect();
     ctx.represented(key);
     Some(LexEntry {
@@ -89,45 +96,61 @@ fn resolve_morph_type(
     label: &str,
 ) -> Option<pg_snapshot::MorphType> {
     let Some(mt_guid) = rec.node.objsur_one("MorphType") else {
-        ctx.reject(
-            key.clone(),
+        let warning = pg_snapshot::Warning::new(
             super::codes::MISSING_REQUIRED_FIELD,
+            format!("{label}: {} has no MorphType", rec.guid),
+        )
+        .with_subject(ctx.subject_for_record(rec, Some("MorphType")));
+        ctx.reject_with_warning(
+            key.clone(),
             IssueClass::UnrepresentableForHc,
             false,
-            None,
-            format!("{label}: {} has no MorphType", rec.guid),
+            Some(SourceRef {
+                kind: pg_snapshot::FwClass::from_wire(&rec.class),
+                id: rec.guid.clone(),
+            }),
+            warning,
         );
         return None;
     };
     match morphtype::lookup(&mt_guid) {
         MorphTypeLookup::Known(mt) => Some(mt),
         MorphTypeLookup::UnsupportedWellKnown(name) => {
-            ctx.reject(
-                key.clone(),
+            let warning = pg_snapshot::Warning::new(
                 super::codes::UNSUPPORTED_MORPH_TYPE,
-                IssueClass::UnrepresentableForHc,
-                false,
-                None,
                 format!(
                     "{label}: {} has morph type {name:?} ({mt_guid}), which this format's \
                      MorphType enum has no variant for (model gap — see morphtype module docs); \
                      skipping",
                     rec.guid
                 ),
+            )
+            .with_subject(ctx.subject_for_record(rec, Some("MorphType")));
+            ctx.reject_with_warning(
+                key.clone(),
+                IssueClass::UnrepresentableForHc,
+                false,
+                Some(SourceRef {
+                    kind: pg_snapshot::FwClass::from_wire(&rec.class),
+                    id: rec.guid.clone(),
+                }),
+                warning,
             );
             None
         }
         MorphTypeLookup::Unknown => {
             let name = ctx.best_vernacular(&rec.node.ws_forms("Form"));
-            let warning = pg_snapshot::Warning::new(
-                super::codes::UNKNOWN_MORPH_TYPE_GUID,
-                format!("Allomorph '{name}' has an unknown morph type and was skipped."),
-            )
-            .with_subject(
-                FwObjectRef::new(FwClass::MoForm)
-                    .guid(rec.guid.clone())
-                    .name(name.clone()),
+            let resolution = ctx.resolve_reference(&mt_guid, "MoMorphType");
+            let subjects =
+                ctx.subjects_for_reference(&mt_guid, "MoMorphType", resolution, (rec, "MorphType"));
+            let mut warning = subjects.into_iter().fold(
+                pg_snapshot::Warning::new(
+                    super::codes::UNKNOWN_MORPH_TYPE_GUID,
+                    format!("Allomorph '{name}' has an unknown morph type and was skipped."),
+                ),
+                pg_snapshot::Warning::with_subject,
             );
+            warning.set_primary_subject_name(name.clone());
             ctx.reject_with_warning(
                 key.clone(),
                 IssueClass::UnrepresentableForHc,
@@ -143,16 +166,21 @@ fn resolve_morph_type(
     }
 }
 
-fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
+fn extract_allomorph(ctx: &mut Ctx, guid: &str, owner: &Record, field: &str) -> Option<Allomorph> {
     let label = "lexicon.entries.allomorphs";
     let rec = ctx.get(guid)?;
     if !matches!(
         rec.class.as_str(),
         "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess"
     ) {
-        ctx.warn(
+        ctx.warn_with_subjects(
             super::codes::UNEXPECTED_CLASS,
             format!("{label}: {guid} has unexpected class {}", rec.class),
+            [
+                ctx.subject_for_record(owner, Some(field)),
+                ctx.unresolved_subject(guid, "MoForm", Some(field)),
+                ctx.subject_for_record(rec, None),
+            ],
         );
         return None;
     }
@@ -165,7 +193,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
     let forms = rec.node.ws_forms("Form");
     let environments = rec.node.objsur_list("PhoneEnv");
     for env_guid in &environments {
-        record_environment_attachment(ctx, guid, env_guid);
+        record_environment_attachment(ctx, rec, env_guid);
     }
     let positions = if rec.class == "MoAffixAllomorph" {
         rec.node.objsur_list("Position")
@@ -185,7 +213,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
     let ms_env_features = if rec.class == "MoAffixAllomorph" {
         rec.node
             .objsur_one("MsEnvFeatures")
-            .and_then(|g| extract_feature_structure(ctx, &g, label))
+            .and_then(|g| extract_feature_structure(ctx, &g, label, rec, "MsEnvFeatures"))
             .filter(|fs| !fs.values.is_empty())
     } else {
         None
@@ -217,10 +245,10 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str) -> Option<Allomorph> {
 }
 
 /// Records the allomorph→environment attachment; represented only if the referenced `PhEnvironment` was itself represented, otherwise a fatal dangling reference.
-fn record_environment_attachment(ctx: &mut Ctx, allomorph_guid: &str, env_guid: &str) {
+fn record_environment_attachment(ctx: &mut Ctx, allomorph: &Record, env_guid: &str) {
     let attachment = InventoryKey::attachment(
         InventoryKind::Environment,
-        allomorph_guid.to_string(),
+        allomorph.guid.clone(),
         env_guid.to_string(),
         "environment",
     );
@@ -231,19 +259,37 @@ fn record_environment_attachment(ctx: &mut Ctx, allomorph_guid: &str, env_guid: 
     if ctx.is_represented(&env_object) {
         ctx.represented(attachment);
     } else {
-        ctx.reject(
-            attachment,
+        let mut subjects = vec![ctx.subject_for_record(allomorph, Some("PhoneEnv"))];
+        match ctx.get(env_guid) {
+            Some(target) if target.class == "PhEnvironment" => {
+                subjects.push(ctx.subject_for_record(target, Some("PhoneEnv")));
+            }
+            Some(target) => {
+                subjects.push(ctx.unresolved_subject(env_guid, "PhEnvironment", Some("PhoneEnv")));
+                subjects.push(ctx.subject_for_record(target, None));
+            }
+            None => {
+                subjects.push(ctx.unresolved_subject(env_guid, "PhEnvironment", Some("PhoneEnv")))
+            }
+        }
+        let mut warning = pg_snapshot::Warning::new(
             super::codes::DANGLING_REFERENCE,
+            format!(
+                "lexicon.entries.allomorphs: allomorph {} environment reference \
+                 {env_guid} does not resolve to a represented PhEnvironment",
+                allomorph.guid
+            ),
+        );
+        warning.subjects.extend(subjects);
+        ctx.reject_with_warning(
+            attachment,
             IssueClass::InvalidSource,
             true,
             Some(SourceRef {
                 kind: pg_snapshot::FwClass::PhEnvironment,
                 id: env_guid.to_string(),
             }),
-            format!(
-                "lexicon.entries.allomorphs: allomorph {allomorph_guid} environment reference \
-                 {env_guid} does not resolve to a represented PhEnvironment"
-            ),
+            warning,
         );
     }
 }
@@ -253,13 +299,13 @@ fn extract_affix_process(ctx: &mut Ctx, rec: &Record) -> AffixProcess {
     let input_guids = rec.node.objsur_list("Input");
     let input = input_guids
         .iter()
-        .filter_map(|g| resolve_phon_context(ctx, g, label))
+        .filter_map(|g| resolve_phon_context(ctx, g, label, rec, "Input"))
         .collect();
     let output = rec
         .node
         .objsur_list("Output")
         .into_iter()
-        .filter_map(|g| extract_rule_mapping(ctx, &g, &input_guids, label))
+        .filter_map(|g| extract_rule_mapping(ctx, &g, &input_guids, label, rec))
         .collect();
     AffixProcess { input, output }
 }
@@ -270,18 +316,29 @@ fn extract_rule_mapping(
     guid: &str,
     input_guids: &[String],
     label: &str,
+    owner: &Record,
 ) -> Option<RuleMapping> {
     let rec = ctx.get(guid)?;
     let part_index = |ctx: &mut Ctx, content_guid: &str| -> Option<u32> {
         match input_guids.iter().position(|g| g == content_guid) {
             Some(i) => Some((i + 1) as u32),
             None => {
-                ctx.warn(
+                let mut subjects = vec![ctx.subject_for_record(rec, Some("Content"))];
+                match ctx.get(content_guid) {
+                    Some(target) => subjects.push(ctx.subject_for_record(target, Some("Content"))),
+                    None => subjects.push(ctx.unresolved_subject(
+                        content_guid,
+                        "PhonContext",
+                        Some("Content"),
+                    )),
+                }
+                ctx.warn_with_subjects(
                     super::codes::REFERENCE_NOT_IN_SCOPE,
                     format!(
                         "{label}: {guid} references {content_guid}, which is not a member of \
                          this affix process's Input list"
                     ),
+                    subjects,
                 );
                 None
             }
@@ -302,13 +359,40 @@ fn extract_rule_mapping(
             for term_guid in rec.node.objsur_list("Content") {
                 match first_code_representation(ctx, &term_guid) {
                     Some(s) => text.push_str(&s),
-                    None => ctx.warn(
-                        super::codes::EMPTY_REPRESENTATION,
-                        format!(
-                            "{label}: {guid} could not resolve a representation for terminal \
-                             unit {term_guid}"
-                        ),
-                    ),
+                    None => {
+                        let mut subjects = vec![ctx.subject_for_record(rec, Some("Content"))];
+                        match ctx.get(&term_guid) {
+                            Some(target)
+                                if matches!(
+                                    target.class.as_str(),
+                                    "PhPhoneme" | "PhBdryMarker"
+                                ) =>
+                            {
+                                subjects.push(ctx.subject_for_record(target, Some("Content")));
+                            }
+                            Some(target) => {
+                                subjects.push(ctx.unresolved_subject(
+                                    &term_guid,
+                                    "PhPhoneme",
+                                    Some("Content"),
+                                ));
+                                subjects.push(ctx.subject_for_record(target, None));
+                            }
+                            None => subjects.push(ctx.unresolved_subject(
+                                &term_guid,
+                                "PhPhoneme",
+                                Some("Content"),
+                            )),
+                        }
+                        ctx.warn_with_subjects(
+                            super::codes::EMPTY_REPRESENTATION,
+                            format!(
+                                "{label}: {guid} could not resolve a representation for terminal \
+                                 unit {term_guid}"
+                            ),
+                            subjects,
+                        )
+                    }
                 }
             }
             Some(RuleMapping::InsertSegments { text })
@@ -323,16 +407,21 @@ fn extract_rule_mapping(
             })
         }
         other => {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::UNEXPECTED_CLASS,
                 format!("{label}: {guid} has unexpected class {other}"),
+                [
+                    ctx.subject_for_record(owner, Some("Output")),
+                    ctx.unresolved_subject(guid, "MoRuleMapping", Some("Output")),
+                    ctx.subject_for_record(rec, None),
+                ],
             );
             None
         }
     }
 }
 
-fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
+fn extract_msa(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Msa> {
     let label = "lexicon.entries.msas";
     let rec = ctx.get(guid)?;
     let key = tracked_kind(&rec.class).map(|kind| InventoryKey::object(kind, guid.to_string()));
@@ -345,7 +434,7 @@ fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
             let features = rec
                 .node
                 .objsur_one("MsFeatures")
-                .and_then(|g| extract_feature_structure(ctx, &g, label))
+                .and_then(|g| extract_feature_structure(ctx, &g, label, rec, "MsFeatures"))
                 .filter(|fs| !fs.values.is_empty());
             Some(Msa::Stem {
                 guid: guid.to_string(),
@@ -361,7 +450,7 @@ fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
             let features = rec
                 .node
                 .objsur_one("InflFeats")
-                .and_then(|g| extract_feature_structure(ctx, &g, label))
+                .and_then(|g| extract_feature_structure(ctx, &g, label, rec, "InflFeats"))
                 .filter(|fs| !fs.values.is_empty());
             Some(Msa::Inflectional {
                 guid: guid.to_string(),
@@ -375,12 +464,12 @@ fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
             let from_features = rec
                 .node
                 .objsur_one("FromMsFeatures")
-                .and_then(|g| extract_feature_structure(ctx, &g, label))
+                .and_then(|g| extract_feature_structure(ctx, &g, label, rec, "FromMsFeatures"))
                 .filter(|fs| !fs.values.is_empty());
             let to_features = rec
                 .node
                 .objsur_one("ToMsFeatures")
-                .and_then(|g| extract_feature_structure(ctx, &g, label))
+                .and_then(|g| extract_feature_structure(ctx, &g, label, rec, "ToMsFeatures"))
                 .filter(|fs| !fs.values.is_empty());
             Some(Msa::Derivational {
                 guid: guid.to_string(),
@@ -400,9 +489,18 @@ fn extract_msa(ctx: &mut Ctx, guid: &str) -> Option<Msa> {
             part_of_speech: rec.node.objsur_one("PartOfSpeech"),
         }),
         other => {
-            ctx.warn(
+            ctx.warn_with_subjects(
                 super::codes::UNEXPECTED_CLASS,
                 format!("{label}: {guid} has unexpected class {other}"),
+                [
+                    ctx.subject_for_record(owner, Some("MorphoSyntaxAnalyses")),
+                    ctx.unresolved_subject(
+                        guid,
+                        "MoMorphSynAnalysis",
+                        Some("MorphoSyntaxAnalyses"),
+                    ),
+                    ctx.subject_for_record(rec, None),
+                ],
             );
             None
         }
@@ -447,8 +545,14 @@ fn extract_sense(ctx: &mut Ctx, guid: &str) -> Option<Sense> {
     Some(sense)
 }
 
-fn extract_entry_ref(ctx: &mut Ctx, guid: &str) -> Option<EntryRef> {
-    let rec = ctx.require(guid, "LexEntryRef", "lexicon.entries.entryRefs")?;
+fn extract_entry_ref(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<EntryRef> {
+    let rec = ctx.require_from(
+        guid,
+        "LexEntryRef",
+        "lexicon.entries.entryRefs",
+        owner,
+        "EntryRefs",
+    )?;
     let key = InventoryKey::object(InventoryKind::EntryReference, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
