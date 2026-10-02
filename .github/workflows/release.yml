@@ -402,6 +402,8 @@ jobs:
           tag="v$RELEASE_VERSION"
           tag_endpoint="repos/$GITHUB_REPOSITORY/releases/tags/$tag"
           releases_endpoint="repos/$GITHUB_REPOSITORY/releases?per_page=100"
+          release_create_endpoint="repos/$GITHUB_REPOSITORY/releases"
+          release_id_script="$GITHUB_WORKSPACE/.github/scripts/release_id.py"
           export RELEASE_TITLE="PanGloss $tag"
           export RELEASE_TAG="$tag"
           export RELEASE_NOTES_PATH=release-notes.md
@@ -451,40 +453,29 @@ jobs:
           print(f"verified {len(expected)} remote assets; draft={str(expected_draft).lower()}")
           PY
 
-          cat > "$RUNNER_TEMP/find_release_id.py" <<'PY'
-          import json
-          import os
-          import sys
-
-          pages = json.load(sys.stdin)
-          releases = [release for page in pages for release in page]
-          matches = [release for release in releases if release.get("tag_name") == os.environ["RELEASE_TAG"]]
-          if len(matches) > 1:
-              sys.exit(f"multiple releases found for {os.environ['RELEASE_TAG']}")
-          if matches:
-              release_id = matches[0].get("id")
-              if not isinstance(release_id, int):
-                  sys.exit("matching release has no numeric id")
-              print(release_id)
-          PY
-
-          resolve_release_id() {
-            gh api --paginate --slurp "$releases_endpoint" > release-pages.json
-            release_id="$(python "$RUNNER_TEMP/find_release_id.py" < release-pages.json)"
+          resolve_existing_release_id() {
+            local attempt
+            release_id=""
+            for attempt in 1 2 3 4 5; do
+              gh api --paginate --slurp "$releases_endpoint" > release-pages.json
+              release_id="$(python "$release_id_script" existing "$tag" < release-pages.json)"
+              if [[ -n "$release_id" ]]; then
+                return 0
+              fi
+              if [[ "$attempt" -lt 5 ]]; then
+                sleep 1
+              fi
+            done
           }
 
-          resolve_release_id
+          resolve_existing_release_id
           if [[ -z "$release_id" ]]; then
-            gh release create "$tag" \
-              --verify-tag \
-              --draft \
-              --title "$RELEASE_TITLE" \
-              --notes-file "$RELEASE_NOTES_PATH"
-            resolve_release_id
-          fi
-          if [[ -z "$release_id" ]]; then
-            echo "::error::could not resolve the draft release id for $tag after creation"
-            exit 1
+            gh api --method POST "$release_create_endpoint" \
+              -F "tag_name=$tag" \
+              -F "name=$RELEASE_TITLE" \
+              -F "body=@$RELEASE_NOTES_PATH" \
+              -F draft=true > release-created.json
+            release_id="$(python "$release_id_script" created < release-created.json)"
           fi
 
           release_endpoint="repos/$GITHUB_REPOSITORY/releases/$release_id"
