@@ -727,7 +727,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "pg-assess"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "pg-conformance-fixtures",
  "pg-foma",
@@ -742,7 +742,7 @@ dependencies = [
 
 [[package]]
 name = "pg-cli"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "pg-assess",
  "pg-conformance-fixtures",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "pg-comment-hygiene"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "regex",
  "serde",
@@ -778,7 +778,7 @@ dependencies = [
 
 [[package]]
 name = "pg-conformance-fixtures"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "pg-parse",
  "serde",
@@ -789,7 +789,7 @@ dependencies = [
 
 [[package]]
 name = "pg-featstruct"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "hashbrown 0.15.5",
  "serde",
@@ -799,7 +799,7 @@ dependencies = [
 
 [[package]]
 name = "pg-ffi"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cc",
  "pg-foma",
@@ -814,7 +814,7 @@ dependencies = [
 
 [[package]]
 name = "pg-foma"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "foma",
  "getrandom 0.3.4",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "pg-foma-backend"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "foma",
  "getrandom 0.3.4",
@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "pg-foma-runtime"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "foma",
  "pg-featstruct",
@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "pg-fst"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "pg-featstruct",
  "pg-shape",
@@ -896,7 +896,7 @@ dependencies = [
 
 [[package]]
 name = "pg-fwdata"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "pg-grammar",
  "pg-snapshot",
@@ -912,7 +912,7 @@ dependencies = [
 
 [[package]]
 name = "pg-grammar"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-conformance-fixtures",
@@ -933,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "pg-grammar-gen"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "pg-featstruct",
  "pg-grammar",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "pg-grammar-model"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-featstruct",
@@ -955,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "pg-health"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -963,7 +963,7 @@ dependencies = [
 
 [[package]]
 name = "pg-lexicon"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "chrono",
  "getrandom 0.3.4",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "pg-pack"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "ed25519-dalek",
  "foma",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "pg-parse"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "bumpalo",
  "pg-conformance-fixtures",
@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "pg-realize"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "pg-grammar",
  "pg-parse",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "pg-rules"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-featstruct",
@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "pg-shape"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-featstruct",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "pg-snapshot"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "pg-stats"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "rusqlite",
  "serde",
@@ -1068,7 +1068,7 @@ dependencies = [
 
 [[package]]
 name = "pg-wasm"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "console_error_panic_hook",
  "pg-grammar",
@@ -1088,7 +1088,7 @@ dependencies = [
 
 [[package]]
 name = "pg-worker-containment"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "libc",
  "windows-sys",
@@ -1096,7 +1096,7 @@ dependencies = [
 
 [[package]]
 name = "pg-xample-oracle"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "pg-grammar",
  "pg-parse",
