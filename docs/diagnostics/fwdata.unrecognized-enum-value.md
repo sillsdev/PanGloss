@@ -10,7 +10,7 @@ A source value is not recognized by this importer.
 
 ## What to do
 
-Use the warning description to identify the value; select a supported value only when the source is invalid, otherwise report the limitation.
+Use the finding description to identify the affected item and field. No single FieldWorks correction is known for this kind. If the project opens and shows the intended data, report the finding and PanGloss version to PanGloss; ask FieldWorks support for help if the project data is damaged.
 
 ## Background
 

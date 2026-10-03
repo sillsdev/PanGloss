@@ -10,7 +10,7 @@ An ad hoc prohibition refers to forms the compiler cannot resolve.
 
 ## What to do
 
-In Grammar > Ad hoc Rules, check the prohibition's form references; report it if the source forms are valid.
+In Grammar > Ad hoc Rules, inspect Key Morpheme and Other Morpheme(s), or Key Allomorph and Other Allomorph(s), as named in the finding. Reselect the intended existing items. If the items exist but were skipped during loading, resolve their individual findings first; report a valid rule that still cannot be loaded.
 
 ## FieldWorks places
 

@@ -10,7 +10,7 @@ An item refers to a target that is absent from the imported project data, so tha
 
 ## What to do
 
-Use the warning description to identify the owning item and field. Restore the intended target or repair the reference only when the source data is malformed.
+Use the finding description to identify the affected item and field. No single FieldWorks correction is known for this kind. If the project opens and shows the intended data, report the finding and PanGloss version to PanGloss; ask FieldWorks support for help if the project data is damaged.
 
 ## Background
 

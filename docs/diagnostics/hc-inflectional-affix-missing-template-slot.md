@@ -10,7 +10,7 @@ This inflectional affix is marked partial because it has no template slot. PanGl
 
 ## What to do
 
-In Grammar > Category Edit > the category's Affix Templates, assign the affix's inflectional analysis to the intended slot. Check the category and slot assignment in Lexicon > Lexicon Edit too.
+In Grammar > Category Edit > the category's Affix Templates, right-click the intended slot and choose Add inflectional affix(es) to that slot. Select the existing affix. In Lexicon > Lexicon Edit, check Grammatical Info. > Category and Slots for its inflectional analysis.
 
 ## FieldWorks places
 

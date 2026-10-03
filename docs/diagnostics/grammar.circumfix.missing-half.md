@@ -10,7 +10,7 @@ The circumfix entry does not have both required prefix and suffix parts.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, add the missing half if the entry is intended to be a circumfix.
+In Lexicon > Lexicon Edit, check that Lexeme Form has Morph Type circumfix and that Allomorphs contains both a prefix and a suffix, each with its own Form and Morph Type. Add the missing half if the entry is intended to be a circumfix; report the finding if both halves are already present.
 
 ## FieldWorks places
 

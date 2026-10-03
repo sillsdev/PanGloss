@@ -10,7 +10,7 @@ A parser parameter has a value this importer cannot use.
 
 ## What to do
 
-In Words > Edit Parser Parameters..., correct the named setting when it is malformed.
+In the Words area, open Parser > Edit Parser Parameters... and correct the named setting if it is malformed. If the saved setting is valid, report the reading failure to PanGloss.
 
 ## Background
 

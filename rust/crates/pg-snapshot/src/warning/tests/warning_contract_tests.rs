@@ -275,7 +275,7 @@ fn fieldworks_path_table_uses_configured_tool_labels() {
     );
     assert_eq!(
         crate::fieldworks_paths::WORDS_EDIT_PARSER_PARAMETERS,
-        "Words > Edit Parser Parameters..."
+        "Words > Parser > Edit Parser Parameters..."
     );
     assert_eq!(
         crate::fieldworks_paths::TOOLS_CONFIGURE_VERNACULAR_WRITING_SYSTEMS,

@@ -1,6 +1,6 @@
 # invalid-source.duplicate-guid
 
-Duplicate FieldWorks GUID
+Duplicate FieldWorks identity
 
 Level: **warning**
 

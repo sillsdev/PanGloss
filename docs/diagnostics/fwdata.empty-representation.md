@@ -12,6 +12,13 @@ A phoneme, boundary marker, or terminal mapping has no usable text representatio
 
 For a phoneme, inspect In Orthography as in Grammar > Phonemes. For an affix process terminal mapping, inspect Allomorphs > Affix Process Rule in Lexicon > Lexicon Edit and correct an unintended phoneme reference or spelling. No editable boundary field has been verified; report that case.
 
+## FieldWorks places
+
+| Tool | Field |
+|---|---|
+| `phonemeEdit` | In Orthography as |
+| `lexiconEdit` | Allomorphs > Affix Process Rule |
+
 ## Background
 
 # Modelling a grammar the parser can use

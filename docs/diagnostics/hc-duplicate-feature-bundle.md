@@ -10,7 +10,7 @@ Two declared phonemes have the same phonological feature values, so feature-base
 
 ## What to do
 
-In Grammar > Phonemes, assign distinct feature values to the named phonemes if they represent different sounds. If the feature match is intentional, no change is needed.
+In Grammar > Phonemes, select each named phoneme and open its Phonological Features chooser. Correct missing or unintended values if the sounds must be distinguished. If the feature match is intentional, preserve it and report a parser limitation if that distinction is needed.
 
 ## FieldWorks places
 

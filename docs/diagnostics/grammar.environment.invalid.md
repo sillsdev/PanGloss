@@ -10,7 +10,7 @@ The environment expression could not be parsed and is ignored as a restriction.
 
 ## What to do
 
-In Grammar > Environments, correct the expression for phonological environment 'the named item'. In Lexicon > Lexicon Edit, inspect Allomorphs > Environments. Roots ignore invalid restrictions; ordinary affixes also get an unrestricted pass. An infix still needs a valid position.
+In Grammar > Environments, check String Representation for phonological environment 'the named item'; in Lexicon > Lexicon Edit, Allomorphs > Environments shows where it is attached. An environment uses / and _ to separate the surrounding context from the allomorph position, square brackets for a natural-class abbreviation, and # for a word boundary. Correct unintended notation or names; check phonemes in Grammar > Phonemes and class abbreviations in Grammar > Natural Classes. Roots ignore invalid restrictions, ordinary affixes also get an unrestricted pass, and an infix still needs a valid position. Report valid syntax the parser rejects.
 
 ## FieldWorks places
 

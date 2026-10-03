@@ -10,7 +10,7 @@ An affix template refers to a slot that cannot be resolved.
 
 ## What to do
 
-In Grammar > Category Edit, repair the template's slot reference if the slot is missing.
+In Grammar > Category Edit, select the category and inspect Affix Templates and Affix Slots. Restore the intended slot or select an existing slot in the template if the reference is stale. If FieldWorks already shows a valid slot, report the loading failure.
 
 ## FieldWorks places
 

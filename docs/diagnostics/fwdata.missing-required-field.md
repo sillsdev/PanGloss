@@ -10,7 +10,7 @@ A required source value was absent at the owner and field identified in the warn
 
 ## What to do
 
-Use the warning description to identify the owner and field. Supply a value only when the source is incomplete; otherwise report the valid source case.
+Use the finding description to identify the affected item and field. No single FieldWorks correction is known for this kind. If the project opens and shows the intended data, report the finding and PanGloss version to PanGloss; ask FieldWorks support for help if the project data is damaged.
 
 ## Background
 

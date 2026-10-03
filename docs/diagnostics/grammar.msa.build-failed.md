@@ -10,7 +10,7 @@ The grammatical analysis could not be represented in the compiled grammar.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, check the named analysis's part of speech and features; report valid data the parser cannot use.
+In Lexicon > Lexicon Edit, inspect the named sense's Grammatical Info. and Grammatical Info. Details. Check Category and the feature values named in the finding. Correct an unintended value; if the analysis is valid, report the loading failure to PanGloss.
 
 ## FieldWorks places
 

@@ -301,7 +301,9 @@ fn linguist_warning_metadata_avoids_compiler_vocabulary() {
             metadata.group_name,
             metadata.guidance.unwrap_or_default()
         )
-        .to_lowercase();
+        .to_lowercase()
+        // FieldWorks' own field label, not the engine's "rule form" vocabulary.
+        .replace("rule formula", "");
         for term in engine_terms {
             assert!(
                 !text.contains(term),
@@ -423,6 +425,90 @@ fn every_code_has_a_distinct_stable_linguist_group_name() {
 }
 
 #[test]
+fn every_catalog_kind_delivers_advice_or_has_a_documented_correction_limit() {
+    let without_specific_correction = [
+        ("fwdata.dangling-reference", "The owning class and field vary; no universal editable field is established."),
+        ("fwdata.unexpected-class", "The owning class and field vary; valid data can expose an importer limitation."),
+        ("fwdata.missing-required-field", "The owning class and required field vary by producer."),
+        ("fwdata.unrecognized-enum-value", "The enum and owner vary; no universal grammar correction is established."),
+        ("invalid-source.duplicate-guid", "Internal object identities are not editable grammar fields."),
+        ("invalid-source.missing-guid", "Internal object identities are not editable grammar fields."),
+        ("snapshot.dangling-reference", "Intermediate snapshot integrity does not identify a universal FieldWorks correction."),
+        ("snapshot.feature-structure-unresolved", "Feature structures occur on several classes; the editable owner field is unknown."),
+        ("grammar.boundary.nfd-collision", "No editable FieldWorks boundary representation control was verified."),
+        ("grammar.boundary.no-representation", "No editable FieldWorks boundary representation control was verified."),
+        ("grammar.boundary.morph-marker-unresolved", "PanGloss selects the fixed morpheme marker internally."),
+        ("grammar.null-affix.segment-failed", "The failing marker is generated internally, rather than supplied in a source form field."),
+        ("grammar.strata.custom-unsupported", "Valid custom strata expose a parser limitation; no equivalent correction is established."),
+        ("conversion.source-provenance-unknown", "Conversion provenance is not an editable FieldWorks identity field."),
+        ("grammar.compile.failed", "An early loader failure names no individual FieldWorks object; its description is the only locator."),
+        ("hc-partial-reason-unspecified", "A partial morpheme without a recorded cause identifies no specific missing FieldWorks field."),
+    ];
+    let verified_menu_destinations = [
+        "File > Restore a Project...",
+        "Parser > Edit Parser Parameters...",
+        "Parser > Choose Parser",
+        "Tools > Configure > Set up Vernacular Writing Systems...",
+    ];
+    let codes: Vec<_> = registered_diagnostic_codes().collect();
+    for (wire, reason) in without_specific_correction {
+        assert!(!reason.trim().is_empty(), "{wire}: missing research reason");
+        assert_eq!(
+            codes.iter().filter(|code| code.wire() == wire).count(),
+            1,
+            "{wire}: correction-limit inventory must name a registered kind"
+        );
+    }
+    for code in codes {
+        let reason = without_specific_correction
+            .iter()
+            .find(|(wire, _)| *wire == code.wire());
+        let Some(advice) = diagnostic_advice(&code) else {
+            assert!(
+                reason.is_some(),
+                "{}: advice or a reason is required",
+                code.wire()
+            );
+            continue;
+        };
+        assert!(!advice.explanation.trim().is_empty(), "{}", code.wire());
+        assert!(!advice.guidance.trim().is_empty(), "{}", code.wire());
+        assert!(
+            !advice.fieldworks_places.is_empty()
+                || verified_menu_destinations
+                    .iter()
+                    .any(|path| advice.guidance.contains(path))
+                || reason.is_some(),
+            "{}: guidance needs a researched destination or an explicit correction limit",
+            code.wire()
+        );
+        let diagnostic = match &code {
+            GrammarHealthCode::ImportWarning(wire) => {
+                let warning = pg_snapshot::Warning::new(
+                    ImportWarningCode::from_wire(wire).expect("registered import kind"),
+                    "Affected item",
+                );
+                GrammarHealthDiagnostic::from_import_warning(&warning)
+            }
+            _ => GrammarHealthDiagnostic::checked(code.clone(), "Affected item".into(), vec![]),
+        };
+        assert_eq!(diagnostic.explanation.as_deref(), Some(advice.explanation));
+        assert!(
+            diagnostic
+                .guidance
+                .as_ref()
+                .is_some_and(|guidance| !guidance.trim().is_empty()),
+            "{}: runtime guidance must reach the host",
+            code.wire()
+        );
+        assert_eq!(diagnostic.fieldworks_places, advice.fieldworks_places);
+        let json = serde_json::to_value(&diagnostic).expect("host diagnostic serializes");
+        assert_eq!(json["explanation"], advice.explanation);
+        assert_eq!(json["guidance"], diagnostic.guidance.as_deref().unwrap());
+    }
+}
+
+#[test]
 fn every_import_warning_code_has_exactly_one_metadata_entry() {
     let mut wires = Vec::new();
     for code in ImportWarningCode::ALL {
@@ -515,7 +601,7 @@ fn import_warning_guidance_uses_the_tool_that_edits_each_object() {
         ),
         (
             ImportWarningCode::FwdataInvalidParserParameter,
-            "Words > Edit Parser Parameters...",
+            "Words area, open Parser > Edit Parser Parameters...",
         ),
         (
             ImportWarningCode::AllomorphEnvironmentBuildFailed,

@@ -10,7 +10,7 @@ PanGloss could not determine a supported active parser from the saved project.
 
 ## What to do
 
-Check the project's parser selection in FieldWorks. If FieldWorks shows a supported parser, report the reading failure to PanGloss.
+In the Words area, open Parser > Choose Parser and check the selected parser. If FieldWorks shows the intended parser, save the project and retry; report the reading failure to PanGloss if it persists.
 
 ## Background
 

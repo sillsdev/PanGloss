@@ -10,7 +10,7 @@ The analysis's inflection-class reference cannot be resolved.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, assign an existing inflection class if the reference is stale.
+In Lexicon > Lexicon Edit, inspect Grammatical Info. Details and the named Inflection Class, From Inflection Class, or To Inflection Class field. Select the intended existing class. Use Grammar > Category Edit > Inflection Class Info to check its definition if it is missing.
 
 ## FieldWorks places
 
@@ -19,7 +19,7 @@ In Lexicon > Lexicon Edit, assign an existing inflection class if the reference 
 | `lexiconEdit` | Inflection Class |
 | `lexiconEdit` | From Inflection Class |
 | `lexiconEdit` | To Inflection Class |
-| `posEdit` | Inflection Class Info. |
+| `posEdit` | Inflection Class Info |
 
 ## Background
 

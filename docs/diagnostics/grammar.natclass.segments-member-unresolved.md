@@ -10,7 +10,7 @@ An explicit segment-list natural class contains a phoneme that cannot be resolve
 
 ## What to do
 
-In Grammar > Natural Classes, check the phoneme inventory and the named class's member list; remove a stale member or restore its phoneme.
+In Grammar > Natural Classes, select the named class and open the Phonemes chooser. Select the intended existing phonemes. Add a missing language phoneme in Grammar > Phonemes first; if all members are present, report the loading failure.
 
 ## FieldWorks places
 

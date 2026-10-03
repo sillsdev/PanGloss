@@ -10,7 +10,7 @@ The substrate allomorph cannot be divided using the imported phoneme and boundar
 
 ## What to do
 
-In Lexicon > Lexicon Edit, check its spelling against the inventory and use the warning's position detail to locate the unresolved material.
+In Lexicon > Lexicon Edit, check the named Lexeme Form or Allomorphs > Form. Use the finding's character position to locate unintended spelling. If the spelling is intended, check Grammar > Phonemes > In Orthography as for its phonemes; report a valid form that still cannot be loaded.
 
 ## FieldWorks places
 

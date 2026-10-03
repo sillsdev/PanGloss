@@ -10,7 +10,7 @@ The allomorph environment could not be converted for parsing.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, use the warning description to distinguish invalid syntax from an unresolved named environment before editing.
+In Lexicon > Lexicon Edit, inspect Environments on the named Lexeme Form or Allomorphs. In Grammar > Environments, check the selected environment's String Representation. Correct unintended phonemes, natural-class abbreviations, or notation; if the restriction is valid, report the loading failure.
 
 ## FieldWorks places
 

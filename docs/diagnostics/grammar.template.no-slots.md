@@ -10,7 +10,7 @@ The affix template has no slots containing a loaded affix rule; slots can exist 
 
 ## What to do
 
-In Grammar > Category Edit, inspect Affix Templates and slot assignments. If slots are already present, review their affixes' loading findings. Add a missing slot or affix only if the template is unintentionally empty.
+In Grammar > Category Edit > Affix Templates, inspect the named template. If an intended slot is missing, right-click STEM and choose Insert Slot before Stem or Insert Slot after Stem, then add the intended inflectional affixes to it. If slots and affixes already exist, resolve their loading findings; an intentionally unused template needs no new data.
 
 ## FieldWorks places
 

@@ -108,7 +108,7 @@ fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnostic
         GrammarHealthCode::DuplicateFeatureBundle => (
             "Duplicate segment features", Error,
             "Two declared phonemes have the same phonological feature values, so feature-based lookup cannot distinguish them. This check runs only when a phonological feature system exists.",
-            "In Grammar > Phonemes, assign distinct feature values to the named phonemes if they represent different sounds. If the feature match is intentional, no change is needed.",
+            "In Grammar > Phonemes, select each named phoneme and open its Phonological Features chooser. Correct missing or unintended values if the sounds must be distinguished. If the feature match is intentional, preserve it and report a parser limitation if that distinction is needed.",
             vec![place("phonemeEdit", "Phonological Features")], ALLOMORPHS_HELP,
         ),
         GrammarHealthCode::StemWithoutCategory => (
@@ -120,7 +120,7 @@ fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnostic
         GrammarHealthCode::InflectionalAffixWithoutTemplateSlot => (
             "Inflectional affix has no slot", Error,
             "This inflectional affix is marked partial because it has no template slot. PanGloss can retain a partial rule with incomplete template restrictions. Check the finding against the intended template restrictions.",
-            "In Grammar > Category Edit > the category's Affix Templates, assign the affix's inflectional analysis to the intended slot. Check the category and slot assignment in Lexicon > Lexicon Edit too.",
+            "In Grammar > Category Edit > the category's Affix Templates, right-click the intended slot and choose Add inflectional affix(es) to that slot. Select the existing affix. In Lexicon > Lexicon Edit, check Grammatical Info. > Category and Slots for its inflectional analysis.",
             vec![place("posEdit", "Affix Templates"), place("lexiconEdit", "Grammatical Info. > Slots")], MODELLING_HELP,
         ),
         GrammarHealthCode::UnclassifiedAffix => (

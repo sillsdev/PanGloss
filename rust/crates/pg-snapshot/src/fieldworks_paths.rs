@@ -28,8 +28,8 @@ pub const GRAMMAR_ENVIRONMENTS: &str = "Grammar > Environments";
 /// `Configuration/Lists/Edit/toolConfiguration.xml` labels this tool “Variant Types”.
 /// `Lists/areaConfiguration.xml` inserts `LexEntryInflType` there; `strings-en.xml` names “Variant Type”.
 pub const LISTS_VARIANT_TYPES: &str = "Lists > Variant Types";
-/// `Configuration/Words/areaConfiguration.xml` labels the command `_Edit Parser Parameters...`.
-pub const WORDS_EDIT_PARSER_PARAMETERS: &str = "Words > Edit Parser Parameters...";
+/// `Configuration/Words/areaConfiguration.xml` places the command under Parser and labels it `_Edit Parser Parameters...`.
+pub const WORDS_EDIT_PARSER_PARAMETERS: &str = "Words > Parser > Edit Parser Parameters...";
 /// `Configuration/Main.xml` places this command under `Tools > Configure`.
 pub const TOOLS_CONFIGURE_VERNACULAR_WRITING_SYSTEMS: &str =
     "Tools > Configure > Set up Vernacular Writing Systems...";

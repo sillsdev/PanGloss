@@ -10,7 +10,7 @@ A phoneme feature structure contains an unresolved feature or value.
 
 ## What to do
 
-In Grammar > Phonemes, repair the named phoneme's feature values if the source reference is stale.
+In Grammar > Phonemes, select the named phoneme and open the chooser for Phonological Features. Reselect the intended feature values. If a feature or value is missing, check Grammar > Phonological Features; report the finding if FieldWorks already shows valid values.
 
 ## FieldWorks places
 

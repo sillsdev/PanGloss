@@ -1,6 +1,6 @@
 # invalid-source.missing-guid
 
-Missing FieldWorks GUID
+Missing FieldWorks identity
 
 Level: **warning**
 

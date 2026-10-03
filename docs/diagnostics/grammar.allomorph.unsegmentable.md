@@ -10,7 +10,7 @@ The allomorph spelling cannot be divided into the parser's phoneme and boundary 
 
 ## What to do
 
-In Lexicon > Lexicon Edit, inspect the named form and its environments against the phoneme inventory. Use the diagnostic cause to identify the failing half, environment or character when supplied; correct an unintended spelling or report an accurate unsupported form.
+In Lexicon > Lexicon Edit, check Lexeme Form or Allomorphs > Form and its Environments as named in the finding. Correct unintended spelling. If the spelling is intended, check Grammar > Phonemes > In Orthography as for every phoneme used in it; report a valid form or environment that still cannot be loaded.
 
 ## FieldWorks places
 

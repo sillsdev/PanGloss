@@ -10,7 +10,7 @@ The affix process mappings could not be represented in the compiled grammar.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, check the named input and output mappings; report valid mappings the parser cannot use.
+In Lexicon > Lexicon Edit, open Allomorphs > Affix Process Rule and inspect the named input or output part. Correct an unintended mapping to the rule's own input or to the intended phoneme or natural class. If the rule is valid in FieldWorks, report it to PanGloss.
 
 ## FieldWorks places
 

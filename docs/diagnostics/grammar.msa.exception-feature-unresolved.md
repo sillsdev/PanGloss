@@ -10,7 +10,7 @@ The analysis refers to an exception feature that cannot be resolved.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, repair the named feature reference if it is stale.
+In Lexicon > Lexicon Edit, inspect Grammatical Info. Details and the named Exception "Features", From Exception "Features", or To Exception "Features" field. Reselect the intended existing item; if the selection is already valid, report the loading failure.
 
 ## FieldWorks places
 

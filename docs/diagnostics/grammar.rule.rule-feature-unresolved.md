@@ -10,7 +10,7 @@ A phonological rule feature reference cannot be resolved.
 
 ## What to do
 
-In Grammar > Phonological Rules, repair the named rule's feature reference if it is stale.
+In Grammar > Phonological Rules, inspect Required Properties and Excluded Properties on the named rule. Reselect an intended existing property if the reference is stale; if FieldWorks shows a valid selection, report the loading failure.
 
 ## FieldWorks places
 

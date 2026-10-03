@@ -10,7 +10,7 @@ The allomorph has a morph-type GUID that is not recognized as a known FieldWorks
 
 ## What to do
 
-In Lexicon > Lexicon Edit, inspect the named allomorph's Morph Type. Use the structured MorphType reference to identify the target; an unresolved reference cannot open a source object. Choose a morph type only if the source classification is wrong; otherwise report the valid type.
+In Lexicon > Lexicon Edit, inspect the named form's Morph Type. Select the intended type if the classification is wrong; if FieldWorks shows the correct type, report the reading failure to PanGloss.
 
 ## FieldWorks places
 

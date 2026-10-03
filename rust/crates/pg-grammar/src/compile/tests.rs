@@ -2585,7 +2585,7 @@ fn unsegmentable_warning_names_the_fieldworks_form_and_action() {
     assert_eq!(warning.subjects[0].name.as_deref(), Some("xyz"));
     let advice = warning_guidance(warning).expect("owned advice");
     assert!(advice.contains(pg_snapshot::fieldworks_paths::LEXICON_EDIT));
-    assert!(advice.contains("diagnostic cause"));
+    assert!(advice.contains("named in the finding"));
     assert!(advice.contains("unintended spelling"));
 }
 

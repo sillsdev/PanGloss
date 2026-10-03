@@ -10,7 +10,7 @@ The phoneme has no grapheme representation available to the parser.
 
 ## What to do
 
-In Grammar > Phonemes, add a representation if this phoneme belongs in the parser inventory.
+In Grammar > Phonemes, select the named phoneme. Under In Orthography as, use Insert Grapheme and enter the spelling used in lexical forms. If the phoneme already has that spelling, report the loading failure to PanGloss.
 
 ## FieldWorks places
 

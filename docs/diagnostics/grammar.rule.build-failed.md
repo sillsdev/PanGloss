@@ -10,7 +10,7 @@ The phonological rule could not be represented in the compiled grammar.
 
 ## What to do
 
-In Grammar > Phonological Rules, check the structural description and change; report the rule if its source data is valid.
+In Grammar > Phonological Rules, select the named rule and inspect Rule Formula, including its input, output, and context. Correct unintended phoneme or natural-class references. If FieldWorks shows the intended rule, report the loading failure to PanGloss.
 
 ## FieldWorks places
 

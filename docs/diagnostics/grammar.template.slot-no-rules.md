@@ -10,7 +10,7 @@ No usable inflectional affix was loaded for this template slot.
 
 ## What to do
 
-In Grammar > Category Edit, inspect Affix Templates and assigned affixes. Resolve their individual loading findings when affixes are already assigned; assign an appropriate affix only if the slot is unintentionally empty.
+In Grammar > Category Edit > Affix Templates, right-click the intended slot and choose Add inflectional affix(es) to that slot. Select an appropriate existing affix only if the slot is unintentionally empty. If affixes are already assigned, resolve their individual loading findings; check Grammatical Info. > Category and Slots in Lexicon > Lexicon Edit.
 
 ## FieldWorks places
 

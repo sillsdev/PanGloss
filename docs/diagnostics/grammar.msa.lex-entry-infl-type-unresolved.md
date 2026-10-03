@@ -10,7 +10,7 @@ An analysis refers to an entry inflection type that cannot be resolved.
 
 ## What to do
 
-In Lexicon > Lexicon Edit and Lists > Variant Types, check the analysis reference and restore the type or repair a stale reference.
+In Lexicon > Lexicon Edit, check Variant Type on the variant entry. In Lists > Variant Types, check that the intended irregularly inflected type exists, then reselect it if the reference is stale. If FieldWorks shows the correct type, report the loading failure.
 
 ## FieldWorks places
 

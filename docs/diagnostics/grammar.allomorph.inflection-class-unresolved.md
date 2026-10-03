@@ -10,14 +10,14 @@ The allomorph refers to an inflection class that cannot be resolved.
 
 ## What to do
 
-In Lexicon > Lexicon Edit, repair the reference if the named class is missing.
+In Lexicon > Lexicon Edit, open the named form's Inflection Classes chooser and select the intended existing class. In Grammar > Category Edit > Inflection Class Info, check that class's definition if it is missing. If the assignment is valid, report the loading failure.
 
 ## FieldWorks places
 
 | Tool | Field |
 |---|---|
 | `lexiconEdit` | Allomorphs > Inflection Classes |
-| `posEdit` | Inflection Class Info. |
+| `posEdit` | Inflection Class Info |
 
 ## Background
 

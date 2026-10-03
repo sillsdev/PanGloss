@@ -10,7 +10,7 @@ A snapshot reference to a feature or value cannot be resolved in the source data
 
 ## What to do
 
-Use the warning description to identify the owning object and feature field. Repair a stale reference only when it is malformed; otherwise report the source case.
+Use the finding description to identify the affected item and field. No single FieldWorks correction is known for this kind. If the project opens and shows the intended data, report the finding and PanGloss version to PanGloss; ask FieldWorks support for help if the project data is damaged.
 
 ## Background
 

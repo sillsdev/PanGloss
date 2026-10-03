@@ -10,7 +10,7 @@ A feature-defined natural class has an unresolved feature constraint; other cons
 
 ## What to do
 
-In Grammar > Natural Classes, check the named class and feature system, and repair only a stale reference.
+In Grammar > Natural Classes, select the named class and open the Phonological Features chooser. Reselect the intended values, checking Grammar > Phonological Features if a feature or value is missing. Report the finding if the definition is already valid.
 
 ## FieldWorks places
 
