@@ -311,3 +311,15 @@ fn distinct_class_edges_do_not_merge() {
         ],
     );
 }
+
+#[test]
+fn optional_root_lookup_cannot_scan_past_the_shared_search_cap() {
+    let trie = tiny_trie();
+    let query = vec![(NO_CHAR_DEF, vec![0b11], true); 12];
+    assert!(!trie.search_segs_opt(&query, None).is_empty());
+    let budget = pg_fst::work::WorkBudget::new(16);
+    let _scope = budget.enter();
+    assert!(trie.search_segs_opt(&query, None).is_empty());
+    assert!(budget.capped());
+    assert_eq!(budget.used(), 16);
+}

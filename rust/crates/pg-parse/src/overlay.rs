@@ -153,9 +153,15 @@ impl OverlayTrie {
             .collect();
         let mut active = vec![0usize];
         for (cd, query_lanes, optional) in segments {
+            if !pg_fst::work::consume() {
+                return Vec::new();
+            }
             let mut next = Vec::new();
             for node in &active {
                 for edge in &self.nodes[*node].edges {
+                    if !pg_fst::work::consume() {
+                        return Vec::new();
+                    }
                     let identity = cd == NO_CHAR_DEF
                         || edge.char_def == cd
                         || closure.is_some_and(|rows| rows[edge.char_def as usize].contains(cd));
@@ -169,6 +175,9 @@ impl OverlayTrie {
             }
             if optional {
                 for node in &active {
+                    if !pg_fst::work::consume() {
+                        return Vec::new();
+                    }
                     if !next.contains(node) {
                         next.push(*node);
                     }
@@ -181,7 +190,12 @@ impl OverlayTrie {
         }
         let mut out = Vec::new();
         for node in active {
-            out.extend(self.nodes[node].accepts.iter().cloned());
+            for root in &self.nodes[node].accepts {
+                if !pg_fst::work::consume() {
+                    return Vec::new();
+                }
+                out.push(root.clone());
+            }
         }
         out
     }

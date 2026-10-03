@@ -347,6 +347,7 @@ fn analyses_sidecar_preserves_cap_and_timeout_flags() {
         capped: true,
         invalid_shape: false,
         steps: 1,
+        work_steps: 0,
         timed_out: true,
         guessed: false,
         candidates_generated: 0,
@@ -791,5 +792,68 @@ fn plain_parse_reports_capped_search_and_preserves_complete_controls() {
     assert!(error.contains("capped"), "{error}");
     for word in ["kad", "dak"] {
         super::run_parse(&[path.to_string_lossy().into_owned(), word.into()]).unwrap();
+    }
+}
+
+#[test]
+fn work_cap_is_independent_and_binds_both_batch_writer_paths() {
+    for threads in ["1", "2"] {
+        for flags in [vec!["--work-cap", "1"], vec!["--work-cap=1"]] {
+            let mut args = vec!["--step-cap", "unbounded", "--threads", threads];
+            args.extend(flags);
+            let rows = run_batch_tsv("independent-work-cap", &args);
+            let fields: Vec<_> = rows.last().unwrap().split('\t').collect();
+            assert_eq!(fields[3], "CAP");
+            assert_eq!(fields[4], "-");
+        }
+    }
+}
+
+#[test]
+fn work_cap_flag_binds_plain_parse_and_accepts_unbounded() {
+    let dir = scratch_dir("parse-work-cap");
+    let path = dir.join("grammar.xml");
+    fs::write(&path, MINI_GRAMMAR_XML).unwrap();
+    for flags in [vec!["--work-cap", "1"], vec!["--work-cap=1"]] {
+        let mut args = vec![path.to_string_lossy().into_owned(), "kat".to_string()];
+        args.extend(flags.into_iter().map(str::to_string));
+        let err = super::run_parse(&args).expect_err("work cap must bound parsing");
+        assert!(err.contains("capped"), "{err}");
+    }
+    super::run_parse(&[
+        path.to_string_lossy().into_owned(),
+        "kat".into(),
+        "--work-cap=unbounded".into(),
+    ])
+    .expect("an unbounded work cap permits complete parsing");
+    let rows = run_batch_tsv("work-unbounded", &["--work-cap", "unbounded"]);
+    assert_eq!(rows.last().unwrap().split('\t').nth(3), Some("ok"));
+}
+
+#[test]
+fn work_cap_default_and_override_have_independent_units() {
+    let attempts = "200000".parse::<StepCap>().unwrap();
+    assert_eq!(super::resolved_work_cap(attempts, None), 20_000_000);
+    assert_eq!(
+        super::resolved_work_cap(StepCap::Unbounded, None),
+        usize::MAX
+    );
+    assert_eq!(
+        super::resolved_work_cap(attempts, Some(StepCap::Unbounded)),
+        usize::MAX
+    );
+    assert_eq!(
+        super::resolved_work_cap(StepCap::Unbounded, Some("64".parse().unwrap())),
+        64
+    );
+    for flags in [vec!["--work-cap", "0"], vec!["--work-cap=0"]] {
+        let mut args = vec![
+            "unused.xml".into(),
+            "unused.txt".into(),
+            "unused.tsv".into(),
+        ];
+        args.extend(flags.into_iter().map(str::to_string));
+        let err = run_batch(&args).expect_err("zero work cap must fail before file access");
+        assert!(err.contains("--work-cap 0"), "{err}");
     }
 }

@@ -162,6 +162,9 @@ impl EnvCheck<'_> {
         };
         let mut results = Vec::new();
         for (index, env) in envs.iter().enumerate() {
+            if !pg_fst::work::consume() {
+                return Err(results);
+            }
             let accepted = match cached {
                 Some(cache) => {
                     let (left, right) = &cache[index];
@@ -600,6 +603,9 @@ fn allomorphs_valid_impl(
     let morph_list_morphemes: Vec<MorphemeId> = sorted.iter().map(|m| m.morpheme).collect();
 
     for (i, m) in sorted.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let start = m.order;
         let end = sorted
             .get(i + 1)
@@ -787,6 +793,9 @@ fn allomorphs_valid_impl(
                 // The candidate's own allomorph-co-occurrence rules are checked here; morpheme-level rules are provably a
                 // no-op per candidate and are intentionally omitted -- see docs/research/pg-rules-validity-design-notes.md.
                 for ci in disjunctive_candidates(m, idx as usize) {
+                    if !pg_fst::work::consume() {
+                        return false;
+                    }
                     let cand = &allos[ci];
                     if free_fluctuates(allos, ci, idx as usize, root_constraints_equal) {
                         continue;
@@ -897,6 +906,9 @@ fn allomorphs_valid_impl(
                 }
                 // Same disjunctive re-check shape as the root arm above (see its comment).
                 for ci in disjunctive_candidates(m, idx as usize) {
+                    if !pg_fst::work::consume() {
+                        return false;
+                    }
                     let cand = &allos[ci];
                     if free_fluctuates(allos, ci, idx as usize, |a, b| {
                         crate::morph::constraints_equal(g, a, b)

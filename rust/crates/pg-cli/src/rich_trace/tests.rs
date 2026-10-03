@@ -22,6 +22,7 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
         capped: false,
         invalid_shape: false,
         steps: 17,
+        work_steps: 41,
         timed_out: false,
         guessed: false,
         candidates_generated: 1,
@@ -120,6 +121,8 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
     assert_eq!(value["schemaVersion"], "pangloss.trace-details.v3");
     assert_eq!(value["trace"], tree);
     assert_eq!(value["search"]["completed"], true);
+    assert_eq!(value["search"]["steps"], 17);
+    assert_eq!(value["search"]["workSteps"], 41);
     assert_eq!(value["result"]["signature"], "root+past|sagd");
     assert_eq!(value["categories"]["morphRule"]["selfElapsedNs"], 18);
     assert_eq!(value["categories"]["morphRule"]["analysisSelfElapsedNs"], 0);
@@ -165,6 +168,7 @@ fn v2_retains_analysis_when_projection_is_unavailable() {
         capped: true,
         invalid_shape: false,
         steps: 99,
+        work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 1,

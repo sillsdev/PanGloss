@@ -278,6 +278,9 @@ impl<'f> Transduce<'f> {
 
     fn execute_commands(registers: &mut [Register], cmds: &[Cmd], start: Register, end: Register) {
         for cmd in cmds {
+            if !crate::work::consume() {
+                return;
+            }
             let d = cmd.dest as usize;
             if cmd.src == CURRENT_POSITION {
                 registers[d * 2] = start;
@@ -318,6 +321,9 @@ impl<'f> Transduce<'f> {
         if self.end_anchor && ann_index != self.n() {
             return;
         }
+        if !crate::work::consume() {
+            return;
+        }
         let next_ann = self.next_ann_pos(ann_index);
         let mut match_registers = registers.to_vec();
         let fin = &self.fst.commands[meta.fin_lo as usize..meta.fin_hi as usize];
@@ -340,6 +346,9 @@ impl<'f> Transduce<'f> {
             });
         } else {
             for info in infos {
+                if !crate::work::consume() {
+                    return;
+                }
                 cur_results.push(FstResult {
                     id: info.id.clone(),
                     registers: match_registers.clone(),
@@ -360,6 +369,9 @@ impl<'f> Transduce<'f> {
         optional: bool,
         cur_results: &mut Vec<FstResult>,
     ) -> Vec<Inst> {
+        if !crate::work::consume() {
+            return Vec::new();
+        }
         let next_index = inst.ann_index + 1; // GetNextNonoverlappingAnnotationIndex, linear
         let end = self.ann_end(inst.ann_index);
         // Borrowed straight from the CSR pool; most arcs have an EMPTY command range, so `Rc::make_mut` deep-copies the shared register scaffold only when an arc genuinely writes.
@@ -425,6 +437,9 @@ impl<'f> Transduce<'f> {
         cmds: &[Cmd],
         init_anns: &mut HashSet<usize>,
     ) -> Vec<Inst> {
+        if !crate::work::consume() {
+            return Vec::new();
+        }
         let mut insts: Vec<Inst> = Vec::new();
         let offset = self.ann_start(*ann_index);
 
@@ -493,6 +508,9 @@ impl<'f> Transduce<'f> {
                 let arcs = self.state_arcs(inst.state);
                 let mut advanced = false;
                 for arc in arcs {
+                    if !crate::work::consume() {
+                        return Vec::new();
+                    }
                     if self.check_input_match(arc, inst.ann_index) {
                         for ni in self.advance(inst, arc, false, &mut cur_results) {
                             stack.push(ni);
@@ -514,6 +532,9 @@ impl<'f> Transduce<'f> {
                 // See the deterministic branch's comment above: `Arc` is `Copy` and this slice borrows straight from the frozen `Fst`, so no per-pop clone is needed.
                 let arcs = self.state_arcs(inst.state);
                 for arc in arcs {
+                    if !crate::work::consume() {
+                        return Vec::new();
+                    }
                     // frozen FSTs have no epsilon arcs; only the input-match branch fires.
                     if self.check_input_match(arc, inst.ann_index) {
                         // Min-hops-to-accept pruning: `remaining` upper-bounds arcs still takeable, and if even that many hops cannot reach an accepting state from `arc.target`, no thread through this arc can ever produce a result.
@@ -561,6 +582,9 @@ impl<'f> Transduce<'f> {
         let mut ann_index = 0usize;
 
         while ann_index < self.n() {
+            if !crate::work::consume() {
+                return Vec::new();
+            }
             let mut init_registers = vec![Register::unset(); reg_slots];
             let offset = self.ann_start(ann_index);
             // initializers: dest==0 set directly; others -> cmds (Fst.cs:376-387).
@@ -575,6 +599,9 @@ impl<'f> Transduce<'f> {
 
             let mut cur =
                 self.traverse_from(&mut ann_index, &mut init_registers, &cmds, &mut init_anns);
+            if crate::work::stopped() {
+                return Vec::new();
+            }
             if !cur.is_empty() {
                 cur.sort_by(|a, b| self.result_compare(a, b));
                 result_list.append(&mut cur);
@@ -665,6 +692,9 @@ fn distinct(results: Vec<FstResult>) -> Vec<FstResult> {
     let mut buckets: HashMap<u64, Vec<usize>> = HashMap::with_capacity(results.len());
     let mut out: Vec<FstResult> = Vec::new();
     for r in results {
+        if !crate::work::consume() {
+            return Vec::new();
+        }
         let mut hasher = state.build_hasher();
         result_hash(&r, &mut hasher);
         let bucket = buckets.entry(hasher.finish()).or_default();

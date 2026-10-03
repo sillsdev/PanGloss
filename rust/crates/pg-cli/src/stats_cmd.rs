@@ -196,11 +196,12 @@ fn refuse_if_cache_engine_differs(
     Ok(())
 }
 
-fn refuse_if_final_template_policy_differs(
+const SEARCH_BUDGET_SEMANTICS: u32 = 2;
+
+fn prior_options(
     cache: &pg_stats::StatsCache,
     cache_path: &std::path::Path,
-    requested: bool,
-) -> Result<(), String> {
+) -> Result<Vec<serde_json::Map<String, Value>>, String> {
     let mut stmt = cache
         .connection()
         .prepare("SELECT options_json FROM run ORDER BY run_id")
@@ -210,19 +211,31 @@ fn refuse_if_final_template_policy_differs(
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
-    for options_json in prior {
-        let value = serde_json::from_str::<Value>(&options_json).map_err(|err| {
-            format!(
-                "stats: cache at {} has malformed prior options JSON ({err})",
-                cache_path.display()
-            )
-        })?;
-        let object = value.as_object().ok_or_else(|| {
-            format!(
-                "stats: cache at {} has prior options JSON that is not an object",
-                cache_path.display()
-            )
-        })?;
+    prior
+        .into_iter()
+        .map(|options_json| {
+            let value = serde_json::from_str::<Value>(&options_json).map_err(|err| {
+                format!(
+                    "stats: cache at {} has malformed prior options JSON ({err})",
+                    cache_path.display()
+                )
+            })?;
+            value.as_object().cloned().ok_or_else(|| {
+                format!(
+                    "stats: cache at {} has prior options JSON that is not an object",
+                    cache_path.display()
+                )
+            })
+        })
+        .collect()
+}
+
+fn refuse_if_final_template_policy_differs(
+    cache: &pg_stats::StatsCache,
+    cache_path: &std::path::Path,
+    requested: bool,
+) -> Result<(), String> {
+    for object in prior_options(cache, cache_path)? {
         let recorded = match object.get("always_enforce_final_templates") {
             None => false,
             Some(Value::Bool(value)) => *value,
@@ -243,10 +256,38 @@ fn refuse_if_final_template_policy_differs(
     Ok(())
 }
 
+fn refuse_if_work_cap_differs(
+    cache: &pg_stats::StatsCache,
+    cache_path: &std::path::Path,
+    requested: usize,
+) -> Result<(), String> {
+    for object in prior_options(cache, cache_path)? {
+        if object
+            .get("search_budget_semantics")
+            .and_then(Value::as_u64)
+            != Some(u64::from(SEARCH_BUDGET_SEMANTICS))
+        {
+            return Err(format!(
+                "stats: cache at {} has older or unknown search-budget semantics; use a separate cache",
+                cache_path.display()
+            ));
+        }
+        if object.get("work_cap").and_then(Value::as_u64) != Some(requested as u64) {
+            return Err(format!(
+                "stats: cache at {} records a different or missing work cap; requested {}; use a separate cache",
+                cache_path.display(), requested
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct StatsOptionsRecord {
     engine: &'static str,
     step_cap: Option<StepCap>,
+    work_cap: usize,
+    search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -372,6 +413,7 @@ pub(crate) fn prepare_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
     step_cap: StepCap,
+    work_cap: usize,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
@@ -393,6 +435,7 @@ pub(crate) fn prepare_batch_stats_hc(
         &cache_path,
         always_enforce_final_templates,
     )?;
+    refuse_if_work_cap_differs(&outcome.cache, &cache_path, work_cap)?;
     outcome
         .cache
         .refuse_if_step_cap_differs(step_cap)
@@ -401,6 +444,8 @@ pub(crate) fn prepare_batch_stats_hc(
     let options = StatsOptionsRecord {
         engine: "hc",
         step_cap: Some(step_cap),
+        work_cap,
+        search_budget_semantics: SEARCH_BUDGET_SEMANTICS,
         word_timeout_ms,
         guess,
         always_enforce_final_templates,
@@ -477,6 +522,7 @@ pub(crate) fn run_batch_stats_hc(
         grammar_path,
         words,
         step_cap,
+        crate::resolved_work_cap(step_cap, None),
         word_timeout_ms,
         guess,
         always_enforce_final_templates,

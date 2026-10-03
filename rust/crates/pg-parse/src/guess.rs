@@ -208,6 +208,9 @@ fn match_rec(
     obligatory: bool,
     prefix: &[GuessNode],
 ) -> Vec<Vec<GuessNode>> {
+    if !pg_fst::work::consume() {
+        return Vec::new();
+    }
     let mut results = Vec::new();
     if p == pattern.len() {
         if n == nodes.len() {
@@ -322,6 +325,9 @@ pub fn lexical_guess(
 
     let mut out = Vec::new();
     for &(pattern_allo, pattern_entry) in lexical_patterns {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let pattern_def = g.entries[pattern_entry.0 as usize]
             .allomorphs
             .iter()

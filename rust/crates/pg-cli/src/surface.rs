@@ -177,7 +177,12 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--step-cap",
         takes_value: true,
-        summary: "N or \"unbounded\"; bound the analysis cascade's step count per word (default: 50000000, a runaway guard)",
+        summary: "N or \"unbounded\"; bound morphological analysis attempts per word (default: 50000000)",
+    },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "N|unbounded; bound inner search and confirmation work (default: 100 x step cap, saturating; unbounded derives unbounded)",
     },
     FlagSpec {
         name: "--word-timeout-ms",
@@ -227,7 +232,12 @@ const PARSE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--step-cap",
         takes_value: true,
-        summary: "N|unbounded; bound HC analysis steps (default 50000000)",
+        summary: "N|unbounded; bound HC analysis attempts (default 50000000)",
+    },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "N|unbounded; bound inner search and confirmation work (default: 100 x step cap, saturating; unbounded derives unbounded)",
     },
     FlagSpec {
         name: "--word-timeout-ms",

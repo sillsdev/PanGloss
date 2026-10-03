@@ -119,7 +119,7 @@ impl Cascade {
         F: Fn(&T) -> K,
     {
         for i in rule_index..rule_count {
-            if acc.steps >= self.cap {
+            if acc.steps >= self.cap || !pg_fst::work::consume() {
                 acc.capped = true;
                 return false;
             }
@@ -184,7 +184,7 @@ impl Cascade {
         F: Fn(&T) -> K,
     {
         for i in rule_index..rule_count {
-            if acc.steps >= self.cap {
+            if acc.steps >= self.cap || !pg_fst::work::consume() {
                 acc.capped = true;
                 return;
             }
@@ -247,7 +247,7 @@ impl Cascade {
     {
         for i in 0..rule_count {
             if applied.as_ref().is_none_or(|a| !a[i]) {
-                if acc.steps >= self.cap {
+                if acc.steps >= self.cap || !pg_fst::work::consume() {
                     acc.capped = true;
                     return;
                 }

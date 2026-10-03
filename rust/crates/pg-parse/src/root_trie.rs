@@ -231,10 +231,16 @@ impl RootAllomorphTrie {
     ) -> Vec<(AllomorphId, LexEntryId)> {
         let mut active: Vec<usize> = vec![0];
         for (cd, lanes, optional) in segs {
+            if !pg_fst::work::consume() {
+                return Vec::new();
+            }
             let mut next: Vec<usize> = Vec::new();
             // Consume branch: follow every matching edge (see `Self::edge_matches`).
             for &node in &active {
                 for e in &self.nodes[node].edges {
+                    if !pg_fst::work::consume() {
+                        return Vec::new();
+                    }
                     if Self::edge_matches(e, *cd, lanes, closure) && !next.contains(&e.target) {
                         next.push(e.target);
                     }
@@ -243,6 +249,9 @@ impl RootAllomorphTrie {
             // Skip branch (optional only): the trie position carries forward unchanged.
             if *optional {
                 for &node in &active {
+                    if !pg_fst::work::consume() {
+                        return Vec::new();
+                    }
                     if !next.contains(&node) {
                         next.push(node);
                     }
@@ -257,6 +266,9 @@ impl RootAllomorphTrie {
         let mut out: Vec<(AllomorphId, LexEntryId)> = Vec::new();
         for &node in &active {
             for &pair in &self.nodes[node].accepts {
+                if !pg_fst::work::consume() {
+                    return Vec::new();
+                }
                 if !out.contains(&pair) {
                     out.push(pair);
                 }

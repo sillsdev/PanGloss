@@ -39,3 +39,22 @@ fn dedup_key_ignores_procedural_passed_over_state() {
     first.morphs[0].passed_over = Some(vec![2, 4].into_boxed_slice());
     assert_eq!(first.dedup_key(), second.dedup_key());
 }
+
+#[test]
+fn shared_alternative_tree_cannot_expand_past_the_search_cap() {
+    let mut branch = w();
+    for _ in 0..12 {
+        let child = Rc::new(branch);
+        branch = w();
+        branch.alternatives = vec![child.clone(), child];
+    }
+    let budget = pg_fst::work::WorkBudget::new(32);
+    let _scope = budget.enter();
+    let expanded = branch.expand_alternatives();
+    assert!(
+        expanded.is_empty(),
+        "interrupted expansion must discard its partial list"
+    );
+    assert!(budget.capped());
+    assert_eq!(budget.used(), 32);
+}

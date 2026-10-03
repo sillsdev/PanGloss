@@ -566,6 +566,9 @@ fn ana_affix_cached_traced(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
@@ -633,6 +636,9 @@ fn ana_realizational_cached_traced(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
@@ -701,6 +707,9 @@ fn ana_compound_cached_traced(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Some((fst, lhs)) = cc.subrules[i].ana.as_ref() else {
             continue;
         };
@@ -1615,6 +1624,9 @@ fn synth_affix(
     let mut applied: Vec<u16> = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
             continue;
         }
@@ -1718,6 +1730,9 @@ fn synth_affix_cached(
     let mut applied: Vec<u16> = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
                 let event =
@@ -1846,6 +1861,9 @@ fn synth_realizational(
     let mut applied: Vec<u16> = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
             continue;
         }
@@ -1935,6 +1953,9 @@ fn synth_realizational_cached(
     let mut applied: Vec<u16> = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
                 let event =
@@ -2451,6 +2472,9 @@ fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Patter
         optional: bool,
     ) {
         for n in nodes {
+            if !pg_fst::work::consume() {
+                return;
+            }
             match n {
                 PatternNode::Context(sc) => out.push(OutNode {
                     kind: NodeKind::Segment,
@@ -2479,6 +2503,9 @@ fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Patter
                     // An unbounded quantifier emits nothing — see this function's doc.
                     if let Some(max) = max {
                         for r in 0..*max {
+                            if !pg_fst::work::consume() {
+                                return;
+                            }
                             emit(g, table, out, children, optional || r >= *min);
                         }
                     }
@@ -2529,6 +2556,9 @@ fn ana_affix(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Ok((fst, lhs)) = build_ana_affix_lhs(g, table, allo) else {
             continue;
         };
@@ -2570,6 +2600,9 @@ fn ana_affix_cached(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
@@ -2704,6 +2737,9 @@ fn ana_allomorph_matches(
         .anchored(true, true)
         .all_matches();
     for result in matches {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         if repeated_parts.as_ref().is_some_and(|groups| {
             copy_agreement_refuses_match(&word.shape, node_of, fst, &result, &allo.rhs, groups)
         }) {
@@ -2765,6 +2801,9 @@ fn ana_realizational(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Ok((fst, lhs)) = build_ana_affix_lhs(g, table, allo) else {
             continue;
         };
@@ -2806,6 +2845,9 @@ fn ana_realizational_cached(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
             continue;
         };
@@ -2871,11 +2913,16 @@ fn push_remove_duplicates(out: &mut Vec<Word>, w: Word) {
 
 /// The shared body of the three dedup passes: replace the first `dup`-matching candidate only when `w`'s shape is strictly longer, else append.
 fn push_keep_longer(out: &mut Vec<Word>, w: Word, dup: impl Fn(&Word, &Word) -> bool) {
-    if let Some(existing) = out.iter_mut().find(|o| dup(&w, o)) {
-        if w.shape.len() > existing.shape.len() {
-            *existing = w;
+    for existing in out.iter_mut() {
+        if !pg_fst::work::consume() {
+            return;
         }
-        return;
+        if dup(&w, existing) {
+            if w.shape.len() > existing.shape.len() {
+                *existing = w;
+            }
+            return;
+        }
     }
     out.push(w);
 }
@@ -2986,6 +3033,9 @@ fn synth_compound(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         if !g.mpr_group_ok(sr.required_mpr, sr.excluded_mpr, word.mpr) {
             continue;
         }
@@ -3119,6 +3169,9 @@ fn synth_compound_cached(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         if let Some(reason) = mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr) {
             if trace.is_tracing() {
                 let event =
@@ -3318,6 +3371,9 @@ fn ana_compound(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Ok((fst, lhs)) = build_ana_compound_lhs(g, table, sr) else {
             continue;
         };
@@ -3364,6 +3420,9 @@ fn ana_compound_cached(
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let Some((fst, lhs)) = cc.subrules[i].ana.as_ref() else {
             continue;
         };
@@ -3424,6 +3483,9 @@ fn ana_compound_subrule(
         .anchored(true, true)
         .all_matches()
     {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         // Acceptable only if at least one head part was captured.
         let head_captured = head_parts.iter().any(|(name, _)| {
             (0..*lhs.captured.get(name).unwrap_or(&0)).any(|idx| {
@@ -3484,6 +3546,9 @@ fn resolve_non_head_roots(
     let req = g.fs_interner.get(rule.non_head_required_syn_fs);
     let mut out = Vec::new();
     for resolved in filter(stratum, nh_shape, mstats.map(|m| m.stats)) {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let crate::word::ResolvedRoot::Grammar(allo_id, le_id) = resolved else {
             let crate::word::ResolvedRoot::Supplied(root) = resolved else {
                 unreachable!()

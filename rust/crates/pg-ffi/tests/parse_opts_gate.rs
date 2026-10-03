@@ -172,6 +172,7 @@ fn assert_wire_matches_owner(
         capped: owner.capped,
         invalid_shape: owner.invalid_shape,
         steps: 0,
+        work_steps: 0,
         timed_out: owner.timed_out,
         guessed: owner.guessed,
         candidates_generated: owner.candidates_generated,

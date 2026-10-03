@@ -480,6 +480,9 @@ impl Word {
     ///   root applied to the identical shape) instead of re-running the lexicon, so this stays a pure
     ///   `Word` method with no grammar handle.
     pub fn expand_alternatives(&self) -> Vec<Word> {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let mut out: Vec<Word> = Vec::new();
         let originals: Option<Vec<Word>> = self.source.as_ref().map(|s| s.expand_alternatives());
         match &originals {
@@ -490,6 +493,9 @@ impl Word {
                     .as_ref()
                     .expect("originals is Some => source is Some");
                 for original in o {
+                    if !pg_fst::work::consume() {
+                        return Vec::new();
+                    }
                     let mut alt = original.clone();
                     alt.shape = self.shape.clone();
                     // Rules unapplied since the source (cs:509-511 `MorphologicalRuleUnapplied`).
@@ -535,8 +541,15 @@ impl Word {
         // Local alternatives (cs:530-531): every word folded into this one by the merge expands too.
         for alt in &self.alternatives {
             out.extend(alt.expand_alternatives());
+            if pg_fst::work::stopped() {
+                return Vec::new();
+            }
         }
-        out
+        if pg_fst::work::stopped() {
+            Vec::new()
+        } else {
+            out
+        }
     }
 
     pub fn root_runtime(&self) -> Option<&RuntimeRoot> {

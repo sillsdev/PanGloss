@@ -36,8 +36,9 @@ pub struct Morpher<'g> {
     overlay: Option<&'g SuppliedRootOverlay>,
     /// Every `IsPattern` root allomorph across every stratum, in document order; read only by guess.
     lexical_patterns: Vec<(AllomorphId, LexEntryId)>,
-    /// Global per-word step budget threaded through the cascades; `usize::MAX` means uncapped.
+    /// Per-word morphological analysis-attempt cap; `usize::MAX` means uncapped.
     cap: usize,
+    work_cap: usize,
     /// `--word-timeout-ms`: independent wall-clock deadline alongside `cap`, needed because per-step cost is not uniform.
     word_timeout: Option<Duration>,
     /// Every matcher this grammar's rules need, compiled once and shared read-only across `--threads=N` workers.
@@ -59,7 +60,7 @@ pub struct SynthesisBudget {
 impl SynthesisBudget {
     pub fn new(step_cap: usize, candidate_cap: usize, timeout: Duration) -> Self {
         Self {
-            steps: pg_rules::stratum::StepBudget::new(step_cap)
+            steps: pg_rules::stratum::StepBudget::with_limits(usize::MAX, step_cap)
                 .with_timeout(Some(timeout))
                 .with_synthesis_counting(),
             candidate_cap,
@@ -76,7 +77,7 @@ impl SynthesisBudget {
         true
     }
     pub fn steps(&self) -> usize {
-        self.steps.steps()
+        self.steps.work_steps()
     }
     pub fn candidates(&self) -> usize {
         self.candidates.get()
@@ -101,16 +102,16 @@ pub struct ParseOutcome {
     /// same `Morpher::allomorphs_in_morph_order` traversal, so the two views of the morpheme
     /// sequence cannot drift. `pg-ffi` re-sorts both views together before encoding.
     pub structured: Vec<WordAnalysis>,
-    /// Whether the analysis step budget fired on any stratum (partial results possible).
+    /// Whether any search phase exhausted the shared work budget (partial results possible).
     pub capped: bool,
     /// The surface word did not segment (C# `InvalidShapeException` → batch status `SKIPPED`).
     pub invalid_shape: bool,
-    /// Diagnostic only, not part of any C# contract: the step budget's raw tick count for this
-    /// call, independent of whether the cap was hit.
+    /// Morphological analysis rule attempts, retained for compatibility with stats rows.
+    /// The analysis-attempt cap applies here; confirmation uses the independent work cap.
     pub steps: usize,
-    /// Whether `--word-timeout-ms`'s wall-clock deadline fired for this word. Independent of
-    /// `capped` — either can fire without the other. Always `false` for the `invalid_shape` early
-    /// return, which happens before the budget is constructed.
+    /// Total work units consumed by all search phases under the shared work cap.
+    pub work_steps: usize,
+    /// Whether the independent `--word-timeout-ms` deadline fired for this word.
     pub timed_out: bool,
     /// True iff these analyses came from the guess branch. That branch is all-or-nothing (it runs
     /// only on a total normal-lexicon miss), so one flag describes every returned analysis and
@@ -137,6 +138,7 @@ fn empty_outcome(invalid_shape: bool) -> ParseOutcome {
         capped: false,
         invalid_shape,
         steps: 0,
+        work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
@@ -189,6 +191,7 @@ impl<'g> Morpher<'g> {
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
             cap,
+            work_cap: pg_rules::stratum::default_work_cap(cap),
             word_timeout: None,
             cache: RuleCache::build(g),
             max_stem_count: 2, // C# `Morpher.MaxStemCount` ctor default (Morpher.cs:56)
@@ -251,8 +254,14 @@ impl<'g> Morpher<'g> {
         self
     }
 
-    /// Arm (or leave unarmed) `--word-timeout-ms`'s wall-clock deadline. `None` (the default from
-    /// `new`) is a complete no-op — `parse_word` behaves byte-identically to before this existed.
+    /// Override per-word parsing work independently of the analysis-attempt limit.
+    /// Otherwise the allowance is 100 times the configured attempt cap, saturating at `usize::MAX`.
+    pub fn with_work_cap(mut self, work_cap: usize) -> Self {
+        self.work_cap = work_cap;
+        self
+    }
+
+    /// Arm the independent per-word deadline, or leave it unarmed with `None`.
     pub fn with_word_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.word_timeout = timeout;
         self
@@ -403,10 +412,29 @@ impl<'g> Morpher<'g> {
         let surface_stratum = StratumId((n - 1) as u8);
         let surface_table = &g.char_tables[g.strata[surface_stratum.0 as usize].table.0 as usize];
 
+        let budget = pg_rules::stratum::StepBudget::with_limits(self.cap, self.work_cap)
+            .with_timeout(self.word_timeout);
+        let _work_scope = budget.enter();
+        for _ in word.chars() {
+            if !pg_fst::work::consume() {
+                let mut outcome = empty_outcome(false);
+                outcome.capped = budget.capped();
+                outcome.timed_out = budget.timed_out();
+                outcome.work_steps = budget.work_steps();
+                return outcome;
+            }
+        }
+
         // 1. Segment the surface word against the surface stratum's table (Morpher.cs:115).
         let shape = match segment_with_features(g, surface_table, word) {
             Ok(s) => s,
-            Err(_) => return empty_outcome(true),
+            Err(_) => {
+                let mut outcome = empty_outcome(true);
+                outcome.capped = budget.capped();
+                outcome.timed_out = budget.timed_out();
+                outcome.work_steps = budget.work_steps();
+                return outcome;
+            }
         };
         let mut input = Word::new(shape, surface_stratum);
 
@@ -426,8 +454,6 @@ impl<'g> Morpher<'g> {
             max_stem_count: self.max_stem_count,
             prune_disagreeing_copies: self.prune_disagreeing_copies,
         };
-        // One step budget shared by reference across every stratum × candidate; a per-instance counter would let one word explore `cap` steps per call.
-        let budget = pg_rules::stratum::StepBudget::new(self.cap).with_timeout(self.word_timeout);
         // Closure lives here because `pg-parse` owns `RootAllomorphIndex` and `pg-rules` cannot depend on `pg-parse`.
         let filter: NonHeadRootFilter =
             &|st: StratumId,
@@ -449,6 +475,9 @@ impl<'g> Morpher<'g> {
             }
             let mut output_set: HashMap<WordKey, Word> = HashMap::default();
             for w in input_set.values() {
+                if !pg_fst::work::consume() {
+                    break;
+                }
                 // `w.trace.unwrap_or(root)` is the resolved-cursor idiom used throughout; an untraced parse pays nothing since `trace.is_tracing()` is false.
                 let node_parent = w.trace.unwrap_or(root);
                 let enforce = self.always_enforce_final_templates
@@ -488,6 +517,9 @@ impl<'g> Morpher<'g> {
         let mut matches: HashMap<WordKey, Word> = HashMap::default();
         if !opts.guess_only {
             for aw in results.values() {
+                if !pg_fst::work::consume() {
+                    break;
+                }
                 // `HC_ALT_YIELD=1`: this canonical's stashed alternatives count (docs/research/alt-yield.md).
                 alt_yield::record_canonical(aw.alternatives.len());
                 let looked_up =
@@ -496,10 +528,16 @@ impl<'g> Morpher<'g> {
                     self.record_no_root(stats, aw);
                 }
                 for syn_word in looked_up {
+                    if !pg_fst::work::consume() {
+                        break;
+                    }
                     // Recovers the shape-equivalent candidates `merge_equivalent` folded away; skipping this loses real analyses whenever merging is on (the default).
                     let expanded = syn_word.expand_alternatives();
                     alt_yield::record_expansion(expanded.len());
                     for alt in expanded {
+                        if !pg_fst::work::consume() {
+                            break;
+                        }
                         for vw in self.synthesis_pipeline_selected_with_policy(
                             alt,
                             trace,
@@ -512,6 +550,9 @@ impl<'g> Morpher<'g> {
                             },
                             None,
                         ) {
+                            if pg_fst::work::stopped() {
+                                break;
+                            }
                             candidates_generated += 1;
                             if !self.is_word_valid_traced(&vw, trace, root) {
                                 continue;
@@ -519,6 +560,9 @@ impl<'g> Morpher<'g> {
                             if !self.is_match_traced(&vw, word, trace, root) {
                                 self.record_surface_mismatch(stats, &vw);
                                 continue;
+                            }
+                            if pg_fst::work::stopped() {
+                                break;
                             }
                             self.commit_uses(stats, &vw);
                             if alt_yield::enabled() {
@@ -541,6 +585,9 @@ impl<'g> Morpher<'g> {
         {
             let mut guess_matches: Vec<Word> = Vec::new();
             for aw in results.values() {
+                if !pg_fst::work::consume() {
+                    break;
+                }
                 if let Some(stats) = stats {
                     stats.record_guesser_attempt(aw.stratum, aw.shape.len() as u64);
                 }
@@ -560,9 +607,15 @@ impl<'g> Morpher<'g> {
                     guess::lexical_guess(g, &self.lexical_patterns, aw, trace, root)
                 };
                 for synthesis_word in guessed_words {
+                    if !pg_fst::work::consume() {
+                        break;
+                    }
                     let expanded = synthesis_word.expand_alternatives();
                     alt_yield::record_expansion(expanded.len());
                     for alt in expanded {
+                        if !pg_fst::work::consume() {
+                            break;
+                        }
                         for vw in self.synthesis_pipeline_traced(
                             alt,
                             trace,
@@ -573,6 +626,9 @@ impl<'g> Morpher<'g> {
                                 always_enforce: self.always_enforce_final_templates,
                             },
                         ) {
+                            if pg_fst::work::stopped() {
+                                break;
+                            }
                             candidates_generated += 1;
                             if self.is_word_valid_traced(&vw, trace, root)
                                 && self.is_match_traced(&vw, word, trace, root)
@@ -584,6 +640,9 @@ impl<'g> Morpher<'g> {
                                     ) {
                                         alt_yield::record_identity(id);
                                     }
+                                }
+                                if pg_fst::work::stopped() {
+                                    break;
                                 }
                                 // No dedup here, unlike the normal path: a plain `Vec`, not a `WordKey`-deduped `HashMap`.
                                 guess_matches.push(vw);
@@ -613,6 +672,7 @@ impl<'g> Morpher<'g> {
             capped: budget.capped(),
             invalid_shape: false,
             steps: budget.steps(),
+            work_steps: budget.work_steps(),
             timed_out: budget.timed_out(),
             guessed,
             candidates_generated,
@@ -643,6 +703,9 @@ impl<'g> Morpher<'g> {
         // Distinct entries in first-seen order; `lex_entry_filter` runs before the dedup, mirroring C#'s `.Where().Distinct()` order.
         let mut entries: Vec<LexEntryId> = Vec::new();
         for root in &matched {
+            if !pg_fst::work::consume() {
+                break;
+            }
             let ResolvedRoot::Grammar(_, le) = root else {
                 continue;
             };
@@ -655,8 +718,14 @@ impl<'g> Morpher<'g> {
         }
         let mut out = Vec::new();
         for le in entries {
+            if !pg_fst::work::consume() {
+                break;
+            }
             let entry = &g.entries[le.0 as usize];
             for (allo_idx, allo) in entry.allomorphs.iter().enumerate() {
+                if !pg_fst::work::consume() {
+                    break;
+                }
                 if let Some(stats) = stats {
                     // +1: index 0 must not collide with the `ALLOMORPH_NONE` sentinel.
                     stats.record_lex_entry_attempt(aw.stratum, le, allo_idx as u32 + 1);
@@ -679,6 +748,9 @@ impl<'g> Morpher<'g> {
             }
         }
         for root in matched {
+            if !pg_fst::work::consume() {
+                break;
+            }
             let ResolvedRoot::Supplied(root) = root else {
                 continue;
             };
@@ -824,7 +896,7 @@ impl<'g> Morpher<'g> {
     /// Folds the candidate through every stratum deepest→surface, deduping by `WordKey`; the budget here is timeout-less since generation has no per-word deadline.
     fn synthesis_pipeline(&self, syn_word: Word) -> Vec<Word> {
         let sink = NoopSink;
-        let budget = pg_rules::stratum::StepBudget::new(self.cap);
+        let budget = pg_rules::stratum::StepBudget::with_limits(usize::MAX, self.cap);
         self.synthesis_pipeline_selected_with_policy(
             syn_word,
             &sink,
@@ -854,7 +926,7 @@ impl<'g> Morpher<'g> {
         )
     }
 
-    /// `Self::synthesis_pipeline_traced`'s selector-restricted sibling; a rejected stratum passes the word through unchanged, and `budget` enforces only the wall-clock deadline.
+    /// `Self::synthesis_pipeline_traced`'s selector-restricted sibling; a rejected stratum passes the word through unchanged, and confirmation consumes the independent work allowance.
     #[allow(clippy::too_many_arguments)]
     fn synthesis_pipeline_selected(
         &self,
@@ -892,6 +964,7 @@ impl<'g> Morpher<'g> {
         policy: FinalTemplateSynthesisPolicy,
         work_budget: Option<&SynthesisBudget>,
     ) -> Vec<Word> {
+        let _work_scope = budget.enter();
         let g = self.g;
         let n = g.strata.len();
         let mut cur: HashMap<WordKey, Word> = HashMap::default();
@@ -904,6 +977,9 @@ impl<'g> Morpher<'g> {
             let admitted = rule_filter.is_none_or(|f| f(stratum_ref));
             let mut next: HashMap<WordKey, Word> = HashMap::default();
             for w in cur.values() {
+                if !pg_fst::work::consume() {
+                    break;
+                }
                 if !admitted {
                     // SynthesisStratumRule.cs:51: `return input.ToEnumerable();` — pass through.
                     next.entry(w.dedup_key()).or_insert_with(|| w.clone());
@@ -914,7 +990,7 @@ impl<'g> Morpher<'g> {
                     g,
                     StratumId(s as u8),
                     w.clone(),
-                    self.cap,
+                    usize::MAX,
                     &self.cache,
                     budget,
                     policy,

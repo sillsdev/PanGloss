@@ -2110,3 +2110,69 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
     let err = run_stats(&args).expect_err("mixed-grammar cache reads must be hard errors");
     assert!(err.contains("grammar"), "{err}");
 }
+
+#[test]
+fn work_budget_cache_refuses_missing_semantics_and_changed_work_limits() {
+    for options in ["{}", r#"{"search_budget_semantics":1,"work_cap":100}"#] {
+        let dir = scratch_dir("old-work-budget");
+        let path = dir.join("cache.sqlite3");
+        let cache = seed_policy_cache(&path, options);
+        let err = refuse_if_work_cap_differs(&cache, &path, 100).unwrap_err();
+        assert!(err.contains("search-budget semantics"), "{err}");
+    }
+    let dir = scratch_dir("work-budget-policy");
+    let path = dir.join("cache.sqlite3");
+    let cache = seed_policy_cache(&path, r#"{"search_budget_semantics":2,"work_cap":100}"#);
+    refuse_if_work_cap_differs(&cache, &path, 100).unwrap();
+    let err = refuse_if_work_cap_differs(&cache, &path, 200).unwrap_err();
+    assert!(err.contains("work cap"), "{err}");
+}
+
+#[test]
+fn work_budget_cache_reuses_equal_limits_and_refuses_before_truncating_tsv() {
+    let (grammar_xml, word) = primary_fixture();
+    let dir = scratch_dir("work-budget-tsv");
+    let cache_path = dir.join("cache.sqlite3");
+    let cache = cache_path.to_str().unwrap();
+    let (args, out_path) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &format!("{word}\n"),
+        &[
+            "--stats",
+            "--step-cap",
+            "unbounded",
+            "--work-cap",
+            "10000000",
+            "--cache",
+            cache,
+        ],
+    );
+    crate::run_batch(&args).unwrap();
+    assert!(!fs::read_to_string(&out_path).unwrap().is_empty());
+    crate::run_batch(&args).unwrap();
+    let before = fs::read_to_string(&out_path).unwrap();
+    let conn = rusqlite::Connection::open(&cache_path).unwrap();
+    let recomputed: i64 = conn
+        .query_row(
+            "SELECT word_count FROM run ORDER BY run_id DESC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        recomputed, 0,
+        "same effective caps must reuse the completed word"
+    );
+    let mut changed = args.clone();
+    let value = changed.iter().position(|a| a == "--work-cap").unwrap() + 1;
+    changed[value] = "10000001".into();
+    let err = crate::run_batch(&changed).unwrap_err();
+    assert!(err.contains("work cap"), "{err}");
+    assert_eq!(fs::read_to_string(&out_path).unwrap(), before);
+    conn.execute("UPDATE run SET options_json = '{}'", [])
+        .unwrap();
+    let err = crate::run_batch(&args).unwrap_err();
+    assert!(err.contains("search-budget semantics"), "{err}");
+    assert_eq!(fs::read_to_string(&out_path).unwrap(), before);
+}

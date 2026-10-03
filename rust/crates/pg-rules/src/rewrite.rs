@@ -801,6 +801,9 @@ pub(crate) fn synthesize_with_mpr_cached(
     let pc = cache.prule_rewrite(pid);
 
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            break;
+        }
         if !subrule_applicable(g, sr, syn_fs, mpr) {
             continue;
         }
@@ -1044,6 +1047,9 @@ pub fn synthesize_with_mpr_cached_traced(
     let mut outcomes: Vec<SubruleOutcome> = Vec::with_capacity(rule.subrules.len());
 
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            break;
+        }
         if let Some(reason) = subrule_gate_reason(g, sr, &input.syn_fs, input.mpr) {
             outcomes.push(SubruleOutcome::NotApplied(reason));
             continue;
@@ -1256,6 +1262,9 @@ pub(crate) fn analyze_cached(
     let pc = cache.prule_rewrite(pid);
 
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            break;
+        }
         let sc = &pc.subrules[i];
         // Same `self_opaquing` repeat-wrapper as `analyze` (§4.4) -- see that function's doc.
         let did = match classify(rule, sr) {
@@ -1387,6 +1396,9 @@ pub fn analyze_traced(
     let mut applied = false;
 
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            break;
+        }
         let did = match classify(rule, sr) {
             Kind::Feature => {
                 let target_lanes = ana_feature_target_lanes(g, table, rule, sr);
@@ -1498,6 +1510,9 @@ pub fn analyze_cached_traced(
     let pc = cache.prule_rewrite(pid);
 
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            break;
+        }
         let sc = &pc.subrules[i];
         let did = match classify(rule, sr) {
             Kind::Feature => {
@@ -1640,10 +1655,16 @@ fn syn_feature(
     // A site rejected once stays rejected: one directional scan decides each site exactly once.
     let mut rejected: HashSet<usize> = HashSet::default();
     loop {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let (segs, node_of) = ms.segs(true);
         // First span in the target's own scan order whose nodes are all clean and whose environments hold; see `ordered_spans`.
         let mut acted = false;
         for (s, e) in ordered_spans(target, &segs) {
+            if !pg_fst::work::consume() {
+                return false;
+            }
             if rejected.contains(&s) {
                 continue;
             }
@@ -1744,6 +1765,9 @@ fn sim_feature(
     let (segs, node_of) = ms.segs(true);
     let mut accepted: Vec<(Vec<usize>, Bindings)> = Vec::new();
     for (s, e) in all_spans(target, &segs) {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let target_nodes: Vec<usize> = node_of[s..e].to_vec();
         if !width_matches(&target_nodes, rhs_pins.len()) {
             continue;
@@ -1886,6 +1910,9 @@ fn ana_feature(
     // A site rejected once stays rejected: one directional scan decides each site exactly once.
     let mut rejected: HashSet<usize> = HashSet::default();
     loop {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let (segs, node_of) = ms.segs(false); // analysis filter: Segment|Anchor (no boundaries)
         let mut acted = false;
 
@@ -2003,10 +2030,16 @@ fn syn_narrow(
 
     let mut applied = false;
     loop {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let (segs, node_of) = ms.segs(true);
         let mut acted = false;
         // Direction-ordered scan; see `ordered_spans`.
         for (s, e) in ordered_spans(target, &segs) {
+            if !pg_fst::work::consume() {
+                return false;
+            }
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             // An over-wide Optional-skip span would delete more physical nodes than the LHS matched — a silent wrong mutation here (no positional array to overrun into a panic); see `width_matches`.
             if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
@@ -2096,6 +2129,9 @@ fn sim_narrow(
     let (segs, node_of) = ms.segs(true);
     let mut accepted: Vec<(Vec<usize>, Bindings)> = Vec::new();
     for (s, e) in all_spans(target, &segs) {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let target_nodes: Vec<usize> = node_of[s..e].to_vec();
         if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
             continue;
@@ -2184,6 +2220,9 @@ fn ana_narrow_deletion(
         sites.push(0);
     }
     for (site, &node) in node_of.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let left_end = site + 1; // context up to and including the site node
         let right_start = site + 1;
         if left_env_ok(left, &segs, left_end) && right_env_ok(right, &segs, right_start) {
@@ -2230,6 +2269,9 @@ fn ana_narrow_general(
     let (segs, node_of) = ms.segs(false);
     let mut matches: Vec<(usize, usize, Bindings)> = Vec::new();
     for (s, e) in all_spans(target, &segs) {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let target_nodes: Vec<usize> = node_of[s..e].to_vec();
         // Dropping an over-wide span here only discards a duplicate, since `all_spans` also reports the tight match; without the guard, a single-node target on an Optional-flooded shape spuriously matches whole multi-segment windows and reconstructs at every one — a flood C#'s per-position group capture avoids entirely.
         if !width_matches(&target_nodes, target_len) {
@@ -2320,6 +2362,9 @@ fn syn_epenthesis(
         let mut cursor = None;
         let mut applied = false;
         loop {
+            if !pg_fst::work::consume() {
+                return false;
+            }
             let (segs, node_of) = ms.segs(true);
             let mut candidates: Vec<usize> = ms
                 .nodes
@@ -2386,6 +2431,9 @@ fn syn_epenthesis(
         sites.push(0);
     }
     for (site, &node) in node_of.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         // A boundary appears in `node_of` (via `segs(true)`'s transparently-skippable Optional segments) but is never a valid epenthesis site itself — C#'s empty-LHS pattern admits segments and anchors only, and the preceding real segment's own site already reaches past it via the same skip.
         if ms.nodes[node].kind == NodeKind::Boundary {
             continue;
@@ -2437,6 +2485,9 @@ fn ana_epenthesis(
         let (segs, node_of) = ms.segs(false);
         let mut applied = false;
         for (s, e) in all_spans(target, &segs) {
+            if !pg_fst::work::consume() {
+                return false;
+            }
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             // WHY: Reject an over-wide Optional-skip span before it can mark the wrong extra node.
             if !width_matches(&target_nodes, expected_len) {
@@ -2462,6 +2513,9 @@ fn ana_epenthesis(
     let mut cursor = None;
     let mut applied = false;
     loop {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let (segs, node_of) = ms.segs(false);
         let mut spans = all_spans(target, &segs);
         if dir == Direction::RightToLeft {
@@ -2469,6 +2523,9 @@ fn ana_epenthesis(
         }
         let mut acted = false;
         for (s, e) in spans {
+            if !pg_fst::work::consume() {
+                return false;
+            }
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             if target_nodes.is_empty()
                 || target_nodes.iter().any(|&n| ms.nodes[n].dirty)
@@ -2713,10 +2770,16 @@ fn probe_narrow(
 
     let mut applied = false;
     loop {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let (segs, node_of) = ms.segs(true);
         let mut acted = false;
         // Direction-ordered scan (see `ordered_spans`); same as `syn_narrow`, whose soft-delete sibling this function is.
         for (s, e) in ordered_spans(target, &segs) {
+            if !pg_fst::work::consume() {
+                return false;
+            }
             let target_nodes: Vec<usize> = node_of[s..e].to_vec();
             if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
                 continue;
@@ -2803,6 +2866,9 @@ fn probe_sim_narrow(
     let (segs, node_of) = ms.segs(true);
     let mut accepted: Vec<(Vec<usize>, Bindings)> = Vec::new();
     for (s, e) in all_spans(target, &segs) {
+        if !pg_fst::work::consume() {
+            return false;
+        }
         let target_nodes: Vec<usize> = node_of[s..e].to_vec();
         if !width_matches(&target_nodes, rule.lhs.nodes.len()) {
             continue;
@@ -2896,6 +2962,9 @@ pub(crate) fn probe_apply_rule_cached(
     let pc = cache.prule_rewrite(pid);
     let mut applied = false;
     for (i, sr) in rule.subrules.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            break;
+        }
         if !subrule_applicable(g, sr, &FeatureStruct::EMPTY, MprSet::EMPTY) {
             continue;
         }

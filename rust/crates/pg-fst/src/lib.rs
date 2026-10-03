@@ -28,6 +28,7 @@ pub mod lanes;
 pub mod nfa;
 mod optimize;
 mod traverse;
+pub mod work;
 
 pub use compile::{CompileInput, CompileNode, ENTIRE_MATCH};
 pub use fst::{Arc, Fst, StateMeta};

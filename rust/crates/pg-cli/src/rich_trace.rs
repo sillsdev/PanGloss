@@ -896,6 +896,7 @@ fn envelope_json(
             "timedOut": outcome.timed_out,
             "invalidShape": outcome.invalid_shape,
             "steps": outcome.steps,
+            "workSteps": outcome.work_steps,
             "elapsedNs": elapsed_ns,
             "timedNs": timed_ns,
             "unattributedNs": elapsed_ns.saturating_sub(timed_ns),

@@ -3,6 +3,24 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.6.2
+
+### Analysis attempts and inner search have separate limits
+
+- `--step-cap N|unbounded` retains its analysis-attempt unit, including for existing Motif
+  callers. New `--work-cap N|unbounded` bounds inner traversal, lookup, alternative expansion
+  and synthesis confirmation deterministically. Both limits report `CAP` when exhausted;
+  interrupted work never becomes a confirmed analysis. The independent word timeout remains.
+- An omitted work cap is 100 times the configured step cap, with saturating arithmetic;
+  an unbounded step cap derives an unbounded work cap. An explicit work cap overrides that
+  default independently. Thus `--step-cap 200000` permits 20 million work units. The multiplier
+  covers the measured 19.7 million maximum among 94 completing Maasai sample words; it does
+  not promise completion for every grammar or constant latency. See
+  `docs/research/per-word-search-work-cap.md` for the evidence and synthetic bounds.
+- `STEPS` and detailed trace `steps` report analysis attempts; `WORK_STEPS` and `workSteps`
+  report search work. `batch --stats` records the effective work allowance and refuses caches
+  made with another allowance or older search-budget semantics before reusing words.
+
 ## 0.6.1
 
 ### Invalid environments no longer refuse the whole grammar

@@ -7,3 +7,6 @@ mod perf_cold_warm_probe;
 mod word_timeout_gate;
 #[path = "../word_timeout_pathological_gate.rs"]
 mod word_timeout_pathological_gate;
+
+#[path = "../step_cap_work_gate.rs"]
+mod step_cap_work_gate;

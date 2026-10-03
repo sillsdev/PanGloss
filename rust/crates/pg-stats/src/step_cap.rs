@@ -1,9 +1,7 @@
-//! `StepCap`: the `--step-cap` value shared by `pg-cli`'s parsing and this crate's stats cache.
+//! `StepCap`: the `--step-cap` value shared by CLI parsing and the stats cache.
 //!
-//! A step cap is resource containment, never a correctness verdict (see `CLAUDE.md`'s "Classify
-//! FST evidence before changing limits"): it bounds the analysis cascade so a batch
-//! terminates deterministically, and firing it produces a typed incomplete outcome, never a wrong
-//! answer.
+//! Resource containment for per-word morphological analysis attempts.
+//! Exhaustion produces an incomplete outcome; it cannot establish a correctness verdict.
 
 use std::fmt;
 use std::num::NonZeroU64;
@@ -11,7 +9,7 @@ use std::str::FromStr;
 
 use crate::error::StatsError;
 
-/// A `--step-cap` value: no bound, or a positive step count. `Finite` excludes zero at the type
+/// A `--step-cap` value: no bound, or a positive analysis-attempt count. `Finite` excludes zero at the type
 /// level, since a zero cap would fire before the first step -- indistinguishable from a bug.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepCap {

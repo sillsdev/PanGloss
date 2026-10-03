@@ -5,17 +5,13 @@
 //! then shape-merge dedup), `SynthesisStratumRule`, the affix-template rules, and `RuleBatch` (a
 //! union of rule outputs; disjunctive = early exit).
 //!
-//! Termination is not the cascades' own doing. They are multi-application and every unapplication
-//! grows the word's `mrule_apps`, so their `key(input) != key(result)` self-loop guard is always
-//! true and the walk stops only when rules stop applying — on a k!-Unordered stratum, potentially
-//! never. A `StepBudget` shared across the whole `parse_word` call bounds it instead: the cascades
-//! run uncapped, and an exhausted budget reads to them as "rule didn't apply", so the
-//! mutually-recursive template/mrule descent unwinds cleanly with one counter and no cascade edits.
+//! A `StepBudget` owns one allowance across analysis, lookup and confirmation. Scoped
+//! matcher calls consume that same allowance inside traversal and candidate expansion.
+//! Exhaustion unwinds the descent and marks the result incomplete.
 
 use std::cell::Cell;
 use std::rc::Rc;
-// `std::time::Instant` panics on wasm32-unknown-unknown; `web_time` substitutes only `Instant`, reusing std's `Duration` unchanged.
-use web_time::{Duration, Instant};
+use web_time::Duration;
 
 use crate::analysis_state_key::{AnalysisStateKey, MorphHistoryKey};
 use pg_featstruct::{is_unifiable, subsumes, subtract, union};
@@ -310,110 +306,91 @@ pub mod frontier_profile {
     }
 }
 
-/// The search-step budget shared across one whole `parse_word` call — every stratum and every
-/// candidate word — so the effective bound is `cap`, not `cap × #stratum-analyze calls`. Test call
-/// sites with no natural "one parse_word" scope build their own per call.
-///
-/// Two independent bounds: the step cap, and an optional wall-clock deadline. Synthesis counting is
-/// off by default so a heavy analysis cannot starve the candidates it just found of confirmation
-/// steps; bounded diagnostic generation opts in via `with_synthesis_counting` to bound the whole
-/// exploratory walk with one counter.
-///
-/// Once a deadline is armed the clock is read on EVERY `over_budget` call, never on a step-count
-/// cadence: per-tick cost is not uniform, so a word whose entire run is shorter than one cadence
-/// interval would sample the clock once at construction and never again. Reads happen at
-/// rule-attempt granularity, where `Instant::now()` is negligible; with no deadline the clock is
-/// never read at all. Pinned by
-/// `wall_clock_deadline_fires_even_when_total_ticks_never_reach_the_old_check_interval`.
+/// Default inner-work allowance per configured analysis attempt, using saturating arithmetic.
+/// The multiplier's evidence and scope are in `docs/research/per-word-search-work-cap.md`.
+pub fn default_work_cap(attempt_cap: usize) -> usize {
+    attempt_cap.saturating_mul(100)
+}
+
+/// Independent analysis-attempt and search-work limits with one shared deadline.
+/// Ordinary confirmation consumes only work, so it can confirm earlier candidates
+/// after analysis reaches its attempt limit. `capped()` reports either exhausted limit.
 pub struct StepBudget {
-    cap: usize,
     steps: Cell<usize>,
-    capped: Cell<bool>,
-    /// The `--word-timeout-ms` deadline, a second bound orthogonal to `cap`, or `None` for no wall-clock bound.
-    deadline: Option<Instant>,
-    timed_out: Cell<bool>,
+    attempt_cap: usize,
+    attempt_capped: Cell<bool>,
+    work: pg_fst::work::WorkBudget,
     synthesis_counting: bool,
 }
 
 impl StepBudget {
-    pub fn new(cap: usize) -> Self {
-        StepBudget {
-            cap,
+    pub fn new(attempt_cap: usize) -> Self {
+        Self::with_limits(attempt_cap, default_work_cap(attempt_cap))
+    }
+
+    pub fn with_limits(attempt_cap: usize, work_cap: usize) -> Self {
+        Self {
             steps: Cell::new(0),
-            capped: Cell::new(false),
-            deadline: None,
-            timed_out: Cell::new(false),
+            attempt_cap,
+            attempt_capped: Cell::new(false),
+            work: pg_fst::work::WorkBudget::new(work_cap),
             synthesis_counting: false,
         }
     }
 
-    /// Arm an optional wall-clock deadline alongside the step cap; whichever fires first wins.
-    /// `None` is a complete no-op, so callers without `--word-timeout-ms` pay nothing extra.
     pub fn with_timeout(mut self, timeout: Option<Duration>) -> Self {
-        self.deadline = timeout.map(|d| Instant::now() + d);
+        self.work = self.work.with_timeout(timeout);
         self
     }
 
-    /// Makes synthesis consume this same step counter. Ordinary parse/generation callers leave
-    /// this disabled, preserving the historical independent synthesis cap; bounded diagnostic
-    /// generation enables it so one budget measures the actual engine walk across many calls.
+    /// Include synthesis orchestration in the attempt diagnostic and its limit.
     pub fn with_synthesis_counting(mut self) -> Self {
         self.synthesis_counting = true;
         self
     }
 
-    /// True (and latches `capped`/`timed_out`) once either bound is exhausted; the cheaper step cap is checked first.
-    fn over_budget(&self) -> bool {
-        if self.steps.get() >= self.cap {
-            self.capped.set(true);
-            return true;
-        }
-        self.deadline_expired()
+    pub fn enter(&self) -> pg_fst::work::WorkScope {
+        self.work.enter()
     }
 
-    /// Wall-clock-only, deliberately omitting the step-cap branch so analysis effort cannot starve synthesis.
-    fn deadline_expired(&self) -> bool {
-        if let Some(deadline) = self.deadline {
-            if Instant::now() >= deadline {
-                self.timed_out.set(true);
-                return true;
-            }
+    fn over_budget(&self) -> bool {
+        if self.steps.get() >= self.attempt_cap {
+            self.attempt_capped.set(true);
         }
-        false
+        self.attempt_capped.get() || self.work.stopped()
     }
 
     fn synthesis_over_budget(&self) -> bool {
-        if !self.synthesis_counting {
-            return self.deadline_expired();
+        if self.synthesis_counting {
+            return !self.tick();
         }
-        if self.over_budget() {
-            return true;
-        }
-        self.tick();
-        false
+        !self.work.consume()
     }
 
-    fn tick(&self) {
-        self.steps.set(self.steps.get() + 1);
+    fn tick(&self) -> bool {
+        if self.over_budget() || !self.work.consume() {
+            return false;
+        }
+        self.steps.set(self.steps.get().saturating_add(1));
+        true
     }
 
-    /// Whether this budget's step cap fired at any point during its lifetime (partial results
-    /// possible). Never true because of a `--word-timeout-ms` deadline — see `Self::timed_out`.
     pub fn capped(&self) -> bool {
-        self.capped.get()
+        self.attempt_capped.get() || self.work.capped()
     }
 
-    /// Whether the wall-clock deadline fired. Independent of `Self::capped` — a word can time out
-    /// with steps to spare, or hit the step cap inside its deadline. Deliberately not conflated, so
-    /// the batch writer can report a distinct `TIMEOUT` outcome.
     pub fn timed_out(&self) -> bool {
-        self.timed_out.get()
+        self.work.timed_out()
     }
 
-    /// Raw tick count so far (diagnostic only): how many (un)application attempts a `parse_word`
-    /// call consumed, independent of whether the cap was hit.
+    /// Morphological analysis attempts; synthesis attempts are included only when opted in.
     pub fn steps(&self) -> usize {
         self.steps.get()
+    }
+
+    /// Total inner search work reserved, never exceeding the configured work cap.
+    pub fn work_steps(&self) -> usize {
+        self.work.used()
     }
 }
 
@@ -599,6 +576,7 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> StratumAnalysis {
+    let _work_scope = budget.enter();
     StratumAnalyzer::new(
         g,
         stratum,
@@ -721,7 +699,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         self.budget.over_budget()
     }
 
-    fn tick(&self) {
+    fn tick(&self) -> bool {
         self.budget.tick()
     }
 
@@ -745,7 +723,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
-        self.tick();
+        if !self.tick() {
+            return Vec::new();
+        }
         // `morph`'s allomorph loops record attempts/work/outputs themselves now; see `crate::stats::MRuleStatsCtx`.
         let mstats = self.stats.map(|stats| crate::stats::MRuleStatsCtx {
             stats,
@@ -806,6 +786,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             },
         };
         drop(_obj_time);
+        if pg_fst::work::stopped() {
+            return Vec::new();
+        }
         for o in &mut outs {
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
             o.mrule_apps.push(Some(id));
@@ -1019,6 +1002,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         let mut i = index;
         while i >= 0 {
+            if !pg_fst::work::consume() {
+                return;
+            }
             let slot = &tmpl.slots[i as usize];
             let slot_index = i as usize;
             for (ow, rid) in self.apply_slot_batch(slot, in_word) {
@@ -1112,7 +1098,6 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
         // A linear cascade over the prules reversed, applied in place with no per-prule cursor advance (a deliberately coarser trace depth).
         for &pid in self.stratum.prules.iter().rev() {
-            // The one (un)application site here needing its own budget check: deadline only, never the step cap.
             if self.budget.synthesis_over_budget() {
                 break;
             }
@@ -1349,7 +1334,8 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         )
     };
     // Builds its own budget with none armed, so this entry point stays cap-only.
-    let budget = StepBudget::new(cap);
+    let budget = StepBudget::with_limits(usize::MAX, cap);
+    let _work_scope = budget.enter();
     synth_slots_generic(
         g,
         tmpl,
@@ -1441,7 +1427,7 @@ fn end_apply_template(
     }
 }
 
-/// Bottom-up, parameterized by `apply` so one walk serves the ungated and guided callers; `budget` is consulted for its deadline only, never step-count.
+/// Bottom-up template traversal sharing its caller's work allowance.
 #[allow(clippy::too_many_arguments)]
 fn synth_slots_generic<F>(
     g: &Grammar,
@@ -1468,6 +1454,9 @@ fn synth_slots_generic<F>(
     }
     let mut i = index;
     while i < tmpl.slots.len() {
+        if !pg_fst::work::consume() {
+            return;
+        }
         let slot = &tmpl.slots[i];
         // The slot's non-disjunctive `RuleBatch`, in the synthesis direction.
         let mut seen: HashMap<WordKey, ()> = HashMap::default();
@@ -1604,6 +1593,9 @@ fn guided_synth(
         policy,
         role,
     );
+    if pg_fst::work::stopped() {
+        return Vec::new();
+    }
     for o in &mut outs {
         o.mrule_app_index -= 1;
         if is_compound {
@@ -1620,6 +1612,9 @@ fn owning_stratum(g: &Grammar, id: MRuleId) -> Option<StratumId> {
             return Some(StratumId(si as u8));
         }
         for &tid in &sd.templates {
+            if !pg_fst::work::consume() {
+                return None;
+            }
             for slot in &g.templates[tid.0 as usize].slots {
                 if slot.rules.contains(&id) {
                     return Some(StratumId(si as u8));
@@ -1659,7 +1654,7 @@ pub fn synthesize_stratum(
     cache: &RuleCache,
 ) -> Vec<Word> {
     // No production call site: `pg-parse` threads its own budget through `synthesize_stratum_traced` directly; this exists for test callers.
-    let budget = StepBudget::new(cap);
+    let budget = StepBudget::with_limits(usize::MAX, cap);
     synthesize_stratum_traced(
         g,
         stratum,
@@ -1715,6 +1710,7 @@ pub fn synthesize_stratum_traced_with_policy(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
+    let _work_scope = budget.enter();
     input.flags.final_template_state = crate::word::FinalTemplateState::None;
     // Entry gate. C# has no trace call here either, so this stays untraced to match.
     if (input.stratum.0 as usize) > (stratum.0 as usize) {
@@ -1760,6 +1756,9 @@ pub fn synthesize_stratum_traced_with_policy(
 
     let mut out: HashMap<WordKey, Word> = HashMap::default();
     for w in candidates {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let w_parent = w.trace.unwrap_or(node_parent);
         // Only words whose last applied rule was final proceed.
         if w.flags.is_last_applied_rule_final != Some(true) {
@@ -1825,6 +1824,9 @@ pub fn synthesize_stratum_traced_with_policy(
                 nw.shape = s;
             }
         }
+        if pg_fst::work::stopped() {
+            return Vec::new();
+        }
         nw.flags.is_last_applied_rule_final = None;
         if trace.is_tracing() {
             trace.end_apply_stratum(w_parent, stratum, &nw);
@@ -1859,7 +1861,6 @@ fn synth_apply_mrules(
         return Vec::new();
     }
     let key = |w: &Word| w.dedup_key();
-    // The guided cascade terminates once `guided_synth`'s strictly-decrementing stack is exhausted; the wall-clock check must live inside the closure since neither cap is time-aware.
     let apply_rule = |i: usize, w: &Word| -> Vec<Word> {
         if steps.get() >= cap {
             return Vec::new();
@@ -1890,6 +1891,9 @@ fn synth_apply_mrules(
     };
     let mut result = Vec::new();
     for w in cascade_out.words {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         // A final word yields directly; otherwise run templates on it.
         if w.flags.is_last_applied_rule_final == Some(true) {
             result.push(w);
@@ -1992,6 +1996,9 @@ fn synth_apply_templates(
     let root_partial = root_is_partial(g, input);
     let mut applicable = false;
     for &tid in &sd.templates {
+        if !pg_fst::work::consume() {
+            return Vec::new();
+        }
         let tmpl = &g.templates[tid.0 as usize];
         let req = g.fs_interner.get(tmpl.required_syn_fs);
         if !is_unifiable(&input.syn_fs, req) || root_partial {
@@ -2028,6 +2035,9 @@ fn synth_apply_templates(
             // For each changed template output, including the passthrough above when present, also run the mrules on it.
             let templated: Vec<Word> = out.values().cloned().collect();
             for t in templated {
+                if !pg_fst::work::consume() {
+                    return Vec::new();
+                }
                 if t.dedup_key() != in_key {
                     for m in synth_apply_mrules(
                         g, stratum, sd, &t, cap, steps, cache, stats, trace, parent, budget, policy,

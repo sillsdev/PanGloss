@@ -229,6 +229,9 @@ pub fn is_match(table: &CharDefTable, shape: &Shape, word: &str) -> bool {
 
 /// Backtracking anchored match of `input[ipos..]` against `nodes[npos..]`.
 fn match_nodes(input: &[u8], nodes: &[(Vec<String>, bool)], ipos: usize, npos: usize) -> bool {
+    if !pg_fst::work::consume() {
+        return false;
+    }
     if npos == nodes.len() {
         return ipos == input.len();
     }

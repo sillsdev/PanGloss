@@ -1,4 +1,5 @@
 use super::*;
+use web_time::Instant;
 
 /// An uncapped (`usize::MAX`) budget with a short deadline armed must break out promptly, not run the huge iteration bound to completion.
 #[test]
@@ -109,4 +110,61 @@ fn no_timeout_never_times_out() {
         !budget.timed_out(),
         "no deadline was armed, so timed_out() must stay false"
     );
+}
+
+#[test]
+fn ordinary_synthesis_consumes_the_cap_without_changing_analysis_attempts() {
+    let budget = StepBudget::with_limits(1, 3);
+    for _ in 0..3 {
+        assert!(!budget.synthesis_over_budget());
+    }
+    assert!(budget.synthesis_over_budget());
+    assert!(budget.capped());
+    assert_eq!(budget.work_steps(), 3);
+    assert_eq!(budget.steps(), 0);
+}
+
+#[test]
+fn analysis_attempts_and_confirmation_spend_independent_limits() {
+    let budget = StepBudget::with_limits(3, 7);
+    for _ in 0..3 {
+        assert!(budget.tick());
+    }
+    assert!(budget.over_budget());
+    assert!(!budget.tick());
+    assert_eq!(budget.steps(), 3);
+    assert!(budget.capped());
+    assert!(!budget.work.capped());
+    for _ in 0..4 {
+        assert!(!budget.synthesis_over_budget());
+    }
+    assert!(budget.synthesis_over_budget());
+    assert_eq!(budget.work_steps(), 7);
+    assert_eq!(budget.steps(), 3);
+}
+
+#[test]
+fn inner_work_can_stop_analysis_before_its_attempt_cap() {
+    let budget = StepBudget::with_limits(10, 2);
+    assert!(budget.tick());
+    assert!(budget.tick());
+    assert!(!budget.tick());
+    assert!(budget.capped());
+    assert!(!budget.attempt_capped.get());
+    assert_eq!(budget.steps(), 2);
+    assert_eq!(budget.work_steps(), 2);
+}
+
+#[test]
+fn default_work_allowance_scales_the_configured_cap_and_saturates() {
+    assert_eq!(default_work_cap(200_000), 20_000_000);
+    assert_eq!(default_work_cap(usize::MAX), usize::MAX);
+    assert_eq!(default_work_cap(usize::MAX / 100 + 1), usize::MAX);
+    let budget = StepBudget::new(1);
+    for _ in 0..64 {
+        assert!(!budget.synthesis_over_budget());
+    }
+    assert_eq!(budget.steps(), 0);
+    assert_eq!(budget.work_steps(), 64);
+    assert!(!budget.capped());
 }

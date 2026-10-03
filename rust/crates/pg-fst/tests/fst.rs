@@ -691,3 +691,66 @@ fn csr_is_populated() {
     assert!(fst.arc_count() >= 2);
     assert!(fst.is_deterministic());
 }
+
+#[test]
+fn optional_annotation_expansion_is_bounded_inside_one_match() {
+    for deterministic in [true, false] {
+        let fst = CompileInput::new(vec![CompileNode::Quantifier {
+            min: 1,
+            max: None,
+            children: vec![CompileNode::Constraint(sym(A))],
+        }])
+        .deterministic(deterministic)
+        .compile();
+        let mut segments = vec![Segment::optional(sym(A)); 18];
+        segments.push(seg(A));
+        let budget = pg_fst::work::WorkBudget::new(64);
+        let _scope = budget.enter();
+        let result = Transduce::new(&fst, segments)
+            .anchored(true, true)
+            .first_match();
+        assert!(
+            result.is_none(),
+            "an interrupted match cannot confirm a rule"
+        );
+        assert!(budget.capped());
+        assert_eq!(
+            budget.used(),
+            64,
+            "inner traversal must consume the allowance"
+        );
+    }
+}
+
+#[test]
+fn a_complete_optional_match_keeps_its_captures_and_order() {
+    for deterministic in [true, false] {
+        let fst = CompileInput::new(vec![CompileNode::Group {
+            name: "stem".into(),
+            children: vec![CompileNode::Quantifier {
+                min: 1,
+                max: None,
+                children: vec![CompileNode::Constraint(sym(A))],
+            }],
+        }])
+        .deterministic(deterministic)
+        .compile();
+        let mut segments = vec![Segment::optional(sym(A)); 4];
+        segments.push(seg(A));
+        let expected = Transduce::new(&fst, segments.clone())
+            .anchored(true, true)
+            .all_matches();
+        assert!(!expected.is_empty());
+        let budget = pg_fst::work::WorkBudget::new(10_000);
+        let _scope = budget.enter();
+        let actual = Transduce::new(&fst, segments)
+            .anchored(true, true)
+            .all_matches();
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+        assert!(
+            budget.used() > 5,
+            "the scoped meter must actually see the traversal"
+        );
+        assert!(!budget.capped());
+    }
+}

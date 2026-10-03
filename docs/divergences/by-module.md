@@ -44,6 +44,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
 | `AnalysisMorphologicalTransform.cs` (`HasDisagreeingCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
 | `AnalysisRewriteRule.cs` (deletion unapplication), `AnalysisMetathesisRule.cs` | 050 |
+| `TraversalMethodBase.cs` (`Advance`, `Initialize`), `Word.cs` (`ExpandAlternatives`), `Morpher.cs` (`MaxAlternatives`), FieldWorks `HCParser.cs` | 052 |
 | (none — no C# equivalent) | 021, 028, 029, 040, 042, 044, 048 |
 
 ## By Rust module
@@ -96,6 +97,8 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `pg-rules/src/morph.rs` (`copy_agreement_refuses_match`, `ana_allomorph_matches`), `pg-rules/src/stratum.rs` (`AnalyzerConfig`) | 049 |
 | `pg-rules/src/rewrite.rs` (deletion unapplication), `pg-rules/src/metathesis.rs` (analysis) | 050 |
 
+| `pg-fst/src/work.rs`, `traverse.rs`; `pg-rules/src/stratum.rs`, `cascade.rs`, `word.rs`, `morph.rs`, `rewrite.rs`, `validity.rs`; `pg-parse/src/morpher.rs`, `root_trie.rs`, `overlay.rs`, `guess.rs`, `surface.rs` | 052 |
+
 ## By fixture / test file
 
 | Fixture or test | Entry ids |
@@ -122,6 +125,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `conformance-staging/edge-cases/right-to-left-cross-table-segments-environment/` | 044 |
 | `pg-cli/src/stats_cmd.rs` (`batch_stats_parses_each_uncached_word_once`, `batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options`) | 048 |
 | `pg-parse/tests/csharp_port_affix_process.rs` (copy-agreement tests), `pg-rules/tests/stratum_gate.rs` (`copy_agreement_pruning_is_on_by_default`), `machine/conformance` `metathesis-phase-isolation` / `suffixing-extension-slot-ordering` reduplication words | 049 |
+| `pg-fst/tests/fst.rs`, `pg-fst/src/work/tests.rs`, `pg-rules/tests/stratum_gate.rs`, `pg-rules/src/word/tests.rs`, `pg-parse/src/root_trie/tests.rs`, `pg-parse/tests/step_cap_work_gate.rs` | 052 |
 
 ## Optimization and shared-correctness follow-up
 

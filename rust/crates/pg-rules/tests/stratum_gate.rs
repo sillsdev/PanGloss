@@ -1279,3 +1279,49 @@ fn synth_stratum_traced_pre_expired_deadline_times_out_and_cuts_the_walk_short()
 fn copy_agreement_pruning_is_on_by_default() {
     assert!(AnalyzerConfig::default().prune_disagreeing_copies);
 }
+
+#[test]
+fn synthesis_optional_stem_paths_share_the_per_word_allowance() {
+    let mut g = load_alpha_grammar();
+    let rid = push_cache_suffix_rule(&mut g, 200, "p");
+    let stratum = push_stratum(&mut g, MorphRuleOrder::Linear, vec![rid], vec![]);
+    let cache = RuleCache::build(&g);
+    let char_a = cd(&g, "char_a");
+    let lanes = g.char_tables[0].get(CharDefId(char_a)).feature_lanes();
+    let mut builder = ShapeBuilder::with_features(g.phon_features.len() as u32);
+    for _ in 0..18 {
+        builder.push_segment_with_lanes(char_a, lanes);
+        builder.set_last_flags(pg_shape::NodeFlags::OPTIONAL);
+    }
+    builder.push_segment_with_lanes(char_a, lanes);
+    let mut stem = Word::new(builder.finish(), stratum);
+    stem.morphological_rule_unapplied(false, Some(rid));
+
+    let budget = StepBudget::with_limits(usize::MAX, 64);
+    let output = synthesize_stratum_traced(
+        &g,
+        stratum,
+        stem,
+        usize::MAX,
+        &cache,
+        &budget,
+        None,
+        &NoopSink,
+        TraceHandle::DUMMY,
+    );
+    assert!(
+        output.is_empty(),
+        "an interrupted confirmation has no completed output"
+    );
+    assert!(
+        budget.capped(),
+        "ordinary synthesis must honor the shared cap"
+    );
+    assert_eq!(budget.work_steps(), 64);
+    assert_eq!(
+        budget.steps(),
+        0,
+        "preserve the analysis-attempt diagnostic"
+    );
+    assert!(!budget.timed_out(), "the bound is deterministic");
+}

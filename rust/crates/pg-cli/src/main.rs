@@ -1,7 +1,7 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--analyses` additionally writes one FieldWorks `ParseAnalysis` JSONL row per input case while
 //! preserving partial projections when a cap or timeout fires.
@@ -9,6 +9,10 @@
 //! it defaults to `DEFAULT_STEP_CAP` (50,000,000) so every batch terminates deterministically --
 //! `--step-cap unbounded` opts back into no bound at all. See
 //! `docs/research/step-cap-default-measurements.md` for the measurements behind that number.
+//!
+//! `--work-cap N|unbounded` bounds inner search and confirmation independently. Omitted,
+//! it is 100 times the configured step cap (saturating); unbounded derives unbounded.
+//! See `docs/research/per-word-search-work-cap.md` for its counting contract and evidence.
 //!
 //! ## `--word-timeout-ms`
 //! A second, independent bound: `--step-cap` bounds the *number* of analysis steps, but per-step
@@ -309,6 +313,21 @@ const REPORT_DEVELOPER_HELP: &str = "";
 /// Ten times the highest step count any measured legitimate word reached across every corpus sampled; a runaway guard, never a performance tuning knob.
 const DEFAULT_STEP_CAP: StepCap = StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap());
 
+fn parse_work_cap(value: &str) -> Result<StepCap, String> {
+    value.parse::<StepCap>().map_err(|err| {
+        err.replace("--step-cap", "--work-cap")
+            .replace("step cap", "work cap")
+            .replace("first step", "first work unit")
+    })
+}
+
+fn resolved_work_cap(step_cap: StepCap, work_cap: Option<StepCap>) -> usize {
+    work_cap.map_or_else(
+        || pg_rules::stratum::default_work_cap(step_cap.as_morpher_cap()),
+        StepCap::as_morpher_cap,
+    )
+}
+
 /// Allocator-level ground truth for `docs/research/word-memory-trace.md`; off unless built with `--features alloc-trace`.
 #[cfg(feature = "alloc-trace")]
 #[global_allocator]
@@ -344,9 +363,9 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...]\n\
-         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--word-timeout-ms N]\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss compare <baseline.json> <candidate.json> [--report <path>]\n\
          usage: pangloss golden-diff <report.json> --suite <suite.json> [--report <path>]\n\
@@ -576,6 +595,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut realize_map_arg: Option<String> = None;
     let mut guess = false;
     let mut step_cap = DEFAULT_STEP_CAP;
+    let mut work_cap = None;
     let mut word_timeout = None;
 
     let mut it = args.iter();
@@ -618,6 +638,13 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             value if value.starts_with("--step-cap=") => {
                 step_cap = value["--step-cap=".len()..].parse::<StepCap>()?;
             }
+            "--work-cap" => {
+                let value = it.next().ok_or("--work-cap requires a value")?;
+                work_cap = Some(parse_work_cap(value)?);
+            }
+            value if value.starts_with("--work-cap=") => {
+                work_cap = Some(parse_work_cap(&value["--work-cap=".len()..])?);
+            }
             "--word-timeout-ms" => {
                 let value = it.next().ok_or("--word-timeout-ms requires a value")?;
                 word_timeout = Some(Duration::from_millis(
@@ -658,7 +685,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--word-timeout-ms N]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]".into());
     };
 
     let (grammar, warnings, trace_metadata) = if trace_details {
@@ -680,7 +707,9 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     };
 
-    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap()).with_word_timeout(word_timeout);
+    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
+        .with_work_cap(resolved_work_cap(step_cap, work_cap))
+        .with_word_timeout(word_timeout);
     // --guess omitted is exactly ParseOptions::default(), so every call below is byte-identical to the unconditional-default-options behavior.
     let opts = pg_parse::ParseOptions::default().with_guess_root(guess);
 
@@ -971,6 +1000,7 @@ fn run_batch_with_counter(
 ) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut step_cap: StepCap = DEFAULT_STEP_CAP;
+    let mut work_cap = None;
     // --word-timeout-ms: an optional wall-clock deadline per word, independent of --step-cap; None (omitted) is a complete no-op.
     let mut word_timeout_ms: Option<u64> = None;
     // Default (unspecified --threads only) is logical CPUs capped at 8, since per-word memory on a pathological grammar multiplies by thread count and an uncapped default can exhaust machine memory.
@@ -1001,6 +1031,13 @@ fn run_batch_with_counter(
                 step_cap = v
                     .parse::<StepCap>()
                     .map_err(|e| format!("invalid --step-cap: {e}"))?;
+            }
+            "--work-cap" => {
+                let value = it.next().ok_or("--work-cap requires a value")?;
+                work_cap = Some(parse_work_cap(value)?);
+            }
+            s if s.starts_with("--work-cap=") => {
+                work_cap = Some(parse_work_cap(&s["--work-cap=".len()..])?);
             }
             "--word-timeout-ms" => {
                 let v = it.next().ok_or("--word-timeout-ms requires a value")?;
@@ -1066,7 +1103,7 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess] [--stats] [--cache <path>] [--always-enforce-final-templates]"
                 .into(),
         );
     };
@@ -1104,12 +1141,14 @@ fn run_batch_with_counter(
         .filter(|w| !w.is_empty())
         .collect();
 
-    // A cache refusal (e.g. step-cap mismatch) must fire before the TSV below is truncated.
+    let work_cap = resolved_work_cap(step_cap, work_cap);
+    // A cache refusal must fire before the TSV below is truncated.
     let stats_cache = if stats_requested {
         Some(stats_cmd::prepare_batch_stats_hc(
             grammar_path,
             &words,
             step_cap,
+            work_cap,
             word_timeout_ms,
             guess,
             always_enforce_final_templates,
@@ -1146,6 +1185,7 @@ fn run_batch_with_counter(
 
     let t_morpher = Instant::now();
     let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
+        .with_work_cap(work_cap)
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(always_enforce_final_templates);
     let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
@@ -1241,6 +1281,7 @@ fn run_batch_with_counter(
             // Diagnostic only: raw StepBudget tick count for this word, regardless of whether the cap fired.
             if std::env::var("HC_STEP_STATS").is_ok() {
                 eprintln!("STEPS\t{i}\t{word}\t{}", outcome.steps);
+                eprintln!("WORK_STEPS\t{i}\t{word}\t{}", outcome.work_steps);
             }
             // Permanent profiling diagnostic dumping pg_fst::traverse and pg_rules::morph timing/size stats accumulated over this word's whole parse.
             // See docs/o2-profile-findings.md for what this found.
@@ -1480,7 +1521,7 @@ fn run_batch_with_counter(
 
     eprintln!("PARSEELAPSED\tengine=default\telapsed_ms={parse_elapsed_ms:.3}");
     eprintln!(
-        "batch complete: {} words parsed ({} skipped), {} hit the step cap, {} timed out [threads={}]",
+        "batch complete: {} words parsed ({} skipped), {} hit a search cap, {} timed out [threads={}]",
         parsed,
         skipped,
         capped_words,
