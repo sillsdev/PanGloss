@@ -69,15 +69,23 @@ pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
         }
     };
 
-    let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     let project = fieldworks_project_for_path(grammar_path, fieldworks_project);
-    let mut diagnostics = check_grammar_health_diagnostics(&grammar)
-        .map_err(|error| format!("run grammar health checks: {error}"))?;
-    diagnostics.extend(
-        warnings
-            .iter()
-            .map(GrammarHealthDiagnostic::from_import_warning),
-    );
+    let diagnostics = match crate::load_grammar_impl(grammar_path, false) {
+        Ok(loaded) => {
+            crate::print_substrate_report(&loaded.substrate);
+            let mut diagnostics = check_grammar_health_diagnostics(&loaded.grammar)
+                .map_err(|error| format!("run grammar health checks: {error}"))?;
+            diagnostics.extend(
+                loaded
+                    .warnings
+                    .iter()
+                    .map(GrammarHealthDiagnostic::from_import_warning),
+            );
+            diagnostics
+        }
+        Err(crate::compile_failure::GrammarLoadError::Compile(failure)) => failure.diagnostics,
+        Err(error) => return Err(error.to_string()),
+    };
     let report = GrammarHealthReport::new(diagnostics)
         .map_err(|error| format!("assemble grammar health report: {error}"))?
         .with_fieldworks_project(project);

@@ -89,6 +89,42 @@ pub(super) fn from_issue(snapshot: &Snapshot, issue: &ConversionIssue) -> Warnin
                         )
                     });
                 warning.set_primary_subject_name(name.clone());
+                warning.subjects[0].field = Some("StringRepresentation".into());
+                if !warning.message.contains(&environment.representation) {
+                    warning
+                        .message
+                        .push_str(&format!(" Expression: {:?}.", environment.representation));
+                }
+                for entry in &snapshot.lexicon.entries {
+                    for allo in &entry.allomorphs {
+                        if allo.environments.contains(&environment.guid)
+                            || allo.positions.contains(&environment.guid)
+                        {
+                            let form =
+                                super::best_ws(&allo.forms, None).unwrap_or("unnamed allomorph");
+                            let headword =
+                                super::entry_headword(entry, None).unwrap_or("unnamed entry");
+                            warning.message.push_str(&format!(
+                                " Ignored for allomorph '{form}' of entry '{headword}'."
+                            ));
+                            warning.subjects.push(
+                                pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::MoForm)
+                                    .guid(&allo.guid)
+                                    .name(form)
+                                    .field(if allo.positions.contains(&environment.guid) {
+                                        "Position"
+                                    } else {
+                                        "PhoneEnv"
+                                    }),
+                            );
+                            warning.subjects.push(
+                                pg_snapshot::FwObjectRef::new(pg_snapshot::FwClass::LexEntry)
+                                    .guid(&entry.guid)
+                                    .name(headword),
+                            );
+                        }
+                    }
+                }
                 return warning;
             }
         }

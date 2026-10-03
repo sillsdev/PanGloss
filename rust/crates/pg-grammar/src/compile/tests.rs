@@ -732,51 +732,149 @@ fn tokenize_rejects_unclosed_paren() {
     assert!(environment::tokenize("(abc").is_err());
 }
 
-/// A malformed active restriction refuses production; MeasureOnly retains diagnostics.
+/// FieldWorks drops invalid root restrictions and emits one blank pass for literal affixes.
 #[test]
-fn invalid_active_environment_refuses_and_remains_measurable() {
-    let (mut snapshot, _f) = fixture();
-    snapshot
-        .phonology
-        .environments
-        .push(pg_snapshot::phonology::Environment {
-            guid: "env-bad".to_string(),
-            name: String::new(),
-            representation: "not-a-valid-environment".to_string(),
-        });
-    snapshot.lexicon.entries[0].allomorphs[0]
-        .environments
-        .push("env-bad".to_string());
+fn sample_invalid_environments_compile_with_warnings_and_preserve_parses() {
+    for (case, text) in ["/", "/", "_#", "[+ATR] (C)", "/[+ATR] _ #"]
+        .into_iter()
+        .enumerate()
+    {
+        for entry_index in [0, 1] {
+            let (mut snapshot, _) = fixture();
+            let baseline = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+            let env_guid = format!("env-bad-{case}");
+            snapshot
+                .phonology
+                .environments
+                .push(pg_snapshot::phonology::Environment {
+                    guid: env_guid.clone(),
+                    name: String::new(),
+                    representation: text.into(),
+                });
+            let allo = &mut snapshot.lexicon.entries[entry_index].allomorphs[0];
+            allo.guid = format!("seeded-allo-{entry_index}-{case}");
+            allo.environments.push(env_guid.clone());
+            let allo_guid = allo.guid.clone();
+            let out = compile_project_with(&snapshot, CompileOptions::default())
+                .unwrap_or_else(|error| panic!("{text:?}: {error}"));
+            assert!(out
+                .issues
+                .iter()
+                .any(|issue| issue.code == super::issue_codes::ENVIRONMENT_INVALID));
+            assert!(out.issues.iter().all(|issue| !issue.fatal));
+            let warning = out
+                .warnings
+                .iter()
+                .find(|w| w.code == "grammar.environment.invalid")
+                .unwrap();
+            assert!(warning.message.contains(text), "{warning:?}");
+            assert!(warning
+                .subjects
+                .iter()
+                .any(|s| s.guid.as_deref() == Some(allo_guid.as_str())));
+            assert!(warning_guidance(warning)
+                .unwrap()
+                .contains("Grammar > Environments"));
+            assert_eq!(
+                warning_metadata(warning).level,
+                pg_snapshot::DiagnosticLevel::Warning
+            );
+            let expected = pg_parse::Morpher::new(&baseline.grammar, 100_000).parse_word("kumata");
+            let actual = pg_parse::Morpher::new(&out.grammar, 100_000).parse_word("kumata");
+            assert!(
+                !actual.analyses.is_empty(),
+                "seeded allomorph must remain usable: {text}"
+            );
+            assert!(!actual.capped && !actual.timed_out && !actual.invalid_shape);
+            assert!(!expected.capped && !expected.timed_out && !expected.invalid_shape);
+            assert_eq!(actual.signature(), expected.signature());
+            assert!(pg_parse::Morpher::new(&out.grammar, 100_000)
+                .parse_word("takuma")
+                .analyses
+                .is_empty());
+        }
+    }
+}
 
-    let production = compile_project_with(&snapshot, CompileOptions::default());
-    let Err(GrammarError::Conversion(refused)) = production else {
-        panic!("active restriction or rule must refuse if it cannot be preserved")
-    };
-    assert!(refused.issues.iter().any(|issue| issue.code
-        == super::issue_codes::ENVIRONMENT_INVALID
-        && issue.fatal
-        && issue.source.is_some()));
+#[test]
+fn invalid_environment_does_not_widen_valid_root_restrictions() {
+    for entry_index in [0, 1] {
+        let (mut snapshot, _) = fixture();
+        snapshot.phonology.environments.extend([
+            pg_snapshot::phonology::Environment {
+                guid: "valid-env".into(),
+                name: String::new(),
+                representation: "/t_".into(),
+            },
+            pg_snapshot::phonology::Environment {
+                guid: "bad-env".into(),
+                name: String::new(),
+                representation: "/".into(),
+            },
+        ]);
+        snapshot.lexicon.entries[entry_index].allomorphs[0].environments = vec!["valid-env".into()];
+        let valid = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        assert!(pg_parse::Morpher::new(&valid.grammar, 100_000)
+            .parse_word("kumata")
+            .analyses
+            .is_empty());
+        snapshot.lexicon.entries[entry_index].allomorphs[0]
+            .environments
+            .push("bad-env".into());
+        let mixed = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        let parses = pg_parse::Morpher::new(&mixed.grammar, 100_000).parse_word("kumata");
+        assert_eq!(
+            parses.analyses.is_empty(),
+            entry_index == 0,
+            "roots omit invalid restrictions; affixes add a blank pass"
+        );
+    }
+}
 
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
-        },
-    )
-    .expect("must still compile");
-    assert!(
-        out.issues
+#[test]
+fn invalid_infix_positions_skip_the_allomorph_without_refusing_the_grammar() {
+    for text in ["/", "_#", "[+ATR] (C)", "/[+ATR] _ #"] {
+        let (mut snapshot, _) = fixture();
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: "bad-position".into(),
+                name: String::new(),
+                representation: text.into(),
+            });
+        let mut infix = snapshot.lexicon.entries[1].clone();
+        infix.guid = "infix-entry".into();
+        infix.lexeme_morph_type = MorphType::Infix;
+        infix.senses[0].msa = Some("infix-msa".into());
+        infix.senses[0].guid = "infix-sense".into();
+        infix.allomorphs[0].guid = "infix-allo".into();
+        infix.allomorphs[0].morph_type = MorphType::Infix;
+        infix.allomorphs[0].positions = vec!["bad-position".into()];
+        if let Msa::Inflectional { guid, .. } = &mut infix.msas[0] {
+            *guid = "infix-msa".into();
+        }
+        snapshot.lexicon.entries.push(infix);
+        let out = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        assert!(out
+            .warnings
             .iter()
-            .any(|i| i.code == super::issue_codes::ENVIRONMENT_INVALID && i.fatal),
-        "expected a fatal ENVIRONMENT_INVALID issue; got {:?}",
-        out.issues
-    );
-    assert_eq!(
-        out.grammar.entries.len(),
-        1,
-        "the stem entry must still compile"
-    );
+            .any(|w| w.code == "grammar.environment.invalid"));
+        let morpher = pg_parse::Morpher::new(&out.grammar, 100_000);
+        assert!(!morpher.parse_word("kumata").analyses.is_empty());
+        assert!(
+            morpher.parse_word("kutama").analyses.is_empty(),
+            "invalid infix must not become freely insertable"
+        );
+        snapshot.phonology.environments[0].representation = "/ku_m".into();
+        let repaired = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
+        let repaired = pg_parse::Morpher::new(&repaired.grammar, 100_000).parse_word("kutama");
+        assert!(
+            !repaired.analyses.is_empty(),
+            "a repaired infix must become usable"
+        );
+        assert!(!repaired.capped && !repaired.timed_out && !repaired.invalid_shape);
+    }
 }
 
 #[test]
@@ -840,15 +938,9 @@ fn compile_project_returns_structured_warnings() {
         .environments
         .push("env-bad".to_string());
 
-    let warnings = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            semantic_loss: SemanticLossPolicy::MeasureOnly,
-            ..CompileOptions::default()
-        },
-    )
-    .expect("partial diagnostics remain measurable")
-    .warnings;
+    let warnings = compile_project_with(&snapshot, CompileOptions::default())
+        .expect("FieldWorks ignores invalid root restrictions with a warning")
+        .warnings;
     let environment_warnings: Vec<_> = warnings
         .iter()
         .filter(|warning| warning.code == super::issue_codes::ENVIRONMENT_INVALID.wire())
@@ -868,7 +960,13 @@ fn compile_project_returns_structured_warnings() {
         warning.message.contains("Nas"),
         "specific validation cause: {warning:?}"
     );
-    assert_eq!(warning.subjects.len(), 1);
+    assert_eq!(
+        warning_metadata(warning).level,
+        pg_snapshot::DiagnosticLevel::Warning
+    );
+    assert!(warning.message.contains("/[Nas]_"));
+    assert!(warning.message.contains("allomorph 'kuma' of entry 'kuma'"));
+    assert_eq!(warning.subjects.len(), 3);
     assert_eq!(
         warning.subjects[0].class,
         pg_snapshot::FwClass::PhEnvironment
@@ -876,15 +974,22 @@ fn compile_project_returns_structured_warnings() {
     assert_eq!(warning.subjects[0].guid.as_deref(), Some("env-bad"));
     assert_eq!(warning.subjects[0].name.as_deref(), Some("bad environment"));
     assert_eq!(
-        warning_guidance(warning).as_deref(),
-        Some(
-            format!(
-                "In {}, correct the expression for phonological environment 'bad environment' if the allomorph must be restricted; otherwise report a valid syntax the parser rejects.",
-                pg_snapshot::fieldworks_paths::GRAMMAR_ENVIRONMENTS
-            )
-            .as_str()
-        )
+        warning.subjects[0].field.as_deref(),
+        Some("StringRepresentation")
     );
+    assert_eq!(warning.subjects[1].class, pg_snapshot::FwClass::MoForm);
+    assert_eq!(warning.subjects[1].guid.as_deref(), Some("allo-stem"));
+    assert_eq!(warning.subjects[1].name.as_deref(), Some("kuma"));
+    assert_eq!(warning.subjects[1].field.as_deref(), Some("PhoneEnv"));
+    assert_eq!(warning.subjects[2].class, pg_snapshot::FwClass::LexEntry);
+    assert_eq!(warning.subjects[2].guid.as_deref(), Some("entry-stem"));
+    assert_eq!(warning.subjects[2].name.as_deref(), Some("kuma"));
+    let guidance = warning_guidance(warning).expect("invalid environment has owned advice");
+    assert!(guidance.contains(pg_snapshot::fieldworks_paths::GRAMMAR_ENVIRONMENTS));
+    assert!(guidance.contains("bad environment"));
+    assert!(guidance.contains(pg_snapshot::fieldworks_paths::LEXICON_EDIT));
+    assert!(guidance.contains("Allomorphs > Environments"));
+    assert!(guidance.contains("Roots ignore invalid restrictions"));
 }
 
 /// A well-formed environment (`[NC]` natural-class reference) parses into a real pattern and gates the allomorph, without any warning.

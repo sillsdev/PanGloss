@@ -814,14 +814,24 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
     let key = InventoryKey::object(InventoryKind::Allomorph, allo.guid.clone());
     match allo.morph_type {
         MorphType::Infix | MorphType::InfixingInterfix => {
-            if allo.positions.is_empty() {
+            if !allo.positions.iter().any(|guid| {
+                ctx.env_by_guid.get(guid.as_str()).is_some_and(|env| {
+                    environment::validate_environment(&env.representation, ctx).is_ok()
+                })
+            }) {
+                // HCLoader's IsValidRuleForm requires a usable insertion position.
+                environment::resolve_environment_defs(
+                    allo.positions.iter().map(String::as_str),
+                    ctx,
+                    &allo.guid,
+                );
                 // `selected` before `reject`, not once for the whole function: the catch-all arm below must stay unselected (see its own comment).
                 ctx.selected(key.clone());
                 ctx.reject(
                     key,
                     issue_codes::ALLOMORPH_NOT_RULE_FORM,
                     IssueClass::UnrepresentableForHc,
-                    "infix allomorph has no position environment",
+                    "infix allomorph has no valid position environment",
                 );
                 false
             } else {
@@ -1150,8 +1160,8 @@ fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
     })
 }
 
-/// Resolves each environment guid to its split `(left, right)` context strings, yielding one `None` pass whenever the guid list was empty or an entry failed to resolve/parse.
-fn defer_environment_refusal(
+/// Defers environment issues so unreachable owners retain their nonfatal classification.
+fn defer_environment_issue(
     ctx: &Ctx,
     mrule: MRuleId,
     key: InventoryKey,
@@ -1160,13 +1170,14 @@ fn defer_environment_refusal(
     source: Option<SourceRef>,
     message: impl Into<String>,
 ) {
+    let fatal = code != issue_codes::ENVIRONMENT_INVALID;
     ctx.defer_rule_refusal(
         key,
         ConversionIssue {
             code,
             class,
             source,
-            fatal: true,
+            fatal,
             message: message.into(),
         },
         mrule,
@@ -1192,7 +1203,7 @@ fn resolve_environments(
         ctx.considered(attachment.clone());
         let Some(env) = ctx.env_by_guid.get(g) else {
             ctx.selected(attachment.clone());
-            defer_environment_refusal(
+            defer_environment_issue(
                 ctx,
                 mrule_id,
                 attachment,
@@ -1217,7 +1228,7 @@ fn resolve_environments(
                 kind: pg_snapshot::FwClass::PhEnvironment,
                 id: env.guid.clone(),
             });
-            defer_environment_refusal(
+            defer_environment_issue(
                 ctx,
                 mrule_id,
                 attachment,
@@ -1226,7 +1237,7 @@ fn resolve_environments(
                 source.clone(),
                 format!("environment validation failed: {cause}"),
             );
-            defer_environment_refusal(
+            defer_environment_issue(
                 ctx,
                 mrule_id,
                 env_object,
@@ -1252,7 +1263,7 @@ fn resolve_environments(
                     kind: pg_snapshot::FwClass::PhEnvironment,
                     id: env.guid.clone(),
                 });
-                defer_environment_refusal(
+                defer_environment_issue(
                     ctx,
                     mrule_id,
                     attachment,
@@ -1261,7 +1272,7 @@ fn resolve_environments(
                     source.clone(),
                     format!("environment validation failed: {cause}"),
                 );
-                defer_environment_refusal(
+                defer_environment_issue(
                     ctx,
                     mrule_id,
                     env_object,

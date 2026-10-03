@@ -106,7 +106,7 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
                     .as_ref()
                     .is_some_and(|source| source.kind == pg_snapshot::FwClass::PhEnvironment
                         && source.id == *id)),
-            "environment {id} must publish its unsupported restriction"
+            "environment {id} must report its invalid expression"
         );
     }
     if !expected_environments.is_empty() {
@@ -115,19 +115,45 @@ fn compile_and_report(project_dir_name: &str, max_ambiguous: usize, max_unresolv
             .inferred_segments
             .iter()
             .any(|segment| segment.representation == "~"));
-        let refused = pg_grammar::compile_project_with(&snap, CompileOptions::default())
-            .expect_err("unsupported active restrictions must refuse production");
-        assert!(
-            refused.issues().iter().any(|issue| {
-                issue.fatal
-                    && issue.code == pg_snapshot::ImportWarningCode::EnvironmentInvalid
-                    && issue.source.as_ref().is_some_and(|source| {
-                        source.kind == pg_snapshot::FwClass::PhEnvironment
-                            && expected_environments.iter().any(|(id, _)| source.id == *id)
-                    })
-            }),
-            "refusal must carry fatal evidence from a measured selected environment"
+        let production = pg_grammar::compile_project_with(&snap, CompileOptions::default()).expect(
+            "FieldWorks ignores invalid environment expressions without refusing the language",
         );
+        assert!(production.issues.iter().all(|issue| !issue.fatal));
+        assert!(!production
+            .substrate
+            .inferred_segments
+            .iter()
+            .any(|segment| segment.representation == "~"));
+        for (id, _) in expected_environments {
+            assert!(
+                production.issues.iter().any(|issue| {
+                    !issue.fatal
+                        && issue.code == pg_snapshot::ImportWarningCode::EnvironmentInvalid
+                        && issue.source.as_ref().is_some_and(|source| {
+                            source.kind == pg_snapshot::FwClass::PhEnvironment && source.id == *id
+                        })
+                }),
+                "environment {id} must retain nonfatal invalid-expression evidence"
+            );
+            let warning = production
+                .warnings
+                .iter()
+                .find(|warning| {
+                    warning.code == pg_snapshot::ImportWarningCode::EnvironmentInvalid.wire()
+                        && warning.subjects.iter().any(|subject| {
+                            subject.class == pg_snapshot::FwClass::PhEnvironment
+                                && subject.guid.as_deref() == Some(*id)
+                        })
+                })
+                .unwrap_or_else(|| panic!("environment {id} must reach the authoring report"));
+            let finding =
+                pg_grammar::grammar_health::GrammarHealthDiagnostic::from_import_warning(warning);
+            assert_eq!(finding.level, pg_snapshot::DiagnosticLevel::Warning);
+            assert!(finding
+                .guidance
+                .as_deref()
+                .is_some_and(|guidance| guidance.contains("Grammar > Environments")));
+        }
     }
 
     let unexpected: Vec<&str> = out

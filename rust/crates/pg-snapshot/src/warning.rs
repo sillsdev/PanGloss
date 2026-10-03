@@ -197,6 +197,7 @@ import_warning_codes! {
     CircumfixEnvironmentCombinationSkipped => "grammar.circumfix.environment-combination-skipped",
     EnvironmentUnresolved => "grammar.environment.unresolved",
     EnvironmentInvalid => "grammar.environment.invalid",
+    CompileFailed => "grammar.compile.failed",
     TemplateSlotUnresolved => "grammar.template.slot-unresolved",
     TemplateSlotNoRules => "grammar.template.slot-no-rules",
     TemplateNoSlots => "grammar.template.no-slots",

@@ -39,6 +39,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 | `HermitCrabExtensions.cs` | 027 |
 | `Allomorph.cs` (`FreeFluctuatesWith`, disjunctive recheck) | 030 |
 | FieldWorks `HCLoader.cs` (`LoadCircumfixAffixProcessAllomorph`) | 039 |
+| FieldWorks `HCLoader.cs` (`LoadRootAllomorph`, `GetValidEnvironments`, `IsValidRuleForm`) | 051 |
 | `Stratum.cs` (`CharacterDefinitionTable` property) | 041 |
 | `SynthesisStratumRule.cs`/`AnalysisStratumRule.cs` (`Apply`, `Word.Stratum` asymmetry) | 043 |
 | `AnalysisMorphologicalTransform.cs` (`HasDisagreeingCopies`), `CopyAgreementPatternRule.cs` (PR #519) | 049 |
@@ -49,6 +50,7 @@ See `README.md` for the full status table and the kind/status/lifecycle definiti
 
 | Rust file | Entry ids |
 |---|---|
+| `pg-grammar/src/compile/environment.rs`, `affixes.rs`, `warnings.rs`; `pg-cli/src/compile_failure.rs` | 051 |
 | `pg-rules/src/morph.rs` (`ana_syn_fs`) | 001, 002 |
 | `pg-rules/src/morph.rs` (`synth_compound_subrule`) | 003 |
 | `pg-rules/src/word.rs` (`current_non_head`) | 004 |

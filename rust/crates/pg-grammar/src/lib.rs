@@ -48,7 +48,7 @@ pub enum GrammarError {
     #[error("grammar semantic error: {0}")]
     Semantic(String),
     #[error(transparent)]
-    Conversion(#[from] ConversionError),
+    Conversion(Box<ConversionError>),
     #[error("duplicate character-definition representation: {0}")]
     DuplicateRepresentation(String),
     #[error("cannot compile compounding: {0}")]
@@ -64,6 +64,12 @@ impl From<pg_grammar_model::ModelError> for GrammarError {
                 Self::DuplicateRepresentation(message)
             }
         }
+    }
+}
+
+impl From<ConversionError> for GrammarError {
+    fn from(error: ConversionError) -> Self {
+        GrammarError::Conversion(Box::new(error))
     }
 }
 

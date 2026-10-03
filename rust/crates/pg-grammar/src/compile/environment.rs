@@ -18,7 +18,7 @@ pub(crate) fn snapshot_environment_source(
     }
 }
 
-/// Resolves environment guids into `EnvironmentDef`s, recording a fatal issue for any active restriction that fails to resolve or parse; shared by `build_root_allomorph` and `build_circumfix_allomorphs`.
+/// Resolves environment guids into `EnvironmentDef`s, recording a fatal issue for unresolved restrictions and a warning for invalid expressions; shared by `build_root_allomorph` and `build_circumfix_allomorphs`.
 pub(crate) fn resolve_environment_defs<'a>(
     guids: impl IntoIterator<Item = &'a str>,
     ctx: &Ctx,
@@ -69,14 +69,14 @@ pub(crate) fn resolve_environment_defs<'a>(
                     kind: pg_snapshot::FwClass::PhEnvironment,
                     id: env.guid.clone(),
                 });
-                ctx.refuse_with_source(
+                ctx.reject_with_source(
                     attachment,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,
                     source.clone(),
                     format!("environment validation failed: {cause}"),
                 );
-                ctx.refuse_with_source(
+                ctx.reject_with_source(
                     env_object,
                     issue_codes::ENVIRONMENT_INVALID,
                     IssueClass::InvalidSource,

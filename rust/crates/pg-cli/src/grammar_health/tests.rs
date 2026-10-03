@@ -251,3 +251,61 @@ fn fieldworks_project_defaults_to_fwdata_stem_and_honors_override() {
         FieldWorksProject::default()
     );
 }
+
+#[test]
+fn fatal_conversion_issues_are_written_as_health_findings() {
+    let scratch = tempfile::tempdir().unwrap();
+    let path = scratch.path().join("unknown-provenance.json");
+    let output = scratch.path().join("health.json");
+    let mut snapshot = pg_snapshot::Snapshot::new(
+        Default::default(),
+        Default::default(),
+        pg_snapshot::phonology::Phonology {
+            boundary_markers: vec![pg_snapshot::phonology::BoundaryMarker {
+                guid: "00000000-0000-0000-0000-000000000001".into(),
+                name: "Morpheme boundary".into(),
+                representations: vec![pg_snapshot::WsForm {
+                    ws: "und".into(),
+                    form: "+".into(),
+                }],
+            }],
+            ..Default::default()
+        },
+        Default::default(),
+        Default::default(),
+    );
+    snapshot.conversion_provenance = Default::default();
+    fs::write(&path, snapshot.to_json()).unwrap();
+    let error = run_grammar_health(&[
+        path.to_string_lossy().into_owned(),
+        output.to_string_lossy().into_owned(),
+    ])
+    .expect_err("fatal conversion must remain a failure");
+    assert!(error.contains("error(s)"), "{error}");
+    let wire: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+    let findings = wire["diagnostics"].as_array().unwrap();
+    let finding = findings
+        .iter()
+        .find(|finding| finding["code"] == "conversion.source-provenance-unknown")
+        .expect("the compiler's fatal issue reaches grammar-health");
+    assert_eq!(finding["level"], "error");
+    assert!(!finding["guidance"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn invalid_xml_is_reported_before_grammar_health_returns_failure() {
+    let scratch = tempfile::tempdir().unwrap();
+    let path = scratch.path().join("invalid.xml");
+    let output = scratch.path().join("health.json");
+    fs::write(&path, "<HermitCrabInput>").unwrap();
+    run_grammar_health(&[
+        path.to_string_lossy().into_owned(),
+        output.to_string_lossy().into_owned(),
+    ])
+    .expect_err("the invalid grammar remains unusable");
+    let wire: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+    assert_eq!(wire["diagnostics"][0]["code"], "grammar.compile.failed");
+    assert_eq!(wire["diagnostics"][0]["level"], "error");
+}

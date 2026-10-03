@@ -121,6 +121,7 @@ impl BatchParseCounter {
 
 mod assess;
 pub(crate) mod build_info;
+mod compile_failure;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 #[cfg(feature = "foma-tools")]
 pub mod backend_report;
@@ -425,7 +426,10 @@ struct LoadedGrammar {
     substrate: pg_grammar::compile::issues::SubstrateReport,
 }
 
-fn load_grammar_impl(path: &str, capture_metadata: bool) -> Result<LoadedGrammar, String> {
+fn load_grammar_impl(
+    path: &str,
+    capture_metadata: bool,
+) -> Result<LoadedGrammar, compile_failure::GrammarLoadError> {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())
@@ -437,8 +441,13 @@ fn load_grammar_impl(path: &str, capture_metadata: bool) -> Result<LoadedGrammar
                 .map_err(|e| format!("parse snapshot {path}: {e}"))?;
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(&snapshot, "snapshot"));
-            let output = pg_grammar::compile_project_with(&snapshot, Default::default())
-                .map_err(|e| format!("compile {path}: {e:?}"))?;
+            let output = pg_grammar::compile_project_with(&snapshot, Default::default()).map_err(
+                |error| {
+                    compile_failure::GrammarLoadError::Compile(Box::new(
+                        compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
+                    ))
+                },
+            )?;
             Ok(LoadedGrammar {
                 grammar: output.grammar,
                 warnings: output.warnings,
@@ -458,7 +467,11 @@ fn load_grammar_impl(path: &str, capture_metadata: bool) -> Result<LoadedGrammar
                 Default::default(),
                 import_warnings,
             )
-            .map_err(|e| format!("compile {path}: {e:?}"))?;
+            .map_err(|error| {
+                compile_failure::GrammarLoadError::Compile(Box::new(
+                    compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
+                ))
+            })?;
             Ok(LoadedGrammar {
                 grammar: output.grammar,
                 warnings: output.warnings,
@@ -485,7 +498,11 @@ fn load_grammar_impl(path: &str, capture_metadata: bool) -> Result<LoadedGrammar
                     None,
                 )
             };
-            let grammar = pg_grammar::load(&xml).map_err(|e| format!("load {path}: {e:?}"))?;
+            let grammar = pg_grammar::load(&xml).map_err(|error| {
+                compile_failure::GrammarLoadError::Compile(Box::new(
+                    compile_failure::CompileFailure::new(path, error, None),
+                ))
+            })?;
             let metadata = hash.map(|hash| rich_trace::metadata_from_xml(&grammar, hash));
             Ok(LoadedGrammar {
                 grammar,
@@ -498,7 +515,7 @@ fn load_grammar_impl(path: &str, capture_metadata: bool) -> Result<LoadedGrammar
 }
 
 pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
-    let loaded = load_grammar_impl(path, false)?;
+    let loaded = load_grammar_impl(path, false).map_err(|error| error.to_string())?;
     print_substrate_report(&loaded.substrate);
     Ok((loaded.grammar, loaded.warnings))
 }
@@ -513,7 +530,7 @@ pub(crate) fn load_grammar_with_trace_metadata(
     ),
     String,
 > {
-    let loaded = load_grammar_impl(path, true)?;
+    let loaded = load_grammar_impl(path, true).map_err(|error| error.to_string())?;
     let metadata = loaded
         .metadata
         .ok_or_else(|| "rich trace metadata was not captured".to_string())?;

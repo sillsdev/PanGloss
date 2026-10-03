@@ -203,10 +203,12 @@ pub fn compile_project_with_options_and_import_warnings(
     let refuses = options.semantic_loss == SemanticLossPolicy::Refuse
         && issues.iter().any(|issue| issue.fatal);
     if refuses {
-        return Err(GrammarError::Conversion(ConversionError {
+        return Err(ConversionError {
             issues,
+            warnings,
             substrate,
-        }));
+        }
+        .into());
     }
 
     Ok(CompileOutput {

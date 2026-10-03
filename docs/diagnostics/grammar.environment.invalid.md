@@ -2,7 +2,7 @@
 
 Invalid phonological environment
 
-Level: **error**
+Level: **warning**
 
 ## Explanation
 
@@ -10,13 +10,14 @@ The environment expression could not be parsed and is ignored as a restriction.
 
 ## What to do
 
-In Grammar > Environments, correct the expression for phonological environment 'the named item' if the allomorph must be restricted; otherwise report a valid syntax the parser rejects.
+In Grammar > Environments, correct the expression for phonological environment 'the named item'. In Lexicon > Lexicon Edit, inspect Allomorphs > Environments. Roots ignore invalid restrictions; ordinary affixes also get an unrestricted pass. An infix still needs a valid position.
 
 ## FieldWorks places
 
 | Tool | Field |
 |---|---|
 | `EnvironmentEdit` | String Representation |
+| `lexiconEdit` | Allomorphs > Environments |
 
 ## Background
 

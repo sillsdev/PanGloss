@@ -27,3 +27,13 @@ therefore emits those allomorphs' subrules *unrestricted*, not silently narrowed
 `validate_environment` is a dry run of exactly the machinery the real build uses
 (`split_environment_string` + `tokenize` + `nodes_from_tokens` per side), so its verdicts cannot
 drift from what pattern construction would actually accept.
+
+## Invalid-expression diagnostics
+
+FieldWorks logs invalid root environments and omits those restrictions. Ordinary literal affixes
+keep valid passes and add one blank pass when any expression is invalid. PanGloss records these
+as nonfatal `grammar.environment.invalid` warnings, with environment text and the attaching entry
+and allomorph names. Infix rule-form admission calls the same validator and requires at least one
+valid position, following `IsValidRuleForm`; no valid position means the allomorph is skipped.
+Unresolved references retain their separate conversion refusal. See [CLI compile errors](../compile-errors.md)
+for reporting fatal issues through grammar-health and the parse/batch error wire shape.

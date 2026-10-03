@@ -96,5 +96,7 @@ pub struct CompileOutput {
 #[error("FieldWorks project cannot be converted to HC without semantic loss")]
 pub struct ConversionError {
     pub issues: Vec<ConversionIssue>,
+    /// Named diagnostics already projected by the compiler, including imported findings.
+    pub warnings: Vec<Warning>,
     pub substrate: SubstrateReport,
 }

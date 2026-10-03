@@ -60,7 +60,7 @@ fn dispatch(
     match f(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("pangloss {name}: {e}");
+            eprintln!("{}", crate::compile_failure::command_error(name, &e));
             ExitCode::FAILURE
         }
     }
