@@ -3,6 +3,28 @@
 Release notes are authored, not generated; `rust/tools/release.ps1` refuses to tag a version this
 file has no section for.
 
+## 0.6.1
+
+### Invalid environments no longer refuse the whole grammar
+
+- **FieldWorks' fallback.** An environment expression PanGloss can't read (for example `/`, `_#`
+  or an unknown natural class) is now a `grammar.environment.invalid` warning, matching FieldWorks'
+  HermitCrab loader: a root ignores that restriction and keeps its valid ones, an ordinary affix
+  also gets one unrestricted pass, and an infix needs at least one valid position or is skipped.
+  Unresolved references and other fatal conversion issues still refuse. FieldWorks' Maasai-Parser
+  sample, refused by 0.6.0, compiles.
+- **Compile refusals are JSON.** A command whose grammar can't compile writes one stderr line,
+  `{"schema_version":1,"status":"compile_error",...}`, carrying each issue's code, kind, object,
+  field, text, advice and whether it is fatal, in place of a Rust `Debug` dump. `grammar-health`
+  writes its version 4 report even when compilation is refused. The shape is in
+  `docs/compile-errors.md`.
+
+### Advice names the FieldWorks tool and field
+
+- Every finding's guidance names the FieldWorks area, tool and field to check, researched against
+  FieldWorks' interface (`docs/grammar-advice-research.md`). Advice that cannot name a field
+  records why.
+
 ## 0.6.0
 
 ### Traces carry reasons from the deciding evaluator
